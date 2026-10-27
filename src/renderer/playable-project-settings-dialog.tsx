@@ -8,14 +8,10 @@ import {
   type CanvasFormatPresetId,
   type Viewport,
 } from "../shared/canvas-formats.js";
-import { formatStateValue } from "../shared/playable-debug.js";
-import { describePlayableValue } from "../shared/playable-editor.js";
 import { CanvasFormatOptions } from "./canvas-format-options.js";
-import { CircleHelp, Download, LoaderCircle } from "./icons.js";
+import { Download, LoaderCircle } from "./icons.js";
 import { ProjectSettingsDialogFrame } from "./project-settings-dialog.js";
 import { t } from "./i18n.js";
-
-const variablesHelp = t("storySettings.variablesHelp");
 
 export function PlayableProjectSettingsDialog({
   project,
@@ -46,7 +42,6 @@ export function PlayableProjectSettingsDialog({
   const changed =
     viewport.width !== graph.viewport.width ||
     viewport.height !== graph.viewport.height;
-  const names = Object.keys(graph.initialState);
 
   async function submit(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -97,42 +92,6 @@ export function PlayableProjectSettingsDialog({
               {t("storySettings.reviewScenes")}
             </p>
           ) : null}
-        </fieldset>
-        <fieldset className="project-settings-section" aria-label={t("storySettings.variables")}>
-          <legend className="project-settings-section-heading">
-            {t("storySettings.variables")}
-            <button
-              className="icon-button project-settings-help"
-              type="button"
-              aria-label={t("storySettings.aboutVariables")}
-              aria-description={variablesHelp}
-              data-tooltip={variablesHelp}
-              disabled={saving || exporting}
-            >
-              <CircleHelp size={14} aria-hidden="true" />
-            </button>
-          </legend>
-          {names.length ? (
-            <ul className="playable-variables" aria-label={t("storySettings.variables")}>
-              {names.map((name) => (
-                <li key={name}>
-                  <div className="playable-variables-head">
-                    <strong>{name}</strong>
-                    <span title={formatStateValue(graph.initialState[name])}>
-                      {t("storySettings.starts", { value: describePlayableValue(graph.initialState[name]!) })}
-                    </span>
-                  </div>
-                  {graph.variables?.[name] ? (
-                    <p>{graph.variables[name]}</p>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="playable-variables-empty">
-              {t("storySettings.noVariables")}
-            </p>
-          )}
         </fieldset>
         <fieldset className="project-settings-section">
           <legend>{t("storySettings.export")}</legend>

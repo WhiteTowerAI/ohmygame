@@ -131,13 +131,13 @@ describe("3D processing node serialization", () => {
       model3DConfig: { model: { provider, id: MODEL3D_CONNECTION_ID }, targetPolycount: 500_000, texture: true, pbr: false },
     } });
     if (node.type !== "model-3d") throw new Error("Expected model node");
-    expect(node.data.targetPolycount).toBe(provider === "meshy" ? 30_000 : 500_000);
+    expect(node.data.targetPolycount).toBe(provider === "meshy" ? 30_000 : 4_000);
     expect(buildModel3DToolRequest(node.data, [], node.data.operation).targetPolycount).toBe(node.data.targetPolycount);
   });
   it("keeps remesh face counts above the geometry model's generation limit in saved requests", () => {
     const node = toAssetCanvasNode({ id: "remesh", type: "model-3d", position: { x: 0, y: 0 }, data: {
       model3DOperation: "remesh", model3DSource: { type: "library", assetId: "source" }, images: [],
-      model3DConfig: { model: { provider: "tripo", id: "P1-20260311" }, targetPolycount: 300_000, texture: true, pbr: false },
+      model3DConfig: { model: { provider: "meshy", id: "meshy-t2" }, targetPolycount: 300_000, texture: true, pbr: false },
     } });
     if (node.type !== "model-3d") throw new Error("Expected model node");
     const saved = JSON.parse(JSON.stringify(node.data));
@@ -160,14 +160,14 @@ describe("3D processing node serialization", () => {
     const copy = duplicateCanvasSelection(value.nodes, [], { x: 500, y: 0 }, () => `copy-${++next}`);
     expect(copy.nodes[2]!.data).toMatchObject({ source: { nodeId: "copy-1" }, promptSource: { nodeId: "copy-2" }, operation: "retexture" });
   });
-  it("keeps Tripo string IDs and provider/rig options without changing legacy Meshy nodes", () => {
+  it.each(["v2.5-20260210", "v3.0-20260909"] as const)("keeps Tripo %s rig options without changing legacy Meshy nodes", (rigModel) => {
     const node = toAssetCanvasNode({ id: "animation", type: "animate-3d", position: { x: 0, y: 0 }, data: {
       images: [{ type: "library", assetId: "character" }], animationModel: { provider: "tripo", id: "P1-20260311" },
-      actionIds: ["preset:quadruped:walk"], model3DOptions: { rigModel: "v2.5-20260210", rigType: "quadruped", animateInPlace: true },
+      actionIds: ["preset:quadruped:walk"], model3DOptions: { rigModel, rigType: "quadruped", animateInPlace: true },
     } });
     const canvas = createAssetCanvasDocument(); canvas.nodes = [node]; canvas.editorLayout.nodes = { animation: node.position };
     expect(isAssetCanvasDocument(canvas)).toBe(true);
-    expect(node.data).toMatchObject({ model: { provider: "tripo" }, actionIds: ["preset:quadruped:walk"], options: { rigModel: "v2.5-20260210" } });
+    expect(node.data).toMatchObject({ model: { provider: "tripo" }, actionIds: ["preset:quadruped:walk"], options: { rigModel } });
     const legacy = toAssetCanvasNode({ id: "legacy", type: "animate-3d", position: { x: 0, y: 0 }, data: { actionIds: [0, 30] } });
     expect(legacy.data).not.toHaveProperty("model"); expect(legacy.data).toMatchObject({ actionIds: [0, 30] });
   });

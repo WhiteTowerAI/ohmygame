@@ -20,7 +20,11 @@ describe("plugin runtime", () => {
 
     const maker = store.read("ohmygame:taptap-maker")!;
     await settings.update(maker, { enabled: true, components: {} });
-    expect((await resolvePluginSkills([store], settings, "general")).filter(skill => skill.pluginDisplayName === "TapTap Maker")).toHaveLength(1);
+    const makerSkills = (await resolvePluginSkills([store], settings, "general"))
+      .filter(skill => skill.pluginDisplayName === "TapTap Maker")
+      .map(skill => path.basename(path.dirname(skill.path)))
+      .sort();
+    expect(makerSkills).toEqual(["taptap-maker", "taptap-release"]);
     expect((await resolvePluginSkills([store], settings, "godot-game")).some(skill => skill.pluginDisplayName === "TapTap Maker")).toBe(false);
     await settings.update(maker, { enabled: false, components: {} });
     expect(await resolvePluginSkills([store], settings, "general")).toEqual(before);
@@ -35,7 +39,7 @@ describe("plugin runtime", () => {
     const target = await mkdtemp(path.join(tmpdir(), "ohmygame-staged-skills-"));
     const staged = await stageSkills(pluginSkillFolders(skills), target);
     expect(staged).toHaveLength(skills.length);
-    expect(staged).toEqual(expect.arrayContaining(["taptap-maker", "game-studio", "blender-assets"]));
+    expect(staged).toEqual(expect.arrayContaining(["taptap-maker", "taptap-release", "game-studio", "blender-assets"]));
   });
 
   it("keeps Game Studio isolated from Web Game skills and honors its disabled setting", async () => {

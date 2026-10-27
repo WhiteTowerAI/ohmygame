@@ -1,10 +1,7 @@
 import {
-  Check,
-  CircleStop,
   Clapperboard,
   Clipboard,
   Copy,
-  Eye,
   Flag,
   LoaderCircle,
   Maximize,
@@ -22,6 +19,7 @@ import { createPortal } from "react-dom";
 import { CanvasContextMenu, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
 import { type PlayablePresetSummary } from "../shared/playable-editor.js";
 import { PlayableTemplateDialog } from "./playable-template-dialog.js";
+import { playableTemplateText } from "./playable-template-labels.js";
 import { t } from "./i18n.js";
 
 /** Opens Add a Scene and adds the chosen Template at the center of the canvas. */
@@ -54,7 +52,7 @@ export function PlayableAddControl({ presets, busy, onAdd, className, children }
   </>;
 }
 
-export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, busy, isEntry, story, onClose, onUndo, onRedo, onPaste, onAdd, onOpen, onCopy, onDuplicate, onSetEntry, onStoryOption, onDelete }: {
+export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, busy, isEntry, onClose, onUndo, onRedo, onPaste, onAdd, onOpen, onCopy, onDuplicate, onSetEntry, onDelete }: {
   menu: CanvasContextMenuState;
   presets: readonly PlayablePresetSummary[];
   canUndo: boolean;
@@ -62,8 +60,6 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
   canPaste: boolean;
   busy: boolean;
   isEntry: boolean;
-  /** How the Scene shows on the Story map. */
-  story: { onMap: boolean; ending: boolean };
   onClose: () => void;
   onUndo: () => unknown;
   onRedo: () => unknown;
@@ -73,7 +69,6 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
   onCopy: () => void;
   onDuplicate: () => void;
   onSetEntry: () => void;
-  onStoryOption: (option: "hidden" | "ending", value: boolean) => void;
   onDelete: () => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
@@ -94,9 +89,9 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
                 role="menuitem"
                 key={preset.id}
                 disabled={busy}
-                title={preset.summary}
+                title={playableTemplateText(preset).summary}
                 onClick={() => run(() => onAdd(preset.id))}
-              ><Clapperboard size={15} /><span>{preset.label}</span></button>)}
+              ><Clapperboard size={15} /><span>{playableTemplateText(preset).label}</span></button>)}
             </div>
           </div> : null}
         </div>
@@ -105,9 +100,6 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
         <button type="button" role="menuitem" disabled={busy} onClick={() => run(onCopy)}><Copy size={15} /><span>{t("storyMenu.copyScene")}</span></button>
         <button type="button" role="menuitem" disabled={busy} onClick={() => run(onDuplicate)}><Plus size={15} /><span>{t("common.duplicate")}</span></button>
         <button type="button" role="menuitem" disabled={isEntry} onClick={() => run(onSetEntry)}><Flag size={15} /><span>{isEntry ? t("storyMenu.startScene") : t("storyMenu.setStart")}</span></button>
-        <div className="playable-project-menu-separator" role="separator" />
-        <button type="button" role="menuitemcheckbox" aria-checked={story.onMap} title={t("storyMenu.onMapTitle")} onClick={() => run(() => onStoryOption("hidden", story.onMap))}><Eye size={15} /><span>{t("storyMenu.onMap")}</span>{story.onMap ? <Check size={13} /> : null}</button>
-        <button type="button" role="menuitemcheckbox" aria-checked={story.ending} title={t("storyMenu.endingTitle")} onClick={() => run(() => onStoryOption("ending", !story.ending))}><CircleStop size={15} /><span>{t("storyMenu.ending")}</span>{story.ending ? <Check size={13} /> : null}</button>
         <div className="playable-project-menu-separator" role="separator" />
         <button className="is-danger" type="button" role="menuitem" onClick={() => run(onDelete)}><Trash2 size={15} /><span>{t("common.delete")}</span></button>
       </>}

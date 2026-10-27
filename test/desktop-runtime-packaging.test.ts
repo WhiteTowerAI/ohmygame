@@ -21,13 +21,24 @@ const {
 } = require("app-builder-lib/out/fileMatcher.js");
 
 describe("desktop runtime packaging", () => {
-  it("includes the generated story resources in the application", async () => {
+  it("includes the generated story resources and template licenses in the application", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-story-packaging-"));
     try {
       const config = parse(await readFile("electron-builder.yml", "utf8")) as Configuration;
       const relative = "dist/story-web/resources.json";
       await mkdir(path.join(directory, "dist/story-web"), { recursive: true });
       await writeFile(path.join(directory, relative), "story resources");
+      const notices = await Promise.all(["NOTICE.txt", "LICENSE.txt"].map(async (name) => {
+        const contents = await readFile(path.join("src/daemon/assets/scene-templates", name));
+        const relative = `dist/daemon/assets/scene-templates/${name}`;
+        await mkdir(path.dirname(path.join(directory, relative)), { recursive: true });
+        await writeFile(path.join(directory, relative), contents);
+        return {
+          archivePath: path.join("dist", "daemon", "assets", "scene-templates", name),
+          relative,
+          contents,
+        };
+      }));
       const destination = path.join(directory, "app");
       const matchers = getFileMatchers(config, "files", destination, {
         defaultSrc: directory,
@@ -42,6 +53,9 @@ describe("desktop runtime packaging", () => {
       // ASAR's promise can resolve before its output stream has finished writing.
       await vi.waitFor(() => {
         expect(extractFile(archive, path.join("dist", "story-web", "resources.json")).toString()).toBe("story resources");
+        for (const { archivePath, contents } of notices) {
+          expect(extractFile(archive, archivePath)).toEqual(contents);
+        }
       });
     } finally {
       await rm(directory, { recursive: true, force: true });

@@ -2,7 +2,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { DocumentPlayableSurfaceHost } from "../src/shared/playable-sandbox.js";
+import { DocumentPlayableSurfaceHost } from "../src/shared/playable-page-host.js";
 import type { PlayableNodeContext } from "../src/shared/playable-nodes.js";
 
 const moduleUrl = pathToFileURL(
@@ -38,9 +38,7 @@ async function mounting(
     root = next;
     return audioStop;
   });
-  const host = new DocumentPlayableSurfaceHost(document, undefined, watched, {
-    base: new URL("https://story.test/"),
-  });
+  const host = new DocumentPlayableSurfaceHost(document, { base: new URL("https://story.test/") }, watched);
   cleanups.push(() => host.destroy());
   const controller = new AbortController();
   cleanups.push(() => controller.abort());
@@ -50,7 +48,6 @@ async function mounting(
       html: "nodes/start/index.html",
       css: "data:text/css,",
       javascript: moduleUrl,
-      inputs: [],
     },
     { lifecycle: { signal: controller.signal } } as Omit<
       PlayableNodeContext,

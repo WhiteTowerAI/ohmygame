@@ -7,11 +7,11 @@ import {
   readdir,
   readFile,
 } from "node:fs/promises";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
+import { execFile, spawn } from "node:child_process";
+import { EventEmitter, once } from "node:events";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   approvalScope,
   canonicalPath,
@@ -30,9 +30,20 @@ import {
 import { stageSkills } from "../src/daemon/agent-runtimes/skills.js";
 import { terminateProjectProcess } from "../src/daemon/process-lifecycle.js";
 
+vi.mock("node:child_process", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:child_process")>();
+  return { ...original, execFile: vi.fn(original.execFile) };
+});
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...original, writeFile: vi.fn(original.writeFile) };
+});
+
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
+  vi.mocked(execFile).mockReset();
+  vi.mocked(writeFile).mockReset();
 });
 async function folder() {
   const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-native-policy-"));
@@ -139,7 +150,9 @@ it("protects custom CLI credential roots", () => {
     const before = process.env[name];
     process.env[name] = "/tmp/custom-cli-auth";
     try {
-      expect(neverTouchPaths("/tmp/app")).toContain("/tmp/custom-cli-auth");
+      expect(neverTouchPaths("/tmp/app", "/tmp/pi-agent")).toContain(
+        "/tmp/custom-cli-auth",
+      );
     } finally {
       if (before === undefined) delete process.env[name];
       else process.env[name] = before;
@@ -208,11 +221,13 @@ it("reclaims a verified orphan, preserving a live daemon and unrelated PID ident
   trackAgentProcess(root, child);
   cleanup.push(() => terminateProjectProcess(child));
   await once(child, "spawn");
-  const identity = processIdentity(child.pid!)!;
+  const identity = (await processIdentity(child.pid!))!;
   expect(identity).toBeTruthy();
-  expect(await readdir(root)).toHaveLength(1);
+  await vi.waitFor(async () => expect(await readdir(root)).toHaveLength(1), {
+    timeout: 10_000,
+  });
   await recoverAgentProcesses(root);
-  expect(processIdentity(child.pid!)).toBe(identity);
+  expect(await processIdentity(child.pid!)).toBe(identity);
   const journal = path.join(root, `2147483647-${child.pid}.json`);
   await writeFile(
     journal,
@@ -225,7 +240,7 @@ it("reclaims a verified orphan, preserving a live daemon and unrelated PID ident
     }),
   );
   await recoverAgentProcesses(root);
-  expect(processIdentity(child.pid!)).toBe(identity);
+  expect(await processIdentity(child.pid!)).toBe(identity);
   const closed = once(child, "close");
   await writeFile(
     journal,
@@ -248,13 +263,175 @@ it("preserves a live daemon's private folders while reclaiming verified orphan f
     orphan = path.join(root, "orphan"),
     unknown = path.join(root, "legacy");
   for (const directory of [live, orphan, unknown]) await mkdir(directory);
-  await leaseAgentDirectory(live);
+  await leaseAgentDirectory(live).written;
   await writeFile(
     path.join(orphan, ".owner.json"),
     JSON.stringify({ version: 1, pid: 2147483647, identity: "gone" }),
   );
   await recoverAgentDirectories(root);
   expect((await readdir(root)).sort()).toEqual(["legacy", "live"]);
+  expect(await readdir(live)).toEqual([".owner.json"]);
+  // A folder released before its lease is written gets none, so removing it
+  // cannot race the write.
+  const released = leaseAgentDirectory(unknown);
+  await released.release();
+  await released.written;
+  expect(await readdir(unknown)).toEqual([]);
+});
+
+// Control lookup completion rather than depending on ps/PowerShell startup speed.
+async function controlledRecovery() {
+  vi.resetModules();
+  const lookups = new EventEmitter();
+  type Finish = (identity?: string) => void;
+  vi.mocked(execFile).mockImplementation(((
+    _command: string,
+    _args: unknown,
+    _options: unknown,
+    callback: (error: Error | null, stdout: string, stderr: string) => void,
+  ) => {
+    lookups.emit("lookup", (identity?: string) =>
+      callback(
+        identity ? null : new Error("Identity unavailable"),
+        identity ?? "",
+        "",
+      ),
+    );
+    return { stdin: { end() {} } };
+  }) as typeof execFile);
+  return {
+    runtime: await import("../src/daemon/agent-runtimes/process-recovery.js"),
+    nextLookup: () =>
+      once(lookups, "lookup").then(([finish]) => finish as Finish),
+  };
+}
+
+describe("process ownership with delayed identity lookups", () => {
+  it("serializes lookups, shares in-flight requests and retries failures", async () => {
+    const { runtime, nextLookup } = await controlledRecovery();
+    await expect(runtime.processIdentity(0)).resolves.toBeUndefined();
+    expect(execFile).not.toHaveBeenCalled();
+    const started = nextLookup();
+    const first = runtime.processIdentity(101);
+    expect(runtime.processIdentity(101)).toBe(first);
+    const second = runtime.processIdentity(102);
+    const finishFirst = await started;
+    expect(execFile).toHaveBeenCalledOnce();
+    const next = nextLookup();
+    finishFirst("first identity");
+    await expect(first).resolves.toBe("first identity");
+    const finishSecond = await next;
+    finishSecond();
+    await expect(second).resolves.toBeUndefined();
+    const retried = nextLookup();
+    const retry = runtime.processIdentity(102);
+    (await retried)("second identity");
+    await expect(retry).resolves.toBe("second identity");
+    expect(execFile).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps the lookup queue usable after a synchronous spawn error", async () => {
+    const { runtime, nextLookup } = await controlledRecovery();
+    vi.mocked(execFile).mockImplementationOnce(() => {
+      throw new Error("spawn EAGAIN");
+    });
+    const failed = runtime.processIdentity(101);
+    const started = nextLookup();
+    const next = runtime.processIdentity(102);
+    await expect(failed).resolves.toBeUndefined();
+    (await started)("next identity");
+    await expect(next).resolves.toBe("next identity");
+  });
+
+  it("retries a failed daemon lookup, shares a successful one and cancels a released lease", async () => {
+    const { runtime, nextLookup } = await controlledRecovery();
+    const root = await folder();
+    const started = nextLookup();
+    const failed = runtime.leaseAgentDirectory(root);
+    (await started)();
+    await failed.written;
+    expect(await readdir(root)).toEqual([]);
+    const removed = path.join(root, "removed");
+    await mkdir(removed);
+    const retried = nextLookup();
+    const lease = runtime.leaseAgentDirectory(root);
+    const cancelled = runtime.leaseAgentDirectory(removed);
+    const finish = await retried;
+    await cancelled.release();
+    await rm(removed, { recursive: true });
+    finish("daemon identity");
+    await Promise.all([lease.written, cancelled.written]);
+    expect(
+      JSON.parse(await readFile(path.join(root, ".owner.json"), "utf8")),
+    ).toEqual({ version: 1, pid: process.pid, identity: "daemon identity" });
+    expect(await readdir(root)).toEqual([".owner.json"]);
+    await runtime.leaseAgentDirectory(root).written;
+    expect(execFile).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits for a lease write already in progress before allowing directory removal", async () => {
+    const { runtime, nextLookup } = await controlledRecovery();
+    const root = await folder();
+    const actualWrite = vi.mocked(writeFile).getMockImplementation()!;
+    let finishWrite!: () => void;
+    const writeAllowed = new Promise<void>((resolve) => {
+      finishWrite = resolve;
+    });
+    let writing!: () => void;
+    const writeStarted = new Promise<void>((resolve) => {
+      writing = resolve;
+    });
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      writing();
+      await writeAllowed;
+      return actualWrite(...args);
+    });
+    const started = nextLookup();
+    const lease = runtime.leaseAgentDirectory(root);
+    (await started)("daemon identity");
+    await writeStarted;
+    const released = vi.fn();
+    const release = lease.release().then(released);
+    await Promise.resolve();
+    expect(released).not.toHaveBeenCalled();
+    finishWrite();
+    await release;
+    await rm(root, { recursive: true });
+    await lease.written;
+  });
+
+  it("does not journal a process that exits before its identity is known", async () => {
+    const { runtime, nextLookup } = await controlledRecovery();
+    const root = await folder();
+    const child = Object.assign(new EventEmitter(), { pid: process.pid });
+    runtime.trackAgentProcess(root, child as never);
+    const started = nextLookup();
+    // Await the async spawn handler, including any journal I/O it might attempt.
+    const recording = child.listeners("spawn")[0]!();
+    const finish = await started;
+    child.emit("close", 0, null);
+    finish("daemon identity");
+    await recording;
+    expect(await readdir(root)).toEqual([]);
+  });
+
+  it("removes a journal when its process exits during the write", async () => {
+    const { runtime, nextLookup } = await controlledRecovery();
+    const root = await folder();
+    const child = Object.assign(new EventEmitter(), { pid: process.pid });
+    const actualWrite = vi.mocked(writeFile).getMockImplementation()!;
+    vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+      child.emit("close", 0, null);
+      return actualWrite(...args);
+    });
+    runtime.trackAgentProcess(root, child as never);
+    const started = nextLookup();
+    const recording = child.listeners("spawn")[0]!();
+    (await started)("daemon identity");
+    await recording;
+    expect(writeFile).toHaveBeenCalledOnce();
+    expect(await readdir(root)).toEqual([]);
+  });
 });
 
 it("allows reading session-owned Skills while keeping sibling app data and Skill writes protected", async () => {

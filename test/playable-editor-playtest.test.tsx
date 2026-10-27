@@ -16,6 +16,9 @@ const codebase = createStarterCodebaseWithScene("Playtest", {
 /** What the editor loads from disk. */
 let disk = codebase;
 const update = vi.fn(async () => ({ revision: "saved" }));
+/** How the daemon describes the story: one made before web stories is not `web` yet. */
+let upgradeStatus = { web: false };
+const upgradeStory = vi.fn(async () => ({ copiedAssets: [], missingAssets: [], rewritten: [], changed: [] }));
 let move!: (
   event: unknown,
   viewport: { x: number; y: number; zoom: number },
@@ -43,7 +46,8 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listPlayablePresets: async () => ({ presets: [] }),
   listPlayableThumbnails: async () => ({}),
   getPlayableValidation: async () => ({ issues: [] }),
-  getStoryUpgrade: async () => ({ web: false }),
+  getStoryUpgrade: async () => ({ ...upgradeStatus }),
+  upgradeStory,
   updateNodeCodebase: update,
 }));
 vi.doMock(path.resolve("src/renderer/playable-node-workbench.tsx"), () => ({
@@ -55,6 +59,8 @@ let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 
 beforeEach(async () => {
   disk = codebase;
+  upgradeStatus = { web: false };
+  upgradeStory.mockReset().mockResolvedValue({ copiedAssets: [], missingAssets: [], rewritten: [], changed: [] });
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   window.localStorage.clear();
@@ -254,4 +260,22 @@ it("applies a pending Story map request after loading the saved Code tab, then c
       .activeTab,
   ).toBe("canvas");
   expect(onStoryMapShown).toHaveBeenCalledTimes(2);
+});
+
+it("upgrades a story made before web stories once, as soon as the editor has it open", async () => {
+  expect(upgradeStory).toHaveBeenCalledExactlyOnceWith("p");
+  await renderWorkspace({ workspaceRevision: 1 });
+  expect(upgradeStory).toHaveBeenCalledOnce();
+  expect(container.querySelector(".story-upgrade-notice")).toBeNull();
+});
+
+it("says why an upgrade failed and tries again when asked", async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  upgradeStory.mockReset().mockRejectedValueOnce(new Error("Wait for agents to finish first."));
+  await renderEditor();
+  const notice = container.querySelector(".story-upgrade-notice");
+  expect(notice?.textContent).toContain("Wait for agents to finish first.");
+  await act(async () => notice!.querySelector<HTMLButtonElement>("button")!.click());
+  expect(upgradeStory).toHaveBeenCalledTimes(2);
 });

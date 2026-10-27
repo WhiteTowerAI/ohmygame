@@ -8,7 +8,7 @@ import {
   isPlayableFrameMessage,
   isPlayableHostMessage,
 } from "../src/shared/playable-player-protocol.js";
-import { watchPlayableBackdropVideo } from "../src/shared/playable-sandbox.js";
+import { watchPlayableBackdropVideo } from "../src/shared/playable-page-host.js";
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 

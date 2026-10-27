@@ -1,5 +1,6 @@
-import type { PlayableSignal, PlayableStoryOptions } from "../shared/playable-nodes.js";
+import type { PlayableSignal } from "../shared/playable-nodes.js";
 import { VISUAL_NOVEL_SHARED_FILES, visualNovelSource } from "./playable-visual-novel.js";
+import { withPlayableTemplateArtwork } from "./playable-template-artwork.js";
 
 /**
  * Presets are starting points, not Node types: the chosen name is never
@@ -29,13 +30,13 @@ export interface PlayablePreset {
   /** What the Agent should do next with a Node made from this Preset. */
   brief: string;
   signals: PlayableSignal[];
-  /** How a Node made from this Preset starts out on the Story Map. */
-  story?: PlayableStoryOptions;
   /** Source for `nodes/<id>/`; `files` are further files there, keyed by file name. */
   /** `id` is the new Node's, for source that names its own files. */
   source: (title: string, id?: string) => { html: string; css: string; javascript: string; files?: Record<string, string> };
   /** Shared files the source imports, keyed by workspace path. Added only when the project lacks them. */
   sharedFiles?: Record<string, string>;
+  /** Bundled binary files to copy once, keyed by workspace path. */
+  sharedFileCopies?: Record<string, string>;
 }
 
 export function playablePreset(id: string): PlayablePreset | undefined {
@@ -48,7 +49,7 @@ function signal(id: string, label: string): PlayableSignal {
   return { id, label };
 }
 
-export const PLAYABLE_PRESETS: PlayablePreset[] = [
+const BASE_PLAYABLE_PRESETS: PlayablePreset[] = [
   {
     id: "blank",
     label: "Blank",
@@ -65,15 +66,13 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
     brief:
       "Title, tagline, and entry list over the background, which the author sets from the editor. Rename the `start` Signal and add one Signal per entry. The entry marked `data-new-game` calls `context.session.reset()` before its Signal, so a new game begins with the starting Variables; keep that on the entry that starts the game. An entry whose Signal is not connected shows disabled, such as Story map before the project has a Story map Scene; remove the entry and its Signal when the author does not want it. Load and Settings open over the menu from this Scene's own code, with no Signal: Load lists the games saved in slots and continues the one picked, and Settings has a slider for each preference, the music and sound volumes the Runtime reads. Add a slider for another preference the game reads, such as a Visual Novel's `textSpeed` and `autoWait`, and remove Load or Settings when the author does not want them.",
     signals: [signal("start", "Start"), { id: "story-map", label: "Story map", role: "navigation" }],
-    // A menu is a way into the story, not a step in it.
-    story: { hidden: true },
     source: (title) => ({
       html: [
-        '<main class="stage is-left has-backdrop">',
+        '<main class="stage is-right has-backdrop">',
         '  <div class="backdrop is-warm" data-media="backdrop"></div>',
-        '  <p class="eyebrow rise">A new case</p>',
+        '  <p class="eyebrow rise">Last service</p>',
         `  <h1 class="title is-display rise" style="--delay: 0.15s">${escapeHtml(title)}</h1>`,
-        '  <p class="tagline rise" style="--delay: 0.3s">Shanghai, 1937</p>',
+        '  <p class="tagline rise" style="--delay: 0.3s">One more ride home</p>',
         '  <ul class="menu">',
         '    <li class="rise" style="--delay: 0.5s"><button type="button" class="action" data-signal="start" data-new-game>Start</button></li>',
         '    <li class="rise" style="--delay: 0.6s"><button type="button" class="action" data-continue>Continue <small>No save yet</small></button></li>',
@@ -99,6 +98,10 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
       ].join("\n"),
       css: [
         STYLE_IMPORT,
+        "/* Keep the menu on the empty side of the Last Bus illustration. */",
+        ".stage.is-right { place-content: center end; justify-items: start; text-align: start; }",
+        ".stage.is-right > .title { font-size: 7cqw; }",
+        "",
         "/* Load and Settings open over the menu, between the black bars. */",
         ".menu-panel {",
         "  position: absolute;",
@@ -299,12 +302,11 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         '  <div class="backdrop is-lamp" data-media="backdrop"></div>',
         `  <p class="eyebrow hud rise">${escapeHtml(title)}</p>`,
         '  <div class="choices">',
-        '    <button type="button" class="option rise" style="--delay: 0.6s" data-signal="option-a"><kbd>1</kbd>I had no choice.</button>',
-        '    <button type="button" class="option rise" style="--delay: 0.7s" data-signal="option-b"><kbd>2</kbd>Who else would come?</button>',
+        '    <button type="button" class="option rise" style="--delay: 0.6s" data-signal="option-a"><kbd>1</kbd>Call back.</button>',
+        '    <button type="button" class="option rise" style="--delay: 0.7s" data-signal="option-b"><kbd>2</kbd>Put away the phone.</button>',
         "  </div>",
         '  <div class="subtitle rise">',
-        '    <p class="speaker">STRANGER</p>',
-        '    <p class="line">"You came alone. That was brave."</p>',
+        '    <p class="line">An unfamiliar number. Who could be calling this late?</p>',
         "  </div>",
         "</main>",
         "",
@@ -360,7 +362,7 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         "    </svg>",
         '    <button type="button" class="key" data-press>Space</button>',
         "  </div>",
-        '  <p class="title rise" style="--delay: 0.15s">Jump!</p>',
+        '  <p class="title rise" style="--delay: 0.15s">Press the bell!</p>',
         "</main>",
         "",
       ].join("\n"),
@@ -426,8 +428,8 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         '<main class="stage has-backdrop">',
         '  <div class="backdrop is-room" data-media="backdrop"></div>',
         `  <p class="eyebrow hud rise">${escapeHtml(title)}</p>`,
-        '  <button type="button" class="hotspot" data-signal="door" style="left: 26%; top: 49%;"><span>Door</span></button>',
-        '  <button type="button" class="hotspot" data-signal="window" style="left: 67%; top: 33%;"><span>Window</span></button>',
+        '  <button type="button" class="hotspot" data-signal="door" style="left: 83%; top: 48%;"><span>Door</span></button>',
+        '  <button type="button" class="hotspot" data-signal="window" style="left: 20%; top: 32%;"><span>Window</span></button>',
         '  <div class="subtitle rise" style="--delay: 0.2s">',
         '    <p class="line">Look around.</p>',
         "  </div>",
@@ -502,9 +504,8 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
     label: "Story map",
     summary: "The branches the player has found so far",
     brief:
-      "Shows the map from `context.story.map()`: the Scenes the player has seen, the locked ones a step past them, and the endings found, with a line for each way taken. Reach it from a menu, a pause button, or an ending through an Exit with Allow Back; Back and Esc return there. Keep Scenes that are not steps in the story, such as menus and settings, off the map with `story.hidden` in graph.json, set `story.ending` where the guess from Signals is wrong, and set `story.label` when players should see another name than the title. Set `SHOW_ALL` to show every Scene, locked.",
+      "Shows the story as a map: the Scenes the player has seen, the locked ones a step past them, and the endings found, with a line for each way taken. It lays the story out from graph.json in `layout.js` and reads what the player has seen with `context.story.seen()`. Reach it from a menu, a pause button, or an ending through an Exit with Allow Back; Back and Esc return there. In `node.js`, list the IDs of Scenes that are not steps in the story, such as menus and settings, in `OFF_MAP`, give players another name than a title in `LABELS`, and change `isEnding` where the guess from Exits is wrong. Set `SHOW_ALL` to show every Scene, locked.",
     signals: [],
-    story: { hidden: true },
     source: (title) => ({
       html: [
         '<main class="stage has-backdrop story-map-page">',
@@ -535,15 +536,35 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         "  margin: 0;",
         "}",
         "",
+        "/* The background stays as a dim, soft backdrop so the map reads first. */",
+        ".story-map-page .backdrop {",
+        "  filter: blur(0.5cqw) brightness(0.4) saturate(0.8);",
+        "  transform: scale(1.04);",
+        "}",
+        "",
+        "/* As wide as the map, so its thin bar sits beside it; the top and bottom fade out instead of cutting cards off. */",
         ".story-map-scroll {",
         "  overflow: auto;",
-        "  width: 100%;",
+        "  justify-self: center;",
+        "  width: fit-content;",
+        "  max-width: 100%;",
+        "  padding-inline: 1.5cqw;",
         "  scrollbar-width: thin;",
+        "  scrollbar-gutter: stable both-edges;",
+        "  scrollbar-color: color-mix(in srgb, var(--color-ink) 28%, transparent) transparent;",
+        "  overscroll-behavior: contain;",
+        "  mask-image: linear-gradient(transparent, #000 3cqw, #000 calc(100% - 3cqw), transparent);",
+        "  cursor: grab;",
+        "}",
+        "",
+        ".story-map-scroll.is-dragging {",
+        "  cursor: grabbing;",
+        "  user-select: none;",
         "}",
         "",
         ".story-map {",
         "  position: relative;",
-        "  margin: 0 auto;",
+        "  margin: 2.5cqw auto;",
         "}",
         "",
         ".story-map svg {",
@@ -562,7 +583,8 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         "}",
         "",
         ".story-map path.is-seen {",
-        "  stroke: var(--color-muted);",
+        "  stroke: color-mix(in srgb, var(--color-ink) 45%, transparent);",
+        "  stroke-width: 0.14;",
         "  stroke-dasharray: none;",
         "}",
         "",
@@ -576,9 +598,10 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         "  place-content: center;",
         "  gap: 0.2cqw;",
         "  padding: var(--space-1);",
-        "  border: 1px solid var(--color-line);",
+        "  border: 1px solid color-mix(in srgb, var(--color-ink) 22%, transparent);",
         "  border-radius: var(--radius);",
-        "  background: var(--color-shade);",
+        "  background: color-mix(in srgb, var(--color-panel) 92%, transparent);",
+        "  box-shadow: 0 0.3cqw 1.2cqw rgb(0 0 0 / 0.45);",
         "  color: var(--color-ink);",
         "  font-size: var(--text-eyebrow);",
         "  letter-spacing: 0.08em;",
@@ -587,12 +610,16 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         "",
         ".story-map-node.is-locked {",
         "  border-style: dashed;",
+        "  border-color: var(--color-line);",
+        "  background: color-mix(in srgb, var(--color-panel) 60%, transparent);",
+        "  box-shadow: none;",
         "  color: var(--color-muted);",
         "  letter-spacing: 0.3em;",
         "}",
         "",
-        ".story-map-node.is-ending {",
-        "  border-color: var(--color-accent);",
+        ".story-map-node.is-ending:not(.is-locked) {",
+        "  border-color: color-mix(in srgb, var(--color-accent-ink) 70%, transparent);",
+        "  background: color-mix(in srgb, var(--color-accent) 22%, var(--color-panel));",
         "}",
         "",
         ".story-map-node small {",
@@ -605,22 +632,41 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
       ].join("\n"),
       javascript: [
         "import { showBackdrop } from \"../../shared/style/components.js\";",
+        "import { layoutStory } from \"./layout.js\";",
         "",
+        "/**",
+        " * Scenes that are not steps in the story, such as menus and settings, by ID.",
+        " * The map leaves them out and joins the Scenes on either side.",
+        " */",
+        "const OFF_MAP = new Set([\"main-menu\", \"story-map\"]);",
+        "/** Names players see on the map instead of a Scene's title, by Scene ID. */",
+        "const LABELS = {};",
+        "/** Whether a Scene counts as an ending: by default, when no Exit moves the story on from it. */",
+        "const isEnding = (node) => !node.signals.some((signal) => signal.role !== \"navigation\");",
         "/** Show every Scene, locked or not, instead of only those one step past what the player has seen. */",
         "const SHOW_ALL = false;",
         "/** Sizes in cqw (hundredths of the screen width): a card, the space it takes in a row, and a row. */",
         "const CARD_WIDTH = 12;",
         "const CARD_HEIGHT = 3.6;",
         "const COLUMN = 14.5;",
-        "const ROW = 6.4;",
+        "const ROW = 5.6;",
         "",
-        "export function mount(context) {",
+        "export async function mount(context) {",
         "  const backdrop = showBackdrop(context);",
         "  const map = context.root.querySelector(\"[data-map]\");",
         "  const scroll = context.root.querySelector(\".story-map-scroll\");",
         "  const progress = context.root.querySelector(\"[data-progress]\");",
         "  const back = context.root.querySelector(\"[data-back]\");",
-        "  const { nodes, edges } = context.story.map();",
+        "  // The story's flow is graph.json; what the player has seen comes from the Runtime.",
+        "  const graph = await (await fetch(new URL(\"graph.json\", document.baseURI))).json();",
+        "  const record = context.story.seen();",
+        "  const layout = layoutStory(graph, { offMap: OFF_MAP, labels: LABELS, isEnding });",
+        "  const nodes = layout.nodes.map((node) => ({ ...node, seen: Object.hasOwn(record.nodes, node.id) }));",
+        "  const edges = layout.links.map((link) => ({",
+        "    from: link.from,",
+        "    to: link.to,",
+        "    seen: Object.hasOwn(record.edges, link.via) && Object.hasOwn(record.nodes, link.to),",
+        "  }));",
         "",
         "  // The Scenes seen, and the locked ones a step past them; the first ones before anything is seen.",
         "  const seen = new Set(nodes.filter((node) => node.seen).map((node) => node.id));",
@@ -682,6 +728,26 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         "  // Open where the player has got to: the lowest Scene seen, in the middle.",
         "  if (last) scroll.scrollTop += last.card.getBoundingClientRect().top - scroll.getBoundingClientRect().top - scroll.clientHeight / 2;",
         "",
+        "  // A mouse can drag the map up and down as well as scroll it.",
+        "  let drag;",
+        "  const onDown = (event) => {",
+        "    if (event.pointerType !== \"mouse\" || event.button !== 0) return;",
+        "    drag = { y: event.clientY, top: scroll.scrollTop };",
+        "    scroll.setPointerCapture(event.pointerId);",
+        "    scroll.classList.add(\"is-dragging\");",
+        "  };",
+        "  const onMove = (event) => {",
+        "    if (drag) scroll.scrollTop = drag.top - (event.clientY - drag.y);",
+        "  };",
+        "  const onUp = () => {",
+        "    drag = undefined;",
+        "    scroll.classList.remove(\"is-dragging\");",
+        "  };",
+        "  scroll.addEventListener(\"pointerdown\", onDown);",
+        "  scroll.addEventListener(\"pointermove\", onMove);",
+        "  scroll.addEventListener(\"pointerup\", onUp);",
+        "  scroll.addEventListener(\"pointercancel\", onUp);",
+        "",
         "  // Back returns to the Scene that opened the map, through an Exit with Allow Back.",
         "  const leave = () => context.navigation.back().catch(() => {});",
         "  const onKey = (event) => {",
@@ -692,11 +758,16 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         "  return () => {",
         "    backdrop.cleanup();",
         "    back.removeEventListener(\"click\", leave);",
+        "    scroll.removeEventListener(\"pointerdown\", onDown);",
+        "    scroll.removeEventListener(\"pointermove\", onMove);",
+        "    scroll.removeEventListener(\"pointerup\", onUp);",
+        "    scroll.removeEventListener(\"pointercancel\", onUp);",
         "    window.removeEventListener(\"keydown\", onKey);",
         "  };",
         "}",
         "",
       ].join("\n"),
+      files: { "layout.js": STORY_MAP_LAYOUT },
     }),
   },
   {
@@ -715,9 +786,14 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
   },
 ];
 
+/** The Story map Template's layout, copied into each Story map Scene as `layout.js`. */
+const STORY_MAP_LAYOUT = "/**\n * Lays the story out as a map, from graph.json alone, so it holds at any\n * screen size and arranging the editor's canvas does not change it.\n *\n * A step in the story is a `replace` edge from an Exit that is not\n * navigation; `push` edges lead to side screens the player comes back from,\n * so their targets are only on the map when the story reaches them another\n * way. Scenes in `offMap` are left out and the steps through them joined, so\n * a menu between two Scenes links them directly. Steps back to a Scene\n * already above, such as retrying a failed QTE, are left out too, so the map\n * always reads downwards.\n *\n * Returns the Scenes with their `row`, their `column` from the left of a row\n * of `rowSize`, their `label`, and whether each is an `ending`; and the links\n * between them, each with the graph edge `via` which it starts.\n */\nexport function layoutStory(graph, { offMap = new Set(), labels = {}, isEnding = () => false } = {}) {\n  const byId = new Map(graph.nodes.map((node) => [node.id, node]));\n  const shown = (id) => !offMap.has(id);\n\n  /** The story steps out of a Scene, in the order of its Exits. */\n  const steps = (node) => node.signals\n    .filter((signal) => signal.role !== \"navigation\")\n    .flatMap((signal) => graph.edges.filter((edge) => edge.source.nodeId === node.id\n      && edge.source.signal === signal.id\n      && edge.mode === \"replace\"\n      && byId.has(edge.targetNodeId)));\n\n  /** The Scenes on the map a Scene's steps reach, walking through those off it. */\n  const reach = (id) => {\n    const links = [];\n    const visited = new Set([id]);\n    const walk = (nodeId, via) => {\n      for (const edge of steps(byId.get(nodeId))) {\n        const first = via ?? edge.id;\n        if (shown(edge.targetNodeId)) {\n          if (!links.some((link) => link.to === edge.targetNodeId)) links.push({ from: id, to: edge.targetNodeId, via: first });\n        } else if (!visited.has(edge.targetNodeId)) {\n          visited.add(edge.targetNodeId);\n          walk(edge.targetNodeId, first);\n        }\n      }\n    };\n    walk(id, undefined);\n    return links;\n  };\n\n  if (!byId.has(graph.entryNodeId)) return { nodes: [], links: [] };\n  const roots = shown(graph.entryNodeId) ? [graph.entryNodeId] : reach(graph.entryNodeId).map((link) => link.to);\n\n  // Depth-first from the roots: the order Scenes are found seeds their order\n  // in a row, and a step to a Scene still being walked is a step back.\n  const order = [];\n  const finished = [];\n  const links = [];\n  const state = new Map();\n  const visit = (id) => {\n    state.set(id, \"walking\");\n    order.push(id);\n    for (const link of reach(id)) {\n      const target = state.get(link.to);\n      if (target === \"walking\") continue;\n      links.push(link);\n      if (!target) visit(link.to);\n    }\n    state.set(id, \"done\");\n    finished.push(id);\n  };\n  for (const root of roots) if (!state.has(root)) visit(root);\n\n  // Each Scene sits one row below the lowest Scene that leads to it.\n  const rows = new Map();\n  for (const id of [...finished].reverse()) {\n    const above = links.filter((link) => link.to === id).map((link) => rows.get(link.from) ?? 0);\n    rows.set(id, above.length ? Math.max(...above) + 1 : 0);\n  }\n  const rowCount = Math.max(0, ...rows.values()) + 1;\n  const grid = Array.from({ length: rowCount }, () => []);\n  for (const id of order) grid[rows.get(id)].push(id);\n\n  // Twice down the rows, sort each row by where the Scenes leading to it sit,\n  // so branches spread under their Scene and lines cross less.\n  const offset = (id) => {\n    const row = grid[rows.get(id)];\n    return row.indexOf(id) - (row.length - 1) / 2;\n  };\n  for (let pass = 0; pass < 2; pass += 1) {\n    for (const row of grid.slice(1)) {\n      const weight = new Map(row.map((id) => {\n        const above = links.filter((link) => link.to === id).map((link) => offset(link.from));\n        return [id, above.reduce((sum, value) => sum + value, 0) / Math.max(1, above.length)];\n      }));\n      row.sort((left, right) => weight.get(left) - weight.get(right));\n    }\n  }\n\n  return {\n    nodes: order.map((id) => {\n      const node = byId.get(id);\n      const row = grid[rows.get(id)];\n      return {\n        id,\n        label: labels[id] ?? node.title,\n        row: rows.get(id),\n        column: row.indexOf(id),\n        rowSize: row.length,\n        ending: isEnding(node),\n      };\n    }),\n    links,\n  };\n}\n";
+
+export const PLAYABLE_PRESETS = BASE_PLAYABLE_PRESETS.map(withPlayableTemplateArtwork);
+
 /**
- * Blank: a background that emits `next` when its video ends or the player
- * clicks. New projects start with it too.
+ * Blank: a background that emits `next` when its video ends, or when the
+ * player clicks a still. New projects start with it too.
  */
 export function blankSource(): { html: string; css: string; javascript: string } {
   return {
@@ -725,6 +801,7 @@ export function blankSource(): { html: string; css: string; javascript: string }
       '<main class="scene has-backdrop">',
       '  <div class="backdrop is-night" data-media="backdrop"></div>',
       '  <p class="continue-hint">Click to continue ▸</p>',
+      '  <button type="button" class="skip-scene" data-skip hidden>Skip ▸</button>',
       "</main>",
       "",
     ].join("\n"),

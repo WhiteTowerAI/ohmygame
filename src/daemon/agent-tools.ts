@@ -362,11 +362,11 @@ export function createAgentTools(
   }), defineTool({
     name: PI_TOOL_NAMES["animate-3d"],
     label: "Animate 3D Asset",
-    description: "Rig a project GLB and bake preset animation clips using Meshy or Tripo (including explicitly enabled compatible connections). Meshy needs a textured humanoid up to 300k triangles, facing +Z. Tripo checks riggability and supports humanoid v1 or creature v2.5 rigs. Actions belong to the selected provider and rig version.",
+    description: "Rig a project GLB and bake preset animation clips using Meshy or Tripo (including explicitly enabled compatible connections). Meshy needs a textured humanoid up to 300k triangles, facing +Z. Tripo checks riggability and supports humanoid v1, creature v2.5, or v3 rigs (recommended for humanoids). Actions belong to the selected provider and rig version.",
     parameters: Type.Object({
       modelPath: Type.String({ description: "Path to a GLB model in the current project workspace" }),
       model: Type.Optional(mediaModelParameter()),
-      rigModel: Type.Optional(Type.Union([Type.Literal("v1.0-20240301"), Type.Literal("v2.5-20260210")])),
+      rigModel: Type.Optional(Type.Union([Type.Literal("v1.0-20240301"), Type.Literal("v2.5-20260210"), Type.Literal("v3.0-20260909")])),
       rigType: Type.Optional(Type.Union([Type.Literal("biped"), Type.Literal("quadruped"), Type.Literal("hexapod"), Type.Literal("octopod"), Type.Literal("serpentine"), Type.Literal("aquatic")])),
       animateInPlace: Type.Optional(Type.Boolean()),
       actions: Type.Optional(Type.Array(Type.String({ minLength: 1 }), {
@@ -555,7 +555,7 @@ export function createAgentTools(
     name: "playable_check",
     label: "Check Project",
     description: [
-      "Validate the Playable Nodes project: graph.json against its schema and references, then compile every Node and the shared modules it imports.",
+      "Validate the Playable Nodes project: graph.json against its schema and references, then check every Node's files and what they import the way the story's page loads them.",
       "Run it after changing the project and fix every issue it reports. Use mode \"publish\" before the user publishes; it also requires every Signal other than navigation ones to be connected and every source file to exist.",
     ].join("\n"),
     parameters: Type.Object({
@@ -600,14 +600,22 @@ export function createAgentTools(
   }), defineTool({
     name: "generate_canvas_media",
     label: "Generate Canvas Media",
-    description: "Generate a saved media node using its current prompt, configured model and references. Use it only for a node whose generation model is available. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool.",
-    parameters: Type.Object({ boardId: Type.String({ minLength: 1, maxLength: 100 }), nodeId: Type.String({ minLength: 1, maxLength: 120 }) }),
+    description: "Generate a saved media node using its current prompt, configured model and references. Use it only for a node whose generation model is available. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool. If the node is already generating, this waits for that run; if its current output came from the same settings, this returns it without generating again unless regenerate is true.",
+    parameters: Type.Object({
+      boardId: Type.String({ minLength: 1, maxLength: 100 }),
+      nodeId: Type.String({ minLength: 1, maxLength: 120 }),
+      regenerate: Type.Optional(Type.Boolean({ description: "Start a new paid generation even when the node's current output came from the same settings, for example when the user wants another variation." })),
+    }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
-      const job = await canvasStore.generateNode(project.id, input.boardId, input.nodeId);
+      const job = await canvasStore.generateNode(project.id, input.boardId, input.nodeId, !input.regenerate);
+      // Stopping the agent cancels only a run this call started. A followed run belongs to whoever started it,
+      // so aborting just ends this wait.
       const cancel = () => { void canvasStore.cancel(project.id, job.id).catch(() => {}); };
-      signal?.addEventListener("abort", cancel, { once: true });
-      if (signal?.aborted) cancel();
+      if (!job.reused) {
+        signal?.addEventListener("abort", cancel, { once: true });
+        if (signal?.aborted) cancel();
+      }
       try {
         let current = job;
         while (current.status === "running") {
@@ -621,7 +629,10 @@ export function createAgentTools(
         if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
         const manifest = await readCanvasAssets(project.workspacePath);
         const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
-        return { content: [{ type: "text", text: `Generated media for node ${input.nodeId}. Saved: ${paths.join(", ")}. Inspect or play the relevant output to evaluate the actual result.` }], details: { canvasGeneration: current } };
+        const summary = job.reused === "output"
+          ? `Node ${input.nodeId} already has output from these settings, so nothing new was generated. Existing: ${paths.join(", ")}. Pass regenerate: true only when another variation is wanted.`
+          : `${job.reused === "running" ? `Node ${input.nodeId} was already generating, so this waited for that run instead of starting another.` : `Generated media for node ${input.nodeId}.`} Saved: ${paths.join(", ")}.`;
+        return { content: [{ type: "text", text: `${summary} Inspect or play the relevant output to evaluate the actual result.` }], details: { canvasGeneration: current } };
       } finally { signal?.removeEventListener("abort", cancel); }
     },
   })] : []), ...(playtest?.driver.available && playtest.driver.capabilities.projectTypes.includes(project.type) && (project.type !== "general" || supportsWebPreview(project))

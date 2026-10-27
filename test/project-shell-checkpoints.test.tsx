@@ -96,12 +96,12 @@ async function openProject(
     init: RequestInit,
   ) => Response | Promise<Response> | undefined,
   conversation = detail("live-turn", { files: 2 }),
-  shellProps: Pick<
+  shellProps: Partial<Pick<
     ComponentProps<
       typeof import("../src/renderer/project-shell.js").ProjectShell
     >,
-    "initialPrompt" | "onInitialPromptHandled"
-  > = {},
+    "initialPrompt" | "onInitialPromptHandled" | "onOpenConversation" | "view"
+  >> = {},
 ) {
   Object.defineProperty(window, "ohMyGameDesktop", {
     configurable: true,
@@ -243,7 +243,83 @@ async function click(name: string) {
   await settle();
 }
 
+describe("project shell layout", () => {
+  it("opens General Game Design with chat expanded and preserves manual toggles across project updates", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    const daemon = await openProject(() => undefined, detail("live-turn"), {
+      view: "design",
+    });
+    const collapsed = () =>
+      container
+        .querySelector(".workspace-shell")!
+        .classList.contains("workspace-shell-agent-collapsed");
+
+    expect(collapsed()).toBe(false);
+    expect(button("Hide agent")).toBeDefined();
+    await click("Hide agent");
+    expect(collapsed()).toBe(true);
+
+    await act(async () =>
+      daemon.send(1, "workspace.restored", {
+        version: "restored",
+        changed: [],
+      }),
+    );
+    await settle();
+    expect(collapsed()).toBe(true);
+
+    await click("Show agent");
+    expect(collapsed()).toBe(false);
+  });
+});
+
 describe("checkpoints in the project shell", () => {
+  it.each(["claude-code-cli", "codex-cli"] as const)("switches the selected %s chat account without changing its model or other chats", async (runtime) => {
+    const chat = detail("turn");
+    chat.settings = { model: { provider: runtime, id: runtime === "codex-cli" ? "gpt-test" : "sonnet" }, accountProfiles: { [runtime]: "system" } };
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const daemon = await openProject((route, init) => {
+      if (route === `/agent-runtimes/${runtime}/profiles`) return Response.json([
+        { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription", account: "personal@example.com" } },
+        { id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription", account: "work@example.com" } },
+      ]);
+      if (route.endsWith("/account-profile") && init.method === "PUT") return Response.json({ profileId: "work" });
+    }, chat);
+    const label = `${runtime === "codex-cli" ? "Codex" : "Claude Code"} account`;
+    const selector = container.querySelector<HTMLButtonElement>(`[aria-label^="${label}:"]`)!;
+    expect(selector).not.toBeNull();
+    const profileReads = daemon.requests.filter((request) => request.route === `/agent-runtimes/${runtime}/profiles`).length;
+    await act(async () => selector.click());
+    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((button) => button.textContent?.includes("Work"))!;
+    await act(async () => option.click());
+    await settle();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(selector.textContent).toBe("Work");
+    expect(container.querySelector(`[aria-label^="${label}:"]`)).toBe(selector);
+    expect(daemon.requests.filter((request) => request.route === `/agent-runtimes/${runtime}/profiles`)).toHaveLength(profileReads);
+    expect(daemon.requests.find((request) => request.route.endsWith("/account-profile"))).toMatchObject({ method: "PUT", body: JSON.stringify({ runtime, profileId: "work" }) });
+    expect(daemon.requests.some((request) => request.route.endsWith("/model") && request.method === "PUT")).toBe(false);
+  });
+
+  it("refreshes the account picker after a profile is deleted in settings", async () => {
+    let removed = false;
+    const chat = detail("turn");
+    chat.settings = { model: { provider: "codex-cli", id: "gpt-test" }, accountProfiles: { "codex-cli": "work" } };
+    const daemon = await openProject((route) => {
+      if (route === "/agent-runtimes/codex-cli/profiles") return Response.json([
+        { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription" } },
+        { id: "personal", name: "Personal", auth: { status: "signed-in", billing: "subscription" } },
+        ...(!removed ? [{ id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription" } }] : []),
+      ]);
+    }, chat);
+    expect(container.querySelector('[aria-label^="Codex account:"]')?.textContent).toBe("Work");
+    removed = true;
+    await act(async () => window.dispatchEvent(new Event("ohmygame-models-changed")));
+    await settle();
+    expect(container.querySelector('[aria-label^="Codex account:"]')?.textContent).toBe("System default");
+    expect(daemon.requests.some((request) => request.route.endsWith("/account-profile") && request.method === "PUT")).toBe(false);
+  });
+
   it("retains the initial message after cancelling plugin setup and allows sending it after connection", async () => {
     let ready = false;
     const handled = vi.fn();
@@ -400,6 +476,23 @@ describe("checkpoints in the project shell", () => {
     expect(button("2 files changed")!.getAttribute("aria-expanded")).toBe(
       "true",
     );
+  });
+
+  it("branches after confirmation and opens the returned conversation", async () => {
+    const chat = detail("turn");
+    const response = chat.turns[0]!.items[1]!;
+    if (response.type === "agentMessage") response.branchEntryId = "stored-response";
+    const onOpenConversation = vi.fn();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const daemon = await openProject((route, init) => route.endsWith("/branch") && init.method === "POST"
+      ? Response.json({ ...chat.conversation, id: "new-branch" }) : undefined, chat, { onOpenConversation });
+    await click("Branch in new chat");
+    expect(confirm).toHaveBeenCalledWith("Create a new chat with all messages through this response?");
+    expect(daemon.requests.some((request) => request.route.endsWith("/branch"))).toBe(false);
+    confirm.mockReturnValue(true);
+    await click("Branch in new chat");
+    expect(daemon.requests.find((request) => request.route.endsWith("/branch"))).toMatchObject({ method: "POST", body: JSON.stringify({ entryId: "stored-response" }) });
+    expect(onOpenConversation).toHaveBeenCalledWith("new-branch");
   });
 
   it("reapplies a turn, updates editors through SSE, and keeps the current conversation", async () => {

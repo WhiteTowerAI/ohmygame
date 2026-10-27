@@ -7,6 +7,7 @@ import { addPlayableNode } from "../src/daemon/playable-add-node.js";
 import {
   AGENT_INSTRUCTIONS,
   createNodeCodebase,
+  openNodeCodebaseDetail,
   PROJECT_DOCUMENTATION,
   PROJECT_GUIDE_UPGRADES,
   readNodeCodebase,
@@ -60,7 +61,7 @@ describe("story runtime install", () => {
     expect(await read(root, "index.html")).toMatch(/<meta name="ohmygame-story" content="[0-9a-f-]{36}" \/>/);
     const modules = await storyWebRuntimeModules();
     expect(modules["story/shared/playable-video-clip.js"]).toContain("installPlayableVideoClips");
-    expect(modules["story/shared/playable-sandbox.js"]).toContain("./playable-video-clip.js");
+    expect(modules["story/shared/playable-page-host.js"]).toContain("./playable-video-clip.js");
     for (const [relative, content] of Object.entries(modules)) expect(await read(root, relative)).toBe(content);
     expect((await manifest(root)).files).toEqual(Object.fromEntries(Object.entries(modules).map(([relative, content]) => [relative, sha(content)])));
     // The runtime keeps its comments, so whoever changes it can read it.
@@ -141,6 +142,44 @@ describe("upgrading a sandboxed story", () => {
     await expect(buildPlayableProject(root, "draft")).resolves.toBeDefined();
   });
 
+  it("drops the earliest stories' shell and destinations, so their graph can be read again", async () => {
+    const root = await legacyProject();
+    const graph = JSON.parse(await read(root, "graph.json"));
+    const start = graph.nodes[0].id;
+    graph.shell = { source: { html: "shell/index.html", css: "shell/style.css", javascript: "shell/shell.js" }, assets: [], signals: [{ id: "home", label: "Home" }] };
+    graph.destinations = { home: start };
+    graph.edges.push({ id: "shell-home", source: { nodeId: "shell", signal: "home" }, targetNodeId: start, mode: "replace" });
+    await writeFile(path.join(root, "graph.json"), JSON.stringify(graph));
+    await mkdir(path.join(root, "shell"));
+    await writeFile(path.join(root, "shell", "index.html"), "<nav>Home</nav>");
+
+    const upgrade = await upgradeToWebStory(root, async () => undefined);
+
+    expect(upgrade.removedGraphFields).toEqual(["shell", "destinations"]);
+    const upgraded = JSON.parse(await read(root, "graph.json"));
+    expect(upgraded.shell).toBeUndefined();
+    expect(upgraded.destinations).toBeUndefined();
+    expect(upgraded.edges.map((edge: { id: string }) => edge.id)).not.toContain("shell-home");
+    expect(await read(root, "shell/index.html")).toBe("<nav>Home</nav>");
+    await expect(buildPlayableProject(root, "draft")).resolves.toBeDefined();
+  });
+
+  it("drops the Story map options Scenes no longer have when the runtime updates, so the story still opens", async () => {
+    const root = await workspace();
+    await createNodeCodebase(root, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
+    const graph = JSON.parse(await read(root, "graph.json"));
+    graph.nodes[0].story = { hidden: true, label: "Menu" };
+    await writeFile(path.join(root, "graph.json"), JSON.stringify(graph));
+    // As in a project whose runtime came from an earlier OhMyGame.
+    const old = await manifest(root);
+    await writeFile(path.join(root, STORY_WEB_MANIFEST), JSON.stringify({ ...old, version: "earlier" }));
+
+    const opened = await openNodeCodebaseDetail(root);
+
+    expect(opened.graph.nodes[0]).not.toHaveProperty("story");
+    expect(JSON.parse(await read(root, "graph.json")).nodes[0]).not.toHaveProperty("story");
+  });
+
   it("gives Scenes added to a web story browser imports", async () => {
     const root = await workspace();
     await createNodeCodebase(root, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
@@ -193,8 +232,8 @@ describe("project guides", () => {
   it("records the guides that ship now, so changing them keeps earlier copies upgradable", () => {
     // When this fails because a guide changed, add the old hash to PROJECT_GUIDE_UPGRADES, then record the new one here.
     expect({ agents: sha(AGENT_INSTRUCTIONS), readme: sha(PROJECT_DOCUMENTATION) }).toEqual({
-      agents: "8619c00f6a6ec09d6dfdaf99a2f84bc79fbd1214da156776701306fe9ba585ed",
-      readme: "0e99e5862388f7a8e3e3139f7d948f801b0fd843a8568a95e5635cffa4c0bbd4",
+      agents: "94f6d304d6d40626a6a18661113ebe4bdc2674117ec19b0e4b28c26e9fbbb35b",
+      readme: "6ebb841a7c5c875dc4664bba88e13afff779bfb12c4360a7c73c73a912d70abf",
     });
     expect(PROJECT_GUIDE_UPGRADES["AGENTS.md"]).not.toContain(sha(AGENT_INSTRUCTIONS));
     expect(PROJECT_GUIDE_UPGRADES["README.md"]).not.toContain(sha(PROJECT_DOCUMENTATION));

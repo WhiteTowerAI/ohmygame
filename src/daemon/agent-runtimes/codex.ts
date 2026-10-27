@@ -291,7 +291,9 @@ export class CodexDriver implements NativeDriver {
   async #config(server: CodexAppServer): Promise<Record<string, unknown>> {
     // An explicit root deny prevents even scoped grants. Unlisted paths are
     // restricted by default; only protected roots get an explicit deny.
-    const filesystem: Record<string, unknown> = { ":minimal": "read" };
+    // Windows' sandbox requires `:root` read access; `:minimal` is rejected.
+    const filesystem: Record<string, unknown> =
+      process.platform === "win32" ? { ":root": "read" } : { ":minimal": "read" };
     const temporary = path.join(this.context.privateDirectory, "tmp");
     await mkdir(temporary, { recursive: true, mode: 0o700 });
     filesystem[canonicalPath(temporary)] = "write";

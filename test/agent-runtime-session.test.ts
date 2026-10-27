@@ -47,6 +47,12 @@ class ScriptedDriver implements NativeDriver {
     return script(input, sink, signal);
   }
   async interrupt(): Promise<void> {}
+  compactions = 0;
+  async compact(sink: NativeTurnSink): Promise<void> {
+    this.compactions++;
+    sink.compaction("start");
+    sink.compaction("end", { summary: "compacted" });
+  }
   dispose(): void {
     this.disposed = true;
   }
@@ -222,6 +228,36 @@ describe("coding agent sessions", () => {
     });
     return { session, sessionManager, drivers };
   }
+
+  it.each(["claude-code-cli", "codex-cli"] as const)("only resumes a %s native session for the same account configuration", (runtime) => {
+    const manager = SessionManager.inMemory("/tmp/profile-test");
+    manager.appendCustomEntry(NATIVE_SESSION_ENTRY, { version: 2, runtime, state: "ready", sessionId: "thread-a", profileId: "personal" });
+    expect(latestNativeSession(manager.getBranch(), runtime, "personal")?.sessionId).toBe("thread-a");
+    expect(latestNativeSession(manager.getBranch(), runtime, "work")).toBeUndefined();
+    expect(latestNativeSession(manager.getBranch(), runtime)).toBeUndefined();
+  });
+
+  it("refuses to compact a native context that has not received the chat yet", async () => {
+    const sm = SessionManager.inMemory("/tmp/project-1");
+    sm.appendMessage({ role: "user", content: "keep the original requirement", timestamp: 1 });
+    sm.appendCustomEntry(NATIVE_SESSION_ENTRY, { version: 2, runtime: "claude-code-cli", state: "ready", sessionId: "thread-a", profileId: "personal" });
+    const { session, drivers } = fixture([
+      async (_input, sink) => {
+        sink.nativeSession("thread-b");
+        sink.textDone("a", "continued");
+        return { status: "completed" };
+      },
+    ], sm, { profileId: "work" });
+    await expect(session.compact()).rejects.toThrow("Send a message first");
+    expect(drivers.every((driver) => driver.compactions === 0)).toBe(true);
+    expect(latestNativeSession(sm.getBranch(), "claude-code-cli", "work")).toBeUndefined();
+    // The next message carries the chat to this account; compacting it is then allowed.
+    await session.prompt("continue");
+    expect(drivers.at(-1)!.inputs[0]!.text).toContain("keep the original requirement");
+    await session.compact();
+    expect(drivers.at(-1)!.compactions).toBe(1);
+    session.dispose();
+  });
 
   it("stops an idle CLI and resumes the same native session with the next message", async () => {
     const { session, drivers } = fixture(

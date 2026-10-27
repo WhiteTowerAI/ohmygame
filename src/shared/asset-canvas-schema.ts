@@ -56,7 +56,7 @@ const node = (type: string, data: object) => ({
 });
 const model3DOptions = { type: "object", additionalProperties: false, properties: {
   pose: { enum: ["a-pose", "t-pose"] }, textureModel: id, textureQuality: { enum: ["fast", "standard", "detailed", "extreme"] },
-  rigModel: { enum: ["v1.0-20240301", "v2.5-20260210"] }, rigType: { enum: ["biped", "quadruped", "hexapod", "octopod", "serpentine", "aquatic"] }, animateInPlace: { type: "boolean" },
+  rigModel: { enum: ["v1.0-20240301", "v2.5-20260210", "v3.0-20260909"] }, rigType: { enum: ["biped", "quadruped", "hexapod", "octopod", "serpentine", "aquatic"] }, animateInPlace: { type: "boolean" },
 } } as const;
 const audioProperties = { ...AUDIO_SETTINGS_PROPERTIES, audioReferenceSerial: { type: "integer", minimum: 0 }, audioReferences: { type: "array", maxItems: 3, items: {
   type: "object", additionalProperties: false, required: ["id", "type", "source"], properties: {

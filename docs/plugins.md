@@ -329,10 +329,13 @@ calls, without starting the adapter. Agents use the same adapter through
 `project_preview`.
 The pinned release does not provide `preview validate` or native screenshots.
 Local previews do not submit remotely. `maker_build_current_directory` commits,
-pushes, and builds the bound branch; use Maker's own page to publish. OhMyGame
-Community publishing is unavailable for integrated projects.
+pushes, and builds the bound branch. The TapTap Release Skill uses the
+user's signed-in `taptap-cli` for the store page, Spark version binding, and
+review; it asks before installing the CLI and before each approval-gated write.
+OhMyGame Community publishing is unavailable for integrated projects.
 
-See the [TapTap Maker Skill](../plugins/taptap-maker/skills/taptap-maker/SKILL.md).
+See the [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
+and [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md) Skills.
 
 For a local Blender integration check, set `BLENDER_EXECUTABLE` to its absolute
 executable path and run `bun run test -- test/blender-export.test.ts`. This

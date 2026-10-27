@@ -14,6 +14,19 @@ export const AGENT_RUNTIME_IDS = [
 ] as const;
 export type AgentRuntimeId = (typeof AGENT_RUNTIME_IDS)[number];
 
+export const ACCOUNT_RUNTIME_IDS = ["claude-code-cli", "codex-cli"] as const;
+export type AccountRuntimeId = (typeof ACCOUNT_RUNTIME_IDS)[number];
+export type AccountProfileIds = Partial<Record<AccountRuntimeId, string>>;
+
+export function isAccountRuntimeId(value: unknown): value is AccountRuntimeId {
+  return typeof value === "string" && (ACCOUNT_RUNTIME_IDS as readonly string[]).includes(value);
+}
+
+export function isAccountProfileIds(value: unknown): value is AccountProfileIds {
+  return !!value && typeof value === "object" && !Array.isArray(value) && Object.entries(value).every(([runtime, id]) =>
+    isAccountRuntimeId(runtime) && typeof id === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(id));
+}
+
 export function isAgentRuntimeId(value: unknown): value is AgentRuntimeId {
   return (
     typeof value === "string" &&
@@ -77,6 +90,21 @@ export type AgentRuntimeBinarySource =
   | "codex-app"
   | "chatgpt-app";
 
+/** A CLI-owned configuration directory; credentials are never stored in app settings. */
+export interface AgentAccountProfile {
+  id: string;
+  name: string;
+  /** Absent for the existing system CLI configuration. */
+  configDirectory?: string;
+  /** Only app-created directories may be removed with the profile. */
+  managed?: boolean;
+}
+
+export interface AgentAccountProfileStatus extends AgentAccountProfile {
+  auth: { status: AgentRuntimeAuthStatus; account?: string; billing: AgentRuntimeBilling };
+  limits?: AgentUsageLimit[];
+}
+
 export interface AgentRuntimeStatus {
   id: AgentRuntimeId;
   name: string;
@@ -86,6 +114,8 @@ export interface AgentRuntimeStatus {
   binaryPath?: string;
   /** The person's override, kept even when it cannot be resolved. Empty means automatic discovery. */
   configuredBinaryPath?: string;
+  /** Default account configuration for new conversations on this CLI. */
+  defaultProfileId?: string;
   binarySource?: AgentRuntimeBinarySource;
   version?: string;
   /** Version used for real acceptance; it is not a compatibility floor. */
@@ -109,6 +139,7 @@ export interface AgentRuntimeStatus {
 }
 
 export interface UpdateAgentRuntimeRequest {
+  defaultProfileId?: string;
   enabled?: boolean;
   permissionMode?: AgentPermissionMode;
   /** An executable to use instead of the one found on PATH; empty clears it. */

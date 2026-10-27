@@ -62,12 +62,7 @@ beforeEach(() => {
     version: 1,
     graph,
     graphSignature: "test",
-    compiled: {
-      version: 1,
-      nodes: {
-        start: { id: "start", html, css: "", javascript: "", inputs: [] },
-      },
-    },
+    hashes: { start: "0123456789abcdef" },
   };
   getNodeRuntime.mockResolvedValue({ available: true, web: true, definition });
   ensureProjectPreview.mockResolvedValue({ url: "https://preview.test/" });
@@ -136,15 +131,6 @@ it("keeps the web preview and offers the shared trim dialog using its source Blo
     "project",
     "assets/intro.mp4",
   );
-});
-
-it("retains the legacy compiled-preview trim path", async () => {
-  getNodeRuntime.mockResolvedValue({ available: true, definition });
-  await mount();
-  await openMenu();
-  expect(button("Trim video")).toBeDefined();
-  expect(ensureProjectPreview).not.toHaveBeenCalled();
-  expect(getWorkspaceFile).not.toHaveBeenCalled();
 });
 
 it("does not disable normal web previews when trim media cannot be read", async () => {

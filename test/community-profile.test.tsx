@@ -57,6 +57,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   publishProject: mocks.publish,
   getProjectCover: async () => undefined,
   getProjectCoverState: async () => ({ mode: "auto" }),
+  ApiError: class extends Error {},
   setCommunityLike: mocks.like,
   listExploreGames: mocks.games,
   getExploreGame: mocks.detail,
@@ -227,11 +228,9 @@ describe("game detail management", () => {
     mocks.auth.state = { status: "signed-in", user: { id: "viewer" } };
     await renderPlayer();
     expect(container.querySelector('[aria-label="Edit game"]')).toBeNull();
-    expect(mocks.cover).toHaveBeenCalledWith(
-      "listed",
-      "deployment-listed",
-      undefined,
-    );
+    expect(
+      container.querySelector(".electron-game-thumbnail img")?.getAttribute("src"),
+    ).toBe("https://play.example/listed/cover.webp");
     expect(
       container.querySelector('[aria-label="More game actions"]'),
     ).toBeNull();
@@ -345,11 +344,10 @@ describe("game detail management", () => {
     expect(
       container.querySelector('button[aria-label="Like Hidden game"]'),
     ).toBeNull();
-    expect(mocks.cover).toHaveBeenCalledWith(
-      "unlisted",
-      "deployment-unlisted",
-      "token",
-    );
+    // Hidden works keep live play links, so their hosted cover loads the same way.
+    expect(
+      container.querySelector(".electron-game-thumbnail img")?.getAttribute("src"),
+    ).toBe("https://play.example/unlisted/cover.webp");
     await click("Edit game");
     await submitEditor();
     expect(mocks.update).toHaveBeenCalledWith("unlisted", "token", {
@@ -514,23 +512,12 @@ describe("creator profile", () => {
     ).not.toBeNull();
   });
 
-  it("keeps public cards mounted while signing in to like a work", async () => {
+  it("likes public profile cards anonymously without opening sign-in", async () => {
     mocks.auth.state = { status: "signed-out", user: { id: "viewer" } };
     await render();
-    mocks.auth.requestAccessToken.mockImplementationOnce(async () => {
-      mocks.auth.state = { status: "signed-in", user: { id: "viewer" } };
-      root.render(
-        <CommunityProfilePage
-          authorId="creator"
-          onNavigate={() => undefined}
-          onBack={() => undefined}
-          onOpenGame={() => undefined}
-        />,
-      );
-      return "token";
-    });
     await click("Like Public game");
-    expect(mocks.like).toHaveBeenCalledWith("listed", "token", true);
+    expect(mocks.like).toHaveBeenCalledWith("listed", undefined, true);
+    expect(mocks.auth.requestAccessToken).not.toHaveBeenCalled();
     expect(
       container.querySelector(".community-profile-summary")?.textContent,
     ).toContain("2 likes");
@@ -557,7 +544,7 @@ describe("Community card interactions", () => {
     expect(displayedGames()).toEqual(["Public game", "Hidden game"]);
   });
 
-  it("continues a like through sign-in and preserves it against the sign-in reload", async () => {
+  it("preserves an anonymous like against a delayed list refresh", async () => {
     mocks.auth.state = { status: "signed-out", user: { id: "viewer" } };
     await renderGames();
     let resolveLoad!: (value: CommunityProfile["games"]) => void;
@@ -576,15 +563,9 @@ describe("Community card interactions", () => {
         resolveLike = done;
       }),
     );
-    mocks.auth.requestAccessToken.mockImplementationOnce(async () => {
-      mocks.auth.state = { status: "signed-in", user: { id: "viewer" } };
-      root.render(
-        <GamesPage onNavigate={() => undefined} onOhMyGame={() => undefined} />,
-      );
-      return "token";
-    });
+    await click("Refresh");
     await click("Like Public game");
-    expect(mocks.like).toHaveBeenCalledWith("listed", "token", true);
+    expect(mocks.like).toHaveBeenCalledWith("listed", undefined, true);
     await act(async () =>
       resolveLike({ viewCount: 3, likeCount: 2, liked: true }),
     );

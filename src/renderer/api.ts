@@ -77,13 +77,13 @@ import {
   type Model3DModel,
   type Model3DAnimationAction,
 } from "../shared/contracts.js";
-import type { AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
+import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import type { AudioModelCatalog } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
 import type { ExampleSummary } from "../shared/examples.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import type { NodeRuntimeResponse, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
+import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
@@ -155,8 +155,8 @@ declare global {
         paste: () => Promise<void>;
       };
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
-      /** Captures a Node's thumbnail in a hidden window; `false` when it could not. */
-      captureNodeThumbnail?: (projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string) => Promise<boolean>;
+      /** Captures a Node's thumbnail in a hidden window, or says why it could not. */
+      captureNodeThumbnail?: (projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string) => Promise<NodeThumbnailResult>;
       /** Shares the editor build once, instead of compiling again for each capture. */
       prepareNodeThumbnails?: (projectId: string, batchId: string, snapshot: PlayableThumbnailSnapshot) => Promise<void>;
       /** Only a hidden thumbnail window can read its assigned snapshot. */
@@ -164,7 +164,7 @@ declare global {
       /** Cancels active and queued captures in a batch. */
       cancelNodeThumbnails?: (batchId: string) => Promise<void>;
       /** Called by the hidden thumbnail window once its capture is stored or failed. */
-      finishNodeThumbnail?: (captured: boolean) => Promise<void>;
+      finishNodeThumbnail?: (captured: boolean, error?: string) => Promise<void>;
       openPlaytest: (projectId: string, viewport: { width: number; height: number }) => Promise<void>;
       webGamePlayer?: WebGamePlayerBridge;
       /** Called from a Playtest window: shows the Node in the main window's editor. */
@@ -206,8 +206,31 @@ export async function listProjects(): Promise<ProjectState[]> {
   return request("/projects");
 }
 
-export async function listProjectActivity(signal?: AbortSignal): Promise<ProjectActivitySnapshot> {
-  return request("/projects/activity", { signal });
+/** Follows project activity, reconnecting after a service restart; each connection starts with the current snapshot. */
+export async function streamProjectActivity(signal: AbortSignal, onSnapshot: (snapshot: ProjectActivitySnapshot) => void): Promise<void> {
+  while (!signal.aborted) {
+    const connection = new AbortController();
+    const unsubscribe = subscribeRuntimeConnection(() => connection.abort());
+    const connectionSignal = AbortSignal.any([signal, connection.signal]);
+    try {
+      if (runtimeConnection().status !== "ready") throw new Error(t("api.serviceUnavailable"));
+      const response = await fetch(apiUrl("/projects/activity/events"), {
+        headers: { accept: "text/event-stream", ...runtimeHeaders() },
+        signal: connectionSignal,
+      });
+      if (!response.ok || !response.body) throw new ApiError(`Activity stream failed with ${response.status}`, response.status);
+      await readEventBlocks(response.body, (block) => {
+        const data = eventData(block);
+        if (data) onSnapshot(JSON.parse(data) as ProjectActivitySnapshot);
+      }, connectionSignal);
+    } catch {
+      // Keep the last state during a temporary runtime disconnect.
+    } finally {
+      unsubscribe();
+    }
+    if (signal.aborted) return;
+    await reconnectDelay(signal);
+  }
 }
 
 export async function listExamples(): Promise<ExampleSummary[]> {
@@ -292,8 +315,8 @@ export async function deleteProject(projectId: string): Promise<void> {
 }
 
 /** Conversations list coding agents' models too; canvas text and other one-off generation use OhMyGame's own models only. */
-export async function listModels(options: { agentRuntimes?: boolean } = {}): Promise<AgentModelCatalog> {
-  return request(options.agentRuntimes ? "/models?runtimes=1" : "/models");
+export async function listModels(options: { agentRuntimes?: boolean; accountProfiles?: AccountProfileIds } = {}): Promise<AgentModelCatalog> {
+  return request(options.agentRuntimes ? `/models?runtimes=1${options.accountProfiles ? `&profiles=${encodeURIComponent(JSON.stringify(options.accountProfiles))}` : ""}` : "/models");
 }
 
 export async function listAgentRuntimes(recheck = false): Promise<AgentRuntimeStatus[]> {
@@ -308,8 +331,25 @@ export async function recheckAgentRuntime(id: AgentRuntimeId): Promise<AgentRunt
   return request(`/agent-runtimes/${id}/recheck`, { method: "POST" });
 }
 
-export async function loginAgentRuntime(id: AgentRuntimeId): Promise<AgentRuntimeLoginResponse> {
-  return request(`/agent-runtimes/${id}/login`, { method: "POST" });
+export async function loginAgentRuntime(id: AgentRuntimeId, profileId?: string): Promise<AgentRuntimeLoginResponse> {
+  return request(`/agent-runtimes/${id}/login${profileId ? `?profileId=${encodeURIComponent(profileId)}` : ""}`, { method: "POST" });
+}
+
+export function listAccountProfiles(runtime: AccountRuntimeId, recheck = false): Promise<AgentAccountProfileStatus[]> {
+  return request(`/agent-runtimes/${runtime}/profiles${recheck ? "?recheck=1" : ""}`);
+}
+
+export function addAccountProfile(runtime: AccountRuntimeId, name: string, configDirectory?: string): Promise<AgentAccountProfile> {
+  return request(`/agent-runtimes/${runtime}/profiles`, { method: "POST", body: JSON.stringify({ name, ...(configDirectory ? { configDirectory } : {}) }) });
+}
+
+export function deleteAccountProfile(runtime: AccountRuntimeId, profileId: string): Promise<void> {
+  return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
+}
+
+/** A model comes back when the chosen account does not offer the chat's model and the chat moved to one it does. */
+export function setConversationAccountProfile(projectId: string, conversationId: string, runtime: AccountRuntimeId, profileId: string): Promise<{ profileId: string; model?: AgentModelRef; nativeReasoningLevel?: string }> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/account-profile`, { method: "PUT", body: JSON.stringify({ runtime, profileId }) });
 }
 
 export async function recheckCodexImages(): Promise<ProviderSummary> {
@@ -388,6 +428,12 @@ export async function saveCustomProvider(settings: SaveCustomProviderRequest, pr
 export async function removeProvider(providerId: string): Promise<void> {
   await request(`/settings/models/providers/${encodeURIComponent(providerId)}`, { method: "DELETE" });
   notifyAgentModelsChanged();
+}
+
+export async function refreshProviderModels(providerId: string): Promise<ProviderModelSettings> {
+  const result = await request<ProviderModelSettings>(`/settings/models/providers/${encodeURIComponent(providerId)}/models/refresh`, { method: "POST" });
+  notifyAgentModelsChanged();
+  return result;
 }
 
 export async function getProviderModels(providerId: string): Promise<ProviderModelSettings> {
@@ -630,7 +676,7 @@ export function getMyCommunityGames(accessToken: string): Promise<CommunityProfi
   return request("/community/me/games", { headers: communityHeaders(accessToken) });
 }
 
-export function setCommunityLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
+export function setCommunityLike(gameId: string, accessToken: string | undefined, liked: boolean): Promise<CommunityGameStats> {
   return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
 }
 
@@ -753,7 +799,7 @@ export async function ensureProjectPreview(projectId: string): Promise<{ url: st
   return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1`, { method: "POST" });
 }
 
-/** Whether an Interactive Story plays as its own page, and whether its upgrade can be taken back. */
+/** Whether an Interactive Story plays as its own page, or must be upgraded first. */
 export async function getStoryUpgrade(projectId: string): Promise<StoryUpgradeStatus> {
   return request(`/projects/${projectId}/interactive-story/upgrade`);
 }
@@ -762,17 +808,8 @@ export async function upgradeStory(projectId: string): Promise<StoryUpgradeResul
   return request(`/projects/${projectId}/interactive-story/upgrade`, { method: "POST" });
 }
 
-/** Keeps the upgrade, so it is no longer offered to be taken back. */
-export async function keepStoryUpgrade(projectId: string): Promise<void> {
-  await request(`/projects/${projectId}/interactive-story/upgrade/keep`, { method: "POST" });
-}
-
 export async function copyStoryLibraryMedia(projectId: string): Promise<StoryLibraryMediaResult> {
   return request(`/projects/${projectId}/interactive-story/library-media`, { method: "POST" });
-}
-
-export async function undoStoryUpgrade(projectId: string): Promise<{ changed: string[] }> {
-  return request(`/projects/${projectId}/interactive-story/upgrade/undo`, { method: "POST" });
 }
 
 export async function getNodeRuntime(projectId: string): Promise<NodeRuntimeResponse> {
@@ -1003,6 +1040,10 @@ export async function createConversation(
     method: "POST",
     body: JSON.stringify({ ...(model ? { model: modelRef(model) } : {}), ...(reasoningLevel ? { reasoningLevel } : {}) }),
   });
+}
+
+export async function branchConversation(projectId: string, conversationId: string, entryId: string): Promise<ConversationSummary> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/branch`, { method: "POST", body: JSON.stringify({ entryId }) });
 }
 
 export async function getConversation(projectId: string, conversationId: string, reset = false): Promise<ConversationDetail> {
@@ -1292,8 +1333,9 @@ async function streamProjectEvents(
         throw new ApiError(`Event stream failed with ${response.status}`, response.status);
       }
       handlers.onOpen();
-      await consumeEventStream(response.body, (event) => {
-        if (event.id <= cursor) return;
+      await readEventBlocks(response.body, (block) => {
+        const event = parseRuntimeEvent(block);
+        if (!event || event.id <= cursor) return;
         cursor = Math.max(cursor, event.id);
         handlers.onEvent(event);
       }, connectionSignal);
@@ -1320,7 +1362,11 @@ async function streamModelAuthEvents(
         signal,
       });
       if (!response.ok || !response.body) throw new ApiError(`Authentication stream failed with ${response.status}`, response.status);
-      const finished = await consumeModelAuthStream(response.body, (event) => {
+      let finished = false;
+      await readEventBlocks(response.body, (block) => {
+        const event = parseModelAuthEvent(block);
+        if (!event) return;
+        if (event.type === "completed" || event.type === "cancelled" || event.type === "error") finished = true;
         if (event.id <= cursor) return;
         cursor = Math.max(cursor, event.id);
         handlers.onEvent(event);
@@ -1334,15 +1380,11 @@ async function streamModelAuthEvents(
   }
 }
 
-async function consumeModelAuthStream(
-  body: ReadableStream<Uint8Array>,
-  onEvent: (event: ModelAuthEvent) => void,
-  signal: AbortSignal,
-): Promise<boolean> {
+/** Passes each complete event of a server-sent event stream until it ends or the signal aborts. */
+async function readEventBlocks(body: ReadableStream<Uint8Array>, onBlock: (block: string) => void, signal: AbortSignal): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let finished = false;
   try {
     while (!signal.aborted) {
       const { done, value } = await reader.read();
@@ -1351,42 +1393,20 @@ async function consumeModelAuthStream(
       const blocks = buffer.split(/\r?\n\r?\n/);
       buffer = blocks.pop() ?? "";
       for (const block of blocks) {
-        const event = parseModelAuthEvent(block);
-        if (!event) continue;
-        onEvent(event);
-        if (event.type === "completed" || event.type === "cancelled" || event.type === "error") finished = true;
+        if (signal.aborted) return;
+        onBlock(block);
       }
     }
   } finally {
     reader.releaseLock();
   }
-  return finished;
 }
 
-async function consumeEventStream(
-  body: ReadableStream<Uint8Array>,
-  onEvent: (event: RuntimeEvent) => void,
-  signal: AbortSignal,
-): Promise<void> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (!signal.aborted) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const blocks = buffer.split(/\r?\n\r?\n/);
-      buffer = blocks.pop() ?? "";
-      for (const block of blocks) {
-        const event = parseRuntimeEvent(block);
-        if (!event) continue;
-        onEvent(event);
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
+function eventData(block: string): string {
+  return block.split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n");
 }
 
 function parseRuntimeEvent(block: string): RuntimeEvent | undefined {
@@ -1411,26 +1431,13 @@ function parseRuntimeEvent(block: string): RuntimeEvent | undefined {
 }
 
 function parseModelAuthEvent(block: string): ModelAuthEvent | undefined {
-  const data = block.split(/\r?\n/)
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice(5).trimStart())
-    .join("\n");
+  const data = eventData(block);
   if (!data) return undefined;
   try {
     return JSON.parse(data) as ModelAuthEvent;
   } catch {
     return undefined;
   }
-}
-
-/**
- * The page Scenes run in. The desktop app loads its own pages from file://,
- * where Chromium will not let the sandboxed frame load its script, so there
- * the daemon serves it.
- */
-export function playableSandboxUrl(): string {
-  const runtime = desktopRuntime();
-  return runtime ? `${runtime.daemonUrl}/playable-sandbox/playable-sandbox.html` : "./playable-sandbox.html";
 }
 
 function apiUrl(path: string): string {

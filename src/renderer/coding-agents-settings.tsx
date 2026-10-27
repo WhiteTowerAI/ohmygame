@@ -8,6 +8,7 @@ import {
   Settings,
   Terminal,
 } from "./icons.js";
+import { isAccountRuntimeId } from "../shared/agent-runtimes.js";
 import type {
   AgentPermissionMode,
   AgentRuntimeDiagnostic,
@@ -28,6 +29,7 @@ import { openModelAuthExternal } from "./use-model-provider-auth.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { AgentUsageDetails, AgentUsageInline } from "./agent-usage.js";
 import { t } from "./i18n.js";
+import { AgentAccountProfiles } from "./agent-account-profiles.js";
 
 const PERMISSION_OPTIONS: readonly {
   value: AgentPermissionMode;
@@ -234,9 +236,9 @@ export function CodingAgentDetail({
       setBinaryPath(status.configuredBinaryPath ?? "");
       notifyAgentModelsChanged();
     });
-  const signIn = () =>
+  const signIn = (profileId: string) =>
     run("login", async () => {
-      const started = await loginAgentRuntime(id);
+      const started = await loginAgentRuntime(id, profileId);
       setLogin(started);
       if (started.url)
         await openModelAuthExternal(started.url).catch(() => undefined);
@@ -278,7 +280,6 @@ export function CodingAgentDetail({
       </section>
     );
   }
-  const signedOut = agent.auth.status === "signed-out";
   const problems = agent.diagnostics;
   return (
     <section className="settings-panel settings-provider-detail coding-agent-detail">
@@ -341,72 +342,17 @@ export function CodingAgentDetail({
             />
           </button>
         </div>
-        {agent.installed && agent.testedVersion ? (
-          <div className="settings-provider-setting-row">
-            <span className="settings-search-field-label">
-              {t("codingAgents.testedVersion")}
-            </span>
-            <span className="settings-provider-setting-value">
-              {t("codingAgents.testedVersionValue", {
-                version: agent.testedVersion,
-              })}
-            </span>
-          </div>
-        ) : null}
-        {agent.installed ? (
+        {agent.installed && agent.id === "opencode-cli" ? (
           <div className="settings-provider-setting-row settings-provider-auth-row">
-            <span className="settings-search-field-label">
-              {t("codingAgents.account")}
-            </span>
-            <span className="settings-provider-setting-value">
-              {accountLabel(agent)}
-            </span>
-            {agent.id !== "opencode-cli" ? (
-              <button
-                type="button"
-                className={
-                  signedOut
-                    ? "settings-add-button"
-                    : "settings-secondary-button"
-                }
-                disabled={busy !== undefined}
-                onClick={() => void signIn()}
-              >
-                {busy === "login" ? (
-                  <LoaderCircle className="spin" size={13} />
-                ) : null}
-                {signedOut
-                  ? t("common.signIn")
-                  : t("codingAgents.switchAccount")}
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-        {agent.installed ? (
-          <div className="settings-provider-setting-row">
-            <span className="settings-search-field-label">
-              {t("codingAgents.billing")}
-            </span>
-            <span className="settings-provider-setting-value">
-              {billingLabel(agent)}
-            </span>
-          </div>
-        ) : null}
-        {agent.installed ? (
-          <div className="settings-provider-setting-row">
-            <span className="settings-search-field-label">
-              {t("codingAgents.sandbox")}
-            </span>
-            <span className="settings-provider-setting-value">
-              {agent.permissionMode === "full"
-                ? t("codingAgents.sandboxOff")
-                : agent.commandSandbox === "os"
-                  ? t("codingAgents.sandboxOs")
-                  : t("codingAgents.sandboxNone")}
-            </span>
+            <span className="settings-search-field-label">{t("codingAgents.account")}</span>
+            <span className="settings-provider-setting-value">{t("codingAgents.openCodeAccounts")}</span>
           </div>
         ) : null}
       </div>
+      {isAccountRuntimeId(agent.id) ? <AgentAccountProfiles key={agent.id} runtime={agent.id} defaultProfileId={agent.defaultProfileId ?? "system"} onDefault={(defaultProfileId) => update({ defaultProfileId })} onLogin={signIn} onRemoved={async () => {
+        setAgent((await listAgentRuntimes()).find((item) => item.id === id));
+        notifyAgentModelsChanged();
+      }} disabled={busy !== undefined} /> : null}
       {login ? <LoginHint login={login} /> : null}
       {agent.installed && agent.id !== "opencode-cli" ? (
         // OpenCode bills each model provider; its account has no quota of its own.
@@ -572,6 +518,24 @@ function Diagnostic({
             <CommandText command={diagnostic.command} />
           </>
         ) : null}
+        {agent.id === "codex-cli" &&
+        diagnostic.capability ===
+          "Windows sandbox filesystem read restrictions" ? (
+          <>
+            {" "}
+            <button
+              type="button"
+              className="coding-agent-link"
+              onClick={() =>
+                void openModelAuthExternal(
+                  "https://learn.chatgpt.com/docs/windows/windows-sandbox",
+                )
+              }
+            >
+              {t("codingAgents.sandboxGuide")}
+            </button>
+          </>
+        ) : null}
       </span>
     </div>
   );
@@ -652,28 +616,6 @@ function agentSummary(agent: AgentRuntimeStatus): string {
   return t("codingAgents.installed", { version });
 }
 
-function accountLabel(agent: AgentRuntimeStatus): string {
-  if (agent.auth.status === "signed-out") return t("codingAgents.signedOut");
-  if (agent.auth.account) return agent.auth.account;
-  if (agent.id === "opencode-cli") return t("codingAgents.openCodeAccounts");
-  return agent.auth.status === "signed-in"
-    ? t("codingAgents.signedIn")
-    : t("codingAgents.accountUnknown");
-}
-
-function billingLabel(agent: AgentRuntimeStatus): string {
-  switch (agent.auth.billing) {
-    case "subscription":
-      return t("codingAgents.billingSubscription");
-    case "api-key":
-      return t("codingAgents.billingApiKey");
-    case "provider":
-      return t("codingAgents.billingProvider");
-    default:
-      return t("codingAgents.billingUnknown");
-  }
-}
-
 function diagnosticText(
   agent: AgentRuntimeStatus,
   diagnostic: AgentRuntimeDiagnostic,
@@ -684,6 +626,11 @@ function diagnosticText(
     case "invalid-executable":
       return t("codingAgents.diagnostic.invalidExecutable");
     case "runtime-incompatible":
+      if (
+        agent.id === "codex-cli" &&
+        diagnostic.capability === "Windows sandbox filesystem read restrictions"
+      )
+        return t("codingAgents.diagnostic.codexWindowsSandbox");
       if (
         agent.id === "opencode-cli" &&
         diagnostic.capability ===

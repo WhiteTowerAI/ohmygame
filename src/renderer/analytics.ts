@@ -1,4 +1,3 @@
-import { posthog } from "posthog-js";
 import { AnalyticsUrlScrubber } from "./analytics-url.js";
 
 export function initializeAnalytics(): void {
@@ -7,7 +6,8 @@ export function initializeAnalytics(): void {
   if (!key || !host) return;
 
   const scrubber = new AnalyticsUrlScrubber(window.location.pathname);
-  posthog.init(key, {
+  // posthog-js is large; keep it out of the startup bundle.
+  void import("posthog-js").then(({ posthog }) => posthog.init(key, {
     api_host: host,
     autocapture: true,
     // Routes live in the hash; the pathname is the install path and never changes.
@@ -21,5 +21,5 @@ export function initializeAnalytics(): void {
       event.properties.app_version = __APP_VERSION__;
       return event;
     },
-  });
+  }));
 }
