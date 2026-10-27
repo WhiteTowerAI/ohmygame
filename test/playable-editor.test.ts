@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   addPlayableNodeAsset,
   deletePlayableSignal,
-  describePlayableValue,
   playableAssetId,
   playableAssetType,
   playableThumbnailHash,
@@ -224,19 +223,3 @@ function flattenKeys(value: unknown, keys: Record<string, true> = {}): Record<st
   }
   return keys;
 }
-
-describe("describePlayableValue", () => {
-  it("shows starting values in author words", () => {
-    expect(describePlayableValue(true)).toBe("Yes");
-    expect(describePlayableValue(false)).toBe("No");
-    expect(describePlayableValue(3)).toBe("3");
-    expect(describePlayableValue("")).toBe("empty");
-    expect(describePlayableValue("Ada")).toBe('"Ada"');
-    expect(describePlayableValue([])).toBe("empty");
-    expect(describePlayableValue(["key"])).toBe("1 item");
-    expect(describePlayableValue(["key", "map", "coin"])).toBe("3 items");
-    expect(describePlayableValue({})).toBe("empty");
-    expect(describePlayableValue({ name: "" })).toBe("1 field");
-    expect(describePlayableValue(null)).toBe("nothing");
-  });
-});

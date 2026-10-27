@@ -1008,13 +1008,8 @@ const zhCN: typeof en = {
     openInBrowser: "在浏览器中打开预览",
   },
   storySettings: {
-    variablesHelp: "游戏在各个场景之间记住的内容。可以让 AI 添加或修改这些值。",
     screenSize: "屏幕尺寸",
     reviewScenes: "修改屏幕尺寸后，请逐个检查场景。",
-    variables: "变量",
-    aboutVariables: "关于变量",
-    starts: "初始值 {{value}}",
-    noVariables: "还没有变量。",
     export: "导出",
     saveBeforeExport: "导出前请先保存屏幕尺寸的修改。",
     exporting: "正在导出…",

@@ -352,19 +352,8 @@ content such as item definitions lives in shared code.
 
 The author asks for them in chat ("a trust of three or more leads to the
 good ending"), and the Agent adds each one with a starting value and a
-one-line description. **Project ▾ → Variables** lists them read-only:
-
-```text
-Variables                                         ×
-What the game remembers from Scene to Scene...
-  trust          How much the guard trusts you   Starts 0
-  inventory      What the player carries         Starts empty
-  boarded        Whether the player boarded      Starts No
-Ask the AI to add or change them.
-```
-
-Starting values read in author words (Yes/No, empty, "3 items"); their tooltips
-include the raw value. There is no form to add, delete, or edit them.
+one-line description, in `graph.json`. The editor does not list them; Playtest
+shows their values while the story runs.
 
 A branch shows as Exits. A Scene that goes different ways declares one Exit
 per outcome, and the Agent writes when each is taken. The canvas shows it on

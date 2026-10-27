@@ -1027,14 +1027,8 @@ const en = {
     openInBrowser: "Open preview in browser",
   },
   storySettings: {
-    variablesHelp:
-      "What the game remembers between Scenes. Ask the AI to add or change these values.",
     screenSize: "Screen size",
     reviewScenes: "Review each Scene after changing screen size.",
-    variables: "Variables",
-    aboutVariables: "About variables",
-    starts: "Starts {{value}}",
-    noVariables: "No variables yet.",
     export: "Export",
     saveBeforeExport: "Save screen size changes before exporting.",
     exporting: "Exporting...",

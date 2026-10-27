@@ -3,7 +3,6 @@ import type {
   NodeGraph,
   PlayableAssetDefinition,
   PlayableAssetType,
-  JsonValue,
 } from "./playable-nodes.js";
 import type { NodePlayerDefinition } from "./playable-player-protocol.js";
 
@@ -38,17 +37,6 @@ export interface PlayableAddedNode {
   files: string[];
   signals: string[];
   brief: string;
-}
-
-/** A Variable's value in author words: Yes/No, "empty", "3 items". */
-export function describePlayableValue(value: JsonValue): string {
-  if (value === null) return "nothing";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") return String(value);
-  if (typeof value === "string") return value === "" ? "empty" : `"${value}"`;
-  if (Array.isArray(value)) return value.length === 0 ? "empty" : value.length === 1 ? "1 item" : `${value.length} items`;
-  const size = Object.keys(value).length;
-  return size === 0 ? "empty" : size === 1 ? "1 field" : `${size} fields`;
 }
 
 export function renamePlayableSignal(
