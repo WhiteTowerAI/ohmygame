@@ -90,7 +90,7 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { VOLCENGINE_TTS_VOICES, audioSettings, audioCanvasSettings, isAudioNodeType, type AudioCanvasSettings, type AudioAssetData, availableAudioOperations, type AudioModel, type AudioOperation, type AudioProviderCatalogStatus } from "../shared/audio.js";
+import { audioSettings, audioCanvasSettings, isAudioNodeType, type AudioCanvasSettings, type AudioAssetData, availableAudioOperations, type AudioModel, type AudioOperation, type AudioProviderCatalogStatus } from "../shared/audio.js";
 import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DAnimations, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset, importCanvasFile, createCanvasImportFolder } from "./api.js";
 import { CanvasAudioControls, AudioCompanionDownloads, audioSettingsIssue, type AudioReferenceControls } from "./canvas-audio-controls.js";
 import { useAuth } from "./auth.js";
@@ -3826,8 +3826,10 @@ export function connectionRelation(
     const references = target.data.audioReferences ?? [];
     const type = image ? "image" : "audio";
     const limit = image ? model?.capabilities.maxReferenceImages ?? 0 : model?.capabilities.maxReferenceAudio ?? 0;
-    const exclusive = model?.capabilities.referenceModesExclusive && (target.data.voiceId || references.some((reference) => reference.type !== type));
-    if (!exclusive && references.filter((reference) => reference.type === type).length < limit && (image && model?.capabilities.supportsReferenceImage || audio && model?.capabilities.supportsReferenceAudio) && !references.some((reference) => reference.source.type === "node" && reference.source.nodeId === source.id)) return "audio-reference";
+    // Images stand alone; a Speaker ID takes one of the audio reference slots.
+    const exclusive = model?.capabilities.referenceModesExclusive && (image ? target.data.voiceId || references.some((reference) => reference.type === "audio") : references.some((reference) => reference.type === "image"));
+    const used = references.filter((reference) => reference.type === type).length + (!image && target.data.voiceId ? 1 : 0);
+    if (!exclusive && used < limit && (image && model?.capabilities.supportsReferenceImage || audio && model?.capabilities.supportsReferenceAudio) && !references.some((reference) => reference.source.type === "node" && reference.source.nodeId === source.id)) return "audio-reference";
   }
   if (target.type === "video") {
     return canAddVideoReference(target, source, nodes, libraryAssets) ? "video-reference" : undefined;

@@ -1,9 +1,10 @@
-import type {
-  AudioGenerationRequest,
-  AudioModel,
-  AudioModelCatalog,
-  GeneratedAudio,
-  AudioReferenceData,
+import {
+  AUDIO_REFERENCE_ID_PATTERN,
+  type AudioGenerationRequest,
+  type AudioModel,
+  type AudioModelCatalog,
+  type GeneratedAudio,
+  type AudioReferenceData,
 } from "../shared/audio.js";
 import type { ModelRef } from "../shared/contracts.js";
 
@@ -106,7 +107,9 @@ export class ProviderAudio implements AudioGenerator {
         503,
       );
     const references = "references" in input ? input.references ?? [] : [];
-    if (references.length > 3 || new Set(references.map((reference) => reference.id)).size !== references.length || references.some((reference) => !/^(Audio|Image)[1-9][0-9]*$/.test(reference.id) || !["image", "audio"].includes(reference.type))) throw new AudioGenerationError("Invalid audio reference aliases", 400);
+    // Counts and modes are provider limits; adapters check them against their capabilities.
+    const alias = new RegExp(AUDIO_REFERENCE_ID_PATTERN);
+    if (new Set(references.map((reference) => reference.id)).size !== references.length || references.some((reference) => !alias.test(reference.id) || !["image", "audio"].includes(reference.type))) throw new AudioGenerationError("Invalid audio reference aliases", 400);
     if (references.length && !this.resolveReference) throw new AudioGenerationError("Audio reference assets are unavailable", 400);
     const resolved = await Promise.all(references.map(async (reference) => ({ ...reference, ...await this.resolveReference!(reference.assetId) })));
     return adapter.generate(

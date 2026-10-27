@@ -9,11 +9,14 @@ import {
   type AudioCanvasReference,
   type AudioCanvasSettings,
   type AudioModel,
+  type AudioModelCapabilities,
   type AudioOutputFormat,
   type AudioSampleRate,
-  VOLCENGINE_TTS_VOICES,
+  DOUBAO_TTS_DIALECTS,
+  findVolcengineTtsVoice,
 } from "../shared/audio.js";
 import { encodeAudioClip } from "./audio-clip.js";
+import { DoubaoVoiceOptions, DoubaoVoiceSample } from "./doubao-voices.js";
 import { downloadAssetBlob } from "./library-assets.js";
 import { language as uiLanguage, t } from "./i18n.js";
 import { ArrowUp, Scissors, Trash2, Upload } from "./icons.js";
@@ -45,25 +48,47 @@ export interface AudioReferenceControls {
   ): Promise<string>;
   replace(id: string, assetId: string): void;
 }
+/** Saved options the model cannot send; they stay on the node until cleared. */
+function hasUnsupportedOptions(
+  value: AudioCanvasSettings,
+  caps: AudioModelCapabilities,
+): boolean {
+  return Boolean(
+    (!caps.supportsSSML && value.ssml) ||
+    (!caps.supportsSpeechOptions &&
+      (value.pronunciation?.length ||
+        value.autoLanguage ||
+        value.dialect ||
+        value.voiceModel ||
+        value.silenceMs ||
+        value.sectionId ||
+        value.output?.bitRate)),
+  );
+}
+
 export function audioSettingsIssue(
   value: AudioCanvasSettings,
   model?: AudioModel,
 ): string | undefined {
   if (!model) return;
+  const caps = model.capabilities;
   const references = value.audioReferences ?? [],
     images = references.filter((item) => item.type === "image"),
     audios = references.filter((item) => item.type === "audio");
   if (
-    (images.length && !model.capabilities.supportsReferenceImage) ||
-    (audios.length && !model.capabilities.supportsReferenceAudio)
+    (images.length && !caps.supportsReferenceImage) ||
+    (audios.length && !caps.supportsReferenceAudio)
   )
     return t("audioStudio.incompatibleReferences");
+  // A Speaker ID is one more audio-side reference when references are used.
   if (
-    images.length > (model.capabilities.maxReferenceImages ?? 0) ||
-    audios.length > (model.capabilities.maxReferenceAudio ?? 0) ||
-    (model.capabilities.referenceModesExclusive &&
-      ((images.length && (audios.length || value.voiceId)) ||
-        (audios.length && value.voiceId)))
+    images.length > (caps.maxReferenceImages ?? 0) ||
+    (references.length &&
+      audios.length + (value.voiceId ? 1 : 0) >
+        (caps.maxReferenceAudio ?? 0)) ||
+    (caps.referenceModesExclusive &&
+      images.length &&
+      (audios.length || value.voiceId))
   )
     return t("audioStudio.referenceRule");
   if (
@@ -86,26 +111,26 @@ export function audioSettingsIssue(
     !model.capabilities.subtitleLanguages.includes(value.language)
   )
     return t("audioStudio.subtitleLanguages");
-  if (
-    model.protocol === "volcengine-seed-audio-v3" &&
-    (value.ssml ||
-      value.pronunciation?.length ||
-      value.autoLanguage ||
-      value.dialect ||
-      value.voiceModel ||
-      value.silenceMs ||
-      value.sectionId ||
-      value.output?.bitRate)
-  )
-    return t("audioStudio.ttsOnly");
+  if (hasUnsupportedOptions(value, caps)) return t("audioStudio.ttsOnly");
   if (value.ssml && value.pronunciation?.length)
     return t("audioStudio.ssmlDictionary");
-  if (
-    model.protocol === "volcengine-tts-v3" &&
-    value.voiceKind === "cloned" &&
-    value.style
-  )
+  if (!caps.supportsSpeechOptions) return;
+  if (value.voiceKind === "cloned" && value.style)
     return t("audioStudio.clonedStyle");
+  // Only catalog presets carry these limits; custom and cloned Speaker IDs are checked by the provider.
+  const voice =
+    value.voiceKind === "cloned"
+      ? undefined
+      : findVolcengineTtsVoice(value.voiceId);
+  const option =
+    voice?.noInstructions && value.style
+      ? t("audioStudio.style")
+      : voice && !voice.dialects && value.dialect
+        ? t("audioStudio.dialect")
+        : voice && value.ssml && !["zh-cn", "en"].includes(voice.language)
+          ? "SSML"
+          : undefined;
+  if (option) return t("audioStudio.voiceUnsupported", { option });
 }
 
 export function AudioCompanionDownloads({
@@ -166,13 +191,11 @@ export function CanvasAudioControls({
   const [start, setStart] = useState(0),
     [end, setEnd] = useState(0);
   const caps = model?.capabilities,
-    tts = model?.protocol === "volcengine-tts-v3";
+    tts = Boolean(caps?.supportsSpeechOptions);
+  const preset = findVolcengineTtsVoice(value.voiceId);
   const usesCustomVoice =
     customVoice ||
-    Boolean(
-      value.voiceId &&
-      !VOLCENGINE_TTS_VOICES.some((voice) => voice.id === value.voiceId),
-    ) ||
+    Boolean(value.voiceId && !preset) ||
     value.voiceKind === "cloned";
   const control = (
     key: "speed" | "pitch" | "volume",
@@ -273,16 +296,7 @@ export function CanvasAudioControls({
     <details className="canvas-audio-options nodrag nopan nokey">
       <summary>{t("audioStudio.options")}</summary>
       <fieldset disabled={disabled || busy}>
-        {!tts &&
-        model &&
-        (value.ssml ||
-          value.pronunciation?.length ||
-          value.autoLanguage ||
-          value.dialect ||
-          value.voiceModel ||
-          value.silenceMs ||
-          value.sectionId ||
-          value.output?.bitRate) ? (
+        {caps && hasUnsupportedOptions(value, caps) ? (
           <button
             type="button"
             onClick={() =>
@@ -303,40 +317,44 @@ export function CanvasAudioControls({
         ) : null}
         {caps?.supportsSpeaker ? (
           <>
-            <label className="audio-control-wide">
+            <label className="audio-control-wide audio-voice-picker">
               {t("assetCanvas.voice.label")}
-              <select
-                value={
-                  usesCustomVoice
-                    ? value.voiceKind === "cloned" && tts
-                      ? "__cloned"
-                      : "__custom"
-                    : (value.voiceId ?? "")
-                }
-                onChange={(event) => {
-                  const mode = event.target.value;
-                  const custom = mode === "__custom" || mode === "__cloned";
-                  setCustomVoice(custom);
-                  onChange({
-                    voiceId: custom ? undefined : mode || undefined,
-                    voiceKind: mode === "__cloned" ? "cloned" : "preset",
-                    voiceModel: undefined,
-                  });
-                }}
-              >
-                <option value="">{t("assetCanvas.voice.default")}</option>
-                {VOLCENGINE_TTS_VOICES.map((voice) => (
-                  <option key={voice.id} value={voice.id}>
-                    {voice.name}
+              <span>
+                <select
+                  value={
+                    usesCustomVoice
+                      ? value.voiceKind === "cloned" && tts
+                        ? "__cloned"
+                        : "__custom"
+                      : (value.voiceId ?? "")
+                  }
+                  onChange={(event) => {
+                    const mode = event.target.value;
+                    const custom = mode === "__custom" || mode === "__cloned";
+                    setCustomVoice(custom);
+                    onChange({
+                      voiceId: custom ? undefined : mode || undefined,
+                      voiceKind: mode === "__cloned" ? "cloned" : "preset",
+                      voiceModel: undefined,
+                    });
+                  }}
+                >
+                  <option value="">{t("assetCanvas.voice.default")}</option>
+                  <DoubaoVoiceOptions />
+                  <option value="__custom">
+                    {t("providers.voiceSelectCustom")}
                   </option>
-                ))}
-                <option value="__custom">
-                  {t("providers.voiceSelectCustom")}
-                </option>
-                {tts ? (
-                  <option value="__cloned">{t("audioStudio.cloned")}</option>
-                ) : null}
-              </select>
+                  {tts ? (
+                    <option value="__cloned">{t("audioStudio.cloned")}</option>
+                  ) : null}
+                </select>
+                {usesCustomVoice ? null : (
+                  <DoubaoVoiceSample
+                    voiceId={value.voiceId}
+                    className="audio-icon-button"
+                  />
+                )}
+              </span>
             </label>
             {usesCustomVoice ? (
               <label className="audio-control-wide">
@@ -383,7 +401,7 @@ export function CanvasAudioControls({
             ? control("volume", -50, 100, t("audioStudio.volume"))
             : null}
         </div>
-        {caps?.supportsStyle ? (
+        {caps?.supportsStyle && !(preset?.noInstructions && !value.style) ? (
           <label className="audio-control-wide">
             {t("audioStudio.style")}
             <textarea
@@ -505,33 +523,26 @@ export function CanvasAudioControls({
                 />
                 {t("audioStudio.autoLanguage")}
               </label>
-              <label>
-                {t("audioStudio.dialect")}
-                <select
-                  value={value.dialect ?? ""}
-                  onChange={(event) =>
-                    onChange({ dialect: event.target.value || undefined })
-                  }
-                >
-                  <option value="">{t("assetCanvas.automatic")}</option>
-                  {[
-                    "beijing",
-                    "dongbei",
-                    "henan",
-                    "shaanxi",
-                    "shanghai",
-                    "sichuan",
-                    "tianjin",
-                    "yue",
-                  ].map((dialect) => (
-                    <option key={dialect} value={dialect}>
-                      {t(
-                        `audioStudio.dialects.${dialect}` as "audioStudio.dialects.beijing",
-                      )}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {!preset || preset.dialects || value.dialect ? (
+                <label>
+                  {t("audioStudio.dialect")}
+                  <select
+                    value={value.dialect ?? ""}
+                    onChange={(event) =>
+                      onChange({ dialect: event.target.value || undefined })
+                    }
+                  >
+                    <option value="">{t("assetCanvas.automatic")}</option>
+                    {DOUBAO_TTS_DIALECTS.map((dialect) => (
+                      <option key={dialect} value={dialect}>
+                        {t(
+                          `audioStudio.dialects.${dialect}` as "audioStudio.dialects.beijing",
+                        )}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label>
                 {t("audioStudio.pronunciation")}
                 <textarea
@@ -557,16 +568,18 @@ export function CanvasAudioControls({
                   }
                 />
               </label>
-              <label>
-                SSML
-                <textarea
-                  rows={2}
-                  value={value.ssml ?? ""}
-                  onChange={(event) =>
-                    onChange({ ssml: event.target.value || undefined })
-                  }
-                />
-              </label>
+              {caps?.supportsSSML ? (
+                <label>
+                  SSML
+                  <textarea
+                    rows={2}
+                    value={value.ssml ?? ""}
+                    onChange={(event) =>
+                      onChange({ ssml: event.target.value || undefined })
+                    }
+                  />
+                </label>
+              ) : null}
               <label>
                 {t("audioStudio.silence")}
                 <input

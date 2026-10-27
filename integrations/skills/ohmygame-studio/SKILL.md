@@ -37,8 +37,8 @@ Use `generate_image`, `generate_video`, `generate_3d_asset`,
   your own tools to check it before using it in the game.
 - Use `generate_audio` for scene prompts combining dialogue, ambience and music.
   References use Library asset IDs and stable `@AudioN` aliases: up to three
-  audio clips (each at most 30 seconds and 10 MB), one image, or a Speaker ID
-  as separate modes. Choose a compatible model and request subtitles when
+  audio references (each at most 30 seconds and 10 MB; a Speaker ID counts as
+  one), or one image on its own. Choose a compatible model and request subtitles when
   game dialogue needs word timing. Keep the returned audio JSON and SRT/VTT
   companions beside the audio in the project.
 

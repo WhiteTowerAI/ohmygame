@@ -160,6 +160,21 @@ export function seedSubtitles(value: unknown): AudioSubtitles | undefined {
   };
 }
 
+/**
+ * Doubao codes starting with 4 are request errors and 5 are service errors;
+ * concurrency and entitlement failures are reported by message.
+ */
+export function doubaoErrorStatus(code: number, message = ""): number {
+  if (/quota exceeded|concurrency/i.test(message)) return 429;
+  if (
+    /permission denied|access denied|resource ID is mismatched|requested grant not found/i.test(
+      message,
+    )
+  )
+    return 503;
+  return String(code).startsWith("4") ? 400 : 502;
+}
+
 export async function audioHttpError(
   response: Response,
   provider: string,
@@ -182,9 +197,11 @@ export async function audioHttpError(
       reader.releaseLock();
     }
   }
+  let code: number | undefined;
   try {
     const parsed = JSON.parse(detail);
     if (typeof parsed.message === "string") detail = parsed.message;
+    if (Number.isInteger(parsed.code) && parsed.code > 0) code = parsed.code;
   } catch {
     /* Provider may return plain text. */
   }
@@ -193,9 +210,11 @@ export async function audioHttpError(
       ? 503
       : response.status === 429
         ? 429
-        : response.status >= 500
-          ? 502
-          : 400;
+        : code !== undefined
+          ? doubaoErrorStatus(code, detail)
+          : response.status >= 500
+            ? 502
+            : 400;
   return new AudioGenerationError(
     `${provider}: ${detail || `request failed (${response.status})`}`,
     status,

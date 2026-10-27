@@ -1,4 +1,5 @@
 import type { ProviderSummary } from "../shared/contracts.js";
+import { DOUBAO_VOICE_PROVIDER_NAME } from "../shared/audio.js";
 
 /** Providers listed ahead of the rest in Settings and first-run setup, in display order. */
 const POPULAR_PROVIDER_IDS = [
@@ -24,7 +25,7 @@ export interface ProviderGroups {
 export function withDoubaoConnection(providers: readonly ProviderSummary[]): ProviderSummary[] {
   const seed = providers.find((provider) => provider.id === "volcengine-seed-audio");
   return providers.filter((provider) => provider.id !== "volcengine-seed-audio").map((provider) => provider.id === "volcengine-tts" ? {
-    ...provider, name: "Doubao Voice", configured: provider.configured || Boolean(seed?.configured), status: provider.configured || seed?.configured ? "connected" : "not_configured",
+    ...provider, name: DOUBAO_VOICE_PROVIDER_NAME, configured: provider.configured || Boolean(seed?.configured), status: provider.configured || seed?.configured ? "connected" : "not_configured",
     enabled: provider.enabled !== false || Boolean(seed && seed.enabled !== false),
   } : provider);
 }

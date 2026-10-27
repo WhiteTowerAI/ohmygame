@@ -3,6 +3,8 @@ import {
   AUDIO_VOICE_ID_MAX_LENGTH,
   AUDIO_VOICE_ID_PATTERN,
   DOUBAO_SPEECH_PROVIDER_NAME,
+  DOUBAO_TTS_DIALECTS,
+  findVolcengineTtsVoice,
   type AudioGenerationRequest,
   type AudioModel,
   type GeneratedAudio,
@@ -14,13 +16,10 @@ import {
   AudioGenerationError,
   type AudioProviderAdapter,
 } from "./audio-generation.js";
-
-const DEFAULT_ENDPOINT =
-  "https://openspeech.bytedance.com/api/v3/tts/unidirectional";
-const PROVIDER_ID = "volcengine-tts";
 import {
   audioRequestSignal,
   decodeAudioBase64,
+  doubaoErrorStatus,
   inspectAudio,
   MAX_AUDIO_BYTES,
   subtitleWord,
@@ -28,8 +27,71 @@ import {
   validateControl,
 } from "./audio-media.js";
 
+const DEFAULT_ENDPOINT =
+  "https://openspeech.bytedance.com/api/v3/tts/unidirectional";
+const PROVIDER_ID = "volcengine-tts";
+const BIT_RATES = [16000, 32000, 64000, 160000];
+
 export const VOLCENGINE_TTS_MODELS: readonly AudioModel[] = [
-  model("seed-tts-2.0", "Doubao Speech Synthesis 2.0"),
+  {
+    provider: PROVIDER_ID,
+    providerName: DOUBAO_SPEECH_PROVIDER_NAME,
+    id: "seed-tts-2.0",
+    name: "Doubao Speech Synthesis 2.0",
+    protocol: "volcengine-tts-v3",
+    capabilities: {
+      operations: ["speech"],
+      executionModes: ["streaming"],
+      languages: [
+        "zh-cn",
+        "en",
+        "ja",
+        "es-mx",
+        "id",
+        "pt-br",
+        "pt",
+        "ko",
+        "it",
+        "de",
+        "fr",
+        "th",
+        "vi",
+        "ru",
+        "fil",
+        "ms",
+        "ar",
+        "pl",
+        "tr",
+        "sv",
+        "nl",
+        "no",
+        "uk",
+        "fi",
+        "da",
+        "cs",
+        "hu",
+        "el",
+        "ro",
+        "hi",
+        "es-es",
+      ],
+      formats: ["mp3", "ogg_opus"],
+      sampleRatesByFormat: {
+        mp3: [8000, 16000, 22050, 24000, 32000, 44100, 48000],
+        ogg_opus: [48000],
+      },
+      supportsSpeaker: true,
+      supportsPitch: true,
+      supportsVolume: true,
+      supportsStyle: true,
+      supportsSSML: true,
+      supportsSpeechOptions: true,
+      subtitleLanguages: ["zh-cn", "en"],
+      maxTextCharacters: 10_000,
+      supportsVoiceClone: false,
+      supportsAlignment: true,
+    },
+  },
 ];
 
 export class VolcengineTtsProvider implements AudioProviderAdapter {
@@ -83,50 +145,12 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
         503,
       );
     const voiceId = input.voiceId?.trim() || this.configuredVoiceId()?.trim();
-    validateSpeech(input, voiceId);
+    validateSpeech(input, model, voiceId);
     if (references.length || input.references?.length)
       throw new AudioGenerationError(
         "Choose Seed Audio to use image or audio references",
         400,
       );
-    validateControl(input.pitch, -12, 12, "Pitch");
-    validateControl(input.volume, -50, 100, "Volume");
-    if (
-      input.subtitles &&
-      input.language &&
-      !["zh-cn", "en"].includes(input.language)
-    )
-      throw new AudioGenerationError(
-        "TTS subtitles support Chinese and English only",
-        400,
-      );
-    if (input.voiceKind === "cloned" && input.style)
-      throw new AudioGenerationError(
-        "Voice instructions are unavailable for cloned voices",
-        400,
-      );
-    if (input.voiceModel && input.voiceKind !== "cloned")
-      throw new AudioGenerationError(
-        "A voice model can only be selected for cloned voices",
-        400,
-      );
-    if (input.ssml && input.pronunciation?.length)
-      throw new AudioGenerationError(
-        "Use SSML or a pronunciation dictionary separately",
-        400,
-      );
-    if (
-      input.output?.bitRate !== undefined &&
-      ![16000, 32000, 64000, 160000].includes(input.output.bitRate)
-    )
-      throw new AudioGenerationError("Unsupported audio bit rate", 400);
-    if (
-      input.language &&
-      !VOLCENGINE_TTS_MODELS[0]!.capabilities.languages!.includes(
-        input.language,
-      )
-    )
-      throw new AudioGenerationError("Unsupported speech language", 400);
     const requestId = randomUUID();
     const format = input.output?.format ?? "mp3";
     const sampleRate =
@@ -138,39 +162,17 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
     if (input.dialect) additions.explicit_dialect = input.dialect;
     if (input.pitch !== undefined)
       additions.post_process = { pitch: input.pitch };
-    if (input.silenceMs !== undefined) {
-      validateControl(input.silenceMs, 0, 30000, "Trailing silence");
+    if (input.silenceMs !== undefined)
       additions.silence_duration = input.silenceMs;
-    }
     if (input.sectionId) additions.section_id = input.sectionId;
+    // SSML is only parsed while the Markdown filter is off.
     if (input.ssml) additions.disable_markdown_filter = false;
-    if (input.pronunciation?.length) {
-      const words = new Set<string>();
-      if (input.pronunciation.length > 5000)
-        throw new AudioGenerationError(
-          "Pronunciation dictionary is too large",
-          400,
-        );
-      for (const entry of input.pronunciation) {
-        if (
-          !entry.word ||
-          entry.word.length > 9 ||
-          /[\s/]/.test(entry.word) ||
-          !entry.replacement ||
-          words.has(entry.word)
-        )
-          throw new AudioGenerationError(
-            "Invalid or duplicate pronunciation entry",
-            400,
-          );
-        words.add(entry.word);
-      }
+    if (input.pronunciation?.length)
       additions.pronunciation_dict = {
         tone: input.pronunciation.map(
           (entry) => `${entry.word}/${entry.replacement}`,
         ),
       };
-    }
     if (input.output?.bitRate !== undefined && input.output.bitRate < 64000)
       additions.disable_default_bit_rate = true;
     const requestSignal = audioRequestSignal(signal);
@@ -258,74 +260,17 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
   }
 }
 
-function model(id: string, name: string): AudioModel {
-  return {
-    provider: PROVIDER_ID,
-    providerName: DOUBAO_SPEECH_PROVIDER_NAME,
-    id,
-    name,
-    protocol: "volcengine-tts-v3",
-    capabilities: {
-      operations: ["speech"],
-      executionModes: ["streaming"],
-      languages: [
-        "zh-cn",
-        "en",
-        "ja",
-        "es-mx",
-        "id",
-        "pt-br",
-        "pt",
-        "ko",
-        "it",
-        "de",
-        "fr",
-        "th",
-        "vi",
-        "ru",
-        "fil",
-        "ms",
-        "ar",
-        "pl",
-        "tr",
-        "sv",
-        "nl",
-        "no",
-        "uk",
-        "fi",
-        "da",
-        "cs",
-        "hu",
-        "el",
-        "ro",
-        "hi",
-        "es-es",
-      ],
-      formats: ["mp3", "ogg_opus"],
-      sampleRatesByFormat: {
-        mp3: [8000, 16000, 22050, 24000, 32000, 44100, 48000],
-        ogg_opus: [48000],
-      },
-      supportsSpeaker: true,
-      supportsPitch: true,
-      supportsVolume: true,
-      supportsStyle: true,
-      supportsSSML: true,
-      subtitleLanguages: ["zh-cn", "en"],
-      sampleRates: [8_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000],
-      maxTextCharacters: 10_000,
-      supportsVoiceClone: false,
-      supportsAlignment: true,
-    },
-  };
-}
-
-function validateSpeech(input: SpeechAudioRequest, voiceId?: string): void {
+function validateSpeech(
+  input: SpeechAudioRequest,
+  model: AudioModel,
+  voiceId?: string,
+): void {
+  const caps = model.capabilities;
   if (!input.text?.trim())
     throw new AudioGenerationError("Speech text must not be empty", 400);
-  if (input.text.length > 10_000)
+  if (input.text.length > caps.maxTextCharacters!)
     throw new AudioGenerationError(
-      "Speech text must be 10,000 characters or fewer",
+      `Speech text must be ${caps.maxTextCharacters!.toLocaleString("en")} characters or fewer`,
       400,
     );
   if (
@@ -337,36 +282,22 @@ function validateSpeech(input: SpeechAudioRequest, voiceId?: string): void {
       "Choose a Volcengine Speaker ID or configure a default voice",
       400,
     );
-  if (
-    input.speed !== undefined &&
-    (!Number.isFinite(input.speed) || input.speed < -50 || input.speed > 100)
-  )
+  validateControl(input.speed, -50, 100, "Speech rate");
+  validateControl(input.pitch, -12, 12, "Pitch");
+  validateControl(input.volume, -50, 100, "Volume");
+  validateControl(input.silenceMs, 0, 30000, "Trailing silence");
+  const format = input.output?.format ?? "mp3";
+  if (!caps.formats.includes(format))
     throw new AudioGenerationError(
-      "Speech rate must be between -50 and 100",
+      `${DOUBAO_SPEECH_PROVIDER_NAME} supports MP3 or Ogg Opus output`,
       400,
     );
-  if (
-    input.output?.format !== undefined &&
-    !["mp3", "ogg_opus"].includes(input.output.format)
-  )
-    throw new AudioGenerationError(
-      "Volcengine streaming TTS currently uses MP3 output",
-      400,
-    );
-  if (
-    input.output?.format === "ogg_opus" &&
-    input.output.sampleRate !== undefined &&
-    input.output.sampleRate !== 48000
-  )
-    throw new AudioGenerationError("Opus requires 48000 Hz", 400);
   if (
     input.output?.sampleRate !== undefined &&
-    ![8_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000].includes(
-      input.output.sampleRate,
-    )
+    !caps.sampleRatesByFormat?.[format]?.includes(input.output.sampleRate)
   )
     throw new AudioGenerationError(
-      `Unsupported ${DOUBAO_SPEECH_PROVIDER_NAME} sample rate`,
+      `Unsupported ${DOUBAO_SPEECH_PROVIDER_NAME} format or sample rate`,
       400,
     );
   if (input.output?.channels !== undefined && input.output.channels !== 1)
@@ -374,11 +305,85 @@ function validateSpeech(input: SpeechAudioRequest, voiceId?: string): void {
       `${DOUBAO_SPEECH_PROVIDER_NAME} currently returns mono audio`,
       400,
     );
+  if (
+    input.output?.bitRate !== undefined &&
+    !BIT_RATES.includes(input.output.bitRate)
+  )
+    throw new AudioGenerationError("Unsupported audio bit rate", 400);
+  if (input.language && !caps.languages!.includes(input.language))
+    throw new AudioGenerationError("Unsupported speech language", 400);
+  if (
+    input.subtitles &&
+    input.language &&
+    !caps.subtitleLanguages!.includes(input.language)
+  )
+    throw new AudioGenerationError(
+      "TTS subtitles support Chinese and English only",
+      400,
+    );
+  // Custom and cloned Speaker IDs are not in the catalog, so only known presets are checked.
+  const preset =
+    input.voiceKind === "cloned" ? undefined : findVolcengineTtsVoice(voiceId);
+  if (input.voiceKind === "cloned" && input.style)
+    throw new AudioGenerationError(
+      "Voice instructions are unavailable for cloned voices",
+      400,
+    );
+  if (preset?.noInstructions && input.style)
+    throw new AudioGenerationError(
+      `${preset.name} does not follow voice instructions`,
+      400,
+    );
+  if (input.voiceModel && input.voiceKind !== "cloned")
+    throw new AudioGenerationError(
+      "A voice model can only be selected for cloned voices",
+      400,
+    );
+  if (
+    input.dialect &&
+    !(DOUBAO_TTS_DIALECTS as readonly string[]).includes(input.dialect)
+  )
+    throw new AudioGenerationError("Unsupported dialect", 400);
+  if (input.dialect && preset && !preset.dialects)
+    throw new AudioGenerationError(
+      `${preset.name} does not support dialects`,
+      400,
+    );
+  if (input.ssml && input.pronunciation?.length)
+    throw new AudioGenerationError(
+      "Use SSML or a pronunciation dictionary separately",
+      400,
+    );
+  if (input.ssml && preset && !["zh-cn", "en"].includes(preset.language))
+    throw new AudioGenerationError(
+      "SSML is available for Chinese and English voices only",
+      400,
+    );
+  if (input.pronunciation?.length) {
+    const words = new Set<string>();
+    if (input.pronunciation.length > 5000)
+      throw new AudioGenerationError(
+        "Pronunciation dictionary is too large",
+        400,
+      );
+    for (const entry of input.pronunciation) {
+      if (
+        !entry.word ||
+        entry.word.length > 9 ||
+        /[\s/]/.test(entry.word) ||
+        !entry.replacement ||
+        words.has(entry.word)
+      )
+        throw new AudioGenerationError(
+          "Invalid or duplicate pronunciation entry",
+          400,
+        );
+      words.add(entry.word);
+    }
+  }
 }
 
-async function parseChunkedResponse(
-  response: Response,
-): Promise<{
+async function parseChunkedResponse(response: Response): Promise<{
   bytes: Uint8Array;
   usageCharacters?: number;
   sentences: AudioSentence[];
@@ -411,13 +416,13 @@ async function parseChunkedResponse(
     const code = Number(value.code ?? 0);
     // Volcengine streams data chunks with code 0 and finishes with a final
     // event carrying code 20000000 ("OK") plus usage stats; both are success.
-    if (code !== 0 && code !== 20_000_000)
-      throw new AudioGenerationError(
+    if (code !== 0 && code !== 20_000_000) {
+      const message =
         typeof value.message === "string" && value.message
           ? value.message
-          : `${DOUBAO_SPEECH_PROVIDER_NAME} failed with code ${code}`,
-        providerStatus(code),
-      );
+          : `${DOUBAO_SPEECH_PROVIDER_NAME} failed with code ${code}`;
+      throw new AudioGenerationError(message, doubaoErrorStatus(code, message));
+    }
     if (typeof value.data === "string" && value.data) {
       const bytes = decodeAudioBase64(value.data);
       totalBytes += bytes.length;
@@ -482,8 +487,4 @@ async function parseChunkedResponse(
     sentences,
     ...(usageCharacters !== undefined ? { usageCharacters } : {}),
   };
-}
-
-function providerStatus(code: number): number {
-  return code === 45_000_010 || code === 45_000_011 ? 429 : 502;
 }

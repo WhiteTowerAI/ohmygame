@@ -18,7 +18,7 @@ import { PLAYABLE_PRESET_IDS, PLAYABLE_PRESETS } from "./playable-presets.js";
 import { checkCanvasWorkspace } from "./canvas-check.js";
 import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
-import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings } from "../shared/audio.js";
+import { AUDIO_REFERENCE_ID_PATTERN, AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
@@ -91,7 +91,7 @@ const audioToolSettings = {
   pronunciation: Type.Optional(Type.Array(Type.Object({ word: Type.String({ minLength: 1, maxLength: 9 }), replacement: Type.String({ minLength: 1, maxLength: 200 }) }), { maxItems: 5000 })),
   silenceMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 30000 })),
   sectionId: Type.Optional(Type.String({ maxLength: 120 })),
-  references: Type.Optional(Type.Array(Type.Object({ id: Type.String({ pattern: "^(Audio|Image)[1-9][0-9]*$" }), type: Type.Union([Type.Literal("audio"), Type.Literal("image")]), assetId: Type.String({ minLength: 1, maxLength: 120 }) }), { maxItems: 3, description: "Up to 3 audio references (each <=30 seconds and 10 MB), or 1 image (<=10 MB). Do not mix with a Speaker ID. Mention stable audio IDs as @Audio1 etc." })),
+  references: Type.Optional(Type.Array(Type.Object({ id: Type.String({ pattern: AUDIO_REFERENCE_ID_PATTERN }), type: Type.Union([Type.Literal("audio"), Type.Literal("image")]), assetId: Type.String({ minLength: 1, maxLength: 120 }) }), { maxItems: 3, description: "Up to 3 audio references (each <=30 seconds and 10 MB) including an optional Speaker ID, or 1 image (<=10 MB) without audio or a Speaker ID. Mention stable audio IDs as @Audio1 etc." })),
   output: Type.Optional(Type.Object({ format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav"), Type.Literal("ogg_opus")])), sampleRate: Type.Optional(Type.Union([8000, 16000, 22050, 24000, 32000, 40000, 44100, 48000].map((value) => Type.Literal(value)))), bitRate: Type.Optional(Type.Integer()) })),
 };
 

@@ -15,6 +15,7 @@ import {
 import {
   audioRequestSignal,
   decodeAudioBase64,
+  doubaoErrorStatus,
   inspectAudio,
   readAudioJson,
   seedSubtitles,
@@ -27,6 +28,7 @@ const DEFAULT_ENDPOINT = "https://openspeech.bytedance.com/api/v3/tts/create";
 const PROVIDER_ID = "volcengine-seed-audio";
 const MODEL_ID = "seed-audio-1.0";
 const MAX_PROMPT_CHARACTERS = 3000;
+const MAX_REFERENCE_BYTES = 10 * 1024 * 1024;
 // A fixed public budget leaves room for the operation and timing instructions.
 const INSTRUCTION_BUDGET = 256;
 const SAMPLE_RATES = [8000, 16000, 24000, 32000, 40000, 44100, 48000] as const;
@@ -61,7 +63,6 @@ export const VOLCENGINE_SEED_AUDIO_MODELS: readonly AudioModel[] = [
         "tr",
       ],
       formats: ["mp3", "wav", "ogg_opus"],
-      sampleRates: [...SAMPLE_RATES],
       sampleRatesByFormat: {
         wav: [...SAMPLE_RATES],
         mp3: [8000, 16000, 24000, 32000, 44100, 48000],
@@ -83,7 +84,7 @@ export const VOLCENGINE_SEED_AUDIO_MODELS: readonly AudioModel[] = [
       supportsStyle: true,
       maxReferenceAudio: 3,
       maxReferenceImages: 1,
-      maxReferenceBytes: 10 * 1024 * 1024,
+      maxReferenceBytes: MAX_REFERENCE_BYTES,
       maxReferenceSeconds: 30,
       referenceModesExclusive: true,
       supportsNegativePrompt: false,
@@ -120,7 +121,8 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
         "Use audio-scene for prompted dialogue",
         400,
       );
-    const model = VOLCENGINE_SEED_AUDIO_MODELS[0]!;
+    const model = VOLCENGINE_SEED_AUDIO_MODELS[0]!,
+      caps = model.capabilities;
     if (input.model?.provider !== PROVIDER_ID || input.model.id !== MODEL_ID)
       throw new AudioGenerationError(
         "The selected Seed Audio model is unavailable",
@@ -132,9 +134,9 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
     const prompt = input.operation === "speech" ? input.text : input.prompt;
     if (!prompt?.trim())
       throw new AudioGenerationError("Audio prompt must not be empty", 400);
-    if (prompt.length > model.capabilities.maxTextCharacters!)
+    if (prompt.length > caps.maxTextCharacters!)
       throw new AudioGenerationError(
-        `Seed Audio prompt must be ${model.capabilities.maxTextCharacters} characters or fewer, including linked text`,
+        `Seed Audio prompt must be ${caps.maxTextCharacters} characters or fewer, including linked text`,
         400,
       );
     if (
@@ -142,10 +144,10 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
       input.durationSeconds !== undefined &&
       (!Number.isFinite(input.durationSeconds) ||
         input.durationSeconds <= 0 ||
-        input.durationSeconds > 120)
+        input.durationSeconds > caps.maxDurationSeconds!)
     )
       throw new AudioGenerationError(
-        "Seed Audio target duration must be greater than 0 and no more than 120 seconds",
+        `Seed Audio target duration must be greater than 0 and no more than ${caps.maxDurationSeconds} seconds`,
         400,
       );
     if ("loop" in input && input.loop)
@@ -190,7 +192,7 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
     validateControl(input.volume, -50, 100, "Volume");
     const format = input.output?.format ?? "mp3",
       sampleRate = input.output?.sampleRate ?? 48000;
-    if (!model.capabilities.sampleRatesByFormat?.[format]?.includes(sampleRate))
+    if (!caps.sampleRatesByFormat?.[format]?.includes(sampleRate))
       throw new AudioGenerationError(
         "Unsupported Seed Audio format or sample rate",
         400,
@@ -218,14 +220,14 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
       );
     const images = references.filter((reference) => reference.type === "image"),
       audios = references.filter((reference) => reference.type === "audio");
+    // A Speaker ID is sent as one more audio-side reference; images stand alone.
     if (
-      images.length > 1 ||
-      audios.length > 3 ||
-      (images.length && (audios.length || input.voiceId)) ||
-      (audios.length && input.voiceId)
+      images.length > caps.maxReferenceImages! ||
+      audios.length + (input.voiceId ? 1 : 0) > caps.maxReferenceAudio! ||
+      (images.length && (audios.length || input.voiceId))
     )
       throw new AudioGenerationError(
-        "Use up to three audio references, one image, or a Speaker ID as separate reference modes",
+        `Use one image, or up to ${caps.maxReferenceAudio} audio references including an optional Speaker ID`,
         400,
       );
     const providerReferences: Array<{
@@ -236,10 +238,10 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
       references.map(async (reference) => {
         if (
           !reference.bytes.length ||
-          reference.bytes.length > 10 * 1024 * 1024
+          reference.bytes.length > caps.maxReferenceBytes!
         )
           throw new AudioGenerationError(
-            "Each reference must be no more than 10 MB",
+            `Each reference must be no more than ${caps.maxReferenceBytes! / 1024 / 1024} MB`,
             400,
           );
         if (reference.type === "image") {
@@ -266,9 +268,9 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
             "Reference audio must be WAV, MP3 or Ogg Opus; convert this file first",
             400,
           );
-        if (info.durationMs > 30000)
+        if (info.durationMs > caps.maxReferenceSeconds! * 1000)
           throw new AudioGenerationError(
-            "Reference audio must be 30 seconds or shorter; select a shorter clip",
+            `Reference audio must be ${caps.maxReferenceSeconds} seconds or shorter; select a shorter clip`,
             400,
           );
         return { audio_data: Buffer.from(reference.bytes).toString("base64") };
@@ -332,19 +334,16 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
       if (!response.ok) throw await audioHttpError(response, this.name);
       const result = await readAudioJson(response);
       const code = Number(result.code ?? 0);
-      if (!response.ok || (code !== 0 && code !== 20000000))
-        throw new AudioGenerationError(
+      if (code !== 0 && code !== 20000000) {
+        const message =
           typeof result.message === "string"
             ? result.message
-            : `Seed Audio request failed (${response.status})`,
-          response.status === 429
-            ? 429
-            : response.status === 401 || response.status === 403
-              ? 503
-              : response.status >= 500 || code >= 50000000
-                ? 502
-                : 400,
+            : `Seed Audio request failed with code ${code}`;
+        throw new AudioGenerationError(
+          message,
+          doubaoErrorStatus(code, message),
         );
+      }
       if (typeof result.audio !== "string")
         throw new AudioGenerationError("Seed Audio returned no audio", 502);
       const bytes = decodeAudioBase64(result.audio);

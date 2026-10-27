@@ -104,25 +104,32 @@ describe("Volcengine TTS provider", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 400 });
 
-    const failed = new VolcengineTtsProvider(
-      () => "key",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(
-          new Response(
-            `${JSON.stringify({ code: 45000010, message: "Too many requests" })}\n`,
-            { status: 200 },
+    // Official codes: 4xxxxxxx are request errors, 5xxxxxxx service errors; some causes are only in the message.
+    for (const [code, message, statusCode] of [
+      [45000000, "quota exceeded for types: concurrency", 429],
+      [40402003, "TTSExceededTextLimit:exceed max limit", 400],
+      [55000000, "resource ID is mismatched with speaker related resource", 503],
+      [55000000, "Request timeout: synthesis processing timeout", 502],
+    ] as const) {
+      const failed = new VolcengineTtsProvider(
+        () => "key",
+        vi
+          .fn<typeof fetch>()
+          .mockResolvedValue(
+            new Response(`${JSON.stringify({ code, message })}\n`, {
+              status: 200,
+            }),
           ),
-        ),
-    );
-    await expect(
-      failed.generate({
-        operation: "speech",
-        text: "hello",
-        model: MODEL,
-        voiceId: "voice",
-      }),
-    ).rejects.toMatchObject({ statusCode: 429, message: "Too many requests" });
+      );
+      await expect(
+        failed.generate({
+          operation: "speech",
+          text: "hello",
+          model: MODEL,
+          voiceId: "voice",
+        }),
+      ).rejects.toMatchObject({ statusCode, message });
+    }
   });
 
   it("uses the configured default Speaker ID when a request omits one", async () => {
@@ -174,6 +181,15 @@ describe("TTS voice controls and persistent subtitles", () => {
     expect(JSON.parse(String(request.mock.calls[0]![1]!.body)).req_params.model).toBe("seed-tts-2.0-expressive");
     await expect(provider.generate({ operation: "speech", model: MODEL, text: "Hello", voiceId: "S_existing", voiceKind: "cloned", style: "whisper" })).rejects.toMatchObject({ statusCode: 400 });
     expect(request).toHaveBeenCalledTimes(1);
+  });
+  it("checks dialects, voice instructions and SSML against the selected preset voice", async () => {
+    const request = vi.fn<typeof fetch>();
+    const provider = new VolcengineTtsProvider(() => "key", request);
+    const speech = { operation: "speech", model: MODEL, text: "Hello" } as const;
+    await expect(provider.generate({ ...speech, voiceId: "zh_female_sophie_uranus_bigtts", dialect: "sichuan" })).rejects.toThrow("does not support dialects");
+    await expect(provider.generate({ ...speech, voiceId: "en_male_ryan_uranus_bigtts", style: "whisper" })).rejects.toThrow("does not follow voice instructions");
+    await expect(provider.generate({ ...speech, voiceId: "ja_male_bv524_uranus_bigtts", ssml: "<speak>Hello</speak>" })).rejects.toThrow("Chinese and English voices");
+    expect(request).not.toHaveBeenCalled();
   });
   it("rejects non-audio and noncanonical Base64, even when the stream claims success", async () => {
     for (const data of [Buffer.from("not-audio").toString("base64"), "SGVsbG8=$garbage", "@@@@"]) {

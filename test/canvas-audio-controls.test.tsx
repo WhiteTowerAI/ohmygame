@@ -188,6 +188,27 @@ it("blocks mixed modes and resolves stable reference aliases after reordering", 
       model,
     ),
   ).toBeTruthy();
+  const audio = (id: string) => ({
+    id,
+    type: "audio" as const,
+    source: { type: "library" as const, assetId: id },
+  });
+  // A Speaker ID takes one of the three audio slots.
+  expect(
+    audioSettingsIssue(
+      { voiceId: "voice", audioReferences: [audio("Audio1"), audio("Audio2")] },
+      model,
+    ),
+  ).toBeUndefined();
+  expect(
+    audioSettingsIssue(
+      {
+        voiceId: "voice",
+        audioReferences: [audio("Audio1"), audio("Audio2"), audio("Audio3")],
+      },
+      model,
+    ),
+  ).toBeTruthy();
   expect(
     resolveAudioMentions("@Audio1 then @Audio2", [
       { id: "Audio2", type: "audio" },

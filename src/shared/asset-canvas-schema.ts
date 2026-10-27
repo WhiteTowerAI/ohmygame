@@ -6,7 +6,7 @@ import {
   VIDEO_ASPECT_RATIOS,
   VIDEO_RESOLUTIONS,
 } from "./contracts.js";
-import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "./audio.js";
+import { AUDIO_REFERENCE_ID_PATTERN, AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "./audio.js";
 import { AUDIO_SETTINGS_PROPERTIES } from "./audio-schema.js";
 import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
@@ -60,7 +60,7 @@ const model3DOptions = { type: "object", additionalProperties: false, properties
 } } as const;
 const audioProperties = { ...AUDIO_SETTINGS_PROPERTIES, audioReferenceSerial: { type: "integer", minimum: 0 }, audioReferences: { type: "array", maxItems: 3, items: {
   type: "object", additionalProperties: false, required: ["id", "type", "source"], properties: {
-    id: { ...id, pattern: "^(Audio|Image)[1-9][0-9]*$" }, type: { enum: ["audio", "image"] }, source: reference,
+    id: { ...id, pattern: AUDIO_REFERENCE_ID_PATTERN }, type: { enum: ["audio", "image"] }, source: reference,
   },
 } } } as const;
 const nodes = [

@@ -7,17 +7,25 @@ provider-neutral settings and asset references.
 
 ## Providers and connection settings
 
-**Settings → Providers & Models → Doubao Voice** connects both services with one
-API key. The Speech synthesis and Audio generation tabs retain separate enable
-states, tests, and optional credential overrides. The header's delete button and
-enable switch act on the selected service, matching other provider details.
-Switching tabs dismisses a pending deletion confirmation. Existing independent keys
-are preserved when they differ. Saving a shared key explicitly replaces both
-service selections; disconnecting one service keeps the other connected.
-Credentials are stored locally with restricted file permissions and never
-returned by settings or catalog endpoints.
+**Settings → Providers & Models → Doubao Voice** is one provider page with one
+shared API key. The Speech synthesis and Audio generation tabs below the key
+keep separate enable states, previews, model lists, and an optional per-service
+key under **Advanced**. The header's delete button and enable switch act on the
+selected service, matching other provider details. Switching tabs dismisses a
+pending deletion confirmation. Saving the shared key replaces any per-service
+keys; disconnecting one service keeps the other connected. The speech tab also
+holds the default voice.
+
+Both services are stored in `doubao-voice.json` in the daemon's settings
+directory with restricted file permissions; keys are never returned by settings
+or catalog endpoints. On first load, the earlier `volcengine-tts.json` and
+`volcengine-seed-audio.json` files are migrated (equal keys become the shared
+key, different keys stay per service, and the default voice is kept) and then
+removed.
 
 The internal provider IDs remain `volcengine-tts` and `volcengine-seed-audio`.
+Models are fixed by the official resource IDs and model names; Volcengine has no
+model-list API for these services.
 Existing nodes, model references, and service-specific settings endpoints stay
 compatible. A saved key means configured; it does not verify service entitlement
 or quota. Preview actions make a real, potentially billable generation request.
@@ -50,7 +58,11 @@ service is disconnected. Text and Document nodes can supply prompt content.
 - ordered reference media from uploads, the Library, or connected image/audio
   generation nodes that already have an output.
 
-Speaker ID appears when a custom or cloned voice is selected. Less frequently
+Preset voices are grouped by language. A preset with an official sample shows a
+play button that streams Volcengine's hosted clip, which uses no quota. Dialect
+appears only for voices that support it, and delivery style is hidden for
+presets that do not accept voice instructions. Speaker ID appears when a custom
+or cloned voice is selected. Less frequently
 used TTS controls are grouped under **Speech options**; reference actions remain
 on each media card. Unsupported combinations are reported when selected.
 
@@ -80,10 +92,10 @@ Seed Audio supports these separate input modes:
 | Image | One PNG, JPEG, or WebP at most 10 MB                                         |
 | Voice | A preset TTS 2.0 Speaker ID or an existing cloned Speaker ID                 |
 
-Images cannot be combined with audio references or a Speaker ID. The application
-also keeps audio-reference and Speaker-ID modes separate until their mixed
-numbering has been validated against real responses. It does not infer a
-three-speaker limit from the three-uploaded-audio limit.
+An image stands alone: it cannot be combined with audio references or a Speaker
+ID. A Speaker ID can be combined with audio references and takes one of the
+three reference slots. The daemon, canvas, and agent tools read these limits
+from the model capabilities.
 
 Each canvas reference has a stable `AudioN`/`ImageN` alias and a node or Library
 source. Prompts use `@AudioN`; the daemon maps aliases to the actual ordered
@@ -101,13 +113,14 @@ or expiring URLs. Submitted tasks resolve node references to fixed assets.
 
 ## Provider translation
 
-The authoritative contracts are the official [Seed Audio HTTP API](https://docs.volcengine.com/docs/DoubaoVoice/audio-generation-http?lang=zh)
-and [TTS HTTP API](https://docs.volcengine.com/docs/DoubaoVoice/unidirectional-streaming-text-to-speech-http?lang=zh).
+The authoritative contracts are the official [Seed Audio HTTP API](https://docs.volcengine.com/docs/doubao-voice/audio-generation-http)
+and [TTS HTTP API](https://docs.volcengine.com/docs/doubao-voice/unidirectional-streaming-text-to-speech-http).
 
 Seed Audio uses `POST /api/v3/tts/create`, `X-Api-Key`, and `seed-audio-1.0`.
 `pitch`, `volume`, `speed`, and `subtitles` map to `audio_config.pitch_rate`,
 `loudness_rate`, `speech_rate`, and `enable_subtitle`. A Speaker ID becomes a
 `references[].speaker` entry. Reference images/audio become Base64 entries.
+Requests enable the optional `watermark.aigc_metadata` AIGC label.
 The model's user prompt limit reserves 256 characters for generated instructions:
 2744 user characters, with a final check of the complete 3000-character request.
 Linked text and delivery instructions also count toward the request limit.
@@ -119,7 +132,27 @@ voices. Creating/training a new voice is a separate workflow.
 TTS pitch maps to `additions.post_process.pitch`, whereas volume and speed map
 to `audio_params`. `additions` is serialized JSON. Language and dialect hints
 must match an eligible voice. SSML and pronunciation correction are separate
-modes; dictionary entries use `word/replacement`, one per line.
+modes; dictionary entries use `word/replacement`, one per line. SSML is limited
+to Chinese and English voices; dialects to voices that list them.
+
+Provider errors are classified by their code and message: concurrency or quota
+limits return 429, missing entitlement or a resource/voice mismatch returns 503,
+other `4xxxxxxx` codes return 400, and the rest return 502.
+
+### Voice catalog
+
+`src/shared/doubao-voices.ts` lists the TTS 2.0 preset voices with their
+language, dialect and voice-instruction support, and official sample URL. It is
+generated by `scripts/sync-doubao-voices.ts` from the OpenAPI `ListSpeakers`
+action, which needs a Volcengine AccessKey rather than the speech API key:
+
+```bash
+VOLCENGINE_ACCESS_KEY_ID=... VOLCENGINE_SECRET_ACCESS_KEY=... bun run voices:doubao
+```
+
+The script keeps existing order and capability flags, refreshes names and
+sample URLs, and appends new voices. Dialect and instruction support are not
+returned by the API and follow the published voice list.
 
 Pitch is an integer from -12 to 12. Speech rate and volume are integers from -50
 to 100 in provider-relative units; volume is not dB. Zero preserves the default.
@@ -165,8 +198,11 @@ A generation with no spoken text can validly return no subtitles.
 - `GET /audio-models/catalog` — live models, capabilities, and provider states;
 - `GET /settings/models/providers/doubao-voice` — shared connection state, no key;
 - `PUT /settings/models/providers/doubao-voice` — set `{ "apiKey": "..." }` for both services;
-- service-specific GET/PUT/DELETE endpoints remain available at
-  `/settings/models/providers/volcengine-tts` and `volcengine-seed-audio`;
+- service-specific GET/PUT endpoints remain at
+  `/settings/models/providers/volcengine-tts` (key and `defaultVoiceId`) and
+  `volcengine-seed-audio`; a PUT key there overrides the shared key for that service;
+- `DELETE /settings/models/providers/<provider-id>` disconnects one service, as
+  for other providers;
 - `POST /settings/models/providers/volcengine-tts/preview` — a short speech test;
 - `POST /settings/models/providers/volcengine-seed-audio/preview` — a short effect test;
 - `POST /tools/<tool-id>/jobs` — enqueue one of the tools above;

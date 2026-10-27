@@ -1,8 +1,10 @@
 import {
   AUDIO_OUTPUT_FORMATS,
+  AUDIO_REFERENCE_ID_PATTERN,
   AUDIO_SAMPLE_RATES,
   AUDIO_VOICE_ID_MAX_LENGTH,
   AUDIO_VOICE_ID_PATTERN,
+  DOUBAO_TTS_DIALECTS,
 } from "./audio.js";
 
 const text = { type: "string", minLength: 1, maxLength: 120 } as const;
@@ -17,18 +19,7 @@ export const AUDIO_SETTINGS_PROPERTIES = {
   voiceModel: { enum: ["standard", "expressive"] },
   language: { type: "string", minLength: 1, maxLength: 40 },
   autoLanguage: { type: "boolean" },
-  dialect: {
-    enum: [
-      "beijing",
-      "dongbei",
-      "henan",
-      "shaanxi",
-      "shanghai",
-      "sichuan",
-      "tianjin",
-      "yue",
-    ],
-  },
+  dialect: { enum: DOUBAO_TTS_DIALECTS },
   style: { type: "string", maxLength: 2000 },
   speed: { type: "integer", minimum: -50, maximum: 100 },
   pitch: { type: "integer", minimum: -12, maximum: 12 },
@@ -71,7 +62,7 @@ export const AUDIO_REFERENCE_SCHEMA = {
   additionalProperties: false,
   required: ["id", "type", "assetId"],
   properties: {
-    id: { ...text, pattern: "^(Audio|Image)[1-9][0-9]*$" },
+    id: { ...text, pattern: AUDIO_REFERENCE_ID_PATTERN },
     type: { enum: ["audio", "image"] },
     assetId: text,
   },

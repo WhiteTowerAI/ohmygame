@@ -28,15 +28,16 @@ import {
   updateSeedanceApiKey,
   updateVolcengineTtsApiKey,
   updateVolcengineSeedAudioApiKey,
-  getVolcengineTtsSettings,
   saveVolcengineTtsDefaultVoiceId,
   previewVolcengineTtsSpeech,
   listVideoModelCatalog,
   listAudioModelCatalog,
   loginAgentRuntime,
   recheckCodexImages,
+  type DoubaoVoiceConnection,
 } from "./api.js";
-import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, VOLCENGINE_TTS_VOICES, type AudioModel } from "../shared/audio.js";
+import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, DOUBAO_VOICE_PROVIDER_NAME, findVolcengineTtsVoice, type AudioModel } from "../shared/audio.js";
+import { DoubaoVoiceOptions, DoubaoVoiceSample } from "./doubao-voices.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { CustomProviderDialog, PROVIDER_API_LABELS, type CustomProviderField } from "./custom-provider-dialog.js";
 import { ProviderModels } from "./provider-models.js";
@@ -253,8 +254,7 @@ export function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }
   if (provider.id === "meshy" || provider.id === "tripo") return <Native3DProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (MINIMAX_PROVIDER_IDS.has(provider.id)) return <MinimaxAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
-  if (provider.id === "volcengine-tts") return <DoubaoVoiceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
-  if (provider.id === "volcengine-seed-audio") return <VolcengineSeedAudioAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
+  if (provider.id === "volcengine-tts" || provider.id === "volcengine-seed-audio") return <DoubaoVoiceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
   if (provider.configured || provider.id === "openai") return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
@@ -372,7 +372,7 @@ function FreeCloudAccount({ provider, refreshing, onRefresh }: { provider?: Prov
     <section className="settings-detail-section provider-models" aria-label={t("providers.quota.title")}>
       <div className="provider-models-heading">
         <h4>{t("providers.quota.title")}</h4>
-        {userId ? <button type="button" className="icon-button settings-provider-setting-edit" disabled={refreshing} onClick={onRefresh} aria-label={t("providers.quota.refresh")} data-tooltip={t("providers.quota.refresh")}><RefreshCw size={15} className={refreshing ? "spin" : undefined} aria-hidden="true" /></button> : null}
+        {userId ? <button type="button" className="settings-secondary-button settings-voice-sample" disabled={refreshing} onClick={onRefresh} aria-label={t("providers.quota.refresh")} data-tooltip={t("providers.quota.refresh")}><RefreshCw size={15} className={refreshing ? "spin" : undefined} aria-hidden="true" /></button> : null}
       </div>
       {quota ? <CloudQuotaDetails quota={quota} /> : <p className="settings-detail-hint" role="status">{needsSignIn ? t("providers.quota.signIn") : refreshing ? t("providers.quota.checking") : cloudQuotaSummary(cloud)}</p>}
       {quota && cloud?.availability !== "ready" ? <p className="settings-detail-hint" role="status">{cloud?.availability === "personal_exhausted" ? t("providers.quota.exhausted") : cloudQuotaSummary(cloud)}</p> : null}
@@ -517,188 +517,94 @@ function MinimaxAuthView({ provider, onBack, onCompleted }: { provider: Provider
   );
 }
 
-function DoubaoVoiceAuthView({
-  provider,
-  onBack,
-  onCompleted,
-}: {
-  provider: ProviderSummary;
-  onBack: () => void;
-  onCompleted: () => void;
-}) {
-  const [services, setServices] = useState<ProviderSummary[]>([]),
-    [distinct, setDistinct] = useState(false);
-  const [service, setService] = useState("volcengine-tts"),
-    [apiKey, setApiKey] = useState("");
-  const [busy, setBusy] = useState(false),
-    [error, setError] = useState<string>();
+type DoubaoService = "volcengine-tts" | "volcengine-seed-audio";
+
+/** One connection for both Doubao services; actions in the header follow the selected service. */
+function DoubaoVoiceAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  const [service, setService] = useState<DoubaoService>(provider.id === "volcengine-seed-audio" ? "volcengine-seed-audio" : "volcengine-tts");
+  const [services, setServices] = useState<ProviderSummary[]>([]);
+  const [connection, setConnection] = useState<DoubaoVoiceConnection>();
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
   const [revision, setRevision] = useState(0);
-  const deletion = useProviderDeletion(service, () =>
-    setRevision((value) => value + 1),
-  );
+  const refresh = () => setRevision((value) => value + 1);
+  const deletion = useProviderDeletion(service, () => { refresh(); onCompleted(); });
   useEffect(() => {
     let active = true;
-    void Promise.all([listProviders(), getDoubaoVoiceSettings()])
-      .then(([items, connection]) => {
-        if (active) {
-          setServices(
-            items.filter(
-              (item) =>
-                item.id === "volcengine-tts" ||
-                item.id === "volcengine-seed-audio",
-            ),
-          );
-          setDistinct(connection.distinctKeys);
-        }
-      })
-      .catch((cause) => {
-        if (active) setError(errorMessage(cause));
-      });
-    return () => {
-      active = false;
-    };
+    void Promise.all([listProviders(), getDoubaoVoiceSettings()]).then(([items, settings]) => {
+      if (!active) return;
+      setServices(items.filter((item) => item.id === "volcengine-tts" || item.id === "volcengine-seed-audio"));
+      setConnection(settings);
+    }).catch((cause) => { if (active) setError(errorMessage(cause)); });
+    return () => { active = false; };
   }, [revision]);
-  const selected = services.find((item) => item.id === service);
-  async function save(event: FormEvent) {
+  async function save(event: FormEvent): Promise<void> {
     event.preventDefault();
-    setBusy(true);
+    setSaving(true);
     setError(undefined);
     try {
-      await updateDoubaoVoiceApiKey(apiKey);
+      await updateDoubaoVoiceApiKey(apiKey.trim());
       setApiKey("");
-      setRevision((value) => value + 1);
+      refresh();
       onCompleted();
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setBusy(false);
-    }
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
   }
+  const selected = services.find((item) => item.id === service);
+  const serviceName = (id: DoubaoService) => t(id === "volcengine-tts" ? "audioStudio.speechService" : "audioStudio.seedService");
+  const connected = Boolean(connection?.ttsConfigured || connection?.seedConfigured);
+  const name = DOUBAO_VOICE_PROVIDER_NAME;
   return (
     <section className="settings-panel settings-provider-detail">
-      <ProviderDetailHeader
-        provider={{ ...provider, name: "Doubao Voice" }}
-        description={null}
-        onBack={onBack}
-      >
-        {selected?.configured ? (
-          <>
-            <ProviderDeleteButton deletion={deletion} disabled={busy} />
-            <ProviderEnableControl
-              provider={selected}
-              label={t("providers.enableProvider", {
-                name: t(
-                  service === "volcengine-tts"
-                    ? "audioStudio.speechService"
-                    : "audioStudio.seedService",
-                ),
-              })}
-              disabled={busy || deletion.busy}
-              onChanged={() => setRevision((value) => value + 1)}
-            />
-          </>
-        ) : null}
+      <ProviderDetailHeader provider={{ ...provider, name }} description={t("providers.doubaoVoiceDescription")} onBack={onBack}>
+        {selected?.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} label={t("providers.removeService", { name: serviceName(service) })} /><ProviderEnableControl provider={selected} label={t("providers.enableProvider", { name: serviceName(service) })} disabled={deletion.busy} onChanged={refresh} /></> : null}
       </ProviderDetailHeader>
-      {selected?.configured ? (
-        <ProviderDeleteConfirmation
-          provider={selected}
-          deletion={deletion}
-          disabled={busy}
-        />
-      ) : null}
-      <form
-        className="settings-detail-field"
-        onSubmit={(event) => void save(event)}
-      >
-        <label
-          className="settings-search-field-label"
-          htmlFor="doubao-shared-key"
-        >
-          {t(distinct ? "audioStudio.replaceKeys" : "audioStudio.sharedKey")}
-        </label>
+      {selected ? <ProviderDeleteConfirmation provider={selected} deletion={deletion} disabled={saving} /> : null}
+      <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
+        <label className="settings-search-field-label" htmlFor="doubao-voice-api-key">{t("providers.apiKey")}</label>
         <div className="settings-detail-inline">
           <input
-            id="doubao-shared-key"
+            id="doubao-voice-api-key"
             className="settings-search-input"
             type="password"
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
-            disabled={busy}
+            placeholder={connected ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name })}
+            disabled={saving || deletion.busy}
           />
-          <button
-            className="settings-primary-button"
-            type="submit"
-            disabled={busy || !apiKey.trim()}
-          >
-            {busy ? t("common.saving") : t("common.save")}
+          <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>
+            {saving ? t("common.saving") : t("common.save")}
           </button>
         </div>
+        {connection?.distinctKeys ? <p className="settings-detail-hint">{t("providers.doubaoDistinctKeys")}</p> : null}
       </form>
-      {error || deletion.error ? (
-        <p className="settings-error" role="alert">
-          {deletion.error ?? error}
-        </p>
-      ) : null}
-      <div className="doubao-service-navigation">
-        <SegmentedControl
-          className="doubao-service-tabs"
-          label={t("capability.audio")}
-          value={service}
-          options={[
-            { value: "volcengine-tts", label: t("audioStudio.speechService") },
-            {
-              value: "volcengine-seed-audio",
-              label: t("audioStudio.seedService"),
-            },
-          ]}
-          onChange={setService}
-        />
-      </div>
-      {selected ? (
-        service === "volcengine-tts" ? (
-          <VolcengineTtsAuthView
-            key={`${service}-${revision}`}
-            provider={{ ...selected, name: t("audioStudio.speechService") }}
-            onBack={onBack}
-            onCompleted={() => setRevision((value) => value + 1)}
-            embedded
-          />
-        ) : (
-          <VolcengineSeedAudioAuthView
-            key={`${service}-${revision}`}
-            provider={selected}
-            onBack={onBack}
-            onCompleted={() => setRevision((value) => value + 1)}
-            embedded
-          />
-        )
-      ) : null}
+      {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
+      <SegmentedControl
+        className="settings-provider-filters"
+        label={t("providers.doubaoServices")}
+        value={service}
+        options={(["volcengine-tts", "volcengine-seed-audio"] as const).map((value) => ({ value, label: serviceName(value) }))}
+        onChange={setService}
+      />
+      {selected ? <DoubaoServiceSettings key={`${service}-${revision}`} provider={selected} defaultVoiceId={connection?.defaultVoiceId} onChanged={refresh} /> : null}
     </section>
   );
 }
 
-function VolcengineTtsAuthView({ provider, onBack, onCompleted, embedded = false }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void; embedded?: boolean }) {
-  const deletion = useProviderDeletion(provider.id, onCompleted);
+function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChanged }: { provider: ProviderSummary; defaultVoiceId?: string; onChanged: () => void }) {
+  const speech = provider.id === "volcengine-tts";
   const [apiKey, setApiKey] = useState("");
   const [keyError, setKeyError] = useState<string>();
   const [savingKey, setSavingKey] = useState(false);
-  const [defaultVoiceId, setDefaultVoiceId] = useState("");
+  const [defaultVoiceId, setDefaultVoiceId] = useState(savedVoiceId ?? "");
   const [customVoice, setCustomVoice] = useState(false);
   const [voiceError, setVoiceError] = useState<string>();
   const [savingVoice, setSavingVoice] = useState(false);
-  const [modelsRevision, setModelsRevision] = useState(0);
-  const [previewText, setPreviewText] = useState(t("providers.previewSampleText"));
+  const [previewText, setPreviewText] = useState(speech ? t("providers.previewSampleText") : t("providers.seedPreviewSamplePrompt"));
   const [previewUrl, setPreviewUrl] = useState<string>();
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewError, setPreviewError] = useState<string>();
-
-  useEffect(() => {
-    let active = true;
-    void getVolcengineTtsSettings().then((settings) => {
-      if (active) setDefaultVoiceId(settings.defaultVoiceId ?? "");
-    }).catch(() => undefined);
-    return () => { active = false; };
-  }, []);
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   async function saveKey(event: FormEvent): Promise<void> {
@@ -706,9 +612,9 @@ function VolcengineTtsAuthView({ provider, onBack, onCompleted, embedded = false
     setSavingKey(true);
     setKeyError(undefined);
     try {
-      await updateVolcengineTtsApiKey(apiKey.trim());
+      await (speech ? updateVolcengineTtsApiKey : updateVolcengineSeedAudioApiKey)(apiKey.trim());
       setApiKey("");
-      onCompleted();
+      onChanged();
     } catch (cause) { setKeyError(errorMessage(cause)); }
     finally { setSavingKey(false); }
   }
@@ -719,7 +625,6 @@ function VolcengineTtsAuthView({ provider, onBack, onCompleted, embedded = false
     try {
       const settings = await saveVolcengineTtsDefaultVoiceId(defaultVoiceId.trim() || null);
       setDefaultVoiceId(settings.defaultVoiceId ?? "");
-      setModelsRevision((value) => value + 1);
     } catch (cause) { setVoiceError(errorMessage(cause)); }
     finally { setSavingVoice(false); }
   }
@@ -728,99 +633,65 @@ function VolcengineTtsAuthView({ provider, onBack, onCompleted, embedded = false
     setPreviewBusy(true);
     setPreviewError(undefined);
     try {
-      const blob = await previewVolcengineTtsSpeech({
-        text: previewText.trim(),
-        ...(defaultVoiceId.trim() ? { voiceId: defaultVoiceId.trim() } : {}),
-      });
+      const blob = speech
+        ? await previewVolcengineTtsSpeech({ text: previewText.trim(), ...(defaultVoiceId.trim() ? { voiceId: defaultVoiceId.trim() } : {}) })
+        : await previewSeedAudio(previewText.trim());
       setPreviewUrl(URL.createObjectURL(blob));
     } catch (cause) { setPreviewError(errorMessage(cause)); }
     finally { setPreviewBusy(false); }
   }
 
-  const voiceGroups = [
-    { language: "zh-cn" as const, label: t("providers.chineseVoices") },
-    { language: "en" as const, label: t("providers.englishVoices") },
-  ];
-  const knownVoice = VOLCENGINE_TTS_VOICES.some((voice) => voice.id === defaultVoiceId);
-  const usesCustomVoice = customVoice || !knownVoice;
-  const inputId = "volcengine-tts-api-key";
+  const usesCustomVoice = customVoice || (Boolean(defaultVoiceId) && !findVolcengineTtsVoice(defaultVoiceId));
+  const keyId = `${provider.id}-api-key`;
   return (
-    <section className="settings-panel settings-provider-detail">
-      {!embedded ? <ProviderDetailHeader provider={provider} description={t("providers.audioDescription")} onBack={onBack}>
-        {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={savingKey} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
-      </ProviderDetailHeader> : null}
-      {!embedded && provider.configured ? <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={savingKey} /> : null}
-      <details className="doubao-service-credentials" open={!embedded}><summary>{t("audioStudio.serviceOverride")}</summary>
-      <form className="settings-detail-field" onSubmit={(event) => void saveKey(event)}>
-        <label className="settings-search-field-label" htmlFor={inputId}>{t("providers.apiKey")}</label>
-        <div className="settings-detail-inline">
-          <input
-            id={inputId}
-            className="settings-search-input"
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })}
-            disabled={savingKey || deletion.busy}
-          />
-          <button className="settings-primary-button" type="submit" disabled={savingKey || deletion.busy || !apiKey.trim()}>
-            {savingKey ? t("common.saving") : t("common.save")}
-          </button>
-        </div>
-      </form>
-      </details>
-      {keyError ? <p className="settings-error" role="alert">{keyError}</p> : null}
-      {provider.configured ? (
+    <>
+      {provider.configured && speech ? (
         <form className="settings-detail-field" onSubmit={(event) => void saveVoice(event)}>
           <label className="settings-search-field-label" htmlFor="volcengine-tts-voice-select">{t("providers.defaultVoiceId")}</label>
           <div className="settings-detail-inline">
-          <select
-            id="volcengine-tts-voice-select"
-            className="settings-search-input"
-            value={usesCustomVoice ? "" : defaultVoiceId}
-            onChange={(event) => { setCustomVoice(!event.target.value); setDefaultVoiceId(event.target.value); }}
-            disabled={savingVoice || deletion.busy}
-          >
-            <option value="">{t("providers.voiceSelectCustom")}</option>
-            {voiceGroups.map((group) => (
-              <optgroup key={group.language} label={group.label}>
-                {VOLCENGINE_TTS_VOICES.filter((voice) => voice.language === group.language).map((voice) => (
-                  <option key={voice.id} value={voice.id} title={voice.id}>{voice.name}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-            <button className="settings-primary-button" type="submit" disabled={savingVoice || deletion.busy}>
+            <select
+              id="volcengine-tts-voice-select"
+              className="settings-search-input"
+              value={usesCustomVoice ? "__custom" : defaultVoiceId}
+              onChange={(event) => { const custom = event.target.value === "__custom"; setCustomVoice(custom); setDefaultVoiceId(custom ? "" : event.target.value); }}
+              disabled={savingVoice}
+            >
+              <option value="">{t("providers.voiceNone")}</option>
+              <DoubaoVoiceOptions />
+              <option value="__custom">{t("providers.voiceSelectCustom")}</option>
+            </select>
+            {usesCustomVoice ? null : <DoubaoVoiceSample voiceId={defaultVoiceId} className="settings-secondary-button settings-voice-sample" />}
+            <button className="settings-primary-button" type="submit" disabled={savingVoice}>
               {savingVoice ? t("common.saving") : t("common.save")}
             </button>
           </div>
           {usesCustomVoice ? <input
-              id="volcengine-tts-voice-id"
-              aria-label={t("providers.voiceIdInputLabel")}
-              className="settings-search-input"
-              value={defaultVoiceId}
-              onChange={(event) => setDefaultVoiceId(event.target.value)}
-              maxLength={AUDIO_VOICE_ID_MAX_LENGTH}
-              pattern={AUDIO_VOICE_ID_PATTERN}
-              placeholder={t("providers.defaultVoiceIdPlaceholder")}
-              disabled={savingVoice || deletion.busy}
-            /> : null}
+            id="volcengine-tts-voice-id"
+            aria-label={t("providers.voiceIdInputLabel")}
+            className="settings-search-input"
+            value={defaultVoiceId}
+            onChange={(event) => setDefaultVoiceId(event.target.value)}
+            maxLength={AUDIO_VOICE_ID_MAX_LENGTH}
+            pattern={AUDIO_VOICE_ID_PATTERN}
+            placeholder={t("providers.defaultVoiceIdPlaceholder")}
+            disabled={savingVoice}
+          /> : null}
           {voiceError ? <p className="settings-error" role="alert">{voiceError}</p> : null}
         </form>
       ) : null}
       {provider.configured ? (
-        <section className="settings-detail-section" aria-label={t("providers.previewTitle")}>
+        <section className="settings-detail-field" aria-label={t("providers.previewTitle")}>
+          <label className="settings-search-field-label" htmlFor={`${provider.id}-preview`}>{speech ? t("providers.previewTextLabel") : t("providers.seedPreviewPromptLabel")}</label>
           <div className="settings-detail-inline">
             <input
-              id="volcengine-tts-preview-text"
-              aria-label={t("providers.previewTextLabel")}
+              id={`${provider.id}-preview`}
               className="settings-search-input"
               value={previewText}
               onChange={(event) => setPreviewText(event.target.value)}
               maxLength={500}
               disabled={previewBusy}
             />
-            <button className="settings-primary-button" type="button" title={t("providers.previewHint")} disabled={previewBusy || !previewText.trim() || provider.enabled === false} onClick={() => void runPreview()}>
+            <button className="settings-primary-button" type="button" title={speech ? t("providers.previewHint") : t("providers.seedPreviewHint")} disabled={previewBusy || !previewText.trim() || provider.enabled === false} onClick={() => void runPreview()}>
               {previewBusy ? <span className="settings-loading-inline"><LoaderCircle className="spin" size={14} />{t("common.loading")}</span> : t("providers.previewAction")}
             </button>
           </div>
@@ -828,67 +699,28 @@ function VolcengineTtsAuthView({ provider, onBack, onCompleted, embedded = false
           {previewError ? <p className="settings-error" role="alert">{previewError}</p> : null}
         </section>
       ) : null}
-      {provider.configured ? <AudioModels key={`audio-${modelsRevision}`} providerId={provider.id} /> : null}
-    </section>
-  );
-}
-
-function VolcengineSeedAudioAuthView({ provider, onBack, onCompleted, embedded = false }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void; embedded?: boolean }) {
-  const deletion = useProviderDeletion(provider.id, onCompleted);
-  const [apiKey, setApiKey] = useState("");
-  const [error, setError] = useState<string>();
-  const [saving, setSaving] = useState(false);
-  const [modelsRevision, setModelsRevision] = useState(0);
-  const [previewUrl, setPreviewUrl] = useState<string>(), [previewBusy, setPreviewBusy] = useState(false);
-  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
-  async function preview() {
-    setPreviewBusy(true); setError(undefined);
-    try { setPreviewUrl(URL.createObjectURL(await previewSeedAudio())); }
-    catch (cause) { setError(errorMessage(cause)); } finally { setPreviewBusy(false); }
-  }
-
-  async function save(event: FormEvent): Promise<void> {
-    event.preventDefault();
-    setSaving(true);
-    setError(undefined);
-    try {
-      await updateVolcengineSeedAudioApiKey(apiKey.trim());
-      setApiKey("");
-      onCompleted();
-    } catch (cause) { setError(errorMessage(cause)); }
-    finally { setSaving(false); }
-  }
-
-  const inputId = "volcengine-seed-audio-api-key";
-  return (
-    <section className="settings-panel settings-provider-detail">
-      {!embedded ? <ProviderDetailHeader provider={provider} description={t("providers.seedAudioDescription")} onBack={onBack}>
-        {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
-      </ProviderDetailHeader> : null}
-      {!embedded && provider.configured ? <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} /> : null}
-      <details className="doubao-service-credentials" open={!embedded}><summary>{t("audioStudio.serviceOverride")}</summary>
-      <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
-        <label className="settings-search-field-label" htmlFor={inputId}>{t("providers.apiKey")}</label>
-        <div className="settings-detail-inline">
-          <input
-            id={inputId}
-            className="settings-search-input"
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })}
-            disabled={saving || deletion.busy}
-          />
-          <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>
-            {saving ? t("common.saving") : t("common.save")}
-          </button>
-        </div>
-      </form>
-      </details>
-      {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
-      {provider.configured ? <section className="doubao-service-preview"><button className="settings-primary-button" type="button" title={t("audioStudio.seedTestHint")} disabled={previewBusy || provider.enabled === false} onClick={() => void preview()}>{previewBusy ? t("common.loading") : t("audioStudio.seedTest")}</button>{previewUrl ? <audio className="settings-audio-preview" controls src={previewUrl} /> : null}</section> : null}
-      {provider.configured ? <AudioModels key={`seed-audio-${modelsRevision}`} providerId={provider.id} /> : null}
-    </section>
+      <ProviderAdvanced defaultOpen={false}>
+        <form className="settings-detail-field" onSubmit={(event) => void saveKey(event)}>
+          <label className="settings-search-field-label" htmlFor={keyId}>{t("providers.serviceApiKey")}</label>
+          <div className="settings-detail-inline">
+            <input
+              id={keyId}
+              className="settings-search-input"
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder={t("providers.serviceApiKeyPlaceholder")}
+              disabled={savingKey}
+            />
+            <button className="settings-primary-button" type="submit" disabled={savingKey || !apiKey.trim()}>
+              {savingKey ? t("common.saving") : t("common.save")}
+            </button>
+          </div>
+          {keyError ? <p className="settings-error" role="alert">{keyError}</p> : null}
+        </form>
+      </ProviderAdvanced>
+      {provider.configured ? <AudioModels providerId={provider.id} /> : null}
+    </>
   );
 }
 
@@ -913,7 +745,7 @@ function AudioModels({ providerId }: { providerId: string }) {
   return (
     <section className="settings-detail-section provider-models" aria-label={t("providers.audioModels")}>
       <div className="provider-models-heading">
-        <h4>{t("providers.audioModels")}</h4>
+        <h4>{t("providers.audioModels")} <small>{models?.length ?? ""}</small></h4>
       </div>
       {error ? <p className="settings-error" role="alert">{error}</p> : null}
       {models ? (
@@ -922,7 +754,8 @@ function AudioModels({ providerId }: { providerId: string }) {
             <div className="provider-model-row" key={model.id} role="listitem">
               <div className="provider-model-readonly">
                 <span className="provider-model-copy">
-                  <strong title={model.id}>{model.name}</strong>
+                  <strong title={model.name}>{model.name}</strong>
+                  <small title={model.id}>{model.id}</small>
                 </span>
               </div>
             </div>
@@ -1031,8 +864,8 @@ function useProviderDeletion(providerId: string, onRemoved?: () => void) {
   return { confirming, setConfirming, busy, error, remove };
 }
 
-function ProviderAdvanced({ children }: { children: ReactNode }) {
-  return <details className="settings-provider-advanced" open>
+function ProviderAdvanced({ children, defaultOpen = true }: { children: ReactNode; defaultOpen?: boolean }) {
+  return <details className="settings-provider-advanced" open={defaultOpen}>
     <summary>{t("common.advanced")}<ChevronDown size={12} aria-hidden="true" /></summary>
     <div className="settings-provider-advanced-body">{children}</div>
   </details>;
@@ -1105,7 +938,7 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
       {fields.map(({ field, label, value }) => <div className="settings-provider-setting-row" key={field}>
         <span className="settings-search-field-label">{label}</span>
         <span className="settings-provider-setting-value" title={field === "apiKey" ? undefined : value}>{value}</span>
-        <button className="icon-button settings-provider-setting-edit" type="button" aria-label={t("providers.edit", { label })} data-tooltip={t("providers.edit", { label })} disabled={deleting || openingEditor || Boolean(editing)} onClick={() => void openEditor(field)}><Pencil size={15} aria-hidden="true" /></button>
+        <button className="settings-secondary-button settings-voice-sample" type="button" aria-label={t("providers.edit", { label })} data-tooltip={t("providers.edit", { label })} disabled={deleting || openingEditor || Boolean(editing)} onClick={() => void openEditor(field)}><Pencil size={15} aria-hidden="true" /></button>
       </div>)}
     </div> : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />{t("providers.loadingConfiguration")}</div> : null}
     {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
@@ -1280,7 +1113,7 @@ function ConnectedProvider({ provider, onBack, onRemoved }: { provider: Provider
           </div> : <div className="settings-provider-setting-row">
             <span className="settings-search-field-label">{t("providers.apiKey")}</span>
             <span className="settings-provider-setting-value" aria-label={t("providers.apiKeyConfigured")}>••••••••</span>
-            {canEditKey ? <button className="icon-button settings-provider-setting-edit" type="button" aria-label={t("providers.editApiKey")} data-tooltip={t("providers.editApiKey")} aria-expanded={editing === "api_key"} disabled={Boolean(editing) || deletion.busy} onClick={() => edit("api_key")}><Pencil size={15} aria-hidden="true" /></button> : <span />}
+            {canEditKey ? <button className="settings-secondary-button settings-voice-sample" type="button" aria-label={t("providers.editApiKey")} data-tooltip={t("providers.editApiKey")} aria-expanded={editing === "api_key"} disabled={Boolean(editing) || deletion.busy} onClick={() => edit("api_key")}><Pencil size={15} aria-hidden="true" /></button> : <span />}
           </div>}
           {authEditor}
         </div>
@@ -1294,7 +1127,7 @@ function ConnectedProvider({ provider, onBack, onRemoved }: { provider: Provider
           <div className="settings-provider-setting-row">
             <span className="settings-search-field-label">{t("providers.baseUrl")}</span>
             <span className="settings-provider-setting-value" title={endpoint.savedBaseUrl}>{endpoint.loading ? t("common.loading") : endpoint.savedBaseUrl || t("providers.unavailable")}</span>
-            <button className="icon-button settings-provider-setting-edit" type="button" aria-label={t("providers.editBaseUrl")} data-tooltip={t("providers.editBaseUrl")} aria-expanded={editing === "endpoint"} disabled={Boolean(editing) || endpoint.loading || deletion.busy} onClick={() => edit("endpoint")}><Pencil size={15} aria-hidden="true" /></button>
+            <button className="settings-secondary-button settings-voice-sample" type="button" aria-label={t("providers.editBaseUrl")} data-tooltip={t("providers.editBaseUrl")} aria-expanded={editing === "endpoint"} disabled={Boolean(editing) || endpoint.loading || deletion.busy} onClick={() => edit("endpoint")}><Pencil size={15} aria-hidden="true" /></button>
           </div>
           {editing === "endpoint" ? <form className="settings-provider-setting-editor settings-detail-section" onSubmit={(event) => void saveEndpoint(event)}>
             <BaseUrlField endpoint={endpoint} />
@@ -1395,14 +1228,14 @@ export function ActiveProviderAuth({ provider, method, inline = false, onBack, o
   );
 }
 
-function ProviderDetailHeader({ provider, onBack, children, description }: { provider: ModelProviderSummary; onBack: () => void; children?: ReactNode; description?: string | null }) {
+function ProviderDetailHeader({ provider, onBack, children, description }: { provider: ModelProviderSummary; onBack: () => void; children?: ReactNode; description?: string }) {
   return (
     <header className="settings-provider-detail-header">
       <button className="icon-button settings-provider-back" type="button" onClick={onBack} aria-label={t("common.back")}><ArrowLeft size={16} /></button>
       <ProviderMark provider={provider} />
       <span className="settings-provider-heading">
         <h3>{provider.name}</h3>
-        {description !== null ? <small>{description ?? providerDescription(provider)}</small> : null}
+        <small>{description ?? providerDescription(provider)}</small>
       </span>
       {children}
     </header>

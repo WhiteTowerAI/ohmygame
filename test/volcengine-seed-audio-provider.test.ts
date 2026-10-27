@@ -222,7 +222,7 @@ describe("Seed Audio creative workflows", () => {
     expect(generated.metadata).toMatchObject({ durationMs: 1000, originalDurationMs: 1200 });
     expect(generated.subtitles?.sentences[0]).toMatchObject({ startMs: 100, endMs: 700, words: [{ text: "Hello", startMs: 100, endMs: 700 }] });
   });
-  it("accepts a single image or an existing Speaker ID as independent modes", async () => {
+  it("accepts a single image, an existing Speaker ID, or audio references with a Speaker ID", async () => {
     const request = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ audio: MP3.toString("base64") })));
     const provider = new VolcengineSeedAudioProvider(() => "key", request);
     const image = { id: "Image1", type: "image" as const, assetId: "portrait" };
@@ -230,11 +230,17 @@ describe("Seed Audio creative workflows", () => {
     expect(JSON.parse(String(request.mock.calls[0]![1]!.body)).references[0].image_data).toBeTruthy();
     await provider.generate({ operation: "speech", text: "Hello", model: MODEL, voiceId: "S_existing_voice" });
     expect(JSON.parse(String(request.mock.calls[1]![1]!.body)).references).toEqual([{ speaker: "S_existing_voice" }]);
+    const reference = references[0]!;
+    await provider.generate({ operation: "audio-scene", prompt: "@Audio2 in the rain", model: MODEL, voiceId: "S_existing_voice", references: [reference] }, undefined, [reference]);
+    expect(JSON.parse(String(request.mock.calls[2]![1]!.body)).references).toEqual([{ audio_data: expect.any(String) }, { speaker: "S_existing_voice" }]);
   });
   it("rejects mixed modes, long references and stale aliases before calling the provider", async () => {
     const request = vi.fn<typeof fetch>(), provider = new VolcengineSeedAudioProvider(() => "key", request);
     const reference = references[0]!;
-    await expect(provider.generate({ operation: "audio-scene", prompt: "rain", model: MODEL, voiceId: "voice", references: [reference] }, undefined, [reference])).rejects.toMatchObject({ statusCode: 400 });
+    const image = { id: "Image1", type: "image" as const, assetId: "portrait", bytes: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRk0AAAAASUVORK5CYII=", "base64"), mediaType: "image/png" };
+    await expect(provider.generate({ operation: "audio-scene", prompt: "rain", model: MODEL, voiceId: "voice", references: [image] }, undefined, [image])).rejects.toThrow("one image");
+    const three = [1, 2, 3].map((n) => ({ ...reference, id: `Audio${n}`, assetId: `clip-${n}` }));
+    await expect(provider.generate({ operation: "audio-scene", prompt: "rain", model: MODEL, voiceId: "voice", references: three }, undefined, three)).rejects.toThrow("including an optional Speaker ID");
     await expect(provider.generate({ operation: "audio-scene", prompt: "rain", model: MODEL, references: [reference] }, undefined, [{ ...reference, bytes: wavFixture(31) }])).rejects.toThrow("30 seconds");
     await expect(provider.generate({ operation: "audio-scene", prompt: "use @Audio3", model: MODEL })).rejects.toThrow("missing reference");
     expect(request).not.toHaveBeenCalled();

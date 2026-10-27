@@ -39,8 +39,10 @@ const audioProviders: ProviderSummary[] = [
 ];
 const api = {
   listProviders: vi.fn(async () => audioProviders),
-  getDoubaoVoiceSettings: vi.fn(async () => ({ distinctKeys: false })),
-  getVolcengineTtsSettings: vi.fn(async () => ({
+  getDoubaoVoiceSettings: vi.fn(async () => ({
+    ttsConfigured: true,
+    seedConfigured: true,
+    distinctKeys: false,
     defaultVoiceId: "zh_female_vv_uranus_bigtts",
   })),
   listAudioModelCatalog: vi.fn(async () => ({ models: [], providers: [] })),
@@ -168,8 +170,14 @@ it("keeps Doubao actions in the shared header and targets the selected service",
   expect(toggle().getAttribute("aria-label")).toBe("Enable Speech synthesis");
   expect(host.querySelectorAll(".settings-provider-delete")).toHaveLength(1);
   expect(
-    host.querySelector('.doubao-service-navigation [role="switch"]'),
+    host.querySelector('.settings-provider-filters [role="switch"]'),
   ).toBeNull();
+  // One panel like the other providers, with no nested service panels.
+  expect(host.querySelectorAll(".settings-panel")).toHaveLength(1);
+  expect(
+    host.querySelector<HTMLSelectElement>("#volcengine-tts-voice-select")!
+      .value,
+  ).toBe("zh_female_vv_uranus_bigtts");
   await act(async () => toggle().click());
   expect(api.setProviderEnabled).toHaveBeenCalledWith("volcengine-tts", false);
   await act(async () => remove().click());
