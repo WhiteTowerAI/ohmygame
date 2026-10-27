@@ -171,10 +171,6 @@ export interface AudioModel extends ModelRef {
   capabilities: AudioModelCapabilities;
 }
 
-export function availableAudioOperations(models: readonly AudioModel[]): Set<AudioOperation> {
-  return new Set(models.flatMap((model) => model.capabilities.operations));
-}
-
 export interface AudioProviderCatalogStatus {
   provider: string;
   name: string;

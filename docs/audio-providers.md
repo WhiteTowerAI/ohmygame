@@ -44,9 +44,11 @@ prompts, or precise lyric singing. Unsupported controls fail before generation.
 
 ## Asset Canvas
 
-Speech, Sound effect, Music, and Audio creation appear when a configured,
-enabled model supports the operation. Existing nodes remain readable after a
-service is disconnected. Text and Document nodes can supply prompt content.
+Speech, Sound effect, Music, and Audio creation are always offered, like Image
+and Video. Until a configured, enabled model supports the operation, the node
+shows that no audio model is available, and the Agent's audio tools report the
+same when called. Existing nodes remain readable after a service is
+disconnected. Text and Document nodes can supply prompt content.
 
 **Audio settings** exposes model-supported controls:
 

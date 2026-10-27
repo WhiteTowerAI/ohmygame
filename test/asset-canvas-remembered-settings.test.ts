@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ImageModel, VideoModel, Model3DModel } from "../src/shared/contracts.js";
 import type { AudioModel } from "../src/shared/audio.js";
-import { applyRememberedSettings, canvasNodeTypeAvailable, nodeGenerationSettings } from "../src/renderer/asset-canvas-workspace.js";
+import { applyRememberedSettings, nodeGenerationSettings } from "../src/renderer/asset-canvas-workspace.js";
 
 type FlowNode = Parameters<typeof applyRememberedSettings>[0];
 
@@ -21,16 +21,6 @@ function imageNode(data: FlowNode["data"] = {}): FlowNode {
 }
 
 describe("Asset Canvas remembered settings", () => {
-  it("offers audio node types only when a catalog model supports their operation", () => {
-    const none = new Set<"speech" | "sound-effect" | "music">();
-    const speech = new Set(["speech"] as const);
-    expect(canvasNodeTypeAvailable("image", none)).toBe(true);
-    expect(canvasNodeTypeAvailable("speech", none)).toBe(false);
-    expect(canvasNodeTypeAvailable("speech", speech)).toBe(true);
-    expect(canvasNodeTypeAvailable("sound-effect", speech)).toBe(false);
-    expect(canvasNodeTypeAvailable("music", speech)).toBe(false);
-  });
-
   it("remembers text reasoning and adjusts it when the model's supported levels change", () => {
     const model = { provider: "openai", id: "gpt-test", name: "GPT Test", providerName: "OpenAI", reasoningLevels: ["off", "high"] as const };
     const base: FlowNode = { id: "text-1", type: "text", position: { x: 0, y: 0 }, data: { text: "", instruction: "" } };

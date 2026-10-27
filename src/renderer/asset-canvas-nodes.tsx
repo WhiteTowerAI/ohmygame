@@ -355,11 +355,6 @@ export function audioOperationForNode(type: AssetCanvasNodeType): AudioOperation
   return undefined;
 }
 
-export function canvasNodeTypeAvailable(type: AssetCanvasNodeType, audioOperations: ReadonlySet<AudioOperation>): boolean {
-  const operation = audioOperationForNode(type);
-  return operation === undefined || audioOperations.has(operation);
-}
-
 export function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const auth = useAuth();
   const runtime = data.model3DRuntime;

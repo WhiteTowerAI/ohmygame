@@ -67,7 +67,7 @@ import {
   type VideoGenerationReference,
 } from "../shared/contracts.js";
 import { createAssetGenerationNode, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { audioCanvasSettings, audioSettings, availableAudioOperations, isAudioNodeType, type AudioCanvasSettings, type AudioModel, type AudioOperation, type AudioProviderCatalogStatus } from "../shared/audio.js";
+import { audioCanvasSettings, audioSettings, isAudioNodeType, type AudioCanvasSettings, type AudioModel, type AudioProviderCatalogStatus } from "../shared/audio.js";
 import type { AudioReferenceControls } from "./canvas-audio-controls.js";
 import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset, importCanvasFile, createCanvasImportFolder } from "./api.js";
 import { canvasAssetDownloadName, downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
@@ -98,8 +98,8 @@ import { t } from "./i18n.js";
 import { canvasImportKind, droppedFolders, isIgnoredImportPath, type DroppedFolder } from "./canvas-file-import.js";
 import { importCanvasCsv } from "../shared/canvas-table.js";
 import { type AssetCanvasFlowNode, errorMessage, type AssetCanvasFlowData, OUTPUT_HANDLE, titleCase, nodeModel3D, type Animate3DNodeRuntime, type AudioNodeRuntime, type MediaNodeRuntime, type ReferenceMediaNodeRuntime, type ImageNodeRuntime, type VideoNodeRuntime, sameImageModel, sameModel, type MediaReferenceView, nodeModel3DConfig, modelRef } from "./asset-canvas-flow.js";
-import { canvasNodeTypeAvailable, TextNode, ImageNode, VideoNode, SpeechNode, AudioSceneNode, SoundEffectNode, MusicNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, audioOperationForNode, FolderImportDialog } from "./asset-canvas-nodes.js";
-export { canvasHistoryKey, canvasNodeTypeAvailable } from "./asset-canvas-nodes.js";
+import { TextNode, ImageNode, VideoNode, SpeechNode, AudioSceneNode, SoundEffectNode, MusicNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, audioOperationForNode, FolderImportDialog } from "./asset-canvas-nodes.js";
+export { canvasHistoryKey } from "./asset-canvas-nodes.js";
 
 const ASSET_EDGE_PREFIX = "asset:";
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
@@ -149,20 +149,13 @@ function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasN
   return "action" in item;
 }
 
-function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables, audioOperations: ReadonlySet<AudioOperation>): CanvasNodeCreationGroup[] {
+function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables): CanvasNodeCreationGroup[] {
   const items: CanvasNodeCreationItem[] = [{ label: t("assetCanvas.node.document"), description: t("assetCanvas.node.markdown"), icon: FileText, action: { kind: "node", type: "document" } }];
   if (documents.documents.length) items.push({ label: t("assetCanvas.node.existingDocument"), description: t("assetCanvas.node.existingDocumentHint"), icon: FileText, children: documents.documents.map((document) => ({ label: document.title || t("canvasDocs.untitled"), description: t("assetCanvas.node.markdown"), icon: FileText, action: { kind: "node", type: "document", documentId: document.id } })) });
   items.push({ label: t("assetCanvas.node.table"), description: t("assetCanvas.node.tableHint"), icon: FileText, action: { kind: "node", type: "table" } });
   const existingTables = [...tables.storage.sessions.values()].filter((session) => !session.issue);
   if (existingTables.length) items.push({ label: t("assetCanvas.node.existingTable"), description: t("assetCanvas.node.existingTableHint"), icon: FileText, children: existingTables.map(({ local: table }) => ({ label: table.title || t("canvasTable.untitled"), description: t("assetCanvas.node.sharedTable"), icon: FileText, action: { kind: "node", type: "table", tableId: table.id } })) });
-  const assetGroups = BASE_CANVAS_NODE_CREATION_GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((item) => {
-      if (!isCanvasNodeCreationLeaf(item)) return true;
-      return canvasNodeTypeAvailable(item.action.type, audioOperations);
-    }),
-  }));
-  return [{ label: t("assetCanvas.group.documents"), items }, ...assetGroups];
+  return [{ label: t("assetCanvas.group.documents"), items }, ...BASE_CANVAS_NODE_CREATION_GROUPS];
 }
 
 const STORY_NODE_TYPES: NodeTypes = {
@@ -256,7 +249,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [imageProviders, setImageProviders] = useState<MediaProviderStatus[]>([]);
   const [videoProviders, setVideoProviders] = useState<MediaProviderStatus[]>([]);
   const [audioModels, setAudioModels] = useState<AudioModel[]>([]);
-  const audioOperations = useMemo(() => availableAudioOperations(audioModels), [audioModels]);
   const [audioProviders, setAudioProviders] = useState<AudioProviderCatalogStatus[]>([]);
   const [globalDefaultVideoModel, setDefaultVideoModel] = useState<ModelRef>();
   const [model3DModels, setModel3DModels] = useState<Model3DModel[]>([]);
@@ -1650,7 +1642,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               addControl={<AssetCanvasAddControl
                 project={project}
                 documents={documents} tables={tables}
-                audioOperations={audioOperations}
                 libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model")}
                 importing={importingAssets}
                 onAdd={addNode}
@@ -1704,7 +1695,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           ) : null}
           {canvasContextMenu ? <AssetCanvasContextMenu
             documents={documents} tables={tables}
-            audioOperations={audioOperations}
             onUseInDocument={contextMenuNode?.type === "text" && contextMenuNode.data.text ? () => documents.appendText(contextMenuNode.data.text!) : contextMenuNode?.data.assetId && (contextMenuNode.type === "image" || contextMenuNode.data.mediaType === "image") ? () => documents.appendImage(contextMenuNode.data.assetId!) : undefined}
             menu={canvasContextMenu}
             canUndo={canUndo}
@@ -1770,7 +1760,6 @@ function AssetCanvasAddControl({
   project,
   documents,
   tables,
-  audioOperations,
   libraryAssets,
   importing,
   onAdd,
@@ -1780,14 +1769,13 @@ function AssetCanvasAddControl({
   project: Pick<ProjectState, "id" | "name" | "type">;
   documents: CanvasDocuments;
   tables: CanvasTables;
-  audioOperations: ReadonlySet<AudioOperation>;
   libraryAssets: LibraryAsset[];
   importing: boolean;
   onAdd: (type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }, documentId?: string) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (files: File[], position: { x: number; y: number }) => void;
 }) {
-  const creationGroups = canvasCreationGroups(documents, tables, audioOperations);
+  const creationGroups = canvasCreationGroups(documents, tables);
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -1929,7 +1917,6 @@ function CanvasAssetViewer({ asset, name, onDownload, onSendToProject, onClose, 
 function AssetCanvasContextMenu({
   documents,
   tables,
-  audioOperations,
   onUseInDocument,
   menu,
   canUndo,
@@ -1957,7 +1944,6 @@ function AssetCanvasContextMenu({
 }: {
   documents: CanvasDocuments;
   tables: CanvasTables;
-  audioOperations: ReadonlySet<AudioOperation>;
   onUseInDocument?: () => void;
   menu: CanvasContextMenuState;
   canUndo: boolean;
@@ -1983,7 +1969,7 @@ function AssetCanvasContextMenu({
   onDelete: () => void;
   onDetails?: () => void;
 }) {
-  const creationGroups = canvasCreationGroups(documents, tables, audioOperations);
+  const creationGroups = canvasCreationGroups(documents, tables);
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
