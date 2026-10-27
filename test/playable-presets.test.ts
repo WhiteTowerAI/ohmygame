@@ -253,9 +253,10 @@ describe("addPlayableNode", () => {
 
     const { graph } = await readNodeCodebase(workspacePath);
     const { nodes } = graph;
-    expect(nodes.find((node) => node.id === "start")?.story).toBeUndefined();
-    expect(nodes.find((node) => node.id === "main-menu")?.story).toEqual({ hidden: true });
-    expect(nodes.find((node) => node.id === "story-map")?.story).toEqual({ hidden: true });
+    // The Story map leaves out the menu and itself by their default IDs, and lays the story out itself.
+    expect(await readFile(path.join(workspacePath, "nodes/story-map/node.js"), "utf8")).toContain('const OFF_MAP = new Set(["main-menu", "story-map"]);');
+    expect(await readFile(path.join(workspacePath, "nodes/story-map/layout.js"), "utf8")).toContain("export function layoutStory(");
+    expect(nodes.map((node) => node.id)).toContain("story-map");
     expect((await validatePlayableProject(workspacePath, "draft")).issues).toEqual([]);
     for (const id of PLAYABLE_PRESET_IDS) {
       const preset = playablePreset(id)!;

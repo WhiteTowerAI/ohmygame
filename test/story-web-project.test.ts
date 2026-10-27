@@ -7,6 +7,7 @@ import { addPlayableNode } from "../src/daemon/playable-add-node.js";
 import {
   AGENT_INSTRUCTIONS,
   createNodeCodebase,
+  openNodeCodebaseDetail,
   PROJECT_DOCUMENTATION,
   PROJECT_GUIDE_UPGRADES,
   readNodeCodebase,
@@ -163,6 +164,22 @@ describe("upgrading a sandboxed story", () => {
     await expect(buildPlayableProject(root, "draft")).resolves.toBeDefined();
   });
 
+  it("drops the Story map options Scenes no longer have when the runtime updates, so the story still opens", async () => {
+    const root = await workspace();
+    await createNodeCodebase(root, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
+    const graph = JSON.parse(await read(root, "graph.json"));
+    graph.nodes[0].story = { hidden: true, label: "Menu" };
+    await writeFile(path.join(root, "graph.json"), JSON.stringify(graph));
+    // As in a project whose runtime came from an earlier OhMyGame.
+    const old = await manifest(root);
+    await writeFile(path.join(root, STORY_WEB_MANIFEST), JSON.stringify({ ...old, version: "earlier" }));
+
+    const opened = await openNodeCodebaseDetail(root);
+
+    expect(opened.graph.nodes[0]).not.toHaveProperty("story");
+    expect(JSON.parse(await read(root, "graph.json")).nodes[0]).not.toHaveProperty("story");
+  });
+
   it("gives Scenes added to a web story browser imports", async () => {
     const root = await workspace();
     await createNodeCodebase(root, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
@@ -215,8 +232,8 @@ describe("project guides", () => {
   it("records the guides that ship now, so changing them keeps earlier copies upgradable", () => {
     // When this fails because a guide changed, add the old hash to PROJECT_GUIDE_UPGRADES, then record the new one here.
     expect({ agents: sha(AGENT_INSTRUCTIONS), readme: sha(PROJECT_DOCUMENTATION) }).toEqual({
-      agents: "1f2de44de2cc69a1d740b1152bad62060f3d8c8b511016dbb64f42e36c73e436",
-      readme: "cb267e6e75e349a899668e9b03ce37a9936e68f401f6bd8764223c3634d64b13",
+      agents: "94f6d304d6d40626a6a18661113ebe4bdc2674117ec19b0e4b28c26e9fbbb35b",
+      readme: "6ebb841a7c5c875dc4664bba88e13afff779bfb12c4360a7c73c73a912d70abf",
     });
     expect(PROJECT_GUIDE_UPGRADES["AGENTS.md"]).not.toContain(sha(AGENT_INSTRUCTIONS));
     expect(PROJECT_GUIDE_UPGRADES["README.md"]).not.toContain(sha(PROJECT_DOCUMENTATION));

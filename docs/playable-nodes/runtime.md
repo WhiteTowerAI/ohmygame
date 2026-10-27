@@ -12,7 +12,7 @@ The Runtime owns everything that must survive a node:
 - the save, save slots, and each Node's position;
 - music and sounds;
 - the player's preferences;
-- what the player has seen, for the Story Map;
+- what the player has seen, for a story map or anything else that shows progress;
 - node lifecycle and loading each node's files.
 
 Nodes own presentation and input. The Runtime never renders node content, and
@@ -141,18 +141,12 @@ graph and nodes; if they need repair, the editor reports it.
 A Signal may have `"role": "navigation"` when it is a way around the game,
 such as Home, rather than a step in the story. The editor names its target
 instead of drawing a line. Routing ignores it; the Runtime
-reads it only for the [save](#save-and-session) and the
-[Story Map](#story-map).
+reads it only for the [save](#save-and-session).
 
 A Signal may also have a `when`, one sentence saying when the node emits it,
 such as `"if trust is 3 or more"`, and the graph may have `variables`, a map
 from `initialState` keys to one-line descriptions. The Agent writes both and
 the editor displays them. They are never executed: the node's code decides.
-
-A node may have `story`, which says how it shows on the
-[Story Map](#story-map): `hidden` keeps it off the map, `ending` overrides
-the guess of whether it is an ending, and `label` is the name players see
-instead of its title. The Runtime reads it only to build the map.
 
 `viewport` is the fixed stage every node is laid out in, in
 CSS pixels. Players scale the whole stage to fit, keeping its ratio, so a node
@@ -518,7 +512,7 @@ other key, such as a text speed, belongs to the project. Settings are at most
 64 KiB of JSON, and settings that cannot be read start over. Hosts keep them
 beside what the player has seen (`<saveKey>:preferences`).
 
-## Story Map
+## What the player has seen
 
 Besides the save, the Runtime keeps what the player has **seen**: when
 each node was first entered and each edge first taken. It lasts across new
@@ -527,36 +521,23 @@ from the save; IDs no longer in the graph are ignored. Only play adds to it,
 not the `report` preview policy. Losing it never stops the game: a record
 that cannot be read starts over, and a failed write is reported once.
 
-`context.story.map()` returns the story laid out for a player to see, with
-what they have seen:
+`context.story.seen()` returns that record as it is:
 
 ```ts
-interface StoryMap {
-  nodes: { id: string; label: string; row: number; column: number; rowSize: number; ending: boolean; seen: boolean }[];
-  edges: { from: string; to: string; seen: boolean }[];
+interface Seen {
+  version: 1;
+  /** When each node was first entered, by node ID. */
+  nodes: Record<string, string>;
+  /** When each edge was first taken, by edge ID. */
+  edges: Record<string, string>;
 }
 ```
 
-The layout comes from the graph alone, never from editor positions, so it
-holds at any screen size and arranging the canvas does not change it:
-
-- A step in the story is a `replace` edge from a Signal that is not
-  navigation. A `push` target is on the map only when the story reaches it
-  some other way.
-- Nodes with `story.hidden` are left out, and the steps through them joined.
-  When the Entry Node is hidden, the map starts at the nodes it leads to.
-- Steps back to a node already above, such as a retry, are left out, so the
-  map reads downwards.
-- Each node sits one row below the lowest node that leads to it, and each
-  row is ordered by where those nodes sit. `column` counts from the left of
-  its row of `rowSize` nodes.
-- A node is an ending when `story.ending` says so, or else when every Signal
-  it declares is navigation.
-- An edge is seen when the first graph edge of its step was taken and its
-  target was seen.
-
-The Story map Template draws the map. Which Scenes it shows, locked or not,
-is its own code.
+The Runtime does not lay the story out. A story map is an ordinary Scene:
+the Story map Template reads `graph.json`, lays the story out in its own
+`layout.js`, and marks what `seen()` says the player reached. Which Scenes
+are off the map, their names, and which count as endings are constants in
+its `node.js`; see [authoring.md](authoring.md#story-map).
 
 `context.story.seenBefore` is `true` when the player entered the node before
 this visit, earlier in the same game or in another one. A node is marked seen
@@ -579,8 +560,8 @@ The Runtime accepts a navigation policy:
   with the edge it would follow, and the node stays mounted. `back()`,
   `restart()`, and `continue()` are reported the same way. Report kinds are
   `signal`, `back`, `restart`, and `continue`. Nothing it previews adds to
-  what the player has seen, `story.map()` shows every node and edge as
-  seen, so the author previews the whole map, and `story.seenBefore` is
+  what the player has seen, `story.seen()` gives every node and edge, so
+  the author previews a whole story map, and `story.seenBefore` is
   `false`, so a Scene previews as it first appears.
 
 The Workbench preview may also start with a **preview state**: `initialState`

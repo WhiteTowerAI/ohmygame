@@ -86,7 +86,33 @@ export async function installStoryRuntime(workspacePath: string): Promise<StoryR
     ...(pending.length ? { pending: { version, files: pending } } : {}),
   };
   await writeText(workspacePath, STORY_WEB_MANIFEST, `${JSON.stringify(next, null, 2)}\n`);
+  if (await dropStoryOptions(workspacePath)) written.push("graph.json");
   return { written: [...written, STORY_WEB_MANIFEST], pending };
+}
+
+/**
+ * Scenes once said how they showed on the Story map with a `story` field.
+ * The Story map Scene decides that in its own code now, and graph.json is
+ * refused while a Scene still has one, so a runtime update removes them.
+ */
+async function dropStoryOptions(workspacePath: string): Promise<boolean> {
+  const text = await readText(workspacePath, "graph.json");
+  if (text === undefined) return false;
+  let graph: { nodes?: unknown };
+  try {
+    graph = JSON.parse(text) as { nodes?: unknown };
+  } catch {
+    return false;
+  }
+  const hasStory = (node: unknown): node is { story: unknown } => typeof node === "object" && node !== null && "story" in node;
+  if (!Array.isArray(graph?.nodes) || !graph.nodes.some(hasStory)) return false;
+  graph.nodes = graph.nodes.map((node: unknown) => {
+    if (!hasStory(node)) return node;
+    const { story: _story, ...rest } = node;
+    return rest;
+  });
+  await writeText(workspacePath, "graph.json", `${JSON.stringify(graph, null, 2)}\n`);
+  return true;
 }
 
 /**

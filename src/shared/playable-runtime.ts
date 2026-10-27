@@ -22,12 +22,9 @@ import {
 } from "./playable-nodes.js";
 import {
   emptyPlayableSeen,
-  layoutPlayableStory,
   parsePlayableSeen,
-  playableStoryMap,
   type PlayableSeen,
-  type PlayableStoryLayout,
-} from "./playable-story-map.js";
+} from "./playable-seen.js";
 import {
   cloneJsonObject,
   createPlayableState,
@@ -317,7 +314,6 @@ export class NodeRuntime {
   #seen: PlayableSeen = emptyPlayableSeen();
   #seenQueue: Promise<void> = Promise.resolve();
   #seenSaveFailed = false;
-  #storyLayout?: PlayableStoryLayout;
   #positions: PlayablePositions = NO_POSITIONS;
   #music?: string;
   /** Slots as stored, including ones this version cannot load. */
@@ -767,11 +763,14 @@ export class NodeRuntime {
         deleteSlot: this.#guardAsync(token, (id: string) => this.#deleteSlot(token, id)),
       },
       story: {
-        map: this.#guard(token, () => {
+        seen: this.#guard(token, () => {
           this.#assertSurfaceActive(token);
-          this.#storyLayout ??= layoutPlayableStory(this.#graph);
-          // A preview shows the author the whole map, not one player's progress.
-          return playableStoryMap(this.#storyLayout, this.#policy === "report" ? "all" : this.#seen);
+          // A preview shows the author everything, not one player's progress.
+          if (this.#policy === "report") {
+            const all = (ids: string[]) => Object.fromEntries(ids.map((id) => [id, ""]));
+            return { version: 1, nodes: all(this.#graph.nodes.map((node) => node.id)), edges: all(this.#graph.edges.map((edge) => edge.id)) };
+          }
+          return structuredClone(this.#seen);
         }),
       },
       lifecycle: { signal: abortController.signal },

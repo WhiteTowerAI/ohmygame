@@ -2762,11 +2762,6 @@ const zhCN: typeof en = {
     copyScene: "复制场景",
     startScene: "起始场景",
     setStart: "设为起始场景",
-    onMapTitle:
-      "玩家会在故事地图上看到这个场景。菜单等不属于故事步骤的场景可以关闭它。",
-    onMap: "显示在故事地图",
-    endingTitle: "故事地图会把这个场景算作一个结局",
-    ending: "结局",
     templateHint: "选一个起点，然后在聊天中描述这个场景。",
   },
   nodeWorkbench: {
@@ -2814,7 +2809,6 @@ const zhCN: typeof en = {
   sceneCard: {
     startTitle: "玩家从这里开始",
     start: "起始",
-    endingTitle: "在故事地图上算作结局",
     staleTitle: "截图之后场景已有改动。",
     stale: "已过期",
     captureFailedTitle: "这个版本的场景截图失败。场景改动后或重新打开项目时会再试。",

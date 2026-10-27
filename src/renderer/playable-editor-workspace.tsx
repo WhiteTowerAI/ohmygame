@@ -37,7 +37,6 @@ import {
   type PlayableNode,
 } from "../shared/playable-nodes.js";
 import { setPlayableElementTranslate } from "../shared/playable-move.js";
-import { isPlayableStoryEnding, withPlayableStoryOption } from "../shared/playable-story-map.js";
 import type { NodePlayerDefinition, PlayableMove, PlayableTextEdit } from "../shared/playable-player-protocol.js";
 import { parsePlayableSourceLocation, replacePlayableElementText, replacePlayableLineText } from "../shared/playable-text-edit.js";
 import { clearPlayableBackdrop, playableBackdrop, setPlayableBackdrop, setPlayableBackdropClip, type PlayableBackdropDetails } from "../shared/playable-backdrop.js";
@@ -735,12 +734,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       : node));
   }
 
-  function setStoryOption(nodeId: string, option: "hidden" | "ending", value: boolean): void {
-    setNodes((current) => current.map((node) => node.id === nodeId
-      ? { ...node, data: { ...node.data, node: withPlayableStoryOption(node.data.node, option, value) } }
-      : node));
-  }
-
   /**
    * Adopts a graph edited as a whole (by the Workbench inspector) while
    * keeping canvas positions and selection.
@@ -1112,7 +1105,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         data: {
           node: node.data.node,
           entry: codebase?.graph.entryNodeId === node.id,
-          ending: isPlayableStoryEnding(node.data.node),
           issues: nodeIssues.get(node.id) ?? [],
           connected: connected.get(node.id) ?? {},
           failed: failed.has(node.id),
@@ -1248,7 +1240,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             canPaste={Boolean(copiedNode) && !writing}
             busy={writing}
             isEntry={canvasContextMenu.nodeId === codebase?.graph.entryNodeId}
-            story={storyOptions(nodes.find((node) => node.id === canvasContextMenu.nodeId)?.data.node)}
             onClose={() => setCanvasContextMenu(undefined)}
             onUndo={() => void undoEditorChange()?.catch(() => {})}
             onRedo={() => void redoEditorChange()?.catch(() => {})}
@@ -1258,7 +1249,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             onCopy={() => { if (canvasContextMenu.nodeId) void copyNode(canvasContextMenu.nodeId); }}
             onDuplicate={() => { if (canvasContextMenu.nodeId) void duplicateNode(canvasContextMenu.nodeId); }}
             onSetEntry={() => { if (canvasContextMenu.nodeId) setEntryNode(canvasContextMenu.nodeId); }}
-            onStoryOption={(option, value) => { if (canvasContextMenu.nodeId) setStoryOption(canvasContextMenu.nodeId, option, value); }}
             onDelete={() => { if (canvasContextMenu.nodeId) removeNodes(new Set([canvasContextMenu.nodeId])); }}
           /> : null}
           {notice && phase === "ready" ? <div className="story-save-notice" role="alert">{notice}</div> : null}
@@ -1322,11 +1312,6 @@ async function readNodeSources(projectId: string, node: PlayableNode): Promise<R
   const paths = [node.source.html, node.source.css, node.source.javascript];
   const files = await Promise.all(paths.map((path) => getWorkspaceFile(projectId, path)));
   return Object.fromEntries(paths.map((path, index) => [path, files[index]?.content ?? ""]));
-}
-
-/** How a Scene shows on the Story map, for its context menu. */
-function storyOptions(node: PlayableNode | undefined): { onMap: boolean; ending: boolean } {
-  return { onMap: !node?.story?.hidden, ending: node ? isPlayableStoryEnding(node) : false };
 }
 
 function errorMessage(error: unknown): string {

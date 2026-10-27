@@ -63,10 +63,6 @@ The rules for every story:
   routing is the same.
 - Use `replace` for forward progress and `push` only when the player should
   return with `back()`.
-- A node that is not a step in the story, such as a menu or settings, gets
-  `"story": { "hidden": true }` so the Story Map leaves it out. Set
-  `story.ending` only where the guess from Signals is wrong, and
-  `story.label` when players should see another name than the title.
 - Files a Preset added under `shared/`, such as the Project Style and the
   Visual Novel player in `shared/vn/`, are the project's source: change them
   freely. OhMyGame writes them only when they are missing and never updates
@@ -160,11 +156,11 @@ only where they override the style.
 
 **Show the story map.** Create a node from the `story-map` Preset and
 connect to it with a `push` edge from where the player opens it, such as a
-Main menu's `story-map` Exit, a pause button, or an ending. Check that menus
-and other screens
-outside the story are `story.hidden`, and that the endings are right. Change
-how the map looks in that node's code; `context.story.map()` already gives
-the layout and what the player has seen.
+Main menu's `story-map` Exit, a pause button, or an ending. In its
+`node.js`, list menus and other screens outside the story in `OFF_MAP`,
+check that `isEnding` picks the right endings, and name Scenes for players
+in `LABELS`. The map is that node's own code: `layout.js` lays the story out
+from `graph.json`, and `context.story.seen()` gives what the player has seen.
 
 **Change the title screen.** The `main-menu` Preset has Start, Continue,
 Load, Story map, and Settings. Load and Settings are the node's own code,

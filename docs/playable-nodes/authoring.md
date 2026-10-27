@@ -101,8 +101,6 @@ Each Scene card shows:
   ([Variables](#variables));
 - a **Start** badge on the Scene the player starts in (**Set as Start**
   moves it);
-- an **Ending** badge on a Scene included in the [Story map](#story-map)
-  that counts as an ending;
 - an issue marker when the Scene fails to build, emits an undeclared Signal,
   or has an Exit that goes nowhere.
 
@@ -438,20 +436,19 @@ lead to it, and branches spread side by side. What it leaves out:
 - Exits with **Allow Back** lead to side screens, such as an archive, and
   Navigation Exits lead around the game, so neither is a step in the story;
 - connections back up the story, such as retrying after a failed QTE;
-- Scenes marked off the map. Main menu and Story map Scenes start off it.
-  The Scenes before and after one are joined, so a menu between two Scenes
-  links them directly.
+- Scenes the Story map Scene lists as off the map: by default the Main menu
+  and itself, by their Template IDs. The Scenes before and after one are
+  joined, so a menu between two Scenes links them directly.
 
 Players see the Scenes they have reached, by name, and the Scenes one step
 past them as locked **???**, with a line for each way they went and a count
 of Scenes and endings found. What they have seen lasts across new games.
 
-The author decides only what the map cannot guess, from a Scene's context
-menu: **On Story map**, and **Ending**. A Scene with no Exits other than
-Navigation ones is guessed to be an ending. The Agent can set both, and the
-name players see when it should differ from the Scene's title. Asking the
-Agent changes how the map looks, since it is the Scene's own code.
-Map inclusion is shown in the context menu, without a badge on the Scene card.
+A Scene with no Exits other than Navigation ones is guessed to be an ending.
+Everything the map cannot guess, such as which Scenes are off it, which are
+endings, and names players should see instead of titles, is the Story map
+Scene's own code, like how it looks: the author asks the Agent. The canvas
+shows none of it; OhMyGame keeps only what the player has seen.
 
 The Workbench previews a Story map Scene with everything seen, so the author
 sees the whole map while editing; Playtest shows what they have played.

@@ -1,4 +1,4 @@
-import type { PlayableStoryMap } from "./playable-story-map.js";
+import type { PlayableSeen } from "./playable-seen.js";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | JsonObject;
@@ -40,28 +40,12 @@ export interface PlayableSignal {
   when?: string;
 }
 
-/**
- * How a Node shows on the Story Map, the map of the story a Node can show the
- * player with `context.story.map()`. Every field is optional; without them
- * the Node is on the map under its title, and it is an ending when it has no
- * Signals other than navigation ones.
- */
-export interface PlayableStoryOptions {
-  /** Keeps a Node that is not a step in the story, such as a menu, off the map. */
-  hidden?: boolean;
-  /** Overrides the guess of whether the Node is an ending. */
-  ending?: boolean;
-  /** The name players see on the map, when it should differ from the title. */
-  label?: string;
-}
-
 export interface PlayableNode {
   id: string;
   title: string;
   source: NodeSource;
   assets: string[];
   signals: PlayableSignal[];
-  story?: PlayableStoryOptions;
 }
 
 export interface PlayableEdge {
@@ -168,8 +152,12 @@ export interface NodeRuntimeContext {
     loadSlot(id: string): Promise<void>;
     deleteSlot(id: string): Promise<void>;
   };
-  /** The story the player has seen so far, across every game they started. */
-  story: { map(): PlayableStoryMap };
+  /**
+   * What the player has seen so far, across every game they started: when each
+   * Node was first entered and each edge first taken. A `report` preview
+   * gives every Node and edge, so a story map shows the author all of it.
+   */
+  story: { seen(): PlayableSeen };
   lifecycle: { signal: AbortSignal };
 }
 

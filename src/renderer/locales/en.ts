@@ -2836,11 +2836,6 @@ const en = {
     copyScene: "Copy Scene",
     startScene: "Start Scene",
     setStart: "Set as Start",
-    onMapTitle:
-      "Players see this Scene on the Story map. Turn it off for menus and other Scenes that are not steps in the story.",
-    onMap: "On Story map",
-    endingTitle: "The Story map counts this Scene as an ending",
-    ending: "Ending",
     templateHint: "Pick a starting point, then describe the Scene in chat.",
   },
   nodeWorkbench: {
@@ -2890,7 +2885,6 @@ const en = {
   sceneCard: {
     startTitle: "The player starts here",
     start: "Start",
-    endingTitle: "Counted as an ending on the Story map",
     staleTitle: "The Scene changed since this picture was taken.",
     stale: "Stale",
     captureFailedTitle: "This version of the Scene could not be captured. It is tried again after the Scene changes or the project is reopened.",

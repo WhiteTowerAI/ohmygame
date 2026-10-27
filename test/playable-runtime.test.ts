@@ -17,7 +17,7 @@ import {
   type PlayableSurface,
   type PlayableSurfaceHost,
 } from "../src/shared/playable-runtime.js";
-import type { PlayableSeen } from "../src/shared/playable-story-map.js";
+import type { PlayableSeen } from "../src/shared/playable-seen.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
 type NodeContext = Omit<PlayableNodeContext, "root">;
@@ -577,8 +577,8 @@ describe("Node Runtime connected Signals", () => {
   });
 });
 
-describe("Node Runtime Story Map", () => {
-  it("remembers the Nodes entered and edges taken, and maps them", async () => {
+describe("Node Runtime seen record", () => {
+  it("remembers the Nodes entered and edges taken, and gives them to Scenes", async () => {
     const seenStore = new MemoryPlayableSeenStore();
     const { runtime, host } = createRuntime({ seenStore });
     await runtime.start();
@@ -586,16 +586,9 @@ describe("Node Runtime Story Map", () => {
     expect(nodeContext(host, "menu").story.seenBefore).toBe(false);
     expect(nodeContext(host, "lobby").story.seenBefore).toBe(false);
 
-    const map = nodeContext(host, "lobby").story.map();
-    expect(map.nodes.map((node) => [node.id, node.row, node.seen, node.ending])).toEqual([
-      ["menu", 0, true, false],
-      ["lobby", 1, true, false],
-      ["archive", 2, false, true],
-    ]);
-    expect(map.edges).toEqual([
-      { from: "menu", to: "lobby", seen: true },
-      { from: "lobby", to: "archive", seen: false },
-    ]);
+    const seen = nodeContext(host, "lobby").story.seen();
+    expect(Object.keys(seen.nodes)).toEqual(["menu", "lobby"]);
+    expect(Object.keys(seen.edges)).toEqual(["start-game"]);
     await runtime.dispose();
     expect(await seenStore.load()).toEqual({
       version: 1,
@@ -610,7 +603,7 @@ describe("Node Runtime Story Map", () => {
     await runtime.start();
     await nodeContext(host, "menu").session.restart();
 
-    expect(nodeContext(host, "menu").story.map().nodes.every((node) => node.seen)).toBe(true);
+    expect(Object.keys(nodeContext(host, "menu").story.seen().nodes)).toEqual(["menu", "lobby", "archive"]);
     // A Scene can offer to skip what the player saw in an earlier game.
     expect(nodeContext(host, "menu").story.seenBefore).toBe(true);
   });
@@ -624,7 +617,7 @@ describe("Node Runtime Story Map", () => {
       .toEqual([false, true]);
   });
 
-  it("shows the whole map in a preview without adding to what was seen", async () => {
+  it("shows a preview everything without adding to what was seen", async () => {
     const saved: PlayableSeen[] = [];
     const seenStore: PlayableSeenStore = {
       load: async () => seenRecord(["menu"]),
@@ -634,8 +627,9 @@ describe("Node Runtime Story Map", () => {
     await runtime.start();
     await nodeContext(host, "lobby").navigation.emit("archive");
 
-    const map = nodeContext(host, "lobby").story.map();
-    expect(map.nodes.every((node) => node.seen) && map.edges.every((edge) => edge.seen)).toBe(true);
+    const seen = nodeContext(host, "lobby").story.seen();
+    expect(Object.keys(seen.nodes)).toEqual(["menu", "lobby", "archive"]);
+    expect(Object.keys(seen.edges).length).toBeGreaterThan(0);
     await runtime.dispose();
     expect(saved).toEqual([]);
 
