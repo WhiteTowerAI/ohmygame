@@ -11,7 +11,6 @@ import {
   writeNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
 import { validatePlayableProject } from "../src/daemon/playable-project.js";
-import { compileNodeGraph } from "../src/daemon/playable-compiler.js";
 import { PLAYABLE_PRESETS, PLAYABLE_PRESET_IDS, playablePreset } from "../src/daemon/playable-presets.js";
 import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-style.js";
 import { playableBackdrop } from "../src/shared/playable-backdrop.js";
@@ -258,7 +257,6 @@ describe("addPlayableNode", () => {
     expect(nodes.find((node) => node.id === "main-menu")?.story).toEqual({ hidden: true });
     expect(nodes.find((node) => node.id === "story-map")?.story).toEqual({ hidden: true });
     expect((await validatePlayableProject(workspacePath, "draft")).issues).toEqual([]);
-    const compiled = await compileNodeGraph(workspacePath, graph);
     for (const id of PLAYABLE_PRESET_IDS) {
       const preset = playablePreset(id)!;
       for (const [relative, css] of Object.entries(preset.sharedFiles ?? {})) {
@@ -272,9 +270,6 @@ describe("addPlayableNode", () => {
       for (const [relative, bundled] of Object.entries(preset.sharedFileCopies ?? {})) {
         expect(await readFile(path.join(workspacePath, relative))).toEqual(await readFile(bundled));
       }
-      // The legacy sandbox build may inline the separate project image for distribution.
-      expect(compiled.nodes[id]!.css).toContain("data:image/webp;base64,");
-      expect(compiled.nodes[id]!.css).toContain(':not([data-asset])');
     }
     expect((await readdir(path.join(workspacePath, "shared/templates/lastbus"))).filter((name) => name.endsWith(".webp"))).toHaveLength(8);
 

@@ -632,10 +632,10 @@ web story's are taken from its own page, opened at the Scene without sound.
 - The canvas captures every Scene that has no thumbnail, or one of an older
   build, without it being opened: the desktop app runs the Scene in a hidden
   window, with at most two captures running together, as the Workbench preview
-  runs it. Each batch shares the editor's successful compiled build and
-  workspace version instead of compiling the whole project for each Scene.
-  A new build cancels the previous batch; its compiled snapshot is released
-  when the captures finish or are cancelled.
+  runs it. Each batch shares the editor's successful build and workspace
+  version instead of checking the whole project for each Scene. A new build
+  cancels the previous batch; its build snapshot is released when the
+  captures finish or are cancelled.
 - The Scene is captured through the desktop `capturePage` capability, the
   same mechanism that captures Web Game project covers, about one second
   after it reports ready. A run with errors is not captured. Captures keep
@@ -645,8 +645,8 @@ web story's are taken from its own page, opened at the Scene without sound.
 - Thumbnails are editor cache stored under `.ohmygame/thumbnails/` in the
   workspace. They are not part of `graph.json`, `editor/layout.json`, or the
   published project.
-- A thumbnail records the hash of the Scene's compiled output. When the source
-  changes, the card keeps the old image with a _stale_ marker until the next
+- A thumbnail records the Scene's content hash: its files and everything they
+  import, its Assets, and the viewport. When any of them changes, the card keeps the old image with a _stale_ marker until the next
   capture replaces it.
 - A capture that fails is remembered with the hash it ran. The card shows a
   _capture failed_ marker whose tooltip gives the reason, the desktop log

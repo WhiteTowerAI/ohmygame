@@ -60,7 +60,7 @@ describe("story runtime install", () => {
     expect(await read(root, "index.html")).toMatch(/<meta name="ohmygame-story" content="[0-9a-f-]{36}" \/>/);
     const modules = await storyWebRuntimeModules();
     expect(modules["story/shared/playable-video-clip.js"]).toContain("installPlayableVideoClips");
-    expect(modules["story/shared/playable-sandbox.js"]).toContain("./playable-video-clip.js");
+    expect(modules["story/shared/playable-page-host.js"]).toContain("./playable-video-clip.js");
     for (const [relative, content] of Object.entries(modules)) expect(await read(root, relative)).toBe(content);
     expect((await manifest(root)).files).toEqual(Object.fromEntries(Object.entries(modules).map(([relative, content]) => [relative, sha(content)])));
     // The runtime keeps its comments, so whoever changes it can read it.

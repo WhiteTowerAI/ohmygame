@@ -62,12 +62,7 @@ beforeEach(() => {
     version: 1,
     graph,
     graphSignature: "test",
-    compiled: {
-      version: 1,
-      nodes: {
-        start: { id: "start", html, css: "", javascript: "", inputs: [] },
-      },
-    },
+    hashes: { start: "0123456789abcdef" },
   };
   getNodeRuntime.mockResolvedValue({ available: true, web: true, definition });
   ensureProjectPreview.mockResolvedValue({ url: "https://preview.test/" });

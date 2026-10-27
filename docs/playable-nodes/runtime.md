@@ -140,7 +140,7 @@ graph and nodes; if they need repair, the editor reports it.
 
 A Signal may have `"role": "navigation"` when it is a way around the game,
 such as Home, rather than a step in the story. The editor names its target
-instead of drawing a line. Routing and the compiler ignore it; the Runtime
+instead of drawing a line. Routing ignores it; the Runtime
 reads it only for the [save](#save-and-session) and the
 [Story Map](#story-map).
 
@@ -326,7 +326,7 @@ in the edited clip. Start defaults to zero; absent End means the file's
 natural end. End must exceed Start. The editor writes millisecond precision
 and requires at least 0.1 seconds (or the entire file if it is shorter).
 Malformed attributes, image clips and multiple backgrounds with a clip
-are compile errors in both draft and publish builds.
+are source issues in both draft and publish validation.
 
 The shared surface host observes videos created inside this background, before
 calling authored `mount()`. It seeks to Start after metadata loads and
@@ -636,24 +636,27 @@ pointing at where the text starts on its line, as the Visual Novel player does
 for script lines. Capture uses the desktop host's page capture of the preview
 frame, for thumbnails too.
 
-## Compiler
+## Scene sources
 
-A web story's page loads node files as they are; the compiler still builds
-each node to check it and to report issues in the editor, into one
-self-contained JavaScript module and stylesheet per node.
+The story's page loads each node's files as they are, so nothing is built.
+OhMyGame checks every node's files the way the page will load them and
+reports one issue per node that has a problem (`phase: "source"`):
 
-- HTML stays authored markup.
-- JavaScript and CSS are bundled, so `shared/` modules and the project's own
-  `node_modules` work without a per-node build.
-- Every entry and import must resolve inside the workspace after following
-  symbolic links. Dependencies found in OhMyGame's installation or a parent
-  directory are rejected.
-- Imported images, fonts, shaders, and binary modules are embedded in the
-  surface bundle. Project Assets used through `context.assets` stay governed
-  by the graph.
-- The result records the input files used by each surface for error reporting
-  and incremental rebuilds.
-- Preview builds add source-location attributes; publish builds do not.
+- the node's HTML, CSS, and JavaScript exist inside the workspace after
+  following symbolic links, and are at most 5 MiB each;
+- its JavaScript parses and exports `mount`;
+- every import resolves inside the workspace the way a browser resolves it:
+  a relative or root-relative path to a `.js` or `.mjs` module, JSON with
+  `with { type: "json" }`, CSS with `with { type: "css" }`, or a URL.
+  Packages and other files imported as modules are refused, with the
+  `fetch` or import attribute to use instead;
+- stylesheet `@import`s exist; images and fonts a stylesheet names are not
+  required;
+- a background video's clip attributes are valid.
+
+The check also gives each node a content hash of its files and everything
+they import, its declared Assets, and the viewport. The editor keys node
+thumbnails to it.
 
 Codebase updates from the editor are applied under one workspace lock and
 rolled back as a whole if any write fails.
@@ -678,8 +681,7 @@ actionable `message`. It checks that:
 - in `publish` mode, every declared Signal other than navigation ones has an
   edge.
 
-Limits: 500 nodes, 2,000 edges, 1,000 assets, 100 Signals per node, 500 asset dependencies per surface, 5 MiB per source file, and
-16 MiB per compiled surface.
+Limits: 500 nodes, 2,000 edges, 1,000 assets, 100 Signals per node, 500 asset dependencies per surface, and 5 MiB per source file.
 
 ## Publishing
 

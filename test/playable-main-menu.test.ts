@@ -98,15 +98,6 @@ async function startGame() {
   let chapter: Omit<PlayableNodeContext, "root"> | undefined;
   const runtime = new NodeRuntime({
     graph,
-    compiled: {
-      version: 1,
-      nodes: Object.fromEntries(
-        graph.nodes.map(({ id }) => [
-          id,
-          { id, html: "", css: "", javascript: "", inputs: [] },
-        ]),
-      ),
-    },
     graphSignature: "menu-v1",
     surfaceHost: {
       async mountNode(surface, context) {

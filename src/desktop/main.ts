@@ -27,7 +27,6 @@ import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-playe
 import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
 import { isNodeGraph } from "../shared/playable-graph-validation.js";
-import { isCompiledNodeGraph } from "../shared/playable-compiled.js";
 import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
@@ -275,7 +274,7 @@ handle("ohmygame:prepare-node-thumbnails", (event, projectId: unknown, batchId: 
   if (!validRouteId(projectId) || !validRouteId(batchId) || nodeThumbnailBatches.has(batchId)
     || !snapshot || typeof snapshot.version !== "string" || (snapshot.web !== undefined && snapshot.web !== true)
     || snapshot.definition?.version !== 1 || typeof snapshot.definition.graphSignature !== "string"
-    || !isNodeGraph(snapshot.definition.graph) || !isCompiledNodeGraph(snapshot.definition.compiled, snapshot.definition.graph)) {
+    || !isNodeGraph(snapshot.definition.graph) || !isSceneHashes(snapshot.definition.hashes)) {
     throw new Error("Invalid thumbnail snapshot");
   }
   nodeThumbnailBatches.set(batchId, { projectId, snapshot, controller: new AbortController(), requests: 0 });
@@ -745,6 +744,12 @@ async function captureNodeThumbnail(projectId: string, nodeId: string, viewport:
     clearTimeout(timer);
     if (thumbnailWindow && !thumbnailWindow.isDestroyed()) thumbnailWindow.destroy();
   }
+}
+
+/** Each Scene's content hash, by Node ID, as the editor's build reports them. */
+function isSceneHashes(value: unknown): value is Record<string, string> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    && Object.values(value).every((hash) => typeof hash === "string" && /^[0-9a-f]{8,64}$/.test(hash));
 }
 
 function validRouteId(value: unknown): value is string {

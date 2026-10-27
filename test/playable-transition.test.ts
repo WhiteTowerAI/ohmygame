@@ -2,7 +2,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, it, vi } from "vitest";
-import { DocumentPlayableSurfaceHost } from "../src/shared/playable-sandbox.js";
+import { DocumentPlayableSurfaceHost } from "../src/shared/playable-page-host.js";
 import {
   NodeRuntime,
   MemoryPlayableSaveStore,
@@ -39,38 +39,23 @@ async function setup(target: string, prepare?: (root: ShadowRoot) => void) {
   );
   host = new DocumentPlayableSurfaceHost(
     document,
-    undefined,
+    { base: new URL("https://story.test/") },
     (root) => {
       prepare?.(root);
       const element = root.host as HTMLElement;
       surfaces.set(element.dataset.playableSurface!, element);
       return () => {};
     },
-    { base: new URL("https://story.test/") },
   );
   const mountNode = host.mountNode.bind(host);
   vi.spyOn(host, "mountNode").mockImplementation((surface, context) => {
     contexts.set(surface.id, context);
-    return mountNode(surface, context);
+    // Every Node plays the test page's module, with an empty stylesheet.
+    return mountNode({ ...surface, css: "data:text/css,", javascript: moduleUrl }, context);
   });
   const graph = createNodeGraphFixture();
   runtime = new NodeRuntime({
     graph,
-    compiled: {
-      version: 1,
-      nodes: Object.fromEntries(
-        graph.nodes.map((node) => [
-          node.id,
-          {
-            id: node.id,
-            html: node.source.html,
-            css: "data:text/css,",
-            javascript: moduleUrl,
-            inputs: [],
-          },
-        ]),
-      ),
-    },
     graphSignature: "transition-test",
     surfaceHost: host,
     saveStore: new MemoryPlayableSaveStore(),

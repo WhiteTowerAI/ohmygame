@@ -517,7 +517,7 @@ export function createAgentTools(
     name: "playable_check",
     label: "Check Project",
     description: [
-      "Validate the Playable Nodes project: graph.json against its schema and references, then compile every Node and the shared modules it imports.",
+      "Validate the Playable Nodes project: graph.json against its schema and references, then check every Node's files and what they import the way the story's page loads them.",
       "Run it after changing the project and fix every issue it reports. Use mode \"publish\" before the user publishes; it also requires every Signal other than navigation ones to be connected and every source file to exist.",
     ].join("\n"),
     parameters: Type.Object({

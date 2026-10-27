@@ -24,7 +24,7 @@ const definition: NodePlayerDefinition = {
   version: 1,
   graph: codebase.graph,
   graphSignature: "playtest",
-  compiled: { version: 1, nodes: {} },
+  hashes: {},
 };
 const player = vi.fn();
 const getNodeRuntime = vi.fn();

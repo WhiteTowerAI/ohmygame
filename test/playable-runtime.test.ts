@@ -1,8 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type {
-  CompiledNodeGraph,
-  CompiledPlayableSurface,
-} from "../src/shared/playable-compiled.js";
 import type { NodeGraph, PlayableNodeContext } from "../src/shared/playable-nodes.js";
 import {
   MemoryPlayablePreferencesStore,
@@ -18,6 +14,7 @@ import {
   type PlayableSaveStore,
   type PlayableSeenStore,
   type PlayableSlotStore,
+  type PlayableSurface,
   type PlayableSurfaceHost,
 } from "../src/shared/playable-runtime.js";
 import type { PlayableSeen } from "../src/shared/playable-story-map.js";
@@ -29,14 +26,14 @@ class FakeSurfaceHost implements PlayableSurfaceHost {
   readonly events: string[] = [];
   readonly nodeContexts: Array<{ id: string; context: NodeContext }> = [];
   onMountNode?: (
-    surface: CompiledPlayableSurface,
+    surface: PlayableSurface,
     context: NodeContext,
   ) => void | Promise<void>;
   nodeCleanup?: (id: string, context: NodeContext) => void | Promise<void>;
   nodeDestroy?: (id: string) => void | Promise<void>;
 
   async mountNode(
-    surface: CompiledPlayableSurface,
+    surface: PlayableSurface,
     context: NodeContext,
   ): Promise<PlayableMountedSurface> {
     this.events.push(`mount:${surface.id}`);
@@ -1005,7 +1002,6 @@ function createRuntime(
     host,
     runtime: new NodeRuntime({
       graph,
-      compiled: createCompiledGraph(),
       graphSignature: "fixture-v1",
       surfaceHost: host,
       saveStore: options.saveStore ?? new MemoryPlayableSaveStore(),
@@ -1023,24 +1019,6 @@ function createRuntime(
       startNodeId: options.startNodeId,
       previewState: options.previewState,
     }),
-  };
-}
-
-function createCompiledGraph(): CompiledNodeGraph {
-  const surface = (id: string): CompiledPlayableSurface => ({
-    id,
-    html: "",
-    css: "",
-    javascript: "export function mount() {}",
-    inputs: [],
-  });
-  return {
-    version: 1,
-    nodes: {
-      menu: surface("menu"),
-      lobby: surface("lobby"),
-      archive: surface("archive"),
-    },
   };
 }
 

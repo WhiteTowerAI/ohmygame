@@ -69,7 +69,7 @@ describe("Playable codebase", () => {
       "story/shared/playable-graph.js",
       "story/shared/playable-navigation.js",
       "story/shared/playable-runtime.js",
-      "story/shared/playable-sandbox.js",
+      "story/shared/playable-page-host.js",
       "story/shared/playable-state.js",
       "story/shared/playable-story-map.js",
       "story/shared/playable-surface-ready.js",

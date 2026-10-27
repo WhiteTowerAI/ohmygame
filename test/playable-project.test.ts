@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildPlayableProject, validatePlayableProject } from "../src/daemon/playable-project.js";
-import { isCompiledNodeGraph } from "../src/shared/playable-compiled.js";
 import {
   createNodeGraphFixture,
   writePlayableFixtureWorkspace,
@@ -20,7 +19,7 @@ afterEach(async () => {
 });
 
 describe("Playable project build", () => {
-  it("builds one deterministic definition for Player and Playtest", async () => {
+  it("builds one deterministic definition for Playtest and previews", async () => {
     const workspace = await temporaryWorkspace();
     await writePlayableFixtureWorkspace(workspace);
 
@@ -31,11 +30,8 @@ describe("Playable project build", () => {
     expect(first).toMatchObject({
       version: 1,
       graph: { title: "Ash Club", entryNodeId: "menu" },
-      compiled: { version: 1 },
     });
-    expect(first?.compiled.nodes.menu?.javascript).toContain(
-      "sourceMappingURL",
-    );
+    expect(Object.keys(first!.hashes)).toEqual(first!.graph.nodes.map((node) => node.id));
     expect(first?.graphSignature).toHaveLength(64);
   });
 
@@ -50,29 +46,11 @@ describe("Playable project build", () => {
     );
     const second = await buildPlayableProject(workspace);
 
-    expect(second?.compiled).not.toEqual(first?.compiled);
+    expect(second?.hashes.menu).not.toBe(first?.hashes.menu);
     expect(second?.graphSignature).toBe(first?.graphSignature);
   });
 
-  it("validates compiled surfaces against the authored graph", async () => {
-    const workspace = await temporaryWorkspace();
-    await writePlayableFixtureWorkspace(workspace);
-    const definition = (await buildPlayableProject(workspace))!;
-
-    expect(isCompiledNodeGraph(definition.compiled, definition.graph)).toBe(true);
-
-    const missingNode = structuredClone(definition.compiled);
-    delete missingNode.nodes.menu;
-    expect(isCompiledNodeGraph(missingNode, definition.graph)).toBe(false);
-
-    const withShell = { ...structuredClone(definition.compiled), shell: definition.compiled.nodes.menu };
-    expect(isCompiledNodeGraph(withShell, definition.graph)).toBe(false);
-
-    const extraField = { ...structuredClone(definition.compiled), debug: true };
-    expect(isCompiledNodeGraph(extraField, definition.graph)).toBe(false);
-  });
-
-  it("uses publish validation for the static Player", async () => {
+  it("uses publish validation for publishing", async () => {
     const workspace = await temporaryWorkspace();
     const graph = createNodeGraphFixture();
     graph.edges = graph.edges.filter(
@@ -88,19 +66,6 @@ describe("Playable project build", () => {
     ).resolves.toBeDefined();
   });
 
-  it("annotates source locations for drafts but not for publishing", async () => {
-    const workspace = await temporaryWorkspace();
-    await writePlayableFixtureWorkspace(workspace);
-
-    const draft = await buildPlayableProject(workspace, "draft");
-    const published = await buildPlayableProject(workspace, "publish");
-
-    expect(draft?.compiled.nodes.menu?.html).toContain("data-ohmygame-source");
-    expect(published?.compiled.nodes.menu?.html).not.toContain(
-      "data-ohmygame-source",
-    );
-  });
-
   it("reports that the new Runtime is unavailable without graph.json", async () => {
     const workspace = await temporaryWorkspace();
     await writeFile(path.join(workspace, "README.md"), "legacy project\n");
@@ -111,7 +76,7 @@ describe("Playable project build", () => {
     ).resolves.toContain("legacy");
   });
 
-  it("returns structured graph and compiler diagnostics for agents and editors", async () => {
+  it("returns structured graph and Scene source diagnostics for agents and editors", async () => {
     const workspace = await temporaryWorkspace();
     const graph = createNodeGraphFixture();
     graph.entryNodeId = "missing";
@@ -126,10 +91,10 @@ describe("Playable project build", () => {
     graph.entryNodeId = "menu";
     await writeFile(path.join(workspace, "graph.json"), `${JSON.stringify(graph, null, 2)}\n`);
     await writeFile(path.join(workspace, "nodes", "menu", "node.js"), "export const invalid = true;\n");
-    const compilerResult = await validatePlayableProject(workspace);
-    expect(compilerResult).toMatchObject({
+    const sourceResult = await validatePlayableProject(workspace);
+    expect(sourceResult).toMatchObject({
       ok: false,
-      issues: [{ phase: "compiler", code: "build-failed", surfaceId: "menu" }],
+      issues: [{ phase: "source", code: "invalid-source", surfaceId: "menu", message: "nodes/menu/node.js must export a mount function." }],
     });
   });
 });

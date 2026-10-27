@@ -1094,7 +1094,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       const owner = issue.surfaceId ?? nodeIdForIssuePath(issue.path, nodes);
       if (!owner) continue;
       nodeIssues.set(owner, [...nodeIssues.get(owner) ?? [], issue.message]);
-      if (issue.phase === "compiler") failed.add(owner);
+      if (issue.phase === "source") failed.add(owner);
     }
     return nodes.map((node): PlayableFlowNode => {
       const cached = thumbnails?.[node.id];

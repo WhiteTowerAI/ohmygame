@@ -12,7 +12,7 @@ import { workspaceVersion } from "../src/renderer/workspace-version.js";
 const codebase = createStarterCodebaseWithScene("Thumbnail", { width: 1280, height: 720 });
 const definition: NodePlayerDefinition = {
   version: 1, graph: codebase.graph, graphSignature: "thumbnail",
-  compiled: { version: 1, nodes: { start: { id: "start", html: "<p>Ready</p>", css: "", javascript: "", inputs: [] } } },
+  hashes: { start: "0123456789abcdef" },
 };
 let onSnapshot!: (snapshot: NodeRuntimeSnapshot) => void;
 let finishImage!: (image: Blob) => void;

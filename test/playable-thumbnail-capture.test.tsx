@@ -13,8 +13,8 @@ const template = codebase.graph.nodes[0]!;
 codebase.graph.nodes = ["start", "b", "c", "d"].map((id) => ({ ...template, id,
   source: { html: `nodes/${id}/index.html`, css: `nodes/${id}/style.css`, javascript: `nodes/${id}/node.js` } }));
 codebase.editorLayout.nodes = Object.fromEntries(codebase.graph.nodes.map((node, index) => [node.id, { x: index * 300, y: 0 }]));
-const definition = { version: 1 as const, graph: codebase.graph, graphSignature: "review", compiled: { version: 1 as const,
-  nodes: Object.fromEntries(codebase.graph.nodes.map(node => [node.id, { id: node.id, inputs: [], html: `<p>${node.id}</p>`, css: "", javascript: "" }])) } };
+const definition = { version: 1 as const, graph: codebase.graph, graphSignature: "review",
+  hashes: Object.fromEntries(codebase.graph.nodes.map(node => [node.id, `${node.id.padEnd(8, "0")}`.replace(/[^0-9a-f]/g, "a")])) };
 let manifest: PlayableThumbnailManifest;
 let currentDefinition = structuredClone(definition);
 let preparation: Promise<void> | undefined;
@@ -77,7 +77,7 @@ async function openWorkspace() {
   return { capture, cancel, prepare, render, jobs };
 }
 
-it("shares one compiled snapshot for every capture in a batch", async () => {
+it("shares one build snapshot for every capture in a batch", async () => {
   const { prepare, capture } = await openWorkspace();
   expect(prepare).toHaveBeenCalledExactlyOnceWith("p", expect.any(String), {
     definition: currentDefinition, version: "0", web: true,
@@ -119,7 +119,7 @@ it("publishes each completed thumbnail while another capture is still running", 
 
 it("ignores results from a cancelled build while publishing the current build", async () => {
   const { render, jobs } = await openWorkspace();
-  currentDefinition.compiled.nodes.b!.html = "<p>Changed</p>";
+  currentDefinition.hashes.b = "bbbbbbbbbbbbbbb1";
   await render(1);
   await act(async () => jobs[1]!.finish(true));
   expect(canvasNodes.find(node => node.id === "b")?.data.thumbnail).toBeUndefined();
@@ -135,7 +135,7 @@ it("does not capture a failed version again until the Scene changes", async () =
   await act(async () => { for (const job of jobs.filter(job => job.nodeId !== "b")) job.finish(true); });
   await render(1);
   expect(capture.mock.calls.filter(call => call[1] === "b")).toHaveLength(1);
-  currentDefinition.compiled.nodes.b!.html = "<p>Changed</p>";
+  currentDefinition.hashes.b = "bbbbbbbbbbbbbbb1";
   await render(2);
   expect(capture.mock.calls.filter(call => call[1] === "b")).toHaveLength(2);
   expect(canvasNodes.find(node => node.id === "b")?.data.thumbnailError).toBeUndefined();

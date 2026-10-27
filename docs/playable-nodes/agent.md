@@ -15,8 +15,8 @@ and the tools it uses to verify results.
   content. The OhMyGame Runtime source is open for understanding edge cases,
   but projects never copy or modify it.
 - **Verify, don't assume.** A change is finished when validation passes,
-  every surface compiles, and the affected route has been exercised in the
-  Runtime.
+  including every Scene's source check, and the affected route has been
+  exercised in the Runtime.
 - **Stay in scope.** A request about one node changes that node, plus the
   graph entries and shared files it genuinely needs.
 
@@ -214,15 +214,15 @@ the Preset brief. Blank is available as `"blank"`.
 
 ### `playable_check`
 
-Validates the graph and compiles every node and the shared modules it imports.
+Validates the graph and checks every node's files and what they import, the way the story's page loads them.
 
 ```json
 { "mode": "draft" }
 ```
 
 It returns the same issues as the validation endpoint, each with `phase`,
-`code`, `path`, `message`, and the surface when known, including compiler
-errors. The Agent fixes every issue before finishing. `publish` mode
+`code`, `path`, `message`, and the surface when known, including Scene
+source issues. The Agent fixes every issue before finishing. `publish` mode
 additionally requires every Signal other than navigation ones to be
 connected and every source file to exist.
 

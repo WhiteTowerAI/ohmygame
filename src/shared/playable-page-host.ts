@@ -1,69 +1,56 @@
-import type { CompiledPlayableSurface } from "./playable-compiled.js";
 import type { PlayableCleanup, PlayableNodeContext } from "./playable-nodes.js";
 import { installPlayableVideoClips } from "./playable-video-clip.js";
 import { waitForPlayableBackdrop } from "./playable-surface-ready.js";
 import type {
   PlayableMountedSurface,
+  PlayableSurface,
   PlayableSurfaceHost,
 } from "./playable-runtime.js";
-
-export const PLAYABLE_SANDBOX_CSP =
-  "default-src 'none'; img-src data: blob:; media-src data: blob:; font-src data: blob:; style-src 'unsafe-inline'; script-src 'self' blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
-export const PLAYABLE_IFRAME_SANDBOX = "allow-scripts";
 
 export interface PlayableSurfaceModule {
   mount(context: PlayableNodeContext): unknown;
 }
 
-export type PlayableModuleLoader = (javascript: string) => Promise<unknown>;
-
 /**
- * A story played as an ordinary web page rather than in the sandbox: each
- * surface's `html`, `css`, and `javascript` are paths of the Node's files,
- * which the page loads from `base` as they are. Its own modules and
- * stylesheets resolve like any page's.
+ * Where the story's page loads its Nodes from: each surface's `html`, `css`,
+ * and `javascript` are paths of the Node's files, loaded from `base` as they
+ * are, so its own modules and stylesheets resolve like any page's.
  */
 export interface PlayablePageSurfaces {
   base: URL;
 }
 
+/** Mounts each Node of the story's page in a ShadowRoot of its own, over the page's stage. */
 export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
   readonly #document: Document;
-  readonly #loadModule: PlayableModuleLoader;
   readonly #projectRoot: HTMLElement;
   readonly #nodeLayer: HTMLElement;
   #watchingMedia?: () => void;
   readonly #watchSurface?: (root: ShadowRoot) => () => void;
-  readonly #page?: PlayablePageSurfaces;
+  readonly #page: PlayablePageSurfaces;
   #mounts = 0;
 
   /**
    * `watchSurface` is called with each surface as it mounts, before its code
-   * runs, and the function it returns when the surface goes; the sandbox's
+   * runs, and the function it returns when the surface goes; the page's
    * audio uses it to hear the surface's media.
    */
   constructor(
     document: Document,
-    loadModule: PlayableModuleLoader = loadPlayableModule,
+    page: PlayablePageSurfaces,
     watchSurface?: (root: ShadowRoot) => () => void,
-    page?: PlayablePageSurfaces,
     readonly onDiagnostic: (message: string) => void = () => {},
   ) {
     this.#document = document;
-    this.#loadModule = loadModule;
     this.#watchSurface = watchSurface;
     this.#page = page;
-    if (!page) {
-      assertPlayableSandboxDocument(document);
-      installPlayableSandboxCsp(document);
-    }
-    const scaffold = createSandboxScaffold(document);
+    const scaffold = createStage(document);
     this.#projectRoot = scaffold.projectRoot;
     this.#nodeLayer = scaffold.nodeLayer;
   }
 
   mountNode(
-    surface: CompiledPlayableSurface,
+    surface: PlayableSurface,
     context: Omit<PlayableNodeContext, "root">,
   ): Promise<PlayableMountedSurface> {
     return this.#mount(this.#nodeLayer, surface, context);
@@ -94,7 +81,7 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
 
   async #mount(
     layer: HTMLElement,
-    surface: CompiledPlayableSurface,
+    surface: PlayableSurface,
     context: Omit<PlayableNodeContext, "root">,
   ): Promise<PlayableMountedSurface> {
     const host = this.#document.createElement("div");
@@ -108,26 +95,18 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
     host.inert = true;
     const root = host.attachShadow({ mode: "open" });
     const template = this.#document.createElement("template");
-    let stylesheet: Promise<unknown> | undefined;
-    if (this.#page) {
-      // A page loads the Node's own files; its stylesheet's imports resolve from where it is.
-      const response = await fetch(new URL(surface.html, this.#page.base), { signal: context.lifecycle.signal });
-      if (!response.ok) throw new Error(`Could not load ${surface.html} (${response.status}).`);
-      template.innerHTML = await response.text();
-      const link = this.#document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = new URL(surface.css, this.#page.base).href;
-      stylesheet = new Promise((resolve) => {
-        link.onload = resolve;
-        link.onerror = resolve;
-      });
-      root.append(link, template.content.cloneNode(true));
-    } else {
-      const style = this.#document.createElement("style");
-      style.textContent = surface.css;
-      template.innerHTML = surface.html;
-      root.append(style, template.content.cloneNode(true));
-    }
+    // The page loads the Node's own files; its stylesheet's imports resolve from where it is.
+    const response = await fetch(new URL(surface.html, this.#page.base), { signal: context.lifecycle.signal });
+    if (!response.ok) throw new Error(`Could not load ${surface.html} (${response.status}).`);
+    template.innerHTML = await response.text();
+    const link = this.#document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = new URL(surface.css, this.#page.base).href;
+    const stylesheet = new Promise((resolve) => {
+      link.onload = resolve;
+      link.onerror = resolve;
+    });
+    root.append(link, template.content.cloneNode(true));
     layer.append(host);
     const stopClips = installPlayableVideoClips(root, this.onDiagnostic);
     context.lifecycle.signal.addEventListener("abort", stopClips, { once: true });
@@ -140,10 +119,8 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
     };
 
     try {
-      // Each mount gets the Node's module afresh, as the sandbox does.
-      const module = this.#page
-        ? await import(/* @vite-ignore */ `${new URL(surface.javascript, this.#page.base).href}?mount=${++this.#mounts}`)
-        : await this.#loadModule(surface.javascript);
+      // Each mount gets the Node's module afresh, so it starts from a clean state.
+      const module = await import(/* @vite-ignore */ `${new URL(surface.javascript, this.#page.base).href}?mount=${++this.#mounts}`);
       await stylesheet;
       if (!isPlayableSurfaceModule(module))
         throw new Error(
@@ -223,46 +200,8 @@ export function watchPlayableBackdropVideo(
   };
 }
 
-export function assertPlayableSandboxDocument(document: Document): void {
-  const view = document.defaultView;
-  if (!view || view === view.top || view.origin !== "null") {
-    throw new Error(
-      'Playable surfaces require an opaque-origin iframe with sandbox="allow-scripts".',
-    );
-  }
-}
-
-export function installPlayableSandboxCsp(document: Document): void {
-  const existing = document.head.querySelector<HTMLMetaElement>(
-    'meta[data-playable-sandbox-csp="true"]',
-  );
-  if (existing) {
-    if (existing.content !== PLAYABLE_SANDBOX_CSP)
-      throw new Error(
-        "Playable sandbox CSP does not match the Runtime policy.",
-      );
-    return;
-  }
-
-  const meta = document.createElement("meta");
-  meta.httpEquiv = "Content-Security-Policy";
-  meta.content = PLAYABLE_SANDBOX_CSP;
-  meta.dataset.playableSandboxCsp = "true";
-  document.head.prepend(meta);
-}
-
-export async function loadPlayableModule(javascript: string): Promise<unknown> {
-  const url = URL.createObjectURL(
-    new Blob([javascript], { type: "text/javascript" }),
-  );
-  try {
-    return await import(/* @vite-ignore */ url);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-function createSandboxScaffold(document: Document): {
+/** The page's stage: the story takes the whole page, and Nodes mount in its layer. */
+function createStage(document: Document): {
   projectRoot: HTMLElement;
   nodeLayer: HTMLElement;
 } {
@@ -275,6 +214,7 @@ function createSandboxScaffold(document: Document): {
   document.body.style.overflow = "hidden";
 
   const projectRoot = document.createElement("main");
+  // Page code may still find the stage by its earlier name.
   projectRoot.dataset.playableSandbox = "true";
   projectRoot.style.position = "relative";
   projectRoot.style.width = "100%";

@@ -91,29 +91,16 @@ describe("Playable editor graph changes", () => {
     expect(removePlayableNodeAsset(graph, "lobby", "theme").assets.theme).toBeUndefined();
   });
 
-  it("hashes what a Node thumbnail shows", () => {
-    const graph = createNodeGraphFixture();
-    const surface = (id: string) => ({ id, html: `<main>${id}</main>`, css: "main {}", javascript: "export function mount() {}", inputs: [] });
+  it("takes a Node thumbnail's hash from the build", () => {
     const definition = {
       version: 1,
-      graph,
-      compiled: { nodes: { menu: surface("menu"), lobby: surface("lobby") } },
+      graph: createNodeGraphFixture(),
       graphSignature: "a",
-    } as unknown as NodePlayerDefinition;
-    const hash = playableThumbnailHash(definition, "menu")!;
-
-    expect(hash).toMatch(/^[0-9a-f]{14}$/);
+      hashes: { menu: "0123456789abcdef", lobby: "fedcba9876543210" },
+    } satisfies NodePlayerDefinition;
+    expect(playableThumbnailHash(definition, "menu")).toBe("0123456789abcdef");
+    // A Scene whose files have a problem has no hash, so it is not captured.
     expect(playableThumbnailHash(definition, "archive")).toBeUndefined();
-    expect(playableThumbnailHash(definition, "lobby")).not.toBe(hash);
-    const renamed = { ...graph, title: "Renamed", nodes: graph.nodes.map((node) => ({ ...node, title: `${node.title}!` })) };
-    expect(playableThumbnailHash({ ...definition, graph: renamed, graphSignature: "b" }, "menu")).toBe(hash);
-    const edited = { ...definition, compiled: { ...definition.compiled, nodes: { ...definition.compiled.nodes, menu: { ...surface("menu"), css: "main { color: red; }" } } } };
-    expect(playableThumbnailHash(edited, "menu")).not.toBe(hash);
-    const otherNode = { ...definition, compiled: { ...definition.compiled, nodes: { ...definition.compiled.nodes, lobby: { ...surface("lobby"), html: "<nav>New</nav>" } } } };
-    expect(playableThumbnailHash(otherNode, "menu")).toBe(hash);
-    const background = { ...graph, assets: { ...graph.assets, background: { type: "image" as const, source: { kind: "workspace" as const, path: "assets/other.webp" } } } };
-    expect(playableThumbnailHash({ ...definition, graph: background }, "menu")).not.toBe(hash);
-    expect(playableThumbnailHash({ ...definition, graph: { ...graph, viewport: { width: 720, height: 1280 } } }, "menu")).not.toBe(hash);
   });
 });
 

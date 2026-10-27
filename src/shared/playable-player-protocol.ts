@@ -1,14 +1,15 @@
-import type { CompiledNodeGraph } from "./playable-compiled.js";
 import type { JsonObject, NodeGraph } from "./playable-nodes.js";
 import type { PlayableTranslate } from "./playable-move.js";
 import type { PlayablePickResult } from "./playable-picker.js";
 import type { NodeRuntimePolicy, NodeRuntimeSnapshot } from "./playable-runtime.js";
 
+/** A story as the editor built it: its graph, checked, and what each Scene shows. */
 export interface NodePlayerDefinition {
   version: 1;
   graph: NodeGraph;
-  compiled: CompiledNodeGraph;
   graphSignature: string;
+  /** Each Scene's content hash, by Node ID; see `checkPlayableSources`. */
+  hashes: Record<string, string>;
 }
 
 /** One editor build shared by the hidden windows in a thumbnail batch. */

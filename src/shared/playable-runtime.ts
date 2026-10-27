@@ -1,7 +1,3 @@
-import type {
-  CompiledNodeGraph,
-  CompiledPlayableSurface,
-} from "./playable-compiled.js";
 import {
   playableEdgeForSignal,
   playableNodeById,
@@ -113,15 +109,23 @@ export interface PlayableMountedSurface {
   destroy(): void | Promise<void>;
 }
 
+/** A Node's files, by their paths in the project, as graph.json declares them. */
+export interface PlayableSurface {
+  id: string;
+  html: string;
+  css: string;
+  javascript: string;
+}
+
 export interface PlayableSurfaceHost {
   mountNode(
-    surface: CompiledPlayableSurface,
+    surface: PlayableSurface,
     context: Omit<PlayableNodeContext, "root">,
   ): Promise<PlayableMountedSurface>;
 }
 
 /**
- * `follow` navigates on Signals (Playtest and Published Player). `report`
+ * `follow` navigates on Signals (Playtest and the published game). `report`
  * validates navigation requests and reports where they would lead while the
  * current Node stays mounted (Workbench preview).
  */
@@ -129,7 +133,6 @@ export type NodeRuntimePolicy = "follow" | "report";
 
 export interface NodeRuntimeOptions {
   graph: NodeGraph;
-  compiled: CompiledNodeGraph;
   graphSignature: string;
   surfaceHost: PlayableSurfaceHost;
   saveStore: PlayableSaveStore;
@@ -238,7 +241,7 @@ export type NodeRuntimeErrorCode =
   | "runtime-failed"
   | "navigation-in-progress"
   | "stale-surface"
-  | "missing-compiled-surface"
+  | "missing-node"
   | "missing-asset-url"
   | "undeclared-asset"
   | "no-save"
@@ -273,7 +276,6 @@ interface SurfaceToken {
 
 export class NodeRuntime {
   readonly #graph: NodeGraph;
-  readonly #compiled: CompiledNodeGraph;
   readonly #graphSignature: string;
   readonly #surfaceHost: PlayableSurfaceHost;
   readonly #saveStore: PlayableSaveStore;
@@ -327,7 +329,6 @@ export class NodeRuntime {
 
   constructor(options: NodeRuntimeOptions) {
     this.#graph = options.graph;
-    this.#compiled = options.compiled;
     this.#graphSignature = options.graphSignature;
     this.#surfaceHost = options.surfaceHost;
     this.#saveStore = options.saveStore;
@@ -642,15 +643,10 @@ export class NodeRuntime {
     const node = playableNodeById(this.#graph, nodeId);
     if (!node)
       throw new NodeRuntimeError(
-        "missing-compiled-surface",
+        "missing-node",
         `Playable Node "${nodeId}" is missing.`,
       );
-    const surface = this.#compiled.nodes[nodeId];
-    if (!surface)
-      throw new NodeRuntimeError(
-        "missing-compiled-surface",
-        `Compiled Playable Node "${nodeId}" is missing.`,
-      );
+    const surface: PlayableSurface = { id: node.id, ...node.source };
     const token: SurfaceToken = {
       surfaceId: nodeId,
       active: true,
