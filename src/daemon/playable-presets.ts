@@ -720,8 +720,8 @@ const BASE_PLAYABLE_PRESETS: PlayablePreset[] = [
 export const PLAYABLE_PRESETS = BASE_PLAYABLE_PRESETS.map(withPlayableTemplateArtwork);
 
 /**
- * Blank: a background that emits `next` when its video ends or the player
- * clicks. New projects start with it too.
+ * Blank: a background that emits `next` when its video ends, or when the
+ * player clicks a still. New projects start with it too.
  */
 export function blankSource(): { html: string; css: string; javascript: string } {
   return {
@@ -729,6 +729,7 @@ export function blankSource(): { html: string; css: string; javascript: string }
       '<main class="scene has-backdrop">',
       '  <div class="backdrop is-night" data-media="backdrop"></div>',
       '  <p class="continue-hint">Click to continue ▸</p>',
+      '  <button type="button" class="skip-scene" data-skip hidden>Skip ▸</button>',
       "</main>",
       "",
     ].join("\n"),

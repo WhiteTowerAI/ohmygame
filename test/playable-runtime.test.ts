@@ -586,6 +586,8 @@ describe("Node Runtime Story Map", () => {
     const { runtime, host } = createRuntime({ seenStore });
     await runtime.start();
     await nodeContext(host, "menu").navigation.emit("start");
+    expect(nodeContext(host, "menu").story.seenBefore).toBe(false);
+    expect(nodeContext(host, "lobby").story.seenBefore).toBe(false);
 
     const map = nodeContext(host, "lobby").story.map();
     expect(map.nodes.map((node) => [node.id, node.row, node.seen, node.ending])).toEqual([
@@ -612,6 +614,17 @@ describe("Node Runtime Story Map", () => {
     await nodeContext(host, "menu").session.restart();
 
     expect(nodeContext(host, "menu").story.map().nodes.every((node) => node.seen)).toBe(true);
+    // A Scene can offer to skip what the player saw in an earlier game.
+    expect(nodeContext(host, "menu").story.seenBefore).toBe(true);
+  });
+
+  it("tells a Node it was seen before only on a later visit in the same game", async () => {
+    const { runtime, host } = createRuntime({ seenStore: new MemoryPlayableSeenStore() });
+    await runtime.start();
+    await nodeContext(host, "menu").navigation.emit("start");
+    await nodeContext(host, "lobby").navigation.emit("home");
+    expect(host.nodeContexts.filter((entry) => entry.id === "menu").map((entry) => entry.context.story.seenBefore))
+      .toEqual([false, true]);
   });
 
   it("shows the whole map in a preview without adding to what was seen", async () => {
@@ -628,6 +641,11 @@ describe("Node Runtime Story Map", () => {
     expect(map.nodes.every((node) => node.seen) && map.edges.every((edge) => edge.seen)).toBe(true);
     await runtime.dispose();
     expect(saved).toEqual([]);
+
+    // A preview plays a Scene as it first appears, without Skip.
+    const preview = createRuntime({ seenStore, policy: "report", startNodeId: "menu" });
+    await preview.runtime.start();
+    expect(nodeContext(preview.host, "menu").story.seenBefore).toBe(false);
   });
 
   it("plays on when what was seen cannot be read or kept", async () => {

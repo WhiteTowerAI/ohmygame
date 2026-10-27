@@ -2,7 +2,7 @@ import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { addPlayableNode } from "../src/daemon/playable-add-node.js";
 import {
   createNodeCodebase,
@@ -85,6 +85,8 @@ class FakeElement {
   querySelector(selector: string): FakeElement | null {
     for (const child of this.children) {
       if (selector === '[data-media="backdrop"]' && child.attributes["data-media"] === "backdrop") return child;
+      if (selector === ".continue-hint" && child.attributes.class === "continue-hint") return child;
+      if (selector === "[data-skip]" && "data-skip" in child.attributes) return child;
       const found = child.querySelector(selector);
       if (found) return found;
     }
@@ -94,29 +96,37 @@ class FakeElement {
   removeEventListener(type: string) { this.listeners.delete(type); }
   remove() { this.removed = true; }
   focus() {}
-  play() { return Promise.resolve(); }
+  play() { return playResult(); }
   pause() { this.paused = true; }
 }
 
-/** Mounts a Scene whose background has the given attributes, as the editor writes them. */
-async function mountScene(attributes: Record<string, string>) {
+/** What a video's play() does; a rejection stands for a video that cannot start. */
+let playResult = () => Promise.resolve();
+
+/** Mounts a Scene whose background has the given attributes, as the editor writes them, with Blank's hint and Skip. */
+async function mountScene(attributes: Record<string, string>, { seenBefore = false } = {}) {
   const { playScene } = await loadSceneModule();
   const previous = globalThis.document;
   globalThis.document = { createElement: (tag: string) => new FakeElement(tag) } as unknown as Document;
   const root = new FakeElement("root");
   const scene = new FakeElement("main");
   const backdrop = new FakeElement("div", { "data-media": "backdrop", ...attributes });
-  scene.append(backdrop);
+  const hint = new FakeElement("p", { class: "continue-hint" });
+  const skip = new FakeElement("button", { "data-skip": "" });
+  scene.append(backdrop, hint, skip);
   root.append(scene);
   const emitted: string[] = [];
   const context = {
     root,
     assets: { url: (id: string) => `blob:${id}` },
+    story: { seenBefore },
     navigation: { emit: async (signal: string) => { emitted.push(signal); } },
   };
   try {
     const cleanup = playScene(context, { signal: "next" }) as () => void;
-    return { scene, backdrop, emitted, cleanup, click: () => scene.listeners.get("click")!() };
+    // Lets the video's play() attempts settle.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { scene, backdrop, hint, skip, emitted, cleanup, click: () => scene.listeners.get("click")!() };
   } finally {
     globalThis.document = previous;
   }
@@ -134,32 +144,64 @@ async function loadSceneModule() {
 }
 
 describe("playScene", () => {
-  it("plays the background video and emits the Signal once when it ends or the player clicks", async () => {
-    const { scene, backdrop, emitted, click, cleanup } = await mountScene({ "data-asset": "opening", "data-type": "video" });
+  afterEach(() => { playResult = () => Promise.resolve(); });
+
+  it("plays the background video through, so a click does not cut it short", async () => {
+    const { scene, backdrop, hint, skip, emitted, click, cleanup } = await mountScene({ "data-asset": "opening", "data-type": "video" });
     const video = backdrop.children[0]!;
     expect(video).toMatchObject({ tagName: "video", src: "blob:opening" });
     expect(video.loop).toBeUndefined();
-    expect(scene.children).toEqual([backdrop]);
-    video.listeners.get("ended")!();
+    expect(hint.hidden).toBe(true);
+    expect(skip.hidden).toBe(true);
     click();
+    expect(emitted).toEqual([]);
+    video.listeners.get("ended")!();
+    video.listeners.get("ended")!();
     expect(emitted).toEqual(["next"]);
     cleanup();
     expect(video.paused).toBe(true);
     expect(video.removed).toBe(true);
     expect(scene.listeners.size).toBe(0);
+    expect(skip.listeners.size).toBe(0);
   });
 
-  it("shows a background image the player clicks past", async () => {
-    const { backdrop, emitted, click } = await mountScene({ "data-asset": "still", "data-type": "image" });
-    expect(backdrop.children[0]).toMatchObject({ tagName: "img", src: "blob:still" });
+  it("offers Skip over a video the player has seen before", async () => {
+    const { skip, emitted } = await mountScene({ "data-asset": "opening", "data-type": "video" }, { seenBefore: true });
+    expect(skip.hidden).toBe(false);
+    skip.listeners.get("click")!();
+    expect(emitted).toEqual(["next"]);
+  });
+
+  it("lets a click move on when the video cannot play", async () => {
+    playResult = () => Promise.reject(new Error("not allowed"));
+    const { hint, emitted, click } = await mountScene({ "data-asset": "opening", "data-type": "video" });
+    expect(hint.hidden).toBe(false);
     click();
     expect(emitted).toEqual(["next"]);
   });
 
-  it("shows nothing over an empty background", async () => {
-    const { scene, backdrop } = await mountScene({});
+  it("lets a click move on after the video fails to load", async () => {
+    const { backdrop, hint, emitted, click } = await mountScene({ "data-asset": "opening", "data-type": "video" });
+    backdrop.children[0]!.listeners.get("error")!();
+    expect(hint.hidden).toBe(false);
+    click();
+    expect(emitted).toEqual(["next"]);
+  });
+
+  it("shows a background image the player clicks past", async () => {
+    const { backdrop, hint, skip, emitted, click } = await mountScene({ "data-asset": "still", "data-type": "image" });
+    expect(backdrop.children[0]).toMatchObject({ tagName: "img", src: "blob:still" });
+    expect(hint.hidden).toBe(false);
+    expect(skip.hidden).toBe(true);
+    click();
+    expect(emitted).toEqual(["next"]);
+  });
+
+  it("shows nothing over an empty background and moves on with a click", async () => {
+    const { backdrop, emitted, click } = await mountScene({});
     expect(backdrop.children).toEqual([]);
-    expect(scene.children).toEqual([backdrop]);
+    click();
+    expect(emitted).toEqual(["next"]);
   });
 });
 

@@ -223,7 +223,7 @@ interface RuntimeContext {
     loadSlot(id: string): Promise<void>;
     deleteSlot(id: string): Promise<void>;
   };
-  story: { map(): StoryMap };
+  story: { map(): StoryMap; seenBefore: boolean };
   lifecycle: { signal: AbortSignal };
 }
 
@@ -557,6 +557,12 @@ holds at any screen size and arranging the canvas does not change it:
 The Story map Template draws the map. Which Scenes it shows, locked or not,
 is its own code.
 
+`context.story.seenBefore` is `true` when the player entered the node before
+this visit, earlier in the same game or in another one. A node is marked seen
+only once it has mounted, so on a first visit it is `false`. Scenes use it to
+offer skipping what the player has already watched. The `report` preview
+policy always gives `false`.
+
 ## Host tooling
 
 These capabilities exist for the editor and the Agent. Node code cannot see
@@ -572,8 +578,9 @@ The Runtime accepts a navigation policy:
   with the edge it would follow, and the node stays mounted. `back()`,
   `restart()`, and `continue()` are reported the same way. Report kinds are
   `signal`, `back`, `restart`, and `continue`. Nothing it previews adds to
-  what the player has seen, and `story.map()` shows every node and edge as
-  seen, so the author previews the whole map.
+  what the player has seen, `story.map()` shows every node and edge as
+  seen, so the author previews the whole map, and `story.seenBefore` is
+  `false`, so a Scene previews as it first appears.
 
 The Workbench preview may also start with a **preview state**: `initialState`
 with author-chosen overrides, validated against the declared keys.

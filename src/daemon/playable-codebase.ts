@@ -46,11 +46,13 @@ export const PROJECT_GUIDE_UPGRADES: Record<"AGENTS.md" | "README.md", readonly 
     "2466f982c14b84abb66f1521664644b687eb21c10f27f72bc6eedd807d9171d1",
     "78bab6b86ae039e0b63d14da74e6f5f3fb3eca4ffbd2399de845a643d7ed699e",
     "bad327183e1b955b2b1f24a5fc0dbd9b691f0b5fc006773fef2a86e8ced475d5",
+    "8619c00f6a6ec09d6dfdaf99a2f84bc79fbd1214da156776701306fe9ba585ed",
   ],
   "README.md": [
     "311594a64abc80d5b1c8270e064375268f8bb3eff44e58f634c3d275208c65e2",
     "781d2b099d3acc5d87555668f8d935acbbbbccbddb39e052471367224275dc6f",
     "547ed93bccfae4980075bfb76e8586971acb71de10ce4896def59d0a0ead4a6c",
+    "0e99e5862388f7a8e3e3139f7d948f801b0fd843a8568a95e5635cffa4c0bbd4",
   ],
 };
 
@@ -72,7 +74,7 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - Build every screen with the Project Style in \`shared/style/\`: import \`shared/style/components.css\` from a Node's CSS and use its tokens and classes. Add a token or component there instead of hard-coding values in a Node, and restyle the game by changing \`shared/style/\` first.
 - A Node's background is one \`<div class="backdrop" data-media="backdrop" data-asset="ID" data-type="video|image">\` inside a \`.has-backdrop\` container. The author sets \`data-asset\` and \`data-type\` from the editor, so keep exactly one such element in the Node's HTML and never replace it; to change the background, change those two attributes. \`showBackdrop(context)\` from \`shared/style/components.js\` shows it: a video plays once with sound and stops on its last frame, an image stays still. It returns \`{ video, cleanup }\`.
 - Music that should carry on across Scenes, such as a chapter's theme, goes through \`context.audio.music(assetId)\`, not an \`<audio>\` element in a Node: it keeps playing into the next Scene, is kept with the save, and turns down while a Scene's own video plays with sound. A Node that reads a long sequence one step at a time, such as a script, keeps its place with \`context.position\`, so Continue returns there.
-- \`playScene(context, { signal })\` from the same file shows the background and emits the Signal when its video ends or the player clicks. The Blank Template uses it; change or replace it freely.
+- \`playScene(context, { signal })\` from the same file shows the background and emits the Signal when its video ends; a click does not cut a video short. A still, no background, or a video that cannot play moves on with a click and shows the Node's \`.continue-hint\`. A \`[data-skip]\` button shows over a video the player has seen before. The Blank Template uses it; change or replace it freely.
 - Use normal modules under \`shared/\` for code shared by Nodes. Imports must remain inside this workspace; project dependencies resolve from this project's own \`node_modules\`.
 - Files a Template added, such as the Project Style in \`shared/style/\` and the Visual Novel player in \`shared/vn/\`, are this project's source like any other: change them freely. OhMyGame writes them only when they are missing and never updates them.
 - UI that appears on more than one Node, such as a top bar or a Home button, is a shared component under \`shared/components/\`. Each Node that shows it imports it, and declares and routes the Signals it emits like its own. There is no layer drawn over every Node; State carries whatever must continue across Nodes.
@@ -154,6 +156,7 @@ Each Node module exports \`mount(context)\`. The Runtime supplies:
 - \`context.audio.music(assetId | null, { fade })\` and \`sound(assetId)\`: music plays on across Nodes until a Node changes it, and turns down while a Node's video or audio plays with sound.
 - \`context.preferences.get()\` and \`set(values)\`: the player's settings, kept across games. \`musicVolume\` and \`soundVolume\` (0 to 1) set the volumes; other keys are the project's.
 - \`context.story.map()\`: the story laid out from the graph in rows from the Start, with what the player has seen across every game. Nodes have \`id\`, \`label\`, \`row\`, \`column\` (from the left of its row of \`rowSize\`), \`ending\`, and \`seen\`; edges have \`from\`, \`to\`, and \`seen\`. It leaves out \`push\` side screens, navigation Signals, steps back up the story, and Nodes with \`story.hidden\`.
+- \`context.story.seenBefore\`: true when the player entered this Node before, earlier in this game or in another one, so a Scene can offer to skip it. Always false in a preview.
 - \`context.lifecycle.signal\`: aborted before cleanup when the Node exits.
 
 A shared component receives the Node's context from the Node that mounts it, so it emits that Node's Signals: every Node that shows it declares them in \`graph.json\`.

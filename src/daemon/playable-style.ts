@@ -473,6 +473,22 @@ kbd,
   animation: hint-blink 2.4s 1.5s ease-in-out infinite both;
 }
 
+/* "Skip", over a video Scene the player has seen before. */
+.skip-scene {
+  position: absolute;
+  right: 5cqw;
+  bottom: calc(var(--letterbox) + 1.8cqw);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+  background: var(--color-shade);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.2em;
+  cursor: pointer;
+}
+
 @keyframes hint-blink {
   0%, 100% { opacity: 0.25; }
   50% { opacity: 0.9; }
@@ -692,12 +708,14 @@ export function showBackdrop(context) {
   video.playsInline = true;
   backdrop.append(video);
   // Where sound may not start on its own, play muted rather than stay black.
-  video.play?.().catch(() => {
+  const started = Promise.resolve(video.play?.()).catch(() => {
     video.muted = true;
     return video.play?.();
-  }).catch(() => {});
+  }).then(() => true, () => false);
   return {
     video,
+    /** Whether the video started playing, with or without sound. */
+    started,
     shown: true,
     cleanup: () => {
       video.pause();
@@ -707,9 +725,13 @@ export function showBackdrop(context) {
 }
 
 /**
- * Shows the background and emits a Signal when its video ends or the player
- * clicks anywhere. This is Node content, not a Runtime feature, so change or
- * replace it freely.
+ * Shows the background and emits a Signal when the player moves on. A video
+ * plays to its end, as in an interactive film: clicking does not cut it
+ * short, and a \`[data-skip]\` button shows only when the player has seen the
+ * Scene before. An image, or no background, waits for a click, and so does a
+ * video that cannot play, so the player is never stuck. A \`.continue-hint\`
+ * shows only while a click moves on. This is Node content, not a Runtime
+ * feature, so change or replace it freely.
  *
  * @param {object} context the Node context passed to mount
  * @param {object} options
@@ -719,6 +741,8 @@ export function showBackdrop(context) {
 export function playScene(context, { signal }) {
   const stage = context.root.querySelector('[data-media="backdrop"]')?.parentElement ?? context.root;
   const backdrop = showBackdrop(context);
+  const hint = stage.querySelector(".continue-hint");
+  const skip = stage.querySelector("[data-skip]");
 
   let finished = false;
   const finish = () => {
@@ -726,12 +750,32 @@ export function playScene(context, { signal }) {
     finished = true;
     void context.navigation.emit(signal);
   };
+  let playing = Boolean(backdrop.video);
+  const update = () => {
+    if (hint) hint.hidden = playing;
+    if (skip) skip.hidden = !(playing && context.story.seenBefore);
+  };
+  const stopped = () => {
+    playing = false;
+    update();
+  };
+  const click = () => {
+    if (!playing) finish();
+  };
   backdrop.video?.addEventListener("ended", finish);
-  stage.addEventListener("click", finish);
+  backdrop.video?.addEventListener("error", stopped);
+  void backdrop.started?.then((started) => {
+    if (!started) stopped();
+  });
+  skip?.addEventListener("click", finish);
+  stage.addEventListener("click", click);
+  update();
 
   return () => {
     backdrop.video?.removeEventListener("ended", finish);
-    stage.removeEventListener("click", finish);
+    backdrop.video?.removeEventListener("error", stopped);
+    skip?.removeEventListener("click", finish);
+    stage.removeEventListener("click", click);
     backdrop.cleanup();
   };
 }

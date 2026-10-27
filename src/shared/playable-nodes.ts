@@ -174,6 +174,14 @@ export interface NodeRuntimeContext {
 }
 
 export interface PlayableNodeContext extends NodeRuntimeContext {
+  story: NodeRuntimeContext["story"] & {
+    /**
+     * The player entered this Node before, earlier in this game or in another
+     * one, so a Scene can offer to skip what they have seen. Always false in a
+     * `report` preview.
+     */
+    seenBefore: boolean;
+  };
   navigation: {
     emit(signal: string): Promise<void>;
     back(): Promise<void>;

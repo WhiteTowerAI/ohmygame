@@ -701,10 +701,21 @@ code. A published game never has them.
 
 "Advance when the video ends" is Scene content, not a Runtime feature. The
 Project Style includes a small `playScene()` component that shows the
-Scene's background and emits a given Signal when the video ends or the
-player clicks. Blank uses it. Authors who want something
-else (a choice over the last frame, a loop until input) change the Scene like
-any other.
+Scene's background and emits a given Signal when the player moves on:
+
+- A video plays to its end, as in an interactive film. A click does not cut
+  it short. Over a video the player has seen before
+  (`context.story.seenBefore`), the Scene's `[data-skip]` button shows and
+  moves on.
+- A still image, or no background, moves on with a click, and the Scene's
+  `.continue-hint` shows.
+- A video that fails to load or cannot start playing falls back to a click,
+  so the player is never stuck.
+
+Blank uses it, with its hint and Skip button in its HTML so they can be
+reworded in the project's language. Authors who want something else (a
+choice over the last frame, a loop until input) change the Scene like any
+other.
 
 This keeps the Runtime free of media-ended and timer transitions while the
 most common interactive-film case needs no code.

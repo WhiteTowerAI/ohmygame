@@ -658,8 +658,12 @@ export class NodeRuntime {
     };
     const abortController = new AbortController();
     this.#mountingAbortController = abortController;
+    const base = this.#baseContext(token, abortController, node.assets);
+    // A Node is marked seen once it has mounted, so this counts earlier visits only.
+    const seenBefore = this.#policy !== "report" && Object.hasOwn(this.#seen.nodes, nodeId);
     const context: Omit<PlayableNodeContext, "root"> = {
-      ...this.#baseContext(token, abortController, node.assets),
+      ...base,
+      story: { ...base.story, seenBefore },
       navigation: {
         emit: this.#guardAsync(token, (signal: string) =>
           this.#emit(token, signal),
