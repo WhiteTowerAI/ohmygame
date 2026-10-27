@@ -25,15 +25,15 @@ replace the whole interface.
 ## Upgrading a story
 
 Interactive Stories play as their own web page (see
-[runtime.md](runtime.md#page-and-lifecycle)). A story made before that plays
-in OhMyGame's sandbox, and the Story canvas shows a notice at the top:
-"This story plays in the old sandbox. Upgrade it to play as its own web page,
-which the AI can change entirely, from saving to music," with **Upgrade** and
-the details of what it does. Upgrading takes a checkpoint first; the notice
-then says the story plays as its own page and offers **Undo upgrade**.
-Closing the notice keeps the upgrade for good, and Undo upgrade is no longer
-offered. Unsaved edits are saved before either, and every
-editor reloads after.
+[runtime.md](runtime.md#page-and-lifecycle)). A story made before that was
+made for a sandbox OhMyGame no longer has, and cannot play until it is
+upgraded. The Story editor upgrades it as soon as the canvas has loaded:
+unsaved edits are saved first, the upgrade takes a checkpoint, and every
+editor reloads after. There is no way back to the sandbox. If the upgrade
+fails, for example while the Agent is still working, the canvas says why with
+**Try again** and the details of what upgrading does. Until then, Playtest
+asks the author to open the story in the editor, and the Workbench preview
+says the story is being upgraded.
 
 Upgrading copies the Library media the story uses into the project. A
 published story cannot reach media left in the Library, such as one the
@@ -244,7 +244,7 @@ with Shift.
 
 The timeline points at moments; it changes no files. Changing the video
 itself, such as cutting it, is media work outside the Scene. It is editor
-tooling run by the sandbox host, like picking, and the Published Player has
+tooling run by the editor bridge, like picking, and a published game has
 none of it.
 
 ### Issues
@@ -636,7 +636,6 @@ web story's are taken from its own page, opened at the Scene without sound.
   workspace version instead of compiling the whole project for each Scene.
   A new build cancels the previous batch; its compiled snapshot is released
   when the captures finish or are cancelled.
-  Sandboxed captures load only the assets declared by that Scene.
 - The Scene is captured through the desktop `capturePage` capability, the
   same mechanism that captures Web Game project covers, about one second
   after it reports ready. A run with errors is not captured. Captures keep
@@ -666,9 +665,8 @@ The same capture is attached to Agent requests about that Scene.
 ### Element picking, text editing, and moving
 
 Picking (**Select**), in-place editing (**Text**), and moving (**Move**) are editor tooling
-implemented by the editor bridge the preview injects into the story's page (or
-by the sandbox host, for a story that has not been upgraded), not by node
-code. A published game never has them.
+implemented by the editor bridge the preview injects into the story's page,
+not by node code. A published game never has them.
 
 1. **Select**, **Text**, or **Move** puts the preview into pick mode. The bridge
    draws a hover outline inside the node's surface and blocks node input.

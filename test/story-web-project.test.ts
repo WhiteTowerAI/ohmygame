@@ -193,8 +193,8 @@ describe("project guides", () => {
   it("records the guides that ship now, so changing them keeps earlier copies upgradable", () => {
     // When this fails because a guide changed, add the old hash to PROJECT_GUIDE_UPGRADES, then record the new one here.
     expect({ agents: sha(AGENT_INSTRUCTIONS), readme: sha(PROJECT_DOCUMENTATION) }).toEqual({
-      agents: "6756f06173ada0f8dbd0f805df7be19c754468ce33b9834d1f1caa130c09181c",
-      readme: "a9054d6e699cf6741d3056a2a121049363e17bf4ad9fa47df6954e8246086774",
+      agents: "1f2de44de2cc69a1d740b1152bad62060f3d8c8b511016dbb64f42e36c73e436",
+      readme: "cb267e6e75e349a899668e9b03ce37a9936e68f401f6bd8764223c3634d64b13",
     });
     expect(PROJECT_GUIDE_UPGRADES["AGENTS.md"]).not.toContain(sha(AGENT_INSTRUCTIONS));
     expect(PROJECT_GUIDE_UPGRADES["README.md"]).not.toContain(sha(PROJECT_DOCUMENTATION));

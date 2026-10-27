@@ -58,7 +58,6 @@ export default async function checkPackagedDesktop(context) {
       bundledPluginsDirectory: path.join(resources, "plugins"),
       preinstalledPluginsDirectory: path.join(resources, "preinstalled-plugins"),
       examplesDirectory: path.join(resources, "examples"),
-      playerDirectory: path.join(resources, "app.asar.unpacked", "dist", "player"),
       healthTimeoutMs: 30_000,
     });
     const unauthorized = await fetch(`${daemon.runtime.url}/projects`, { signal: AbortSignal.timeout(5_000) });

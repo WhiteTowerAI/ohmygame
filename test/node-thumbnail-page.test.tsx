@@ -17,15 +17,13 @@ const definition: NodePlayerDefinition = {
 let onSnapshot!: (snapshot: NodeRuntimeSnapshot) => void;
 let finishImage!: (image: Blob) => void;
 const upload = vi.fn(async () => {}), finish = vi.fn();
-const loadRuntime = vi.fn(async () => ({ available: true as const, definition, ...(web ? { web: true as const } : {}) }));
+const loadRuntime = vi.fn(async () => ({ available: true as const, definition, web: true as const }));
 const sharedSnapshot = vi.fn(async () => undefined as import("../src/shared/playable-player-protocol.js").PlayableThumbnailSnapshot | undefined);
-const loadAssets = vi.fn(async () => ({}));
 const capture = vi.fn(() => new Promise<Blob>(resolve => { finishImage = resolve; }));
 const startPreview = vi.fn(async (projectId: string) => {
   void projectId;
   return { url: "http://127.0.0.1:5555", title: "Thumbnail" };
 });
-let web = false;
 let playerProps: { page?: string; preview?: unknown } = {};
 vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
@@ -33,10 +31,8 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   ensureProjectPreview: startPreview,
   setPlayableThumbnail: upload,
 }));
-vi.doMock(path.resolve("src/renderer/playable-assets.ts"), () => ({ loadPlayableAssets: loadAssets }));
 vi.doMock(path.resolve("src/renderer/page-capture.ts"), () => ({ captureElementImage: capture }));
 vi.doMock(path.resolve("src/renderer/playable-player.tsx"), () => ({
-  createMemoryStorage: () => ({}),
   NodePlayer: (props: { onSnapshot(snapshot: NodeRuntimeSnapshot): void; page?: string; preview?: unknown }) => {
     onSnapshot = props.onSnapshot;
     playerProps = props;
@@ -69,7 +65,7 @@ it("stores a successful capture after the ready frame has painted", async () => 
 });
 
 it("uses the batch snapshot and its workspace version without rebuilding", async () => {
-  sharedSnapshot.mockResolvedValue({ definition, version: "before-restore" });
+  sharedSnapshot.mockResolvedValue({ definition, version: "before-restore", web: true });
   loadRuntime.mockClear();
   capture.mockClear();
   await act(async () => root.render(<NodeThumbnailPage key="shared" projectId="p" nodeId="start" />));
@@ -81,18 +77,13 @@ it("uses the batch snapshot and its workspace version without rebuilding", async
   expect(upload).toHaveBeenCalledExactlyOnceWith("p", "start", playableThumbnailHash(definition, "start"), image, "before-restore");
 });
 
-it("loads only the captured Scene's declared media in a sandbox project", async () => {
-  const snapshot = structuredClone(definition);
-  snapshot.graph.assets = {
-    used: { type: "image", source: { kind: "workspace", path: "used.png" } },
-    unused: { type: "video", source: { kind: "workspace", path: "other-scene.mp4" } },
-  };
-  snapshot.graph.nodes[0]!.assets = ["used"];
-  sharedSnapshot.mockResolvedValue({ definition: snapshot, version: "0" });
-  await act(async () => root.render(<NodeThumbnailPage key="assets" projectId="p" nodeId="start" />));
-  expect(loadAssets).toHaveBeenLastCalledWith("p", {
-    ...snapshot.graph, assets: { used: snapshot.graph.assets.used },
-  });
+it("does not capture a story the editor has not upgraded to a web story yet", async () => {
+  sharedSnapshot.mockResolvedValue({ definition, version: "0" });
+  finish.mockClear();
+  startPreview.mockClear();
+  await act(async () => root.render(<NodeThumbnailPage key="sandbox" projectId="p" nodeId="start" />));
+  expect(startPreview).not.toHaveBeenCalled();
+  expect(finish).toHaveBeenCalledExactlyOnceWith(false, "The story has not been upgraded to a web story yet.");
 });
 
 it("discards an in-flight capture when the runtime fails", async () => {
@@ -102,16 +93,9 @@ it("discards an in-flight capture when the runtime fails", async () => {
   expect(finish).toHaveBeenCalledExactlyOnceWith(false, "The Scene failed to start.");
 });
 
-it("captures a web story from its own page, previewing the Scene without sound", async () => {
-  web = true;
-  try {
-    await act(async () => root.render(<NodeThumbnailPage key="web" projectId="p" nodeId="start" />));
-    await act(async () => vi.advanceTimersByTimeAsync(10));
-    expect(playerProps.page).toBe("http://127.0.0.1:5555");
-    expect(playerProps.preview).toEqual({ policy: "report", startNodeId: "start", silent: true });
-  } finally {
-    web = false;
-  }
+it("captures the story from its own page, previewing the Scene without sound", async () => {
+  expect(playerProps.page).toBe("http://127.0.0.1:5555");
+  expect(playerProps.preview).toEqual({ policy: "report", startNodeId: "start", silent: true });
 });
 
 it("starts a restored web story's preview with the batch's workspace version", async () => {

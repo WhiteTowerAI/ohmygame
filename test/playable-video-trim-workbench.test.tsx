@@ -138,15 +138,6 @@ it("keeps the web preview and offers the shared trim dialog using its source Blo
   );
 });
 
-it("retains the legacy compiled-preview trim path", async () => {
-  getNodeRuntime.mockResolvedValue({ available: true, definition });
-  await mount();
-  await openMenu();
-  expect(button("Trim video")).toBeDefined();
-  expect(ensureProjectPreview).not.toHaveBeenCalled();
-  expect(getWorkspaceFile).not.toHaveBeenCalled();
-});
-
 it("does not disable normal web previews when trim media cannot be read", async () => {
   getWorkspaceAsset.mockRejectedValueOnce(new Error("Unavailable"));
   await mount();

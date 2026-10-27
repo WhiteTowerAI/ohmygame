@@ -144,7 +144,7 @@ Tell the author what was generated.
 the Scene's single `data-media="backdrop"` element with `data-type="video"`.
 Use non-negative seconds in the original file, End greater than Start;
 omit Start for zero and End for the natural end. Do not transcode the Asset
-or rewrite shared helpers. The sandbox emits the video's normal `ended`
+or rewrite shared helpers. The runtime emits the video's normal `ended`
 event at the out point, preserving the Scene's navigation logic. Remove both
 attributes when replacing or removing the background. Run `playable_check`
 and playtest the edited route, including the intended Exit.
@@ -228,18 +228,19 @@ connected and every source file to exist.
 
 ### `game_use` for Playable Nodes
 
-The existing `game_use` tool plays Playable Nodes projects. `open` builds the
-current sources into a draft of the Published Player, served on loopback
-under an unguessable path, and opens it in the Playtest window.
+The existing `game_use` tool plays Playable Nodes projects. `open` opens the
+story's own page through the project preview in the Playtest window. A story
+made before web stories is refused until the user opens it in the Story
+editor, which upgrades it.
 
-Snapshots read text and interactive elements inside the Player's frames and
+Snapshots read text and interactive elements inside the page's frames and
 node ShadowRoots, so the snapshot's text is what the screen shows.
 Its `gameState` is the Playtest debug record: current node,
 back stack, recent Signals and whether an edge followed them, State, State
 changes, errors, and save status. The bridge `reset` action starts a new game
-without the save. Only drafts expose the bridge; a published game does not. `act` drives real input; `capture` returns a screenshot.
+without the save. Only the page opened for playtesting exposes the bridge; a published game does not. `act` drives real input; `capture` returns a screenshot.
 
-A typical verification: open the draft, reset, play to the changed node,
+A typical verification: open the story, reset, play to the changed node,
 perform the interaction, confirm the expected Signal and target in
 `gameState`, and capture a screenshot for visual changes.
 

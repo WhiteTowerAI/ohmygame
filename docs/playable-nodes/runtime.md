@@ -26,8 +26,9 @@ project preview or as static files. Editor tooling (preview policy, element
 picking, capture, diagnostics) is injected by the preview and never changes
 what node code sees, and never ships with the game.
 
-Stories made before web stories play the same Runtime in OhMyGame's sandbox
-until the author upgrades them; see [Sandboxed stories](#sandboxed-stories).
+Stories made before web stories played in a sandbox that OhMyGame no longer
+has. They cannot play, build, or publish until the Story editor upgrades them;
+see [Stories made before web stories](#stories-made-before-web-stories).
 
 ## Project files
 
@@ -340,10 +341,10 @@ reports a diagnostic once and falls back to playing the complete file.
 Paused authoring seeks can inspect the entire original video; the next play
 respects the clip. Clips do not add State, alter graph signatures, modify
 Assets or require migration of user-authored shared helpers. Published
-packages still contain the original video bytes. The same controller runs in
-web stories and legacy sandboxed stories. Web stories receive it through the
-normal manifest-aware runtime update; customized runtime files remain pending
-for the author to merge, rather than being overwritten.
+packages still contain the original video bytes. Web stories receive the
+controller through the normal manifest-aware runtime update; customized
+runtime files remain pending for the author to merge, rather than being
+overwritten.
 
 ## Page and lifecycle
 
@@ -411,17 +412,17 @@ files the author or Agent changed stay: the newer file goes under
 `.ohmygame/story-runtime/<version>/` and the manifest lists it as `pending`
 for the Agent to merge.
 
-### Sandboxed stories
+### Stories made before web stories
 
-A story without `index.html` and `story/` plays in OhMyGame's sandbox: an
-iframe with exactly `sandbox="allow-scripts"`, an opaque origin, and a CSP
-that denies network. The Runtime there talks to its host by messages, and the
-compiler bundles each node into one module. The Story editor offers
-**Upgrade**, which takes a checkpoint, copies the Library assets the story
-uses into `assets/library/`, rewrites imports a browser cannot load,
-adds `index.html` and `story/`, and replaces `AGENTS.md` and `README.md` if
-they are still as OhMyGame wrote them. **Undo upgrade** takes back the files
-changed between the two checkpoints.
+A story without `index.html` and `story/` was made for a sandbox OhMyGame no
+longer has, so Playtest, the Workbench preview, thumbnails, the Agent's
+playtest, building, and publishing all refuse it. The Story editor upgrades
+it as soon as the canvas has loaded: the upgrade takes a checkpoint, copies
+the Library assets the story uses into `assets/library/`, rewrites imports a
+browser cannot load, adds `index.html` and `story/`, and replaces `AGENTS.md`
+and `README.md` if they are still as OhMyGame wrote them. The Agent is told
+OhMyGame made the change. There is no way back to the sandbox; if the
+upgrade fails, the canvas says why and offers to try again.
 
 ## Save and session
 
@@ -499,7 +500,7 @@ kept with the save, so Continue and a loaded slot bring it back, and
 
 While a Node's own `<video>` or `<audio>` plays with sound, such as a
 cinematic Scene's background, the music turns down to a quarter and comes
-back when it stops. The sandbox listens for that on each Node's ShadowRoot,
+back when it stops. The page listens for that on each Node's ShadowRoot,
 so it needs nothing from Node code. Node media plays at the sound volume.
 
 Where the browser will not start sound before the player touches the page,
@@ -573,7 +574,7 @@ Player exposes the playtest bridge only for a draft built for `game_use`.
 
 The Runtime accepts a navigation policy:
 
-- `follow` (Playtest and Published Player): Signals navigate.
+- `follow` (Playtest and the published game): Signals navigate.
 - `report` (Workbench preview): a Signal is validated and reported to the host
   with the edge it would follow, and the node stays mounted. `back()`,
   `restart()`, and `continue()` are reported the same way. Report kinds are
@@ -626,7 +627,7 @@ Workbench's "State used" section; calling `get()` without a key records
 For an Interactive Story, the preview proxy injects an editor bridge into
 every page it serves and annotates node HTML the page fetches with an inert
 `data-ohmygame-source` attribute on each element. In a page the editor opened,
-the bridge speaks the same messages as the sandbox: snapshots, reports,
+the bridge reports to the editor: snapshots, reports,
 diagnostics, element picking and text editing as defined in
 [authoring.md](authoring.md#element-picking-text-editing-and-moving), and the
 background video's timeline. None of it is in the project or a published
@@ -638,9 +639,8 @@ frame, for thumbnails too.
 ## Compiler
 
 A web story's page loads node files as they are; the compiler still builds
-each node to check it and to report issues in the editor. For sandboxed
-stories it turns the validated graph and workspace into one self-contained
-JavaScript module and stylesheet per node.
+each node to check it and to report issues in the editor, into one
+self-contained JavaScript module and stylesheet per node.
 
 - HTML stays authored markup.
 - JavaScript and CSS are bundled, so `shared/` modules and the project's own
@@ -689,22 +689,8 @@ mode, then packages `index.html`, `story/` (without its manifest),
 other files under `assets/` that the story's code names by path. Editor
 files, schemas, the editor cache, and unused assets stay out. An asset still
 in the Library is refused; upgrading copies Library assets into the project.
-The same static directory is the HTML zip for itch.io and the like.
-
-A sandboxed story publishes as before: publishing validates in `publish`
-mode, compiles the same definition used by Playtest, and writes a static
-directory with the Player, sandbox, `playable.json`, `manifest.json`, and the
-declared assets.
-
-- Assets are stored by SHA-256 content hash; identical bytes share one file
-  while keeping separate Asset IDs.
-- The manifest records the definition's integrity and each asset's path,
-  type, content type, size, and integrity.
-- The Daemon reads the directory back and verifies it before archiving. The
-  Published Player repeats the checks before starting and fails explicitly on
-  any mismatch.
-- Editor layout, source files, thumbnails, Library paths, and workspace
-  metadata are never published.
+The same static directory is the HTML zip for itch.io and the like.A story made before web stories is refused until the Story editor has
+upgraded it.
 
 ## Deferred
 

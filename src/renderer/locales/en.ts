@@ -2728,6 +2728,7 @@ const en = {
     wouldContinue: "Would continue at {{title}}",
     wouldOpen: "Would open {{title}}",
     noScenes: "This project has no Scenes yet.",
+    needsUpgrade: "This story is being upgraded to play as its own web page. Its preview shows once that is done.",
     timeline: {
       label: "Background video",
       backgroundVideo: "Background video",
@@ -2798,16 +2799,14 @@ const en = {
     trimmedFrom: "Trimmed from",
   },
   storyEditor: {
-    upgradeOffer:
-      "This story plays in the old sandbox. Upgrade it to play as its own web page, which the AI can change entirely, from saving to music.",
+    upgradeFailed:
+      "This story was made before stories played as their own web page, and it cannot play until it is upgraded. Upgrading failed: {{error}}",
     upgradeDetail:
-      "Upgrading adds index.html and the story runtime under story/, copies the Library media it uses into the project, and updates imports the browser cannot load. You can undo it.",
-    upgrade: "Upgrade",
-    upgraded: "This story now plays as its own web page.",
+      "Upgrading adds index.html and the story runtime under story/, copies the Library media it uses into the project, and updates imports the browser cannot load.",
+    upgrade: "Try again",
     libraryMedia:
       "This story still takes media from the Library, which a published web story cannot reach: {{assets}}. Copy them into the project, or replace them.",
     copyLibraryMedia: "Copy into project",
-    undoUpgrade: "Undo upgrade",
     projectChanged:
       "The project changed while you were editing, so its latest version was loaded. Make your last change again.",
     keepsChanging: "The project keeps changing. Try again in a moment.",
@@ -2876,6 +2875,8 @@ const en = {
     loading: "Loading playtest...",
     noScenesTitle: "This story has no Scenes yet",
     noScenesBody: "Add a Scene in the Story editor, then click Playtest again.",
+    needsUpgradeTitle: "This story needs to be upgraded first",
+    needsUpgradeBody: "It was made before stories played as their own web page. Open it in the Story editor, which upgrades it, then click Playtest again.",
     missingStartTitle: "The Scene to play from no longer exists",
     missingStartBody: "Play from the start, or choose another Scene in the editor.",
     notFoundTitle: "This project is no longer available",

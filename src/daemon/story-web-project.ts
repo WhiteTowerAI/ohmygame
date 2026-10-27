@@ -180,10 +180,10 @@ export interface StoryWebUpgrade {
 }
 
 /**
- * Turns a sandboxed Interactive Story into a web story in place: the
- * Library assets it uses become project files, imports a browser cannot
- * load on its own are rewritten, and the page and runtime are added. The
- * caller takes a checkpoint first, so the author can undo it.
+ * Turns an Interactive Story made for the former sandbox into a web story in
+ * place: the Library assets it uses become project files, imports a browser
+ * cannot load on its own are rewritten, and the page and runtime are added.
+ * The caller takes a checkpoint first, so the change is recorded.
  */
 export async function upgradeToWebStory(
   workspacePath: string,
@@ -253,7 +253,7 @@ export async function copyLibraryAssets(
 }
 
 /**
- * Rewrites the imports the sandbox compiler bundled but a browser cannot load
+ * Rewrites the imports the former sandbox's compiler bundled but a browser cannot load
  * on its own: a text file becomes a fetch from beside the module, and a JSON
  * import gets its import attribute.
  */

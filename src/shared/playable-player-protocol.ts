@@ -2,12 +2,7 @@ import type { CompiledNodeGraph } from "./playable-compiled.js";
 import type { JsonObject, NodeGraph } from "./playable-nodes.js";
 import type { PlayableTranslate } from "./playable-move.js";
 import type { PlayablePickResult } from "./playable-picker.js";
-import type { PlayableSeen } from "./playable-story-map.js";
-import type {
-  NodeRuntimePolicy,
-  NodeRuntimeSnapshot,
-  PlayableSave,
-} from "./playable-runtime.js";
+import type { NodeRuntimePolicy, NodeRuntimeSnapshot } from "./playable-runtime.js";
 
 export interface NodePlayerDefinition {
   version: 1;
@@ -37,8 +32,8 @@ export type NodeRuntimeResponse =
   | { available: false };
 
 /**
- * Authoring options for a preview session. The Published Player never sends
- * them, and element picking is only available in sessions that have them.
+ * Authoring options for a preview session. Playing the story as a game sends
+ * none, and element picking is only available in sessions that have them.
  */
 export interface PlayablePreviewOptions {
   policy?: NodeRuntimePolicy;
@@ -104,62 +99,14 @@ export type PlayableMediaCommand =
   | { action: "pause" }
   | { action: "seek"; time: number };
 
-export interface PlayableAssetTransfer {
-  contentType: string;
-  bytes: ArrayBuffer;
-}
-
+/** What the editor asks a story's page, through its editor bridge. */
 export type PlayableHostMessage =
-  | {
-      kind: "ohmygame:playable:init";
-      instanceId: string;
-      definition: NodePlayerDefinition;
-      assets: Record<string, PlayableAssetTransfer>;
-      save?: unknown;
-      /** Save slots, all together. */
-      slots?: unknown;
-      /** What the player has seen in earlier sessions, for the Story Map. */
-      seen?: unknown;
-      /** The player's settings. */
-      preferences?: unknown;
-      preview?: PlayablePreviewOptions;
-    }
-  | {
-      kind: "ohmygame:playable:save-result";
-      instanceId: string;
-      requestId: string;
-      error?: string;
-    }
   | { kind: "ohmygame:playable:pick-start"; instanceId: string; tool: PlayablePreviewTool }
   | { kind: "ohmygame:playable:pick-cancel"; instanceId: string }
   | { kind: "ohmygame:playable:media-control"; instanceId: string; command: PlayableMediaCommand };
 
+/** What a story's page reports to the editor, through its editor bridge. */
 export type PlayableFrameMessage =
-  | {
-      kind: "ohmygame:playable:save";
-      instanceId: string;
-      requestId: string;
-      save: PlayableSave;
-    }
-  | {
-      /** Keep every slot, replacing the ones kept before; answered by a save-result. */
-      kind: "ohmygame:playable:slots";
-      instanceId: string;
-      requestId: string;
-      slots: Record<string, unknown>;
-    }
-  | {
-      /** Keep this record; there is no reply, since losing it never stops the game. */
-      kind: "ohmygame:playable:seen";
-      instanceId: string;
-      seen: PlayableSeen;
-    }
-  | {
-      /** Keep the player's settings; there is no reply, like the seen record. */
-      kind: "ohmygame:playable:preferences";
-      instanceId: string;
-      preferences: JsonObject;
-    }
   | {
       kind: "ohmygame:playable:snapshot";
       instanceId: string;
@@ -209,23 +156,10 @@ export function isPlayableHostMessage(
     typeof value.instanceId !== "string"
   )
     return false;
-  if (value.kind === "ohmygame:playable:init") {
-    return (
-      isRecord(value.definition) &&
-      isRecord(value.assets) &&
-      (value.preview === undefined || isRecord(value.preview))
-    );
-  }
   if (value.kind === "ohmygame:playable:pick-start")
     return value.tool === "select" || value.tool === "text" || value.tool === "move";
   if (value.kind === "ohmygame:playable:pick-cancel") return true;
-  if (value.kind === "ohmygame:playable:media-control")
-    return isMediaCommand(value.command);
-  return (
-    value.kind === "ohmygame:playable:save-result" &&
-    typeof value.requestId === "string" &&
-    (value.error === undefined || typeof value.error === "string")
-  );
+  return value.kind === "ohmygame:playable:media-control" && isMediaCommand(value.command);
 }
 
 export function isPlayableFrameMessage(
@@ -237,14 +171,6 @@ export function isPlayableFrameMessage(
     typeof value.instanceId !== "string"
   )
     return false;
-  if (value.kind === "ohmygame:playable:save")
-    return typeof value.requestId === "string" && isRecord(value.save);
-  if (value.kind === "ohmygame:playable:slots")
-    return typeof value.requestId === "string" && isRecord(value.slots);
-  if (value.kind === "ohmygame:playable:seen")
-    return isRecord(value.seen);
-  if (value.kind === "ohmygame:playable:preferences")
-    return isRecord(value.preferences);
   if (value.kind === "ohmygame:playable:snapshot")
     return isRecord(value.snapshot);
   if (value.kind === "ohmygame:playable:picked")

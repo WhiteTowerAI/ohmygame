@@ -537,9 +537,6 @@ try {
     examplesDirectory: app.isPackaged
       ? path.join(process.resourcesPath, "examples")
       : path.join(repositoryRoot, ".runtime", "examples"),
-    playerDirectory: app.isPackaged
-      ? path.join(process.resourcesPath, "app.asar.unpacked", "dist", "player")
-      : undefined,
     ...(externalMcpLauncher ? { externalMcpLauncher } : {}),
     externalSkillDirectory: app.isPackaged
       ? path.join(process.resourcesPath, "integrations", "skills", "ohmygame-studio")

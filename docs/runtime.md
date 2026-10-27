@@ -404,9 +404,9 @@ operations, and whether it can be shown in watch mode. The daemon registers
 the tool only when the current project's type is included in those capabilities
 and, for General Game, its Web preview switch is enabled.
 
-The shipped adapter is `web` for `web-game`, `interactive-story` (a web story
-opens its own page through the preview; a story still in the sandbox opens a
-Published Player draft), and configured Web previews in `general` projects
+The shipped adapter is `web` for `web-game`, `interactive-story` (the story
+opens its own page through the preview; one made before web stories is
+refused until the Story editor upgrades it), and configured Web previews in `general` projects
 and uses Electron's bundled Chromium. Godot and Unity projects do not receive this tool yet. When
 their runtime bridges are added, they should implement the same adapter
 contract for launch or attach, input, screenshots, state, reset or stepping,

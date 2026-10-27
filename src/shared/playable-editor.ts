@@ -158,19 +158,6 @@ export function removePlayableNodeAsset(graph: NodeGraph, nodeId: string, assetI
   return next;
 }
 
-/**
- * Identifies what a preview session runs. Node titles, Signal labels, and the
- * graph title are editor text the Runtime never reads, so renaming them keeps
- * the running preview.
- */
-export function playableRuntimeKey(definition: NodePlayerDefinition): string {
-  const { title: _title, nodes, ...graph } = definition.graph;
-  return JSON.stringify({
-    graph: { ...graph, nodes: nodes.map(({ title: _nodeTitle, signals, ...node }) => ({ ...node, signals: signals.map((signal) => signal.id) })) },
-    compiled: definition.compiled,
-  });
-}
-
 /** Node ID to the thumbnail cached for it in `.ohmygame/thumbnails/`. */
 export type PlayableThumbnailManifest = Record<string, { hash: string; capturedAt: string }>;
 

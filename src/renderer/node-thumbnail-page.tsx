@@ -3,10 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { playableThumbnailHash } from "../shared/playable-editor.js";
 import type { NodePlayerDefinition, PlayablePreviewOptions } from "../shared/playable-player-protocol.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
-import { ensureProjectPreview, getNodeRuntime, playableSandboxUrl, setPlayableThumbnail } from "./api.js";
+import { ensureProjectPreview, getNodeRuntime, setPlayableThumbnail } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
-import { createMemoryStorage, NodePlayer } from "./playable-player.js";
-import { loadPlayableAssets } from "./playable-assets.js";
+import { NodePlayer } from "./playable-player.js";
 
 /** How long a Node runs before its thumbnail is taken, so entrances settle. */
 const NODE_THUMBNAIL_DELAY_MS = 1_000;
@@ -27,14 +26,12 @@ export function NodeThumbnailPage({
 }) {
   const [playable, setPlayable] = useState<{
     definition: NodePlayerDefinition;
-    assets: Record<string, Blob>;
-    /** A web story's own page, which plays instead of the sandbox. */
-    page?: string;
+    /** The story's own page in the project preview. */
+    page: string;
     hash: string;
     version: string;
   }>();
   const [runningHash, setRunningHash] = useState<string>();
-  const [storage] = useState(createMemoryStorage);
   const stage = useRef<HTMLDivElement>(null);
   const done = useRef(false);
   const timer = useRef<number | undefined>(undefined);
@@ -60,19 +57,10 @@ export function NodeThumbnailPage({
       // the workspace version, and once a restore changed it, a write from
       // version "0" is refused as stale.
       observeWorkspaceVersion(projectId, version);
-      if (result.web) {
-        const { url } = await ensureProjectPreview(projectId);
-        setPlayable({ definition: result.definition, assets: {}, page: url, hash, version });
-        return;
-      }
-      // Report policy stays on this Scene, so other Scenes' media is unused.
-      const graph = result.definition.graph;
-      const node = graph.nodes.find((candidate) => candidate.id === nodeId)!;
-      const assets = await loadPlayableAssets(projectId, {
-        ...graph,
-        assets: Object.fromEntries(node.assets.map((id) => [id, graph.assets[id]!])),
-      });
-      setPlayable({ definition: result.definition, assets, hash, version });
+      // A story from before web stories is captured once the editor has upgraded it.
+      if (!result.web) return finish("The story has not been upgraded to a web story yet.");
+      const { url } = await ensureProjectPreview(projectId);
+      setPlayable({ definition: result.definition, page: url, hash, version });
     }).catch((cause: unknown) => finish(errorMessage(cause)));
   }, [projectId, nodeId]);
 
@@ -117,11 +105,7 @@ export function NodeThumbnailPage({
   return <div ref={stage} className="playable-thumbnail-page">
     {playable ? <NodePlayer
       definition={playable.definition}
-      frameUrl={playableSandboxUrl()}
-      assets={playable.assets}
-      {...(playable.page ? { page: playable.page } : {})}
-      saveKey={`ohmygame:playable:thumbnail:${projectId}`}
-      storage={storage}
+      page={playable.page}
       preview={preview}
       onSnapshot={onSnapshot}
       onDiagnostic={ignoreDiagnostic}

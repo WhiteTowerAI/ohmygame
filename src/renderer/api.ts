@@ -803,7 +803,7 @@ export async function ensureProjectPreview(projectId: string): Promise<{ url: st
   return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1`, { method: "POST" });
 }
 
-/** Whether an Interactive Story plays as its own page, and whether its upgrade can be taken back. */
+/** Whether an Interactive Story plays as its own page, or must be upgraded first. */
 export async function getStoryUpgrade(projectId: string): Promise<StoryUpgradeStatus> {
   return request(`/projects/${projectId}/interactive-story/upgrade`);
 }
@@ -812,17 +812,8 @@ export async function upgradeStory(projectId: string): Promise<StoryUpgradeResul
   return request(`/projects/${projectId}/interactive-story/upgrade`, { method: "POST" });
 }
 
-/** Keeps the upgrade, so it is no longer offered to be taken back. */
-export async function keepStoryUpgrade(projectId: string): Promise<void> {
-  await request(`/projects/${projectId}/interactive-story/upgrade/keep`, { method: "POST" });
-}
-
 export async function copyStoryLibraryMedia(projectId: string): Promise<StoryLibraryMediaResult> {
   return request(`/projects/${projectId}/interactive-story/library-media`, { method: "POST" });
-}
-
-export async function undoStoryUpgrade(projectId: string): Promise<{ changed: string[] }> {
-  return request(`/projects/${projectId}/interactive-story/upgrade/undo`, { method: "POST" });
 }
 
 export async function getNodeRuntime(projectId: string): Promise<NodeRuntimeResponse> {
@@ -1451,16 +1442,6 @@ function parseModelAuthEvent(block: string): ModelAuthEvent | undefined {
   } catch {
     return undefined;
   }
-}
-
-/**
- * The page Scenes run in. The desktop app loads its own pages from file://,
- * where Chromium will not let the sandboxed frame load its script, so there
- * the daemon serves it.
- */
-export function playableSandboxUrl(): string {
-  const runtime = desktopRuntime();
-  return runtime ? `${runtime.daemonUrl}/playable-sandbox/playable-sandbox.html` : "./playable-sandbox.html";
 }
 
 function apiUrl(path: string): string {

@@ -1352,27 +1352,14 @@ describe("daemon", () => {
     finishPrompt();
   });
 
-  it("serves the Playable sandbox without a token", async () => {
-    const playerDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-player-"));
-    await mkdir(path.join(playerDirectory, "assets"));
-    await writeFile(path.join(playerDirectory, "playable-sandbox.html"), "<script src=\"./assets/playable-sandbox.js\"></script>");
-    await writeFile(path.join(playerDirectory, "assets", "playable-sandbox.js"), "console.log(1);");
+  it("needs the token for every route, with no public sandbox page left", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")),
-      interactiveStoryPlayerDirectory: playerDirectory,
       accessToken: "secret",
     });
     apps.push(app);
-    const page = await app.inject({ method: "GET", url: "/playable-sandbox/playable-sandbox.html" });
-    expect(page.statusCode).toBe(200);
-    expect(page.headers["content-type"]).toMatch(/^text\/html/);
-    expect(page.body).toContain("./assets/playable-sandbox.js");
-    const script = await app.inject({ method: "GET", url: "/playable-sandbox/assets/playable-sandbox.js" });
-    expect(script.statusCode).toBe(200);
-    expect(script.headers["content-type"]).toMatch(/^text\/javascript/);
-    // Everything else still needs the token.
+    expect((await app.inject({ method: "GET", url: "/playable-sandbox/playable-sandbox.html" })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/projects" })).statusCode).toBe(401);
-    expect((await app.inject({ method: "GET", url: "/playable-sandbox/playable-sandbox.html?x" })).statusCode).toBe(401);
   });
 
   it("exposes health and rejects empty prompts", async () => {
@@ -2228,7 +2215,7 @@ describe("Playable Nodes projects", () => {
     expect(runtime).toMatchObject({ available: true, definition: { graph: { nodes: [] } } });
   });
 
-  it("upgrades a sandboxed story to a web story and takes the upgrade back", async () => {
+  it("upgrades a story made before web stories, which cannot play or publish until then", async () => {
     const app = await createPlayableApp("ohmygame-story-upgrade-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Old", type: "interactive-story" } })).json();
     // A story from before web stories has no page and no runtime of its own.
@@ -2238,12 +2225,15 @@ describe("Playable Nodes projects", () => {
     const status = () => app.inject({ method: "GET", url: `/projects/${project.id}/interactive-story/upgrade` }).then((response) => response.json());
     expect(await status()).toEqual({ web: false });
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBeUndefined();
+    const refused = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/build` });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toContain("Open it in the Story editor, which upgrades it");
 
     const upgraded = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` });
     expect(upgraded.statusCode).toBe(200);
     expect(upgraded.json()).toMatchObject({ copiedAssets: [], missingAssets: [] });
     expect(upgraded.json().changed).toEqual(expect.arrayContaining(["index.html", "story/story-web/runtime.js"]));
-    expect(await status()).toMatchObject({ web: true, upgradedAt: expect.any(String) });
+    expect(await status()).toEqual({ web: true });
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBe(true);
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` })).statusCode).toBe(409);
 
@@ -2267,17 +2257,8 @@ describe("Playable Nodes projects", () => {
     expect(copied.json()).toMatchObject({ copiedAssets: ["opening"], changed: ["graph.json", "assets/library/opening.mp4"] });
     expect((await status()).libraryAssets).toBeUndefined();
 
-    const undone = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/undo` });
-    expect(undone.statusCode).toBe(200);
-    expect(await status()).toEqual({ web: false });
-    await expect(readFile(path.join(project.workspacePath, "index.html"))).rejects.toThrow();
-    expect(await readFile(path.join(project.workspacePath, "nodes/chapter/node.js"), "utf8")).toContain('import script from "./script.txt";');
-
-    // Keeping an upgrade forgets how to take it back.
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` })).statusCode).toBe(200);
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/keep` })).statusCode).toBe(200);
-    expect(await status()).toEqual({ web: true });
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/undo` })).statusCode).toBe(409);
+    // There is no way back to the sandbox.
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/undo` })).statusCode).toBe(404);
   });
 
   it("lists Presets and adds a Node from one", async () => {

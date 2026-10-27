@@ -17,7 +17,7 @@ import { registerPluginCapabilityRoutes } from "./plugin-capability-routes.js";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
 import path from "node:path";
@@ -64,7 +64,6 @@ import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
-import { PlayableDraftServer } from "./playable-draft-server.js";
 import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { registerCommunityRoutes } from "./publish/community-routes.js";
@@ -179,7 +178,6 @@ export interface AppOptions {
   createModelRuntime?: () => Promise<ModelRuntime>;
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
-  interactiveStoryPlayerDirectory?: string;
   /** Examples prepared by scripts/prepare-examples.ts; omitted means no examples. */
   examplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
@@ -563,13 +561,9 @@ const toolRunSchema = {
 } as const;
 
 const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
+/** Why a story made before web stories cannot play, build, or publish yet. */
+const NEEDS_UPGRADE = "This story was made before stories played as their own web page. Ask the user to open it in the Story editor, which upgrades it, then try again.";
 const CHECKPOINT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
-/** The Player build's sandbox page and its script, by the URL the daemon serves each at. */
-const PLAYABLE_SANDBOX_FILES = new Map([
-  ["/playable-sandbox/playable-sandbox.html", "playable-sandbox.html"],
-  ["/playable-sandbox/assets/playable-sandbox.js", "assets/playable-sandbox.js"],
-]);
 
 export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -583,10 +577,8 @@ export function createApp(options: AppOptions = {}) {
   const conversations = new ConversationManager(conversationImages, (runtime, id) => agentRuntimes.settings.resolveProfileId(runtime, id));
   const agentPlaytests = new Map<string, OwnedPlaytestDriver>();
   const publishing = new Set<string>();
-  const playerDirectory = options.interactiveStoryPlayerDirectory ?? path.join(repositoryRoot, "dist", "player");
-  const artifacts = new ArtifactBuilder(library, playerDirectory);
-  const playableDrafts = new PlayableDraftServer((project) => artifacts.preparePlayableDraft(project));
-  const examples = new ExampleStore(options.examplesDirectory, (workspacePath, exampleId) => artifacts.preparePlayableExample(workspacePath, exampleId));
+  const artifacts = new ArtifactBuilder();
+  const examples = new ExampleStore(options.examplesDirectory);
   const localPublisher = options.localDebug ? new LocalPublisher() : undefined;
   const cloudModels = new CloudModelsClient(options.cloudApiUrl ?? options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130", options.cloudFetch);
   const publisher = localPublisher ?? new RemotePublisher({
@@ -847,13 +839,12 @@ export function createApp(options: AppOptions = {}) {
       canvasStore,
     ), ...(project.integration?.preview === "external" ? [projectPreviewTool(project, plugins, pluginIntegrations)] : [])];
   };
-  const playtestTarget = async (project: ProjectState): Promise<GameUseOpenTarget> => ({
-    runtime: "web",
-    // A web story plays its own page; older stories still use the sandbox.
-    url: project.type === "interactive-story" && !await isWebStory(project.workspacePath)
-      ? await playableDrafts.open(project)
-      : previewPageUrl(await previews.ensureStarted(project, false), "playtest"),
-  });
+  const playtestTarget = async (project: ProjectState): Promise<GameUseOpenTarget> => {
+    // A story plays its own page, which one made before web stories has once the editor upgrades it.
+    if (project.type === "interactive-story" && !await isWebStory(project.workspacePath))
+      throw new Error(NEEDS_UPGRADE);
+    return { runtime: "web", url: previewPageUrl(await previews.ensureStarted(project, false), "playtest") };
+  };
   /** OhMyGame's tools for agents outside the app; playtest windows belong to their MCP session. */
   const externalMcp = new ExternalMcpService({
     dataDirectory,
@@ -1086,7 +1077,7 @@ export function createApp(options: AppOptions = {}) {
       reply.header("vary", "Origin");
     }
     if (request.method === "OPTIONS") return reply.code(204).send();
-    if (!options.accessToken || (request.method === "GET" && PLAYABLE_SANDBOX_FILES.has(request.url))) return;
+    if (!options.accessToken) return;
     // A coding agent's tool calls carry their session's own token, never the app's; the route checks it.
     if (request.url === AGENT_RUNTIME_BRIDGE_PATH) return;
     // External agents carry the token published in endpoint.json; the route checks it.
@@ -1107,16 +1098,6 @@ export function createApp(options: AppOptions = {}) {
     projects, agents, writes: projectWrites, checkpoints, snapshot: snapshotWorkspace, library, events,
     busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
   });
-
-  // The page Scenes run in. The desktop app loads its own pages from file://,
-  // where a sandboxed frame may not load its script, so the frame comes from
-  // here instead. It is the public Player build, so it needs no token.
-  for (const [url, file] of PLAYABLE_SANDBOX_FILES) {
-    app.get(url, async (_request, reply) => reply
-      .type(file.endsWith(".html") ? "text/html; charset=utf-8" : "text/javascript; charset=utf-8")
-      .header("cache-control", "no-cache")
-      .send(await readFile(path.join(playerDirectory, file))));
-  }
 
   const networkSettingsSchema = {
     body: {
@@ -3304,7 +3285,6 @@ export function createApp(options: AppOptions = {}) {
     await conversationImages.flush();
     await previews.stopAll();
     await artifacts.close();
-    await playableDrafts.close();
     await examples.close();
     await localPublisher?.close();
   });

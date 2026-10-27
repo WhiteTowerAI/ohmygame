@@ -64,8 +64,6 @@ import {
   listPlayableThumbnails,
   updateNodeCodebase,
   copyStoryLibraryMedia,
-  keepStoryUpgrade,
-  undoStoryUpgrade,
   upgradeStory,
 } from "./api.js";
 import { CanvasNotice } from "./canvas-notice.js";
@@ -147,6 +145,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [writeVersion] = useState(() => workspaceVersion(projectId));
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [upgrade, setUpgrade] = useState<StoryUpgradeStatus>();
+  /** Why upgrading a story from before web stories failed, until it is tried again. */
+  const [upgradeError, setUpgradeError] = useState<string>();
+  /** The project the editor already upgraded, so a reload does not start it twice. */
+  const upgrading = useRef<string | undefined>(undefined);
   const [notice, setNotice] = useState<string>();
   const [graphMeta, setGraphMeta] = useState<GraphMeta>();
   const [nodes, setNodes] = useState<PlayableFlowNode[]>([]);
@@ -298,34 +300,35 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     };
   }, [projectId, workspaceRevision]);
 
-  // A story from before web stories is offered the upgrade; a fresh upgrade can be taken back.
+  // A story from before web stories only plays once it is upgraded, so the
+  // editor upgrades it as soon as it has it open.
   useEffect(() => {
     let disposed = false;
     void getStoryUpgrade(projectId).then((status) => { if (!disposed) setUpgrade(status); }).catch(() => {});
     return () => { disposed = true; };
   }, [projectId, workspaceRevision]);
 
+  useEffect(() => {
+    if (phase !== "ready" || !upgrade || upgrade.web || upgrading.current === projectId) return;
+    upgrading.current = projectId;
+    void runUpgrade();
+  }, [phase, upgrade, projectId]);
+
   async function runUpgrade(): Promise<void> {
-    // Unsaved edits go first; the upgrade then reloads every editor.
-    if (codebase) await save(codebase);
-    await upgradeStory(projectId);
-    setUpgrade(await getStoryUpgrade(projectId));
+    setUpgradeError(undefined);
+    try {
+      // Unsaved edits go first; the upgrade then reloads every editor.
+      if (codebase) await save(codebase);
+      await upgradeStory(projectId);
+      setUpgrade(await getStoryUpgrade(projectId));
+    } catch (cause) {
+      setUpgradeError(errorMessage(cause));
+    }
   }
 
   async function copyLibraryMedia(): Promise<void> {
     if (codebase) await save(codebase);
     await copyStoryLibraryMedia(projectId);
-    setUpgrade(await getStoryUpgrade(projectId));
-  }
-
-  async function keepUpgrade(): Promise<void> {
-    setUpgrade((current) => current && { web: current.web, ...(current.libraryAssets ? { libraryAssets: current.libraryAssets } : {}) });
-    await keepStoryUpgrade(projectId).catch(() => {});
-  }
-
-  async function undoUpgrade(): Promise<void> {
-    if (codebase) await save(codebase);
-    await undoStoryUpgrade(projectId);
     setUpgrade(await getStoryUpgrade(projectId));
   }
 
@@ -1185,9 +1188,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         <div className="interactive-story-canvas">
           {phase === "loading" ? <div className="story-canvas-state">{t("storyEditor.loadingScenes")}</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
-          {phase === "ready" && upgrade && !upgrade.web ? <CanvasNotice
+          {phase === "ready" && upgrade && !upgrade.web && upgradeError !== undefined ? <CanvasNotice
             className="story-upgrade-notice"
-            message={t("storyEditor.upgradeOffer")}
+            tone="warning"
+            message={t("storyEditor.upgradeFailed", { error: upgradeError })}
             detail={t("storyEditor.upgradeDetail")}
             actionLabel={t("storyEditor.upgrade")}
             onAction={runUpgrade}
@@ -1198,12 +1202,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             message={t("storyEditor.libraryMedia", { assets: upgrade.libraryAssets.join(", ") })}
             actionLabel={t("storyEditor.copyLibraryMedia")}
             onAction={copyLibraryMedia}
-          /> : phase === "ready" && upgrade?.web && upgrade.upgradedAt ? <CanvasNotice
-            className="story-upgrade-notice"
-            message={t("storyEditor.upgraded")}
-            actionLabel={t("storyEditor.undoUpgrade")}
-            onAction={undoUpgrade}
-            onDismiss={() => void keepUpgrade()}
           /> : null}
           {phase === "ready" ? (
             <PlayableCanvasContext.Provider value={canvasPlayer}>

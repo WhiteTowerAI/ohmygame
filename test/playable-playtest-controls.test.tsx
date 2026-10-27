@@ -9,8 +9,6 @@ import type { NodeRuntimeSnapshot } from "../src/shared/playable-runtime.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 import {
   PlaytestControls,
-  playtestSaveKey,
-  playtestSeenKey,
   requestPlaytest,
   takePlaytestRequest,
   requestAskAgent,
@@ -33,9 +31,7 @@ const getNodeRuntime = vi.fn();
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   getNodeRuntime,
-}));
-vi.doMock(path.resolve("src/renderer/playable-assets.ts"), () => ({
-  loadPlayableAssets: async () => ({}),
+  ensureProjectPreview: async () => ({ url: "http://127.0.0.1:5555/index.html", title: "Playtest" }),
 }));
 vi.doMock(
   path.resolve("src/renderer/playable-player.tsx"),
@@ -55,7 +51,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   window.localStorage.clear();
   player.mockClear();
-  getNodeRuntime.mockReset().mockResolvedValue({ available: true, definition });
+  getNodeRuntime.mockReset().mockResolvedValue({ available: true, definition, web: true });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -67,6 +63,11 @@ afterEach(async () => {
   window.localStorage.clear();
   vi.unstubAllGlobals();
 });
+
+/** The query parameters the last Playtest session asked the story's page for. */
+function pageParameters(): Record<string, string> {
+  return Object.fromEntries(new URL(player.mock.calls.at(-1)![0].page as string).searchParams);
+}
 
 function button(label: string): HTMLButtonElement {
   const found = container.querySelector<HTMLButtonElement>(
@@ -216,14 +217,10 @@ describe("Playtest window requests", () => {
   });
 
   it("replays a newly opened game without clearing its exploration record", async () => {
-    window.localStorage.setItem(playtestSaveKey("p"), "saved game");
-    window.localStorage.setItem(playtestSeenKey("p"), "explored scenes");
     requestPlaytest("p", { action: "replay" });
     await act(async () => root.render(<PlaytestPage projectId="p" />));
-    expect(window.localStorage.getItem(playtestSaveKey("p"))).toBeNull();
-    expect(window.localStorage.getItem(playtestSeenKey("p"))).toBe(
-      "explored scenes",
-    );
+    // The page keeps its own saves, so it is asked to start a new game.
+    expect(pageParameters()).toEqual({ "ohmygame-new-game": "1" });
     expect(player.mock.calls.at(-1)?.[0].preview).toBeUndefined();
     expect(container.querySelector(".playable-playtest-corner")).toBeNull();
     expect(container.querySelector(".window-drag-region")).toBeNull();
@@ -232,25 +229,19 @@ describe("Playtest window requests", () => {
 
   it("handles actions in an already open window and ignores other projects", async () => {
     await act(async () => root.render(<PlaytestPage projectId="p" />));
-    window.localStorage.setItem(playtestSaveKey("p"), "saved game");
-    window.localStorage.setItem(playtestSeenKey("p"), "explored scenes");
+    expect(pageParameters()).toEqual({});
     const calls = player.mock.calls.length;
     await deliverAction("replay", "other");
     expect(player).toHaveBeenCalledTimes(calls);
     await deliverAction("forget-seen");
-    expect(window.localStorage.getItem(playtestSaveKey("p"))).toBe(
-      "saved game",
-    );
-    expect(window.localStorage.getItem(playtestSeenKey("p"))).toBeNull();
+    expect(pageParameters()).toEqual({ "ohmygame-forget-seen": "1" });
     expect(player.mock.calls.length).toBeGreaterThan(calls);
     await deliverAction("replay");
-    expect(window.localStorage.getItem(playtestSaveKey("p"))).toBeNull();
+    expect(pageParameters()).toEqual({ "ohmygame-new-game": "1" });
     expect(takePlaytestRequest("p")).toBeUndefined();
   });
 
-  it("replays a chosen Scene with fresh session storage and preserves the project's save", async () => {
-    window.localStorage.setItem(playtestSaveKey("p"), "saved game");
-    window.localStorage.setItem(playtestSeenKey("p"), "explored scenes");
+  it("replays a chosen Scene without touching the project's save", async () => {
     requestPlaytest("p", { action: "start", start: { nodeId: "start" } });
     await act(async () => root.render(<PlaytestPage projectId="p" />));
     const initial = player.mock.calls.at(-1)![0];
@@ -258,22 +249,13 @@ describe("Playtest window requests", () => {
       policy: "follow",
       startNodeId: "start",
     });
+    expect(pageParameters()).toEqual({ "ohmygame-save": "none" });
     await deliverAction("replay");
-    const replay = player.mock.calls.at(-1)![0];
-    expect(replay.preview).toEqual(initial.preview);
-    expect(replay.storage).not.toBe(initial.storage);
-    expect(window.localStorage.getItem(playtestSaveKey("p"))).toBe(
-      "saved game",
-    );
-    expect(window.localStorage.getItem(playtestSeenKey("p"))).toBe(
-      "explored scenes",
-    );
+    expect(player.mock.calls.at(-1)![0].preview).toEqual(initial.preview);
+    expect(pageParameters()).toEqual({ "ohmygame-save": "none" });
     await deliverAction("forget-seen");
     expect(player.mock.calls.at(-1)![0].preview).toEqual(initial.preview);
-    expect(window.localStorage.getItem(playtestSaveKey("p"))).toBe(
-      "saved game",
-    );
-    expect(window.localStorage.getItem(playtestSeenKey("p"))).toBeNull();
+    expect(pageParameters()).toEqual({ "ohmygame-forget-seen": "1", "ohmygame-save": "none" });
   });
 
   it("keeps a playing game when the editor only brings Playtest forward", async () => {
@@ -321,10 +303,21 @@ describe("Playtest that cannot start", () => {
     return found;
   }
 
+  it("asks to open a story made before web stories in the editor, which upgrades it", async () => {
+    const showPlaytestEditor = vi.fn(async () => {});
+    vi.stubGlobal("ohMyGameDesktop", { showPlaytestEditor });
+    getNodeRuntime.mockResolvedValue({ available: true, definition });
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(player).not.toHaveBeenCalled();
+    expect(text()).toContain("This story needs to be upgraded first");
+    await act(async () => action("Open editor").click());
+    expect(showPlaytestEditor).toHaveBeenCalledWith("p");
+  });
+
   it("says to add a Scene and brings the editor forward instead of starting a story with none", async () => {
     const showPlaytestEditor = vi.fn(async () => {});
     vi.stubGlobal("ohMyGameDesktop", { showPlaytestEditor });
-    getNodeRuntime.mockResolvedValue({ available: true, definition: empty });
+    getNodeRuntime.mockResolvedValue({ available: true, definition: empty, web: true });
     await act(async () => root.render(<PlaytestPage projectId="p" />));
     expect(player).not.toHaveBeenCalled();
     expect(text()).toContain("This story has no Scenes yet");
@@ -468,7 +461,7 @@ describe("Playtest that cannot start", () => {
 
   it("translates the explanation and actions into Chinese", async () => {
     await i18next.changeLanguage("zh-CN");
-    getNodeRuntime.mockResolvedValue({ available: true, definition: empty });
+    getNodeRuntime.mockResolvedValue({ available: true, definition: empty, web: true });
     await act(async () => root.render(<PlaytestPage projectId="p" />));
     expect(text()).toContain("这个故事还没有场景");
     expect(action("关闭窗口")).toBeTruthy();

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { readFile } from "node:fs/promises";
 import {
   assertPlayableSandboxDocument,
   installPlayableSandboxCsp,
@@ -9,20 +8,6 @@ import {
 import { isPlayableFrameMessage } from "../src/shared/playable-player-protocol.js";
 
 describe("Playable sandbox", () => {
-  it("keeps renderer and published sandbox documents on the Runtime CSP", async () => {
-    for (const file of [
-      "playable-sandbox.html",
-      "player/playable-sandbox.html",
-    ]) {
-      const html = await readFile(file, "utf8");
-      expect(html).toContain(`content="${PLAYABLE_SANDBOX_CSP}"`);
-      expect(html).toContain('data-playable-sandbox-csp="true"');
-      expect(html).toContain('src="./assets/playable-sandbox.js"');
-      expect(html).toContain("vite-ignore");
-      expect(html).not.toContain('type="module"');
-    }
-  });
-
   it("requires a dedicated opaque-origin iframe document", () => {
     const iframeDocument = {
       defaultView: {

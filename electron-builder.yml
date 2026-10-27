@@ -6,7 +6,6 @@ afterPack: scripts/check-packaged-desktop.mjs
 asarUnpack:
   - node_modules/esbuild/**/*
   - node_modules/@esbuild/**/*
-  - dist/player/**/*
 
 directories:
   output: release
@@ -24,7 +23,6 @@ files:
   - dist/shared/**/*.js
   - dist/story-web/resources.json
   - dist/renderer/**/*
-  - dist/player/**/*
   # Renderer source maps go to Sentry, not into the package, even if their upload failed.
   - "!dist/renderer/**/*.map"
   - "!node_modules/typebox/build/**/*.mjs"

@@ -5,7 +5,6 @@ import {
   describePlayableValue,
   playableAssetId,
   playableAssetType,
-  playableRuntimeKey,
   playableThumbnailHash,
   removePlayableNodeAsset,
   renamePlayableSignal,
@@ -90,16 +89,6 @@ describe("Playable editor graph changes", () => {
     const kept = removePlayableNodeAsset(shared, "lobby", "theme");
     expect(kept.assets.theme).toBeDefined();
     expect(removePlayableNodeAsset(graph, "lobby", "theme").assets.theme).toBeUndefined();
-  });
-
-  it("keeps the preview running across title and label edits", () => {
-    const graph = createNodeGraphFixture();
-    const definition = { version: 1, graph, compiled: {}, graphSignature: "a" } as unknown as NodePlayerDefinition;
-    const renamed = setPlayableSignalLabel({ ...graph, title: "Renamed", nodes: graph.nodes.map((node) => ({ ...node, title: `${node.title}!` })) }, "menu", "start", "Go");
-
-    expect(playableRuntimeKey({ ...definition, graph: renamed, graphSignature: "b" })).toBe(playableRuntimeKey(definition));
-    const retargeted = { ...graph, edges: graph.edges.map((edge) => edge.source.signal === "start" ? { ...edge, targetNodeId: "archive" } : edge) };
-    expect(playableRuntimeKey({ ...definition, graph: retargeted })).not.toBe(playableRuntimeKey(definition));
   });
 
   it("hashes what a Node thumbnail shows", () => {
