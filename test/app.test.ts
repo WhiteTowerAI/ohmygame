@@ -38,6 +38,21 @@ describe("daemon", () => {
     apps.push(app);
     const activity = async () => (await app.inject({ method: "GET", url: "/projects/activity" })).json().activity;
     expect(await activity()).toEqual([]);
+    // Project lists follow the same activity as a stream of changed snapshots.
+    const streaming = new AbortController();
+    const base = await app.listen({ host: "127.0.0.1", port: 0 });
+    const stream = await fetch(`${base}/projects/activity/events`, { signal: streaming.signal });
+    const streamed: unknown[] = [];
+    void (async () => {
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for await (const chunk of stream.body!) {
+        buffer += decoder.decode(chunk, { stream: true });
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop()!;
+        for (const block of blocks) if (block.startsWith("event: activity")) streamed.push(JSON.parse(block.split("data: ")[1]!).activity);
+      }
+    })().catch(() => {});
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
     try {
@@ -52,10 +67,27 @@ describe("daemon", () => {
       expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([expect.objectContaining({ id: project.id })]);
       await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns/${response.json().turnId}/cancel` });
       expect(await activity()).toEqual([{ projectId: project.id, status: "cancelling" }]);
+      // A cancel starting publishes no event; the stream's in-memory check reports it.
+      await vi.waitFor(() => expect(streamed.at(-1)).toEqual([{ projectId: project.id, status: "cancelling" }]), { timeout: 3_000 });
     } finally {
       finish();
     }
     await vi.waitFor(async () => expect(await activity()).toEqual([]));
+    try {
+      await vi.waitFor(() => expect(streamed).toEqual([
+        [],
+        [{ projectId: project.id, status: "running" }],
+        [{ projectId: project.id, status: "cancelling" }],
+        [],
+      ]), { timeout: 3_000 });
+      // Closing the daemon ends streams that clients still hold open instead of waiting for them.
+      await fetch(`${base}/projects/${project.id}/events`, { signal: streaming.signal });
+      apps.splice(apps.indexOf(app), 1);
+      const closed = app.close().then(() => "closed");
+      expect(await Promise.race([closed, new Promise((resolve) => setTimeout(resolve, 1_000, "waiting"))])).toBe("closed");
+    } finally {
+      streaming.abort();
+    }
   });
 
   it("creates an empty isolated Web Game project", async () => {
@@ -260,25 +292,27 @@ describe("daemon", () => {
     expect(configured.statusCode).toBe(200);
     expect(configured.json()).toMatchObject({ startupDirectory: "apps/game", preview: { status: "stopped" } });
 
-    const runSettings = await app.inject({
-      method: "PUT",
-      url: `/projects/${project.id}/settings/run`,
-      payload: {
+    for (const previewViewport of ["mobile", "mobile-landscape"]) {
+      const runSettings = await app.inject({
+        method: "PUT",
+        url: `/projects/${project.id}/settings/run`,
+        payload: {
+          startupDirectory: "apps/game",
+          startupScript: "dev",
+          packageManager: "pnpm",
+          previewPath: "/play",
+          previewViewport,
+          ...(type === "general" ? { webPreviewEnabled: true } : {}),
+        },
+      });
+      expect(runSettings.statusCode).toBe(200);
+      expect(runSettings.json()).toMatchObject({
         startupDirectory: "apps/game",
-        startupScript: "dev",
         packageManager: "pnpm",
         previewPath: "/play",
-        previewViewport: "mobile",
-        ...(type === "general" ? { webPreviewEnabled: true } : {}),
-      },
-    });
-    expect(runSettings.statusCode).toBe(200);
-    expect(runSettings.json()).toMatchObject({
-      startupDirectory: "apps/game",
-      packageManager: "pnpm",
-      previewPath: "/play",
-      previewViewport: "mobile",
-    });
+        previewViewport,
+      });
+    }
 
     const invalid = await app.inject({
       method: "PUT",
@@ -1318,27 +1352,14 @@ describe("daemon", () => {
     finishPrompt();
   });
 
-  it("serves the Playable sandbox without a token", async () => {
-    const playerDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-player-"));
-    await mkdir(path.join(playerDirectory, "assets"));
-    await writeFile(path.join(playerDirectory, "playable-sandbox.html"), "<script src=\"./assets/playable-sandbox.js\"></script>");
-    await writeFile(path.join(playerDirectory, "assets", "playable-sandbox.js"), "console.log(1);");
+  it("needs the token for every route, with no public sandbox page left", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")),
-      interactiveStoryPlayerDirectory: playerDirectory,
       accessToken: "secret",
     });
     apps.push(app);
-    const page = await app.inject({ method: "GET", url: "/playable-sandbox/playable-sandbox.html" });
-    expect(page.statusCode).toBe(200);
-    expect(page.headers["content-type"]).toMatch(/^text\/html/);
-    expect(page.body).toContain("./assets/playable-sandbox.js");
-    const script = await app.inject({ method: "GET", url: "/playable-sandbox/assets/playable-sandbox.js" });
-    expect(script.statusCode).toBe(200);
-    expect(script.headers["content-type"]).toMatch(/^text\/javascript/);
-    // Everything else still needs the token.
+    expect((await app.inject({ method: "GET", url: "/playable-sandbox/playable-sandbox.html" })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/projects" })).statusCode).toBe(401);
-    expect((await app.inject({ method: "GET", url: "/playable-sandbox/playable-sandbox.html?x" })).statusCode).toBe(401);
   });
 
   it("exposes health and rejects empty prompts", async () => {
@@ -1971,7 +1992,7 @@ describe("daemon", () => {
         status: "completed",
         items: [
           { id: "user-1", turnId: "user-1", type: "userMessage", text: "Hello", timestamp: 0 },
-          { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", text: "Hi", status: "completed", phase: "final_answer", timestamp: 1 },
+          { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", branchEntryId: "assistant-1", text: "Hi", status: "completed", phase: "final_answer", timestamp: 1 },
           { id: "compaction-1", turnId: "user-1", type: "contextCompaction", status: "completed", summary: "Earlier context", tokensBefore: 42_000, timestamp: 2 },
         ],
       }],
@@ -2194,7 +2215,7 @@ describe("Playable Nodes projects", () => {
     expect(runtime).toMatchObject({ available: true, definition: { graph: { nodes: [] } } });
   });
 
-  it("upgrades a sandboxed story to a web story and takes the upgrade back", async () => {
+  it("upgrades a story made before web stories, which cannot play or publish until then", async () => {
     const app = await createPlayableApp("ohmygame-story-upgrade-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Old", type: "interactive-story" } })).json();
     // A story from before web stories has no page and no runtime of its own.
@@ -2204,12 +2225,15 @@ describe("Playable Nodes projects", () => {
     const status = () => app.inject({ method: "GET", url: `/projects/${project.id}/interactive-story/upgrade` }).then((response) => response.json());
     expect(await status()).toEqual({ web: false });
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBeUndefined();
+    const refused = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/build` });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toContain("Open it in the Story editor, which upgrades it");
 
     const upgraded = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` });
     expect(upgraded.statusCode).toBe(200);
     expect(upgraded.json()).toMatchObject({ copiedAssets: [], missingAssets: [] });
     expect(upgraded.json().changed).toEqual(expect.arrayContaining(["index.html", "story/story-web/runtime.js"]));
-    expect(await status()).toMatchObject({ web: true, upgradedAt: expect.any(String) });
+    expect(await status()).toEqual({ web: true });
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBe(true);
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` })).statusCode).toBe(409);
 
@@ -2233,17 +2257,8 @@ describe("Playable Nodes projects", () => {
     expect(copied.json()).toMatchObject({ copiedAssets: ["opening"], changed: ["graph.json", "assets/library/opening.mp4"] });
     expect((await status()).libraryAssets).toBeUndefined();
 
-    const undone = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/undo` });
-    expect(undone.statusCode).toBe(200);
-    expect(await status()).toEqual({ web: false });
-    await expect(readFile(path.join(project.workspacePath, "index.html"))).rejects.toThrow();
-    expect(await readFile(path.join(project.workspacePath, "nodes/chapter/node.js"), "utf8")).toContain('import script from "./script.txt";');
-
-    // Keeping an upgrade forgets how to take it back.
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` })).statusCode).toBe(200);
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/keep` })).statusCode).toBe(200);
-    expect(await status()).toEqual({ web: true });
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/undo` })).statusCode).toBe(409);
+    // There is no way back to the sandbox.
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/undo` })).statusCode).toBe(404);
   });
 
   it("lists Presets and adds a Node from one", async () => {

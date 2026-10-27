@@ -1,19 +1,12 @@
-import { useEffect, useState } from "react";
-import { CommunityProfilePage } from "./community-profile.js";
-import { GamePlayer, GamesPage } from "./games.js";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Home } from "./home.js";
-import { LibraryPage } from "./library.js";
-import { ProjectsPage } from "./projects.js";
-import { ProjectShell } from "./project-shell.js";
-import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, projectsHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
+// Only lazy routes use this; loading it eagerly keeps it ahead of styles.css as before code splitting.
+import "./plugin-builder.css";
+import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, projectsHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection, type SidebarPage } from "./routes.js";
 import { historyState, useAppNavigation } from "./app-navigation.js";
-import { AssetCanvasHome } from "./asset-canvas-home.js";
 import { invalidateQuickStartModels, loadQuickStartModels } from "./asset-canvas-quick-start.js";
-import { GameStudioHome } from "./game-studio-home.js";
-import { SettingsPage } from "./settings-page.js";
-import { PluginsSettings } from "./plugins.js";
 import { SidebarPageLayout } from "./sidebar-page.js";
-import { PluginBuilder } from "./plugin-builder.js";
+import { WindowDragRegion } from "./window-drag-region.js";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import { pluginMentionToken } from "../shared/plugins.js";
@@ -23,6 +16,19 @@ import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connecti
 import { Onboarding, OnboardingArrival, OnboardingLoading } from "./onboarding.js";
 import { useOnboarding } from "./use-onboarding.js";
 import { usePluginIntegrationGate } from "./plugin-integration.js";
+
+// Home and onboarding stay in the main chunk; every other route loads on first visit.
+const CommunityProfilePage = lazy(() => import("./community-profile.js").then((module) => ({ default: module.CommunityProfilePage })));
+const GamesPage = lazy(() => import("./games.js").then((module) => ({ default: module.GamesPage })));
+const GamePlayer = lazy(() => import("./games.js").then((module) => ({ default: module.GamePlayer })));
+const LibraryPage = lazy(() => import("./library.js").then((module) => ({ default: module.LibraryPage })));
+const ProjectsPage = lazy(() => import("./projects.js").then((module) => ({ default: module.ProjectsPage })));
+const ProjectShell = lazy(() => import("./project-shell.js").then((module) => ({ default: module.ProjectShell })));
+const AssetCanvasHome = lazy(() => import("./asset-canvas-home.js").then((module) => ({ default: module.AssetCanvasHome })));
+const GameStudioHome = lazy(() => import("./game-studio-home.js").then((module) => ({ default: module.GameStudioHome })));
+const SettingsPage = lazy(() => import("./settings-page.js").then((module) => ({ default: module.SettingsPage })));
+const PluginsSettings = lazy(() => import("./plugins.js").then((module) => ({ default: module.PluginsSettings })));
+const PluginBuilder = lazy(() => import("./plugin-builder.js").then((module) => ({ default: module.PluginBuilder })));
 
 export function App() {
   const serviceGeneration = useReadyRuntimeGeneration();
@@ -58,29 +64,29 @@ export function App() {
       onFinish={async (status) => { await onboarding.save({ status, step: onboarding.state?.step ?? "welcome" }); setWelcoming(true); navigate("#/"); }} />;
   }
   if (route.page === "home" && !onboarding.state) return <OnboardingLoading error={onboarding.error} onRetry={onboarding.retry} />;
-  if (route.page === "plugin-builder") return <PluginBuilder key={route.sessionId} sessionId={route.sessionId} />;
+  if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} /></Suspense>;
   if (route.page === "settings") {
-    return <SettingsPage section={route.section} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onOpenOnboarding={onboarding.open} />;
+    return <Suspense fallback={<RouteLoading />}><SettingsPage section={route.section} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onOpenOnboarding={onboarding.open} /></Suspense>;
   }
   if (route.page === "plugins") return <>{creationGate.dialog}<SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
-    <PluginsSettings pluginId={route.pluginId} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} />
+    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
   </SidebarPageLayout></>;
   if (route.page === "home") {
     return <><Home inert={welcoming} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
   }
   if (route.page === "community") {
-    return <GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
+    return <Suspense fallback={sidebarFallback("community")}><GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} /></Suspense>;
   }
-  if (route.page === "community-profile") return <CommunityProfilePage authorId={route.authorId} onNavigate={navigateToSidebarPage} onBack={goToGames} onOpenGame={ohMyGame} />;
-  if (route.page === "game") return <GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
-  if (route.page === "projects") return <ProjectsPage projectType={route.projectType} query={route.query} sort={route.sort} onFiltersChange={(filters, replace) => navigate(projectsHash(filters), { replace })} onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
-  if (route.page === "general" || route.page === "web-game" || route.page === "interactive-story" || route.page === "godot") return <GameStudioHome key={route.page} projectType={route.page === "godot" ? "godot-game" : route.page} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
-  if (route.page === "asset-canvas") return <AssetCanvasHome onNavigate={navigateToSidebarPage} onOpenProject={openAssetCanvasProject} />;
-  if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} />;
+  if (route.page === "community-profile") return <Suspense fallback={sidebarFallback("community")}><CommunityProfilePage authorId={route.authorId} onNavigate={navigateToSidebarPage} onBack={goToGames} onOpenGame={ohMyGame} /></Suspense>;
+  if (route.page === "game") return <Suspense fallback={sidebarFallback("community")}><GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} /></Suspense>;
+  if (route.page === "projects") return <Suspense fallback={sidebarFallback("projects")}><ProjectsPage projectType={route.projectType} query={route.query} sort={route.sort} onFiltersChange={(filters, replace) => navigate(projectsHash(filters), { replace })} onNavigate={navigateToSidebarPage} onOpenProject={openProject} /></Suspense>;
+  if (route.page === "general" || route.page === "web-game" || route.page === "interactive-story" || route.page === "godot") return <Suspense fallback={sidebarFallback(route.page)}><GameStudioHome key={route.page} projectType={route.page === "godot" ? "godot-game" : route.page} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} /></Suspense>;
+  if (route.page === "asset-canvas") return <Suspense fallback={sidebarFallback("asset-canvas")}><AssetCanvasHome onNavigate={navigateToSidebarPage} onOpenProject={openAssetCanvasProject} /></Suspense>;
+  if (route.page === "library") return <Suspense fallback={sidebarFallback("library")}><LibraryPage onNavigate={navigateToSidebarPage} /></Suspense>;
   if (route.page === "playtest") return null;
   if (route.page !== "project") return null;
   return (
-    <ProjectShell
+    <Suspense fallback={<RouteLoading />}><ProjectShell
       key={route.projectId}
       projectId={route.projectId}
       conversationId={route.conversationId}
@@ -101,8 +107,13 @@ export function App() {
       onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}
       onHome={() => navigate(projectReturnTo)}
       homeLabel={projectBackLabel}
-    />
+    /></Suspense>
   );
+
+  // Keeps the sidebar in place while a sidebar page's chunk loads.
+  function sidebarFallback(active: SidebarPage) {
+    return <SidebarPageLayout active={active} onNavigate={navigateToSidebarPage}>{null}</SidebarPageLayout>;
+  }
 
   function openCreatedProject(project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]): void {
     const connection = runtimeConnection();
@@ -191,4 +202,8 @@ export function App() {
     }
     navigate("#/", { replace: true });
   }
+}
+
+function RouteLoading() {
+  return <main className="route-loading" aria-busy="true"><WindowDragRegion /></main>;
 }

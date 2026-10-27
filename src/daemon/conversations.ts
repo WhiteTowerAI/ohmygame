@@ -1,3 +1,4 @@
+import { isAccountRuntimeId, type AccountRuntimeId, type AccountProfileIds } from "../shared/agent-runtimes.js";
 import path from "node:path";
 import { readdir } from "node:fs/promises";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -19,7 +20,10 @@ export class ConversationManager {
   readonly #pending = new Map<string, { stored: StoredConversation; manager: SessionManager; titled: boolean }>();
   readonly #cache: ConversationCache;
 
-  constructor(images?: ConversationImageStore) { this.#cache = new ConversationCache(images); }
+  constructor(
+    images?: ConversationImageStore,
+    private readonly resolveProfileId: (runtime: AccountRuntimeId, profileId: string) => string = (_runtime, id) => id,
+  ) { this.#cache = new ConversationCache(images); }
 
   forget(project: ProjectState): void {
     for (const [id, pending] of this.#pending) if (pending.stored.summary.projectId === project.id) this.#pending.delete(id);
@@ -61,6 +65,23 @@ export class ConversationManager {
     };
     this.#pending.set(key(project.id, stored.summary.id), { stored, manager, titled: false });
     return stored;
+  }
+
+  /** Copy only the current path through a finished assistant message. Never mutate the source manager. */
+  async branch(project: ProjectState, stored: StoredConversation, entryId: string): Promise<StoredConversation> {
+    const source = SessionManager.open(stored.sessionPath, sessionDirectory(project), project.workspacePath);
+    const entry = source.getBranch().find((candidate) => candidate.id === entryId);
+    if (entry?.type !== "message" || entry.message.role !== "assistant" || !["stop", "length"].includes(entry.message.stopReason) ||
+      !entry.message.content.some((block) => block.type === "text" && block.text.trim())) {
+      throw new Error("Choose a completed agent response on the current conversation branch");
+    }
+    const sessionPath = source.createBranchedSession(entry.id);
+    if (!sessionPath) throw new Error("Could not create a persistent conversation branch");
+    // The selected assistant message ends this path, so earlier native ready markers are already stale.
+    source.appendCustomEntry(PLAN_STATE_ENTRY, { mode: "normal" });
+    const suffix = " (branch)";
+    source.appendSessionInfo(normalizeTitle(`${stored.summary.title.slice(0, TITLE_MAX_LENGTH - suffix.length)}${suffix}`));
+    return (await this.get(project, source.getSessionId()))!;
   }
 
   async get(project: ProjectState, conversationId: string): Promise<StoredConversation | undefined> {
@@ -151,6 +172,30 @@ export class ConversationManager {
 
   setNativeReasoningLevel(project: ProjectState, stored: StoredConversation, model: AgentModelRef, level: string): void {
     this.open(project, stored).appendCustomEntry("ohmygame-native-reasoning", { version: 1, provider: model.provider, model: model.id, level });
+  }
+
+  /**
+   * The branch's account per runtime; a deleted account reads as System default.
+   * Native resume markers carry their account, so a context of another or a
+   * deleted account is never resumed and this read changes nothing.
+   */
+  async accountProfiles(project: ProjectState, stored: StoredConversation): Promise<AccountProfileIds> {
+    const profiles: AccountProfileIds = {};
+    for (const entry of (await this.view(project, stored)).getBranch()) {
+      if (entry.type !== "custom" || entry.customType !== "ohmygame-account-profile") continue;
+      const data = entry.data as { version?: unknown; runtime?: unknown; profileId?: unknown } | undefined;
+      if (data?.version === 1 && isAccountRuntimeId(data.runtime) && typeof data.profileId === "string")
+        profiles[data.runtime] = this.resolveProfileId(data.runtime, data.profileId);
+    }
+    return profiles;
+  }
+
+  async accountProfileId(project: ProjectState, stored: StoredConversation, runtime: AccountRuntimeId): Promise<string> {
+    return (await this.accountProfiles(project, stored))[runtime] ?? "system";
+  }
+
+  setAccountProfile(project: ProjectState, stored: StoredConversation, runtime: AccountRuntimeId, profileId: string): void {
+    this.open(project, stored).appendCustomEntry("ohmygame-account-profile", { version: 1, runtime, profileId });
   }
 
   async planState(project: ProjectState, stored: StoredConversation): Promise<PlanSessionState> {

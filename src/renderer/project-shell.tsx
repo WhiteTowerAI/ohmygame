@@ -1,11 +1,12 @@
 import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
-import { isAgentRuntimeId, type ApprovalDecision } from "../shared/agent-runtimes.js";
+import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
 import {
   ArrowLeft,
   LoaderCircle,
   MessageSquarePlus,
   PanelToggle,
   RefreshCw,
+  UserRound,
   X,
 } from "./icons.js";
 import { observeWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
@@ -35,6 +36,7 @@ import {
   cancelPlan,
   compactConversation,
   createConversation,
+  branchConversation,
   getConversation,
   getConversationContextUsage,
   getConversationCapabilities,
@@ -56,12 +58,16 @@ import {
   sendPrompt,
   steerPendingPrompt,
   setConversationModel,
+  setConversationAccountProfile,
+  listAccountProfiles,
+  MODELS_CHANGED_EVENT,
   setConversationReasoning,
   startPreview,
   subscribeToProject,
   undoCheckpoint,
   waitForRuntime,
 } from "./api.js";
+import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { ConversationMenu } from "./conversation-menu.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
@@ -153,6 +159,7 @@ export function ProjectShell({
   const [unfinishedRestore, setUnfinishedRestore] = useState(false);
   const [openFileRequest, setOpenFileRequest] = useState<{ path: string; id: number }>();
   const [modelChanging, setModelChanging] = useState(false);
+  const [accountProfiles, setAccountProfiles] = useState<AgentAccountProfileStatus[]>([]);
   const [capabilities, setCapabilities] = useState<ConversationCapabilities>(EMPTY_CAPABILITIES);
   const [playableChat, setPlayableChat] = useState<PlayableChatState>();
   /** The Playable surface whose chip the user removed from the next message. */
@@ -164,21 +171,34 @@ export function ProjectShell({
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
   // The chat takes the request once its conversation is open.
   usePlaytestAskRequests(state.conversation ? state.project?.id : undefined, requestPrompt);
-  const modelCatalog = useAgentModels({ agentRuntimes: true });
+  const accountRuntime = isAccountRuntimeId(state.settings.model?.provider) ? state.settings.model.provider : undefined;
+  const storedProfileId = accountRuntime ? state.settings.accountProfiles?.[accountRuntime] ?? "system" : "system";
+  const selectedProfileId = accountProfiles.length && !accountProfiles.some((profile) => profile.id === storedProfileId) ? "system" : storedProfileId;
+  const modelCatalog = useAgentModels({ agentRuntimes: true, accountProfiles: state.conversation ? { "claude-code-cli": state.settings.accountProfiles?.["claude-code-cli"] ?? "system", "codex-cli": state.settings.accountProfiles?.["codex-cli"] ?? "system" } : undefined });
+  useEffect(() => {
+    setAccountProfiles([]);
+    if (!accountRuntime) return;
+    let disposed = false;
+    const load = () => void listAccountProfiles(accountRuntime).then((profiles) => { if (!disposed) setAccountProfiles(profiles); }).catch(() => {});
+    load();
+    window.addEventListener("focus", load);
+    window.addEventListener(MODELS_CHANGED_EVENT, load);
+    return () => { disposed = true; window.removeEventListener("focus", load); window.removeEventListener(MODELS_CHANGED_EVENT, load); };
+  }, [accountRuntime]);
   const effectiveModel = findAgentModel(modelCatalog.hiddenModels ?? [], state.settings.model) ?? preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
   const timeline = useRef<HTMLDivElement>(null);
   const followTimeline = useRef(true);
 
-  // Godot has no Preview, so its workspace opens on Design unless the user hid it,
-  // since Design keeps the workspace shown.
+  // Apply project defaults on load, preserving later manual pane toggles.
   const godotDefaultViewApplied = useRef(false);
   useEffect(() => {
+    if (state.project?.type === "general" || state.project?.type === "godot-game") setAgentCollapsed(false);
     if (state.project?.type !== "godot-game") return;
-    setAgentCollapsed(false);
     if (godotDefaultViewApplied.current) return;
     godotDefaultViewApplied.current = true;
+    // Godot has no Preview, so keep its workspace visible on Design.
     if (view !== "design" && godotWorkspaceOpen) changeWorkspaceView(true, { replace: true });
   }, [state.project?.id, state.project?.type]);
 
@@ -703,6 +723,20 @@ export function ProjectShell({
     }
   }
 
+  async function changeAccountProfile(profileId: string) {
+    if (!project || !conversation || !accountRuntime || agentBusy || modelChanging) return;
+    setModelChanging(true);
+    try {
+      const changed = await setConversationAccountProfile(project.id, conversation.id, accountRuntime, profileId);
+      dispatch({ type: "conversation-settings", settings: {
+        ...state.settings,
+        accountProfiles: { ...state.settings.accountProfiles, [accountRuntime]: profileId },
+        ...(changed.model ? { model: changed.model, nativeReasoningLevel: changed.nativeReasoningLevel } : {}),
+      } });
+    } catch (error) { dispatch({ type: "notice", message: errorMessage(error) }); }
+    finally { setModelChanging(false); }
+  }
+
   async function changeModel(model: AgentModel) {
     if (!project || !conversation || agentBusy || modelChanging) return;
     setModelChanging(true);
@@ -715,6 +749,18 @@ export function ProjectShell({
     } finally {
       setModelChanging(false);
     }
+  }
+
+  async function branchChat(entryId: string) {
+    if (!project || !conversation || creatingConversation || !window.confirm(t("timeline.branchConfirm"))) return;
+    setCreatingConversation(true);
+    dispatch({ type: "notice", message: undefined });
+    try {
+      const created = await branchConversation(project.id, conversation.id, entryId);
+      onOpenConversation(created.id);
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+    } finally { setCreatingConversation(false); }
   }
 
   async function changeReasoning(level: AgentReasoningLevel) {
@@ -791,6 +837,14 @@ export function ProjectShell({
         const element = event.currentTarget;
         followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
       }} actions={<>
+            {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
+              <CanvasChipSelect icon={UserRound} label={t("codingAgents.chatProfile", { name: accountRuntime === "codex-cli" ? "Codex" : "Claude Code" })} value={selectedProfileId}
+                options={accountProfiles.map((profile) => {
+                  const name = profile.id === "system" ? t("codingAgents.profileSystem") : profile.name;
+                  return { value: profile.id, shortLabel: name, label: profile.auth.account ? `${name} · ${profile.auth.account}` : name };
+                })}
+                disabled={agentBusy || modelChanging || state.connection !== "open"} onChange={(profileId) => void changeAccountProfile(profileId)} />
+            </div> : null}
             <button
               className="icon-button pane-header-action"
               type="button"
@@ -847,6 +901,8 @@ export function ProjectShell({
                 changeControls={turnChanges}
                 workspaceRevision={workspaceRevision}
                 onAddToChat={addToChat}
+                onBranch={branchChat}
+                branchDisabled={creatingConversation || state.connection !== "open"}
               />
               </ErrorBoundary>
             </Activity>
@@ -905,11 +961,13 @@ export function ProjectShell({
             plan={activePlan}
             planMode={state.plan.mode}
             notice={state.connection === "reconnecting" ? t("projectShell.reconnecting") : state.notice}
+            limitReached={!currentConversationBusy && items.findLast((item) => item.type === "agentMessage")?.error?.code === "quota_exceeded"}
             models={modelCatalog.models}
             modelStatus={modelCatalog.status}
             model={effectiveModel}
             reasoningLevel={state.settings.reasoningLevel}
             nativeReasoningLevel={state.settings.nativeReasoningLevel}
+            accountProfileId={accountRuntime ? selectedProfileId : undefined}
             modelChanging={modelChanging}
             promptHistory={[
               ...items.flatMap((item) => item.type === "userMessage" && item.text.trim()

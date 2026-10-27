@@ -175,7 +175,7 @@ export function Onboarding({
           setCatalog(loadedCatalog);
           setPhase("ready");
           setLoadError(undefined);
-          if (loadedCatalog.loadingRuntimes?.length && attempts++ < 5)
+          if ((loadedCatalog.loadingRuntimes?.length || loadedCatalog.loadingProviders?.length) && attempts++ < 6)
             retry = setTimeout(load, 3_000);
         })
         .catch((cause) => {

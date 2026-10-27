@@ -10,10 +10,11 @@ import qte from "./assets/templates/qte.webp";
 import storyMap from "./assets/templates/story-map.webp";
 import visualNovel from "./assets/templates/visual-novel.webp";
 import { t } from "./i18n.js";
+import { playableTemplateText } from "./playable-template-labels.js";
 
 /**
  * Pictures of each Template as a new Scene looks: its starter source with the
- * default Project Style and no background, titled with the Template's name.
+ * default Project Style and Last Bus artwork, titled with the Template's name.
  * Recapture them from the canvas thumbnails when a Template's source changes.
  * The Story map's shows a sample story partly played instead, since a new
  * one has nothing seen to show, and the Visual Novel's shows its first line
@@ -85,8 +86,8 @@ export function PlayableTemplateDialog({ presets, busy, onChoose, onClose }: {
           <span className="playable-template-picture">
             {TEMPLATE_PICTURES[preset.id] ? <img src={TEMPLATE_PICTURES[preset.id]} alt="" /> : null}
           </span>
-          <strong>{preset.label}</strong>
-          <small>{preset.summary}</small>
+          <strong>{playableTemplateText(preset).label}</strong>
+          <small>{playableTemplateText(preset).summary}</small>
         </button>)}
       </div>
     </section>

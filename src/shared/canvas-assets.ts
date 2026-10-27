@@ -17,7 +17,6 @@ export interface UnavailableCanvasAsset extends CanvasAsset {
   message: string;
 }
 
-export const CANVAS_ASSETS_FILE = "canvas/assets.json";
 export const CANVAS_ASSETS_SCHEMA = Type.Object({
   version: Type.Literal(1),
   assets: Type.Record(Type.String({ pattern: "^[a-zA-Z0-9_-]{1,120}$" }), Type.Object({

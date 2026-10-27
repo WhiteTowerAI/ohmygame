@@ -1046,7 +1046,6 @@ export function visualNovelSource(_title: string, id?: string): {
     files: {
       "script.txt": [
         "# One step per line. shared/vn/player.js lists every command.",
-        "@show stranger center",
         "The rain had not stopped since noon.",
         "stranger: You came alone. That was brave.",
         "stranger: Or foolish. We will find out which.",

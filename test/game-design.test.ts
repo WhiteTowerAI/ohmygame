@@ -383,6 +383,49 @@ describe("Markdown design workspace", () => {
     const broken = await checkCanvasWorkspace(project.workspacePath);
     expect(broken.ok).toBe(false); expect(broken.issues[0]!.file).toContain("/assets/gardener");
   });
+  it("lets agent generation follow a running job and reuse output from unchanged settings", async () => {
+    let release!: () => void;
+    let gate = new Promise<void>((resolve) => { release = resolve; });
+    const generate = vi.fn(async () => { await gate; return { bytes: Buffer.from("image"), mediaType: "image/png" as const }; });
+    const { store, project, boardId, node, tools, projects } = await runtime({ generate }, "asset-canvas");
+    const tool = createAgentTools(project, tools, projects, undefined, undefined, undefined, undefined, store).find((tool) => tool.name === "generate_canvas_media")!;
+    const manual = await store.generateNode(project.id, boardId, node.id);
+    await expect(store.generateNode(project.id, boardId, node.id)).rejects.toThrow("This node is already generating");
+    // Stopping an agent that followed the user's run ends only its wait.
+    const stopped = new AbortController();
+    const abandoned = tool.execute("stopped", { boardId, nodeId: node.id }, stopped.signal, undefined, {} as never);
+    await expect.poll(() => generate.mock.calls.length).toBe(1);
+    stopped.abort();
+    await expect(abandoned).rejects.toThrow();
+    expect((await store.jobs(project.id)).find((job) => job.id === manual.id)).toMatchObject({ status: "running" });
+    const followed = tool.execute("follow", { boardId, nodeId: node.id }, undefined, undefined, {} as never);
+    await expect.poll(() => generate.mock.calls.length).toBe(1);
+    release();
+    const first = await followed;
+    expect(first.content[0]).toMatchObject({ text: expect.stringContaining("was already generating") });
+    expect(first.details).toMatchObject({ canvasGeneration: { id: manual.id, status: "succeeded" } });
+    const reused = await tool.execute("reuse", { boardId, nodeId: node.id }, undefined, undefined, {} as never);
+    expect(reused.content[0]).toMatchObject({ text: expect.stringContaining("nothing new was generated") });
+    expect(generate).toHaveBeenCalledTimes(1);
+    const detail = await store.board(project.id, boardId), image = detail.board.nodes.find((candidate) => candidate.id === node.id)!;
+    if (image.type !== "image") throw new Error("Expected image node");
+    image.data.prompt = "A tired gardener";
+    await store.saveBoard(project.id, detail.board, detail.revision);
+    await tool.execute("changed", { boardId, nodeId: node.id }, undefined, undefined, {} as never);
+    expect(generate).toHaveBeenCalledTimes(2);
+    await tool.execute("variation", { boardId, nodeId: node.id, regenerate: true }, undefined, undefined, {} as never);
+    expect(generate).toHaveBeenCalledTimes(3);
+    expect((await store.jobs(project.id))[0]).not.toHaveProperty("inputRevision");
+    // A run the agent started itself is still cancelled when the agent stops.
+    gate = new Promise<void>((resolve) => { release = resolve; });
+    const owned = new AbortController();
+    const ownRun = tool.execute("owned", { boardId, nodeId: node.id, regenerate: true }, owned.signal, undefined, {} as never);
+    await expect.poll(() => generate.mock.calls.length).toBe(4);
+    owned.abort();
+    await expect(ownRun).rejects.toThrow();
+    await expect.poll(async () => (await store.jobs(project.id)).find((job) => job.status === "running" || job.status === "cancelled")?.status).toBe("cancelled");
+    release();
+  });
   it("exports current file contents and retries video inputs using project asset IDs", async () => {
     const { store, project, boardId, tools, library } = await runtime();
     await mkdir(path.join(project.workspacePath, "assets"), { recursive: true });

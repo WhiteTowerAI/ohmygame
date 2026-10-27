@@ -1,6 +1,6 @@
 # 3D provider workflows
 
-Reviewed against public API documentation on 2026-10-11. These capabilities describe
+Reviewed against public API documentation on 2026-10-23. These capabilities describe
 own-key connections. Free cloud currently exposes image-to-3D only, according to
 its server catalog; signing in does not enable additional upstream operations.
 
@@ -24,15 +24,23 @@ one. The source asset is preserved, and each result becomes a new Library asset.
 **Animate 3D** has an explicit connection selector. Existing saved nodes without a
 selector retain Meshy's numeric action IDs. Changing connection, Tripo rig version,
 or rig type clears incompatible moves. Tripo v1 provides the documented humanoid
-preset library; v2.5 provides biped and supported creature preset subsets. Avian
+preset library; v2.5 and v3.0 provide biped and supported creature preset subsets.
+Rig v3.0 (`v3.0-20260909`) is recommended for humanoids and reuses the v2.5
+action identifiers; other supported rig types retain v2.5 quality and speed.
+Nodes and requests without an explicit rig version still default to v1. Avian
 rigging has no documented retarget preset in the current catalog and is not exposed.
 
 Generation model IDs identify geometry versions. Texture and rig selectors identify
 their own operation versions: Tripo texture defaults to `v3.5-20260815`, rig to
 `v1.0-20240301`, and decimation to `v3.0`; Meshy retexture defaults to `latest`.
+Tripo v3.0 triangle remeshing accepts 500–20,000 faces; the app defaults to
+4,000 faces. Meshy T2.5 accepts 100–30,000 faces (15,000 by default) for
+single-image or text generation, without multiview support.
 Tripo's Fast texture quality requires texture v3.5. Generation pose controls map to
 Meshy `pose_mode` or Rodin `TAPose`. Other unsupported option combinations fail
 before paid submissions.
+
+![Bundled 3D model selector and Tripo v3 rig option (sample data)](assets/3d-model-catalog.png)
 
 The existing `image-to-3d` agent tool accepts an `operation`, optional `prompt`,
 `imagePath`/`imagePaths`, and processing `sourcePath`. Its identifier stays unchanged
@@ -43,6 +51,12 @@ Native processing and animation connections remain available when generation mod
 are hidden. Each native provider appears once in these selectors, using the stable
 `connection` ID; older geometry-version references still resolve to that connection.
 Generation selectors keep their geometry versions. Moves load when the picker opens.
+An open move picker reloads only when its connection or rig settings change, or a
+failed load is retried; catalog updates preserve its loaded moves and previews.
+Local operation connections refresh on configuration changes. While a cloud 3D
+provider is signed in, the visible canvas refreshes its generation catalog every
+30 seconds for cloud availability and allowance, and when the page becomes visible
+again. Background polling does not refresh local operation connections or moves.
 Meshy's supplied previews appear as cards; providers without preview URLs, including
 Tripo's documented presets, use a searchable name list with ordered selection.
 Own-key balances live in provider settings, using one balance per compatible
@@ -121,7 +135,7 @@ or multipart/segmented outputs as GLB.
 ## References
 
 - [Meshy OpenAPI](https://docs.meshy.ai/openapi.json), [text generation](https://docs.meshy.ai/api/text-to-3d), [task lifecycle](https://docs.meshy.ai/api/task-lifecycle)
-- [Tripo documentation](https://developers.tripo3d.ai/en/docs/models-and-versions), [retargeting](https://developers.tripo3d.ai/en/docs/animations-retarget), [retexture](https://developers.tripo3d.ai/en/docs/models-texture)
+- [Tripo documentation](https://developers.tripo3d.ai/en/docs/models-and-versions), [rigging](https://developers.tripo3d.ai/en/docs/animations-rig), [retargeting](https://developers.tripo3d.ai/en/docs/animations-retarget), [retopology](https://developers.tripo3d.ai/en/docs/mesh-decimate), [retexture](https://developers.tripo3d.ai/en/docs/models-texture)
 - [Rodin generation](https://docs.hyper3d.ai/en/api-specification/rodin-gen2-5), [retexture](https://docs.hyper3d.ai/en/api-specification/generate-texture), [balance](https://docs.hyper3d.ai/en/api-specification/check-balance)
 
 Validation uses real GLB fixtures and mocked API contracts. It does not establish

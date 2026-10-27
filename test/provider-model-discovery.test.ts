@@ -11,7 +11,7 @@ describe("provider model discovery", () => {
     expect(result.source).toBe("presets");
     expect(result.models).toHaveLength(MODEL_3D_PRESETS[preset].length);
     expect(result.models.every((model) => model.usages?.["3d"]?.protocol === preset && !model.usages?.language)).toBe(true);
-    expect(result.models[1]?.usages?.["3d"]?.maxReferenceImages).toBe(preset === "hyper3d" ? 5 : 4);
+    expect(result.models.find((model) => model.id === { meshy: "meshy-7.1", tripo: "v3.1-20260211", hyper3d: "Gen-2.5-Low" }[preset])?.usages?.["3d"]?.maxReferenceImages).toBe(preset === "hyper3d" ? 5 : 4);
     expect(result.warnings?.[0]).toContain("does not check API-key access");
     expect(request).not.toHaveBeenCalled();
   });

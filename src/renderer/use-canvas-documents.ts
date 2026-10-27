@@ -183,11 +183,15 @@ export function useCanvasDocuments(projectId: string) {
   useEffect(() => {
     if (closing) return;
     void refresh().catch(() => {});
-    const timer = window.setInterval(() => {
-      if (!isDesktopClosing()) void refresh().catch(() => {});
-    }, 3000);
+    // A hidden window shows nobody the external changes, so it refreshes again on return instead.
+    const run = () => {
+      if (!isDesktopClosing() && !window.document.hidden) void refresh().catch(() => {});
+    };
+    const timer = window.setInterval(run, 3000);
+    window.document.addEventListener("visibilitychange", run);
     return () => {
       window.clearInterval(timer);
+      window.document.removeEventListener("visibilitychange", run);
     };
   }, [refresh, closing]);
   const update = useCallback(

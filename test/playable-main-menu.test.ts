@@ -20,6 +20,12 @@ import {
 const preset = playablePreset("main-menu")!;
 const source = preset.source("Ash Club");
 
+it("names the menu's right-hand placement without changing left-aligned stages", () => {
+  expect(source.html).toContain('class="stage is-right has-backdrop"');
+  expect(source.css).toContain(".stage.is-right");
+  expect(source.css).not.toContain(".stage.is-left");
+});
+
 /** The Main menu's node.js, beside the Project Style module it imports. */
 async function loadMainMenuModule(): Promise<{
   mount: (context: PlayableNodeContext) => () => void;
@@ -92,15 +98,6 @@ async function startGame() {
   let chapter: Omit<PlayableNodeContext, "root"> | undefined;
   const runtime = new NodeRuntime({
     graph,
-    compiled: {
-      version: 1,
-      nodes: Object.fromEntries(
-        graph.nodes.map(({ id }) => [
-          id,
-          { id, html: "", css: "", javascript: "", inputs: [] },
-        ]),
-      ),
-    },
     graphSignature: "menu-v1",
     surfaceHost: {
       async mountNode(surface, context) {

@@ -95,6 +95,13 @@ app.whenReady().then(async () => {
     assert.equal(await frame().executeJavaScript('typeof window.ohMyGameDesktop'), 'undefined');
     assert.equal(await native.executeJavaScript('typeof window.ohMyGameDesktop'), 'undefined');
     const identity = await frame().executeJavaScript('game.id');
+    games.layout('game', 'mount', { ...layout, bounds: { ...layout.bounds, width: 667, height: 375 } });
+    await eventually(async () => await frame().executeJavaScript('innerWidth === 667 && innerHeight === 375'));
+    games.layout('game', 'mount', { ...layout, bounds: { ...layout.bounds, width: 549, height: 308.65625 } });
+    await eventually(async () => await frame().executeJavaScript('innerWidth === 549 && innerHeight === 309'));
+    assert.equal(await frame().executeJavaScript('game.id'), identity, 'Resizing the landscape preview retains the game');
+    games.layout('game', 'mount', layout);
+
     console.log('Checking native game fullscreen...');
     await fullscreen(editor, frame(), true);
     await fullscreen(editor, frame(), false);
@@ -104,7 +111,7 @@ app.whenReady().then(async () => {
     const frameId = frame().frameTreeNodeId;
     await fullscreen(editor, frame(), true);
     const editorExit = new Promise(resolve => editor.once('leave-full-screen', resolve));
-    await games.open('game', { path: '/', viewport: { width: 375, height: 667 } }, target);
+    await games.open('game', { path: '/', viewport: { width: 667, height: 375 } }, target);
     await editorExit;
     await eventually(() => !editor.isFullScreen());
     assert.equal(resolves, 1, 'Opening Play reuses the existing server and game');
@@ -120,6 +127,9 @@ app.whenReady().then(async () => {
     await eventually(() => diagnostics.at(-1)?.some(item => item.message.includes('QA native game error') && item.source === 'player'));
     const player = BaseWindow.getAllWindows().find(window => window !== editor);
     assert.ok(player);
+    assert.deepEqual(player.getContentSize(), [667, 375], 'Landscape Play uses the requested content dimensions');
+    await eventually(async () => await frame().executeJavaScript('innerWidth === 667 && innerHeight === 375'));
+
     await fullscreen(player, frame(), true);
     await fullscreen(player, frame(), false);
     player.setContentSize(768, 600);

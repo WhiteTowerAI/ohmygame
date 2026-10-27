@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { ProjectState } from "../shared/contracts.js";
@@ -12,19 +12,11 @@ import type { ProjectWrites } from "./project-writes.js";
 import { copyLibraryAssets, isWebStory, libraryAssets, upgradeToWebStory } from "./story-web-project.js";
 import { writeWorkspaceNotice } from "./workspace-notice.js";
 
-/** The last upgrade's snapshots, so the author can take it back. Editor cache; never published. */
-const UPGRADE_RECORD = path.join(".ohmygame", "story-upgrade.json");
-
-interface UpgradeRecord {
-  before: string;
-  after: string;
-  at: string;
-}
-
 /**
- * Upgrading a sandboxed Interactive Story to a web story, and taking the
- * upgrade back. Both run with the workspace to themselves and tell editors
- * and the Agent what changed, as Undo does.
+ * Upgrading an Interactive Story made before web stories, which played in a
+ * sandbox OhMyGame no longer has. The Story editor upgrades such a story when
+ * it opens it. The upgrade runs with the workspace to itself and tells
+ * editors and the Agent what changed, as Undo does.
  */
 export function registerStoryWebRoutes(
   app: FastifyInstance,
@@ -81,9 +73,8 @@ export function registerStoryWebRoutes(
     send(reply, async (): Promise<StoryUpgradeStatus> => {
       const project = story(request.params.projectId);
       const web = await isWebStory(project.workspacePath);
-      const record = web ? await readRecord(project.workspacePath) : undefined;
       const library = web ? await libraryAssets(project.workspacePath) : [];
-      return { web, ...(record ? { upgradedAt: record.at } : {}), ...(library.length ? { libraryAssets: library } : {}) };
+      return { web, ...(library.length ? { libraryAssets: library } : {}) };
     }));
 
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/upgrade", async (request, reply) =>
@@ -94,9 +85,8 @@ export function registerStoryWebRoutes(
       const before = await snapshot(project);
       const upgrade = await writes.exclusive(project.id, () => upgradeToWebStory(project.workspacePath, libraryFile));
       const after = await snapshot(project);
-      await writeRecord(project.workspacePath, { before, after, at: new Date().toISOString() });
       const changed = (await checkpoints.diff(project, before, after)).map((change) => change.path);
-      await announce(project, changed, `The user upgraded this Interactive Story to a web story. It now plays as its own page: index.html loads the story runtime under story/, which reads graph.json and loads each Scene's files as they are. Library assets it used were copied under assets/library/. Read AGENTS.md before changing it. Changed workspace paths: ${JSON.stringify(changed)}.`);
+      await announce(project, changed, `OhMyGame upgraded this Interactive Story to a web story when the user opened it. It now plays as its own page: index.html loads the story runtime under story/, which reads graph.json and loads each Scene's files as they are. Library assets it used were copied under assets/library/. Read AGENTS.md before changing it.${legacyNote(upgrade.removedGraphFields)} Changed workspace paths: ${JSON.stringify(changed)}.`);
       return {
         copiedAssets: upgrade.copiedAssets,
         missingAssets: upgrade.missingAssets,
@@ -119,41 +109,12 @@ export function registerStoryWebRoutes(
       if (changed.length) await announce(project, changed, `Library media this story used were copied into the project under assets/library/, and graph.json now points at them: ${JSON.stringify(copied.copiedAssets)}.`);
       return { ...copied, changed };
     }));
-
-  // Keeping the upgrade forgets how to take it back.
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/upgrade/keep", async (request, reply) =>
-    send(reply, async () => {
-      const project = story(request.params.projectId);
-      await rm(path.join(project.workspacePath, UPGRADE_RECORD), { force: true });
-      return {};
-    }));
-
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/upgrade/undo", async (request, reply) =>
-    send(reply, async () => {
-      const project = story(request.params.projectId);
-      assertIdle(project.id);
-      const record = await readRecord(project.workspacePath);
-      if (!record) throw new Error("There is no upgrade to take back.");
-      const result = await writes.exclusive(project.id, () => checkpoints.undo(project, { before: record.before, after: record.after }));
-      await rm(path.join(project.workspacePath, UPGRADE_RECORD), { force: true });
-      await announce(project, result.changed, `The user took back the upgrade of this Interactive Story to a web story; it plays in the sandbox again. Inspect the current files before continuing. Changed workspace paths: ${JSON.stringify(result.changed)}.`);
-      return { changed: result.changed };
-    }));
 }
 
-async function readRecord(workspacePath: string): Promise<UpgradeRecord | undefined> {
-  try {
-    const value = JSON.parse(await readFile(path.join(workspacePath, UPGRADE_RECORD), "utf8")) as Partial<UpgradeRecord>;
-    return typeof value.before === "string" && typeof value.after === "string" && typeof value.at === "string"
-      ? { before: value.before, after: value.after, at: value.at }
-      : undefined;
-  } catch {
-    return undefined;
+/** What the Agent is told about fields of an older graph.json the upgrade removed. */
+function legacyNote(removed: string[]): string {
+  if (!removed.includes("shell")) {
+    return removed.length ? " graph.json no longer has `destinations`, which nothing used any more." : "";
   }
-}
-
-async function writeRecord(workspacePath: string, record: UpgradeRecord): Promise<void> {
-  const file = path.join(workspacePath, UPGRADE_RECORD);
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify(record, null, 2)}\n`);
+  return ` graph.json no longer has ${removed.map((field) => `\`${field}\``).join(" or ")}: the story's former shell, drawn over every Scene, is no longer shown, and its connections were removed. Its files are still under shell/; to bring its interface back, make it a shared component that each Scene imports, with that Scene's Signals and edges (see AGENTS.md).`;
 }

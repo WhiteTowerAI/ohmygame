@@ -17,4 +17,4 @@ Use `project_preview` with `status`, `start`, `refresh`, `stop`, or `logs`; a mi
 
 ## Submit
 
-Submit, push, or build remotely only on an explicit request: review the changes, then call `maker_build_current_directory` with `target_dir`. It commits and pushes `main` before building, even in a clean workspace. Report partial success, and inspect an unknown outcome before retrying. A build is not a publication; give the user the returned link to Maker's preview and publish page.
+Submit, push, or build remotely only on an explicit request: review the changes, then call `maker_build_current_directory` with `target_dir`. It commits and pushes `main` before building, even in a clean workspace. Report partial success, and inspect an unknown outcome before retrying. A build is not a publication; give the user the returned link to Maker's preview page. For the TapTap store page, review, and release, use the TapTap Release Skill.

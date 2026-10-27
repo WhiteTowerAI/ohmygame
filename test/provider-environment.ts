@@ -26,3 +26,6 @@ for (const name of Object.keys(process.env)) {
     delete process.env[name];
   }
 }
+
+// Model catalogs stay offline in tests unless a case explicitly supplies a fake network refresh.
+process.env.PI_OFFLINE = "1";

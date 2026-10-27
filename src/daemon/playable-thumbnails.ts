@@ -5,7 +5,7 @@ import type { PlayableThumbnailManifest } from "../shared/playable-editor.js";
 
 /**
  * Node thumbnails are editor cache under `.ohmygame/thumbnails/`: one WebP
- * screenshot per Node, plus the hash of the compiled Node it shows. They are
+ * screenshot per Node, plus the content hash of the Node it shows. They are
  * never part of the graph, the layout, or a published project.
  */
 const THUMBNAIL_DIRECTORY = ".ohmygame/thumbnails";

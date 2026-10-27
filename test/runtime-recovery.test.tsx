@@ -185,6 +185,15 @@ describe("renderer service recovery", () => {
     expect(runtimeConnection()).toEqual(ready(2));
   });
 
+  it("lets a thumbnail window connect without asking the desktop app about the service", async () => {
+    const service = installDesktop();
+    const { initializeRuntimeConnection, runtimeConnection } = await import("../src/renderer/runtime-connection.js");
+    await initializeRuntimeConnection({ followService: false });
+    expect(runtimeConnection()).toMatchObject({ status: "ready", runtime: { url: "http://127.0.0.1:1000", token: "old-token" } });
+    expect(service.state).not.toHaveBeenCalled();
+    expect(service.onState).not.toHaveBeenCalled();
+  });
+
   it("refreshes reads only when a service generation becomes ready and retains editable views", async () => {
     installDesktop();
     const { updateRuntimeConnection, useReadyRuntimeGeneration } =

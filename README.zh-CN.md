@@ -4,6 +4,8 @@
 
 **你的一人游戏工作室。** 用 AI 做游戏需要的一切，都在一个应用里。使用你自己的模型密钥。
 
+**做游戏，上架，赚钱。一个人就够了。**
+
 <p>
   <a href="https://ohmygame.ai/download/mac"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="下载 macOS 版" /></a>
   <a href="https://ohmygame.ai/download/windows"><img src="https://img.shields.io/badge/Download-Windows%20x64-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="下载 Windows 版" /></a>
@@ -28,6 +30,21 @@ https://github.com/user-attachments/assets/4d5805fe-92a2-40b4-a232-c7452f9a796a
 > [!NOTE]
 > 🚧 OhMyGame 目前处于 Beta 阶段，难免还有粗糙的地方。欢迎加入我们，一起把它做好！
 
+## 新动态
+
+<!-- 最多保留三条，最新的在前，只写大版本。发版准备时更新，见 docs/maintaining.md。 -->
+
+- **2026-10 · beta 5**
+  （[更新说明](https://github.com/WhiteTowerAI/ohmygame/releases/tag/v0.0.0-beta.5)）
+  - **现已支持互动故事：** 适合做视觉小说、互动电影和剧情游戏。每个画面都是一个自由的网页，
+    可以放视频、写对白、给选择，甚至装下一个小游戏；描述你想要的，Agent 就帮你做好，
+    不受固定节点类型的限制。
+  - **带上你自己的 Agent：** 用 Claude Code、Codex 或 OpenCode 来运行对话，
+    也可以把 OhMyGame 接进它们。
+  - **插件：** 在 Godot、Unity、Unreal Engine 或 Cocos Creator 里开发；用 Blender、
+    Aseprite 或 Tiled 做素材；上架微信小游戏、抖音小游戏或 TapTap，
+    [让游戏帮你赚钱](#-发布和变现一个链接或者玩家付费的平台)。
+
 ## 这是什么
 
 做一款游戏，需要设计文档、2D 美术、3D 模型、视频、代码，做完还要有地方发布。
@@ -49,11 +66,10 @@ OhMyGame 是开源的，通过 Pi 支持 40 多家模型服务商，从 Anthropi
 
 ### 🤖 Agent：操作画布，搭建并试玩游戏
 
-Agent 像你一样使用画布：起草设计文档，排布画板，并在上面生成素材。接着它阅读设计文档、
+Agent 像你一样使用画布：起草设计文档，排布画板，并在上面生成素材。它阅读设计文档、
 编写代码，在实时预览中运行游戏。然后它会在一个你可以旁观的窗口里打开游戏并亲自试玩，
 包括实时渲染的 Canvas 和 WebGL 游戏。发现问题时，它会尝试修复，然后再玩一遍。
-在这个过程中，它还可以生成图片、视频和 3D 模型，搜索网络，并使用 MCP 服务器，
-或者你已经在用的 Codex 和 Claude Code 插件。
+在这个过程中，它还可以生成图片、视频、3D 模型和音频，搜索网络，并使用 MCP 服务器和插件。
 
 <!-- 目前试玩还是开环的：Agent 先规划一批输入，执行完再看结果，还没有实时反应能力。 -->
 
@@ -61,20 +77,40 @@ Agent 像你一样使用画布：起草设计文档，排布画板，并在上�
 
 https://github.com/user-attachments/assets/3cb982e8-a4a8-4715-bf3c-df4e41e7855b
 
-### 🎨 画布：设计文档、美术、视频和 3D 同在一块画板
+### 🎨 画布：设计文档、美术、视频、3D 和音频同在一块画板
 
-每个游戏项目都有一个设计空间：一份主设计文档，加上若干画板，文档、图片、视频和 3D 模型
-在画板上并排摆放。节点之间可以互相引用，所以一个角色设计可以衍生出更多图片、一段视频，
-或者一个绑好骨骼、带动画的 3D 模型。生成结果会进入共享的素材库（Asset Library），
+每个游戏项目都有一个设计空间：一份主设计文档，加上若干画板，文档、图片、视频、3D 模型和音频
+在画板上并排摆放。节点之间可以互相引用，所以一个角色设计可以衍生出更多图片、一段视频、
+一句配音，或者一个绑好骨骼、带动画的 3D 模型。生成结果会进入共享的素材库（Asset Library），
 供你的游戏使用。
 
 https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 
-### 🔗 发布：一个链接，随处可玩
+### 🔗 发布和变现：一个链接，或者玩家付费的平台
 
 登录后即可发布：OhMyGame 会构建你的游戏，并生成一个任何人都能在浏览器里打开就玩的链接。
 重新发布会更新同一个链接。发布的游戏会出现在应用内的社区（Community）里，
-你也可以在那里玩到别人做的游戏。
+你可以在那里玩到别人做的游戏，按最新、最多浏览或最多点赞排序，查看创作者主页，
+给喜欢的游戏点赞。
+
+一人工作室，就该能养活自己。除了社区，插件还能把你的游戏送上玩家愿意付费的平台。
+一个人做微信、抖音小游戏，靠广告和内购就能变现。
+
+| 上架到                     | 怎么赚钱           | 怎么做                                            |
+| -------------------------- | ------------------ | ------------------------------------------------- |
+| 微信小游戏、抖音小游戏     | 广告、内购         | [平台插件](#-插件连接更多游戏开发工具)            |
+| TapTap                     | 下载、内购         | TapTap Maker 插件                                 |
+| Steam 等商店               | 买断               | 通过 Godot 或 Unity 插件导出                      |
+| itch.io、Poki、CrazyGames  | 付费下载、广告分成 | 直接上传网页游戏的构建产物                        |
+
+**游戏是你的，收入也是你的。** OhMyGame 不从你的游戏收入里抽成。
+<!-- TODO(confirm)：不抽成；小游戏插件里的广告、内购接入流程。 -->
+
+### 🧑‍💻 带上你自己的 Agent
+
+已经在用 Claude Code、Codex 或 OpenCode？在模型选择器里选中它，它就会用自己的登录来运行对话，
+并且能用上整个工作室：画布、媒体生成、试玩、插件和撤销，对话记录保留在 OhMyGame 里。
+详见[编程智能体](docs/coding-agents.md)。
 
 ### 🔌 在 Claude Code、Codex 等 Agent 中使用 OhMyGame
 
@@ -82,6 +118,17 @@ https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 一键连接 Claude Code 或 Codex。它们会获得 OhMyGame 的媒体生成（使用你配置的服务商）、
 画布和试玩能力，以及一个讲解工作流程的 Skill。DeepSeek Harness 和其他 MCP 客户端可以添加
 那里显示的 `ohmygame-studio` 命令。详见 [External agents](docs/external-agents.md)。
+
+### 🧩 插件：连接更多游戏开发工具
+
+插件让 Agent 在你熟悉的引擎和工具里干活：
+
+- **引擎：** Godot、Unity、Unreal Engine 和 Cocos Creator。
+- **平台：** TapTap Maker、微信小游戏和抖音小游戏。
+- **素材：** Blender、Aseprite 和 Tiled。
+
+在 **插件** 页中启用，或者用插件构建器做你自己的插件。引擎插件使用各引擎自己的编辑器和工具，
+请先安装好它们。详见 [Plugins](docs/plugins.md)。
 
 ## 你可以做什么
 
@@ -114,13 +161,12 @@ Agent 会走完一整套网页游戏流程：设计文档、关键画面 mockup�
 故事作为独立的网页运行，运行时也是项目的一部分，所以 Agent 可以改动它运行方式的任何地方。
 架构和创作模型见 [Playable Nodes](docs/playable-nodes/README.md)。
 
-<!-- TODO(asset): 截图或 GIF，展示节点图和两个用 OhMyGame 做好的画面。
-有真实素材之前先不放。 -->
-
 ### 🎲 General Game：任意引擎与技术栈
 
 **General Game** 不预设引擎和技术栈。你可以从一个想法开始，导入用任何引擎做的项目，
-或者为游戏制作工具和内容。Game Studio 插件负责在不同引擎之间协调设计、正式美术、开发实现和验证。
+或者为游戏制作工具和内容。Game Studio 插件负责在不同引擎之间协调设计、正式美术、开发实现和验证，
+[引擎插件](#-插件连接更多游戏开发工具)则让它在你所用的引擎里工作。做 Godot 游戏，
+可以从侧栏新建一个 **Godot** 项目。
 
 如果产出的是网页，预览、试玩和发布都和网页游戏一样可用；原生游戏使用各自引擎的工具。
 详见 [General Game 说明](docs/runtime.md#agent-game-use)。**想做浏览器游戏？请选 Web Game**，
@@ -156,8 +202,8 @@ OhMyGame 不会把你绑定在某一个模型上，也不按次收费。
 - **你已经在用的编程智能体**：Claude Code、Codex 和 OpenCode 使用各自的登录来运行对话，
   对话记录、撤销、画布、媒体工具和插件仍由 OhMyGame 提供。在设置中启用，并遵循原生 CLI
   的权限边界。详见[编程智能体](docs/coding-agents.md)。
-- **媒体模型**：图片、视频和 3D 生成，可通过 OpenAI、OpenRouter、火山方舟 / BytePlus ModelArk
-  和 Meshy 接入。
+- **媒体模型**：图片、视频、3D 和音频生成，可通过 OpenAI、Codex、OpenRouter、
+  火山方舟 / BytePlus ModelArk、MiniMax、Meshy、Tripo、Hyper3D，以及豆包语音 / Seed Audio 接入。
 - **自定义服务商和模型别名**：可以选择语言、图片、视频和 3D 用途，配置协议模板和生成默认值。
   详见[自定义模型配置](docs/custom-models.md)。
 
@@ -167,64 +213,40 @@ OhMyGame 不会把你绑定在某一个模型上，也不按次收费。
 
 ### 下载
 
-每个版本的变化可查看[更新日志](CHANGELOG.md)，或在应用内打开
-**设置 → 关于 → 更新日志**。
-
 点击页面顶部的按钮，或者前往 [Releases](https://github.com/WhiteTowerAI/ohmygame/releases)
 下载安装包。目前提供 macOS（Apple 芯片）和 Windows（x64）版本。Windows 版暂时还没有代码签名，
 安装时 Windows 可能会弹出 SmartScreen 警告。
+
+每个版本的变化可查看[更新日志](CHANGELOG.md)，或在应用内打开
+**设置 → 关于 → 更新日志**。
 
 ### 首次运行
 
 ![首次运行 AI 连接页](docs/assets/first-run-onboarding.png)
 
-OhMyGame 不内置模型。首次启动时，一个小小的游戏世界逐渐成形，随后变为 OhMyGame 标志。
-品牌名称、**你的专属游戏工作室** 和 **下一步** 会在约五秒内依次出现。
-从后续引导步骤返回第一页时，直接显示完整内容，不再重播动画。
-点击 **下一步**，在发送第一条提示词之前连接模型：
+OhMyGame 不内置模型。首次启动时，它会带你完成设置：
 
-1. **连接你的 AI。** OhMyGame（Pi）默认启用，使用你连接的模型服务商。
-   可以通过登录或 API 密钥连接服务商，也可以使用已安装的 Claude Code、Codex 或 OpenCode CLI；
-   智能体在同一行横向滚动。点击服务商搜索框旁的 **+** 可添加自定义或本地接口。
-   CLI 使用自身的登录状态；选择已连接的智能体会启用它，保留现有权限与个人配置设置。
-   先连接智能体，再进入配置；选项会收成一行，点击 **切换** 可重新展开。
-   可连接多个智能体，选择其中一个不会断开其他连接。
-   模型服务商配置归在 OhMyGame 下，对号表示已启用，
-   配置下方可更换默认对话模型，切换智能体会保留各自的选择，点击 **下一步** 时保存。
-   登录、API 密钥与配置操作使用带提示的图标；已连接显示对号，已停用的连接可直接启用。选择未安装的 CLI 会显示安装提示，点击 **安装指南**
-   才会打开外部页面，安装后可点击 **重新检查**。有可用语言模型后，**下一步** 进入后续配置；
-   **跳过并开始** 可直接进入工作室。引导会从上次离开的步骤继续；已有安装直接进入工作室。
-2. **添加创作工具（可选）。** 最后一页提供图片、视频、3D 和音频服务商。
-   每个分类直接展示全部服务商，点击 **+** 可在当前页添加自定义服务商。
-   点击配置图标即可连接服务商并配置模型，对号表示已连接。
-   媒体默认模型可稍后在 **设置 → 服务商与模型** 中选择。
-   **开始创作** 不要求连接任何媒体服务，保存设置后会以单行居中的 **欢迎，玩家！** 淡入淡出过渡进入工作室。
-   开启系统的「减少动态效果」时跳过此动画。
-   之后仍可在 **设置 → 服务商与模型** 中配置，编程智能体则在 **设置 → 智能体** 中管理。
-   只用语言模型也能设计和搭建游戏，生成媒体需要另外连接相应服务商：
+1. **连接你的 AI。** 登录模型服务商或粘贴 API 密钥，也可以使用你已安装的 Claude Code、Codex
+   或 OpenCode CLI。点击 **+** 可添加自定义或本地接口。**跳过并开始** 可直接进入工作室。
+2. **添加创作工具（可选）。** 现在或稍后在 **设置 → 服务商与模型** 中连接图片、视频、3D
+   和音频服务商。只用语言模型也能设计和搭建游戏，生成媒体需要另外连接相应服务商：
 
    | 想做的东西              | 需要连接                                                       |
    | ----------------------- | -------------------------------------------------------------- |
    | 设计文档、代码、试玩    | 任意语言模型服务商                                             |
    | 图片和精灵图            | Codex CLI（本机登录）、OpenAI（API 密钥）、OpenRouter，或火山方舟 / BytePlus ModelArk |
-   | 视频                    | OpenRouter，或火山方舟 / BytePlus ModelArk                     |
+   | 视频                    | OpenRouter、火山方舟 / BytePlus ModelArk，或 MiniMax           |
    | 3D 模型、骨骼绑定、动画 | Meshy、Tripo 或 Hyper3D（各服务商支持的能力不同）               |
+   | 配音、音效、音乐        | 豆包语音和 Seed Audio（火山引擎）                              |
 
-   **Codex CLI** 图片服务商使用本机 Codex 登录和账户额度。可在画布中选择
-   **Codex Image**，也可设为默认图片来源。它能配合任意聊天智能体使用，
-   即使已在 Agents 中关闭 Codex，也无需保持终端开启。支持多张参考图，沿用应用统一的 16 张上限；输出尺寸由 Codex 管理。
-
-   OpenAI 服务商的 ChatGPT 浏览器登录不包含其图片 API。在 OpenAI 服务商的 **图像模型** 区域，
-   可以配置独立的 API 密钥和 Base URL，拉取或手动添加图像模型，启用后保存。
-   这可以与浏览器登录同时使用，也支持兼容 GPT Image 的中转服务。
-   使用 API 密钥的聊天连接也可以与图片生成共用密钥和端点。
+   ChatGPT 登录不包含 OpenAI 的图片 API，需要在 OpenAI 服务商的 **图像模型** 区域另外添加
+   API 密钥。**Codex CLI** 图片服务商则使用本机的 Codex 登录。详见
+   [OpenAI image connections](docs/custom-models.md#openai-image-connections)。
 
 3. **选择模型，描述你的游戏。** 在首页的输入框里选择模型，然后描述你想做什么。
 
-网页搜索无需配置即可使用。只有想发布游戏时才需要在 **Account** 里登录；在本地做游戏不需要账号。
-可在 **设置 → 关于 → 查看入门引导** 中重新打开欢迎页。
-
-要把项目搬到另一台电脑，在项目卡片菜单中选择 **导出项目**。导出的 ZIP 文件包含工作区、项目设置和封面，不含依赖、构建产物和 `.env` 文件。故事设置中的 **导出项目** 使用相同格式。在 **项目** 页点击 **导入项目**，即可把它打开为新项目。详见 [Project archives](docs/project-archives.md)。
+网页搜索无需配置即可使用。在本地做游戏不需要账号，只有发布时才需要登录。
+可在 **设置 → 关于 → 查看入门引导** 中重新打开引导。
 
 ### 从源码运行
 
@@ -242,9 +264,6 @@ bun run dev:desktop    # Electron 桌面应用
 这里用的是发布分支。如果要参与开发，请按照 [CONTRIBUTING.md](CONTRIBUTING.md#fork-and-create-a-branch)
 从 `dev` 分支开始。本地开发不需要任何云端配置即可启动；可选的集成配置见
 [CONTRIBUTING.md](CONTRIBUTING.md#configuration)。
-
-设计空间和素材画布共用 `canvas/` 目录下的画板、Markdown 文档和本地媒体文件。
-文件约定和离线迁移说明见 [Canvas workspace](docs/canvas-agent.md)。
 
 ## 隐私
 
