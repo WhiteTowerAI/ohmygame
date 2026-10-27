@@ -127,14 +127,15 @@ function usePlayableThumbnailUrl(projectId: string | undefined, nodeId: string, 
  * A Scene card's Exits, each with the port its connection leaves from and,
  * when the Agent wrote one, the condition it is taken on. A navigation Exit's
  * line is not drawn; the row names its target instead, and clicking the name
- * selects the connection.
+ * selects the connection. A Scene without Exits, such as an ending or a look
+ * that goes back, shows none.
  */
 function PlayableSignalOutputs({ signals, connected, onSelectEdge }: {
   signals: readonly PlayableSignal[];
   connected: PlayableFlowData["connected"];
   onSelectEdge?: (edgeId: string) => void;
 }) {
-  if (!signals.length) return <div className="story-node-outputs playable-node-outputs-empty"><span>{t("sceneCard.noExits")}</span></div>;
+  if (!signals.length) return null;
   return <div className="story-node-outputs">{signals.map((signal) => {
     const route = connected[signal.id];
     const name = signal.label || signal.id;

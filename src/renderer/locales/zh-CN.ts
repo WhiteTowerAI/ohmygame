@@ -2824,7 +2824,6 @@ const zhCN: typeof en = {
     captureFailedTitle: "这个版本的场景截图失败。场景改动后或重新打开项目时会再试。",
     captureFailed: "截图失败",
     openEditor: "打开场景编辑器",
-    noExits: "还没有出口",
     unconnected: "“{{name}}”还没有连接到任何地方。从这里拖到一个场景。",
     taken: "触发条件：{{when}}",
     goesTo: "“{{name}}”通往 {{target}}",

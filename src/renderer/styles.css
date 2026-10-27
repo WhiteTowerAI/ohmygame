@@ -15625,15 +15625,6 @@ button {
   white-space: nowrap;
 }
 
-.playable-node-outputs-empty {
-  align-items: flex-end;
-  justify-content: flex-start;
-  padding-right: 12px;
-  color: var(--text-muted);
-  font-size: 9px;
-  font-weight: 600;
-}
-
 .playable-node-card .story-node-output.is-unconnected .story-node-output-label {
   opacity: 0.55;
 }

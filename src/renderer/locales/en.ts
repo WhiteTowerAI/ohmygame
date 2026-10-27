@@ -2901,7 +2901,6 @@ const en = {
     captureFailedTitle: "This version of the Scene could not be captured. It is tried again after the Scene changes or the project is reopened.",
     captureFailed: "Capture failed",
     openEditor: "Open Scene editor",
-    noExits: "No exits yet",
     unconnected:
       '"{{name}}" doesn\'t go anywhere yet. Drag from here to a Scene.',
     taken: "Taken {{when}}",
