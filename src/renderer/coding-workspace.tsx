@@ -1505,6 +1505,36 @@ function useElementSize(element: HTMLElement | null): { width: number; height: n
   return size;
 }
 
+/** The Assets view for a workspace that does not load its file list already, such as an Interactive Story. */
+export function WorkspaceAssetsView({ projectId, revision, onShowInCode }: { projectId: string; revision: number; onShowInCode: (path: string) => void }) {
+  const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    let disposed = false;
+    setLoading(true);
+    setError(undefined);
+    void listWorkspaceFiles(projectId).then((result) => {
+      if (!disposed) setFiles(result);
+    }).catch((cause) => {
+      if (!disposed) setError(errorMessage(cause));
+    }).finally(() => {
+      if (!disposed) setLoading(false);
+    });
+    return () => { disposed = true; };
+  }, [projectId, revision]);
+
+  return <AssetsView
+    projectId={projectId}
+    files={files.filter((file) => file.mediaType && !file.directory)}
+    loading={loading}
+    error={error}
+    revision={revision}
+    onShowInCode={onShowInCode}
+  />;
+}
+
 export function AssetsView({
   projectId,
   files,

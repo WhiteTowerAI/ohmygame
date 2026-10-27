@@ -11,6 +11,11 @@ import { desktopSave } from "../src/renderer/desktop-save.js";
 
 const codebase = createStarterCodebaseWithScene("Close save", { width: 1280, height: 720 });
 const update = vi.fn(async (_projectId: string, _next: NodeCodebaseUpdate) => ({ revision: "saved" }));
+const listWorkspaceFiles = vi.fn(async () => [
+  { path: "assets", size: 0, directory: true as const },
+  { path: "assets/platform.png", size: 10, mediaType: "image" as const },
+  { path: "nodes/start/node.js", size: 10 },
+]);
 let move!: (event: unknown, viewport: { x: number; y: number; zoom: number }) => void;
 let viewport = { x: 32, y: 64, zoom: 1.2 };
 vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async original => ({
@@ -28,6 +33,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   listPlayableThumbnails: async () => ({}),
   getPlayableValidation: async () => ({ issues: [] }),
   updateNodeCodebase: update,
+  listWorkspaceFiles,
 }));
 const { PlayableEditorWorkspace } = await import("../src/renderer/playable-editor-workspace.js");
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
@@ -82,4 +88,16 @@ it("saves the displayed viewport when close precedes the delayed move-end event"
   expect(update).toHaveBeenCalledExactlyOnceWith("p", expect.objectContaining({
     editorLayout: expect.objectContaining({ viewport }),
   }), "0");
+});
+
+it("lists the story's media in Assets without saving the view to the layout", async () => {
+  const tab = (label: string) => [...container.querySelectorAll<HTMLButtonElement>(".workspace-tab")].find((button) => button.title === label)!;
+  await act(async () => tab("Assets").click());
+
+  expect(listWorkspaceFiles).toHaveBeenCalledWith("p");
+  const view = container.querySelector(".story-assets-view")!;
+  expect(view.textContent).toContain("platform.png");
+  expect(view.textContent).not.toContain("node.js");
+  await act(async () => desktopSave.prepare());
+  expect(update).toHaveBeenCalledWith("p", expect.objectContaining({ editorLayout: expect.objectContaining({ view: "canvas" }) }), "0");
 });

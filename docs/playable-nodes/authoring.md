@@ -82,9 +82,11 @@ The workspace keeps the current Interactive Story layout:
 ### Source files
 
 The **Code** tab is always available beside **Story** and **Design**. It shows
-the project's files and their contents. Scene cards use readable names;
-the Variables panel shows starting values in author words and includes the
-raw JSON value in each value's tooltip.
+the project's files and their contents. Scene cards use readable names.
+
+The **Assets** tab, as in a web game, shows the project's images, videos,
+audio, and models in one grid, with filters and search. **Show in Code** opens
+an asset's file in the Code tab. The editor reopens on Story, not Assets.
 
 ## Flow canvas
 

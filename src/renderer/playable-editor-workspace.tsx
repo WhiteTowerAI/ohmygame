@@ -4,6 +4,7 @@ import {
   Clapperboard,
   Code2,
   FileText,
+  Layers3,
   LoaderCircle,
   PanelToggle,
   Share2,
@@ -68,7 +69,7 @@ import {
 import { CanvasNotice } from "./canvas-notice.js";
 import type { StoryUpgradeStatus } from "../shared/story-web.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
-import { WorkspaceCodeView } from "./coding-workspace.js";
+import { WorkspaceAssetsView, WorkspaceCodeView } from "./coding-workspace.js";
 import { playtestHash } from "./routes.js";
 import { PlayableNodeWorkbench, type PlayableAssetRequest } from "./playable-node-workbench.js";
 import { PlayableProjectSettingsDialog } from "./playable-project-settings-dialog.js";
@@ -158,7 +159,9 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     viewport: DEFAULT_CANVAS_VIEWPORT,
     view: "canvas",
   });
-  const [workspaceView, setWorkspaceView] = useState<"canvas" | "code">("canvas");
+  const [workspaceView, setWorkspaceView] = useState<"canvas" | "code" | "assets">("canvas");
+  // The saved layout remembers Story or Code; Assets reopens on the Story.
+  const savedView = workspaceView === "code" ? "code" : "canvas";
   const [codeRevision, setCodeRevision] = useState(0);
   const [fileRequest, setFileRequest] = useState(openFileRequest);
   const [designHeaderActions, setDesignHeaderActions] = useState<HTMLDivElement | null>(null);
@@ -210,8 +213,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [, setHistoryRevision] = useState(0);
 
   const codebase = useMemo(
-    () => graphMeta ? buildCodebase(graphMeta, nodes, edges, editorLayout, workspaceView) : undefined,
-    [graphMeta, nodes, edges, editorLayout, workspaceView],
+    () => graphMeta ? buildCodebase(graphMeta, nodes, edges, editorLayout, savedView) : undefined,
+    [graphMeta, nodes, edges, editorLayout, savedView],
   );
   latestCodebase.current = codebase;
   const playerViewport = graphMeta?.viewport ?? { width: 1280, height: 720 };
@@ -231,7 +234,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   }), [projectId]);
 
   // Apply Playtest navigation after loading, so the saved Code tab cannot override it.
-  const showTab = useRef<(tab: "canvas" | "design" | "code") => void>(() => {});
+  const showTab = useRef<(tab: "canvas" | "design" | "code" | "assets") => void>(() => {});
   useEffect(() => {
     if (!showStoryMap || phase === "loading") return;
     setOpenedNodeId(undefined);
@@ -627,7 +630,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   useEffect(() => () => window.clearTimeout(historyTimer.current), []);
 
   useEffect(() => {
-    if (workspaceView === "code" || projectSettingsOpen) return;
+    if (workspaceView !== "canvas" || projectSettingsOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const step = undoShortcut(event);
       if (!step || isTextEntry(event.target)) return;
@@ -966,7 +969,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         ...nodes.map((node) => node.selected ? { ...node, selected: false } : node),
         createFlowNode({ ...structuredClone(copy.node), id, source }, snapCanvasPosition(position)),
       ];
-      const next = buildCodebase(graphMeta, nextNodes, edges, editorLayout, workspaceView);
+      const next = buildCodebase(graphMeta, nextNodes, edges, editorLayout, savedView);
       const update: NodeCodebaseUpdate = {
         ...next,
         sources: {
@@ -1117,15 +1120,16 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   }, [nodes, edges, selectedEdgeId, issues, graphMeta, codebase, thumbnails, thumbnailFailures, builtDefinition]);
   const canvasPlayer = useMemo(() => ({ projectId, onRenameNode: renameNode, onSelectEdge: selectEdge, onOpenNode: openNode }), [projectId]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
-  const tabs: WorkspaceTabOption<"canvas" | "design" | "code">[] = [
+  const tabs: WorkspaceTabOption<"canvas" | "design" | "code" | "assets">[] = [
     { id: "canvas", label: t("storyEditor.tab.story"), icon: Clapperboard },
     ...(onDesignOpenChange ? [{ id: "design" as const, label: t("workspace.tab.design"), icon: FileText }] : []),
     { id: "code", label: t("workspace.tab.code"), icon: Code2 },
+    { id: "assets", label: t("workspace.tab.assets"), icon: Layers3 },
   ];
   showTab.current = (tab) => {
     const navigate = () => {
       if (tab !== "design") {
-        if (tab === "code") clearSelection();
+        if (tab !== "canvas") clearSelection();
         setWorkspaceView(tab);
       }
       onDesignOpenChange?.(tab === "design");
@@ -1178,7 +1182,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       </header>
       {designOpen ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady} onContextChange={onDesignContextChange}
-      /></Suspense> : workspaceView !== "code" ? <div className="interactive-story-body">
+      /></Suspense> : workspaceView === "canvas" ? <div className="interactive-story-body">
         <div className="interactive-story-canvas">
           {phase === "loading" ? <div className="story-canvas-state">{t("storyEditor.loadingScenes")}</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
@@ -1258,8 +1262,17 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             </div>
           ) : null}
         </div>
-      </div> : <main className="story-code-view" aria-label={t("storyEditor.code")}>
+      </div> : workspaceView === "code" ? <main className="story-code-view" aria-label={t("storyEditor.code")}>
         <WorkspaceCodeView projectId={projectId} revision={workspaceRevision + codeRevision} openFileRequest={fileRequest} />
+      </main> : <main className="story-assets-view" aria-label={t("workspace.tab.assets")}>
+        <WorkspaceAssetsView
+          projectId={projectId}
+          revision={workspaceRevision + codeRevision}
+          onShowInCode={(path) => {
+            setFileRequest({ path, id: Date.now() });
+            setWorkspaceView("code");
+          }}
+        />
       </main>}
       {openedNode && codebase ? <PlayableNodeWorkbench
         projectId={projectId}

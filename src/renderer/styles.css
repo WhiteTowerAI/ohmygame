@@ -7358,12 +7358,14 @@ button {
   z-index: 4;
 }
 
-.story-code-view {
+.story-code-view,
+.story-assets-view {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
-.story-code-view > .code-view {
+.story-code-view > .code-view,
+.story-assets-view > .assets-view {
   width: 100%;
   height: 100%;
 }
