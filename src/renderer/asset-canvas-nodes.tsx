@@ -1,11 +1,12 @@
 import type { AssetCanvasDocument, ImageResolution, VideoAspectRatio, VideoResolution, VideoModel, AssetCanvasNodeType, Model3DOperation, Model3DGenerationConfig, Model3DOptions, Model3DModel, Model3DActionId, Model3DAnimationAction, ImageAspectRatio, MediaProviderStatus } from "../shared/contracts.js";
-import { type NodeProps, Handle, Position } from "@xyflow/react";
+import type { NodeProps } from "@xyflow/react";
 import { type AssetCanvasFlowNode, OUTPUT_HANDLE, sameImageModel, effectivePrompt, modelRefKey, sameModel, errorMessage, modelKey, type AssetCanvasFlowData, nodeModel3DConfig, nodeModel3D, modelRef, titleCase, MediaViewButton, type MediaNodeRuntime, type ReferenceStripRuntime, MEDIA_NODE_MAX_HEIGHT, MEDIA_NODE_MAX_WIDTH, MEDIA_NODE_MIN_WIDTH, MEDIA_NODE_MIN_HEIGHT } from "./asset-canvas-flow.js";
 import { CanvasNodeResizer, CanvasNodeSizeActions } from "./canvas-node-resizer.js";
 import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js";
 import { FileText, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp } from "./icons.js";
 import { t, tNodes } from "./i18n.js";
 import { CanvasTextarea, CanvasTextComposer } from "./canvas-text-composer.js";
+import { CanvasComposer, CanvasPort } from "./canvas-node-interactions.js";
 import { CanvasNodeReferenceStrip, CanvasReferenceThumbnail } from "./canvas-node-references.js";
 import { preferredImageOption, combineAssetCanvasPrompt } from "../shared/asset-canvas.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
@@ -63,8 +64,8 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
           onGenerate={(model, reasoningLevel) => runtime?.onGenerate(model, reasoningLevel)} />
         </div>
       ) : null}
-      <Handle className="story-text-output-handle" id="references" type="target" position={Position.Left} />
-      <Handle className="story-text-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
+      <CanvasPort className="story-text-output-handle" id="references" type="target" />
+      <CanvasPort className="story-text-output-handle" id={OUTPUT_HANDLE} type="source" />
     </div>
   );
 }
@@ -527,7 +528,7 @@ export function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
         {preview.url && kind === "audio" ? <CanvasAudio src={preview.url} /> : null}
         {!preview.url ? <div className="story-media-empty"><Icon size={34} /><strong>{data.assetError || preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset")}</strong>{data.assetError ? <span>{data.assetError}</span> : <CanvasAssetRecovery preview={preview} />}</div> : null}
       </div>
-      <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
+      <CanvasPort className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" />
     </div>
   );
 }
@@ -869,9 +870,9 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
           </div>
         ) : null}
       </div>
-      <Handle className="story-media-input-handle" type="target" position={Position.Left} />
-      <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
-      {panelOpen ? <div className="canvas-node-auxiliary"><div className="story-media-composer nodrag nowheel">{children}</div></div> : null}
+      <CanvasPort className="story-media-input-handle" type="target" />
+      <CanvasPort className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" />
+      {panelOpen ? <div className="canvas-node-auxiliary"><CanvasComposer className="story-media-composer nodrag nowheel">{children}</CanvasComposer></div> : null}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AssetCanvasNode } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { MAX_TEXT_NODE_REFERENCES } from "../src/shared/asset-canvas-schema.js";
-import { connectionRelation, removeNodesAndReferences, toAssetCanvasNode } from "../src/renderer/asset-canvas-workspace.js";
+import { connectCanvasNodes, disconnectCanvasReference, connectionRelation, removeNodesAndReferences, toAssetCanvasNode } from "../src/renderer/asset-canvas-workspace.js";
 import { createCanvasClipboard, duplicateCanvasSelection, parseCanvasClipboard } from "../src/renderer/asset-canvas-clipboard.js";
 import { mergeCanvasDocument } from "../src/shared/canvas-workspace.js";
 import { imageModelsForProvider } from "../src/daemon/image-models.js";
@@ -93,4 +93,17 @@ describe("Image node reference capacity", () => {
       expect(connectionRelation(candidate, target, "out", [], [], models)).toBe(accepted ? "image-reference" : undefined);
     },
   );
+});
+
+it("disconnects only the chosen semantic reference and preserves library inputs and unrelated links", () => {
+  const distinct = { ...image, id: "target", data: { ...image.data, images: [{ type: "library" as const, assetId: "kept" }], promptSource: ref(source.id) } };
+  const next = connectCanvasNodes([source, image, distinct], image.id, distinct.id, "image-reference");
+  expect(next[2]!.data.images).toEqual([{ type: "library", assetId: "kept" }, ref(image.id)]);
+  const removed = disconnectCanvasReference(next, distinct.id, image.id, "media-image");
+  expect(removed[2]!.data.images).toEqual([{ type: "library", assetId: "kept" }]);
+  expect(removed[2]!.data.promptSource).toEqual(ref(source.id));
+  expect(removed[1]).toBe(image);
+  const promptRemoved = disconnectCanvasReference(removed, distinct.id, source.id, "media-prompt");
+  expect(promptRemoved[2]!.data.promptSource).toBeUndefined();
+  expect(promptRemoved[2]!.data.images).toEqual([{ type: "library", assetId: "kept" }]);
 });
