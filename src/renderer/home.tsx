@@ -79,7 +79,8 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
   }
 
   const visibleProjects = projects.slice(0, recentProjectLimit);
-  const visibleExamples = examples.slice(0, columns);
+  // Two rows, so every example type has room; Home scrolls when the window is short.
+  const visibleExamples = examples.slice(0, columns * 2);
 
   return (
     <main className="home-shell" inert={inert}>
