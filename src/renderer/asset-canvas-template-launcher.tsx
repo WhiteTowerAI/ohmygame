@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { LoaderCircle, Pencil } from "./icons.js";
+import effectLibraryCover from "./assets/templates/examples/effect-library-cover.webp";
 import { TemplateDemo } from "./asset-canvas-template-showcase.js";
 import {
   ASSET_CANVAS_TEMPLATES,
+  createEffectLibraryProject,
   createAssetCanvasTemplateProject,
   type AssetCanvasTemplate,
 } from "./asset-canvas-templates.js";
@@ -13,7 +15,7 @@ export function AssetCanvasTemplateLauncher({
 }: {
   onOpenProject: (projectId: string, nodeId?: string) => void;
 }) {
-  const [creating, setCreating] = useState<AssetCanvasTemplate>();
+  const [creating, setCreating] = useState<AssetCanvasTemplate | "effect-library">();
   const [error, setError] = useState<string>();
 
   async function open(template: AssetCanvasTemplate) {
@@ -22,6 +24,20 @@ export function AssetCanvasTemplateLauncher({
     setError(undefined);
     try {
       const project = await createAssetCanvasTemplateProject(template);
+      onOpenProject(project.projectId, project.nodeId);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCreating(undefined);
+    }
+  }
+
+  async function openEffectLibrary() {
+    if (creating) return;
+    setCreating("effect-library");
+    setError(undefined);
+    try {
+      const project = await createEffectLibraryProject();
       onOpenProject(project.projectId, project.nodeId);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -68,6 +84,33 @@ export function AssetCanvasTemplateLauncher({
             </button>
           </div>
         ))}
+        <div className="home-explore-card">
+          <button
+            className="home-whats-new-item"
+            type="button"
+            disabled={creating !== undefined}
+            aria-busy={creating === "effect-library"}
+            onClick={() => void openEffectLibrary()}
+          >
+            <span
+              className="home-whats-new-icon home-explore-cover asset-effect-library-cover"
+              aria-hidden="true"
+            >
+              <img src={effectLibraryCover} alt="" draggable={false} />
+              <span className="home-explore-play">
+                {creating === "effect-library" ? (
+                  <LoaderCircle className="spin" size={14} />
+                ) : (
+                  <Pencil size={14} />
+                )}
+                {t("assetCanvasTemplates.openCanvas")}
+              </span>
+            </span>
+            <span className="home-whats-new-copy">
+              <strong>{t("effectLibrary.title")}</strong>
+            </span>
+          </button>
+        </div>
       </div>
       {error ? (
         <p className="home-notice" role="alert">

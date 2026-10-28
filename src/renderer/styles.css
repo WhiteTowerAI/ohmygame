@@ -3384,6 +3384,9 @@ button.home-nav-item-active:hover {
 .asset-template-demo.is-pixel-art { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
 .asset-template-demo.is-action-set { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
 .asset-template-cover .home-explore-play { position: absolute; }
+.asset-effect-library-cover { position: relative; overflow: hidden; background: #111622; }
+.asset-effect-library-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
 .story-text-node.asset-template-guide-node { width: 100%; height: auto; }
 .asset-template-guide-node .story-text-output { display: flex; flex-direction: column; }
 .asset-template-guide-content { padding-bottom: 12px; }

@@ -7,6 +7,7 @@ import { deleteProject, duplicateProject, listProjects, renameProject, waitForRu
 import { AppSidebar } from "./app-sidebar.js";
 import { ASSET_CANVAS_QUICK_STARTS, createAssetCanvasQuickStart, loadQuickStartModels, QuickStartModelUnavailableError, type AssetCanvasQuickStart } from "./asset-canvas-quick-start.js";
 import { AssetCanvasTemplateLauncher } from "./asset-canvas-template-launcher.js";
+import { backfillEffectLibraryCover } from "./asset-canvas-templates.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
@@ -41,7 +42,11 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
     setPhase("loading");
     try {
       await waitForRuntime();
-      setProjects(recentAssetCanvasProjects(await listProjects()));
+      const recentProjects = recentAssetCanvasProjects(await listProjects());
+      await Promise.all(recentProjects
+        .filter((project) => project.name === t("effectLibrary.title"))
+        .map((project) => backfillEffectLibraryCover(project.id).catch(() => undefined)));
+      setProjects(recentProjects);
       setError(undefined);
       setPhase("ready");
     } catch (cause) {

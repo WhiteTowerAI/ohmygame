@@ -26,8 +26,8 @@ afterEach(async () => {
 });
 
 describe("Asset Canvas template launcher", () => {
-  it("shows five example cards without an external form", () => {
-    expect(container.querySelectorAll(".home-explore-card")).toHaveLength(5);
+  it("shows five templates and the effect library without an external form", () => {
+    expect(container.querySelectorAll(".home-explore-card")).toHaveLength(6);
     expect(
       container.querySelectorAll(
         ".asset-template-cover > .asset-template-demo",
@@ -40,4 +40,5 @@ describe("Asset Canvas template launcher", () => {
     ).toEqual([10, 1, 1, 2, 6]);
     expect(container.querySelector("form")).toBeNull();
   });
+
 });

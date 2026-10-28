@@ -10,7 +10,10 @@ import {
   createAssetGenerationNode,
   preferredImageOption,
 } from "../shared/asset-canvas.js";
-import { createProject, deleteLibraryAsset, deleteProject, listImageModels, uploadLibraryAsset } from "./api.js";
+import { createProject, deleteLibraryAsset, deleteProject, getProjectCover, listImageModels, setProjectCover, uploadLibraryAsset } from "./api.js";
+import effectLibraryCover from "./assets/templates/examples/effect-library-cover.webp";
+import effectFireHitSheet from "./assets/templates/examples/effect-fire-hit-sheet.webp";
+import effectFireHitPreview from "./assets/templates/examples/effect-fire-hit-preview.gif";
 import { TEMPLATE_SAMPLE_IMAGES, type TemplateSample } from "./asset-canvas-template-samples.js";
 import {
   changeCanvasBoard,
@@ -85,11 +88,48 @@ export interface AssetCanvasTemplateInput {
   sourceAssetId?: string;
 }
 
+/** The Effect Library creates one image node: its output is a complete sprite sheet, not a GIF. */
+export interface EffectSpriteSheetInput {
+  name: string;
+  prompt: string;
+  framePlan: string;
+}
+
+const EFFECT_LIBRARY_PRESETS = [
+  { category: "fire", name: "火焰命中", frames: "4 × 3 · 12 帧", prompt: "Create one complete 4-column by 3-row sprite sheet for a compact pixel-art fire impact. Read cells left to right, top to bottom: ignition, expanding flame burst, scattered sparks, fading embers. Transparent background, no labels, no borders, fixed center." },
+  { category: "fire", name: "火球凝聚发射 V7", frames: "4 × 4 · 16 帧", prompt: "Create one complete 4-column by 4-row sprite sheet for a pixel-art fireball charge and launch. Read cells left to right, top to bottom: sparks gather, fireball forms, projectile flies with a tapered trail, embers dissipate. Transparent background, no labels, no borders, fixed center." },
+  { category: "water", name: "双层水纹", frames: "4 × 3 · 12 帧", prompt: "Create one complete 4-column by 3-row sprite sheet for two expanding pixel-art water ripples. Read cells left to right, top to bottom: two rings appear, expand independently, soften, and fade. Transparent background, no labels, no borders, fixed center." },
+  { category: "ice", name: "冰块掉落砸击", frames: "4 × 4 · 16 帧", prompt: "Create one complete 4-column by 4-row sprite sheet for a pixel-art ice block falling and shattering. Read cells left to right, top to bottom: ice block enters, falls, impacts, fractures, shards scatter, and frost fades. Transparent background, no labels, no borders, fixed ground point." },
+  { category: "ice", name: "冰墙", frames: "4 × 3 · 12 帧", prompt: "Create one complete 4-column by 3-row sprite sheet for a pixel-art ice wall rising from the ground. Read cells left to right, top to bottom: frost gathers, ice spikes rise, wall locks into place, particles settle. Transparent background, no labels, no borders, fixed ground baseline." },
+  { category: "lightning", name: "雷电落击", frames: "4 × 3 · 12 帧", prompt: "Create one complete 4-column by 3-row sprite sheet for a pixel-art lightning strike. Read cells left to right, top to bottom: charge glow, bolt descends, impact branches, residual sparks fade. Transparent background, no labels, no borders, fixed impact point." },
+  { category: "general", name: "烟团消散", frames: "4 × 3 · 12 帧", prompt: "Create one complete 4-column by 3-row sprite sheet for a pixel-art smoke puff dispersing. Read cells left to right, top to bottom: smoke appears, expands, separates into wisps, then fades away. Transparent background, no labels, no borders, fixed center." },
+] as const;
+
+const EFFECT_LIBRARY_CATEGORIES = ["fire", "water", "ice", "lightning", "general"] as const;
+
 async function uploadTemplateSample(sample: TemplateSample): Promise<string> {
   const response = await fetch(TEMPLATE_SAMPLE_IMAGES[sample]);
   if (!response.ok) throw new Error(`Could not load the template example: ${sample}`);
   const file = new File([await response.blob()], `${sample}.webp`, { type: "image/webp" });
   return (await uploadLibraryAsset(file, "image/webp", undefined, "reference")).id;
+}
+
+async function uploadEffectExample(source: string, name: string, contentType: "image/webp" | "image/gif"): Promise<string> {
+  const response = await fetch(source);
+  if (!response.ok) throw new Error(`Could not load the Effect Library example: ${name}`);
+  return (await uploadLibraryAsset(new File([await response.blob()], name, { type: contentType }), contentType, undefined, "reference")).id;
+}
+
+async function applyEffectLibraryCover(projectId: string): Promise<void> {
+  const response = await fetch(effectLibraryCover);
+  if (!response.ok) throw new Error("Could not load the Effect Library cover");
+  await setProjectCover(projectId, await response.blob());
+}
+
+/** Adds the template cover to Effect Library projects created before covers were introduced. */
+export async function backfillEffectLibraryCover(projectId: string): Promise<void> {
+  if (await getProjectCover(projectId)) return;
+  await applyEffectLibraryCover(projectId);
 }
 
 const ACTIONS = [
@@ -326,6 +366,88 @@ export async function createAssetCanvasTemplateProject(
   } catch (cause) {
     await deleteProject(project.id).catch(() => undefined);
     for (const assetId of sampleAssetIds.values()) await deleteLibraryAsset(assetId).catch(() => undefined);
+    throw cause;
+  }
+}
+
+export async function createEffectSpriteSheetProject(
+  input: EffectSpriteSheetInput,
+): Promise<{ projectId: string; boardId: string; nodeId: string }> {
+  const imageModels = await listImageModels().catch(() => []);
+  const project = await createProject({ type: "asset-canvas", name: input.name });
+  try {
+    const document = createAssetCanvasDocument();
+    document.editorLayout.viewport = { x: 24, y: 100, zoom: 0.85 };
+    const imageModel = imageModels[0];
+    const imageOption = preferredImageOption(imageModel, "1:1");
+    const guide: AssetCanvasNode = {
+      id: crypto.randomUUID(),
+      type: "text",
+      title: t("effectLibrary.framePlan"),
+      position: { x: 48, y: 92 },
+      width: 440,
+      data: { text: input.framePlan, instruction: "effect-library:frame-plan" },
+    };
+    const spriteSheet = createAssetGenerationNode("image", { x: 560, y: 80 }, {
+      ...(imageModel ? { imageModel: { provider: imageModel.provider, id: imageModel.id } } : {}),
+      ...(imageOption ? { imageResolution: imageOption.resolution, imageAspectRatio: imageOption.aspectRatio } : {}),
+    }) as Extract<AssetCanvasNode, { type: "image" }>;
+    spriteSheet.title = input.name;
+    spriteSheet.data.prompt = input.prompt;
+    spriteSheet.data.promptExpanded = true;
+    document.nodes = [guide, spriteSheet];
+    document.editorLayout.nodes = Object.fromEntries(document.nodes.map((node) => [node.id, { ...node.position, ...(node.width ? { width: node.width } : {}) }]));
+    const workspace = await getCanvasWorkspace(project.id);
+    const current = await getCanvasBoard(project.id, workspace.boards[0]!.id);
+    await saveCanvasBoard(project.id, { board: { ...document, id: current.board.id }, revision: current.revision });
+    await changeCanvasBoard(project.id, current.board.id, { name: input.name });
+    return { projectId: project.id, boardId: current.board.id, nodeId: spriteSheet.id };
+  } catch (cause) {
+    await deleteProject(project.id).catch(() => undefined);
+    throw cause;
+  }
+}
+
+/** Creates the Effect Library as a normal Asset Canvas template, matching the pixel-art template layout. */
+export async function createEffectLibraryProject(): Promise<{ projectId: string; boardId: string; nodeId: string }> {
+  const imageModels = await listImageModels().catch(() => []);
+  const project = await createProject({ type: "asset-canvas", name: t("effectLibrary.title") });
+  try {
+    const document = createAssetCanvasDocument();
+    document.editorLayout.viewport = { x: 24, y: 100, zoom: 0.72 };
+    const guide: AssetCanvasNode = {
+      id: crypto.randomUUID(), type: "text", title: t("effectLibrary.howToTitle"), position: { x: 40, y: 80 }, width: 440,
+      data: { instruction: "effect-library", text: t("effectLibrary.canvasGuide") },
+    };
+    const [sheetAssetId, gifAssetId] = await Promise.all([
+      uploadEffectExample(effectFireHitSheet, "火焰命中-sprite-sheet.webp", "image/webp"),
+      uploadEffectExample(effectFireHitPreview, "火焰命中-preview.gif", "image/gif"),
+    ]);
+    const exampleGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 560, y: 80 }, width: 1040, height: 470, data: { name: t("effectLibrary.templateExample") } };
+    const sheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 54 }, title: t("effectLibrary.spriteSheetExample"), description: "4 × 3 · 12 帧", data: { assetId: sheetAssetId, mediaType: "image" } };
+    const preview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 54 }, title: t("effectLibrary.gifPreview"), description: t("effectLibrary.gifPreviewHint"), data: { assetId: gifAssetId, mediaType: "image" } };
+    const workGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 560, y: 620 }, width: 1040, height: 460, data: { name: t("effectLibrary.myEffects") } };
+    const imageOption = preferredImageOption(imageModels[0], "1:1");
+    const image = createAssetGenerationNode("image", { x: 28, y: 52 }, {
+      ...(imageModels[0] ? { imageModel: { provider: imageModels[0].provider, id: imageModels[0].id } } : {}),
+      ...(imageOption ? { imageResolution: imageOption.resolution, imageAspectRatio: imageOption.aspectRatio } : {}),
+    }) as Extract<AssetCanvasNode, { type: "image" }>;
+    image.parentId = workGroup.id;
+    image.title = EFFECT_LIBRARY_PRESETS[0].name;
+    image.description = EFFECT_LIBRARY_PRESETS[0].frames;
+    image.data.prompt = EFFECT_LIBRARY_PRESETS[0].prompt;
+    image.data.promptExpanded = true;
+    const nodes: AssetCanvasNode[] = [guide, exampleGroup, sheet, preview, workGroup, image];
+    document.nodes = nodes;
+    document.editorLayout.nodes = Object.fromEntries(nodes.map((node) => [node.id, { ...node.position, ...(node.width ? { width: node.width } : {}), ...(node.height ? { height: node.height } : {}) }]));
+    const workspace = await getCanvasWorkspace(project.id);
+    const current = await getCanvasBoard(project.id, workspace.boards[0]!.id);
+    await saveCanvasBoard(project.id, { board: { ...document, id: current.board.id }, revision: current.revision });
+    await changeCanvasBoard(project.id, current.board.id, { name: t("effectLibrary.title") });
+    await applyEffectLibraryCover(project.id);
+    return { projectId: project.id, boardId: current.board.id, nodeId: image.id };
+  } catch (cause) {
+    await deleteProject(project.id).catch(() => undefined);
     throw cause;
   }
 }

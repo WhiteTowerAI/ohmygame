@@ -1923,21 +1923,23 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   const tableContents = [...tables.storage.sessions.values()].map((session) => session.local);
   const templateBoard = nodes.flatMap((node) => node.type === "text" ? [templateGuideInfo(node.data.instruction)?.template] : []).find((value) => value !== undefined);
+  const effectLibraryBoard = nodes.some((node) => node.type === "text" && node.data.instruction === "effect-library");
   const renderedNodes = orderedCanvasNodes(nodes).map((original) => {
     const size = isResizableCanvasNodeType(original.type) ? RESIZABLE_CANVAS_NODE_SIZES[original.type] : undefined;
     const isTemplateGuide = original.type === "text" && Boolean(templateGuideInfo(original.data.instruction));
     // A render can arrive before React Flow publishes its first dimensions.
     // An empty measurement keeps it from clearing freshly measured handle bounds.
+    const nodeDetails = effectLibraryBoard && original.type === "image" ? undefined : {
+      title: original.title?.trim(), label: canvasNodeTitle(toAssetCanvasNode(original, model3DModels), documents.documents, libraryAssets, tableContents), description: original.description,
+      edit: () => setNodeDetails({ id: original.id, title: original.type === "group" ? original.data.name ?? "" : original.title ?? "", description: original.description ?? "" }),
+    };
     const node = { ...original, measured: original.measured ?? {}, ...(isTemplateGuide ? { height: undefined } : {}), ...(size ? { style: { ...original.style, width: original.width ?? size.width, height: isTemplateGuide ? "auto" : original.height ?? size.height } } : {}), data: { ...original.data,
       ...(size ? { resizeRuntime: {
         start: beginHistoryGesture,
         end: finishHistoryGesture,
         reset: () => { beginHistoryGesture(); setNodes((current) => current.map((node) => { if (node.id !== original.id || node.type === "group") return node; const { width: _width, height: _height, ...rest } = node; return rest; })); finishHistoryGesture(); },
         ...(original.type === "text" ? { open: () => setExpandedTextId(original.id) } : {}),
-    } } : {}), assetAspectRatio: mediaAspectRatio(libraryAssets.find((asset) => asset.id === original.data.assetId)), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails: {
-      title: original.title?.trim(), label: canvasNodeTitle(toAssetCanvasNode(original, model3DModels), documents.documents, libraryAssets, tableContents), description: original.description,
-      edit: () => setNodeDetails({ id: original.id, title: original.type === "group" ? original.data.name ?? "" : original.title ?? "", description: original.description ?? "" }),
-    } } };
+    } } : {}), assetAspectRatio: mediaAspectRatio(libraryAssets.find((asset) => asset.id === original.data.assetId)), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails } };
     if (node.type === "group") return { ...node, dragHandle: ".canvas-group-heading" };
     if (node.type === "table") {
       const session = tables.storage.sessions.get(node.data.tableId ?? "");
@@ -2788,7 +2790,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   </MediaNodeShell>;
 
   return (
-    <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails}>
+    <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails} emptyHint={data.promptExpanded ? t("effectLibrary.nodeHint") : undefined}>
       <MediaReferenceStrip runtime={runtime} />
       <MediaPrompt
         kind="image"

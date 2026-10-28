@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   listImageModels: vi.fn().mockResolvedValue([]),
   createProject: vi.fn().mockResolvedValue({ id: "project-1" }),
   deleteProject: vi.fn().mockResolvedValue(undefined),
+  setProjectCover: vi.fn().mockResolvedValue(undefined),
   uploadLibraryAsset: vi.fn().mockImplementation(async (file: File) => ({ id: file.name.replace(/\.webp$/, "") })),
   deleteLibraryAsset: vi.fn().mockResolvedValue(undefined),
 }));
@@ -25,7 +26,7 @@ vi.doMock(path.resolve("src/renderer/canvas-api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/canvas-api.js")>()),
   ...canvas,
 }));
-const { createAssetCanvasTemplateProject } = await import("../src/renderer/asset-canvas-templates.js");
+const { createAssetCanvasTemplateProject, createEffectLibraryProject } = await import("../src/renderer/asset-canvas-templates.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -86,5 +87,11 @@ describe("template project reference", () => {
     await expect(createAssetCanvasTemplateProject("quick-reskin")).rejects.toThrow("save failed");
     expect(api.deleteProject).toHaveBeenCalledWith("project-1");
     expect(api.deleteLibraryAsset.mock.calls.map(([id]) => id)).toEqual(["character-sheet", "clothing", "quick-reskin"]);
+  });
+
+  it("uses the Effect Library cover for a new Effect Library project", async () => {
+    await createEffectLibraryProject();
+
+    expect(api.setProjectCover).toHaveBeenCalledWith("project-1", expect.any(Blob));
   });
 });
