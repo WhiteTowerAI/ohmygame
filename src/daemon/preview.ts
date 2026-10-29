@@ -750,19 +750,7 @@ export class PreviewManager {
         session.project.workspacePath,
         { recursive: true },
         (_event, filename) => {
-          const parts = String(filename ?? "")
-            .replaceAll("\\", "/")
-            .split("/");
-          if (
-            parts.some(
-              (part) =>
-                part.startsWith(".") ||
-                ["node_modules", "dist", "build"].includes(part),
-            ) ||
-            !path.extname(parts.at(-1) ?? "") ||
-            /\.(?:pid|log|tmp|swp)$/i.test(parts.at(-1) ?? "")
-          )
-            return;
+          if (!isPreviewSourceChange(String(filename ?? ""))) return;
           session.dirty = true;
           clearTimeout(session.changeTimer);
           session.changeTimer = setTimeout(() => {
@@ -998,6 +986,23 @@ async function waitForCommand(
           ),
     );
   });
+}
+
+/**
+ * Whether a changed file, relative to the workspace, can change the running
+ * game. Hidden and generated folders, logs and temporary files can't, and nor
+ * can the design canvas at the workspace root: opening Design saves its board
+ * there, which would otherwise reload the game beside it.
+ */
+export function isPreviewSourceChange(filename: string): boolean {
+  const parts = filename.replaceAll("\\", "/").split("/");
+  const name = parts.at(-1) ?? "";
+  return !(
+    parts[0] === "canvas" ||
+    parts.some((part) => part.startsWith(".") || ["node_modules", "dist", "build"].includes(part)) ||
+    !path.extname(name) ||
+    /\.(?:pid|log|tmp|swp)$/i.test(name)
+  );
 }
 
 /** Hidden entries and generated folders are not files someone wrote for the project. */

@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PreviewManager } from "../src/daemon/preview.js";
+import { isPreviewSourceChange, PreviewManager } from "../src/daemon/preview.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
 import * as projects from "../src/daemon/projects.js";
@@ -669,3 +669,14 @@ function isProcessRunning(pid: number): boolean {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }
+
+describe("preview source changes", () => {
+  it("reloads for the game's files, but not for the design canvas, generated folders or logs", () => {
+    for (const file of ["index.html", "src/main.js", "src/canvas/renderer.ts", "assets/hero.png", "src\\style.css"]) {
+      expect(isPreviewSourceChange(file), file).toBe(true);
+    }
+    for (const file of ["canvas/boards/board.json", "canvas/editor/board.json", "canvas\\documents\\design.md", ".data/state.json", "node_modules/x/index.js", "dist/index.js", "src/build/out.js", "server.log", "LICENSE"]) {
+      expect(isPreviewSourceChange(file), file).toBe(false);
+    }
+  });
+});
