@@ -1,4 +1,5 @@
 import {
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -15,6 +16,7 @@ import {
   ExtensionHosts,
 } from "../src/daemon/extension-hosts.js";
 import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
+import { createApp } from "../src/daemon/app.js";
 import { NativePlugins } from "../src/daemon/native-plugins.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
@@ -1216,6 +1218,52 @@ describe("project types", () => {
       expect(await buildWebPreview({ folder: plain, services })).toBeUndefined();
     } finally {
       await cleanup();
+    }
+  });
+
+  it("records the preview of the version a project's file pins", async () => {
+    const data = await mkdtemp(path.join(tmpdir(), "ohmygame-types-app-"));
+    // Version 2 of the same type runs outside OhMyGame instead of building for the web.
+    const v1 = await boardPackage("good");
+    const v2 = path.join(root, "packages/board-native");
+    await cp(v1, v2, { recursive: true });
+    const manifestPath = path.join(v2, ".ohmygame-plugin/plugin.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.version = "2.0.0";
+    manifest.contributes.projectTypes[0].preview = "native";
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const seeded = new PluginServices({ directory: path.join(data, "plugin-store") });
+    for (const dir of [v1, v2]) {
+      const installed = await seeded.install(dir);
+      if (!installed.ok) throw new Error(JSON.stringify(installed.issues));
+    }
+    await seeded.consent("acme/board", ["native"]);
+    await seeded.close();
+
+    const previewAt = (version: string) => (version === "2.0.0" ? "native" : "web-build");
+    let app = createApp({ dataDirectory: data });
+    try {
+      const project = (await app.inject({ method: "POST", url: "/projects", payload: { projectType: "acme/board:board", name: "Board" } })).json();
+      const file = path.join(project.workspacePath, "ohmygame.json");
+      const pinned = JSON.parse(await readFile(file, "utf8")).plugins["acme/board"];
+      expect(project.pluginType.preview).toBe(previewAt(pinned));
+      const other = pinned === "2.0.0" ? "1.0.0" : "2.0.0";
+      const switched = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/board`, payload: { version: other } });
+      expect(switched.statusCode).toBe(204);
+      const listed = () => app.inject({ method: "GET", url: "/projects" }).then((reply) => reply.json().find((item: { id: string }) => item.id === project.id));
+      expect((await listed()).pluginType.preview).toBe(previewAt(other));
+
+      // An edit made while the app was closed is picked up when it starts.
+      await app.close();
+      const edited = JSON.parse(await readFile(file, "utf8"));
+      edited.plugins["acme/board"] = pinned;
+      await writeFile(file, JSON.stringify(edited));
+      app = createApp({ dataDirectory: data });
+      await app.ready();
+      expect((await listed()).pluginType.preview).toBe(previewAt(pinned));
+    } finally {
+      await app.close();
+      await rm(data, { recursive: true, force: true });
     }
   });
 

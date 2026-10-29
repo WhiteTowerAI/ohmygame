@@ -282,6 +282,19 @@ export class ProjectManager {
     return project;
   }
 
+  /**
+   * The plugin type recorded for the project, after its project file moved to
+   * another version of the plugin. A General Game's Web preview follows the type.
+   */
+  async setPluginType(id: string, pluginType: NonNullable<ProjectState["pluginType"]>): Promise<ProjectState> {
+    const project = this.#projects.get(id);
+    if (!project) throw new ProjectWorkspaceError("Project not found");
+    const current = project.pluginType;
+    if (current?.id === pluginType.id && current.plugin === pluginType.plugin && current.preview === pluginType.preview) return project;
+    await this.#save(project, { pluginType, ...(project.type === "general" ? { webPreviewEnabled: pluginType.preview === "web" } : {}) });
+    return project;
+  }
+
   /** Web preview stays off; the user re-enables it in Project settings. */
   async clearIntegration(id: string): Promise<ProjectState> {
     const project = this.#projects.get(id);
@@ -792,7 +805,7 @@ export class ProjectManager {
 
   async #save(
     project: ProjectState,
-    changes: Partial<Pick<ProjectMetadata, "integration" | "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | keyof ProjectPreviewSettings>>,
+    changes: Partial<Pick<ProjectMetadata, "integration" | "pluginType" | "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | keyof ProjectPreviewSettings>>,
   ): Promise<boolean> {
     const operation = (this.#metadataWrites.get(project.id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       if (this.#projects.get(project.id) !== project || changes.nameSource === "ai" && project.nameSource !== "default") return false;
@@ -801,6 +814,7 @@ export class ProjectManager {
       for (const key of PREVIEW_SETTING_KEYS) { delete project[key]; }
       Object.assign(project, previewSettings(metadata));
       project.integration = metadata.integration;
+      if (metadata.pluginType) project.pluginType = metadata.pluginType;
       project.name = metadata.name;
       if (metadata.nameSource) project.nameSource = metadata.nameSource;
       project.updatedAt = metadata.updatedAt;

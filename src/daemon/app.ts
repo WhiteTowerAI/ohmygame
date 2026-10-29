@@ -1023,6 +1023,19 @@ export function createApp(options: AppOptions = {}) {
   };
   // A session's plugin tools are fixed when it starts; a change to them starts fresh sessions.
   pluginServices.onChange(invalidatePluginSessions);
+  // The app records each plugin-typed project's type when it is created; the
+  // project file can later pin a version whose type previews differently.
+  async function syncPluginType(project: ProjectState): Promise<void> {
+    if (!project.pluginType) return;
+    const recorded = await projectKindAt(project.workspacePath, pluginServices).catch(() => undefined);
+    if (recorded?.pluginType) await projects.setPluginType(project.id, recorded.pluginType);
+  }
+  pluginServices.onChange((folder) => {
+    for (const project of projects.list()) {
+      if (folder && project.workspacePath !== folder) continue;
+      void syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"));
+    }
+  });
   const app = Fastify({
     logger: options.logger ? daemonLoggerOptions() : false,
     logController: new LogController({ disableRequestLogging: true }),
@@ -1096,6 +1109,7 @@ export function createApp(options: AppOptions = {}) {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
     }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), providerModelSettings.load(), externalMcp.load(), externalClients.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
+    await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     // Updates the Skill and launcher path in connected clients without holding up startup.
     void externalClients.refresh();
@@ -1193,6 +1207,8 @@ export function createApp(options: AppOptions = {}) {
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish first" });
     try {
       await pluginServices.setProjectPlugin(project.workspacePath, `${request.params.publisher}/${request.params.name}`, request.body.version);
+      // The change listener does this too; waiting here means the reply follows it.
+      await syncPluginType(project);
       return reply.code(204).send();
     } catch (cause) {
       return storeReply(reply, cause);
