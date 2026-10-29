@@ -137,7 +137,14 @@ Preview saves remain available. Older standalone Play saves stay in their separa
 storage context and are not merged. Browser builds continue to use an iframe and
 separate popup, which reload the game on switching. Static file changes reload
 active pages through a local event
-stream, while development servers retain their own HMR protocol.
+stream, while development servers retain their own HMR protocol. Changes that
+can't affect the game don't reload or rebuild it: hidden folders, `node_modules`,
+`dist`, `build`, logs and temporary files, and the files Design keeps in the
+workspace's root `canvas/` folder, which it saves when it opens: its index,
+asset and job lists and instructions, and the board, layout, document, table
+and schema files directly inside `boards`, `editor`, `documents`, `tables` and
+`schemas`. Other files under `canvas/`, such as a game's own scripts, still
+reload it (`isPreviewSourceChange` in `src/daemon/preview.ts`).
 
 HTTP readiness and content diagnostics are separate: a responding server can
 still have compilation or runtime errors. The proxy forwards HTTP and HMR;
