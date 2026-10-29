@@ -334,18 +334,29 @@ function OptionList<T extends string>({
   );
 }
 
-function useListKeys(count: number, onEnter: (index: number) => void) {
+function useListKeys(
+  options: readonly { disabled?: boolean }[],
+  onEnter: (index: number) => void,
+) {
   const [active, setActive] = useState(-1);
+  // The next enabled option in that direction, or `from` when there is none.
+  const step = (from: number, direction: 1 | -1) => {
+    for (let index = from + direction; index >= 0 && index < options.length; index += direction)
+      if (!options[index]?.disabled) return index;
+    return from;
+  };
   const onKeyDown = (event: React.KeyboardEvent) => {
+    // Enter while an input method is composing confirms the text, not an option.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActive((index) => Math.min(count - 1, index + 1));
+      setActive((index) => step(index, 1));
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActive((index) => Math.max(0, index - 1));
+      setActive((index) => (index < 0 ? step(-1, 1) : step(index, -1)));
     }
-    if (event.key === "Enter" && active >= 0) {
+    if (event.key === "Enter" && active >= 0 && !options[active]?.disabled) {
       event.preventDefault();
       onEnter(active);
     }
@@ -379,10 +390,7 @@ export function Select<T extends string>({
     setOpen(false);
     anchor.current?.focus();
   };
-  const keys = useListKeys(options.length, (index) => {
-    const option = options[index];
-    if (option && !option.disabled) pick(option.value);
-  });
+  const keys = useListKeys(options, (index) => pick(options[index]!.value));
   const current = options.find((option) => option.value === value);
   return (
     <>
@@ -466,10 +474,7 @@ export function Combobox<T extends string>({
     onChange(next);
     close();
   };
-  const keys = useListKeys(filtered.length, (index) => {
-    const option = filtered[index];
-    if (option) pick(option.value);
-  });
+  const keys = useListKeys(filtered, (index) => pick(filtered[index]!.value));
   const current = options.find((option) => option.value === value);
   return (
     <>

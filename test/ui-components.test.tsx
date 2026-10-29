@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   Button,
+  Combobox,
   Dialog,
   SegmentedControl,
   Select,
@@ -25,9 +26,9 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-function key(target: EventTarget, key: string) {
+function key(target: EventTarget, key: string, init: KeyboardEventInit = {}) {
   return act(async () => {
-    target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, ...init }));
   });
 }
 
@@ -62,6 +63,52 @@ it("opens a dialog, closes it on Escape and returns focus", async () => {
   await key(document, "Escape");
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(document.activeElement).toBe(open);
+});
+
+it("keeps focus in the field being typed in when an inline onClose changes", async () => {
+  function Example() {
+    const [first, setFirst] = useState("");
+    const [second, setSecond] = useState("");
+    return (
+      <Dialog open onClose={() => setFirst("")} title="Rename">
+        <input aria-label="First" value={first} onChange={(event) => setFirst(event.target.value)} />
+        <input aria-label="Second" value={second} onChange={(event) => setSecond(event.target.value)} />
+      </Dialog>
+    );
+  }
+  await act(async () => root.render(<Example />));
+  const second = document.querySelector<HTMLInputElement>('[aria-label="Second"]')!;
+  second.focus();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(second, "a");
+    second.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(second.value).toBe("a");
+  expect(document.activeElement).toBe(second);
+});
+
+it("skips disabled combobox options and ignores Enter while composing", async () => {
+  const onChange = vi.fn();
+  await act(async () =>
+    root.render(
+      <Combobox
+        label="Voice"
+        onChange={onChange}
+        options={[
+          { value: "blocked", label: "Blocked", disabled: true },
+          { value: "open", label: "Open" },
+        ]}
+      />,
+    ),
+  );
+  const input = container.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await act(async () => input.focus());
+  await key(input, "ArrowDown");
+  await key(input, "Enter", { isComposing: true, keyCode: 229 });
+  expect(onChange).not.toHaveBeenCalled();
+  await key(input, "Enter");
+  expect(onChange).toHaveBeenCalledWith("open");
+  expect(onChange).not.toHaveBeenCalledWith("blocked");
 });
 
 it("picks a segment and a select option from the keyboard", async () => {

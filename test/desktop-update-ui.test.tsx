@@ -9,6 +9,7 @@ vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({
   useAuth: () => ({ state: { status: "signed-out" }, openSignIn: vi.fn() }),
 }));
 const { SettingsPage } = await import("../src/renderer/settings-page.js");
+const { useDesktopUpdate } = await import("../src/renderer/use-desktop-update.js");
 
 const failedUpdate: DesktopUpdateState = {
   currentVersion: "1.0.0",
@@ -100,6 +101,21 @@ it("shows bundled notes in browser settings without an update bridge", async () 
     "https://github.com/WhiteTowerAI/ohmygame/issues",
   ]);
   expect([...links].every((link) => link.target === "_blank" && link.rel.includes("noreferrer"))).toBe(true);
+});
+
+it("keeps an update event that arrives before the first state query answers", async () => {
+  let answer!: (state: unknown) => void;
+  updates.state.mockReturnValue(new Promise((resolve) => { answer = resolve; }));
+  function Status() {
+    return <span data-status>{useDesktopUpdate()?.status.type ?? "none"}</span>;
+  }
+  await act(async () => root.render(<Status />));
+  await act(async () => updates.onState.mock.calls[0][0]({
+    currentVersion: "0.0.0-beta.4.6",
+    status: { type: "ready", version: "0.0.0-beta.4.7" },
+  }));
+  await act(async () => answer({ currentVersion: "0.0.0-beta.4.6", status: { type: "idle" } }));
+  expect(container.querySelector("[data-status]")?.textContent).toBe("ready");
 });
 
 it("shows new notes received over the desktop update subscription while downloading", async () => {
