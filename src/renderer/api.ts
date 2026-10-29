@@ -1613,3 +1613,33 @@ export async function previewSeedAudio(prompt: string): Promise<Blob> {
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }
+
+/** A format 2 plugin panel a project's plugins offer, with its page's address. */
+export interface PluginPanel {
+  id: string;
+  plugin: string;
+  version: string;
+  title: string;
+  area: "left" | "center" | "right" | "bottom";
+  when?: string;
+  capabilities: import("../shared/plugin-ui-protocol.js").PluginUiCapabilities;
+  commands: string[];
+  url?: string;
+}
+
+export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN"): Promise<PluginPanel[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-panels?locale=${locale}`);
+}
+
+export async function getPluginPageValue(projectId: string, plugin: string, key: string): Promise<unknown> {
+  return (await request<{ value: unknown }>(`/projects/${encodeURIComponent(projectId)}/plugin-storage/${plugin}/${encodeURIComponent(key)}`)).value;
+}
+
+export async function setPluginPageValue(projectId: string, plugin: string, key: string, value: unknown): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-storage/${plugin}/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value }) });
+}
+
+/** Runs a format 2 plugin command, `publisher/name:command`, whose code runs in its plugin. */
+export async function runPluginCommand(projectId: string, command: string): Promise<{ result: unknown; change?: { id: string; changed: string[] } }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands`, { method: "POST", body: JSON.stringify({ command }) });
+}

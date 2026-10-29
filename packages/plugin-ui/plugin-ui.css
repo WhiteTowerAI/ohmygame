@@ -1,0 +1,47 @@
+/* OhMyGame plugin page styles. The app sets the colour tokens on :root when
+   the page connects and whenever the theme changes; until then these
+   fallbacks keep the page readable. */
+:root {
+  --gray-0: #111113;
+  --gray-1: #18181b;
+  --gray-2: #1f1f23;
+  --gray-4: #2e2e33;
+  --gray-6: #46464d;
+  --gray-9: #8c8c94;
+  --gray-12: #ededef;
+  --color-accent: #5b8cff;
+  --color-on-accent: #fff;
+  --hue-danger: #e5484d;
+  color-scheme: dark light;
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  color: var(--gray-12);
+  background: var(--gray-1);
+}
+:root[data-appearance="light"] { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 12px; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+.omg-row { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.omg-row + .omg-row { border-top: 1px solid var(--gray-4); }
+.omg-muted { color: var(--gray-9); }
+
+.omg-button {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid var(--gray-6); background: var(--gray-2); color: var(--gray-12);
+  font: inherit; cursor: pointer;
+}
+.omg-button:hover { background: var(--gray-4); }
+.omg-button[data-variant="primary"] { background: var(--color-accent); border-color: transparent; color: var(--color-on-accent); }
+.omg-button[data-variant="danger"] { color: var(--hue-danger); }
+.omg-button:disabled { opacity: 0.5; cursor: default; }
+
+.omg-input, .omg-select {
+  height: 28px; padding: 0 8px; border-radius: 6px; min-width: 0;
+  border: 1px solid var(--gray-6); background: var(--gray-0); color: var(--gray-12); font: inherit;
+}
+
+.omg-menu { list-style: none; margin: 0; padding: 4px; border-radius: 8px; background: var(--gray-2); border: 1px solid var(--gray-4); }
+.omg-menu > li { padding: 6px 8px; border-radius: 4px; cursor: pointer; }
+.omg-menu > li:hover, .omg-menu > li[aria-selected="true"] { background: var(--gray-4); }

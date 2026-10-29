@@ -2,6 +2,7 @@ import { BrowserWindow, nativeTheme, screen, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
+import { pluginFrameNavigationAllowed } from "../shared/plugin-ui-protocol.js";
 
 const PLAYTEST_MAX_CONTENT_WIDTH = 1280;
 const PLAYTEST_MAX_CONTENT_HEIGHT = 800;
@@ -132,6 +133,13 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   window.webContents.on("will-navigate", (event, url) => {
     if (!isRendererPage(url, rendererTarget)) event.preventDefault();
   });
+  // A plugin page's frame stays within its own plugin's files.
+  const pluginUiUrl = options.runtime.pluginUiUrl;
+  if (pluginUiUrl)
+    window.webContents.on("will-frame-navigate", (event) => {
+      if (event.isMainFrame || !event.frame) return;
+      if (!pluginFrameNavigationAllowed(event.frame.url, event.url, pluginUiUrl)) event.preventDefault();
+    });
   // A hidden window, such as a Scene thumbnail capture, runs the game out of
   // sight, so it must not be heard either.
   if (options.hidden) window.webContents.setAudioMuted(true);
