@@ -1080,13 +1080,13 @@ describe("first-run screens", () => {
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
     expect(dialog.getAttribute("aria-modal")).toBe("true");
     expect(container.contains(dialog)).toBe(false);
-    expect(document.querySelector(".project-settings-backdrop")).not.toBeNull();
+    expect(document.querySelector(".ui-backdrop")).not.toBeNull();
     expect(
       dialog.querySelector<HTMLInputElement>('input[placeholder="My provider"]')
         ?.value,
     ).toBe("Test provider");
     await act(async () =>
-      window.dispatchEvent(
+      document.dispatchEvent(
         new KeyboardEvent("keydown", {
           key: "Escape",
           bubbles: true,

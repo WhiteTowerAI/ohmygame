@@ -60,12 +60,11 @@ afterEach(async () => {
 
 it("lets other agents use OhMyGame and connects a CLI found on this computer", async () => {
   await act(async () => root.render(<ExternalAgentsSettings />));
-  expect(host.querySelector("h3")?.textContent).toBe("MCP Server");
   expect(host.querySelector(".external-agents-clients")).toBeNull();
   await act(async () =>
     host
-      .querySelector<HTMLInputElement>(
-        'input[aria-label="Allow other agents to use OhMyGame"]',
+      .querySelector<HTMLButtonElement>(
+        'button[role="switch"][aria-label="Allow other agents to use OhMyGame"]',
       )!
       .click(),
   );
@@ -73,23 +72,23 @@ it("lets other agents use OhMyGame and connects a CLI found on this computer", a
     enabled: true,
   });
   const clients = () => host.querySelector(".external-agents-clients")!;
-  const rows = [...clients().querySelectorAll(".settings-provider-row")];
+  const rows = [...clients().querySelectorAll(".settings-row")];
   expect(
     rows.map(
       (item) =>
-        item.querySelector(".settings-provider-description")?.textContent,
+        item.querySelector(".settings-row-text > span")?.textContent,
     ),
   ).toEqual(["Not connected", "CLI not detected on this computer"]);
   // Codex is not installed, so it has nothing to connect.
   expect(rows[1]!.querySelector("button")).toBeNull();
   const connect = rows[0]!.querySelector<HTMLButtonElement>(
-    'button[aria-label="Connect"]',
+    'button[aria-label="Connect Claude Code"]',
   )!;
-  expect(connect.textContent).toBe("");
+  expect(connect.textContent).toBe("Connect");
   await act(async () => connect.click());
   expect(api.connectExternalAgent).toHaveBeenCalledWith("claude-code");
   expect(
-    clients().querySelector(".settings-provider-row")!.textContent,
+    clients().querySelector(".settings-row")!.textContent,
   ).toContain("Connected");
   expect(
     clients().querySelector(".external-agents-manual code")?.textContent,

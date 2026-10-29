@@ -82,26 +82,31 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function render(
-  onViewChange = vi.fn(),
-  onOpenProviders = vi.fn(),
-): Promise<void> {
+type Props = Parameters<typeof AgentsSettings>[0];
+async function render(props: Partial<Props> = {}): Promise<void> {
   await act(async () =>
     root.render(
       <AgentsSettings
-        view={{ page: "agents" }}
-        onViewChange={onViewChange}
-        onOpenProviders={onOpenProviders}
+        onOpen={vi.fn()}
+        onBack={vi.fn()}
+        onOpenSection={vi.fn()}
+        onOpenPlugins={vi.fn()}
+        {...props}
       />,
     ),
   );
 }
+const detail = (agent: string) => render({ agent });
+const nameOf = (item: Element) =>
+  item.querySelector(".settings-row-text > strong")?.firstChild?.textContent;
 const row = (name: string) =>
-  [...host.querySelectorAll(".settings-provider-row")].find(
-    (item) =>
-      item.querySelector(".settings-provider-name > span")?.textContent ===
-      name,
+  [...host.querySelectorAll(".settings-row")].find(
+    (item) => nameOf(item) === name,
   );
+const field = (label: string) =>
+  [...host.querySelectorAll(".ui-field")]
+    .find((item) => item.querySelector(".ui-field-label")?.textContent === label)
+    ?.querySelector<HTMLInputElement>("input");
 
 it("lists OhMyGame's own agent with its default model above the coding agent CLIs", async () => {
   catalog = {
@@ -109,25 +114,46 @@ it("lists OhMyGame's own agent with its default model above the coding agent CLI
     defaultModel: { provider: "openai", id: "gpt-5" },
     defaultReasoningLevel: "medium",
   };
-  const onOpenProviders = vi.fn();
-  await render(vi.fn(), onOpenProviders);
-  const names = [
-    ...host.querySelectorAll(".settings-provider-name > span"),
-  ].map((item) => item.textContent);
+  const onOpen = vi.fn();
+  await render({ onOpen });
+  const names = [...host.querySelectorAll(".settings-row")].map(nameOf);
   expect(names).toEqual(["OhMyGame", "Claude Code", "Codex"]);
-  expect(
-    row("OhMyGame")!.querySelector(".settings-provider-details"),
-  ).toBeNull();
-  expect(row("OhMyGame")!.querySelector("small")?.textContent).toBe("Default");
-  expect(
-    row("Claude Code")!.querySelector(".settings-provider-name small"),
-  ).toBeNull();
+  expect(row("OhMyGame")!.textContent).toContain("now GPT-5");
+  expect(row("OhMyGame")!.querySelector(".ui-badge")?.textContent).toBe("Default");
+  expect(row("Claude Code")!.querySelector(".ui-badge")).toBeNull();
   await act(async () =>
     row("OhMyGame")!
-      .querySelector<HTMLButtonElement>('button[aria-label="Manage models"]')!
+      .querySelector<HTMLButtonElement>('button[aria-label="Open OhMyGame"]')!
       .click(),
   );
-  expect(onOpenProviders).toHaveBeenCalled();
+  expect(onOpen).toHaveBeenCalledWith("ohmygame");
+});
+
+it("gives OhMyGame's own agent a page that leads to its models, skills and MCP server", async () => {
+  catalog = {
+    models: [gpt, sonnet],
+    defaultModel: { provider: "openai", id: "gpt-5" },
+    defaultReasoningLevel: "medium",
+  };
+  const onOpenSection = vi.fn();
+  const onOpenPlugins = vi.fn();
+  const onBack = vi.fn();
+  await render({ agent: "ohmygame", onOpenSection, onOpenPlugins, onBack });
+  expect(host.querySelector(".settings-detail-head h1")?.textContent).toBe("OhMyGame");
+  expect(row("Chat model")!.textContent).toContain("GPT-5 · OpenAI");
+  expect(row("Chat model")!.textContent).not.toContain("Sonnet");
+  await act(async () =>
+    [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Manage models")!
+      .click(),
+  );
+  expect(onOpenSection).toHaveBeenCalledWith("providers");
+  await act(async () => row("MCP Server")!.querySelector<HTMLButtonElement>("button")!.click());
+  expect(onOpenSection).toHaveBeenCalledWith("mcp-server");
+  await act(async () => row("Skills from plugins")!.querySelector<HTMLButtonElement>("button")!.click());
+  expect(onOpenPlugins).toHaveBeenCalled();
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Back to Agents"]')!.click());
+  expect(onBack).toHaveBeenCalled();
 });
 
 it("marks the CLI new conversations start with and opens its settings", async () => {
@@ -136,19 +162,18 @@ it("marks the CLI new conversations start with and opens its settings", async ()
     defaultModel: { provider: "claude-code-cli", id: "sonnet" },
     defaultReasoningLevel: "medium",
   };
-  const onViewChange = vi.fn();
-  await render(onViewChange);
-  expect(row("OhMyGame")!.querySelector("small")).toBeNull();
-  expect(
-    row("Claude Code")!.querySelector(".settings-provider-name small")
-      ?.textContent,
-  ).toBe("Default");
+  const onOpen = vi.fn();
+  await render({ onOpen });
+  expect(row("OhMyGame")!.querySelector(".ui-badge")).toBeNull();
+  expect(row("Claude Code")!.querySelector(".ui-badge")?.textContent).toBe(
+    "Default",
+  );
   await act(async () =>
     row("Codex")!
       .querySelector<HTMLButtonElement>('button[aria-label="Manage Codex"]')!
       .click(),
   );
-  expect(onViewChange).toHaveBeenCalledWith({ page: "agent", id: "codex-cli" });
+  expect(onOpen).toHaveBeenCalledWith("codex-cli");
 });
 
 it("waits for a CLI still listing its models before marking OhMyGame as the default", async () => {
@@ -158,7 +183,7 @@ it("waits for a CLI still listing its models before marking OhMyGame as the defa
     defaultReasoningLevel: "medium",
   };
   await render();
-  expect(row("OhMyGame")!.querySelector("small")).toBeNull();
+  expect(row("OhMyGame")!.querySelector(".ui-badge")).toBeNull();
 });
 
 it("asks for a provider when OhMyGame has no models", async () => {
@@ -170,20 +195,12 @@ it("asks for a provider when OhMyGame has no models", async () => {
 });
 
 it("keeps the detail page focused on status and configurable controls", async () => {
-  await act(async () =>
-    root.render(
-      <AgentsSettings
-        view={{ page: "agent", id: "claude-code-cli" }}
-        onViewChange={vi.fn()}
-        onOpenProviders={vi.fn()}
-      />,
-    ),
+  await detail("claude-code-cli");
+  expect(host.querySelector(".settings-detail-title p")?.textContent).toBe(
+    "Installed · v1.0.0",
   );
-  const rows = [...host.querySelectorAll(".settings-provider-setting-row")].map(
-    (item) => item.textContent,
-  );
-  expect(rows).toContain("StatusInstalled · v1.0.0");
-  expect(rows.some((row) => /Command sandbox|Billing|Verified version/.test(row ?? ""))).toBe(false);
+  expect(row("Version")!.textContent).toBe("Versionv1.0.0");
+  expect(host.textContent).not.toMatch(/Command sandbox|Billing|Verified version/);
   expect(host.textContent).toContain(
     "Leave empty and save to find the CLI automatically.",
   );
@@ -204,15 +221,7 @@ it("shows the installed version and missing capability without reference metadat
       ],
     },
   ]);
-  await act(async () =>
-    root.render(
-      <AgentsSettings
-        view={{ page: "agent", id: "codex-cli" }}
-        onViewChange={vi.fn()}
-        onOpenProviders={vi.fn()}
-      />,
-    ),
-  );
+  await detail("codex-cli");
   expect(host.textContent).not.toContain("Verified version");
   expect(host.textContent).toContain("0.162.0-alpha.17.2");
   expect(host.textContent).toContain("permissions / activePermissionProfile");
@@ -221,31 +230,22 @@ it("shows the installed version and missing capability without reference metadat
 });
 
 it("switches a CLI to full access and says what that means", async () => {
-  await act(async () =>
-    root.render(
-      <AgentsSettings
-        view={{ page: "agent", id: "claude-code-cli" }}
-        onViewChange={vi.fn()}
-        onOpenProviders={vi.fn()}
-      />,
-    ),
-  );
-  expect(host.querySelector(".coding-agent-warning")).toBeNull();
-  const full = [...host.querySelectorAll("button")].find(
-    (button) => button.textContent === "Full access",
+  await detail("claude-code-cli");
+  const trust = "Use full access only in projects you trust.";
+  expect(host.textContent).not.toContain(trust);
+  const full = [...host.querySelectorAll<HTMLInputElement>('input[type="radio"]')].find(
+    (input) => input.closest("label")?.querySelector(".ui-check-text > span")?.textContent === "Full access",
   )!;
+  expect(full.closest("label")?.textContent).toContain(
+    "without a sandbox or asking",
+  );
   await act(async () => full.click());
   expect(api.updateAgentRuntime).toHaveBeenCalledWith("claude-code-cli", {
     permissionMode: "full",
   });
-  expect(host.querySelector(".coding-agent-warning")?.textContent).toContain(
-    "without a sandbox or asking",
-  );
-  expect(
-    [...host.querySelectorAll(".settings-provider-setting-row")].map(
-      (row) => row.textContent,
-    ),
-  ).not.toContain("Command sandboxOff, full access");
+  expect(full.checked).toBe(true);
+  expect(host.textContent).toContain(trust);
+  expect(host.textContent).not.toContain("Command sandbox");
 });
 
 it("refreshes account limits when the model probe finishes after the first status read", async () => {
@@ -270,7 +270,7 @@ it("refreshes account limits when the model probe finishes after the first statu
   expect(row("Codex")!.querySelector(".agent-usage-inline")).toBeNull();
   await act(async () => finish());
   expect(row("Codex")!.querySelector(".agent-usage-inline")?.textContent).toBe(
-    "5-hour42% used",
+    "5-hour42%",
   );
 });
 
@@ -288,18 +288,8 @@ it("shows each CLI's usage limits in its row and on its detail page", async () =
   await render();
   expect(
     row("Claude Code")!.querySelector(".agent-usage-inline")?.textContent,
-  ).toBe("5-hour13% usedWeekly33% used");
+  ).toBe("5-hour13%Weekly33%");
   expect(row("Codex")!.querySelector(".agent-usage-inline")).toBeNull();
-  const detail = async (id: "claude-code-cli" | "codex-cli" | "opencode-cli") =>
-    act(async () =>
-      root.render(
-        <AgentsSettings
-          view={{ page: "agent", id }}
-          onViewChange={vi.fn()}
-          onOpenProviders={vi.fn()}
-        />,
-      ),
-    );
   await detail("claude-code-cli");
   expect(host.textContent).toContain("Claude Code uses your CLI configuration");
   expect(host.textContent).not.toContain("Use my own CLI configuration");
@@ -325,17 +315,9 @@ it("shows the resolved CLI source separately from an empty automatic path overri
       binarySource: "codex-app",
     },
   ]);
-  await act(async () =>
-    root.render(
-      <AgentsSettings
-        view={{ page: "agent", id: "codex-cli" }}
-        onViewChange={vi.fn()}
-        onOpenProviders={vi.fn()}
-      />,
-    ),
-  );
+  await detail("codex-cli");
   expect(
-    host.querySelector<HTMLInputElement>("#codex-cli-executable")!.value,
+    field("Executable")!.value,
   ).toBe("");
   expect(host.textContent).toContain("Bundled with Codex");
   expect(
@@ -352,17 +334,9 @@ it("keeps an invalid manual path editable and explains how to restore automatic 
       diagnostics: [{ code: "invalid-executable", message: "Missing" }],
     },
   ]);
-  await act(async () =>
-    root.render(
-      <AgentsSettings
-        view={{ page: "agent", id: "codex-cli" }}
-        onViewChange={vi.fn()}
-        onOpenProviders={vi.fn()}
-      />,
-    ),
-  );
+  await detail("codex-cli");
   expect(
-    host.querySelector<HTMLInputElement>("#codex-cli-executable")!.value,
+    field("Executable")!.value,
   ).toBe("/missing/codex");
   expect(host.textContent).toContain("Configured executable unavailable");
   expect(host.textContent).toContain(
@@ -378,24 +352,14 @@ it("does not label a failed CLI probe as a successful installation check", async
       diagnostics: [{ code: "probe-failed", message: "Failed to start" }],
     },
   ]);
-  await act(async () =>
-    root.render(
-      <AgentsSettings
-        view={{ page: "agent", id: "codex-cli" }}
-        onViewChange={vi.fn()}
-        onOpenProviders={vi.fn()}
-      />,
-    ),
-  );
+  await detail("codex-cli");
   expect(host.textContent).toContain("CLI check failed");
 });
 
 
 it.each(["claude-code-cli", "codex-cli"] as const)("uses the shared sign-in result and command controls for a named %s profile", async (id) => {
   api.listAgentRuntimes.mockResolvedValueOnce([agent(id, id === "codex-cli" ? "Codex" : "Claude Code", true)]);
-  await act(async () => root.render(
-    <AgentsSettings view={{ page: "agent", id }} onViewChange={vi.fn()} onOpenProviders={vi.fn()} />,
-  ));
+  await detail(id);
   const profile = [...host.querySelectorAll(".agent-account-profile-list .provider-model-row")].find((item) => item.querySelector("strong")?.textContent === "Work")!;
   expect(profile).toBeDefined();
   const confirm = vi.spyOn(window, "confirm");
@@ -410,9 +374,7 @@ it.each(["claude-code-cli", "codex-cli"] as const)("uses the shared sign-in resu
 
 it.each([undefined, "/existing/config"])("keeps account creation collapsed and uses the directory only when supplied (%s)", async (directory) => {
   api.listAgentRuntimes.mockResolvedValueOnce([agent("codex-cli", "Codex", true)]);
-  await act(async () => root.render(
-    <AgentsSettings view={{ page: "agent", id: "codex-cli" }} onViewChange={vi.fn()} onOpenProviders={vi.fn()} />,
-  ));
+  await detail("codex-cli");
   expect(host.querySelector('[aria-label="Account name"]')).toBeNull();
   expect(host.textContent).not.toContain("Sign in once per configuration");
   await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Add account"]')!.click());
@@ -437,9 +399,7 @@ it.each([undefined, "/existing/config"])("keeps account creation collapsed and u
 
 it("selects the default account directly from its row", async () => {
   api.listAgentRuntimes.mockResolvedValueOnce([agent("codex-cli", "Codex", true)]);
-  await act(async () => root.render(
-    <AgentsSettings view={{ page: "agent", id: "codex-cli" }} onViewChange={vi.fn()} onOpenProviders={vi.fn()} />,
-  ));
+  await detail("codex-cli");
   const choice = host.querySelector<HTMLInputElement>('[aria-label="Use Work for new chats"]')!;
   await act(async () => choice.click());
   expect(api.updateAgentRuntime).toHaveBeenCalledWith("codex-cli", { defaultProfileId: "work" });
@@ -453,7 +413,7 @@ it.each([true, false])("confirms account deletion with managed=%s and resets the
     { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription" } },
     { id: "work", name: "Work", configDirectory: "/fixture/work", managed, auth: { status: "signed-out", billing: "unknown" } },
   ]);
-  await act(async () => root.render(<AgentsSettings view={{ page: "agent", id: "codex-cli" }} onViewChange={vi.fn()} onOpenProviders={vi.fn()} />));
+  await detail("codex-cli");
   const buttons = () => [...host.querySelectorAll<HTMLButtonElement>("button")];
   expect(buttons().some((button) => button.getAttribute("aria-label") === "Delete System default account")).toBe(false);
   const remove = buttons().find((button) => button.getAttribute("aria-label") === "Delete Work account")!;
@@ -473,7 +433,7 @@ it.each([true, false])("confirms account deletion with managed=%s and resets the
 
 it("keeps the account and displays the error when deletion is refused", async () => {
   api.deleteAccountProfile.mockRejectedValueOnce(new Error("Wait for the agent to finish"));
-  await act(async () => root.render(<AgentsSettings view={{ page: "agent", id: "claude-code-cli" }} onViewChange={vi.fn()} onOpenProviders={vi.fn()} />));
+  await detail("claude-code-cli");
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Delete Work account"]')!.click());
   await act(async () => host.querySelector<HTMLButtonElement>(".settings-danger-button")!.click());
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("Wait for the agent to finish");
@@ -494,15 +454,7 @@ it("explains a Windows sandbox incompatibility instead of reporting an empty mod
       ],
     },
   ]);
-  await act(async () =>
-    root.render(
-      <AgentsSettings
-        view={{ page: "agent", id: "codex-cli" }}
-        onViewChange={vi.fn()}
-        onOpenProviders={vi.fn()}
-      />,
-    ),
-  );
+  await detail("codex-cli");
   expect(host.textContent).toContain("unelevated Windows sandbox");
   expect(host.textContent).toContain("Set up the elevated sandbox");
   expect(host.textContent).toContain("Windows sandbox guide");
