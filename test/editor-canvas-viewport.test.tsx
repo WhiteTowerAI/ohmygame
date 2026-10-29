@@ -7,9 +7,8 @@ import { EditorCanvas } from "../src/renderer/editor-canvas.js";
 
 const flow = vi.hoisted(() => ({
   props: undefined as ReactFlowProps<Node, Edge> | undefined,
-  /** The props of each canvas on the page, by its id. */
-  byId: {} as Record<string, ReactFlowProps<Node, Edge>>,
   initialized: false,
+  deleteElements: vi.fn(async () => ({ deletedNodes: [], deletedEdges: [] })),
   fitView: vi.fn<() => Promise<boolean>>(),
   getViewport: vi.fn(() => ({ x: 80, y: 40, zoom: 0.4 })),
 }));
@@ -17,7 +16,6 @@ const flow = vi.hoisted(() => ({
 vi.mock("@xyflow/react", () => ({
   ReactFlow: (props: ReactFlowProps<Node, Edge> & { ref?: Ref<HTMLDivElement> }) => {
     flow.props = props;
-    if (props.id) flow.byId[props.id] = props;
     return (
       <div data-testid="canvas" className="react-flow" ref={props.ref} style={props.style}>
         {props.children}
@@ -36,6 +34,11 @@ vi.mock("@xyflow/react", () => ({
   useReactFlow: () => ({
     fitView: flow.fitView,
     getViewport: flow.getViewport,
+    deleteElements: flow.deleteElements,
+  }),
+  useStoreApi: () => ({
+    getState: () => ({ nodes: [{ id: "selected", selected: true }], edges: [] }),
+    setState: () => {},
   }),
 }));
 
@@ -125,26 +128,38 @@ it("reveals empty boards and boards with only hidden nodes without waiting for a
   }
 });
 
-it("gives delete keys to the canvas used last when canvases share the page", async () => {
-  await act(async () =>
-    root.render(
-      <>
-        {["story", "assets"].map((id) => (
-          <EditorCanvas key={id} id={id} nodes={nodes} addControl={null} onOpenMenu={vi.fn()} deleteKeyCode={["Delete"]} />
-        ))}
-        <button type="button">Elsewhere</button>
-      </>,
-    ),
+it("deletes only in the canvas used last while it is in sight, when canvases share the page", async () => {
+  flow.deleteElements.mockClear();
+  const page = (assetsHidden: boolean) => (
+    <>
+      <EditorCanvas nodes={nodes} addControl={null} onOpenMenu={vi.fn()} deleteKeyCode={["Delete"]} />
+      <div hidden={assetsHidden}>
+        <EditorCanvas nodes={nodes} addControl={null} onOpenMenu={vi.fn()} deleteKeyCode={["Delete"]} />
+      </div>
+      <button type="button">Elsewhere</button>
+    </>
   );
-  const [story, assets] = container.querySelectorAll<HTMLElement>('[data-testid="canvas"]');
-  const press = (target: Element) => act(async () => { target.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
-  const keys = () => [flow.byId.story!.deleteKeyCode, flow.byId.assets!.deleteKeyCode];
-  expect(keys()).toEqual([["Delete"], ["Delete"]]);
+  await act(async () => root.render(page(false)));
+  // React Flow's own delete keys are off; the editor decides which canvas deletes.
+  expect(flow.props!.deleteKeyCode).toBeNull();
+  const [, assets] = container.querySelectorAll<HTMLElement>('[data-testid="canvas"]');
+  const press = async (target: Element) => {
+    await act(async () => { target.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    await act(async () => { target.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true })); });
+  };
   await press(assets!);
-  expect(keys()).toEqual([null, ["Delete"]]);
-  // A click outside every canvas changes nothing.
+  expect(flow.deleteElements).toHaveBeenCalledOnce();
+  expect(flow.deleteElements).toHaveBeenCalledWith({ nodes: [{ id: "selected", selected: true }], edges: [] });
+  // A click outside every canvas leaves the keys where they were.
   await press(container.querySelector("button")!);
-  expect(keys()).toEqual([null, ["Delete"]]);
-  await press(story!);
-  expect(keys()).toEqual([["Delete"], null]);
+  expect(flow.deleteElements).toHaveBeenCalledTimes(2);
+  // With the canvas used last hidden, the one in sight takes them.
+  await act(async () => root.render(page(true)));
+  await press(container.querySelector("button")!);
+  expect(flow.deleteElements).toHaveBeenCalledTimes(3);
+  // Typing in a field deletes nothing.
+  const field = document.createElement("input");
+  container.append(field);
+  await press(field);
+  expect(flow.deleteElements).toHaveBeenCalledTimes(3);
 });

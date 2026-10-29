@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
   Background,
@@ -10,6 +10,7 @@ import {
   useReactFlow,
   useNodesInitialized,
   useStore,
+  useStoreApi,
   useViewport,
   type Edge,
   type Node,
@@ -71,6 +72,7 @@ type EditorCanvasProps<N extends Node> = Omit<ReactFlowProps<N, Edge>, "onPaneCo
 export function EditorCanvas<N extends Node>({
   nodes,
   edges,
+  deleteKeyCode = "Backspace",
   addControl,
   onOpenMenu,
   addOnDoubleClick = false,
@@ -91,24 +93,7 @@ export function EditorCanvas<N extends Node>({
   // but do not paint its initial 100% view before the saved viewport (or fit).
   const [viewportReady, setViewportReady] = useState(false);
   const needsInitialFit = fitViewOnLoad && nodes.some((node) => !node.hidden);
-  // React Flow takes delete keys anywhere on the page, so with canvases in
-  // panels side by side each takes them only while it is the one used last:
-  // a click or focus in another canvas hands them over.
   const wrapper = useRef<HTMLDivElement>(null);
-  const [keysActive, setKeysActive] = useState(true);
-  useEffect(() => {
-    const track = (event: Event) => {
-      if (!(event.target instanceof Element)) return;
-      if (wrapper.current?.contains(event.target)) setKeysActive(true);
-      else if (event.target.closest(".react-flow")) setKeysActive(false);
-    };
-    document.addEventListener("pointerdown", track, true);
-    document.addEventListener("focusin", track, true);
-    return () => {
-      document.removeEventListener("pointerdown", track, true);
-      document.removeEventListener("focusin", track, true);
-    };
-  }, []);
 
   function openMenu(event: { preventDefault: () => void; clientX: number; clientY: number }, kind: CanvasContextMenuState["kind"], nodeId?: string): void {
     event.preventDefault();
@@ -144,7 +129,7 @@ export function EditorCanvas<N extends Node>({
       zoomOnDoubleClick={false}
       proOptions={{ hideAttribution: true }}
       {...props}
-      {...(!keysActive ? { deleteKeyCode: null } : {})}
+      deleteKeyCode={null}
       style={{ ...style, ...(!viewportReady ? { opacity: 0, pointerEvents: "none" as const } : {}) }}
       onInit={(value) => {
         instance.current = value;
@@ -178,6 +163,7 @@ export function EditorCanvas<N extends Node>({
         </button>
         <FitViewButton />
       </Panel>
+      <DeleteKeys keys={deleteKeyCode} canvas={wrapper} />
       {children}
     </ReactFlow>
   );
@@ -328,6 +314,51 @@ export function undoShortcut(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctr
 }
 
 /** A field that handles its own typing, so canvas shortcuts leave it alone. */
+// React Flow takes delete keys anywhere on the page, so with canvases in
+// panels side by side each would delete its selection. The editor takes them
+// itself, for one canvas: the one used last while it is in sight, or any in
+// sight when that one is not.
+let lastCanvas: Element | undefined;
+if (typeof document !== "undefined") {
+  const track = (event: Event) => {
+    const canvas = event.target instanceof Element ? event.target.closest(".react-flow") : null;
+    if (canvas) lastCanvas = canvas;
+  };
+  document.addEventListener("pointerdown", track, true);
+  document.addEventListener("focusin", track, true);
+}
+const inSight = (element: Element) => element.isConnected && !element.closest("[hidden], .dock-parking");
+
+/** Whether the canvas keys pressed now belong to the canvas in `within`. */
+export function ownsCanvasKeys(within: Element | null | undefined): boolean {
+  if (!within || !inSight(within)) return false;
+  return !lastCanvas || !inSight(lastCanvas) || within.contains(lastCanvas);
+}
+
+/** Deletes the selection on a delete key, as React Flow does, when the keys are this canvas's. */
+function DeleteKeys({ keys, canvas }: { keys: ReactFlowProps["deleteKeyCode"]; canvas: RefObject<HTMLDivElement | null> }) {
+  const store = useStoreApi();
+  const { deleteElements } = useReactFlow();
+  const list = keys == null ? [] : Array.isArray(keys) ? keys : [keys];
+  const listKey = list.join("\n");
+  useEffect(() => {
+    if (!list.length) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!list.includes(event.key) || event.repeat || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+      // React Flow's own test for a field the key types into.
+      const target = event.composedPath?.()[0] ?? event.target;
+      if (target instanceof Element && (["INPUT", "SELECT", "TEXTAREA"].includes(target.nodeName) || target.hasAttribute("contenteditable") || target.closest(".nokey"))) return;
+      if (!ownsCanvasKeys(canvas.current)) return;
+      const { nodes, edges } = store.getState();
+      void deleteElements({ nodes: nodes.filter((node) => node.selected), edges: edges.filter((edge) => edge.selected) });
+      store.setState({ nodesSelectionActive: false });
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [listKey, store, deleteElements]);
+  return null;
+}
+
 export function isTextEntry(target: EventTarget | null): boolean {
   return target instanceof HTMLElement
     && (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLInputElement && target.type !== "checkbox" && target.type !== "radio"));

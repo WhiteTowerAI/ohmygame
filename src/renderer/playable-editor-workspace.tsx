@@ -26,7 +26,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { snapCanvasPosition } from "./canvas-alignment.js";
-import { EditorCanvas, isTextEntry, undoShortcut, type CanvasContextMenuState } from "./editor-canvas.js";
+import { EditorCanvas, isTextEntry, ownsCanvasKeys, undoShortcut, type CanvasContextMenuState } from "./editor-canvas.js";
 import type { ProjectState, PromptContext } from "../shared/contracts.js";
 import { PLAYABLE_CARD_TITLE_HEIGHT, playableCanvasStageSize, rebasePlayableCodebase, samePlayableGraph, type NodeCodebase, type NodeCodebaseUpdate, type NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
@@ -674,8 +674,9 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       const step = undoShortcut(event);
       if (!step || isTextEntry(event.target)) return;
       if (event.target instanceof Element && event.target.closest('[role="dialog"]')) return;
-      // With other panels beside the story, a shortcut typed in one of them is theirs.
+      // With other panels beside the story, a shortcut typed in one of them, or after using another canvas, is theirs.
       if (event.target instanceof Element && event.target.closest(".dock-view") && !storyPane.current?.contains(event.target)) return;
+      if (!ownsCanvasKeys(storyPane.current)) return;
       event.preventDefault();
       void (step === "redo" ? redoEditorChange() : undoEditorChange())?.catch(() => {});
     };
@@ -691,7 +692,9 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     if (!selectedNavigation || openedNodeId || projectSettingsOpen || !shows("story")) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.key !== "Delete" && event.key !== "Backspace") || isTextEntry(event.target)) return;
+      // With other panels beside the story, a key typed in one of them, or after using another canvas, is theirs.
       if (event.target instanceof Element && event.target.closest(".dock-view") && !storyPane.current?.contains(event.target)) return;
+      if (!ownsCanvasKeys(storyPane.current)) return;
       setEdges((current) => current.filter((edge) => edge.id !== selectedEdgeId));
       setSelectedEdgeId(undefined);
     };
