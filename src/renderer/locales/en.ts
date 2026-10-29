@@ -805,6 +805,7 @@ const en = {
     projectType: "Project type",
   },
   createDialog: {
+    pluginsFailed: "Couldn't load plugins, so the project type can't be chosen yet.",
     restartForFolders:
       "Restart the OhMyGame desktop app to enable folder selection.",
     newProject: "New project",

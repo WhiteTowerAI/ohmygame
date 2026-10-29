@@ -790,6 +790,7 @@ const zhCN: typeof en = {
     projectType: "项目类型",
   },
   createDialog: {
+    pluginsFailed: "插件加载失败，暂时无法确定项目类型。",
     restartForFolders: "请重启 OhMyGame 桌面应用以启用文件夹选择。",
     newProject: "新建项目",
     opening: "正在打开…",
