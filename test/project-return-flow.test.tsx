@@ -54,6 +54,8 @@ vi.doMock(path.resolve("src/renderer/project-card.tsx"), () => ({
   ProjectCard: ({ onOpen }: { onOpen: () => void }) => (
     <button onClick={onOpen}>Open Garden</button>
   ),
+  ProjectRow: () => null,
+  useProjectActions: () => ({ actionsFor: () => ({}), dialogs: null }),
 }));
 vi.doMock(path.resolve("src/renderer/home.tsx"), () => ({
   Home: ({
@@ -121,6 +123,15 @@ async function click(text: string) {
   await act(async () => button!.click());
 }
 
+/** A Select's option; the list opens in a popover outside the page. */
+function option(text: string): HTMLButtonElement {
+  const found = [
+    ...document.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+  ].find((element) => element.textContent === text);
+  expect(found, text).toBeDefined();
+  return found!;
+}
+
 describe("project return flow", () => {
   it.each(["Open recent project", "Create project"])(
     "returns to Home after %s and project navigation",
@@ -141,7 +152,7 @@ describe("project return flow", () => {
     window.history.replaceState(null, "", "#/projects?type=general");
     await act(async () => root.render(<App />));
     const input = container.querySelector<HTMLInputElement>(
-      "#projects-search-input",
+      ".projects-search input",
     )!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(
@@ -155,7 +166,7 @@ describe("project return flow", () => {
         .querySelector<HTMLButtonElement>('[aria-label="Sort projects"]')!
         .click(),
     );
-    await click("Name");
+    await act(async () => option("Name").click());
     const entry = window.location.hash;
     expect(entry).toBe("#/projects?type=general&q=Garden&sort=name");
     await click("Open Garden");
@@ -167,20 +178,20 @@ describe("project return flow", () => {
     await click("Back to Projects");
     expect(window.location.hash).toBe(entry);
     expect(
-      container.querySelector<HTMLInputElement>("#projects-search-input")!
+      container.querySelector<HTMLInputElement>(".projects-search input")!
         .value,
     ).toBe("Garden");
     expect(
-      container.querySelector<HTMLSelectElement>('[aria-label="Project type"]')!
-        .value,
-    ).toBe("general");
+      container.querySelector('[aria-label="Project type"]')!.textContent,
+    ).toBe("General Game");
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[aria-label="Sort projects"]')!
         .click(),
     );
     expect(
-      container.querySelector('[role="menuitem"].is-active')!.textContent,
+      document.querySelector('[role="option"][aria-selected="true"]')!
+        .textContent,
     ).toBe("Name");
   });
 });

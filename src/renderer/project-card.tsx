@@ -23,28 +23,30 @@ interface ProjectCardProps {
   agentStatus?: ProjectAgentActivity["status"];
 }
 
-// The cover is the card and the text sits under it. One menu, from the "…"
-// that shows on hover and from a right-click.
-export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCardProps) {
-  const activityLabel = agentStatus === "cancelling" ? t("projectCard.stopping") : t("projectCard.working");
+/**
+ * The menu every project has wherever it is listed: open, rename, copy, open
+ * the folder, export and delete. `error` is the last failure from an item
+ * that runs here (open folder, export).
+ */
+function useProjectMenu(project: ProjectState, onOpen: () => void, actions?: ProjectCardActions): { menu?: MenuEntry[]; error?: string } {
   const [exporting, setExporting] = useState(false);
-  const [menuError, setMenuError] = useState<string>();
+  const [error, setError] = useState<string>();
   const openProjectFile = typeof window !== "undefined" ? window.ohMyGameDesktop?.openProjectFile : undefined;
 
   async function openFolder(): Promise<void> {
     if (!openProjectFile) return;
-    setMenuError(undefined);
+    setError(undefined);
     try {
       await openProjectFile(project.id, ".", "default");
     } catch (cause) {
-      setMenuError(cause instanceof Error ? cause.message : String(cause));
+      setError(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
   async function exportArchive(): Promise<void> {
     if (exporting) return;
     setExporting(true);
-    setMenuError(undefined);
+    setError(undefined);
     try {
       const archive = await exportProject(project.id);
       const url = URL.createObjectURL(archive);
@@ -54,7 +56,7 @@ export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCa
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (cause) {
-      setMenuError(cause instanceof Error ? cause.message : String(cause));
+      setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setExporting(false);
     }
@@ -74,7 +76,34 @@ export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCa
       onSelect: actions.onDelete,
     },
   ] : undefined;
+  return { menu, error };
+}
 
+function ProjectMenuButton({ project, menu }: { project: ProjectState; menu: MenuEntry[] }) {
+  return (
+    <DropdownMenu placement="bottom-end" items={menu} trigger={(props) => (
+      <IconButton {...props} size="sm" className="project-card-menu" label={t("projectCard.actions", { name: project.name })}>
+        <MoreHorizontal size={16} />
+      </IconButton>
+    )} />
+  );
+}
+
+/** When the project was edited, or that its agent is working right now. */
+function ProjectStatus({ project, agentStatus }: { project: ProjectState; agentStatus?: ProjectAgentActivity["status"] }) {
+  if (!agentStatus) return <span className="project-card-time">{projectTime(project.updatedAt)}</span>;
+  return (
+    <span className="project-card-activity" role="status">
+      <LoaderCircle className="spin" size={11} aria-hidden="true" />
+      {agentStatus === "cancelling" ? t("projectCard.stopping") : t("projectCard.working")}
+    </span>
+  );
+}
+
+// The cover is the card and the text sits under it. One menu, from the "…"
+// that shows on hover and from a right-click.
+export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCardProps) {
+  const { menu, error } = useProjectMenu(project, onOpen, actions);
   const card = (
     <article className="project-card">
       <div className="project-card-body">
@@ -85,28 +114,40 @@ export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCa
           <span className="project-card-copy">
             <span className="project-card-name" title={project.name}>{project.name}</span>
             <span className="project-card-details" title={projectTimestamp(project.updatedAt)}>
-              {agentStatus ? <span className="project-card-activity" role="status">
-                <LoaderCircle className="spin" size={11} aria-hidden="true" />
-                {activityLabel}
-              </span> : <span className="project-card-time">{projectTime(project.updatedAt)}</span>}
+              <ProjectStatus project={project} agentStatus={agentStatus} />
             </span>
           </span>
         </span>
       </button>
-      {menu ? (
-        <span className="project-card-actions">
-          <DropdownMenu placement="bottom-end" items={menu} trigger={(props) => (
-            <IconButton {...props} size="sm" className="project-card-menu" label={t("projectCard.actions", { name: project.name })}>
-              <MoreHorizontal size={16} />
-            </IconButton>
-          )} />
-        </span>
-      ) : null}
+      {menu ? <span className="project-card-actions"><ProjectMenuButton project={project} menu={menu} /></span> : null}
       </div>
-      {menuError ? <p className="project-card-error" role="alert">{menuError}</p> : null}
+      {error ? <p className="project-card-error" role="alert">{error}</p> : null}
     </article>
   );
   return menu ? <ContextMenu items={menu}>{card}</ContextMenu> : card;
+}
+
+/** A project as a row of the Projects list: cover, name, type and when it was edited, with the same menu as its card. */
+export function ProjectRow({ project, onOpen, actions, agentStatus }: ProjectCardProps) {
+  const { menu, error } = useProjectMenu(project, onOpen, actions);
+  const row = (
+    <div className="project-row">
+      <button className="project-row-open" type="button" onClick={onOpen} aria-label={t("projectCard.open", { name: project.name })}>
+        <ProjectCover projectId={project.id} />
+        <span className="project-card-name" title={project.name}>{project.name}</span>
+        <span className="project-row-type">
+          <ProjectTypeIcon type={project.type} size={14} />
+          {projectTypeLabel(project.type)}
+        </span>
+        <span className="project-row-time" title={projectTimestamp(project.updatedAt)}>
+          <ProjectStatus project={project} agentStatus={agentStatus} />
+        </span>
+      </button>
+      {menu ? <span className="project-row-actions"><ProjectMenuButton project={project} menu={menu} /></span> : null}
+      {error ? <p className="project-card-error" role="alert">{error}</p> : null}
+    </div>
+  );
+  return menu ? <ContextMenu items={menu}>{row}</ContextMenu> : row;
 }
 
 /** The project's type as an icon, named in a tooltip. */

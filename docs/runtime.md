@@ -515,6 +515,14 @@ Ideas under the box fill the prompt. The former studio pages are gone; their
 links (`#/web-game`, `#/interactive-story`, `#/godot`, `#/asset-canvas`,
 `#/general`) open Home.
 
+Projects lists every project as covers or as a list (name, type and when it
+was edited); the layout choice stays in that browser. Search, the type filter
+and sorting sit beside the title, and **New project** opens a menu: **New
+project…** (the same dialog as Home), **Import folder…** (desktop app) and
+**Import project ZIP…**. Cards and rows share one menu, from **…** or a
+right-click: open, rename, duplicate, open in folder (desktop app), export and
+delete, which asks first in a dialog.
+
 In the desktop app, the project card menu's **Open in folder** action opens the
 project's workspace in the system file manager, including projects using an
 existing folder. It is available in recent projects and the Projects list.

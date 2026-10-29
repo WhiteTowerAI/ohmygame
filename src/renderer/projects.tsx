@@ -1,20 +1,20 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { ArrowDownUp, FolderPlus, Import, LoaderCircle, RefreshCw, Search, X } from "./icons.js";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Archive, FilePlus, Import, LayoutGrid, List, LoaderCircle, Plus, RefreshCw } from "./icons.js";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
-import { deleteProject, duplicateProject, importProject, listProjects, renameProject, waitForRuntime } from "./api.js";
+import { importProject, listProjects, waitForRuntime } from "./api.js";
 import { PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
 import { hasTransferredFiles } from "./file-transfer.js";
-import { ProjectCard } from "./project-card.js";
-import { ProjectCreateDialog } from "./project-create-dialog.js";
-import { ProjectRenameDialog } from "./project-rename-dialog.js";
-import { projectDeletionConfirmation } from "./project-deletion.js";
+import { ProjectCard, ProjectRow, useProjectActions } from "./project-card.js";
+import { pickProjectFolder, ProjectCreateDialog } from "./project-create-dialog.js";
 import { createdProjectView, type AppNavigationTarget, type ProjectListFilters, type ProjectSort } from "./routes.js";
 import { publishRecentProjects, takeProjectSearchFocus } from "./app-sidebar.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { PROJECT_TYPES } from "./project-types.js";
 import { useProjectActivity } from "./use-project-activity.js";
+import { Button, DropdownMenu, SearchInput, SegmentedControl, Select, Tooltip, type MenuEntry } from "./ui/index.js";
 import { t } from "./i18n.js";
+import "./projects.css";
 
 interface ProjectsPageProps {
   projectType?: ProjectType | "all";
@@ -25,6 +25,16 @@ interface ProjectsPageProps {
   onOpenProject: (projectId: string, view?: "design") => void;
 }
 
+type Layout = "grid" | "list";
+const LAYOUT_STORAGE_KEY = "ohmygame:projects-layout";
+
+/** What the new-project dialog opens with, if it is open. */
+interface CreateRequest {
+  workspacePath?: string;
+}
+
+// Every project, as covers or as a list. Search, type and sort live in the
+// route; the layout is the person's and stays in this browser.
 export function ProjectsPage({ projectType = "all", query = "", sort = "updated", onFiltersChange, onNavigate, onOpenProject }: ProjectsPageProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
@@ -33,19 +43,19 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   // Renames, removals and automatic names reach the sidebar too.
   useEffect(() => { if (phase === "ready") publishRecentProjects(projects); }, [phase, projects]);
   const [error, setError] = useState<string>();
-  const [sortOpen, setSortOpen] = useState(false);
+  const [layout, setLayout] = useState<Layout>(readLayout);
   const [focusSearch] = useState(takeProjectSearchFocus);
+  const search = useRef<HTMLDivElement>(null);
   const [actionError, setActionError] = useState<string>();
-  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState<CreateRequest>();
   const [importing, setImporting] = useState(false);
   // Block another import before React commits the busy state.
   const importPending = useRef(false);
   const [dropActive, setDropActive] = useState(false);
   const dragDepth = useRef(0);
   const importInput = useRef<HTMLInputElement>(null);
-  const [renameTarget, setRenameTarget] = useState<ProjectState>();
-  const renameTrigger = useRef<HTMLElement | null>(null);
-  const sortControl = useRef<HTMLDivElement>(null);
+  const projectActions = useProjectActions(load);
+  const canImportFolder = !!window.ohMyGameDesktop?.selectProjectDirectory;
 
   async function load(): Promise<void> {
     setPhase("loading");
@@ -63,35 +73,16 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
 
   useEffect(() => { void load(); }, [serviceGeneration]);
   useEffect(() => {
-    if (!sortOpen) return;
-    const close = (event: MouseEvent) => {
-      if (!sortControl.current?.contains(event.target as Node)) setSortOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [sortOpen]);
+    if (focusSearch) search.current?.querySelector("input")?.focus();
+  }, [focusSearch]);
 
   const visibleProjects = useMemo(() => filterAndSortProjects(projects, query, sort, projectType), [projects, query, sort, projectType]);
   const filters = { projectType: projectType === "all" ? undefined : projectType, query, sort };
+  const filtered = !!query.trim() || projectType !== "all";
 
-  async function runAction(action: () => Promise<unknown>): Promise<void> {
-    setActionError(undefined);
-    try {
-      await action();
-      await load();
-    } catch (cause) {
-      setActionError(errorMessage(cause));
-    }
-  }
-
-  function rename(project: ProjectState, input: string): void {
-    const name = input.trim();
-    if (!name || name === project.name) return;
-    void runAction(() => renameProject(project.id, name));
-  }
-
-  function duplicate(project: ProjectState): void {
-    void runAction(() => duplicateProject(project.id));
+  function changeLayout(next: Layout): void {
+    setLayout(next);
+    try { localStorage.setItem(LAYOUT_STORAGE_KEY, next); } catch {}
   }
 
   async function importArchive(file: File): Promise<void> {
@@ -106,18 +97,66 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
     }
     importPending.current = true;
     setImporting(true);
+    setActionError(undefined);
     try {
-      await runAction(() => importProject(file));
+      await importProject(file);
+      await load();
+    } catch (cause) {
+      setActionError(errorMessage(cause));
     } finally {
       importPending.current = false;
       setImporting(false);
     }
   }
 
-  function remove(project: ProjectState): void {
-    if (!window.confirm(projectDeletionConfirmation(project))) return;
-    void runAction(() => deleteProject(project.id));
+  // An existing folder opens its project if it has one, or becomes a new project's workspace.
+  async function importFolder(): Promise<void> {
+    setActionError(undefined);
+    try {
+      const picked = await pickProjectFolder();
+      if (!picked) return;
+      if ("owner" in picked) onOpenProject(picked.owner.id);
+      else setCreating({ workspacePath: picked.path });
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    }
   }
+
+  const newMenu: MenuEntry[] = [
+    { label: t("projects.newItem"), icon: <FilePlus size={14} />, onSelect: () => setCreating({}) },
+    ...(canImportFolder ? [{ label: t("projects.importFolder"), icon: <Import size={14} />, onSelect: () => void importFolder() }] : []),
+    {
+      label: importing ? t("projects.importing") : t("projects.importArchive"),
+      description: t("projects.importHint"),
+      icon: importing ? <LoaderCircle className="spin" size={14} /> : <Archive size={14} />,
+      disabled: importing,
+      onSelect: () => importInput.current?.click(),
+    },
+  ];
+
+  const lists = layout === "grid" ? (
+    <div className="projects-grid">
+      {visibleProjects.map((project) => (
+        <ProjectCard key={project.id} project={project} agentStatus={activity.get(project.id)}
+          onOpen={() => onOpenProject(project.id)} actions={projectActions.actionsFor(project)} />
+      ))}
+    </div>
+  ) : (
+    <div className="projects-list" role="list" aria-label={t("projects.title")}>
+      <div className="projects-list-head" aria-hidden="true">
+        <span />
+        <span>{t("common.name")}</span>
+        <span>{t("projects.type")}</span>
+        <span>{t("projects.updated")}</span>
+      </div>
+      {visibleProjects.map((project) => (
+        <div key={project.id} role="listitem">
+          <ProjectRow project={project} agentStatus={activity.get(project.id)}
+            onOpen={() => onOpenProject(project.id)} actions={projectActions.actionsFor(project)} />
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <SidebarPageLayout active="projects" onNavigate={onNavigate}>
@@ -157,32 +196,26 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
           title={t("projects.title")}
           actions={(
             <div className="projects-controls">
-              <select className="projects-type-filter" aria-label={t("creator.projectType")} value={projectType} onChange={(event) => {
-                const type = event.target.value as ProjectType | "all";
-                onFiltersChange({ ...filters, projectType: type === "all" ? undefined : type });
-              }}>
-                <option value="all">{t("projects.allTypes")}</option>
-                {PROJECT_TYPES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
-              </select>
-              <label className="projects-search" htmlFor="projects-search-input">
-                <Search size={14} aria-hidden="true" />
-                <input id="projects-search-input" autoFocus={focusSearch} value={query} onChange={(event) => onFiltersChange({ ...filters, query: event.target.value }, true)} placeholder={t("projects.search")} />
-              </label>
-              <div className="projects-sort" ref={sortControl}>
-                <button className="projects-icon-button" type="button" aria-label={t("projects.sort")} aria-expanded={sortOpen} onClick={() => setSortOpen((current) => !current)}>
-                  <ArrowDownUp size={16} />
-                </button>
-                {sortOpen ? (
-                  <div className="projects-sort-menu" role="menu">
-                    <button className={sort === "updated" ? "is-active" : undefined} type="button" role="menuitem" onClick={() => { onFiltersChange({ ...filters, sort: "updated" }, true); setSortOpen(false); }}>{t("projects.recentlyUpdated")}</button>
-                    <button className={sort === "name" ? "is-active" : undefined} type="button" role="menuitem" onClick={() => { onFiltersChange({ ...filters, sort: "name" }, true); setSortOpen(false); }}>{t("common.name")}</button>
-                  </div>
-                ) : null}
+              <div className="projects-search" ref={search}>
+                {/* The sidebar's Search focuses this field by its id. */}
+                <SearchInput id="projects-search-input" value={query} label={t("projects.search")} placeholder={t("projects.search")}
+                  onChange={(value) => onFiltersChange({ ...filters, query: value }, true)} />
               </div>
-              <button className="projects-icon-button" type="button" aria-label={t("projects.import")} data-tooltip={t("projects.importHint")} disabled={importing} onClick={() => importInput.current?.click()}>
-                {importing ? <LoaderCircle className="spin" size={16} /> : <Import size={16} />}
-              </button>
-              <input ref={importInput} type="file" accept=".zip,application/zip" hidden onChange={(event) => {
+              <Select<ProjectType | "all"> label={t("creator.projectType")} value={projectType}
+                onChange={(type) => onFiltersChange({ ...filters, projectType: type === "all" ? undefined : type })}
+                options={[{ value: "all", label: t("projects.allTypes") }, ...PROJECT_TYPES.map(({ value, label }) => ({ value, label }))]} />
+              <Select<ProjectSort> label={t("projects.sort")} value={sort}
+                onChange={(next) => onFiltersChange({ ...filters, sort: next }, true)}
+                options={[{ value: "updated", label: t("projects.recentlyUpdated") }, { value: "name", label: t("common.name") }]} />
+              <SegmentedControl<Layout> label={t("projects.layout")} value={layout} onChange={changeLayout}
+                options={[
+                  { value: "grid", label: <LayoutIcon label={t("projects.grid")}><LayoutGrid size={14} /></LayoutIcon> },
+                  { value: "list", label: <LayoutIcon label={t("projects.list")}><List size={14} /></LayoutIcon> },
+                ]} />
+              <DropdownMenu placement="bottom-end" items={newMenu} trigger={(props) => (
+                <Button {...props} variant="primary" icon={<Plus size={14} />}>{t("projects.new")}</Button>
+              )} />
+              <input ref={importInput} type="file" accept=".zip,application/zip" hidden aria-label={t("projects.importArchive")} onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
                 if (file) void importArchive(file);
@@ -191,43 +224,55 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
           )}
         />
 
-        {phase === "loading" ? <ProjectState><LoaderCircle className="spin" size={18} />{t("projects.loading")}</ProjectState> : null}
-        {phase === "error" ? <ProjectState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />{t("common.retry")}</button></ProjectState> : null}
-        {phase === "ready" ? (
-          <div className="projects-grid">
-            <button className="project-card project-card-new" type="button" onClick={() => setCreateOpen(true)}>
-              <span className="project-card-new-art"><FolderPlus size={24} /></span>
-              <span className="project-card-copy"><strong>{t("projects.new")}</strong><span>{t("projects.newHint")}</span></span>
-            </button>
-            {visibleProjects.map((project) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                agentStatus={activity.get(project.id)}
-                onOpen={() => onOpenProject(project.id)}
-                actions={{ onRename: () => {
-                  renameTrigger.current = document.querySelector<HTMLElement>('.project-card-menu[aria-expanded="true"]');
-                  setRenameTarget(project);
-                }, onDuplicate: () => duplicate(project), onDelete: () => remove(project) }}
-              />
-            ))}
+        {actionError || projectActions.error ? <p className="projects-notice" role="alert">{actionError ?? projectActions.error}</p> : null}
+        {phase === "loading" && !projects.length ? (
+          <div className="projects-grid" aria-busy="true" aria-label={t("projects.loading")}>
+            {Array.from({ length: 8 }, (_, index) => <span className="projects-skeleton" key={index} />)}
           </div>
         ) : null}
-        {phase === "ready" && projects.length > 0 && visibleProjects.length === 0 ? <ProjectState><FolderPlus size={18} />{t("projects.noMatch")}</ProjectState> : null}
-        {actionError ? <p className="projects-notice" role="alert">{actionError}</p> : null}
+        {phase === "error" ? (
+          <div className="projects-empty" role="alert">
+            <p>{error}</p>
+            <Button size="sm" icon={<RefreshCw size={14} />} onClick={() => void load()}>{t("common.retry")}</Button>
+          </div>
+        ) : null}
+        {phase === "ready" && visibleProjects.length === 0 ? (
+          <div className="projects-empty">
+            <p>{projects.length ? t("projects.noMatch") : t("projects.none")}</p>
+            {projects.length && filtered
+              ? <Button size="sm" onClick={() => onFiltersChange({ sort })}>{t("projects.clearFilters")}</Button>
+              : <Button size="sm" icon={<Plus size={14} />} onClick={() => setCreating({})}>{t("projects.new")}</Button>}
+          </div>
+        ) : null}
+        {phase !== "error" && visibleProjects.length > 0 ? lists : null}
         {dropActive ? <div className="projects-drop-overlay" role="status"><div className="projects-drop-message"><Import size={28} /><span>{t("projects.importDropHint")}</span></div></div> : null}
       </div>
-      {renameTarget ? <ProjectRenameDialog name={renameTarget.name} returnFocus={renameTrigger.current} onClose={() => setRenameTarget(undefined)} onConfirm={(name) => {
-        const project = renameTarget;
-        setRenameTarget(undefined);
-        rename(project, name);
-      }} /> : null}
-      {createOpen ? <ProjectCreateDialog initialType={projectType === "all" ? "web-game" : projectType} onClose={() => setCreateOpen(false)} onCreated={(project) => {
-        setCreateOpen(false);
-        onOpenProject(project.id, createdProjectView(project.type));
-      }} /> : null}
+      {projectActions.dialogs}
+      {creating ? <ProjectCreateDialog
+        initialType={projectType === "all" ? "web-game" : projectType}
+        initialWorkspacePath={creating.workspacePath}
+        onClose={() => setCreating(undefined)}
+        onOpenProject={(projectId) => { setCreating(undefined); onOpenProject(projectId); }}
+        onCreated={(project) => {
+          setCreating(undefined);
+          onOpenProject(project.id, createdProjectView(project.type));
+        }}
+      /> : null}
     </SidebarPageLayout>
   );
+}
+
+/** An icon-only segment, named for screen readers and in a tooltip. */
+function LayoutIcon({ label, children }: { label: string; children: ReactNode }) {
+  return <Tooltip content={label}><span className="projects-layout-icon" role="img" aria-label={label}>{children}</span></Tooltip>;
+}
+
+function readLayout(): Layout {
+  try {
+    return localStorage.getItem(LAYOUT_STORAGE_KEY) === "list" ? "list" : "grid";
+  } catch {
+    return "grid";
+  }
 }
 
 export function filterAndSortProjects(projects: ProjectState[], query: string, sort: ProjectSort, type: ProjectType | "all" = "all"): ProjectState[] {
@@ -238,10 +283,6 @@ export function filterAndSortProjects(projects: ProjectState[], query: string, s
     .sort((left, right) => sort === "name"
       ? left.name.localeCompare(right.name)
       : right.updatedAt.localeCompare(left.updatedAt));
-}
-
-function ProjectState({ children, error = false }: { children: React.ReactNode; error?: boolean }) {
-  return <div className={`projects-state${error ? " projects-state-error" : ""}`} role={error ? "alert" : undefined}>{children}</div>;
 }
 
 function errorMessage(cause: unknown): string {

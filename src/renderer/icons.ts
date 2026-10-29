@@ -5,6 +5,7 @@ import {
   AltArrowLeftIcon,
   AltArrowRightIcon,
   AltArrowUpIcon,
+  ArchiveIcon,
   ArrowToDownRightIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -39,6 +40,7 @@ import {
   GalleryIcon,
   GalleryRemoveIcon,
   HistoryIcon,
+  HamburgerMenuIcon,
   HeartIcon,
   HomeIcon,
   InfoCircleIcon,
@@ -94,6 +96,7 @@ import {
   WalletIcon,
   WiFiIcon,
   WiFiOffIcon,
+  Widget4Icon,
 } from "@solar-icons/react/linear";
 import type { Icon as SolarIcon, IconProps } from "@solar-icons/react/lib/types";
 import { createElement, forwardRef } from "react";
@@ -166,6 +169,7 @@ export {
   AltArrowLeftIcon as ChevronLeft,
   AltArrowRightIcon as ChevronRight,
   AltArrowUpIcon as ChevronUp,
+  ArchiveIcon as Archive,
   DownloadMinimalisticIcon as ArrowDownToLine,
   SortVerticalIcon as ArrowDownUp,
   ArrowToDownRightIcon as CornerDownRight,
@@ -205,6 +209,8 @@ export {
   InfoCircleIcon as InfoCircle,
   ImportIcon as Import,
   LayersIcon as Layers3,
+  Widget4Icon as LayoutGrid,
+  HamburgerMenuIcon as List,
   KeyIcon as Key,
   LoginIcon as LogIn,
   DisketteIcon as Diskette,
