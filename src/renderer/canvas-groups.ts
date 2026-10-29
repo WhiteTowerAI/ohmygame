@@ -77,6 +77,42 @@ export function canvasAbsolutePosition(
   return { x, y };
 }
 
+/** Finds the nearest spot to `preferred` where a block of `size` overlaps no existing node, keeping `gap` around it. */
+export function findCanvasFreeArea(
+  nodes: readonly Groupable[],
+  size: { width: number; height: number },
+  preferred: { x: number; y: number },
+  gap = 60,
+): { x: number; y: number } {
+  const obstacles = nodes.map((node) => {
+    const at = canvasAbsolutePosition(node, nodes);
+    const defaultSize = isResizableCanvasNodeType(node.type) ? RESIZABLE_CANVAS_NODE_SIZES[node.type] : undefined;
+    const width = node.width ?? node.measured?.width ?? defaultSize?.width ?? 440;
+    const height = node.height ?? node.measured?.height ?? defaultSize?.height ?? 320;
+    return { left: at.x, top: at.y, right: at.x + width, bottom: at.y + height };
+  });
+  const free = (x: number, y: number) => obstacles.every((box) =>
+    x >= box.right + gap || x + size.width + gap <= box.left || y >= box.bottom + gap || y + size.height + gap <= box.top,
+  );
+  // Candidate edges sit just past existing nodes; limit them to the nearest ones so large boards stay fast.
+  const nearest = (values: number[], target: number) =>
+    [...new Set(values)].sort((a, b) => Math.abs(a - target) - Math.abs(b - target)).slice(0, 40);
+  const xs = nearest([preferred.x, ...obstacles.map((box) => box.right + gap)], preferred.x);
+  const ys = nearest([preferred.y, ...obstacles.flatMap((box) => [box.top, box.bottom + gap])], preferred.y);
+  let best: { x: number; y: number } | undefined;
+  let bestDistance = Infinity;
+  for (const x of xs) {
+    for (const y of ys) {
+      const distance = Math.hypot(x - preferred.x, y - preferred.y);
+      if (distance < bestDistance && free(x, y)) {
+        best = { x, y };
+        bestDistance = distance;
+      }
+    }
+  }
+  return best ?? { x: Math.max(preferred.x, ...obstacles.map((box) => box.right + gap)), y: preferred.y };
+}
+
 /** Clamp only edges moving inward; existing overflow must not block expansion. */
 export function clampCanvasGroupResize(
   group: Groupable,

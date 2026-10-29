@@ -21,6 +21,7 @@ const resizeCallbacks = new Map<Element, () => void>();
 const setCenter = vi.fn();
 const runMedia = vi.fn();
 const loadAssets = vi.fn(async (): Promise<LibraryAsset[]> => []);
+const upload = vi.fn(async (file: File) => ({ id: "materialized", name: file.name }));
 const save = vi.fn(async (value) => value);
 const imageModels: ImageModel[] = [];
 const generate = vi.fn(async (): Promise<ToolJob> => ({ id: "generated-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Actions" }));
@@ -76,6 +77,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listModel3DCatalog: async () => ({ models: [], providers: [] }),
   listModel3DOperations: async () => [],
   getLibraryAsset: async () => new Blob(),
+  uploadLibraryAsset: upload,
 }));
 vi.doMock(path.resolve("src/renderer/library-assets.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/library-assets.js")>()),
@@ -332,6 +334,28 @@ it("shows only the frame-strip button for a selected video", async () => {
   expect(container.textContent).not.toContain("Extract video frames");
   await act(async () => button.click());
   expect(container.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("Pull frame strip");
+});
+
+it("turns a template example into the node's output before running a media tool", async () => {
+  const fetchExample = vi.fn(async () => new Response(new Blob(["pixels"], { type: "image/webp" })));
+  vi.stubGlobal("fetch", fetchExample);
+  runMedia.mockRejectedValue(new Error("Split failed"));
+  await act(async () => captured.props!.onNodesChange!([
+    { type: "add", item: { id: "example", type: "image", position: { x: 0, y: 600 }, data: { prompt: "", images: [], exampleImage: "classic/monster" } } },
+    { type: "add", item: { id: "reference", type: "image", position: { x: 600, y: 600 }, data: { prompt: "", images: [], sourceInput: true, exampleImage: "reference/creature" } } },
+  ]));
+  await select("reference");
+  expect(container.querySelector(".asset-media-toolbar")).toBeNull();
+  await select("example");
+  await chooseTool("Grid split", "4 cells (2 × 2)");
+  expect(fetchExample).toHaveBeenCalledTimes(1);
+  expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "monster.webp" }), "image/webp", undefined, "asset");
+  expect(captured.props!.nodes.find((node) => node.id === "example")?.data.assetId).toBe("materialized");
+  expect(runMedia).toHaveBeenCalledWith("p", {
+    boardId: "b",
+    operation: "split-image-grid", assetIds: ["materialized"],
+    options: { columns: 2, rows: 2, format: "png" },
+  });
 });
 
 it("runs a grid preset immediately without a confirmation dialog", async () => {

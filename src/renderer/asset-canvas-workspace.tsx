@@ -63,7 +63,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { CANVAS_GRID_SIZE, snapCanvasPosition } from "./canvas-alignment.js";
-import { clampCanvasGroupResize, canvasAbsolutePosition, canvasDescendantIds, canvasDropGroup, canvasGroupExecutionPlan, canvasSelectionRoots, expandCanvasGroups, layoutPixelLevelGroups, orderedCanvasNodes, reparentCanvasNode } from "./canvas-groups.js";
+import { clampCanvasGroupResize, canvasAbsolutePosition, canvasDescendantIds, canvasDropGroup, canvasGroupExecutionPlan, canvasSelectionRoots, expandCanvasGroups, findCanvasFreeArea, layoutPixelLevelGroups, orderedCanvasNodes, reparentCanvasNode } from "./canvas-groups.js";
 import { RESIZABLE_CANVAS_NODE_SIZES, canvasNodeLayout, isResizableCanvasNodeType } from "../shared/canvas-node-layout.js";
 import { CanvasNodeResizer, CanvasNodeSizeActions, type CanvasNodeResizeRuntime } from "./canvas-node-resizer.js";
 import { MAX_ASSET_CANVAS_NODES, MAX_TEXT_NODE_REFERENCES } from "../shared/asset-canvas-schema.js";
@@ -540,14 +540,15 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   useEffect(() => () => { batchRun.current?.abort(); }, [storage, closing]);
   const selectedMediaNodes = selectedNodes.filter((node) => {
     const mediaType = node.type === "asset" ? node.data.mediaType : node.type;
-    return Boolean(node.data.assetId && (mediaType === "image" || mediaType === "video"));
+    return Boolean((node.data.assetId || hasExampleOutput(node)) && (mediaType === "image" || mediaType === "video"));
   });
   const selectedMediaType = selectedMediaNodes.length && selectedMediaNodes.every((node) => (node.type === "asset" ? node.data.mediaType : node.type) === "image") ? "image"
     : selectedMediaNodes.length && selectedMediaNodes.every((node) => (node.type === "asset" ? node.data.mediaType : node.type) === "video") ? "video" : undefined;
   const selectedNodeIdsJson = JSON.stringify(selectedNodes.map((node) => node.id));
   const selectedImageIsGif = selectedMediaNodes.length === 1 &&
-    (libraryAssets.find((asset) => asset.id === selectedMediaNodes[0]?.data.assetId)?.contentType
-      ?? selectedMediaNodes[0]?.data.contentType) === "image/gif";
+    ((libraryAssets.find((asset) => asset.id === selectedMediaNodes[0]?.data.assetId)?.contentType
+      ?? selectedMediaNodes[0]?.data.contentType) === "image/gif"
+      || (!selectedMediaNodes[0]?.data.assetId && Boolean(selectedMediaNodes[0]?.data.exampleImage?.endsWith(".gif"))));
   useEffect(() => { setCropNodeId(undefined); }, [selectedNodeIdsJson]);
   const selection = JSON.stringify(selectedNodes.map((node) => toAssetCanvasNode(node, model3DModels)));
   useEffect(() => { onSelectionChange?.(JSON.parse(selection) as AssetCanvasNode[]); }, [selection, onSelectionChange]);
@@ -920,6 +921,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   }, [storage, onStatusChange]);
 
   const nodesRef = useRef(nodes); nodesRef.current = nodes;
+  const [materializingExamples, setMaterializingExamples] = useState(false);
   useEffect(() => {
     const selected = new Set<string>(JSON.parse(selectedNodeIdsJson));
     setMarqueeSelectedIds((current) => {
@@ -1618,14 +1620,49 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   }
 
   function openMediaTool(operation: CanvasMediaToolbarAction, grid?: MediaGridSize): void {
-    const ids = selectedMediaNodes.map((node) => node.data.assetId!).filter(Boolean);
-    if (!ids.length || mediaToolBusy || (isMultiImageOperation(operation) && ids.length < 2) || (operation === "extract-gif-frames" && !selectedImageIsGif)) return;
-    setMediaToolError(undefined);
-    if (operation === "ai-image-cutout") {
-      startAiImageCutout();
+    if (mediaToolBusy || materializingExamples) return;
+    if (!selectedMediaNodes.some((node) => !node.data.assetId)) {
+      runMediaTool(operation, grid, selectedMediaNodes);
       return;
     }
-    if (operation === "crop-image") { setCropNodeId(selectedMediaNodes[0]!.id); return; }
+    setMaterializingExamples(true);
+    setMediaToolError(undefined);
+    void materializeExampleOutputs(selectedMediaNodes)
+      .then((targets) => runMediaTool(operation, grid, targets))
+      .catch((error) => setNotice({ kind: "action", message: errorMessage(error) }))
+      .finally(() => setMaterializingExamples(false));
+  }
+
+  // Example previews are bundled files, but media tools need a library asset: the first tool use makes the example the node's output.
+  async function materializeExampleOutputs(targets: readonly AssetCanvasFlowNode[]): Promise<AssetCanvasFlowNode[]> {
+    const assigned = new Map<string, string>();
+    for (const node of targets) {
+      const url = node.data.assetId ? undefined : pixelExampleImageUrl(node.data.exampleImage);
+      if (!url) continue;
+      const blob = await (await fetch(url)).blob();
+      const contentType = (blob.type || "image/webp") as LibraryUploadMediaType;
+      const name = `${node.data.exampleImage!.split("/").pop()!.replace(/\.[^.]+$/, "")}.${contentType.split("/")[1]}`;
+      const asset = await uploadLibraryAsset(new File([blob], name, { type: contentType }), contentType, undefined, "asset");
+      assigned.set(node.id, asset.id);
+    }
+    if (assigned.size) {
+      flushSync(() => setNodes((current) => current.map((candidate) => assigned.has(candidate.id)
+        ? { ...candidate, data: { ...candidate.data, assetId: assigned.get(candidate.id) } }
+        : candidate)));
+      setLibraryAssets(await loadLibraryAssets());
+    }
+    return targets.map((node) => assigned.has(node.id) ? { ...node, data: { ...node.data, assetId: assigned.get(node.id) } } : node);
+  }
+
+  function runMediaTool(operation: CanvasMediaToolbarAction, grid: MediaGridSize | undefined, targets: readonly AssetCanvasFlowNode[]): void {
+    const ids = targets.map((node) => node.data.assetId!).filter(Boolean);
+    if (!ids.length || (isMultiImageOperation(operation) && ids.length < 2) || (operation === "extract-gif-frames" && !selectedImageIsGif)) return;
+    setMediaToolError(undefined);
+    if (operation === "ai-image-cutout") {
+      startAiImageCutout(targets[0]!);
+      return;
+    }
+    if (operation === "crop-image") { setCropNodeId(targets[0]!.id); return; }
     setCropNodeId(undefined);
     if (operation === "split-image-grid" || operation === "extract-gif-frames") {
       void executeMediaTool(operation, ids.slice(0, 1), operation === "split-image-grid" ? { ...grid, format: "png" } : {});
@@ -1634,9 +1671,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setMediaToolDialog({ operation, assetIds: isMultiImageOperation(operation) ? ids : ids.slice(0, 1) });
   }
 
-  function startAiImageCutout(): void {
-    const source = selectedMediaNodes[0];
-    if (!source?.data.assetId || nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
+  function startAiImageCutout(source: AssetCanvasFlowNode): void {
+    if (!source.data.assetId || nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
       setNotice({ kind: "action", message: t("assetCanvas.canvasFull") });
       return;
     }
@@ -1708,17 +1744,20 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         const created = resultAssets.map((item) => assets.find((asset) => asset.id === item.assetId)).filter((asset): asset is LibraryAsset => Boolean(asset));
         if (!created.length || created.length !== resultAssets.length) throw new Error(t("assetCanvas.mediaTools.resultUnavailable"));
         if (nodesRef.current.length + created.length > MAX_ASSET_CANVAS_NODES) throw new Error(t("assetCanvas.canvasFull"));
-        const startX = (source?.position.x ?? 0) + (source?.measured?.width ?? 440) + 60;
-        const startY = source?.position.y ?? 0;
-        const createdNodes = created.map((asset, index) => assetFlowNode(asset, snapCanvasPosition({ x: startX + (index % 3) * 480, y: startY + Math.floor(index / 3) * 560 })));
+        const sourceAt = source ? canvasAbsolutePosition(source, nodesRef.current) : { x: 0, y: 0 };
+        const columns = Math.min(3, created.length);
+        const block = { width: columns * 480 - 40, height: Math.ceil(created.length / columns) * 560 - 40 };
+        // Place the results as one block in empty canvas space nearest to the source.
+        const start = snapCanvasPosition(findCanvasFreeArea(nodesRef.current, block, { x: sourceAt.x + (source?.measured?.width ?? 440) + 60, y: sourceAt.y }));
+        const createdNodes = created.map((asset, index) => assetFlowNode(asset, { x: start.x + (index % columns) * 480, y: start.y + Math.floor(index / columns) * 560 }));
         flushSync(() => setNodes((current) => [
           ...current.map((node) => ({ ...node, selected: false })),
           ...createdNodes,
         ]));
-        const first = createdNodes[0]!;
         const flow = flowInstance.current;
-        // New nodes have not been measured yet, so fitView would ignore them.
-        void flow?.setCenter(first.position.x + 220, first.position.y + 220, { zoom: Math.min(flow.getViewport().zoom, 1), duration: 300 });
+        // New nodes have not been measured yet, so fitView would ignore them; frame their block instead.
+        if (createdNodes.length > 1) void flow?.fitBounds({ ...start, ...block }, { padding: 0.15, duration: 300 });
+        else void flow?.setCenter(start.x + 220, start.y + 220, { zoom: Math.min(flow.getViewport().zoom, 1), duration: 300 });
         setMediaToolDialog(undefined);
         setCropNodeId(undefined);
         setNotice({ kind: "action", message: t("assetCanvas.mediaTools.created", { name: created.length === 1 ? created[0]!.name : `${created.length} assets` }) });
@@ -2322,7 +2361,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
                 mediaType={selectedMediaType}
                 isGif={selectedImageIsGif}
                 imageCount={selectedMediaType === "image" ? selectedMediaNodes.length : 0}
-                busy={mediaToolBusy}
+                busy={mediaToolBusy || materializingExamples}
                 onOpen={openMediaTool}
                 onGroup={canGroupSelection ? groupSelection : undefined}
                 onUngroup={canUngroupSelection ? ungroupSelection : undefined}
@@ -3577,6 +3616,11 @@ function TextReferenceThumbnail({ runtime }: { runtime: Pick<MediaNodeRuntime, "
       <button type="button" title={t("assetCanvas.disconnectText")} aria-label={t("assetCanvas.disconnectText")} disabled={runtime.busy} onClick={() => runtime.onDisconnectPrompt?.()}><X size={11} /></button>
     </div>
   );
+}
+
+/** Generated nodes from pixel templates show a bundled example until they have their own output. */
+function hasExampleOutput(node: AssetCanvasFlowNode): boolean {
+  return node.type === "image" && !node.data.sourceInput && Boolean(pixelExampleImageUrl(node.data.exampleImage));
 }
 
 function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, assetId, assetAspectRatio, aspectRatio, runtime, details, emptyHint, previewUrl, children }: {

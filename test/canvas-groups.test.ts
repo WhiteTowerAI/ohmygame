@@ -17,6 +17,7 @@ import {
   canvasDescendantIds,
   canvasDropGroup,
   expandCanvasGroups,
+  findCanvasFreeArea,
   orderedCanvasNodes,
   reparentCanvasNode,
 } from "../src/renderer/canvas-groups.js";
@@ -71,6 +72,23 @@ describe("canvas groups", () => {
     expect(clampCanvasGroupResize(inner, [outer, inner, protruding], { x: 50, y: 60, width: 490, height: 400 }).width).toBe(490);
     expect(clampCanvasGroupResize(inner, [outer, inner, protruding], { x: 50, y: 60, width: 279, height: 400 }).width).toBe(280);
   });
+  it("places a block in the nearest empty area instead of over existing nodes", () => {
+    const source = { ...text("source", 0, 0), width: 440, height: 400 };
+    const block = { width: 1400, height: 1080 };
+    const preferred = { x: 500, y: 0 };
+    expect(findCanvasFreeArea([source], block, preferred)).toEqual(preferred);
+    const neighbour = { ...text("neighbour", 600, 200), width: 440, height: 300 };
+    const placed = findCanvasFreeArea([source, neighbour], block, preferred);
+    const overlaps = (x: number, y: number, node: { position: { x: number; y: number }; width: number; height: number }) =>
+      x < node.position.x + node.width && x + block.width > node.position.x && y < node.position.y + node.height && y + block.height > node.position.y;
+    expect(overlaps(placed.x, placed.y, source)).toBe(false);
+    expect(overlaps(placed.x, placed.y, neighbour)).toBe(false);
+    const frame = group("frame", 1200, -200);
+    const nested = { ...text("nested", 50, 50, "frame"), width: 300, height: 200 };
+    const withGroup = findCanvasFreeArea([source, frame, nested], { width: 400, height: 300 }, { x: 1250, y: -150 });
+    expect(withGroup.x >= 1760 || withGroup.y >= 260 || withGroup.y + 300 <= -260).toBe(true);
+  });
+
   it("validates nested groups and rejects missing or cyclic parents", () => {
     const canvas = createAssetCanvasDocument();
     canvas.nodes = [
