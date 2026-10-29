@@ -1,0 +1,754 @@
+/*
+ * Settings, inside the page frame: the section list in the sheet's side
+ * column, then one scrolling column of titled groups. A group is a card of
+ * rows (what it is on the left, the control on the right), as in the lab.
+ * Everything reads the ui tokens.
+ */
+
+/* ---------- section list ---------- */
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.settings-nav-title {
+  padding: 0 var(--space-2) var(--space-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.settings-nav-group + .settings-nav-group {
+  margin-top: var(--space-3);
+}
+
+.settings-nav-heading {
+  padding: 0 var(--space-2) var(--space-1);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-nav-item:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.settings-nav-item:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.settings-nav-item.is-current {
+  background: var(--color-selected);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+/* ---------- the sheet ---------- */
+
+.settings-scroll {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+/* Long reading areas show their scrollbar only while the pointer is over them. */
+.settings-scroll:hover {
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 760px;
+  margin: 0 auto;
+  padding: var(--space-6) clamp(16px, 4vw, 40px) 80px;
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 32px;
+}
+
+.settings-head h1,
+.settings-detail-title h1 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-body :is(h2, h3, h4, p) {
+  margin: 0;
+}
+
+.settings-body code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* ---------- groups and rows ---------- */
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-group > header {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: 0 var(--space-1);
+}
+
+.settings-group > header > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-group-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.settings-group h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-group header p {
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.settings-count {
+  color: var(--color-text-tertiary);
+  font-weight: var(--weight-regular);
+}
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+}
+
+/* Rows inside a card are divided by a hairline, as in Codex. */
+.settings-card > * + * {
+  box-shadow: inset 0 1px 0 var(--color-border);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 56px;
+  padding: var(--space-3) var(--space-4);
+}
+
+.settings-row.is-link {
+  cursor: pointer;
+  transition: background var(--duration-fast);
+}
+
+.settings-row.is-link:hover {
+  background: var(--color-hover);
+}
+
+.settings-row-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+}
+
+.settings-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-row-text strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-medium);
+}
+
+.settings-row-text > span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-row-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 60%;
+}
+
+.settings-row-chevron {
+  color: var(--color-text-tertiary);
+}
+
+.settings-pad {
+  padding: var(--space-4);
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.settings-inline {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.settings-inline > .ui-input,
+.settings-inline > .ui-select,
+.settings-inline > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.settings-actions.is-start {
+  justify-content: flex-start;
+}
+
+.settings-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-toolbar > .ui-input {
+  flex: 1;
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.settings-spacer {
+  flex: 1;
+}
+
+.settings-muted {
+  color: var(--color-text-tertiary);
+}
+
+.settings-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* ---------- badges, notes, marks ---------- */
+
+.settings-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.settings-badge.is-outline {
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+  color: var(--color-text-secondary);
+}
+
+.settings-badge.is-ink {
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+}
+
+.settings-badge.is-success {
+  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  color: var(--color-success);
+}
+
+.settings-badge.is-danger {
+  background: color-mix(in srgb, var(--color-danger) 16%, transparent);
+  color: var(--color-danger);
+}
+
+.settings-cap {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: 18px;
+}
+
+.settings-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-note {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-note.is-success {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.settings-note.is-danger {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.settings-note p + p {
+  margin-top: var(--space-1);
+}
+
+.settings-loading-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 56px;
+  padding: 0 var(--space-4);
+  color: var(--color-text-tertiary);
+}
+
+/* A provider or agent logo, on a quiet tile so dark marks read in dark mode. */
+.settings-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+}
+
+.settings-mark img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.settings-mark.is-brand img {
+  width: 100%;
+  height: 100%;
+}
+
+/* Black marks turn white on the dark tile; light marks keep a light tile; the
+   OhMyGame mark turns black in the light appearance. */
+[data-appearance="dark"] .settings-mark.is-monochrome img {
+  filter: invert(1);
+}
+
+[data-appearance="dark"] .settings-mark.is-light {
+  background: var(--gray-12);
+}
+
+[data-appearance="light"] .settings-mark.is-brand img {
+  filter: brightness(0) saturate(100%);
+}
+
+.settings-detail-mark .settings-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.settings-detail-mark .settings-mark img {
+  width: 24px;
+  height: 24px;
+}
+
+.settings-detail-mark .settings-mark.is-brand img {
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------- a page one step into a section ---------- */
+
+.settings-detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.settings-detail-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-detail-title p {
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.settings-detail-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ---------- appearance ---------- */
+
+.theme-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+
+.theme-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-tile > span:last-child {
+  display: flex;
+  flex-direction: column;
+  padding: 0 2px;
+}
+
+.theme-tile small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.theme-tile.is-selected {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.theme-tile:focus-visible {
+  outline: none;
+}
+
+.theme-tile .theme-preview,
+.theme-preview-split {
+  border-radius: var(--radius-md);
+  transition: box-shadow var(--duration-fast);
+}
+
+.theme-tile:hover .theme-preview,
+.theme-tile:hover .theme-preview-split,
+.theme-tile:focus-visible .theme-preview,
+.theme-tile:focus-visible .theme-preview-split {
+  box-shadow: 0 0 0 1px var(--color-border-strong);
+}
+
+.theme-tile.is-selected .theme-preview,
+.theme-tile.is-selected .theme-preview-split {
+  box-shadow: 0 0 0 2px var(--color-text);
+}
+
+/* Follow system: the light preview, with the dark one over its right half. */
+.theme-preview-split {
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+
+.theme-preview-split .theme-preview {
+  border-radius: 0;
+  box-shadow: none !important;
+}
+
+.theme-preview-split .theme-preview:last-child {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(0 0 0 50%);
+}
+
+/* The preview carries its own data-appearance and data-palette, so the token
+   rules give it that theme's greys. */
+.theme-preview {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 28% 1fr;
+  gap: 4px;
+  aspect-ratio: 16 / 10;
+  padding: 6px 6px 6px 0;
+  overflow: hidden;
+  background: var(--gray-0);
+}
+
+.theme-preview-rail,
+.theme-preview-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.theme-preview-rail {
+  padding: 4px 6px;
+}
+
+.theme-preview-sheet {
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--gray-2);
+}
+
+.theme-preview i,
+.theme-preview b {
+  display: block;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--gray-5);
+}
+
+.theme-preview-rail i:first-child {
+  width: 70%;
+  background: var(--gray-6);
+}
+
+.theme-preview-sheet i:first-child {
+  width: 60%;
+  background: var(--gray-9);
+}
+
+.theme-preview-sheet i:nth-child(2) {
+  width: 85%;
+}
+
+.theme-preview-sheet b {
+  height: 18px;
+  margin-top: auto;
+  border-radius: 4px;
+  background: var(--gray-3);
+}
+
+.font-sample {
+  color: var(--color-text-secondary);
+}
+
+.font-sample.is-serif {
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+}
+
+/* ---------- account and about ---------- */
+
+.settings-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.settings-identity-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-identity-text strong {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-identity-text span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.settings-avatar {
+  width: 48px;
+  height: 48px;
+  flex: none;
+}
+
+.settings-about-logo {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: var(--radius-lg);
+}
+
+.settings-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 160px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.settings-progress-track {
+  flex: 1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--color-hover);
+}
+
+.settings-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transition: width var(--duration-base);
+}
+
+.settings-details {
+  font-size: var(--text-sm);
+}
+
+.settings-details > summary {
+  width: fit-content;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.settings-details > summary:hover {
+  color: var(--color-text);
+}
+
+.settings-details[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
+.settings-details code {
+  display: block;
+  max-height: 160px;
+  overflow: auto;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-stage);
+  box-shadow: var(--shadow-hairline);
+  white-space: pre-wrap;
+}
+
+/* The changelog sits in a card like the other groups. */
+.settings-changelog {
+  padding: var(--space-4);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.settings-changelog :is(h1, h2, h3, h4) {
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--color-text);
+  font-size: var(--text-md);
+}
+
+.settings-changelog :is(ul, ol) {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.settings-changelog a {
+  color: var(--color-text);
+}
+
+/* ---------- commands people copy ---------- */
+
+.settings-command {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-stage);
+  box-shadow: var(--shadow-hairline);
+}
+
+.settings-command code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 760px) {
+  .settings-row {
+    flex-wrap: wrap;
+  }
+
+  .settings-row-control {
+    max-width: none;
+  }
+}

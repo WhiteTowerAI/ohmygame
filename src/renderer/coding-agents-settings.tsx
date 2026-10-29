@@ -1,16 +1,14 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
-  ArrowLeft,
   Check,
+  ChevronRight,
   Copy,
   LoaderCircle,
   RefreshCw,
-  Settings,
   Terminal,
 } from "./icons.js";
 import { isAccountRuntimeId } from "../shared/agent-runtimes.js";
 import type {
-  AgentPermissionMode,
   AgentRuntimeDiagnostic,
   AgentRuntimeId,
   AgentRuntimeStatus,
@@ -26,18 +24,11 @@ import {
 } from "./api.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { openModelAuthExternal } from "./use-model-provider-auth.js";
-import { SegmentedControl } from "./segmented-control.js";
+import { Button, Field, IconButton, Input, RadioGroup, Switch } from "./ui/index.js";
+import { SettingsBadge, SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { AgentUsageDetails, AgentUsageInline } from "./agent-usage.js";
 import { t } from "./i18n.js";
 import { AgentAccountProfiles } from "./agent-account-profiles.js";
-
-const PERMISSION_OPTIONS: readonly {
-  value: AgentPermissionMode;
-  label: string;
-}[] = [
-  { value: "standard", label: t("codingAgents.permissionStandard") },
-  { value: "full", label: t("codingAgents.permissionFull") },
-];
 
 /**
  * The coding agent CLIs in Agents: those found on this computer, each with
@@ -47,12 +38,14 @@ export function CodingAgentsGroup({
   models,
   defaultAgent,
   onOpen,
+  actions,
 }: {
   /** Model probes can also report fresh account limits; reload status when they finish. */
   models?: readonly AgentModel[];
   /** The agent whose model new conversations start with, if it is a CLI. */
   defaultAgent?: AgentRuntimeId;
   onOpen: (id: AgentRuntimeId) => void;
+  actions?: ReactNode;
 }) {
   const [agents, setAgents] = useState<AgentRuntimeStatus[]>();
   const [error, setError] = useState<string>();
@@ -109,14 +102,15 @@ export function CodingAgentsGroup({
     }
   }
   return (
-    <section
-      className="settings-provider-group coding-agents-group"
-      aria-label={t("codingAgents.title")}
+    <SettingsGroup
+      className="coding-agents-group"
+      title={t("codingAgents.title")}
+      description={t("settings.agents.codingHint")}
+      actions={actions}
     >
-      <h4>{t("codingAgents.title")}</h4>
       {!agents && !error ? (
-        <div className="settings-loading">
-          <LoaderCircle className="spin" size={18} />
+        <div className="settings-loading-row">
+          <LoaderCircle className="spin" size={16} />
           {t("codingAgents.checking")}
         </div>
       ) : null}
@@ -125,64 +119,48 @@ export function CodingAgentsGroup({
           ? t("codingAgents.manage", { name: agent.name })
           : t("codingAgents.setUp", { name: agent.name });
         return (
-          <div className="settings-provider-row" key={agent.id}>
-            <AgentMark id={agent.id} />
-            <span className="settings-provider-copy">
-              <strong className="settings-provider-name">
-                <span>{agent.name}</span>
+          <SettingsRow
+            key={agent.id}
+            className="settings-agent-row"
+            icon={<AgentMark id={agent.id} />}
+            title={
+              <>
+                {agent.name}
                 {agent.id === defaultAgent ? (
-                  <small>{t("agents.default")}</small>
+                  <SettingsBadge>{t("agents.default")}</SettingsBadge>
                 ) : null}
-              </strong>
-              <span className="settings-provider-details">
-                <span className="settings-provider-description">
-                  {agentSummary(agent)}
-                </span>
-              </span>
-              {agent.limits?.length ? (
-                <AgentUsageInline limits={agent.limits} />
-              ) : null}
-            </span>
+              </>
+            }
+            description={agentSummary(agent)}
+            onClick={() => onOpen(agent.id)}
+          >
+            {agent.installed && agent.enabled && agent.limits?.length ? (
+              <AgentUsageInline limits={agent.limits} compact />
+            ) : null}
             {agent.installed ? (
-              <label
-                className="settings-toggle settings-provider-toggle"
-                title={
-                  agent.enabled ? t("common.enabled") : t("common.disabled")
-                }
-              >
-                <input
-                  type="checkbox"
-                  role="switch"
-                  aria-label={t("codingAgents.enable", { name: agent.name })}
-                  checked={agent.enabled}
-                  disabled={pending.has(agent.id)}
-                  onChange={(event) => void toggle(agent, event.target.checked)}
-                />
-                <span aria-hidden="true" />
-              </label>
+              <Switch
+                label={t("codingAgents.enable", { name: agent.name })}
+                checked={agent.enabled}
+                disabled={pending.has(agent.id)}
+                onChange={(enabled) => void toggle(agent, enabled)}
+              />
             ) : (
-              <em className="settings-provider-status is-not_configured">
-                {t("codingAgents.notInstalled")}
-              </em>
+              <Button size="sm" onClick={() => onOpen(agent.id)}>
+                {t("settings.agents.setUp")}
+              </Button>
             )}
-            <button
-              className="icon-button settings-provider-action"
-              type="button"
-              data-tooltip={action}
-              aria-label={action}
-              onClick={() => onOpen(agent.id)}
-            >
-              <Settings size={17} aria-hidden="true" />
-            </button>
-          </div>
+            <IconButton size="sm" label={action} onClick={() => onOpen(agent.id)}>
+              <ChevronRight size={16} />
+            </IconButton>
+          </SettingsRow>
         );
       })}
       {error ? (
-        <p className="settings-error" role="alert">
-          {error}
-        </p>
+        <div className="settings-pad">
+          <SettingsNote tone="danger">{error}</SettingsNote>
+        </div>
       ) : null}
-    </section>
+    </SettingsGroup>
   );
 }
 
@@ -254,101 +232,66 @@ export function CodingAgentDetail({
     event.preventDefault();
     void update({ binaryPath: binaryPath.trim() });
   }
+  const back = t("settings.agents.back");
   if (!agent) {
     return (
-      <section className="settings-panel settings-provider-detail">
-        <header className="settings-provider-detail-header">
-          <button
-            className="icon-button settings-provider-back"
-            type="button"
-            onClick={onBack}
-            aria-label={t("common.back")}
-          >
-            <ArrowLeft size={16} />
-          </button>
-        </header>
+      <>
+        <SettingsDetailHead mark={<AgentMark id={id} />} title={t("settings.nav.agents")} onBack={onBack} backLabel={back} />
         {error ? (
-          <p className="settings-error" role="alert">
-            {error}
-          </p>
+          <SettingsNote tone="danger">{error}</SettingsNote>
         ) : (
-          <div className="settings-loading">
-            <LoaderCircle className="spin" size={18} />
+          <div className="settings-loading-row">
+            <LoaderCircle className="spin" size={16} />
             {t("codingAgents.checking")}
           </div>
         )}
-      </section>
+      </>
     );
   }
   const problems = agent.diagnostics;
   return (
-    <section className="settings-panel settings-provider-detail coding-agent-detail">
-      <header className="settings-provider-detail-header">
-        <button
-          className="icon-button settings-provider-back"
-          type="button"
-          onClick={onBack}
-          aria-label={t("common.back")}
-        >
-          <ArrowLeft size={16} />
-        </button>
-        <AgentMark id={agent.id} />
-        <span className="settings-provider-heading">
-          <h3>{agent.name}</h3>
-        </span>
+    <div className="settings-form coding-agent-detail">
+      <SettingsDetailHead
+        mark={<AgentMark id={agent.id} />}
+        title={agent.name}
+        description={agentSummary(agent)}
+        onBack={onBack}
+        backLabel={back}
+      >
         {agent.installed ? (
-          <div className="settings-provider-enable-control">
-            <label className="settings-provider-enable-label">
-              <small>
-                {agent.enabled ? t("common.enabled") : t("common.disabled")}
-              </small>
-              <span className="settings-toggle">
-                <input
-                  type="checkbox"
-                  role="switch"
-                  aria-label={t("codingAgents.enable", { name: agent.name })}
-                  checked={agent.enabled}
-                  disabled={busy !== undefined}
-                  onChange={(event) =>
-                    void update({ enabled: event.target.checked })
-                  }
-                />
-                <span aria-hidden="true" />
-              </span>
-            </label>
-          </div>
+          <Switch
+            label={t("codingAgents.enable", { name: agent.name })}
+            checked={agent.enabled}
+            disabled={busy !== undefined}
+            onChange={(enabled) => void update({ enabled })}
+          />
         ) : null}
-      </header>
-      <div className="settings-provider-connection">
-        <div className="settings-provider-setting-row">
-          <span className="settings-search-field-label">
-            {t("codingAgents.status")}
-          </span>
-          <span className="settings-provider-setting-value">
-            {agentSummary(agent)}
-          </span>
-          <button
-            type="button"
-            className="icon-button settings-provider-setting-edit"
+      </SettingsDetailHead>
+      <SettingsGroup title={t("codingAgents.status")}>
+        <SettingsRow
+          title={agent.version ? `v${agent.version}` : t("codingAgents.versionUnknown")}
+          description={agentSummary(agent)}
+        >
+          <IconButton
+            size="sm"
+            label={t("codingAgents.recheck")}
             disabled={busy !== undefined}
             onClick={() => void recheck()}
-            aria-label={t("codingAgents.recheck")}
-            data-tooltip={t("codingAgents.recheck")}
           >
-            <RefreshCw
-              size={15}
-              className={busy === "recheck" ? "spin" : undefined}
-              aria-hidden="true"
-            />
-          </button>
-        </div>
+            <RefreshCw size={15} className={busy === "recheck" ? "spin" : undefined} />
+          </IconButton>
+        </SettingsRow>
         {agent.installed && agent.id === "opencode-cli" ? (
-          <div className="settings-provider-setting-row settings-provider-auth-row">
-            <span className="settings-search-field-label">{t("codingAgents.account")}</span>
-            <span className="settings-provider-setting-value">{t("codingAgents.openCodeAccounts")}</span>
+          <SettingsRow title={t("codingAgents.account")} description={t("codingAgents.openCodeAccounts")} />
+        ) : null}
+        {problems.length ? (
+          <div className="settings-pad settings-form" aria-label={t("codingAgents.diagnostics")} role="group">
+            {problems.map((diagnostic) => (
+              <Diagnostic key={diagnostic.code} agent={agent} diagnostic={diagnostic} />
+            ))}
           </div>
         ) : null}
-      </div>
+      </SettingsGroup>
       {isAccountRuntimeId(agent.id) ? <AgentAccountProfiles key={agent.id} runtime={agent.id} defaultProfileId={agent.defaultProfileId ?? "system"} onDefault={(defaultProfileId) => update({ defaultProfileId })} onLogin={signIn} onRemoved={async () => {
         setAgent((await listAgentRuntimes()).find((item) => item.id === id));
         notifyAgentModelsChanged();
@@ -356,111 +299,80 @@ export function CodingAgentDetail({
       {login ? <LoginHint login={login} /> : null}
       {agent.installed && agent.id !== "opencode-cli" ? (
         // OpenCode bills each model provider; its account has no quota of its own.
-        <section className="settings-detail-section">
-          <h4>{t("agentUsage.title")}</h4>
-          {agent.limits?.length ? (
-            <AgentUsageDetails limits={agent.limits} />
-          ) : (
-            <p className="cloud-quota-note">
-              {t("agentUsage.empty", { name: agent.name })}
-            </p>
-          )}
-        </section>
+        <SettingsGroup title={t("agentUsage.title")}>
+          <div className="settings-pad">
+            {agent.limits?.length ? (
+              <AgentUsageDetails limits={agent.limits} />
+            ) : (
+              <p className="settings-muted">{t("agentUsage.empty", { name: agent.name })}</p>
+            )}
+          </div>
+        </SettingsGroup>
       ) : null}
-      {problems.length ? (
-        <section
-          className="settings-detail-section"
-          aria-label={t("codingAgents.diagnostics")}
-        >
-          {problems.map((diagnostic) => (
-            <Diagnostic
-              key={diagnostic.code}
-              agent={agent}
-              diagnostic={diagnostic}
-            />
-          ))}
-        </section>
-      ) : null}
-      {agent.installed ? (
-        <section className="settings-detail-section">
-          <h4>{t("codingAgents.configuration")}</h4>
-          <div className="coding-agent-permission">
-            <span className="settings-search-field-label">
-              {t("codingAgents.permissions")}
-            </span>
-            <SegmentedControl
-              className="settings-chat-layout-control"
+      <SettingsGroup title={t("codingAgents.configuration")} description={agent.installed ? t("codingAgents.cliConfigHint", { name: agent.name }) : undefined}>
+        {agent.installed ? (
+          <div className="settings-pad settings-form">
+            <RadioGroup
               label={t("codingAgents.permissions")}
-              options={PERMISSION_OPTIONS}
               value={agent.permissionMode}
               onChange={(permissionMode) => void update({ permissionMode })}
+              options={[
+                { value: "standard", label: t("codingAgents.permissionStandard"), description: t("settings.agents.permissionStandardHint") },
+                { value: "full", label: t("codingAgents.permissionFull"), description: t("codingAgents.permissionFullHint", { name: agent.name }) },
+              ]}
             />
+            {agent.permissionMode === "full" ? (
+              <SettingsNote role="status">{t("settings.agents.permissionFullNote", { name: agent.name })}</SettingsNote>
+            ) : null}
           </div>
-          {agent.permissionMode === "full" ? (
-            <p className="coding-agent-warning" role="note">
-              {t("codingAgents.permissionFullHint", { name: agent.name })}
-            </p>
-          ) : null}
-          <p className="settings-detail-hint">
-            {t("codingAgents.cliConfigHint", { name: agent.name })}
-          </p>
-        </section>
-      ) : null}
-      <section className="settings-detail-section">
-        <form className="settings-detail-field" onSubmit={savePath}>
-          <label
-            className="settings-search-field-label"
-            htmlFor={`${agent.id}-executable`}
-          >
-            {t("codingAgents.executable")}
-          </label>
-          <div className="settings-detail-inline">
-            <input
-              id={`${agent.id}-executable`}
-              aria-describedby={`${agent.id}-executable-hint`}
-              className="settings-search-input"
-              value={binaryPath}
-              placeholder={t("codingAgents.executablePlaceholder")}
-              spellCheck={false}
-              onChange={(event) => setBinaryPath(event.target.value)}
-            />
-            <button
-              type="submit"
-              className="settings-secondary-button"
-              disabled={
-                busy !== undefined ||
-                binaryPath.trim() === (agent.configuredBinaryPath ?? "")
-              }
-            >
-              {t("common.save")}
-            </button>
-          </div>
-        </form>
-        <p className="settings-detail-hint" id={`${agent.id}-executable-hint`}>
-          {t("codingAgents.executableHint")}
-        </p>
-        {agent.binaryPath ? (
-          <p className="settings-detail-hint coding-agent-executable-path">
-            {agent.binarySource
-              ? `${t(`codingAgents.binarySource.${agent.binarySource}`)}: `
-              : ""}
-            <code>{agent.binaryPath}</code>
-          </p>
         ) : null}
-      </section>
-      {error ? (
-        <p className="settings-error" role="alert">
-          {error}
-        </p>
-      ) : null}
-    </section>
+        <form className="settings-pad" onSubmit={savePath}>
+          <Field
+            label={t("codingAgents.executable")}
+            hint={
+              <>
+                {t("codingAgents.executableHint")}
+                {agent.binaryPath ? (
+                  <span className="coding-agent-executable-path">
+                    {" "}
+                    {agent.binarySource
+                      ? `${t(`codingAgents.binarySource.${agent.binarySource}`)}: `
+                      : ""}
+                    <code>{agent.binaryPath}</code>
+                  </span>
+                ) : null}
+              </>
+            }
+          >
+            {(props) => (
+              <div className="settings-inline">
+                <Input
+                  {...props}
+                  value={binaryPath}
+                  placeholder={t("codingAgents.executablePlaceholder")}
+                  spellCheck={false}
+                  onChange={(event) => setBinaryPath(event.target.value)}
+                />
+                <Button
+                  type="submit"
+                  disabled={busy !== undefined || binaryPath.trim() === (agent.configuredBinaryPath ?? "")}
+                >
+                  {t("common.save")}
+                </Button>
+              </div>
+            )}
+          </Field>
+        </form>
+      </SettingsGroup>
+      {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
+    </div>
   );
 }
 
 function LoginHint({ login }: { login: { url?: string; command?: string } }) {
   if (login.url) {
     return (
-      <p className="settings-detail-hint" role="status">
+      <SettingsNote role="status">
         {t("codingAgents.loginOpened")}{" "}
         <button
           type="button"
@@ -469,13 +381,14 @@ function LoginHint({ login }: { login: { url?: string; command?: string } }) {
         >
           {t("codingAgents.openAgain")}
         </button>
-      </p>
+      </SettingsNote>
     );
   }
   return login.command ? (
-    <div className="settings-detail-hint" role="status">
-      {t("codingAgents.loginCommand")} <CommandText command={login.command} />
-    </div>
+    <SettingsNote role="status">
+      <p>{t("codingAgents.loginCommand")}</p>
+      <CommandText command={login.command} />
+    </SettingsNote>
   ) : null;
 }
 
@@ -487,15 +400,13 @@ function Diagnostic({
   diagnostic: AgentRuntimeDiagnostic;
 }) {
   const text = diagnosticText(agent, diagnostic);
+  const blocking =
+    diagnostic.code === "not-installed" ||
+    diagnostic.code === "runtime-incompatible";
   return (
     <div
-      className={`coding-agent-diagnostic is-${diagnostic.code}`}
-      role={
-        diagnostic.code === "not-installed" ||
-        diagnostic.code === "runtime-incompatible"
-          ? "alert"
-          : "status"
-      }
+      className={`settings-note coding-agent-diagnostic${blocking ? " is-danger" : ""} is-${diagnostic.code}`}
+      role={blocking ? "alert" : "status"}
     >
       <Terminal size={14} aria-hidden="true" />
       <span>
@@ -549,15 +460,11 @@ export function CommandText({ command }: { command: string }) {
     return () => window.clearTimeout(timer);
   }, [copied]);
   return (
-    <span className="coding-agent-command">
+    <span className="settings-command coding-agent-command">
       <code>{command}</code>
-      <button
-        type="button"
-        className="icon-button"
-        aria-label={t("codingAgents.copyCommand")}
-        data-tooltip={
-          copied ? t("codingAgents.copied") : t("codingAgents.copyCommand")
-        }
+      <IconButton
+        size="sm"
+        label={copied ? t("codingAgents.copied") : t("codingAgents.copyCommand")}
         onClick={() =>
           void navigator.clipboard.writeText(command).then(
             () => setCopied(true),
@@ -565,30 +472,17 @@ export function CommandText({ command }: { command: string }) {
           )
         }
       >
-        {copied ? (
-          <Check size={13} aria-hidden="true" />
-        ) : (
-          <Copy size={13} aria-hidden="true" />
-        )}
-      </button>
+        {copied ? <Check size={13} /> : <Copy size={13} />}
+      </IconButton>
     </span>
   );
 }
 
 export function AgentMark({ id }: { id: AgentRuntimeId }) {
   const icon = PROVIDER_ICONS[id];
-  if (!icon)
-    return (
-      <span className="settings-provider-mark-slot" aria-hidden="true">
-        <Terminal size={20} />
-      </span>
-    );
   return (
-    <span
-      className={`settings-provider-mark is-${icon.tone}`}
-      aria-hidden="true"
-    >
-      <img src={icon.src} alt="" />
+    <span className={`settings-mark${icon ? ` is-${icon.tone}` : ""}`} aria-hidden="true">
+      {icon ? <img src={icon.src} alt="" /> : <Terminal size={18} />}
     </span>
   );
 }

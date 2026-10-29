@@ -9382,6 +9382,11 @@ button {
   overflow-wrap: anywhere;
 }
 
+/* Settings → Appearance can set the chat in a serif (tokens.css). */
+:root[data-chat-font="serif"] :is(.assistant-message, .user-message) {
+  font-family: var(--font-chat);
+}
+
 .assistant-response {
   margin: 0 0 18px;
 }
