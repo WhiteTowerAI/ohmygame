@@ -206,8 +206,9 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
             onPointerDownCapture={(event) => {
               if (active && !(event.target as Element).closest(".dock-resizer")) onActivate?.(active);
             }}>
-            <div className="dock-tabs" role="tablist" aria-label={t("panels.areaPanels", { area: areaLabel(area) })}
-              onDragOver={(event) => over(event, area)} onDrop={(event) => drop(event, area)}>
+            <div className="dock-tabs" onDragOver={(event) => over(event, area)} onDrop={(event) => drop(event, area)}>
+              {/* The tabs scroll when crowded; the toolbar beside them doesn't, so its menus can open below. */}
+              <div className="dock-tab-list" role="tablist" aria-label={t("panels.areaPanels", { area: areaLabel(area) })}>
               {ids.map((id) => {
                 const panel = byId.get(id)!;
                 const moves = (["left", "center", "right", "bottom"] as const).filter((to) => to !== area)
@@ -240,6 +241,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
                   <IconButton {...props} size="sm" label={t("panels.add")} className="dock-add"><Plus size={14} /></IconButton>
                 )} items={addMenu(area)} />
               ) : null}
+              </div>
               {ids.map((id) => <div key={id} ref={slotRef(id)} className="dock-toolbar" hidden={id !== active} />)}
             </div>
             <div className={`dock-body${area === "center" && overlay ? " has-float" : ""}`}

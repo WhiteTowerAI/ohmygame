@@ -36,14 +36,24 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 2px;
   height: 36px;
   padding: 0 var(--space-1);
+  /* Clipping, not scrolling: the toolbar's menus still open below the strip. */
+  overflow-x: clip;
+}
+
+.dock-tab-list {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 100%;
   overflow-x: auto;
   scrollbar-width: none;
 }
 
-.dock-tabs > .ui-context-area {
+.dock-tab-list > .ui-context-area {
   display: contents;
 }
 
@@ -194,12 +204,11 @@
 /* the active panel's own controls, after the tabs */
 .dock-toolbar {
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   align-self: stretch;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  min-width: 0;
   padding-left: var(--space-2);
 }
 
