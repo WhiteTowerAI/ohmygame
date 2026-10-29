@@ -487,6 +487,18 @@ Projects URL preserves its type filter, search (`q`), and name sorting
 (`sort=name`) when returning or refreshing. See the
 [workspace return example](assets/project-return-navigation.webp).
 
+Pages outside a project share one sidebar: Search (the Projects search field
+until the command menu arrives), Home, Projects, Library, Community, Plugins,
+the eight most recently edited projects, and the account. Its menu opens
+Settings (also **⌘,** or **Ctrl+,**), Account, Billing and About; signed out, it
+leads with **Sign in…**. A pending desktop update shows above the account until
+it needs a restart. The sidebar collapses to icons and its edge drags between
+200 and 360px (double-click restores 232px); both stay across pages and
+restarts. Settings is a page in this frame, with its sections beside the
+content. The studio home pages (`#/web-game`, `#/interactive-story`,
+`#/godot`, `#/asset-canvas`, `#/general`) are no longer in the sidebar but still
+open from their links.
+
 In the desktop app, the project card menu's **Open in folder** action opens the
 project's workspace in the system file manager, including projects using an
 existing folder. It is available in recent projects and the Projects list.
