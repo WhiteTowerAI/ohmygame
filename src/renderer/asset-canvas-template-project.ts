@@ -1,6 +1,6 @@
-import { PIXEL_ART_LEVELS, type PixelArtLevel } from "../shared/canvas-pixel-style.js";
+import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import type { AssetCanvasNode, ImageResolution, ImageAspectRatio } from "../shared/contracts.js";
-import { expandCanvasGroups, layoutPixelLevelGroups } from "./canvas-groups.js";
+import { expandCanvasGroups } from "./canvas-groups.js";
 import {
   createPixelAssetWorkflowNodes,
   PIXEL_ASSET_TEMPLATE_NOTE,
@@ -28,29 +28,23 @@ const GUIDE_ROW_HEIGHT = 50;
 const STEP_HEIGHT = 200;
 const STEP_GAP = 48;
 
-export async function createPixelAssetTemplateProject(category: PixelAssetTemplateCategory): Promise<{ projectId: string; nodeId: string }> {
-  const project = await createProject({ name: pixelAssetCategoryTemplateLabel(category), type: "asset-canvas" });
+/** Builds one pixel-density group for the category; the new board's other density groups are removed. */
+export async function createPixelAssetTemplateProject(category: PixelAssetTemplateCategory, level: PixelArtLevel): Promise<{ projectId: string; nodeId: string }> {
+  const project = await createProject({ name: pixelAssetCategoryTemplateLabel(category, level), type: "asset-canvas" });
 
   try {
     const [workspace, imageModels] = await Promise.all([getCanvasWorkspace(project.id), listImageModels()]);
     const entry = workspace.boards[0];
     if (!entry) throw new Error(t("assetCanvas.pixelPresets.templateCanvasUnavailable"));
     const detail = await getCanvasBoard(project.id, entry.id);
-    const levelGroups = new Map(PIXEL_ART_LEVELS.map((level) => [
-      level,
-      detail.board.nodes.find((node) => node.type === "group" && node.data.pixelStyle === level),
-    ]));
-    if ([...levelGroups.values()].some((group) => !group || group.type !== "group")) throw new Error(t("assetCanvas.pixelPresets.templateCanvasUnavailable"));
+    const group = detail.board.nodes.find((node) => node.type === "group" && node.data.pixelStyle === level);
+    if (!group) throw new Error(t("assetCanvas.pixelPresets.templateCanvasUnavailable"));
+    const kept = detail.board.nodes.filter((node) => node.type !== "group" || !node.data.pixelStyle || node.id === group.id);
 
-    let nodeId = "";
-    const additions = PIXEL_ART_LEVELS.flatMap((level) => {
-      const group = levelGroups.get(level)!;
-      const workflow = createCategoryWorkflow(category, level, imageModels, group.id);
-      if (level === "classic") nodeId = workflow.outputNodeId;
-      return workflow.nodes;
-    });
-    const workflowNodes = layoutPixelLevelGroups(expandCanvasGroups([...detail.board.nodes, ...additions]));
-    const firstGroup = workflowNodes.find((node) => node.type === "group" && node.data.pixelStyle)!;
+    const workflow = createCategoryWorkflow(category, level, imageModels, group.id);
+    const nodeId = workflow.outputNodeId;
+    const workflowNodes = expandCanvasGroups([...kept, ...workflow.nodes]);
+    const firstGroup = workflowNodes.find((node) => node.id === group.id)!;
     const presetIds = pixelAssetTemplatePresetIds(category);
     // The guide grows with its use list, so it sits a fixed gap above the groups instead of a fixed offset.
     const introduction: AssetCanvasNode = {
@@ -71,8 +65,7 @@ export async function createPixelAssetTemplateProject(category: PixelAssetTempla
     let nodes: AssetCanvasNode[] = [introduction, ...workflowNodes];
     if (category === "animation") {
       // Steps 1-3 run down one column: guide above the groups, then splitting, merging, and the GIF examples below.
-      const genGroups = workflowNodes.filter((n) => n.type === "group" && (n.data as { pixelStyle?: unknown }).pixelStyle);
-      const maxGroupBottom = Math.max(...genGroups.map((g) => g.position.y + (g.height ?? 560)));
+      const maxGroupBottom = firstGroup.position.y + (firstGroup.height ?? 560);
       const step = (index: 2 | 3, y: number): AssetCanvasNode => ({
         id: crypto.randomUUID(),
         type: "text",
@@ -91,8 +84,7 @@ export async function createPixelAssetTemplateProject(category: PixelAssetTempla
       const GIF_NODE_START_X = 16;
       const GIF_NODE_START_Y = 52;
 
-      const gifGroupNodes: AssetCanvasNode[] = PIXEL_ART_LEVELS.flatMap((level, levelIndex) => {
-        const genGroup = genGroups[levelIndex];
+      const gifGroupNodes: AssetCanvasNode[] = (() => {
         const gifGroupId = crypto.randomUUID();
 
         const gifExamples = pixelAssetTemplatePresetIds(category).flatMap((presetId) => {
@@ -125,17 +117,14 @@ export async function createPixelAssetTemplateProject(category: PixelAssetTempla
         const gifGroup: AssetCanvasNode = {
           id: gifGroupId,
           type: "group" as const,
-          position: {
-            x: genGroup ? genGroup.position.x : levelIndex * 600,
-            y: gifGroupY,
-          },
+          position: { x: firstGroup.position.x, y: gifGroupY },
           data: {
             name: `${t(`assetCanvas.pixelPresets.levels.${level}`)} · GIF`,
           },
         };
 
         return [gifGroup, ...gifChildNodes];
-      });
+      })();
 
       nodes = [introduction, step2, step3, ...workflowNodes, ...expandCanvasGroups(gifGroupNodes)];
     }

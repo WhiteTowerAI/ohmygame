@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { findAssetCanvasCoverSource } from "../src/shared/asset-canvas-cover.js";
+import { pixelExampleCoverUrl, pixelExampleImageUrl } from "../src/renderer/asset-canvas-pixel-examples.js";
 
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
@@ -14,5 +15,14 @@ describe("Asset Canvas cover", () => {
     ];
 
     expect(findAssetCanvasCoverSource(canvas)).toEqual({ assetId: "video-1", mediaType: "video" });
+  });
+
+  it("falls back to the last generator's template example until the board has media", () => {
+    const image = (id: string, exampleImage: string, sourceInput?: true) => ({ id, type: "image" as const, position: { x: 0, y: 0 }, data: { prompt: "", resolution: "1K" as const, aspectRatio: "1:1" as const, images: [], exampleImage, ...(sourceInput ? { sourceInput } : {}) } });
+    const nodes = [image("monster", "classic/monster"), image("animal", "classic/animal"), image("reference", "reference/creature", true)];
+    expect(findAssetCanvasCoverSource({ ...createAssetCanvasDocument(), nodes })).toBeUndefined();
+    expect(pixelExampleCoverUrl(nodes)).toBe(pixelExampleImageUrl("classic/animal"));
+    expect(pixelExampleCoverUrl([nodes[2]!])).toBe(pixelExampleImageUrl("reference/creature"));
+    expect(pixelExampleCoverUrl([])).toBeUndefined();
   });
 });

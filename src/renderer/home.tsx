@@ -8,6 +8,8 @@ import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
+import { PixelTemplateDensityDialog } from "./pixel-template-density-dialog.js";
+import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import { GAME_PROJECT_TYPES } from "./project-types.js";
@@ -54,6 +56,8 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
   const [projectType, setProjectType] = useState<ProjectType>("web-game");
   const [createOpen, setCreateOpen] = useState(false);
   const [templateCreating, setTemplateCreating] = useState<PixelAssetTemplateCategory>();
+  const [templateDensityCategory, setTemplateDensityCategory] = useState<PixelAssetTemplateCategory>();
+  const templateTrigger = useRef<HTMLElement | null>(null);
   const [renameTarget, setRenameTarget] = useState<ProjectState>();
   const renameTrigger = useRef<HTMLElement | null>(null);
   const { examples, covers: exampleCovers } = useExamples();
@@ -98,12 +102,12 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
     }
   }
 
-  async function createTemplate(category: PixelAssetTemplateCategory): Promise<void> {
+  async function createTemplate(category: PixelAssetTemplateCategory, level: PixelArtLevel): Promise<void> {
     setTemplateCreating(category);
     setProjectActionError(undefined);
     try {
       const { createPixelAssetTemplateProject } = await import("./asset-canvas-template-project.js");
-      const created = await createPixelAssetTemplateProject(category);
+      const created = await createPixelAssetTemplateProject(category, level);
       onOpenAssetCanvas(created.projectId, created.nodeId);
     } catch (error) {
       setProjectActionError(errorMessage(error));
@@ -183,7 +187,10 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
                 key={category.id}
                 disabled={templateCreating !== undefined}
                 aria-busy={templateCreating === category.id}
-                onClick={() => void createTemplate(category.id)}
+                onClick={(event) => {
+                  templateTrigger.current = event.currentTarget;
+                  setTemplateDensityCategory(category.id);
+                }}
               >
                 <span className="home-whats-new-icon home-explore-cover">
                   <img src={PIXEL_TEMPLATE_COVERS[category.id]} alt="" />
@@ -202,6 +209,15 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
           <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen} />
         </section> : null}
       </section>
+      {templateDensityCategory ? <PixelTemplateDensityDialog
+        category={templateDensityCategory}
+        returnFocus={templateTrigger.current}
+        onClose={() => setTemplateDensityCategory(undefined)}
+        onConfirm={(level) => {
+          setTemplateDensityCategory(undefined);
+          void createTemplate(templateDensityCategory, level);
+        }}
+      /> : null}
       {renameTarget ? <ProjectRenameDialog name={renameTarget.name} returnFocus={renameTrigger.current} onClose={() => setRenameTarget(undefined)} onConfirm={(name) => {
         const project = renameTarget;
         setRenameTarget(undefined);

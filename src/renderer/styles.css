@@ -4237,6 +4237,68 @@ button.home-nav-item-active:hover {
   gap: 20px;
   padding: 20px;
 }
+.pixel-template-density-dialog {
+  width: min(620px, 100%);
+}
+.pixel-template-density-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pixel-template-density-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.pixel-template-density-option {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 8px 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.pixel-template-density-option:hover {
+  background: var(--surface-hover);
+}
+.pixel-template-density-option:has(input:checked) {
+  border-color: var(--composer-accent);
+}
+.pixel-template-density-option:has(input:focus-visible) {
+  outline: 2px solid var(--composer-accent);
+  outline-offset: 2px;
+}
+.pixel-template-density-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.pixel-template-density-preview {
+  overflow: hidden;
+  margin-bottom: 4px;
+  aspect-ratio: 1;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--surface-hover);
+}
+.pixel-template-density-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: pixelated;
+}
+.pixel-template-density-option strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.pixel-template-density-option small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
 .project-create-name {
   display: grid;
   gap: 8px;

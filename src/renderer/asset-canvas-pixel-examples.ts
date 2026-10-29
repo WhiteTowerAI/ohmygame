@@ -1,3 +1,4 @@
+import type { AssetCanvasNode } from "../shared/contracts.js";
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import type { PixelAssetPresetId, PixelAssetTemplateCategory } from "./asset-canvas-pixel-workflows.js";
 
@@ -219,6 +220,13 @@ export const PIXEL_RESKIN_CLOTHING_EXAMPLE = "reference/clothing";
 
 export function pixelExampleImageUrl(id?: string): string | undefined {
   return id ? EXAMPLE_IMAGES[id] : undefined;
+}
+
+/** Template boards start with bundled examples only; the last generator example stands in as the cover until real media exists. */
+export function pixelExampleCoverUrl(nodes: readonly AssetCanvasNode[]): string | undefined {
+  const examples = nodes.filter((node): node is Extract<AssetCanvasNode, { type: "image" }> => node.type === "image" && Boolean(pixelExampleImageUrl(node.data.exampleImage)));
+  const generators = examples.filter((node) => !node.data.sourceInput);
+  return pixelExampleImageUrl((generators.length ? generators : examples).at(-1)?.data.exampleImage);
 }
 
 export function pixelPresetExampleId(presetId: PixelAssetPresetId, level: PixelArtLevel): string | undefined {

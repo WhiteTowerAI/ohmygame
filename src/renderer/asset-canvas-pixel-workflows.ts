@@ -203,8 +203,9 @@ export function pixelAssetWorkflowLabel(
 
 export function pixelAssetCategoryTemplateLabel(
   category: PixelAssetTemplateCategory,
+  level: PixelArtLevel,
 ): string {
-  return `${t(`assetCanvas.pixelPresets.categories.${category}`)} · ${t("assetCanvas.pixelPresets.allLevels")}`;
+  return `${t(`assetCanvas.pixelPresets.categories.${category}`)} · ${pixelArtLevelLabel(level)}`;
 }
 
 export function pixelAssetReferenceNode(

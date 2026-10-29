@@ -9,10 +9,11 @@ nodes and asset IDs. Local media can reference existing project-relative paths.
 
 New Asset Canvas boards have three pixel-density groups. Home's Creative
 templates picker groups character, creature, animation, scene, terrain, object,
-and skin presets. Choosing a preset creates a new canvas with its matching
-generator or workflow in each density group. Character outfits & skins adds two
-image inputs and a linked output directly to each group, without a nested frame.
-Each new category template also adds an introduction above the density groups.
+and skin presets. Choosing a template first asks for one pixel density (the last
+choice is remembered), then creates a new canvas that keeps only that density's
+group, filled with the category's generators or workflow. Character outfits &
+skins adds two image inputs and a linked output directly to the group, without a
+nested frame. Each new category template also adds an introduction above the group.
 It explains the intended game use of every output, including the distinction
 between static animation sheets that need frame splitting and storyboard panels.
 These text nodes use `pixel-asset-template:<category>` to render localized guidance;

@@ -127,7 +127,7 @@ import { ModelPreview } from "./model-preview.js";
 import { type PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, placePixelPresetOutsideDensityGroups, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import { AssetCanvasPixelPresetDialog } from "./asset-canvas-pixel-preset-dialog.js";
-import { pixelExampleImageUrl } from "./asset-canvas-pixel-examples.js";
+import { pixelExampleCoverUrl, pixelExampleImageUrl } from "./asset-canvas-pixel-examples.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, DEFAULT_VIDEO_NODE_CONFIG, MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_REFERENCE_IMAGES, normalizeModel3DConfig, resolveModel3D, resolveModel3DConnection } from "../shared/generation-config.js";
@@ -716,12 +716,16 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   latestCanvas.current = document;
 
   useEffect(() => {
-    if (project.type !== "asset-canvas" || phase !== "ready" || !document || libraryAssets.length === 0) return;
+    if (project.type !== "asset-canvas" || phase !== "ready" || !document) return;
+    const source = findAssetCanvasCoverSource(document);
+    const exampleUrl = source ? undefined : pixelExampleCoverUrl(document.nodes);
+    if (source ? libraryAssets.length === 0 : !exampleUrl) return;
     let disposed = false;
     void (async () => {
-      const source = findAssetCanvasCoverSource(document);
-      if (!source || await getProjectCover(projectId)) return;
-      const cover = await projectCoverBlob(source, libraryAssets, assetBlob);
+      if (await getProjectCover(projectId)) return;
+      const cover = source
+        ? await projectCoverBlob(source, libraryAssets, assetBlob)
+        : await mediaBlobToWebP(await (await fetch(exampleUrl!)).blob(), "image");
       if (!disposed && cover && !(await getProjectCover(projectId))) await setProjectCover(projectId, cover, "auto");
     })().catch(() => {});
     return () => { disposed = true; };
