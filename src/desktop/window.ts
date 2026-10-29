@@ -2,6 +2,7 @@ import { BrowserWindow, nativeTheme, screen, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
+import { pluginFrameNavigationAllowed } from "../shared/plugin-ui-protocol.js";
 
 const PLAYTEST_MAX_CONTENT_WIDTH = 1280;
 const PLAYTEST_MAX_CONTENT_HEIGHT = 800;
@@ -117,10 +118,11 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   // The preload asks for the daemon address and token instead of reading them
   // from its command line, which other processes of the same user can read.
   // Only the renderer page in this window receives them, not a frame embedded
-  // in it or a page the window was redirected to.
+  // in it or a page the window was redirected to. A window closing while its
+  // page still asks is destroyed, and reading its webContents would throw.
   window.webContents.ipc.on("ohmygame:desktop-runtime", (event) => {
     const frame = event.senderFrame;
-    event.returnValue = frame && frame === window.webContents.mainFrame && isRendererPage(frame.url, rendererTarget)
+    event.returnValue = frame && !window.isDestroyed() && frame === window.webContents.mainFrame && isRendererPage(frame.url, rendererTarget)
       ? { url: options.runtime.url, token: options.runtime.token }
       : null;
   });
@@ -132,6 +134,13 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   window.webContents.on("will-navigate", (event, url) => {
     if (!isRendererPage(url, rendererTarget)) event.preventDefault();
   });
+  // A plugin page's frame stays within its own plugin's files.
+  const pluginUiUrl = options.runtime.pluginUiUrl;
+  if (pluginUiUrl)
+    window.webContents.on("will-frame-navigate", (event) => {
+      if (event.isMainFrame || !event.frame) return;
+      if (!pluginFrameNavigationAllowed(event.frame.url, event.url, pluginUiUrl)) event.preventDefault();
+    });
   // A hidden window, such as a Scene thumbnail capture, runs the game out of
   // sight, so it must not be heard either.
   if (options.hidden) window.webContents.setAudioMuted(true);

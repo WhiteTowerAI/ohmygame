@@ -1134,19 +1134,6 @@ describe("AgentTimeline", () => {
     expect(html.match(/aria-label="Edit message"/g)).toHaveLength(1);
   });
 
-  it("offers restore on every user message that has a checkpoint", () => {
-    const items = [
-      { ...user(), checkpointId: "checkpoint-1" },
-      { ...user(), id: "user-2", turnId: "turn-2", text: "Second" },
-      { ...user(), id: "user-3", turnId: "turn-3", text: "Third", checkpointId: "checkpoint-3" },
-    ];
-    const html = renderToStaticMarkup(<AgentTimeline items={items} onRestore={() => {}} />);
-
-    expect(html.match(/aria-label="Restore to before this message"/g)).toHaveLength(2);
-    expect(renderToStaticMarkup(<AgentTimeline items={items} />)).not.toContain("Restore to before this message");
-    expect(renderToStaticMarkup(<AgentTimeline items={items} onRestore={() => {}} revisionDisabled />).match(/aria-label="Restore to before this message"[^>]*disabled/g)).toHaveLength(2);
-  });
-
   it("shows collapsed file summaries below completed and failed turns", () => {
     const items = [
       { ...user(), checkpointId: "checkpoint-1", changes: { files: 1, items: [{ path: "notes.txt", kind: "added" as const, lines: { added: 12, removed: 0 } }] } },

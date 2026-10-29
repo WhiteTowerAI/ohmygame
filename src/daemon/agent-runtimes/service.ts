@@ -25,7 +25,7 @@ import {
 } from "../../shared/agent-runtimes.js";
 import type { SkillCatalogItem } from "../agent.js";
 import type { EffectiveMcpConfig, PluginMcpHost } from "../plugin-mcp-host.js";
-import { AGENT_RUNTIME_DEFINITIONS, commandSandbox } from "./definitions.js";
+import { AGENT_RUNTIME_DEFINITIONS } from "./definitions.js";
 import {
   AgentRuntimeCompatibilityError,
   checkRuntimeVersionRequirement,
@@ -50,9 +50,7 @@ import {
 import { NativeCodingSession, type NativeDriver } from "./native-session.js";
 import { ToolBridge } from "./tool-bridge.js";
 import type { DriverContext, HttpBridgeHandlers, SaveGeneratedImage } from "./driver-context.js";
-import type { AgentPolicyContext } from "./policy.js";
 import { AgentRuntimeSettingsStore } from "./settings.js";
-import { stagedSkillsRoot } from "./skills.js";
 import { ClaudeCodeDriver } from "./claude-code.js";
 import { CodexAppServer } from "./codex-app-server.js";
 import { CodexDriver } from "./codex.js";
@@ -109,7 +107,6 @@ export interface NativeSessionRequest {
   };
   skillDirectories: string[];
   instructions: string;
-  policy: AgentPolicyContext;
   snapshotBeforeMessage?: () => Promise<string>;
   turnNotice?: () => Promise<string | undefined>;
   requestApproval(
@@ -235,7 +232,6 @@ export class AgentRuntimeService {
       name: definition.name,
       testedVersion: definition.testedVersion,
       enabled: settings.enabled,
-      commandSandbox: commandSandbox(id),
       permissionMode: settings.permissionMode,
       ...(isAccountRuntimeId(id) ? { defaultProfileId: settings.defaultProfileId ?? "system" } : {}),
       ...(settings.binaryPath
@@ -534,22 +530,7 @@ export class AgentRuntimeService {
       instructions: `${request.instructions}\n\n${NATIVE_INSTRUCTIONS}`,
       bridge,
       saveGeneratedImage: request.saveGeneratedImage,
-      policy: {
-        ...request.policy,
-        fullAccess: settings.permissionMode === "full",
-        // Claude Code runs every command in its sandbox. Codex asks only for
-        // what would leave its sandbox, so its requests are judged strictly.
-        sandboxedCommands:
-          settings.permissionMode === "standard" &&
-          request.runtime === "claude-code-cli" &&
-          commandSandbox(request.runtime) === "os",
-        readablePaths: [
-          stagedSkillsRoot(
-            request.runtime,
-            codexServer?.directory ?? folder.path,
-          ),
-        ],
-      },
+      permissionMode: settings.permissionMode,
       ...(codexServer ? { codexServer } : {}),
       skillDirectories: request.skillDirectories,
       httpBridge: async (handlers) => {
@@ -900,11 +881,7 @@ export class AgentRuntimeService {
       }
       let requirementError: Error | undefined;
       try {
-        checkRuntimeVersionRequirement(
-          id,
-          version,
-          this.settings.get(id).permissionMode,
-        );
+        checkRuntimeVersionRequirement(id, version);
       } catch (cause) {
         requirementError =
           cause instanceof Error ? cause : new Error(String(cause));

@@ -1,5 +1,4 @@
 import type { ProviderSummary } from "../shared/contracts.js";
-import { DOUBAO_VOICE_PROVIDER_NAME } from "../shared/audio.js";
 
 /** Providers listed ahead of the rest in Settings and first-run setup, in display order. */
 const POPULAR_PROVIDER_IDS = [
@@ -21,15 +20,6 @@ export interface ProviderGroups {
   more: ProviderSummary[];
 }
 
-/** One settings connection; service IDs remain stable in models and saved nodes. */
-export function withDoubaoConnection(providers: readonly ProviderSummary[]): ProviderSummary[] {
-  const seed = providers.find((provider) => provider.id === "volcengine-seed-audio");
-  return providers.filter((provider) => provider.id !== "volcengine-seed-audio").map((provider) => provider.id === "volcengine-tts" ? {
-    ...provider, name: DOUBAO_VOICE_PROVIDER_NAME, configured: provider.configured || Boolean(seed?.configured), status: provider.configured || seed?.configured ? "connected" : "not_configured",
-    enabled: provider.enabled !== false || Boolean(seed && seed.enabled !== false),
-  } : provider);
-}
-
 /** Splits providers into the groups both provider lists show, keeping each group's order stable. */
 export function groupProviders(
   providers: readonly ProviderSummary[],
@@ -43,7 +33,6 @@ export function groupProviders(
     isLocal: (provider: ProviderSummary) => boolean;
   },
 ): ProviderGroups {
-  providers = withDoubaoConnection(providers);
   const connected = providers.filter(isConnected);
   const remaining = providers.filter((provider) => !isConnected(provider));
   const free = remaining.filter(isFree);

@@ -39,6 +39,7 @@ vi.mock("electron", () => ({
     readonly once = vi.fn();
     readonly loadURL = vi.fn(async () => {});
     readonly setAspectRatio = vi.fn();
+    destroyed = false;
     onNavigate?: (event: { preventDefault(): void }, url: string) => void;
     onWindowOpen?: (details: { url: string }) => { action: string };
 
@@ -47,6 +48,7 @@ vi.mock("electron", () => ({
       electron.windows.push(this);
     }
     show() {}
+    isDestroyed() { return this.destroyed; }
   },
 }));
 
@@ -197,6 +199,13 @@ describe("desktop window", () => {
       answer(embedded);
       expect(embedded.returnValue).toBeNull();
     }
+
+    window.webContents.mainFrame.url = pageUrl;
+    const closing = { senderFrame: window.webContents.mainFrame, returnValue: undefined as unknown };
+    (window as unknown as { destroyed: boolean }).destroyed = true;
+    Object.defineProperty(window, "webContents", { get: () => { throw new TypeError("Object has been destroyed"); } });
+    answer(closing);
+    expect(closing.returnValue).toBeNull();
   });
 
   it("mutes a hidden window, such as a thumbnail capture", async () => {
