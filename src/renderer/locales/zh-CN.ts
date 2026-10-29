@@ -127,6 +127,7 @@ const zhCN: typeof en = {
     deleteName: "删除 {{name}}",
   },
   ui: {
+    remove: "移除",
     search: "搜索",
     searchPlaceholder: "搜索…",
     selectPlaceholder: "选择…",

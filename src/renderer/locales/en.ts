@@ -126,6 +126,7 @@ const en = {
     deleteName: "Delete {{name}}",
   },
   ui: {
+    remove: "Remove",
     search: "Search",
     searchPlaceholder: "Search…",
     selectPlaceholder: "Select…",
