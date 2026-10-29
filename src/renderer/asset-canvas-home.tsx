@@ -20,6 +20,7 @@ const QUICK_START_ICONS: Record<AssetCanvasStarter, IconComponent> = {
   video: Film,
   "model-3d": Box,
   music: Music2,
+  "audio-scene": Music2,
 };
 
 export function AssetCanvasHome({ onNavigate, onOpenProject }: {

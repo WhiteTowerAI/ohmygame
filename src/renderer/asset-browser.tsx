@@ -6,7 +6,6 @@ import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from ".
 import { ModelPreview } from "./model-preview.js";
 import { VideoTrimmer } from "./video-trimmer.js";
 import type { VideoTrim } from "./video-trim.js";
-import { AudioCompanionDownloads } from "./canvas-audio-controls.js";
 import { t } from "./i18n.js";
 
 export type MediaFilter = "all" | NonNullable<WorkspaceFile["mediaType"]>;
@@ -176,7 +175,7 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
 
   return <AssetDialogShell
     title={asset.prompt ?? fileName(asset.path)}
-    subtitle={<><AudioCompanionDownloads data={asset.audio} name={fileName(asset.path)} /><span title={fileName(asset.path)}>{fileName(asset.path)}</span>{asset.projectName ? <span>{asset.projectName}</span> : null}</>}
+    subtitle={<><span title={fileName(asset.path)}>{fileName(asset.path)}</span>{asset.projectName ? <span>{asset.projectName}</span> : null}</>}
     labelledBy="asset-dialog-title"
     onClose={onClose}
     onEscape={() => { if (menuOpen) setMenuOpen(false); else onClose(); }}

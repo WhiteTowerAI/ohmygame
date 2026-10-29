@@ -251,11 +251,11 @@ async function openViewer(nodeId: string): Promise<void> {
 }
 
 it.each([
-  ["music", MusicNode, false],
-  ["sound effect", SoundEffectNode, false],
-  ["existing speech", SpeechNode, true],
-  ["existing audio scene", AudioSceneNode, true],
-] as const)("renders the expected companion downloads for %s nodes", async (_label, AudioNode, showMetadata) => {
+  ["music", MusicNode],
+  ["sound effect", SoundEffectNode],
+  ["existing speech", SpeechNode],
+  ["existing audio scene", AudioSceneNode],
+] as const)("renders %s nodes without legacy audio download or transcript controls", async (_label, AudioNode) => {
   await act(async () => root.render(
     <CanvasAssetProvider assets={canvasAssetSources("download", assets)}>
       <ReactFlowProvider>
@@ -272,9 +272,10 @@ it.each([
       </ReactFlowProvider>
     </CanvasAssetProvider>,
   ));
-  const labels = [...container.querySelectorAll(".audio-companion-downloads button")].map((button) => button.textContent);
   expect(container.querySelector("audio")).not.toBeNull();
-  expect(labels).toEqual(showMetadata ? ["Audio JSON", "SRT", "WebVTT"] : ["SRT", "WebVTT"]);
+  expect(container.querySelector(".audio-companion-downloads")).toBeNull();
+  expect(container.querySelector(".audio-subtitle-seek")).toBeNull();
+  expect(container.querySelector(".audio-current-subtitle")).toBeNull();
 });
 
 it.each(["toolbar", "context menu"])("offers only music and sound effects in the %s audio entries", async (entry) => {

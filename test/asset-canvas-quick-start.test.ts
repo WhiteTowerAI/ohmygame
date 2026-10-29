@@ -57,6 +57,15 @@ describe("Asset Canvas quick start", () => {
     ]);
   });
 
+  it("creates the music quick start with a music node", async () => {
+    const result = await createAssetCanvasQuickStart(starter("music"));
+
+    expect(api.saveCanvasBoard).toHaveBeenCalledWith(PROJECT.id, expect.objectContaining({ board: expect.objectContaining({
+      nodes: [expect.objectContaining({ type: "music", data: { prompt: "", instrumental: true } })],
+    }) }));
+    expect(result.nodeId).toBeTruthy();
+  });
+
   it("drops cached models after provider settings change", async () => {
     api.listImageModels.mockResolvedValue([GPT_IMAGE]);
     await quickStart.loadQuickStartModels();

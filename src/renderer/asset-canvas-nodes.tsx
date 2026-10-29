@@ -13,7 +13,7 @@ import { videoReferenceMode, videoReferenceAliases, sameVideoReference, resolveV
 import { useEffect, useId, type CSSProperties, useState, useRef, useMemo, type SyntheticEvent } from "react";
 import { VideoReferencePrompt } from "./video-reference-prompt.js";
 import { type AudioAssetData, type AudioProviderCatalogStatus, type AudioOperation } from "../shared/audio.js";
-import { AudioCompanionDownloads, audioSettingsIssue, CanvasAudioControls } from "./canvas-audio-controls.js";
+import { audioSettingsIssue, CanvasAudioControls } from "./canvas-audio-controls.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, canAffordCloudModel, CloudQuotaStatus } from "./cloud-quota.js";
 import { remeshPolycount, MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
@@ -284,12 +284,12 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
     });
   };
   const prompt = combineAssetCanvasPrompt(runtime?.linkedPrompt, operation === "speech" ? data.text ?? "" : data.prompt ?? "");
-  const issue = (selectedModel?.protocol === "volcengine-tts-v3" && !data.voiceId && !runtime?.providers.find((provider) => provider.provider === selectedModel.provider)?.defaultVoiceId ? t("audioStudio.needVoice") : undefined) ?? (runtime?.referenceControls?.references.some((reference) => !reference.assetId) ? t("assetCanvas.missingNode") : undefined) ?? audioSettingsIssue(data, selectedModel) ?? (selectedModel?.capabilities.maxTextCharacters && prompt.length + (data.style?.length ?? 0) > selectedModel.capabilities.maxTextCharacters ? t("audioStudio.promptLimit", { count: selectedModel.capabilities.maxTextCharacters }) : undefined);
+  const issue = (selectedModel?.protocol === "volcengine-tts-v3" && !data.voiceId && !runtime?.providers.find((provider) => provider.provider === selectedModel.provider)?.defaultVoiceId ? t("audioStudio.needVoice") : undefined) ?? audioSettingsIssue(data, selectedModel) ?? (selectedModel?.capabilities.maxTextCharacters && prompt.length + (data.style?.length ?? 0) > selectedModel.capabilities.maxTextCharacters ? t("audioStudio.promptLimit", { count: selectedModel.capabilities.maxTextCharacters }) : undefined);
   const canGenerate = !runtime?.busy && !runtime?.generating && !issue && Boolean(prompt.trim() && selectedModel);
   const label = operation === "music" ? t("assetCanvas.node.music") : operation === "speech" ? t("assetCanvas.node.speech") : operation === "audio-scene" ? t("audioStudio.scene") : t("assetCanvas.node.soundEffect");
 
   return (
-    <MediaNodeShell kind="audio" label={label} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails} showAudioMetadata={operation !== "music" && operation !== "sound-effect"}>
+    <MediaNodeShell kind="audio" label={label} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails}>
       <MediaPrompt
         kind="audio"
         label={operation === "speech" ? t("assetCanvas.node.speech") : operation === "audio-scene" ? t("audioStudio.scene") : operation === "music" ? t("assetCanvas.musicPrompt") : t("assetCanvas.soundEffectPrompt")}
@@ -300,7 +300,7 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
         onChange={(value) => change(operation === "speech" ? { text: value } : { prompt: value })}
       />
       {issue ? <p role="alert">{issue}</p> : null}
-      <CanvasAudioControls value={data} model={selectedModel} disabled={runtime?.busy} onChange={change} referenceControls={runtime?.referenceControls} />
+      <CanvasAudioControls value={data} model={selectedModel} disabled={runtime?.busy} onChange={change} />
       {operation === "sound-effect" && selectedModel?.capabilities.supportsNegativePrompt ? <CanvasTextarea
         aria-label={t("assetCanvas.negativePrompt")}
         rows={2}
@@ -744,7 +744,7 @@ function TextReferenceThumbnail({ runtime }: { runtime: Pick<MediaNodeRuntime, "
   );
 }
 
-function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, assetId, assetAspectRatio, aspectRatio, runtime, details, emptyHint, showAudioMetadata, children }: {
+function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, assetId, assetAspectRatio, aspectRatio, runtime, details, emptyHint, children }: {
   kind: "image" | "video" | "audio" | "model" | "animation";
   label?: string;
   selected: boolean;
@@ -755,7 +755,6 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
   runtime?: MediaNodeRuntime;
   details?: CanvasNodeDetails;
   emptyHint?: string;
-  showAudioMetadata?: boolean;
   children: React.ReactNode;
 }) {
   const preview = useWorkspaceAssetUrl(undefined, "", 0, assetId);
@@ -772,7 +771,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
         {preview.url ? kind === "audio" ? null : <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt={t("timeline.generatedImage")} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
-        {preview.url && audio ? <CanvasAudio src={preview.url} data={runtime && "audio" in runtime ? runtime.audio as AudioAssetData : undefined} showMetadata={showAudioMetadata} /> : null}
+        {preview.url && audio ? <CanvasAudio src={preview.url} data={runtime && "audio" in runtime ? runtime.audio as AudioAssetData : undefined} /> : null}
         {preview.url && threeD ? <ModelPreview source={preview.url} label={kind === "animation" ? t("assetCanvas.animated3d") : t("timeline.generated3d")} minHeight={220} interactive={false} /> : null}
         {!preview.url && !runtime?.generating ? (
           <div className="story-media-empty">
@@ -866,7 +865,7 @@ function CanvasVideo({ src, onLoadedMetadata }: {
   );
 }
 
-function CanvasAudio({ src, data, showMetadata }: { src: string; data?: AudioAssetData; showMetadata?: boolean }) {
+function CanvasAudio({ src, data }: { src: string; data?: AudioAssetData }) {
   const audio = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -900,9 +899,6 @@ function CanvasAudio({ src, data, showMetadata }: { src: string; data?: AudioAss
         onLoadedMetadata={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
         onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
       />
-      <AudioCompanionDownloads data={data} showMetadata={showMetadata} />
-      {data?.subtitles?.sentences.length ? <select className="audio-subtitle-seek nodrag nopan" aria-label={t("audioStudio.transcript")} value="" onChange={(event) => { const sentence = data.subtitles!.sentences[Number(event.target.value)]; if (sentence && audio.current) { audio.current.currentTime = sentence.startMs / 1000; setCurrentTime(sentence.startMs / 1000); } }}><option value="">{t("audioStudio.transcript")}</option>{data.subtitles.sentences.map((sentence, index) => <option key={index} value={index}>{(sentence.startMs / 1000).toFixed(2)}s · {sentence.text}</option>)}</select> : null}
-      {data?.subtitles ? <p className="audio-current-subtitle">{data.subtitles.sentences.find((sentence) => currentTime * 1000 >= sentence.startMs && currentTime * 1000 < sentence.endMs)?.text ?? ""}</p> : null}
       <InlineVideoControls
         label={t("assetCanvas.media.audio.label")}
         playing={playing}

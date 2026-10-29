@@ -101,7 +101,7 @@ import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
 import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
 import { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
-import { AUDIO_REFERENCE_ID_PATTERN, DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioOperation } from "../shared/audio.js";
+import { DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioOperation } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -496,7 +496,6 @@ const toolRunSchema = {
       instrumental: { type: "boolean" },
       lyrics: { type: "string", maxLength: 20_000 },
       negativePrompt: { type: "string", maxLength: 4_000 },
-      referenceAssetId: { type: "string", minLength: 1, maxLength: 100 },
       referenceMode: { enum: ["frame", "reference"] },
       targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
@@ -537,7 +536,6 @@ const toolRunSchema = {
           additionalProperties: false,
           required: ["type", "assetId"],
           properties: {
-            id: { type: "string", pattern: AUDIO_REFERENCE_ID_PATTERN, maxLength: 120 },
             type: { enum: ["image", "video", "audio"] },
             assetId: { type: "string", minLength: 1, maxLength: 100 },
           },
@@ -706,11 +704,7 @@ export function createApp(options: AppOptions = {}) {
     undefined,
     () => providerEnabled("volcengine-seed-audio"),
   );
-  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider], async (assetId) => {
-    const content = await library.content(assetId);
-    if (content.asset.size > 10 * 1024 * 1024) throw new AudioGenerationError("Reference assets must be 10 MB or smaller", 400);
-    return { bytes: await readFile(content.absolutePath), mediaType: content.asset.contentType };
-  });
+  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider]);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -1288,7 +1282,15 @@ export function createApp(options: AppOptions = {}) {
 
   app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string; projectId?: string; nodeId?: string } }>(
     "/tools/:toolId/jobs",
-    { schema: toolRunSchema, bodyLimit: TOOL_RUN_BODY_LIMIT },
+    {
+      schema: toolRunSchema,
+      bodyLimit: TOOL_RUN_BODY_LIMIT,
+      preValidation: async (request, reply) => {
+        if (!["generate-speech", "generate-sound-effect", "generate-music", "generate-audio"].includes(request.params.toolId) || !request.body || typeof request.body !== "object") return;
+        const removed = ["references", "referenceAssetId", "subtitles"].find((key) => key in request.body);
+        if (removed) return reply.code(400).send({ error: `Unexpected ${removed} option` });
+      },
+    },
     async (request, reply) => {
       try {
         const { title, projectId, nodeId, ...input } = request.body;

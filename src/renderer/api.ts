@@ -1597,12 +1597,7 @@ export function setProjectIntegration(projectId: string, pluginId: string): Prom
   return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "PUT", body: JSON.stringify({ pluginId }) });
 }
 
-export interface DoubaoVoiceConnection { ttsConfigured: boolean; seedConfigured: boolean; distinctKeys: boolean; defaultVoiceId?: string }
-export function getDoubaoVoiceSettings(): Promise<DoubaoVoiceConnection> { return request("/settings/models/providers/doubao-voice"); }
-export async function updateDoubaoVoiceApiKey(apiKey: string): Promise<DoubaoVoiceConnection> {
-  const result = await request<DoubaoVoiceConnection>("/settings/models/providers/doubao-voice", { method: "PUT", body: JSON.stringify({ apiKey }) });
-  notifyAgentModelsChanged(); return result;
-}
+export function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
 export async function previewSeedAudio(prompt: string): Promise<Blob> {
   const response = await fetch(apiUrl("/settings/models/providers/volcengine-seed-audio/preview"), { method: "POST", headers: { ...runtimeHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ prompt, durationSeconds: 2 }) });
   if (!response.ok) throw await responseError(response);

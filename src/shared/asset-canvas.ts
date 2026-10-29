@@ -15,7 +15,7 @@ import { Check } from "typebox/value";
 import { canvasNodeContent, canvasNodeLayout, contentNodeSizeIssue, isResizableCanvasNodeType, withoutContentNodeSize } from "./canvas-node-layout.js";
 import { ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA, ASSET_CANVAS_SCHEMA } from "./asset-canvas-schema.js";
 
-export type AssetCanvasStarter = "image" | "video" | "model-3d" | "music";
+export type AssetCanvasStarter = "image" | "video" | "model-3d" | "music" | "audio-scene";
 
 export function createAssetCanvasDocument(): AssetCanvasDocument {
   return {
@@ -63,6 +63,7 @@ export function createAssetGenerationNode(type: AssetCanvasStarter, position: { 
     },
   };
   if (type === "music") return { id, type, position, data: { prompt: "", instrumental: true } };
+  if (type === "audio-scene") return { id, type, position, data: { prompt: "" } };
   return { id, type, position, data: { ...DEFAULT_MODEL_3D_CONFIG, images: [] } };
 }
 

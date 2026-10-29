@@ -964,7 +964,7 @@ describe("design merge and validation", () => {
   });
 });
 
-it("saves scene references and subtitle companions outside temporary runs", async () => {
+it("reads legacy scene settings but omits references and subtitles from new generations", async () => {
   const model = { provider: "volcengine-seed-audio", id: "seed-audio-1.0" };
   const subtitles = { text: "Welcome", sentences: [{ text: "Welcome", startMs: 100, endMs: 800, words: [{ text: "Welcome", startMs: 100, endMs: 800 }] }] };
   const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("fixture audio"), mediaType: "audio/wav", model, metadata: { durationMs: 1000, originalDurationMs: 1200, providerRequestId: "trace-scene" }, subtitles });
@@ -977,13 +977,16 @@ it("saves scene references and subtitle companions outside temporary runs", asyn
   await store.generateNode(project.id, boardId, "scene");
   const job = await waitForJob(store, project.id);
   expect(job.status).toBe("succeeded");
-  expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "audio-scene", pitch: -3, volume: 10, subtitles: true, references: [{ id: "Audio1", type: "audio", assetId: reference.id }] }), expect.any(AbortSignal));
+  expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "audio-scene", pitch: -3, volume: 10 }), expect.any(AbortSignal));
+  expect(generate.mock.calls[0]![0]).not.toHaveProperty("subtitles");
+  expect(generate.mock.calls[0]![0]).not.toHaveProperty("references");
   const output = job.run!.files.find((file) => file.role === "audio")!;
   const manifest = await readCanvasAssets(project.workspacePath), asset = manifest.assets[output.assetId!]!;
-  expect(asset.audio?.subtitles).toEqual(subtitles);
-  expect(await readFile(path.join(project.workspacePath, `${asset.path}.srt`), "utf8")).toContain("00:00:00,100 --> 00:00:00,800");
-  expect(JSON.parse(await readFile(path.join(project.workspacePath, `${asset.path}.audio.json`), "utf8"))).toMatchObject({ metadata: { originalDurationMs: 1200 }, subtitles });
+  expect(asset.audio).not.toHaveProperty("subtitles");
+  await expect(readFile(path.join(project.workspacePath, `${asset.path}.srt`))).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(readFile(path.join(project.workspacePath, `${asset.path}.vtt`))).rejects.toMatchObject({ code: "ENOENT" });
+  expect(JSON.parse(await readFile(path.join(project.workspacePath, `${asset.path}.audio.json`), "utf8"))).toMatchObject({ metadata: { originalDurationMs: 1200 } });
   await expect(readFile(path.join(directory, "tools/runs", job.run!.id, "run.json"))).rejects.toMatchObject({ code: "ENOENT" });
   const restored = new AssetLibrary(directory); await restored.load();
-  expect(restored.get(output.assetId!)?.audio?.subtitles).toEqual(subtitles);
+  expect(restored.get(output.assetId!)?.audio?.metadata?.originalDurationMs).toBe(1200);
 });

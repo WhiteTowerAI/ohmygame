@@ -65,7 +65,6 @@ describe("Volcengine Seed Audio provider", () => {
         pitch_rate: 0,
         speech_rate: 0,
         loudness_rate: 0,
-        enable_subtitle: false,
       },
       watermark: { aigc_watermark: false, aigc_metadata: { enable: true } },
     });
@@ -206,44 +205,19 @@ describe("Volcengine Seed Audio provider", () => {
 });
 
 describe("Seed Audio creative workflows", () => {
-  const references = [
-    { id: "Audio2", type: "audio" as const, assetId: "rain", bytes: wavFixture(), mediaType: "audio/wav" },
-    { id: "Audio1", type: "audio" as const, assetId: "voice", bytes: wavFixture(), mediaType: "audio/wav" },
-  ];
-  it("keeps scene instructions and resolves stable aliases in submission order", async () => {
-    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ audio: wavFixture().toString("base64"), duration: 1, original_duration: 1.2, subtitle: { text: "Hello", sentences: [{ text: "Hello", start_time: 100, end_time: 700, words: [{ text: "Hello", start_time: 100, end_time: 700 }] }] } })));
+  it("keeps scene controls, metadata and Speaker IDs without reference media or subtitles", async () => {
+    const request = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ audio: wavFixture().toString("base64"), duration: 1, original_duration: 1.2, subtitle: { invalid: true } })));
     const provider = new VolcengineSeedAudioProvider(() => "key", request);
-    const generated = await provider.generate({ operation: "audio-scene", model: MODEL, prompt: "Use @Audio1 for the character and @Audio2 for rain. Say Hello with quiet music.", pitch: -3, volume: 20, speed: 10, subtitles: true, references: references.map(({ bytes, mediaType, ...ref }) => ref), output: { format: "wav", sampleRate: 48000 } }, undefined, references);
+    const generated = await provider.generate({ operation: "audio-scene", model: MODEL, prompt: "Welcome over quiet rain", pitch: -3, volume: 20, speed: 10, output: { format: "wav", sampleRate: 48000 } });
     const body = JSON.parse(String(request.mock.calls[0]![1]!.body));
-    expect(body.text_prompt).toContain("@音频2 for the character and @音频1 for rain");
-    expect(body.text_prompt).not.toContain("Do not include");
-    expect(body.audio_config).toMatchObject({ pitch_rate: -3, loudness_rate: 20, speech_rate: 10, enable_subtitle: true });
-    expect(body.references).toEqual(references.map((ref) => ({ audio_data: Buffer.from(ref.bytes).toString("base64") })));
+    expect(body.text_prompt).toBe("Welcome over quiet rain");
+    expect(body.audio_config).toMatchObject({ pitch_rate: -3, loudness_rate: 20, speech_rate: 10 });
+    expect(body.audio_config).not.toHaveProperty("enable_subtitle");
+    expect(body).not.toHaveProperty("references");
+    expect(generated).not.toHaveProperty("subtitles");
     expect(generated.metadata).toMatchObject({ durationMs: 1000, originalDurationMs: 1200 });
-    expect(generated.subtitles?.sentences[0]).toMatchObject({ startMs: 100, endMs: 700, words: [{ text: "Hello", startMs: 100, endMs: 700 }] });
-  });
-  it("accepts a single image, an existing Speaker ID, or audio references with a Speaker ID", async () => {
-    const request = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ audio: MP3.toString("base64") })));
-    const provider = new VolcengineSeedAudioProvider(() => "key", request);
-    const image = { id: "Image1", type: "image" as const, assetId: "portrait" };
-    await provider.generate({ operation: "audio-scene", model: MODEL, prompt: "Hello, traveler", references: [image] }, undefined, [{ ...image, bytes: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRk0AAAAASUVORK5CYII=", "base64"), mediaType: "image/png" }]);
-    expect(JSON.parse(String(request.mock.calls[0]![1]!.body)).references[0].image_data).toBeTruthy();
-    await provider.generate({ operation: "speech", text: "Hello", model: MODEL, voiceId: "S_existing_voice" });
+    await provider.generate({ operation: "speech", model: MODEL, text: "Hello", voiceId: "S_existing_voice", output: { format: "wav", sampleRate: 48000 } });
     expect(JSON.parse(String(request.mock.calls[1]![1]!.body)).references).toEqual([{ speaker: "S_existing_voice" }]);
-    const reference = references[0]!;
-    await provider.generate({ operation: "audio-scene", prompt: "@Audio2 in the rain", model: MODEL, voiceId: "S_existing_voice", references: [reference] }, undefined, [reference]);
-    expect(JSON.parse(String(request.mock.calls[2]![1]!.body)).references).toEqual([{ audio_data: expect.any(String) }, { speaker: "S_existing_voice" }]);
-  });
-  it("rejects mixed modes, long references and stale aliases before calling the provider", async () => {
-    const request = vi.fn<typeof fetch>(), provider = new VolcengineSeedAudioProvider(() => "key", request);
-    const reference = references[0]!;
-    const image = { id: "Image1", type: "image" as const, assetId: "portrait", bytes: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRk0AAAAASUVORK5CYII=", "base64"), mediaType: "image/png" };
-    await expect(provider.generate({ operation: "audio-scene", prompt: "rain", model: MODEL, voiceId: "voice", references: [image] }, undefined, [image])).rejects.toThrow("one image");
-    const three = [1, 2, 3].map((n) => ({ ...reference, id: `Audio${n}`, assetId: `clip-${n}` }));
-    await expect(provider.generate({ operation: "audio-scene", prompt: "rain", model: MODEL, voiceId: "voice", references: three }, undefined, three)).rejects.toThrow("including an optional Speaker ID");
-    await expect(provider.generate({ operation: "audio-scene", prompt: "rain", model: MODEL, references: [reference] }, undefined, [{ ...reference, bytes: wavFixture(31) }])).rejects.toThrow("30 seconds");
-    await expect(provider.generate({ operation: "audio-scene", prompt: "use @Audio3", model: MODEL })).rejects.toThrow("missing reference");
-    expect(request).not.toHaveBeenCalled();
   });
   it("enforces the advertised user budget and format-specific sample rates", async () => {
     const request = vi.fn<typeof fetch>(), provider = new VolcengineSeedAudioProvider(() => "key", request);
