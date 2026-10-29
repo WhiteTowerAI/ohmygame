@@ -131,6 +131,18 @@ async function start(source = FAKE_CLAUDE) {
 }
 
 describe("coding agent routes", () => {
+  it("accepts only the agent's own permission modes", async () => {
+    const { call } = await start();
+    expect(
+      (await call("PATCH", "/agent-runtimes/codex-cli", { permissionMode: ":workspace" })).body,
+    ).toMatchObject({ permissionMode: ":workspace" });
+    // Claude Code's mode is not one of Codex's, and OhMyGame's former names are gone.
+    for (const permissionMode of ["acceptEdits", "standard"])
+      expect(
+        (await call("PATCH", "/agent-runtimes/codex-cli", { permissionMode })).status,
+      ).toBe(400);
+  });
+
   it.skipIf(process.platform === "win32")("isolates Codex account homes, login, catalogs, usage and shared servers", async () => {
     const identity = vi.spyOn(codexPool, "codexServerIdentity");
     const { call, dataDirectory } = await start();

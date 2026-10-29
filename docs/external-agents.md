@@ -139,8 +139,10 @@ Files in `<dataDirectory>/external-mcp/`:
   `pid` is gone, and waits up to 30 seconds. An app whose `app.json` process
   is alive is starting or restarting its daemon, so the launcher only waits:
   the app has no single-instance lock, and a second copy would run a second
-  daemon on the same data. If the feature is off, the call instead explains
-  where to turn it on.
+  daemon on the same data. A packaged macOS app is started with `open`, so
+  it does not inherit the sandbox of a client such as Codex and crash at
+  launch. If the feature is off, the call instead explains where to turn it
+  on.
 - It sends the client's MCP roots in `X-OhMyGame-Roots`, or, for clients
   without roots, `CLAUDE_PROJECT_DIR` and its working directory. A restarted
   daemon or an expired session is reconnected once. An explicit `open_project`

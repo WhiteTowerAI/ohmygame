@@ -1,12 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import type {
-  LibraryAssetDerivation,
-  LibraryUploadMediaType,
-} from "../shared/contracts.js";
+import { useState } from "react";
 import {
-  audioCompanionFiles,
-  type AudioAssetData,
-  type AudioCanvasReference,
   type AudioCanvasSettings,
   type AudioModel,
   type AudioModelCapabilities,
@@ -15,39 +8,11 @@ import {
   DOUBAO_TTS_DIALECTS,
   findVolcengineTtsVoice,
 } from "../shared/audio.js";
-import { encodeAudioClip } from "./audio-clip.js";
 import { DoubaoVoiceOptions, DoubaoVoiceSample } from "./doubao-voices.js";
-import { downloadAssetBlob } from "./library-assets.js";
 import { language as uiLanguage, t } from "./i18n.js";
-import { ArrowUp, Scissors, Trash2, Upload } from "./icons.js";
 
 const languageNames = new Intl.DisplayNames([uiLanguage], { type: "language" });
 
-export interface AudioReferenceChoice {
-  id: string;
-  name: string;
-  type: "audio" | "image";
-}
-export interface AudioReferenceView extends AudioCanvasReference {
-  assetId?: string;
-  name: string;
-  url?: string;
-}
-export interface AudioReferenceControls {
-  choices: AudioReferenceChoice[];
-  references: AudioReferenceView[];
-  add(assetId: string, type: "audio" | "image"): void;
-  remove(id: string): void;
-  move(id: string, direction: -1 | 1): void;
-  read(assetId: string): Promise<Blob>;
-  upload(
-    file: File,
-    mediaType: LibraryUploadMediaType,
-    duration?: number,
-    derivedFrom?: LibraryAssetDerivation,
-  ): Promise<string>;
-  replace(id: string, assetId: string): void;
-}
 /** Saved options the model cannot send; they stay on the node until cleared. */
 function hasUnsupportedOptions(
   value: AudioCanvasSettings,
@@ -72,25 +37,6 @@ export function audioSettingsIssue(
 ): string | undefined {
   if (!model) return;
   const caps = model.capabilities;
-  const references = value.audioReferences ?? [],
-    images = references.filter((item) => item.type === "image"),
-    audios = references.filter((item) => item.type === "audio");
-  if (
-    (images.length && !caps.supportsReferenceImage) ||
-    (audios.length && !caps.supportsReferenceAudio)
-  )
-    return t("audioStudio.incompatibleReferences");
-  // A Speaker ID is one more audio-side reference when references are used.
-  if (
-    images.length > (caps.maxReferenceImages ?? 0) ||
-    (references.length &&
-      audios.length + (value.voiceId ? 1 : 0) >
-        (caps.maxReferenceAudio ?? 0)) ||
-    (caps.referenceModesExclusive &&
-      images.length &&
-      (audios.length || value.voiceId))
-  )
-    return t("audioStudio.referenceRule");
   if (
     (value.output?.format &&
       !model.capabilities.formats.includes(value.output.format)) ||
@@ -104,13 +50,6 @@ export function audioSettingsIssue(
       ).includes(value.output.sampleRate))
   )
     return t("audioStudio.incompatibleOutput");
-  if (
-    value.subtitles &&
-    value.language &&
-    model.capabilities.subtitleLanguages &&
-    !model.capabilities.subtitleLanguages.includes(value.language)
-  )
-    return t("audioStudio.subtitleLanguages");
   if (hasUnsupportedOptions(value, caps)) return t("audioStudio.ttsOnly");
   if (value.ssml && value.pronunciation?.length)
     return t("audioStudio.ssmlDictionary");
@@ -133,63 +72,18 @@ export function audioSettingsIssue(
   if (option) return t("audioStudio.voiceUnsupported", { option });
 }
 
-export function AudioCompanionDownloads({
-  data,
-  name = "audio",
-}: {
-  data?: AudioAssetData;
-  name?: string;
-}) {
-  if (!data) return null;
-  return (
-    <div className="audio-companion-downloads nodrag nopan">
-      {audioCompanionFiles(name, data).map((file) => (
-        <button
-          key={file.name}
-          type="button"
-          onClick={() =>
-            downloadAssetBlob(
-              new Blob([file.text], { type: file.mediaType }),
-              file.name,
-            )
-          }
-        >
-          {file.role === "metadata"
-            ? t("audioStudio.metadata")
-            : file.name.endsWith(".srt")
-              ? "SRT"
-              : "WebVTT"}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function CanvasAudioControls({
   value,
   model,
   disabled,
   onChange,
-  referenceControls,
 }: {
   value: AudioCanvasSettings;
   model?: AudioModel;
   disabled?: boolean;
   onChange(value: Partial<AudioCanvasSettings>): void;
-  referenceControls?: AudioReferenceControls;
 }) {
-  const input = useRef<HTMLInputElement>(null);
-  const [error, setError] = useState<string>();
   const [customVoice, setCustomVoice] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [clip, setClip] = useState<{
-    buffer: AudioBuffer;
-    originalId: string;
-    name: string;
-    replaceId?: string;
-  }>();
-  const [start, setStart] = useState(0),
-    [end, setEnd] = useState(0);
   const caps = model?.capabilities,
     tts = Boolean(caps?.supportsSpeechOptions);
   const preset = findVolcengineTtsVoice(value.voiceId);
@@ -216,86 +110,10 @@ export function CanvasAudioControls({
       />
     </label>
   );
-  async function decode(
-    blob: Blob,
-    name: string,
-    originalId: string,
-    replaceId?: string,
-  ) {
-    const context = new AudioContext();
-    try {
-      const buffer = await context.decodeAudioData(await blob.arrayBuffer());
-      setClip({ buffer, originalId, name, replaceId });
-      setStart(0);
-      setEnd(Math.min(30, buffer.duration));
-    } finally {
-      await context.close();
-    }
-  }
-  async function upload(file: File) {
-    if (!referenceControls) return;
-    setError(undefined);
-    setBusy(true);
-    try {
-      if (file.size > 100 * 1024 * 1024)
-        throw new Error(t("audioStudio.sourceTooLarge"));
-      const image = file.type.startsWith("image/");
-      const id = await referenceControls.upload(
-        file,
-        file.type as LibraryUploadMediaType,
-      );
-      if (image) referenceControls.add(id, "image");
-      else await decode(file, file.name, id);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function saveClip() {
-    if (!clip || !referenceControls) return;
-    setError(undefined);
-    setBusy(true);
-    try {
-      if (
-        start < 0 ||
-        end <= start ||
-        end > clip.buffer.duration ||
-        end - start > 30
-      )
-        throw new Error(t("audioStudio.clipInvalid"));
-      const blob = encodeAudioClip(
-        Array.from(
-          { length: Math.min(2, clip.buffer.numberOfChannels) },
-          (_, i) => clip.buffer.getChannelData(i),
-        ),
-        clip.buffer.sampleRate,
-        start,
-        end,
-      );
-      if (blob.size > 10 * 1024 * 1024)
-        throw new Error(t("audioStudio.clipTooLarge"));
-      const id = await referenceControls.upload(
-        new File([blob], `${clip.name.replace(/\.[^.]+$/, "")}-clip.wav`, {
-          type: "audio/wav",
-        }),
-        "audio/wav",
-        end - start,
-        { assetId: clip.originalId, trim: { start, end } },
-      );
-      if (clip.replaceId) referenceControls.replace(clip.replaceId, id);
-      else referenceControls.add(id, "audio");
-      setClip(undefined);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
   return (
     <details className="canvas-audio-options nodrag nopan nokey">
       <summary>{t("audioStudio.options")}</summary>
-      <fieldset disabled={disabled || busy}>
+      <fieldset disabled={disabled}>
         {caps && hasUnsupportedOptions(value, caps) ? (
           <button
             type="button"
@@ -429,18 +247,6 @@ export function CanvasAudioControls({
             ))}
           </select>
         </label>
-        {caps?.supportsAlignment ? (
-          <label className="audio-checkbox">
-            <input
-              type="checkbox"
-              checked={value.subtitles ?? false}
-              onChange={(event) =>
-                onChange({ subtitles: event.target.checked })
-              }
-            />
-            {t("audioStudio.subtitles")}
-          </label>
-        ) : null}
         <label>
           {t("audioStudio.format")}
           <select
@@ -607,217 +413,7 @@ export function CanvasAudioControls({
             </div>
           </details>
         ) : null}
-        {referenceControls &&
-        (caps?.supportsReferenceAudio ||
-          caps?.supportsReferenceImage ||
-          value.audioReferences?.length) ? (
-          <section className="audio-reference-controls">
-            <div className="audio-reference-toolbar">
-              <select
-                aria-label={t("audioStudio.chooseReference")}
-                value=""
-                onChange={(event) => {
-                  const asset = referenceControls.choices.find(
-                    (asset) => asset.id === event.target.value,
-                  );
-                  if (asset) referenceControls.add(asset.id, asset.type);
-                }}
-              >
-                <option value="">{t("audioStudio.chooseReference")}</option>
-                {referenceControls.choices.map((asset) => (
-                  <option key={asset.id} value={asset.id}>
-                    {asset.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                ref={input}
-                type="file"
-                hidden
-                accept="audio/*,image/png,image/jpeg,image/webp"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = "";
-                  if (file) void upload(file);
-                }}
-              />
-              <button
-                type="button"
-                className="audio-icon-button"
-                aria-label={t("assetCanvas.upload")}
-                title={t("assetCanvas.upload")}
-                onClick={() => input.current?.click()}
-              >
-                <Upload size={15} />
-              </button>
-            </div>
-            {referenceControls.references.map((reference, index) => (
-              <div
-                key={reference.id}
-                className="audio-reference-item"
-                role="group"
-                aria-label={`@${reference.id} · ${reference.name}`}
-              >
-                <div className="audio-reference-heading">
-                  <code>@{reference.id}</code>
-                  <span title={reference.name}>{reference.name}</span>
-                  <div className="audio-reference-actions">
-                    <button
-                      type="button"
-                      className="audio-icon-button"
-                      aria-label={t("audioStudio.moveUp")}
-                      title={t("audioStudio.moveUp")}
-                      disabled={index === 0}
-                      onClick={() => referenceControls.move(reference.id, -1)}
-                    >
-                      <ArrowUp size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      className="audio-icon-button"
-                      aria-label={t("audioStudio.moveDown")}
-                      title={t("audioStudio.moveDown")}
-                      disabled={
-                        index === referenceControls.references.length - 1
-                      }
-                      onClick={() => referenceControls.move(reference.id, 1)}
-                    >
-                      <ArrowUp
-                        size={13}
-                        style={{ transform: "rotate(180deg)" }}
-                      />
-                    </button>
-                    <button
-                      type="button"
-                      className="audio-icon-button"
-                      aria-label={t("audioStudio.removeReference")}
-                      title={t("audioStudio.removeReference")}
-                      onClick={() => referenceControls.remove(reference.id)}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
-                {reference.assetId ? (
-                  <AudioReferencePreview
-                    assetId={reference.assetId}
-                    type={reference.type}
-                    read={referenceControls.read}
-                  />
-                ) : null}
-                {reference.type === "audio" && reference.assetId ? (
-                  <button
-                    className="audio-clip-button"
-                    type="button"
-                    onClick={() => {
-                      setBusy(true);
-                      setError(undefined);
-                      void referenceControls
-                        .read(reference.assetId!)
-                        .then((blob) =>
-                          decode(
-                            blob,
-                            reference.name,
-                            reference.assetId!,
-                            reference.id,
-                          ),
-                        )
-                        .catch((cause) => setError(String(cause)))
-                        .finally(() => setBusy(false));
-                    }}
-                  >
-                    <Scissors size={13} />
-                    {t("audioStudio.selectClip")}
-                  </button>
-                ) : null}
-              </div>
-            ))}
-            {clip ? (
-              <section
-                className="audio-clip-editor"
-                aria-label={t("audioStudio.clipTitle")}
-              >
-                <span
-                  className="audio-control-wide audio-clip-name"
-                  title={clip.name}
-                >
-                  {clip.name}
-                </span>
-                <label>
-                  {t("audioStudio.clipStart")}
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    max={clip.buffer.duration}
-                    value={start}
-                    onChange={(event) => setStart(Number(event.target.value))}
-                  />
-                </label>
-                <label>
-                  {t("audioStudio.clipEnd")}
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    max={clip.buffer.duration}
-                    value={end}
-                    onChange={(event) => setEnd(Number(event.target.value))}
-                  />
-                </label>
-                <div className="audio-clip-actions audio-control-wide">
-                  <button type="button" onClick={() => setClip(undefined)}>
-                    {t("common.cancel")}
-                  </button>
-                  <button
-                    type="button"
-                    className="audio-clip-save"
-                    onClick={() => void saveClip()}
-                  >
-                    {t("common.save")}
-                  </button>
-                </div>
-              </section>
-            ) : null}
-          </section>
-        ) : null}
-        {error ? <p role="alert">{error}</p> : null}
       </fieldset>
     </details>
   );
-}
-
-function AudioReferencePreview({
-  assetId,
-  type,
-  read,
-}: {
-  assetId: string;
-  type: "image" | "audio";
-  read(id: string): Promise<Blob>;
-}) {
-  const [url, setUrl] = useState<string>();
-  useEffect(() => {
-    let active = true,
-      source: string | undefined;
-    void read(assetId)
-      .then((blob) => {
-        if (active) {
-          source = URL.createObjectURL(blob);
-          setUrl(source);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      if (source) URL.revokeObjectURL(source);
-    };
-  }, [assetId]);
-  return url ? (
-    type === "audio" ? (
-      <audio src={url} controls preload="metadata" />
-    ) : (
-      <img src={url} alt="" />
-    )
-  ) : null;
 }

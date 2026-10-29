@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { isAccountRuntimeId, isAgentRuntimeId, type UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
+import { AGENT_PERMISSION_MODES, isAccountRuntimeId, isAgentRuntimeId, type UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import type { AgentManager } from "./agent.js";
 import type { AgentRuntimeService } from "./agent-runtimes/service.js";
 import type { ProjectManager } from "./projects.js";
@@ -13,7 +13,8 @@ const updateAgentRuntimeSchema = {
     minProperties: 1,
     properties: {
       enabled: { type: "boolean" },
-      permissionMode: { enum: ["standard", "full"] },
+      // Each agent's own modes; the service checks the mode belongs to the agent.
+      permissionMode: { enum: [...new Set(Object.values(AGENT_PERMISSION_MODES).flat())] },
       binaryPath: { type: "string", maxLength: 4_096 },
       defaultProfileId: { type: "string", minLength: 1, maxLength: 80 },
     },

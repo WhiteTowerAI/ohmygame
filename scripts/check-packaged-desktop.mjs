@@ -6,6 +6,7 @@ import path from "node:path";
 import { extractFile } from "@electron/asar";
 import { startDaemon } from "../dist/desktop/daemon-process.js";
 import { checkStoryWeb } from "./check-story-web.mjs";
+import { isolateDesktopArchive } from "./isolated-desktop-archive.mjs";
 
 // Run against the assembled app, before creating installers or publishing it.
 export default async function checkPackagedDesktop(context) {
@@ -46,9 +47,13 @@ export default async function checkPackagedDesktop(context) {
   );
   let daemon;
   try {
+    // Starting under release/ can silently load a missing production dependency
+    // from the checkout's node_modules. Resolve all app modules from a copy
+    // outside the checkout, including native files kept beside the archive.
+    const isolatedArchive = await isolateDesktopArchive(archive, directory);
     daemon = await startDaemon({
       executable,
-      daemonEntry: path.join(archive, "dist", "daemon", "server.js"),
+      daemonEntry: path.join(isolatedArchive, "dist", "daemon", "server.js"),
       dataDirectory: path.join(directory, "data"),
       piAgentDirectory: path.join(directory, "pi-agent"),
       token: "packaged-runtime-check",
@@ -69,7 +74,7 @@ export default async function checkPackagedDesktop(context) {
     assert.equal(response.status, 200, "Packaged daemon must serve the projects API");
     assert.deepEqual(await response.json(), [], "Package check must use an empty isolated workspace");
     await access(path.join(resources, "integrations", "skills", "ohmygame-studio", "SKILL.md"));
-    const handshake = await externalMcpHandshake(executable, path.join(archive, "dist", "desktop", "external-mcp-main.js"), path.join(directory, "data"), environment);
+    const handshake = await externalMcpHandshake(executable, path.join(isolatedArchive, "dist", "desktop", "external-mcp-main.js"), path.join(directory, "data"), environment);
     assert.equal(handshake.result?.serverInfo?.name, "ohmygame-studio", "Packaged MCP launcher must answer from the app archive");
     await checkStoryWeb(daemon.runtime);
     console.log("Packaged Pi patch, daemon startup, authenticated API, MCP launcher and story creation, upgrade and preview passed.");

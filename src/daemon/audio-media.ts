@@ -1,9 +1,6 @@
 import { ALL_FORMATS, BufferSource, Input } from "mediabunny";
 import type {
   AudioOutputFormat,
-  AudioSentence,
-  AudioSubtitles,
-  AudioWord,
 } from "../shared/audio.js";
 import { AudioGenerationError } from "./audio-generation.js";
 
@@ -105,59 +102,6 @@ export async function readAudioJson(
   } finally {
     reader.releaseLock();
   }
-}
-
-export function subtitleWord(value: unknown, milliseconds: boolean): AudioWord {
-  if (!value || typeof value !== "object")
-    throw new AudioGenerationError("Invalid subtitle entry", 502);
-  const item = value as Record<string, unknown>;
-  const start =
-    Number(milliseconds ? item.start_time : item.startTime) *
-    (milliseconds ? 1 : 1000);
-  const end =
-    Number(milliseconds ? item.end_time : item.endTime) *
-    (milliseconds ? 1 : 1000);
-  const text = milliseconds ? item.text : item.word;
-  if (
-    !Number.isFinite(start) ||
-    !Number.isFinite(end) ||
-    start < 0 ||
-    end < start ||
-    typeof text !== "string"
-  )
-    throw new AudioGenerationError("Invalid subtitle timing", 502);
-  return {
-    text,
-    startMs: Math.round(start),
-    endMs: Math.round(end),
-    ...(typeof item.confidence === "number"
-      ? { confidence: item.confidence }
-      : {}),
-  };
-}
-
-export function seedSubtitles(value: unknown): AudioSubtitles | undefined {
-  if (!value || typeof value !== "object") return;
-  const item = value as { text?: unknown; sentences?: unknown };
-  if (!Array.isArray(item.sentences)) return;
-  const sentences: AudioSentence[] = item.sentences.map((value) => {
-    const sentence = subtitleWord(value, true);
-    return {
-      ...sentence,
-      ...(Array.isArray(value.words)
-        ? {
-            words: value.words.map((word: unknown) => subtitleWord(word, true)),
-          }
-        : {}),
-    };
-  });
-  return {
-    text:
-      typeof item.text === "string"
-        ? item.text
-        : sentences.map((sentence) => sentence.text).join(""),
-    sentences,
-  };
 }
 
 /**

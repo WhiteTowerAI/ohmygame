@@ -9,7 +9,6 @@ import { Check, LoaderCircle, Plus, Server, Settings } from "./icons.js";
 import { ProviderAuthView } from "./models-settings.js";
 import { CustomProviderForm } from "./custom-provider-dialog.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
-import { withDoubaoConnection } from "./provider-groups.js";
 import { t } from "./i18n.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 
@@ -88,7 +87,7 @@ export function OnboardingMedia({
       </div>
     );
 
-  const available = withDoubaoConnection(providers).filter(
+  const available = providers.filter(
     (provider) =>
       provider.capabilities.includes(capability) &&
       (provider.id !== HYPER3D_CONNECTION_ID ||

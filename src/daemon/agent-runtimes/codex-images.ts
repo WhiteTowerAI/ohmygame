@@ -4,7 +4,7 @@ import path from "node:path";
 import { sniffImageType } from "../image-format.js";
 import type { DriverContext } from "./driver-context.js";
 import type { NativeToolResult } from "./native-session.js";
-import { inside } from "./policy.js";
+import { inside } from "./paths.js";
 import type { GeneratedImage } from "../openai-image.js";
 
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;

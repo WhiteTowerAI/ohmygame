@@ -1468,7 +1468,7 @@ export class AgentManager {
     const key = conversationKey(projectId, conversationId);
     const pending = this.#approvals.get(key)?.get(requestId);
     if (!pending) throw new Error("Approval request is no longer active");
-    if (decision === "allow-session" && !pending.item.request.canAllowSession) throw new Error("This request can only be allowed once");
+    if (decision === "allow-always" && !pending.item.request.always) throw new Error("This request can only be allowed once");
     this.#approvals.get(key)?.delete(requestId);
     pending.removeAbortListener?.();
     const active = this.#activeTurns.get(key);

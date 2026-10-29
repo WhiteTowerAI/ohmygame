@@ -8,7 +8,11 @@ import {
   Settings,
   Terminal,
 } from "./icons.js";
-import { isAccountRuntimeId } from "../shared/agent-runtimes.js";
+import {
+  AGENT_PERMISSION_MODES,
+  FULL_ACCESS_PERMISSION_MODES,
+  isAccountRuntimeId,
+} from "../shared/agent-runtimes.js";
 import type {
   AgentPermissionMode,
   AgentRuntimeDiagnostic,
@@ -31,13 +35,42 @@ import { AgentUsageDetails, AgentUsageInline } from "./agent-usage.js";
 import { t } from "./i18n.js";
 import { AgentAccountProfiles } from "./agent-account-profiles.js";
 
-const PERMISSION_OPTIONS: readonly {
-  value: AgentPermissionMode;
-  label: string;
-}[] = [
-  { value: "standard", label: t("codingAgents.permissionStandard") },
-  { value: "full", label: t("codingAgents.permissionFull") },
-];
+type PermissionModeKey =
+  | "claudeDefault"
+  | "claudeAcceptEdits"
+  | "claudeAuto"
+  | "claudeBypass"
+  | "codexWorkspace"
+  | "codexFullAccess"
+  | "openCodeRules"
+  | "openCodeAllow";
+
+/** Each agent's own permission modes, by the names their CLIs give them. */
+const PERMISSION_MODE_KEYS: Record<
+  AgentRuntimeId,
+  Partial<Record<AgentPermissionMode, PermissionModeKey>>
+> = {
+  "claude-code-cli": {
+    default: "claudeDefault",
+    acceptEdits: "claudeAcceptEdits",
+    auto: "claudeAuto",
+    bypassPermissions: "claudeBypass",
+  },
+  "codex-cli": {
+    ":workspace": "codexWorkspace",
+    ":danger-full-access": "codexFullAccess",
+  },
+  "opencode-cli": { default: "openCodeRules", allow: "openCodeAllow" },
+};
+
+function permissionOptions(
+  runtime: AgentRuntimeId,
+): { value: AgentPermissionMode; label: string }[] {
+  return AGENT_PERMISSION_MODES[runtime].map((value) => ({
+    value,
+    label: t(`codingAgents.permissionMode.${PERMISSION_MODE_KEYS[runtime][value]!}`),
+  }));
+}
 
 /**
  * The coding agent CLIs in Agents: those found on this computer, each with
@@ -391,16 +424,26 @@ export function CodingAgentDetail({
             <SegmentedControl
               className="settings-chat-layout-control"
               label={t("codingAgents.permissions")}
-              options={PERMISSION_OPTIONS}
+              options={permissionOptions(agent.id)}
               value={agent.permissionMode}
               onChange={(permissionMode) => void update({ permissionMode })}
             />
           </div>
-          {agent.permissionMode === "full" ? (
-            <p className="coding-agent-warning" role="note">
-              {t("codingAgents.permissionFullHint", { name: agent.name })}
-            </p>
-          ) : null}
+          <p
+            className={
+              agent.permissionMode === FULL_ACCESS_PERMISSION_MODES[agent.id]
+                ? "coding-agent-warning"
+                : "settings-detail-hint"
+            }
+            role="note"
+          >
+            {t(
+              `codingAgents.permissionModeHint.${PERMISSION_MODE_KEYS[agent.id][agent.permissionMode]!}`,
+            )}
+          </p>
+          <p className="settings-detail-hint">
+            {t("codingAgents.permissionModesHint", { name: agent.name })}
+          </p>
           <p className="settings-detail-hint">
             {t("codingAgents.cliConfigHint", { name: agent.name })}
           </p>
@@ -518,24 +561,6 @@ function Diagnostic({
             <CommandText command={diagnostic.command} />
           </>
         ) : null}
-        {agent.id === "codex-cli" &&
-        diagnostic.capability ===
-          "Windows sandbox filesystem read restrictions" ? (
-          <>
-            {" "}
-            <button
-              type="button"
-              className="coding-agent-link"
-              onClick={() =>
-                void openModelAuthExternal(
-                  "https://learn.chatgpt.com/docs/windows/windows-sandbox",
-                )
-              }
-            >
-              {t("codingAgents.sandboxGuide")}
-            </button>
-          </>
-        ) : null}
       </span>
     </div>
   );
@@ -626,17 +651,6 @@ function diagnosticText(
     case "invalid-executable":
       return t("codingAgents.diagnostic.invalidExecutable");
     case "runtime-incompatible":
-      if (
-        agent.id === "codex-cli" &&
-        diagnostic.capability === "Windows sandbox filesystem read restrictions"
-      )
-        return t("codingAgents.diagnostic.codexWindowsSandbox");
-      if (
-        agent.id === "opencode-cli" &&
-        diagnostic.capability ===
-          "no saved OpenCode permissions for this project"
-      )
-        return t("codingAgents.diagnostic.openCodeSavedPermissions");
       return t(
         diagnostic.capability
           ? "codingAgents.diagnostic.capabilityMissing"

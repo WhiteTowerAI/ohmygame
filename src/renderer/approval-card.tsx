@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ThreadItem } from "../shared/contracts.js";
-import type {
-  ApprovalDecision,
-  ApprovalRequestDetails,
-} from "../shared/agent-runtimes.js";
+import type { ApprovalDecision } from "../shared/agent-runtimes.js";
 import { Terminal } from "./icons.js";
 import { t } from "./i18n.js";
 
@@ -16,7 +13,7 @@ interface ApprovalCardProps {
   onDecide: (decision: ApprovalDecision) => Promise<boolean>;
 }
 
-/** A coding agent asks before it does something OhMyGame does not allow on its own. */
+/** A coding agent asks before it does something its own permission rules ask about. */
 export function ApprovalCard({
   request,
   agentName,
@@ -100,6 +97,13 @@ export function ApprovalCard({
         </ul>
       ) : null}
       {details.network ? <p>{t("approval.networkAccess")}</p> : null}
+      {details.always?.rules.length ? (
+        <p className="approval-card-reason">
+          {t("approval.alwaysCovers", {
+            rules: details.always.rules.join(", "),
+          })}
+        </p>
+      ) : null}
       <footer>
         <button
           type="button"
@@ -109,15 +113,18 @@ export function ApprovalCard({
         >
           {t("approval.deny")}
         </button>
-        {details.canAllowSession ? (
+        {details.always ? (
           <button
             type="button"
             className="settings-secondary-button"
             disabled={submitting}
-            onClick={() => void decide("allow-session")}
-            title={sessionScopeTitle(details.sessionScope)}
+            onClick={() => void decide("allow-always")}
           >
-            {sessionLabel(details.sessionScope)}
+            {t(
+              details.always.scope === "saved"
+                ? "approval.alwaysAllow"
+                : "approval.allowSession",
+            )}
           </button>
         ) : null}
         <button
@@ -148,34 +155,16 @@ export function approvalOutcomeLabel(
     item.request.tool;
   if (item.status === "completed" && item.decision === "allow")
     return t("approval.allowed", { subject });
+  if (item.status === "completed" && item.decision === "allow-always")
+    return t(
+      item.request.always?.scope === "saved"
+        ? "approval.allowedAlways"
+        : "approval.allowedSession",
+      { subject },
+    );
+  // Conversation grants OhMyGame kept itself, before agents' own took their place.
   if (item.status === "completed" && item.decision === "allow-session")
     return t("approval.allowedSession", { subject });
   if (item.status === "completed") return t("approval.denied", { subject });
   return t("approval.notAnswered", { subject });
-}
-
-type SessionScope = NonNullable<ApprovalRequestDetails["sessionScope"]>;
-
-/** Names what allowing for the conversation covers when it is more than this request. */
-function sessionLabel(scope: SessionScope | undefined): string {
-  if (scope?.commands?.length && !scope.readFolders?.length)
-    return t("approval.allowSessionCommands", {
-      commands: scope.commands.join(", "),
-    });
-  if (scope?.readFolders?.length && !scope.commands?.length)
-    return t("approval.allowSessionFolders", {
-      folders: scope.readFolders.map(folderName).join(", "),
-    });
-  return t("approval.allowSession");
-}
-
-function sessionScopeTitle(
-  scope: SessionScope | undefined,
-): string | undefined {
-  const folders = scope?.readFolders ?? [];
-  return folders.length ? folders.join("\n") : undefined;
-}
-
-function folderName(folder: string): string {
-  return `${folder.split(/[\\/]/).filter(Boolean).at(-1) ?? folder}/`;
 }

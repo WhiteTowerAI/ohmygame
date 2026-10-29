@@ -8,10 +8,7 @@ import {
 } from "../src/renderer/canvas-audio-controls.js";
 import { VOLCENGINE_SEED_AUDIO_MODELS } from "../src/daemon/volcengine-seed-audio-provider.js";
 import { VOLCENGINE_TTS_MODELS } from "../src/daemon/volcengine-tts-provider.js";
-import { encodeAudioClip } from "../src/renderer/audio-clip.js";
 import {
-  audioSubtitleFile,
-  resolveAudioMentions,
   type AudioCanvasSettings,
 } from "../src/shared/audio.js";
 
@@ -28,7 +25,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("offers format-specific rates and persists the subtitle and voice controls", async () => {
+it("offers format-specific rates without subtitles or reference inputs", async () => {
   const changed = vi.fn();
   function Harness() {
     const [value, setValue] = useState<AudioCanvasSettings>({});
@@ -64,10 +61,8 @@ it("offers format-specific rates and persists the subtitle and voice controls", 
       (option) => option.value === "40000",
     ),
   ).toBe(true);
-  await act(async () =>
-    host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(),
-  );
-  expect(changed).toHaveBeenLastCalledWith({ subtitles: true });
+  expect(host.textContent).not.toContain("Subtitles");
+  expect(host.querySelector('input[type="file"]')).toBeNull();
 });
 
 it("reveals custom and cloned voice controls without losing saved synthesis settings", async () => {
@@ -112,7 +107,7 @@ it("reveals custom and cloned voice controls without losing saved synthesis sett
   expect(label("Speaker ID")?.querySelector("input")).toBeTruthy();
   expect(label("Cloned voice model")?.querySelector("select")).toBeTruthy();
   expect(label("Pitch")?.querySelector("input")?.value).toBe("-2");
-  expect(label("Subtitles")?.querySelector("input")?.checked).toBe(true);
+  expect(label("Subtitles")).toBeUndefined();
   expect(label("Pronunciation")?.querySelector("textarea")?.value).toBe(
     "NPC/non-player character",
   );
@@ -124,118 +119,8 @@ it("reveals custom and cloned voice controls without losing saved synthesis sett
   expect(label("Cloned voice model")).toBeUndefined();
 });
 
-it("keeps reference actions accessible and disables moves past the list boundaries", async () => {
-  const move = vi.fn(),
-    remove = vi.fn();
-  await act(async () =>
-    root.render(
-      <CanvasAudioControls
-        value={{}}
-        model={VOLCENGINE_SEED_AUDIO_MODELS[0]}
-        onChange={vi.fn()}
-        referenceControls={{
-          choices: [],
-          references: [
-            {
-              id: "Audio1",
-              name: "Rain",
-              type: "audio",
-              source: { type: "library", assetId: "rain" },
-            },
-            {
-              id: "Audio2",
-              name: "Wind",
-              type: "audio",
-              source: { type: "library", assetId: "wind" },
-            },
-          ],
-          move,
-          remove,
-          read: vi.fn(),
-          upload: vi.fn(),
-          replace: vi.fn(),
-          add: vi.fn(),
-        }}
-      />,
-    ),
-  );
-  const rain = host.querySelector('[aria-label="@Audio1 · Rain"]')!,
-    wind = host.querySelector('[aria-label="@Audio2 · Wind"]')!;
-  const button = (group: Element, name: string) =>
-    group.querySelector<HTMLButtonElement>(`[aria-label="${name}"]`)!;
-  expect(button(rain, "Move reference earlier").disabled).toBe(true);
-  expect(button(wind, "Move reference later").disabled).toBe(true);
-  await act(async () => button(rain, "Move reference later").click());
-  expect(move).toHaveBeenCalledWith("Audio1", 1);
-  await act(async () => button(wind, "Remove reference").click());
-  expect(remove).toHaveBeenCalledWith("Audio2");
-});
-
-it("blocks mixed modes and resolves stable reference aliases after reordering", () => {
-  const model = VOLCENGINE_SEED_AUDIO_MODELS[0]!;
-  expect(
-    audioSettingsIssue(
-      {
-        voiceId: "voice",
-        audioReferences: [
-          {
-            id: "Image1",
-            type: "image",
-            source: { type: "library", assetId: "portrait" },
-          },
-        ],
-      },
-      model,
-    ),
-  ).toBeTruthy();
-  const audio = (id: string) => ({
-    id,
-    type: "audio" as const,
-    source: { type: "library" as const, assetId: id },
-  });
-  // A Speaker ID takes one of the three audio slots.
-  expect(
-    audioSettingsIssue(
-      { voiceId: "voice", audioReferences: [audio("Audio1"), audio("Audio2")] },
-      model,
-    ),
-  ).toBeUndefined();
-  expect(
-    audioSettingsIssue(
-      {
-        voiceId: "voice",
-        audioReferences: [audio("Audio1"), audio("Audio2"), audio("Audio3")],
-      },
-      model,
-    ),
-  ).toBeTruthy();
-  expect(
-    resolveAudioMentions("@Audio1 then @Audio2", [
-      { id: "Audio2", type: "audio" },
-      { id: "Audio1", type: "audio" },
-    ]),
-  ).toBe("@音频2 then @音频1");
-  expect(() =>
-    resolveAudioMentions("@Audio1", [{ id: "Audio2", type: "audio" }]),
-  ).toThrow("missing reference");
-});
-
-it("encodes an actual source clip and exports correct subtitle timestamps", async () => {
-  const blob = encodeAudioClip([new Float32Array(48000)], 48000, 0.1, 0.5);
-  const bytes = new DataView(await blob.arrayBuffer());
-  expect(bytes.getUint32(24, true)).toBe(48000);
-  expect(bytes.getUint32(40, true)).toBe(38400);
-  expect(() =>
-    encodeAudioClip([new Float32Array(48000 * 40)], 48000, 0, 31),
-  ).toThrow();
-  const subtitles = {
-    text: "Hello",
-    sentences: [{ text: "Hello", startMs: 125, endMs: 1200 }],
-  };
-  expect(audioSubtitleFile(subtitles, "srt")).toContain(
-    "00:00:00,125 --> 00:00:01,200",
-  );
-  expect(audioSubtitleFile(subtitles, "vtt")).toMatch(
-    /^WEBVTT\n\n00:00:00.125 --> 00:00:01.200/,
-  );
+it("ignores legacy references and subtitles when checking current model options", () => {
+  expect(audioSettingsIssue({ subtitles: true, audioReferences: [{ id: "Image1", type: "image", source: { type: "library", assetId: "portrait" } }], voiceId: "voice" }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeUndefined();
+  expect(audioSettingsIssue({ output: { format: "mp3", sampleRate: 40000 } }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeTruthy();
+  expect(audioSettingsIssue({ ssml: "<speak>Hello</speak>" }, VOLCENGINE_SEED_AUDIO_MODELS[0])).toBeTruthy();
 });
