@@ -1018,7 +1018,6 @@ const zhCN: typeof en = {
     publish: "发布",
     tab: {
       preview: "预览",
-      design: "设计",
       code: "代码",
       assets: "素材",
     },
@@ -2991,9 +2990,6 @@ const zhCN: typeof en = {
     keepsChanging: "项目一直在变化，请稍后再试。",
     saveFailed: "无法保存你的修改：{{error}}",
     stillLoading: "游戏仍在加载，准备好后再试着发布。",
-    tab: {
-      story: "故事",
-    },
     workspace: "互动故事工作区",
     openingPlaytest: "正在打开试玩…",
     playtestWindow: "在新窗口中试玩",

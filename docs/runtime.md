@@ -559,12 +559,12 @@ the order they open (`src/renderer/workspace-layout.ts`):
 | Project types | Panels |
 |---|---|
 | Web games, General projects, Godot | Chat, Game, Design, Canvas, Code, Assets |
-| Interactive Story | Chat, Story |
+| Interactive Story | Chat, Story, Design, Canvas, Code, Assets |
 | Asset canvas | Chat, Canvas |
 
 The default puts Chat on the left and the rest in the middle, the first in
 front. A project without a preview, such as Godot without a web build, has no
-Game and opens on Code; panels new to the saved layout join it in the
+Game and opens on Code; a story opens on its Story map; panels new to the saved layout join it in the
 default's order and front tab. A chat moved to the middle reads in one centered
 column.
 
@@ -587,7 +587,8 @@ panels where they were; a panel the layout never knew opens where the default
 puts it, and closed ones stay closed. The chat side used to be a setting; a
 saved **Right** still decides where the chat first opens. The route's
 `design` view brings the Canvas panel forward and follows it, and a file link
-in the chat reopens a closed Story or Canvas panel to show the file.
+in the chat opens the file in Code, reopening its panel if it was closed; an
+asset canvas, which has no Code panel, shows it in its Canvas panel.
 
 ## Checkpoints
 

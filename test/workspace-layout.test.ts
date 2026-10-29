@@ -8,7 +8,7 @@ import { fitLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsF
 const tabs = (layout: Layout) => Object.fromEntries(Object.entries(layout).map(([area, value]) => [area, value.panels.map((id) => id === value.active ? `*${id}` : id).join(",")]));
 const GAME: WorkspacePanel[] = ["chat", "game", "design", "canvas", "code", "assets"];
 const GENERAL: WorkspacePanel[] = ["chat", "design", "canvas", "code", "assets"];
-const STORY: WorkspacePanel[] = ["chat", "story"];
+const STORY: WorkspacePanel[] = ["chat", "story", "design", "canvas", "code", "assets"];
 
 beforeEach(() => localStorage.clear());
 
@@ -22,9 +22,13 @@ describe("workspace layouts", () => {
     expect(tabs(presetLayout("default", general)).center).toBe("*code,design,canvas,assets");
     expect(panelsOf({ type: "godot-game" })).toEqual(general);
     expect(panelsOf({ type: "godot-game", pluginType: { preview: "web-build" } } as never)).toEqual(GAME);
-    expect(tabs(presetLayout("default", STORY))).toMatchObject({ left: "*chat", center: "*story" });
+    // A story opens on its Story map, not its code.
+    expect(panelsOf({ type: "interactive-story" })).toEqual(STORY);
+    expect(tabs(presetLayout("default", STORY))).toMatchObject({ left: "*chat", center: "*story,design,canvas,code,assets" });
     expect(presetsFor(GAME)).toEqual(["default", "art", "code"]);
-    expect(presetsFor(STORY)).toEqual(["default"]);
+    expect(presetsFor(STORY)).toEqual(["default", "art", "code"]);
+    expect(tabs(presetLayout("art", STORY)).center).toBe("*canvas,story,design,code,assets");
+    expect(tabs(presetLayout("code", STORY)).center).toBe("*code,story,design,canvas,assets");
     expect(presetsFor(["chat", "canvas"])).toEqual(["default"]);
     // Art brings the canvas forward, not the design document.
     expect(tabs(presetLayout("art", GAME)).center).toBe("*canvas,game,design,code,assets");
@@ -34,7 +38,7 @@ describe("workspace layouts", () => {
     expect(tabs(openingLayout(GAME).layout)).toMatchObject({ left: "*chat", right: "" });
     localStorage.setItem("ohmygame:chat-layout", "right");
     const right = openingLayout(STORY).layout;
-    expect(tabs(right)).toMatchObject({ left: "", right: "*chat", center: "*story" });
+    expect(tabs(right)).toMatchObject({ left: "", right: "*chat", center: "*story,design,canvas,code,assets" });
     expect(right.right.size).toBe(right.left.size);
     saveLayout({ layout: presetLayout("default", GAME), known: GAME });
     expect(tabs(openingLayout(STORY).layout).left).toBe("*chat");
@@ -47,14 +51,17 @@ describe("workspace layouts", () => {
     // and its area shows the default's tab.
     expect(tabs(fitLayout(saved, GAME, fallback))).toMatchObject({ center: "*game,design,canvas", right: "*code" });
     expect(tabs(fitLayout(saved, GENERAL, presetLayout("default", GENERAL))).center).toBe("*design,canvas");
-    // A story's panel, never seen before, opens where the default puts it.
-    expect(tabs(fitLayout(saved, STORY, presetLayout("default", STORY)))).toMatchObject({ left: "*chat", center: "*story", right: "" });
+    // A story's panel, never seen before, opens where the default puts it, in
+    // front; the panels it shares with games stay where they were.
+    expect(tabs(fitLayout(saved, STORY, presetLayout("default", STORY)))).toMatchObject({ left: "*chat", center: "design,canvas,*story", right: "*code" });
   });
 
   it("opens new panels on the default's front tab", () => {
-    // Saved from a story, a Godot project without a preview opens on Code, in
-    // the default's order.
-    const story = { layout: presetLayout("default", STORY), known: STORY };
+    // Saved when stories had only the Story map, a story gets its new panels
+    // in the default's order, and a Godot project without a preview opens on Code.
+    const older: WorkspacePanel[] = ["chat", "story"];
+    const story = { layout: presetLayout("default", older), known: older };
+    expect(tabs(fitLayout(story, STORY, presetLayout("default", STORY))).center).toBe("*story,design,canvas,code,assets");
     const general = panelsOf({ type: "godot-game" });
     expect(tabs(fitLayout(story, general, presetLayout("default", general))).center).toBe("*code,design,canvas,assets");
   });

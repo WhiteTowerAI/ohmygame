@@ -23,7 +23,7 @@ const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
   "web-game": ["chat", "game", "design", "canvas", "code", "assets"],
   general: ["chat", "game", "design", "canvas", "code", "assets"],
   "godot-game": ["chat", "game", "design", "canvas", "code", "assets"],
-  "interactive-story": ["chat", "story"],
+  "interactive-story": ["chat", "story", "design", "canvas", "code", "assets"],
   "asset-canvas": ["chat", "canvas"],
 };
 
@@ -45,12 +45,12 @@ const area = (panels: WorkspacePanel[], size: number): AreaState => ({ panels, a
 
 /**
  * The chat on the left and the rest in the middle in the type's order, the
- * first in front. A project without a game opens on its code. Art and Code
- * bring the canvas or the code forward.
+ * first in front. A project with neither a game nor a story opens on its
+ * code. Art and Code bring the canvas or the code forward.
  */
 export function presetLayout(preset: Preset, offered: readonly WorkspacePanel[]): Layout {
   let middle = offered.filter((panel) => homeOf(panel) === "center");
-  const first: WorkspacePanel | undefined = preset === "art" ? "canvas" : preset === "code" || !middle.includes("game") ? "code" : undefined;
+  const first: WorkspacePanel | undefined = preset === "art" ? "canvas" : preset === "code" || !middle.some((panel) => panel === "game" || panel === "story") ? "code" : undefined;
   if (first && middle.includes(first)) middle = [first, ...middle.filter((panel) => panel !== first)];
   return {
     left: area(offered.filter((panel) => homeOf(panel) === "left"), 380),

@@ -1036,7 +1036,6 @@ const en = {
     publish: "Publish",
     tab: {
       preview: "Preview",
-      design: "Design",
       code: "Code",
       assets: "Assets",
     },
@@ -3065,9 +3064,6 @@ const en = {
     saveFailed: "Could not save your changes: {{error}}",
     stillLoading:
       "The game is still loading. Try publishing again when it is ready.",
-    tab: {
-      story: "Story",
-    },
     workspace: "Playable Nodes workspace",
     openingPlaytest: "Opening playtest...",
     playtestWindow: "Playtest in a new window",
