@@ -30,6 +30,8 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const activity = useProjectActivity(phase === "ready" && projects.length > 0, setProjects);
+  // Renames, removals and automatic names reach the sidebar too.
+  useEffect(() => { if (phase === "ready") publishRecentProjects(projects); }, [phase, projects]);
   const [error, setError] = useState<string>();
   const [sortOpen, setSortOpen] = useState(false);
   const [focusSearch] = useState(takeProjectSearchFocus);
@@ -52,7 +54,6 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
       await waitForRuntime();
       const loaded = await listProjects();
       setProjects(loaded);
-      publishRecentProjects(loaded);
       setPhase("ready");
     } catch (cause) {
       setError(errorMessage(cause));

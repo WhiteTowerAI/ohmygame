@@ -61,6 +61,8 @@ export function GameStudioHome({
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const activity = useProjectActivity(phase === "ready" && projects.length > 0, setProjects);
+  // Renames, removals and automatic names reach the sidebar too.
+  useEffect(() => { if (phase === "ready") publishRecentProjects(projects); }, [phase, projects]);
   const [error, setError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
@@ -79,7 +81,6 @@ export function GameStudioHome({
     try {
       await waitForRuntime();
       const loaded = await listProjects();
-      publishRecentProjects(loaded);
       setProjects(recentStudioProjects(loaded, projectType, MAX_RECENT_PROJECTS));
       setPhase("ready");
     } catch (cause) {
