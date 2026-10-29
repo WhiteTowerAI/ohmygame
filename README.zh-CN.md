@@ -104,7 +104,6 @@ https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 | itch.io、Poki、CrazyGames  | 付费下载、广告分成 | 直接上传网页游戏的构建产物                        |
 
 **游戏是你的，收入也是你的。** OhMyGame 不从你的游戏收入里抽成。
-<!-- TODO(confirm)：不抽成；小游戏插件里的广告、内购接入流程。 -->
 
 ### 🧑‍💻 带上你自己的 Agent
 
