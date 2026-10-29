@@ -80,7 +80,6 @@ interface CodingWorkspaceProps {
   previewPaused?: boolean;
   onPublish: (details: PublishDetails) => Promise<boolean>;
   publishDialog?: "open" | "success";
-  onOpenPublish: () => void;
   onClosePublish: () => void;
   onRestart: (project?: ProjectState, reinstall?: boolean) => void;
   onStop?: () => Promise<void>;
@@ -107,7 +106,6 @@ export function CodingWorkspace({
   previewPaused = false,
   onPublish,
   publishDialog,
-  onOpenPublish,
   onClosePublish,
   onRestart,
   onStop,
@@ -127,10 +125,6 @@ export function CodingWorkspace({
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
   const hasPreview = supportsProjectPreview(project);
-  const publishingUnavailable = project?.type === "godot-game" || !!project?.integration;
-  const publishLabel = project?.type === "godot-game"
-    ? t("workspace.godotPublishing")
-    : publishing ? t("workspace.publishing") : t("workspace.publish");
   const [selectedTab, setSelectedTab] = useState<WorkspaceTab>(hasPreview ? "preview" : "code");
   const activeTab = selectedTab === "preview" && !hasPreview ? "code" : selectedTab;
   const shownTab = designOpen ? "design" : activeTab;
@@ -361,17 +355,6 @@ export function CodingWorkspace({
             disabled={player.pending || (player.checking && !player.error) || (!player.open && (!project || preview?.status === "waiting" || preview?.status === "starting"))}
             onClick={playGame}
           >{player.pending ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}</button> : null}
-          <button
-            className="publish-button workspace-publish-button"
-            type="button"
-            onClick={onOpenPublish}
-            disabled={!project || publishingUnavailable || publishing || agentBusy}
-            title={publishLabel}
-            aria-label={publishLabel}
-          >
-            {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
-            <span>{t("workspace.publish")}</span>
-          </button>
           {onClose ? (
             <button
               className="icon-button pane-header-action"

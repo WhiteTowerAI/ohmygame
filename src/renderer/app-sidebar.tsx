@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import {
   ArrowDownToLine,
   ArrowLeft,
@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  CirclePlus,
   DangerCircle,
   Gamepad2,
   Globe2,
@@ -13,6 +14,7 @@ import {
   Image,
   InfoCircle,
   LogIn,
+  MessageCircle,
   PanelToggle,
   Plug,
   RefreshCircle,
@@ -21,17 +23,17 @@ import {
   UserRound,
   Wallet,
 } from "./icons.js";
-import { getProjectCover, listProjects, waitForRuntime } from "./api.js";
+import { getProjectCover, listConversations, listProjects, waitForRuntime } from "./api.js";
 import { useAuth } from "./auth.js";
 import { BrandLogo } from "./brand-logo.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
-import { projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
+import { conversationHash, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
+import { DropdownMenu, IconButton, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
 import { useDesktopUpdate } from "./use-desktop-update.js";
 import { UserAvatar } from "./user-avatar.js";
-import type { ProjectState } from "../shared/contracts.js";
-import { t } from "./i18n.js";
+import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
+import { language, t } from "./i18n.js";
 import "./app-sidebar.css";
 
 export type SidebarActive = SidebarPage | "settings";
@@ -119,6 +121,12 @@ export function publishRecentProjects(projects: readonly ProjectState[]): void {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, RECENT_LIMIT);
   for (const listener of recentListeners) listener();
+}
+
+/** Shows a project's new name or cover in the list without asking again. */
+export function refreshRecentProject(project: ProjectState): void {
+  if (!recentProjects.some((item) => item.id === project.id)) return;
+  publishRecentProjects(recentProjects.map((item) => (item.id === project.id ? project : item)));
 }
 
 function subscribeRecent(listener: () => void): () => void {
@@ -341,6 +349,159 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
       </nav>
       {collapsed ? null : <SidebarResizer width={width} />}
     </>
+  );
+}
+
+const HOVER_OPEN = 220;
+const HOVER_CLOSE = 160;
+
+/** The open project's conversations, for its icon in the rail. */
+export interface RailConversations {
+  items: readonly ConversationSummary[];
+  current?: string;
+  onOpen: (conversationId: string) => void;
+  onNew: () => void;
+}
+
+/** "Edited 3 hours ago", from when a project or conversation last changed. */
+function editedAgo(value: string, now = Date.now()): string {
+  const seconds = Math.round((new Date(value).getTime() - now) / 1000);
+  const format = new Intl.RelativeTimeFormat(language, { numeric: "auto" });
+  for (const [unit, size] of [["year", 31_536_000], ["month", 2_592_000], ["day", 86_400], ["hour", 3_600], ["minute", 60]] as const) {
+    if (Math.abs(seconds) >= size) return format.format(Math.round(seconds / size), unit);
+  }
+  return format.format(0, "second");
+}
+
+// A recent project in the rail. Hovering it lists that project's
+// conversations, so switching between them, or to another project, is one move.
+function RailProject({ project, open: openProject, conversations }: {
+  project: ProjectState;
+  open: (hash: string) => void;
+  /** Given for the open project; other projects load theirs on hover. */
+  conversations?: RailConversations;
+}) {
+  const anchor = useRef<HTMLButtonElement>(null);
+  const timer = useRef<number>(undefined);
+  const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState<readonly ConversationSummary[]>();
+  const active = !!conversations;
+  const items = conversations?.items ?? loaded ?? [];
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useEffect(() => {
+    if (!open || active) return;
+    let disposed = false;
+    void listConversations(project.id).then((next) => {
+      if (!disposed) setLoaded(next);
+    }).catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [open, active, project.id]);
+  const hover = (next: boolean) => {
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setOpen(next), next ? HOVER_OPEN : HOVER_CLOSE);
+  };
+  // Closing now also drops a pending hover, which would open it again.
+  const close = () => {
+    window.clearTimeout(timer.current);
+    setOpen(false);
+  };
+  const pick = (conversationId: string) => {
+    close();
+    if (conversations) conversations.onOpen(conversationId);
+    else openProject(conversationHash(project.id, conversationId));
+  };
+  return (
+    <>
+      <button ref={anchor} type="button" className={`sidebar-app${active ? " is-active" : ""}`} aria-label={project.name}
+        aria-current={active ? "page" : undefined} aria-haspopup="dialog" aria-expanded={open}
+        onClick={() => {
+          close();
+          if (!active) openProject(projectHash(project.id));
+        }}
+        onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}
+        onFocus={() => hover(true)} onBlur={() => hover(false)}>
+        <SidebarCover project={project} className="sidebar-app-cover" />
+      </button>
+      <Popover open={open} onClose={close} anchor={anchor} placement="right-start" className="rail-popover"
+        label={t("sidebar.projectConversations", { name: project.name })}>
+        <div onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}>
+          <div className="rail-popover-head">
+            <strong>{project.name}</strong>
+            <small>{t("sidebar.editedAgo", { time: editedAgo(project.updatedAt) })}</small>
+          </div>
+          {[...items].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map((item) => (
+            <button key={item.id} type="button" className={`rail-popover-item${item.id === conversations?.current ? " is-current" : ""}`}
+              aria-current={item.id === conversations?.current ? "true" : undefined} onClick={() => pick(item.id)}>
+              <MessageCircle size={14} />
+              <span>{item.title}</span>
+              <small>{editedAgo(item.updatedAt)}</small>
+            </button>
+          ))}
+          {conversations ? (
+            <button type="button" className="rail-popover-item rail-popover-new" onClick={() => {
+              close();
+              conversations.onNew();
+            }}>
+              <CirclePlus size={14} /><span>{t("projectShell.newConversation")}</span>
+            </button>
+          ) : null}
+        </div>
+      </Popover>
+    </>
+  );
+}
+
+// Inside a project the app's sections step aside: the rail keeps the way home,
+// the recent projects (with their conversations on hover), a new project,
+// search and the account. The pages' sidebar comes back on the way out.
+// `onLeave` runs before anything here leaves the project, so the project can
+// save first.
+export function ProjectRail({ projectId, conversations, onNavigate, onLeave }: {
+  projectId: string;
+  conversations?: RailConversations;
+  onNavigate: (page: AppNavigationTarget) => void;
+  onLeave: (go: () => void) => void;
+}) {
+  const recent = useRecentProjects();
+  const history = useHistoryState();
+  const mac = window.ohMyGameDesktop?.platform === "darwin";
+  const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
+  const openHash = (hash: string) => onLeave(() => { window.location.hash = hash; });
+  return (
+    <nav className="sidebar project-rail" aria-label={t("sidebar.projectNavigation")}>
+      {mac ? (
+        <div className="sidebar-titlebar">
+          <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => window.history.back()}><ArrowLeft size={16} /></IconButton>
+          <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => window.history.forward()}><ArrowRight size={16} /></IconButton>
+        </div>
+      ) : null}
+      <div className="sidebar-head">
+        <Tooltip content={t("sidebar.home")} placement="right-start">
+          <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => leaveTo("home")}>
+            <BrandLogo size={22} />
+          </button>
+        </Tooltip>
+      </div>
+      <div className="sidebar-group sidebar-recent">
+        {recent.map((project) => (
+          <RailProject key={project.id} project={project} open={openHash}
+            conversations={project.id === projectId ? conversations : undefined} />
+        ))}
+        <Tooltip content={t("sidebar.newProject")} placement="right-start">
+          <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => leaveTo("home")}>
+            <CirclePlus size={16} />
+          </button>
+        </Tooltip>
+      </div>
+      <span className="sidebar-spacer" />
+      <div className="sidebar-group">
+        <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={() => onLeave(() => searchProjects(onNavigate))} />
+        <UpdateItem />
+        <AccountMenu active={false} avatarSize={28} onNavigate={leaveTo} />
+      </div>
+    </nav>
   );
 }
 

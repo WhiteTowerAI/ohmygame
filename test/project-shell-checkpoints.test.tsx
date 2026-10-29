@@ -211,7 +211,7 @@ async function openProject(
           projectId="project"
           conversationId="conversation"
           onOpenConversation={() => {}}
-          onHome={() => {}}
+          onNavigate={() => {}} onHome={() => {}}
           {...shellProps}
         />
       </AuthProvider>,

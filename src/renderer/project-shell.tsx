@@ -2,10 +2,14 @@ import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integr
 import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
 import {
   ArrowLeft,
+  Download,
+  FolderOpen,
   LoaderCircle,
   MessageSquarePlus,
   PanelToggle,
+  Pencil,
   RefreshCw,
+  Share2,
   UserRound,
   X,
 } from "./icons.js";
@@ -27,6 +31,8 @@ import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from ".
 import {
   ApiError,
   acquirePreview,
+  exportProject,
+  renameProject,
   releasePreview,
   stopPreview,
   approvePlan,
@@ -88,6 +94,11 @@ import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { WorkspaceShell, WorkspaceAgentPane } from "./workspace-shell.js";
+import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
+import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
+import { ProjectRenameDialog } from "./project-rename-dialog.js";
+import { Button, type MenuEntry } from "./ui/index.js";
+import type { AppNavigationTarget } from "./routes.js";
 import { t } from "./i18n.js";
 
 interface ProjectShellProps {
@@ -102,6 +113,8 @@ interface ProjectShellProps {
   onInitialPromptHandled?: () => void;
   onInitialDraftHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
+  /** Where the rail goes: Home, the other pages and settings. */
+  onNavigate: (page: AppNavigationTarget) => void;
   onHome: () => void;
   homeLabel?: string;
 }
@@ -124,6 +137,7 @@ export function ProjectShell({
   onInitialPromptHandled,
   onInitialDraftHandled,
   onOpenConversation,
+  onNavigate,
   onHome,
   homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }),
 }: ProjectShellProps) {
@@ -773,13 +787,58 @@ export function ProjectShell({
     setConversations((items) => items.map((item) => item.id === renamed.id ? renamed : item));
   }
 
-  function requestHome(): void {
+  // Leaving the project saves the open design first.
+  function leave(go: () => void): void {
     const save = saveDesign.current;
-    if (!save) { onHome(); return; }
-    void save().then(onHome).catch((cause) => {
+    if (!save) { go(); return; }
+    void save().then(go).catch((cause) => {
       dispatch({ type: "notice", message: errorMessage(cause) });
     });
   }
+  const requestHome = () => leave(onHome);
+
+  const [renaming, setRenaming] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const openProjectFile = window.ohMyGameDesktop?.openProjectFile;
+  async function exportArchive(): Promise<void> {
+    if (!project || exporting) return;
+    setExporting(true);
+    try {
+      const archive = await exportProject(project.id);
+      const url = URL.createObjectURL(archive);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${project.name}.zip`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (cause) {
+      dispatch({ type: "notice", message: errorMessage(cause) });
+    } finally {
+      setExporting(false);
+    }
+  }
+  async function renameTo(input: string): Promise<void> {
+    setRenaming(false);
+    const name = input.trim();
+    if (!project || !name || name === project.name) return;
+    try {
+      const updated = await renameProject(project.id, name);
+      dispatch({ type: "project-updated", project: updated });
+      refreshRecentProject(updated);
+    } catch (cause) {
+      dispatch({ type: "notice", message: errorMessage(cause) });
+    }
+  }
+  const projectMenu: MenuEntry[] = [
+    { label: t("projectShell.renameProject"), icon: <Pencil size={14} />, disabled: !project, onSelect: () => setRenaming(true) },
+    ...(openProjectFile && project ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => {
+      void openProjectFile(project.id, ".", "default").catch((cause: unknown) => dispatch({ type: "notice", message: errorMessage(cause) }));
+    } }] : []),
+    { label: exporting ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: !project || exporting, onSelect: () => void exportArchive() },
+    "separator",
+    { label: homeLabel, icon: <ArrowLeft size={14} />, onSelect: requestHome },
+  ];
+  const publishButton = project ? publishAction(project, { publishing, agentBusy }) : undefined;
 
   const setGodotWorkspaceVisibility = useCallback((open: boolean): void => {
     setGodotWorkspaceOpen(open);
@@ -811,8 +870,21 @@ export function ProjectShell({
   return (
     <>
     {integrationGate.dialog}
+    {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
+    <ProjectFrame
+      rail={<ProjectRail projectId={projectId} onNavigate={onNavigate} onLeave={leave} conversations={{
+        items: conversations,
+        current: conversation?.id,
+        onOpen: (id) => onOpenConversation(id),
+        onNew: () => void newConversation(),
+      }} />}
+      top={<ProjectTop name={project?.name ?? ""} menu={projectMenu}>
+        {project && publishButton ? <Button size="sm" variant="primary" icon={publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
+          disabled={publishButton.disabled} title={publishButton.label}
+          onClick={() => setPublishDialog({ projectId: project.id, status: "open" })}>{t("workspace.publish")}</Button> : null}
+      </ProjectTop>}>
     <WorkspaceShell chatLayout={chatLayout} agentCollapsed={agentIsCollapsed} viewerCollapsed={viewerCollapsed}
-      onHome={requestHome} homeLabel={homeLabel} homeIcon={ArrowLeft} onExpandAgent={() => setAgentCollapsed(false)}
+      onExpandAgent={() => setAgentCollapsed(false)}
       agent={<WorkspaceAgentPane bodyRef={timeline} onScroll={(event) => {
         const element = event.currentTarget;
         followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
@@ -992,7 +1064,6 @@ export function ProjectShell({
           openFileRequest={openFileRequest}
           onPublish={publish}
           publishDialog={publishDialogStatus}
-          onOpenPublish={() => setPublishDialog({ projectId: project.id, status: "open" })}
           onClosePublish={() => setPublishDialog(undefined)}
           onRestart={restartPreview}
           onStop={async () => {
@@ -1007,8 +1078,6 @@ export function ProjectShell({
           onClose={isGodotProject ? () => setGodotWorkspaceVisibility(false) : undefined}
           chatOnRight={chatLayout === "right"}
           chatCollapsed={agentIsCollapsed}
-          onHome={requestHome}
-          homeLabel={homeLabel}
           onToggleChat={isGodotProject ? undefined : () => setAgentCollapsed((collapsed) => !collapsed)}
         />
       ) : project.type === "asset-canvas" ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
@@ -1020,8 +1089,6 @@ export function ProjectShell({
         onContextChange={setDesignContext}
         chatOnRight={chatLayout === "right"}
         chatCollapsed={agentIsCollapsed}
-        onHome={requestHome}
-        homeLabel={homeLabel}
         onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
       /></Suspense> : <PlayableEditorWorkspace
         project={project}
@@ -1038,12 +1105,9 @@ export function ProjectShell({
         openFileRequest={openFileRequest}
         onPublish={publish}
         publishDialog={publishDialogStatus}
-        onOpenPublish={() => setPublishDialog({ projectId: project.id, status: "open" })}
         onClosePublish={() => setPublishDialog(undefined)}
         chatOnRight={chatLayout === "right"}
         chatCollapsed={agentIsCollapsed}
-        onHome={requestHome}
-        homeLabel={homeLabel}
         onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
         onChatContextChange={setPlayableChat}
         onAskAgent={requestPrompt}
@@ -1051,6 +1115,7 @@ export function ProjectShell({
       />}
       </ErrorBoundary>
     </WorkspaceShell>
+    </ProjectFrame>
     </>
   );
 }

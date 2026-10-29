@@ -1,4 +1,5 @@
 import {
+  AddCircleIcon,
   AddFolderIcon,
   AddIcon,
   AltArrowDownIcon,
@@ -14,6 +15,7 @@ import {
   BotIcon,
   BoxIcon,
   BoxMinimalisticIcon,
+  ChatRoundLineIcon,
   CheckCircleIcon,
   ClapperboardIcon,
   ClipboardIcon,
@@ -165,6 +167,7 @@ export const Move = forwardRef<SVGSVGElement, IconProps>(function Move({ size = 
 });
 
 export {
+  AddCircleIcon as CirclePlus,
   AddFolderIcon as FolderPlus,
   AddIcon as Plus,
   AltArrowDownIcon as ChevronDown,
@@ -182,6 +185,7 @@ export {
   BotIcon as Bot,
   BoxIcon as Box,
   BoxMinimalisticIcon as Package,
+  ChatRoundLineIcon as MessageCircle,
   CheckCircleIcon as CircleCheck,
   PenNewSquareIcon as MessageSquarePlus,
   ClapperboardIcon as Clapperboard,

@@ -2,7 +2,7 @@
 import path from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthState } from "../src/renderer/auth.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 
@@ -39,13 +39,25 @@ vi.doMock(
     useReadyRuntimeGeneration: () => 1,
   }),
 );
+const conversation = (id: string, title: string, updatedAt: string) => ({
+  id,
+  projectId: "old",
+  title,
+  createdAt: updatedAt,
+  updatedAt,
+  messageCount: 2,
+});
 vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   listProjects: async () => projects,
+  listConversations: async () => [
+    conversation("tune", "Tune the jump", "2026-10-02T00:00:00Z"),
+    conversation("start", "First level", "2026-10-01T00:00:00Z"),
+  ],
   waitForRuntime: async () => undefined,
   getProjectCover: async () => undefined,
 }));
 const { PageFrame } = await import("../src/renderer/page-frame.js");
-const { publishRecentProjects, takeProjectSearchFocus } =
+const { ProjectRail, publishRecentProjects, refreshRecentProject, takeProjectSearchFocus } =
   await import("../src/renderer/app-sidebar.js");
 
 let container: HTMLDivElement;
@@ -128,6 +140,12 @@ it("lists recent projects newest first, folds them, and opens one", async () => 
     publishRecentProjects([{ ...projects[0]!, name: "Renamed Garden" }]),
   );
   expect(recent()).toEqual(["Renamed Garden"]);
+  // A project renamed from inside shows its new name too.
+  await act(async () => refreshRecentProject({ ...projects[0]!, name: "Garden" }));
+  expect(recent()).toEqual(["Garden"]);
+  await act(async () =>
+    publishRecentProjects([{ ...projects[0]!, name: "Renamed Garden" }]),
+  );
 
   await act(async () => button("Recent projects")!.click());
   expect(recent()).toEqual([]);
@@ -216,4 +234,63 @@ it("searches from the Projects page's search field", async () => {
   expect(onNavigate).toHaveBeenCalledWith("projects");
   expect(takeProjectSearchFocus()).toBe(true);
   expect(takeProjectSearchFocus()).toBe(false);
+});
+
+describe("in a project", () => {
+  const onLeave = vi.fn((go: () => void) => go());
+  const onOpen = vi.fn();
+  const onNew = vi.fn();
+  const hover = async (label: string) => {
+    await act(async () => {
+      button(label)!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+  };
+  const railItem = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>(".rail-popover-item")].find((item) => item.querySelector("span")?.textContent === label)!;
+  const popoverItems = () =>
+    [...document.querySelectorAll(".rail-popover-item span")].map((item) => item.textContent);
+
+  beforeEach(async () => {
+    publishRecentProjects(projects);
+    await act(async () =>
+      root.render(
+        <ProjectRail projectId="new" onNavigate={onNavigate} onLeave={onLeave} conversations={{
+          items: [conversation("a", "Rocket fuel", "2026-10-19T00:00:00Z"), conversation("b", "Boss fight", "2026-10-20T00:00:00Z")],
+          current: "a",
+          onOpen,
+          onNew,
+        }} />,
+      ),
+    );
+  });
+
+  it("keeps only the way home, the recent projects, search and the account", async () => {
+    expect(sidebar().textContent).not.toContain("Library");
+    expect(sidebar().querySelector('[aria-current="page"]')?.getAttribute("aria-label")).toBe("New Rocket");
+    await act(async () => button("OhMyGame home")!.click());
+    expect(onLeave).toHaveBeenCalledOnce();
+    expect(onNavigate).toHaveBeenCalledWith("home");
+    // Another project opens once this one has saved.
+    await act(async () => button("Old Garden")!.click());
+    expect(onLeave).toHaveBeenCalledTimes(2);
+    expect(window.location.hash).toBe("#/projects/old");
+  });
+
+  it("lists a project's conversations on hover, newest first", async () => {
+    await hover("New Rocket");
+    expect(popoverItems()).toEqual(["Boss fight", "Rocket fuel", "New conversation"]);
+    expect(document.querySelector(".rail-popover-item.is-current span")?.textContent).toBe("Rocket fuel");
+    await act(async () => railItem("Boss fight").click());
+    expect(onOpen).toHaveBeenCalledWith("b");
+    await hover("New Rocket");
+    await act(async () => railItem("New conversation").click());
+    expect(onNew).toHaveBeenCalledOnce();
+
+    // Another project's conversations load on hover and open that project.
+    await hover("Old Garden");
+    expect(popoverItems()).toEqual(["Tune the jump", "First level"]);
+    await act(async () => railItem("First level").click());
+    expect(window.location.hash).toBe("#/projects/old/conversations/start");
+  });
 });

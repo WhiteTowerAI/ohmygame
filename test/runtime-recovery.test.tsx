@@ -113,7 +113,7 @@ describe("renderer service recovery", () => {
               }}
               onInitialPromptHandled={handled}
               onOpenConversation={() => {}}
-              onHome={() => {}}
+              onNavigate={() => {}} onHome={() => {}}
             />
           </AuthProvider>,
         ),
@@ -140,7 +140,7 @@ describe("renderer service recovery", () => {
     const { AuthProvider } = await import("../src/renderer/auth.js");
     const { previews } = installProjectRuntime("web-game");
     const renderProject = (projectId: string) => root.render(<AuthProvider>
-      <ProjectShell key={projectId} projectId={projectId} conversationId="conversation" onOpenConversation={() => {}} onHome={() => {}} />
+      <ProjectShell key={projectId} projectId={projectId} conversationId="conversation" onOpenConversation={() => {}} onNavigate={() => {}} onHome={() => {}} />
     </AuthProvider>);
     updateRuntimeConnection(ready(1));
     await act(async () => renderProject("old-project"));
@@ -510,7 +510,7 @@ describe("pane and preview boundaries", () => {
     updateRuntimeConnection(ready(1));
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     const project: ProjectState = { id: "routes", name: "Routes", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/routes", preview: { status: "ready", url: "http://127.0.0.1:4000" } };
-    const props = { project, agentBusy: false, publishing: false, workspaceRevision: 0, onPublish: async () => false, onOpenPublish: () => {}, onClosePublish: () => {}, onRestart: () => {}, onStop: async () => {} };
+    const props = { project, agentBusy: false, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, onStop: async () => {} };
     await act(async () => root.render(createElement(CodingWorkspace, props)));
     const frame = container.querySelector("iframe")!;
     const client = new URL(frame.src).searchParams.get("__ohmygame_client")!;
@@ -541,7 +541,7 @@ describe("pane and preview boundaries", () => {
     const { updateRuntimeConnection } = await import("../src/renderer/runtime-connection.js");
     updateRuntimeConnection(ready(1));
     const project: ProjectState = { id: "logs", name: "Logs", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/logs", preview: { status: "stopped", logs: "Preview was stopped." } };
-    await act(async () => root.render(createElement(CodingWorkspace, { project, agentBusy: false, publishing: false, workspaceRevision: 0, onPublish: async () => false, onOpenPublish: () => {}, onClosePublish: () => {}, onRestart: () => {} })));
+    await act(async () => root.render(createElement(CodingWorkspace, { project, agentBusy: false, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {} })));
     await act(async () => (container.querySelector('.workspace-tab[title="Code"]') as HTMLButtonElement).click());
     await act(async () => (container.querySelector('[aria-label="Project settings"]') as HTMLButtonElement).click());
     const logs = [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Preview logs")!;

@@ -45,7 +45,7 @@ beforeEach(async () => {
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
   await act(async () => root.render(<PlayableEditorWorkspace
     project={{ id: "p", type: "interactive-story" } as ProjectState} agentBusy={false} publishing={false}
-    onPublish={async () => false} onOpenPublish={() => {}} onClosePublish={() => {}}
+    onPublish={async () => false} onClosePublish={() => {}}
   />));
   await act(async () => move(null, { x: 32, y: 64, zoom: 1.2 }));
   expect(update).not.toHaveBeenCalled();

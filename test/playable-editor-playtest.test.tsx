@@ -88,7 +88,6 @@ async function renderWorkspace(
         agentBusy={false}
         publishing={false}
         onPublish={async () => false}
-        onOpenPublish={() => {}}
         onClosePublish={() => {}}
         {...props}
       />,

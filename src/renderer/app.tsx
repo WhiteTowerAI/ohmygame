@@ -105,6 +105,7 @@ export function App() {
       onInitialPromptHandled={clearInitialPrompt}
       onInitialDraftHandled={() => setInitialDraft(undefined)}
       onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}
+      onNavigate={navigateToSidebarPage}
       onHome={() => navigate(projectReturnTo)}
       homeLabel={projectBackLabel}
     /></Suspense>
