@@ -1394,11 +1394,12 @@ const zhCN: typeof en = {
     completed: "已完成 {{completed}} / {{total}} 步",
   },
   planApproval: {
+    kind: "计划",
     label: "确认计划",
     title: "要执行这个计划吗？",
     cancel: "取消计划",
-    approve: "是，执行这个计划",
-    refine: "否，告诉 OhMyGame 要怎么改",
+    approve: "批准并执行",
+    refine: "修改计划",
     refinePlaceholder: "告诉 OhMyGame 要怎么改",
   },
   agents: {
@@ -1550,6 +1551,7 @@ const zhCN: typeof en = {
     notAnswered: "未答复：{{subject}}",
   },
   questionnaire: {
+    kind: "提问",
     label: "规划问题",
     previous: "上一个问题",
     position: "{{current}} / {{total}}",
