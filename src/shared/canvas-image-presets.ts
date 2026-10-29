@@ -13,6 +13,7 @@ export const CANVAS_IMAGE_PRESETS = [
   "consistent-sequence",
   "side-view-character",
   "rpg-character",
+  "multi-angle",
   "portrait",
   "monster",
   "animal",
@@ -47,6 +48,8 @@ const instructions: Record<
     "Create a full-body side-view game character on a plain background, with a readable silhouette and consistent proportions.",
   "rpg-character":
     "Create a top-down RPG character sprite with a complete body, clear equipment, and a plain background.",
+  "multi-angle":
+    "Create a 3 × 3 sheet of nine views of one subject: back-left, back, and back-right on the top row; left side, top-down overhead, and right side in the middle; front-left, front, and front-right on the bottom row. Keep the same design, pose, and scale in every view on a plain background.",
   portrait:
     "Create a detailed character portrait with a clear face, expression, costume, and plain background.",
   monster:
@@ -89,10 +92,12 @@ export function canvasImagePresetPrompt(
     const assetType = preset === "monster" || preset === "animal" ? "creature"
       : preset === "terrain" || preset === "tileset" ? "terrain"
       : preset === "scene" || preset === "building" ? "environment"
-      : preset === "prop" || preset === "icon" ? "object" : "character";
+      : preset === "prop" || preset === "icon" ? "object"
+      : preset === "multi-angle" ? "subject" : "character";
     const grid = preset === "monster" || preset === "animal"
       ? { columns: 4, rows: 4, unit: "sprite" as const }
       : preset === "prop" ? { columns: 4, rows: 3, unit: "view" as const }
+        : preset === "multi-angle" ? { columns: 3, rows: 3, unit: "view" as const }
         : preset === "tileset" ? { columns: 4, rows: 4, unit: "tile" as const } : undefined;
     const fallback = preset === "terrain" || preset === "tileset"
       ? "Derive the terrain biome, materials, and palette from the supplied reference, then build a new asset that follows the requirements below."

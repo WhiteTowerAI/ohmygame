@@ -7,6 +7,7 @@ import coarseCharacterSheet from "./assets/templates/examples/coarse/character-s
 import coarseRpgCharacter from "./assets/templates/examples/coarse/rpg-character.webp";
 import coarsePortrait from "./assets/templates/examples/coarse/portrait.webp";
 import coarseMonster from "./assets/templates/examples/coarse/monster.webp";
+import coarseMultiAngle from "./assets/templates/examples/coarse/multi-angle.webp";
 import coarseAnimal from "./assets/templates/examples/coarse/animal.webp";
 import coarseScene from "./assets/templates/examples/coarse/scene.webp";
 import coarseProp from "./assets/templates/examples/coarse/prop.webp";
@@ -36,6 +37,7 @@ import classicCharacterSheet from "./assets/templates/examples/classic/character
 import classicRpgCharacter from "./assets/templates/examples/classic/rpg-character.webp";
 import classicPortrait from "./assets/templates/examples/classic/portrait.webp";
 import classicMonster from "./assets/templates/examples/classic/monster.webp";
+import classicMultiAngle from "./assets/templates/examples/classic/multi-angle.webp";
 import classicAnimal from "./assets/templates/examples/classic/animal.webp";
 import classicScene from "./assets/templates/examples/classic/scene.webp";
 import classicProp from "./assets/templates/examples/classic/prop.webp";
@@ -65,6 +67,7 @@ import detailedCharacterSheet from "./assets/templates/examples/detailed/charact
 import detailedRpgCharacter from "./assets/templates/examples/detailed/rpg-character.webp";
 import detailedPortrait from "./assets/templates/examples/detailed/portrait.webp";
 import detailedMonster from "./assets/templates/examples/detailed/monster.webp";
+import detailedMultiAngle from "./assets/templates/examples/detailed/multi-angle.webp";
 import detailedAnimal from "./assets/templates/examples/detailed/animal.webp";
 import detailedScene from "./assets/templates/examples/detailed/scene.webp";
 import detailedProp from "./assets/templates/examples/detailed/prop.webp";
@@ -101,6 +104,7 @@ const EXAMPLE_IMAGES: Record<string, string> = {
   "coarse/rpg-character": coarseRpgCharacter,
   "coarse/portrait": coarsePortrait,
   "coarse/monster": coarseMonster,
+  "coarse/multi-angle": coarseMultiAngle,
   "coarse/animal": coarseAnimal,
   "coarse/scene": coarseScene,
   "coarse/prop": coarseProp,
@@ -128,6 +132,7 @@ const EXAMPLE_IMAGES: Record<string, string> = {
   "classic/rpg-character": classicRpgCharacter,
   "classic/portrait": classicPortrait,
   "classic/monster": classicMonster,
+  "classic/multi-angle": classicMultiAngle,
   "classic/animal": classicAnimal,
   "classic/scene": classicScene,
   "classic/prop": classicProp,
@@ -155,6 +160,7 @@ const EXAMPLE_IMAGES: Record<string, string> = {
   "detailed/rpg-character": detailedRpgCharacter,
   "detailed/portrait": detailedPortrait,
   "detailed/monster": detailedMonster,
+  "detailed/multi-angle": detailedMultiAngle,
   "detailed/animal": detailedAnimal,
   "detailed/scene": detailedScene,
   "detailed/prop": detailedProp,
@@ -190,6 +196,7 @@ const PRESET_EXAMPLES: Partial<Record<PixelAssetPresetId, string>> = {
   "rpg-character": "rpg-character",
   portrait: "portrait",
   monster: "monster",
+  "multi-angle": "multi-angle",
   animal: "animal",
   scene: "scene",
   prop: "prop",

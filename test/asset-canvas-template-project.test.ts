@@ -32,19 +32,19 @@ beforeEach(() => {
 });
 
 describe("pixel asset template projects", () => {
-  it.each(["coarse", "classic", "detailed"] as const)("creates one %s group with a reference and three linked character generators", async (level) => {
+  it.each(["coarse", "classic", "detailed"] as const)("creates one %s group with a reference and four linked character generators", async (level) => {
     const created = await createPixelAssetTemplateProject("characters", level);
     const [, saved] = canvas.saveCanvasBoard.mock.calls[0] as [string, { board: ReturnType<typeof createCanvasBoard> }, string];
     const nodes = saved.board.nodes as Array<(typeof saved.board.nodes)[number] & { parentId?: string; title?: string }>;
     const pixelGroups = nodes.filter((node) => node.type === "group" && node.data.pixelStyle);
-    const expectedPresets = ["character-sheet", "rpg-character", "portrait"];
+    const expectedPresets = ["character-sheet", "rpg-character", "multi-angle", "portrait"];
 
     expect(pixelGroups).toHaveLength(1);
     expect(pixelGroups[0]?.type === "group" && pixelGroups[0].data.pixelStyle).toBe(level);
     expect(Object.keys(saved.board.editorLayout.nodes)).toEqual(nodes.map((node) => node.id));
     for (const group of pixelGroups) {
       const children = nodes.filter((node) => node.parentId === group.id);
-      expect(children).toHaveLength(4);
+      expect(children).toHaveLength(5);
       const reference = children.find((node) => node.type === "image" && node.data.sourceInput);
       const generators = children.filter((node): node is Extract<typeof node, { type: "image" }> => node.type === "image" && !node.data.sourceInput);
       expect(reference?.title).toContain("Reference image");
@@ -63,7 +63,7 @@ describe("pixel asset template projects", () => {
 
   it("creates the seven requested category templates with their density-specific workflows", async () => {
     const expectedCounts = new Map([
-      ["characters", 4],
+      ["characters", 5],
       ["creatures", 3],
       ["animation", 9],
       ["scenes", 2],

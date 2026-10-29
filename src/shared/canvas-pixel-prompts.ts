@@ -450,6 +450,30 @@ Focus on readable expression, facial structure, hairstyle, personality, and main
 Use deliberate pixel clusters, stepped curves, a cohesive limited palette, and clean hard-edged shading. Add highlights only when the selected density permits them. Avoid smooth anime rendering, airbrushed skin, gradients, anti-aliasing, photorealism, and painterly textures.
 
 Keep the subject clearly framed, with a simple or transparent background as appropriate.`,
+  "multi-angle": `Create an authentic pixel art MULTI-ANGLE VIEW SHEET of one game subject, based on the provided reference image and user description.
+
+USER REQUEST: {user_prompt}
+
+MANDATORY LAYOUT: 3 × 3 VIEW GRID
+Arrange exactly nine views of the same subject in an invisible 3-column by 3-row grid of equal square cells, laid out like a compass seen from above:
+- Top row: back-left three-quarter view, back view, back-right three-quarter view.
+- Middle row: left side view (facing screen-left), top-down overhead view looking straight down from above the head, right side view (facing screen-right).
+- Bottom row: front-left three-quarter view, front view facing the viewer, front-right three-quarter view.
+
+VIEW CONSISTENCY
+Every view shows the same subject with identical design, proportions, colors, equipment, and markings, rotated in place. Use the same neutral standing or resting pose in every view; do not change pose, expression, or held items between views. Side and three-quarter views must turn the whole body consistently, not only the head. The overhead view shows the top of the head or body, shoulders, and anything visible from above, at the same scale.
+
+SCALE AND ALIGNMENT
+Use the same scale in every cell. Center each view in its cell with comparable margins, and keep feet or base on one shared baseline within each row. The complete subject must be visible in every cell without cropping.
+
+REFERENCE INTERPRETATION
+Use the reference to identify the subject's identity, silhouette, costume or markings, and main colors. Infer unseen sides plausibly and consistently from the visible design; do not invent new accessories or color changes on hidden sides.
+
+OUTPUT
+A plain flat background or transparency shared by all cells. No grid lines, borders, labels, arrows, text, numbers, shadows that cross cells, scenery, or additional characters.
+
+STRICTLY AVOID
+Fewer or more than nine views, repeated identical angles, mirrored views passed off as different angles when the subject is asymmetric, different poses between views, inconsistent scale, perspective drift, smooth illustration, anti-aliasing, gradients, and blurry edges.`,
   "rpg-character": `Create an authentic pixel art RPG character sprite using the provided reference image.
 
 USER REQUEST: {user_prompt}

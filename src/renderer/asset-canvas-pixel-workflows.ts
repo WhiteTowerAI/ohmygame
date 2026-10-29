@@ -67,6 +67,7 @@ const PRESET_CATEGORIES: {
     presets: [
       "character-sheet",
       "rpg-character",
+      "multi-angle",
       "portrait",
     ],
   },
