@@ -10,6 +10,7 @@ import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
 import { createdProjectView, type AppNavigationTarget, type ProjectListFilters, type ProjectSort } from "./routes.js";
+import { publishRecentProjects, takeProjectSearchFocus } from "./app-sidebar.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { PROJECT_TYPES } from "./project-types.js";
 import { useProjectActivity } from "./use-project-activity.js";
@@ -31,6 +32,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   const activity = useProjectActivity(phase === "ready" && projects.length > 0, setProjects);
   const [error, setError] = useState<string>();
   const [sortOpen, setSortOpen] = useState(false);
+  const [focusSearch] = useState(takeProjectSearchFocus);
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -48,7 +50,9 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
     setError(undefined);
     try {
       await waitForRuntime();
-      setProjects(await listProjects());
+      const loaded = await listProjects();
+      setProjects(loaded);
+      publishRecentProjects(loaded);
       setPhase("ready");
     } catch (cause) {
       setError(errorMessage(cause));
@@ -161,7 +165,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
               </select>
               <label className="projects-search" htmlFor="projects-search-input">
                 <Search size={14} aria-hidden="true" />
-                <input id="projects-search-input" value={query} onChange={(event) => onFiltersChange({ ...filters, query: event.target.value }, true)} placeholder={t("projects.search")} />
+                <input id="projects-search-input" autoFocus={focusSearch} value={query} onChange={(event) => onFiltersChange({ ...filters, query: event.target.value }, true)} placeholder={t("projects.search")} />
               </label>
               <div className="projects-sort" ref={sortControl}>
                 <button className="projects-icon-button" type="button" aria-label={t("projects.sort")} aria-expanded={sortOpen} onClick={() => setSortOpen((current) => !current)}>

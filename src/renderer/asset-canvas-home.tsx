@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import type { AssetCanvasStarter } from "../shared/asset-canvas.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
-import { AppSidebar } from "./app-sidebar.js";
+import { publishRecentProjects } from "./app-sidebar.js";
+import { PageFrame } from "./page-frame.js";
 import { ASSET_CANVAS_QUICK_STARTS, createAssetCanvasQuickStart, loadQuickStartModels, QuickStartModelUnavailableError, type AssetCanvasQuickStart } from "./asset-canvas-quick-start.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
@@ -42,7 +43,9 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
     setPhase("loading");
     try {
       await waitForRuntime();
-      setProjects(recentAssetCanvasProjects(await listProjects()));
+      const loaded = await listProjects();
+      publishRecentProjects(loaded);
+      setProjects(recentAssetCanvasProjects(loaded));
       setError(undefined);
       setPhase("ready");
     } catch (cause) {
@@ -82,8 +85,7 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
     }
   }
 
-  return <main className="home-shell">
-    <AppSidebar active="asset-canvas" onNavigate={onNavigate} />
+  return <PageFrame active="asset-canvas" onNavigate={onNavigate}>
     <section className="home-content asset-canvas-home">
       <WindowDragRegion />
       <div className="asset-canvas-home-inner">
@@ -147,7 +149,7 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
       if (name && name !== project.name) void action(() => renameProject(project.id, name));
     }} /> : null}
     {createOpen ? <ProjectCreateDialog fixedType="asset-canvas" onClose={() => setCreateOpen(false)} onCreated={(project) => { setCreateOpen(false); onOpenProject(project.id); }} /> : null}
-  </main>;
+  </PageFrame>;
 }
 
 function AssetCanvasRecentSkeleton() {

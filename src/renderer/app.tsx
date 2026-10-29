@@ -2,10 +2,12 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Home } from "./home.js";
 // Only lazy routes use this; loading it eagerly keeps it ahead of styles.css as before code splitting.
 import "./plugin-builder.css";
-import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, projectsHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection, type SidebarPage } from "./routes.js";
+import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, projectsHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { historyState, useAppNavigation } from "./app-navigation.js";
 import { invalidateQuickStartModels, loadQuickStartModels } from "./asset-canvas-quick-start.js";
+import { PageFrame } from "./page-frame.js";
 import { SidebarPageLayout } from "./sidebar-page.js";
+import type { SidebarActive } from "./app-sidebar.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
@@ -51,6 +53,17 @@ export function App() {
     return () => window.removeEventListener(MODELS_CHANGED_EVENT, refresh);
   }, [serviceGeneration]);
 
+  // ⌘, (Ctrl+, elsewhere) opens settings from anywhere, as the account menu shows.
+  useEffect(() => {
+    const openSettings = (event: KeyboardEvent) => {
+      if (event.key !== "," || event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      if (parseAppRoute(window.location.hash).page !== "settings") navigateToSidebarPage("settings");
+    };
+    window.addEventListener("keydown", openSettings);
+    return () => window.removeEventListener("keydown", openSettings);
+  });
+
   // A Playtest window that cannot play asks for its project's editor.
   const routeProjectId = route.page === "project" ? route.projectId : undefined;
   useEffect(() => window.ohMyGameDesktop?.onShowPlaytestEditor?.((projectId) => {
@@ -66,7 +79,7 @@ export function App() {
   if (route.page === "home" && !onboarding.state) return <OnboardingLoading error={onboarding.error} onRetry={onboarding.retry} />;
   if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} /></Suspense>;
   if (route.page === "settings") {
-    return <Suspense fallback={<RouteLoading />}><SettingsPage section={route.section} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onOpenOnboarding={onboarding.open} /></Suspense>;
+    return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
   }
   if (route.page === "plugins") return <>{creationGate.dialog}<SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
     <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
@@ -111,8 +124,8 @@ export function App() {
   );
 
   // Keeps the sidebar in place while a sidebar page's chunk loads.
-  function sidebarFallback(active: SidebarPage) {
-    return <SidebarPageLayout active={active} onNavigate={navigateToSidebarPage}>{null}</SidebarPageLayout>;
+  function sidebarFallback(active: SidebarActive) {
+    return <PageFrame active={active} onNavigate={navigateToSidebarPage}>{null}</PageFrame>;
   }
 
   function openCreatedProject(project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]): void {
@@ -176,12 +189,7 @@ export function App() {
   }
 
   function navigateToSidebarPage(page: AppNavigationTarget): void {
-    if (page === "settings") {
-      const hash = settingsHash(DEFAULT_SETTINGS_SECTION);
-      navigate(hash, { state: { settingsEntry: true } });
-      return;
-    }
-    const hash = sidebarHash(page);
+    const hash = page === "settings" ? settingsHash(DEFAULT_SETTINGS_SECTION) : sidebarHash(page);
     if (window.location.hash === hash) return;
     navigate(hash);
   }
@@ -194,14 +202,6 @@ export function App() {
     navigate(pluginHash(pluginId), { replace: true, state: historyState() });
   }
 
-  function leaveSettings(): void {
-    const state = historyState();
-    if (state.settingsEntry === true) {
-      window.history.back();
-      return;
-    }
-    navigate("#/", { replace: true });
-  }
 }
 
 function RouteLoading() {

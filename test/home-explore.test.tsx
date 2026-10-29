@@ -22,7 +22,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   getExampleCover: async () => undefined,
   waitForRuntime: async () => undefined,
 }));
-vi.doMock(path.resolve("src/renderer/app-sidebar.tsx"), () => ({ AppSidebar: () => null }));
+vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({ PageFrame: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({ ProjectPromptCreator: () => null }));
 
 const { Home } = await import("../src/renderer/home.js");

@@ -1,20 +1,3 @@
-.home-nav-icon-godot {
-  mask-image: url("./assets/godot-outline.svg");
-  -webkit-mask-image: url("./assets/godot-outline.svg");
-}
-
-.home-nav-symbol {
-  display: grid;
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
-  place-items: center;
-}
-
-.home-nav-item-active .home-nav-symbol {
-  color: var(--home-accent);
-}
-
 .game-studio-home {
   min-width: 0;
 }
@@ -142,29 +125,6 @@
 }
 
 @media (max-width: 720px) {
-  .home-shell:has(> .home-sidebar > nav[aria-label="Main navigation"]) {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 52px minmax(0, 1fr);
-  }
-  .home-sidebar:has(> nav[aria-label="Main navigation"]) {
-    min-width: 0;
-    flex-direction: row;
-  }
-  .home-sidebar > nav[aria-label="Main navigation"] {
-    min-width: 0;
-    flex: 1;
-    flex-direction: row;
-    align-items: center;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .home-sidebar:has(> nav[aria-label="Main navigation"])
-    .home-sidebar-header-spacer {
-    display: none;
-  }
-  .home-nav-item {
-    flex: 0 0 auto;
-  }
   .studio-projects,
   .studio-examples {
     --project-shelf-gap: 12px;
@@ -178,22 +138,6 @@
   }
   .projects-type-filter {
     flex: 0 1 150px;
-  }
-}
-
-@media (max-width: 460px) {
-  .home-sidebar .home-nav-item {
-    position: relative;
-    min-width: 36px;
-    min-height: 36px;
-    justify-content: center;
-  }
-  .home-sidebar .home-nav-item :is(.home-nav-icon, .home-nav-symbol) {
-    position: static;
-    width: 16px;
-    height: 16px;
-    overflow: visible;
-    clip: auto;
   }
 }
 

@@ -17,8 +17,8 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   waitForRuntime: async () => undefined,
   getProjectCover: async () => undefined,
 }));
-vi.doMock(path.resolve("src/renderer/app-sidebar.tsx"), () => ({
-  AppSidebar: () => null,
+vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({
+  PageFrame: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 const { ProjectCard } = await import("../src/renderer/project-card.js");
 const { archiveProjectName } = await import("../src/renderer/api.js");
