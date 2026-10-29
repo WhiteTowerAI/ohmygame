@@ -8,6 +8,8 @@ import type { ProjectState } from "../src/shared/contracts.js";
 import type { NodeCodebaseUpdate } from "../src/shared/playable-codebase.js";
 import type { ReactFlowInstance } from "@xyflow/react";
 import { desktopSave } from "../src/renderer/desktop-save.js";
+import { createPanelNodes, type PanelNodes } from "../src/renderer/panel-layout.js";
+import type { StoryView } from "../src/renderer/playable-editor-workspace.js";
 
 const codebase = createStarterCodebaseWithScene("Close save", { width: 1280, height: 720 });
 const update = vi.fn(async (_projectId: string, _next: NodeCodebaseUpdate) => ({ revision: "saved" }));
@@ -90,12 +92,16 @@ it("saves the displayed viewport when close precedes the delayed move-end event"
   }), "0");
 });
 
-it("lists the story's media in Assets without saving the view to the layout", async () => {
-  const tab = (label: string) => [...container.querySelectorAll<HTMLButtonElement>(".workspace-tab")].find((button) => button.title === label)!;
-  await act(async () => tab("Assets").click());
+it("lists the story's media in its Assets panel without saving the view to the layout", async () => {
+  const nodes = Object.fromEntries((["story", "design", "canvas", "code", "assets"] as const).map((view) => [view, createPanelNodes()])) as Record<StoryView, PanelNodes>;
+  await act(async () => root.render(<PlayableEditorWorkspace
+    project={{ id: "p", type: "interactive-story" } as ProjectState} agentBusy={false} publishing={false}
+    onPublish={async () => false} onClosePublish={() => {}}
+    panels={{ nodes, visible: new Set<StoryView>(["story", "assets"]), onShow: () => {} }}
+  />));
 
   expect(listWorkspaceFiles).toHaveBeenCalledWith("p");
-  const view = container.querySelector(".story-assets-view")!;
+  const view = nodes.assets.body.querySelector(".story-assets-view")!;
   expect(view.textContent).toContain("platform.png");
   expect(view.textContent).not.toContain("node.js");
   await act(async () => desktopSave.prepare());

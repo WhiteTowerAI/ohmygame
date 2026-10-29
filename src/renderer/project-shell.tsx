@@ -85,7 +85,7 @@ import { ConversationMenu } from "./conversation-menu.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
 import { CodingWorkspace } from "./coding-workspace.js";
-import { PlayableEditorWorkspace } from "./playable-editor-workspace.js";
+import { PlayableEditorWorkspace, type StoryView } from "./playable-editor-workspace.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
 import { composerDrafts } from "./composer-drafts.js";
@@ -170,12 +170,6 @@ export function ProjectShell({
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
   const [initialPromptDeferred, setInitialPromptDeferred] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
-  const [designOpen, setDesignOpen] = useState(view === "design");
-  useEffect(() => { setDesignOpen(view === "design"); }, [view]);
-  const changeWorkspaceView = useCallback((open: boolean, options?: { replace?: boolean }): void => {
-    setDesignOpen(open);
-    onViewChange?.(open ? "design" : "workspace", options);
-  }, [onViewChange]);
   // The workspace's panels, in the one layout every project shares (see
   // workspace-layout.ts). Each panel's view renders into nodes of its own,
   // which the panel shows.
@@ -243,14 +237,17 @@ export function ProjectShell({
   const timeline = useRef<HTMLDivElement>(null);
   const followTimeline = useRef(true);
 
-  // A game's panels include Code; its route's design view is the canvas, which
-  // it brings forward, and the route follows it.
-  const coding = offered.includes("code");
-  const designShown = coding ? visible.includes("canvas") : designOpen;
-  useEffect(() => { if (view === "design" && coding) revealPanel("canvas"); }, [view, coding]);
+  // Games and stories put their canvas beside their other panels. Their
+  // route's design view is the canvas, which it brings forward, and the route
+  // follows it.
+  const story = offered.includes("story");
+  const coding = offered.includes("code") && !story;
+  const panelled = offered.includes("code");
+  const designShown = visible.includes("canvas");
+  useEffect(() => { if (view === "design" && panelled) revealPanel("canvas"); }, [view, panelled]);
   useEffect(() => {
-    if (layout && coding && designShown !== (view === "design")) onViewChange?.(designShown ? "design" : "workspace", { replace: true });
-  }, [designShown, coding]);
+    if (layout && panelled && designShown !== (view === "design")) onViewChange?.(designShown ? "design" : "workspace", { replace: true });
+  }, [designShown, panelled]);
 
   useEffect(() => {
     const current = state.conversation;
@@ -500,10 +497,12 @@ export function ProjectShell({
     : state.plan.mode !== "normal" ? state.plan.plan : undefined;
 
   const canvasOpen = designShown || project?.type === "asset-canvas";
-  const playableSurface = !canvasOpen && playableChat?.surface && playableChat.surface.key !== dismissedSurface ? playableChat.surface : undefined;
+  // The open Scene goes with the message while the story shows, the canvas's selection while the canvas does.
+  const storyShown = visible.includes("story");
+  const playableSurface = storyShown && playableChat?.surface && playableChat.surface.key !== dismissedSurface ? playableChat.surface : undefined;
   const designChipKey = designContext ? `design:${designContext.text}` : undefined;
   const currentDesignContext = canvasOpen && designChipKey !== dismissedDesign ? designContext : undefined;
-  const chatContexts = [playableSurface?.chip, ...(!canvasOpen ? playableChat?.attachments ?? [] : []).map((attachment) => attachment.chip), ...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : [])].filter((chip) => chip !== undefined);
+  const chatContexts = [playableSurface?.chip, ...(storyShown ? playableChat?.attachments ?? [] : []).map((attachment) => attachment.chip), ...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : [])].filter((chip) => chip !== undefined);
 
   async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[] = [], references: PromptReference[] = [], designContexts: PromptContext[] = []): Promise<boolean> {
     if (!project || !conversation) return false;
@@ -514,7 +513,7 @@ export function ProjectShell({
       if (!await integrationGate.ensure(project, pluginId)) return false;
       await saveDesign.current?.();
       const surface = playableSurface;
-      const previewContexts = !canvasOpen ? playableChat?.attachments ?? [] : [];
+      const previewContexts = storyShown ? playableChat?.attachments ?? [] : [];
       const previewImage = previewContexts.length ? await playableChat?.capture().catch(() => undefined) : undefined;
       const contexts = [surface?.context, ...previewContexts.map((attachment) => attachment.context)].filter((context) => context !== undefined);
       const sentImages = previewImage ? [...images, previewImage] : images;
@@ -884,15 +883,13 @@ export function ProjectShell({
   ];
   const publishButton = project ? publishAction(project, { publishing, agentBusy }) : undefined;
 
-  // The code panel opens the file. The story editor and the canvas show their
-  // code view first, and come back if their panel was closed.
+  // The code panel opens the file, and comes back if it was closed. A game's
+  // workspace brings it forward itself; the canvas shows its code view first.
   const openWorkspaceFile = useCallback((path: string): void => {
-    if (offered.includes("story")) {
-      changeWorkspaceView(false);
-      revealPanel("story");
-    } else if (!coding && offered.includes("canvas")) revealPanel("canvas");
+    if (story) revealPanel("code");
+    else if (!panelled && offered.includes("canvas")) revealPanel("canvas");
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
-  }, [changeWorkspaceView, coding, offered.includes("story"), offered.includes("canvas")]);
+  }, [story, panelled, offered.includes("canvas")]);
   const addToChat = useCallback((text: string) => {
     if (!conversation) return;
     composerDrafts.get({ projectId, conversationId: conversation.id }).update({ reference: { text } });
@@ -939,6 +936,7 @@ export function ProjectShell({
     }),
   ] : [];
   const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "canvas" || id === "code" || id === "assets" ? [id] : []));
+  const storyVisible = new Set(visible.filter((id): id is StoryView => id === "story" || id === "design" || id === "canvas" || id === "code" || id === "assets"));
 
   return (
     <>
@@ -1143,21 +1141,11 @@ export function ProjectShell({
             onShow: (view) => revealPanel(view === "preview" ? "game" : view),
           }}
         />
-      ) : offered.includes("canvas") ? createPortal(<Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
-        project={project}
-        onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
-        workspaceRevision={workspaceRevision}
-        openFileRequest={openFileRequest}
-        onSaveReady={registerDesignSave}
-        onContextChange={setDesignContext}
-        headerActionsTarget={nodes.canvas.toolbar}
-      /></Suspense>, nodes.canvas.body) : createPortal(<PlayableEditorWorkspace
+      ) : story ? <PlayableEditorWorkspace
         project={project}
         showStoryMap={showStoryMap}
         onStoryMapShown={onStoryMapShown}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
-        designOpen={designOpen}
-        onDesignOpenChange={changeWorkspaceView}
         onDesignSaveReady={registerDesignSave}
         onDesignContextChange={setDesignContext}
         agentBusy={agentBusy}
@@ -1167,11 +1155,26 @@ export function ProjectShell({
         onPublish={publish}
         publishDialog={publishDialogStatus}
         onClosePublish={() => setPublishDialog(undefined)}
-        toolbarTarget={nodes.story.toolbar}
         onChatContextChange={setPlayableChat}
         onAskAgent={requestPrompt}
         onSendToAgent={sendEditorRequest}
-      />, nodes.story.body)}
+        referencedDocument={referencedDocument}
+        onReferenceDocument={referenceDocument}
+        onQuoteDocument={quoteDocument}
+        panels={{
+          nodes: { story: nodes.story, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
+          visible: storyVisible,
+          onShow: revealPanel,
+        }}
+      /> : createPortal(<Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+        project={project}
+        onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
+        workspaceRevision={workspaceRevision}
+        openFileRequest={openFileRequest}
+        onSaveReady={registerDesignSave}
+        onContextChange={setDesignContext}
+        headerActionsTarget={nodes.canvas.toolbar}
+      /></Suspense>, nodes.canvas.body)}
       </ErrorBoundary>
     </ProjectFrame>
     </>
