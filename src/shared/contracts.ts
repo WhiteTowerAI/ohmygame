@@ -526,6 +526,8 @@ export type AssetCanvasNode = (
     aspectRatio: ImageAspectRatio;
     images: AssetCanvasReference[];
     assetId?: string;
+    /** Bundled example image id shown until the node has an asset. */
+    exampleImage?: string;
   } }
   | { id: string; type: "video"; position: AssetCanvasPosition; data: {
     prompt: string;

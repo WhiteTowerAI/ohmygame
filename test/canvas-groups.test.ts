@@ -193,6 +193,13 @@ it("keeps a partly overlapping child in its group so the frame can grow", () => 
   expect(canvasDropGroup(outside, [frame, outside])).toBeUndefined();
 });
 
+it("fits an unmeasured image node at its tallest rendered size", () => {
+  const frame = group("frame", 0, 0);
+  const image: AssetCanvasNode = { id: "image", type: "image", parentId: "frame", position: { x: 24, y: 72 }, data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [] } };
+  const expanded = expandCanvasGroups([frame, image]);
+  expect(expanded[0]!.height).toBeGreaterThanOrEqual(72 + 388 + 16);
+});
+
 it("excludes descendants selected across unselected intermediate groups", async () => {
   const { canvasSelectionRoots } =
     await import("../src/renderer/canvas-groups.js");

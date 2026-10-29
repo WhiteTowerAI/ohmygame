@@ -91,6 +91,7 @@ const nodes = [
       aspectRatio: { enum: IMAGE_ASPECT_RATIOS },
       images: { type: "array", maxItems: IMAGE_MAX_REFERENCE_IMAGES, items: reference },
       assetId: id,
+      exampleImage: { type: "string", maxLength: 100 },
     },
   }),
   node("video", {

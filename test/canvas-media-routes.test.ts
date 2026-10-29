@@ -107,7 +107,7 @@ it.each(["building", "terrain", "tileset"].flatMap((presetId) =>
   expect(input.prompt).toContain("Castle");
   if (materialStyle === "pixel") {
     expect(input.prompt).toMatch(/pixel art/i);
-    if (presetId === "terrain") expect(input.prompt).toContain("MANDATORY ASSET TYPE: CONTINUOUS TERRAIN");
+    if (presetId === "terrain") expect(input.prompt).toContain("MANDATORY ASSET TYPE: CONTINUOUS MAP TERRAIN");
     if (presetId === "tileset") expect(input.prompt).toContain("MANDATORY ASSET TYPE: TERRAIN TILESET");
   }
   else {

@@ -39,7 +39,7 @@ export function PlayableAddControl({ presets, busy, onAdd, className, children }
   const closeAdd = useCallback(() => setAddOpen(false), []);
 
   return <>
-    <button className={[className, addOpen ? "is-active" : undefined].filter(Boolean).join(" ") || undefined} type="button" title={t("storyMenu.addScene")} {...(children ? {} : { "aria-label": t("storyMenu.addScene") })} aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => setAddOpen(true)}>
+    <button className={[className, addOpen ? "is-active" : undefined].filter(Boolean).join(" ") || undefined} type="button" {...(children ? { title: t("storyMenu.addScene") } : { "aria-label": t("storyMenu.addScene"), "data-tooltip": t("storyMenu.addScene") })} aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => setAddOpen(true)}>
       {children ?? (busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />)}
     </button>
     {addOpen ? createPortal(<PlayableTemplateDialog

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createCanvasBoard, isCanvasBoard } from "../src/shared/canvas-workspace.js";
+import { pixelExampleImageUrl } from "../src/renderer/asset-canvas-pixel-examples.js";
 
 const api = vi.hoisted(() => ({
   createProject: vi.fn().mockResolvedValue({ id: "project-1" }),
@@ -31,17 +32,17 @@ beforeEach(() => {
 });
 
 describe("pixel asset template projects", () => {
-  it("creates a reference and four linked character generators in every density group", async () => {
+  it("creates a reference and three linked character generators in every density group", async () => {
     const created = await createPixelAssetTemplateProject("characters");
     const [, saved] = canvas.saveCanvasBoard.mock.calls[0] as [string, { board: ReturnType<typeof createCanvasBoard> }, string];
     const nodes = saved.board.nodes as Array<(typeof saved.board.nodes)[number] & { parentId?: string; title?: string }>;
     const pixelGroups = nodes.filter((node) => node.type === "group" && node.data.pixelStyle);
-    const expectedPresets = ["character-sheet", "side-view-character", "rpg-character", "portrait"];
+    const expectedPresets = ["character-sheet", "rpg-character", "portrait"];
 
     expect(pixelGroups).toHaveLength(3);
     for (const group of pixelGroups) {
       const children = nodes.filter((node) => node.parentId === group.id);
-      expect(children).toHaveLength(5);
+      expect(children).toHaveLength(4);
       const reference = children.find((node) => node.type === "image" && node.data.sourceInput);
       const generators = children.filter((node): node is Extract<typeof node, { type: "image" }> => node.type === "image" && !node.data.sourceInput);
       expect(reference?.title).toContain("Reference image");
@@ -58,12 +59,13 @@ describe("pixel asset template projects", () => {
     expect(nodes.find((node) => node.id === created.nodeId)?.parentId).toBe(pixelGroups.find((group) => group.type === "group" && group.data.pixelStyle === "classic")?.id);
   });
 
-  it("creates the six requested category templates with their density-specific workflows", async () => {
+  it("creates the seven requested category templates with their density-specific workflows", async () => {
     const expectedCounts = new Map([
-      ["characters", 5],
+      ["characters", 4],
       ["creatures", 3],
       ["animation", 9],
       ["scenes", 2],
+      ["terrain", 4],
       ["objects", 3],
       ["skins", 3],
     ] as const);
@@ -71,7 +73,7 @@ describe("pixel asset template projects", () => {
     for (const [category, count] of expectedCounts) {
       await createPixelAssetTemplateProject(category);
       const [, saved] = canvas.saveCanvasBoard.mock.calls.at(-1) as [string, { board: ReturnType<typeof createCanvasBoard> }, string];
-      const introductions = saved.board.nodes.filter((node) => node.type === "text");
+      const introductions = saved.board.nodes.filter((node) => node.type === "text" && node.data.instruction === `pixel-asset-template:${category}`);
       expect(introductions).toHaveLength(1);
       const introduction = introductions[0]!;
       expect(introduction.parentId).toBeUndefined();
@@ -82,14 +84,28 @@ describe("pixel asset template projects", () => {
       expect(isCanvasBoard(saved.board)).toBe(true);
       const groups = saved.board.nodes.filter((node): node is Extract<typeof node, { type: "group" }> => node.type === "group" && Boolean(node.data.pixelStyle));
       expect(groups).toHaveLength(3);
-      expect(groups.every((group) => introduction.position.y + 550 < group.position.y)).toBe(true);
+      // The guide sits just above the groups, close enough to read as their introduction.
+      expect(groups.every((group) => group.position.y - introduction.position.y > 250 && group.position.y - introduction.position.y < 700)).toBe(true);
       if (category === "animation") {
         expect(introduction.type === "text" && introduction.data.text).toContain("trigger it on a hit event");
         expect(introduction.type === "text" && introduction.data.text).toContain("not consecutive animation frames");
+        const steps = saved.board.nodes.filter((node) => node.type === "text");
+        expect(steps).toHaveLength(3);
+        expect(steps.filter((node) => node.id !== introduction.id).every((node) => node.type === "text" && node.data.instruction === "pixel-asset-template-note")).toBe(true);
+        expect(new Set(steps.map((node) => node.position.x))).toEqual(new Set([introduction.position.x]));
+        expect(steps.map((node) => node.position.y)).toEqual(steps.map((node) => node.position.y).sort((a, b) => a - b));
+        const gifGroups = saved.board.nodes.filter((node) => node.type === "group" && !node.data.pixelStyle);
+        expect(gifGroups).toHaveLength(3);
+        for (const gifGroup of gifGroups) {
+          const gifs = saved.board.nodes.filter((node) => node.parentId === gifGroup.id);
+          expect(gifs).toHaveLength(7);
+          expect(gifs.every((node) => node.type === "image" && node.data.exampleImage?.endsWith(".gif") && pixelExampleImageUrl(node.data.exampleImage))).toBe(true);
+        }
       }
       for (const group of groups) {
         const children = saved.board.nodes.filter((node) => node.parentId === group.id);
         expect(children).toHaveLength(count);
+        expect(children.every((node) => node.type === "image" && pixelExampleImageUrl(node.data.exampleImage))).toBe(true);
         if (category === "skins") {
           const inputs = children.filter((node) => node.type === "image" && node.data.sourceInput);
           const output = children.find((node) => node.type === "image" && !node.data.sourceInput);
@@ -112,7 +128,7 @@ describe("pixel asset template projects", () => {
     const groups = pixelGroups.filter((node): node is Extract<typeof node, { type: "group" }> => node.type === "group");
 
     expect(created).toMatchObject({ projectId: "project-1" });
-    expect(api.createProject).toHaveBeenCalledWith({ name: expect.stringContaining("Skins"), type: "asset-canvas" });
+    expect(api.createProject).toHaveBeenCalledWith({ name: expect.stringContaining("Outfits"), type: "asset-canvas" });
     expect(api.createProject).toHaveBeenCalledWith({ name: expect.stringContaining("All pixel densities"), type: "asset-canvas" });
     expect(projectId).toBe("project-1");
     expect(groups.map((node) => node.data.pixelStyle)).toEqual(["coarse", "classic", "detailed"]);

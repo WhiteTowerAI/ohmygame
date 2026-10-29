@@ -196,6 +196,13 @@ export function reparentCanvasNode<T extends Groupable>(
 }
 
 /** Grow frames around direct children, then propagate the new bounds through nested frames. */
+/** Image and video nodes render up to a 28px label plus a 360px media stage before they are measured. */
+const UNMEASURED_MEDIA_NODE_HEIGHT = 388;
+
+function unmeasuredHeight(node: Groupable): number {
+  return node.type === "image" || node.type === "video" ? UNMEASURED_MEDIA_NODE_HEIGHT : 320;
+}
+
 export function expandCanvasGroups<T extends Groupable>(
   nodes: readonly T[],
 ): T[] {
@@ -219,7 +226,7 @@ export function expandCanvasGroups<T extends Groupable>(
       height,
       ...children.map(
         (node) =>
-          node.position.y + (node.height ?? node.measured?.height ?? 320) + 16,
+          node.position.y + (node.height ?? node.measured?.height ?? unmeasuredHeight(node)) + 16,
       ),
     );
     const shiftX = right - left <= 4096 ? left : 0;

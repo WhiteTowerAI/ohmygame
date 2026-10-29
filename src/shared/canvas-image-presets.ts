@@ -87,13 +87,17 @@ export function canvasImagePresetPrompt(
     const template = PIXEL_MATERIAL_PROMPTS[preset as keyof typeof PIXEL_MATERIAL_PROMPTS];
     const kind = preset === "scene" || preset === "terrain" ? "scene" : preset === "tileset" ? "tile" : "sprite";
     const assetType = preset === "monster" || preset === "animal" ? "creature"
-      : preset === "scene" || preset === "terrain" || preset === "tileset" || preset === "building" ? "environment"
+      : preset === "terrain" || preset === "tileset" ? "terrain"
+      : preset === "scene" || preset === "building" ? "environment"
       : preset === "prop" || preset === "icon" ? "object" : "character";
     const grid = preset === "monster" || preset === "animal"
       ? { columns: 4, rows: 4, unit: "sprite" as const }
       : preset === "prop" ? { columns: 4, rows: 3, unit: "view" as const }
         : preset === "tileset" ? { columns: 4, rows: 4, unit: "tile" as const } : undefined;
-    return withPixelArtLevel(pixelPromptWithRequest("USER REQUEST", subject, template.replace("\n\nUSER REQUEST: {user_prompt}", "")), pixelLevel, kind, { assetType, grid });
+    const fallback = preset === "terrain" || preset === "tileset"
+      ? "Derive the terrain biome, materials, and palette from the supplied reference, then build a new asset that follows the requirements below."
+      : undefined;
+    return withPixelArtLevel(pixelPromptWithRequest("USER REQUEST", subject, template.replace("\n\nUSER REQUEST: {user_prompt}", ""), fallback), pixelLevel, kind, { assetType, grid });
   }
   const prompt = `${instructions[preset]}\n\nSubject and details: ${subject}`;
   return `${prompt}\n\n${canvasMaterialStyle(preset, style) === "pixel"

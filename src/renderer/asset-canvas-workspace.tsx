@@ -20,6 +20,7 @@ import {
   FolderPlus,
   Image as ImageIcon,
   LoaderCircle,
+  Gameboy,
   Layers3,
   Maximize,
   Music2,
@@ -124,8 +125,9 @@ import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-refere
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
 import { ModelPreview } from "./model-preview.js";
 import { type PixelArtLevel } from "../shared/canvas-pixel-style.js";
-import { createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, placePixelPresetOutsideDensityGroups, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
+import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, placePixelPresetOutsideDensityGroups, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import { AssetCanvasPixelPresetDialog } from "./asset-canvas-pixel-preset-dialog.js";
+import { pixelExampleImageUrl } from "./asset-canvas-pixel-examples.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, DEFAULT_VIDEO_NODE_CONFIG, MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_REFERENCE_IMAGES, normalizeModel3DConfig, resolveModel3D, resolveModel3DConnection } from "../shared/generation-config.js";
@@ -262,6 +264,7 @@ type AssetCanvasFlowData = {
   images?: AssetCanvasReference[];
   quickReskinMode?: "person-clothing";
   sourceInputLabel?: string;
+  exampleImage?: string;
   references?: AssetCanvasReference[];
   referenceMode?: "frame" | "reference";
   referenceMentions?: Record<string, AssetCanvasReference>;
@@ -1966,7 +1969,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const pixelStyleGroupIds = new Set(nodes.filter((node) => node.type === "group" && node.data.pixelStyle).map((node) => node.id));
   const renderedNodes = orderedCanvasNodes(nodes).map((original) => {
     const size = isResizableCanvasNodeType(original.type) ? RESIZABLE_CANVAS_NODE_SIZES[original.type] : undefined;
-    const isTemplateGuide = original.type === "text" && Boolean(templateGuideInfo(original.data.instruction) || pixelAssetTemplateGuideCategory(original.data.instruction));
+    const isTemplateGuide = original.type === "text" && Boolean(templateGuideInfo(original.data.instruction) || pixelAssetTemplateGuideCategory(original.data.instruction) || original.data.instruction === PIXEL_ASSET_TEMPLATE_NOTE);
     const parent = original.parentId ? nodesById.get(original.parentId) : undefined;
     const isPixelWorkflow = Boolean(parent?.parentId && pixelStyleGroupIds.has(parent.parentId));
     // A render can arrive before React Flow publishes its first dimensions.
@@ -2739,6 +2742,12 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
       <PixelAssetTemplateGuide category={category} />
     </div>
   </div>;
+  if (data.instruction === PIXEL_ASSET_TEMPLATE_NOTE) return <div className="story-node story-text-node asset-template-guide-node">
+    <div data-alignment-frame className="story-text-output">
+      <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} />
+      <div className="asset-template-guide-content nodrag nowheel"><p className="asset-template-guide-instruction">{data.text}</p></div>
+    </div>
+  </div>;
   const guide = templateGuideInfo(data.instruction);
   if (guide) return <div className="story-node story-text-node asset-template-guide-node">
     <div data-alignment-frame className="story-text-output">
@@ -2824,7 +2833,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
     runtime.onChange({ ...data, imageRuntime: undefined, resolution: option.resolution, aspectRatio: option.aspectRatio });
   }
 
-  if (data.sourceInput) return <MediaNodeShell kind="image" label={data.sourceInputLabel} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails} emptyHint={data.sourceInputLabel ?? t("assetCanvasTemplates.reference")}>
+  if (data.sourceInput) return <MediaNodeShell kind="image" label={data.sourceInputLabel} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails} emptyHint={data.sourceInputLabel ?? t("assetCanvasTemplates.reference")} previewUrl={pixelExampleImageUrl(data.exampleImage)}>
     <div className="asset-template-source-actions nodrag">
       <input ref={sourceInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => {
         const file = event.target.files?.[0];
@@ -2839,7 +2848,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   </MediaNodeShell>;
 
   return (
-    <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails}>
+    <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails} previewUrl={pixelExampleImageUrl(data.exampleImage)}>
       <MediaReferenceStrip runtime={runtime} />
       <MediaPrompt
         kind="image"
@@ -3570,7 +3579,7 @@ function TextReferenceThumbnail({ runtime }: { runtime: Pick<MediaNodeRuntime, "
   );
 }
 
-function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, assetId, assetAspectRatio, aspectRatio, runtime, details, emptyHint, children }: {
+function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, assetId, assetAspectRatio, aspectRatio, runtime, details, emptyHint, previewUrl, children }: {
   kind: "image" | "video" | "audio" | "model" | "animation";
   label?: string;
   selected: boolean;
@@ -3581,6 +3590,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
   runtime?: MediaNodeRuntime;
   details?: CanvasNodeDetails;
   emptyHint?: string;
+  previewUrl?: string;
   children: React.ReactNode;
 }) {
   const preview = useWorkspaceAssetUrl(undefined, "", 0, assetId);
@@ -3588,7 +3598,8 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
   const label = labelOverride ?? t(`assetCanvas.media.${kind}.label`);
   const threeD = kind === "model" || kind === "animation";
   const audio = kind === "audio";
-  const mediaLayout = useMediaNodeLayout(threeD ? undefined : preview.url, assetAspectRatio ?? parseAspectRatio(aspectRatio));
+  const exampleUrl = !assetId && kind === "image" ? previewUrl : undefined;
+  const mediaLayout = useMediaNodeLayout(threeD ? undefined : preview.url ?? exampleUrl, assetAspectRatio ?? parseAspectRatio(aspectRatio));
   const mediaStyle = audio ? { "--story-media-width": "520px", "--story-media-height": "170px" } as CSSProperties : mediaLayout.style;
   return (
     <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaStyle}>
@@ -3599,7 +3610,10 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
         {preview.url && audio ? <CanvasAudio src={preview.url} /> : null}
         {preview.url && threeD ? <ModelPreview source={preview.url} label={kind === "animation" ? t("assetCanvas.animated3d") : t("timeline.generated3d")} minHeight={220} interactive={false} /> : null}
-        {!preview.url && !runtime?.generating ? (
+        {exampleUrl && !runtime?.generating ? (
+          <img src={exampleUrl} alt="" className="story-media-preview-example" onLoad={mediaLayout.onImageLoad} />
+        ) : null}
+        {!preview.url && !exampleUrl && !runtime?.generating ? (
           <div className="story-media-empty">
             <Icon size={34} />
             <strong>{assetId ? preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset") : t(`assetCanvas.media.${kind}.none`)}</strong>
@@ -3961,12 +3975,12 @@ function AssetCanvasAddControl({
             setAddOpen(false);
           }}
         />
-        <button className={addOpen ? "is-active" : undefined} type="button" title={t("assetCanvas.addNode")} aria-label={t("assetCanvas.addNode")} aria-expanded={addOpen} onClick={() => { setOpenCreationBranch(undefined); setAddOpen((open) => !open); }}>
+        <button className={addOpen ? "is-active" : undefined} type="button" data-tooltip={t("assetCanvas.addNode")} aria-label={t("assetCanvas.addNode")} aria-expanded={addOpen} onClick={() => { setOpenCreationBranch(undefined); setAddOpen((open) => !open); }}>
           <Plus size={18} />
         </button>
       </div>
-      <button className="story-pixel-presets-button" type="button" title={t("assetCanvas.pixelPresets.open")} aria-label={t("assetCanvas.pixelPresets.open")} onClick={() => setPixelPresetsOpen(true)}>
-        <Layers3 size={17} /><span>{t("assetCanvas.pixelPresets.short")}</span>
+      <button type="button" data-tooltip={t("assetCanvas.pixelPresets.open")} aria-label={t("assetCanvas.pixelPresets.open")} onClick={() => setPixelPresetsOpen(true)}>
+        <Gameboy size={18} />
       </button>
       {libraryOpen ? <LibraryAssetPicker title={t("assetCanvas.addFromLibrary")} projectId={project.id} project={project} assets={libraryAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
         const position = placementPosition();
@@ -4520,6 +4534,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
       aspectRatio: node.data.aspectRatio ?? DEFAULT_IMAGE_NODE_CONFIG.aspectRatio,
       images: node.data.images ?? [],
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
+      ...(node.data.exampleImage ? { exampleImage: node.data.exampleImage } : {}),
     },
   };
   if (node.type === "video") return {
