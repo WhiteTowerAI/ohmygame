@@ -1,4 +1,4 @@
-import { FileText, X } from "./icons.js";
+import { Clock, DangerCircle, FileText, X } from "./icons.js";
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference } from "../shared/contracts.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
@@ -437,8 +437,12 @@ export function Composer({
         onSteer={(turnId) => { void onSteerPending(turnId); }}
         onEdit={(item) => { void editPending(item); }}
       />
-      {notice || attachmentError ? <p className="composer-error" role="alert">{attachmentError ?? notice}</p> : null}
-      {resumeAt !== undefined && !running ? <div className="composer-resume" role="status">
+      {notice || attachmentError ? <div className="composer-notice composer-error" role="alert">
+        <DangerCircle size={14} aria-hidden="true" />
+        <span>{attachmentError ?? notice}</span>
+      </div> : null}
+      {resumeAt !== undefined && !running ? <div className="composer-notice composer-resume" role="status">
+        <Clock size={14} aria-hidden="true" />
         <span>{t(resumeArmedAt !== undefined ? "composer.resume.armed" : "composer.resume.available", { time: new Date(resumeAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) })}</span>
         <button type="button" disabled={resumeArmedAt === undefined && !conversationReady} onClick={() => setResumeArmedAt(resumeArmedAt === undefined ? resumeAt : undefined)}>{t(resumeArmedAt !== undefined ? "composer.resume.cancel" : "composer.resume.arm")}</button>
       </div> : null}
