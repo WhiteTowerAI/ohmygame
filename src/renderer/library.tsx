@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { fileExtension, fileName, fileSize, fileStem, libraryAssetOriginLabel, mediaTypeLabel, type MediaFilter } from "./asset-browser.js";
 import { AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { deleteLibraryAsset, forceDeleteLibraryAsset, getLibraryAsset, listLibraryAssetReferences, renameLibraryAsset, saveLibraryAsset, type LibraryAssetReference } from "./api.js";
-import { AudioCompanionDownloads } from "./canvas-audio-controls.js";
 import { ModelPreview } from "./model-preview.js";
 import { Copy, Layers3, LoaderCircle, Pencil, Scissors, Trash2 } from "./icons.js";
 import { filterLibraryAssets, loadLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
@@ -250,7 +249,6 @@ function LibraryDetails({ asset, trimmedFrom }: { asset: LibraryAsset; trimmedFr
         : preview.error ? <span className="library-sheet-state" role="alert">{preview.error}</span>
         : <span className="library-sheet-state"><LoaderCircle className="spin" size={16} />{t("assets.loading")}</span>}
     </div>
-    <AudioCompanionDownloads data={asset.audio} name={fileName(asset.path)} />
     <dl className="library-sheet-props">
       <dt>{t("assets.type")}</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd>
       {asset.width && asset.height ? <><dt>{t("library.dimensions")}</dt><dd>{asset.width} × {asset.height}</dd></> : null}
