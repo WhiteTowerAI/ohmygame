@@ -11336,6 +11336,45 @@ summary.work-summary:hover {
   grid-template-columns: clamp(140px, var(--file-explorer-width, 240px), min(480px, calc(100% - 241px))) 1px minmax(0, 1fr);
 }
 
+/* The tree folds away from the panel's toolbar. */
+.code-view.is-tree-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.code-view > [hidden] {
+  display: none;
+}
+
+/* The open file's path and actions, in the code panel's toolbar. */
+.viewer-publish:has(> .code-toolbar) {
+  flex: 1;
+}
+
+.code-toolbar {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.code-toolbar .file-content-path {
+  flex: 1;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.file-content-separator {
+  margin: 0 4px;
+  color: var(--color-border-strong);
+}
+
+.file-content-name {
+  color: var(--color-text);
+}
+
 .file-explorer {
   display: flex;
   min-width: 0;
@@ -11356,13 +11395,17 @@ summary.work-summary:hover {
   min-height: 28px;
   align-items: center;
   gap: 6px;
-  margin: 6px 8px 4px;
-  padding: 0 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  border-radius: 6px;
-  color: var(--text-faint);
+  margin: var(--space-2) var(--space-2) 4px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-tertiary);
   background: transparent;
-  font-size: 11px;
+  font-size: var(--text-sm);
+}
+
+.file-filter:focus-within {
+  border-color: var(--color-border-strong);
 }
 
 .file-filter input {
@@ -11498,25 +11541,29 @@ summary.work-summary:hover {
 
 .file-tree-node {
   display: flex;
-  width: calc(100% - 12px);
+  width: calc(100% - 2 * var(--space-2));
   height: calc(100% - 2px);
   min-width: 0;
   box-sizing: border-box;
   align-items: center;
   gap: 6px;
-  margin: 1px 6px;
-  padding-right: 8px;
-  border-radius: 4px;
-  color: #cdd0d5;
-  font-size: 11px;
+  margin: 1px var(--space-2);
+  padding-right: var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
   cursor: default;
   user-select: none;
 }
 
-.file-tree-node:hover,
+.file-tree-node:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
 .file-tree-node-selected {
-  background: var(--surface-hover);
-  color: var(--text);
+  background: var(--color-selected);
+  color: var(--color-text);
 }
 
 .file-tree-toggle,
@@ -11549,26 +11596,70 @@ summary.work-summary:hover {
   flex: 0 0 auto;
 }
 
-.file-tree-file-icon {
-  color: var(--text-muted);
-}
+.file-tree-file-icon,
 .file-tree-folder-icon {
-  color: var(--text-faint);
+  color: var(--color-text-tertiary);
 }
+
+.file-tree-file-icon.tone-code { color: var(--category-code); }
+.file-tree-file-icon.tone-video { color: var(--category-video); }
+.file-tree-file-icon.tone-data { color: var(--category-data); }
+.file-tree-file-icon.tone-audio { color: var(--category-audio); }
+.file-tree-file-icon.tone-document { color: var(--category-document); }
+.file-tree-file-icon.tone-image { color: var(--category-image); }
 
 .workspace-code {
   min-width: 0;
   min-height: 0;
   margin: 0;
-  padding: 14px 16px;
+  padding: var(--space-2) var(--space-6) var(--space-2) 0;
   overflow: auto;
   background: var(--canvas);
   color: #d7d9dc;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.55;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 20px;
   tab-size: 2;
   white-space: pre;
+  counter-reset: line;
+}
+
+.workspace-code code {
+  font: inherit;
+}
+
+/* Line numbers, kept in view when the code scrolls sideways. */
+.workspace-code .line::before {
+  position: sticky;
+  left: 0;
+  display: inline-block;
+  box-sizing: border-box;
+  width: 66px;
+  padding-right: 26px;
+  background: var(--canvas);
+  color: var(--color-text-tertiary);
+  content: counter(line);
+  counter-increment: line;
+  text-align: right;
+  user-select: none;
+}
+
+/* Plain text: the same numbers, from one gutter beside the code. */
+.workspace-code-plain {
+  display: grid;
+  grid-template-columns: 66px max-content;
+  align-content: start;
+}
+
+.workspace-code-gutter {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  padding-right: 26px;
+  background: var(--canvas);
+  color: var(--color-text-tertiary);
+  text-align: right;
+  user-select: none;
 }
 
 .workspace-code-highlighted {
