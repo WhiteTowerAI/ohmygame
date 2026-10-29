@@ -528,7 +528,6 @@ export class CanvasStore {
     }
     const audio = node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene" ? {
       ...audioSettings(node.data),
-      ...(node.data.audioReferences?.length ? { references: await Promise.all(node.data.audioReferences.map(async (reference) => ({ id: reference.id, type: reference.type, assetId: await canvasLibraryAsset(project, this.library, assetId(reference.source)) }))) } : {}),
     } : {};
     if (node.type === "speech") {
       const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);

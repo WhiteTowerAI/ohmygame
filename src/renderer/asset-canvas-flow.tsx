@@ -8,7 +8,6 @@ import type { CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 import type { AgentModelCatalogStatus } from "./model-selector.js";
 import type { LibraryAsset } from "./library-assets.js";
 import type { AudioAssetData, AudioCanvasSettings, AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
-import type { AudioReferenceControls } from "./canvas-audio-controls.js";
 import { t } from "./i18n.js";
 import { Maximize } from "./icons.js";
 import { resolveModel3DConnection, resolveModel3D, DEFAULT_MODEL_3D_CONFIG, normalizeModel3DConfig } from "../shared/generation-config.js";
@@ -141,7 +140,6 @@ export interface VideoNodeRuntime extends ReferenceMediaNodeRuntime {
 }
 
 export interface AudioNodeRuntime extends MediaNodeRuntime {
-  referenceControls?: AudioReferenceControls;
   audio?: AudioAssetData;
   models: AudioModel[];
   providers: AudioProviderCatalogStatus[];

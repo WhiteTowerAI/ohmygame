@@ -13,8 +13,7 @@ import type {
 } from "../shared/contracts.js";
 import {
   getCustomProvider,
-  getDoubaoVoiceSettings,
-  updateDoubaoVoiceApiKey,
+  getVolcengineTtsSettings,
   previewSeedAudio,
   removeProvider,
   setProviderEnabled,
@@ -34,9 +33,8 @@ import {
   listAudioModelCatalog,
   loginAgentRuntime,
   recheckCodexImages,
-  type DoubaoVoiceConnection,
 } from "./api.js";
-import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, DOUBAO_VOICE_PROVIDER_NAME, findVolcengineTtsVoice, type AudioModel } from "../shared/audio.js";
+import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, findVolcengineTtsVoice, type AudioModel } from "../shared/audio.js";
 import { DoubaoVoiceOptions, DoubaoVoiceSample } from "./doubao-voices.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { CustomProviderDialog, PROVIDER_API_LABELS, type CustomProviderField } from "./custom-provider-dialog.js";
@@ -254,7 +252,7 @@ export function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }
   if (provider.id === "meshy" || provider.id === "tripo") return <Native3DProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (MINIMAX_PROVIDER_IDS.has(provider.id)) return <MinimaxAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
-  if (provider.id === "volcengine-tts" || provider.id === "volcengine-seed-audio") return <DoubaoVoiceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
+  if (provider.id === "volcengine-tts" || provider.id === "volcengine-seed-audio") return <AudioProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
   if (provider.configured || provider.id === "openai") return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
@@ -517,77 +515,25 @@ function MinimaxAuthView({ provider, onBack, onCompleted }: { provider: Provider
   );
 }
 
-type DoubaoService = "volcengine-tts" | "volcengine-seed-audio";
-
-/** One connection for both Doubao services; actions in the header follow the selected service. */
-function DoubaoVoiceAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
-  const [service, setService] = useState<DoubaoService>(provider.id === "volcengine-seed-audio" ? "volcengine-seed-audio" : "volcengine-tts");
-  const [services, setServices] = useState<ProviderSummary[]>([]);
-  const [connection, setConnection] = useState<DoubaoVoiceConnection>();
-  const [apiKey, setApiKey] = useState("");
+function AudioProviderAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  const [defaultVoiceId, setDefaultVoiceId] = useState<string>();
   const [error, setError] = useState<string>();
-  const [saving, setSaving] = useState(false);
   const [revision, setRevision] = useState(0);
-  const refresh = () => setRevision((value) => value + 1);
-  const deletion = useProviderDeletion(service, () => { refresh(); onCompleted(); });
+  const deletion = useProviderDeletion(provider.id, onCompleted);
   useEffect(() => {
+    if (provider.id !== "volcengine-tts") return;
     let active = true;
-    void Promise.all([listProviders(), getDoubaoVoiceSettings()]).then(([items, settings]) => {
-      if (!active) return;
-      setServices(items.filter((item) => item.id === "volcengine-tts" || item.id === "volcengine-seed-audio"));
-      setConnection(settings);
-    }).catch((cause) => { if (active) setError(errorMessage(cause)); });
+    void getVolcengineTtsSettings().then((settings) => { if (active) setDefaultVoiceId(settings.defaultVoiceId); }).catch((cause) => { if (active) setError(errorMessage(cause)); });
     return () => { active = false; };
-  }, [revision]);
-  async function save(event: FormEvent): Promise<void> {
-    event.preventDefault();
-    setSaving(true);
-    setError(undefined);
-    try {
-      await updateDoubaoVoiceApiKey(apiKey.trim());
-      setApiKey("");
-      refresh();
-      onCompleted();
-    } catch (cause) { setError(errorMessage(cause)); }
-    finally { setSaving(false); }
-  }
-  const selected = services.find((item) => item.id === service);
-  const serviceName = (id: DoubaoService) => t(id === "volcengine-tts" ? "audioStudio.speechService" : "audioStudio.seedService");
-  const connected = Boolean(connection?.ttsConfigured || connection?.seedConfigured);
-  const name = DOUBAO_VOICE_PROVIDER_NAME;
+  }, [provider.id]);
   return (
     <section className="settings-panel settings-provider-detail">
-      <ProviderDetailHeader provider={{ ...provider, name }} description={t("providers.doubaoVoiceDescription")} onBack={onBack}>
-        {selected?.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} label={t("providers.removeService", { name: serviceName(service) })} /><ProviderEnableControl provider={selected} label={t("providers.enableProvider", { name: serviceName(service) })} disabled={deletion.busy} onChanged={refresh} /></> : null}
+      <ProviderDetailHeader provider={provider} onBack={onBack}>
+        {provider.configured ? <><ProviderDeleteButton deletion={deletion} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setRevision((value) => value + 1)} /></> : null}
       </ProviderDetailHeader>
-      {selected ? <ProviderDeleteConfirmation provider={selected} deletion={deletion} disabled={saving} /> : null}
-      <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
-        <label className="settings-search-field-label" htmlFor="doubao-voice-api-key">{t("providers.apiKey")}</label>
-        <div className="settings-detail-inline">
-          <input
-            id="doubao-voice-api-key"
-            className="settings-search-input"
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            placeholder={connected ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name })}
-            disabled={saving || deletion.busy}
-          />
-          <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>
-            {saving ? t("common.saving") : t("common.save")}
-          </button>
-        </div>
-        {connection?.distinctKeys ? <p className="settings-detail-hint">{t("providers.doubaoDistinctKeys")}</p> : null}
-      </form>
-      {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
-      <SegmentedControl
-        className="settings-provider-filters"
-        label={t("providers.doubaoServices")}
-        value={service}
-        options={(["volcengine-tts", "volcengine-seed-audio"] as const).map((value) => ({ value, label: serviceName(value) }))}
-        onChange={setService}
-      />
-      {selected ? <DoubaoServiceSettings key={`${service}-${revision}`} provider={selected} defaultVoiceId={connection?.defaultVoiceId} onChanged={refresh} /> : null}
+      <ProviderDeleteConfirmation provider={provider} deletion={deletion} />
+      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      <DoubaoServiceSettings key={`${provider.id}-${revision}-${defaultVoiceId ?? ""}`} provider={provider} defaultVoiceId={defaultVoiceId} onChanged={onCompleted} />
     </section>
   );
 }
@@ -699,9 +645,8 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
           {previewError ? <p className="settings-error" role="alert">{previewError}</p> : null}
         </section>
       ) : null}
-      <ProviderAdvanced defaultOpen={false}>
-        <form className="settings-detail-field" onSubmit={(event) => void saveKey(event)}>
-          <label className="settings-search-field-label" htmlFor={keyId}>{t("providers.serviceApiKey")}</label>
+      <form className="settings-detail-field" onSubmit={(event) => void saveKey(event)}>
+          <label className="settings-search-field-label" htmlFor={keyId}>{t("providers.apiKey")}</label>
           <div className="settings-detail-inline">
             <input
               id={keyId}
@@ -709,7 +654,7 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
               type="password"
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
-              placeholder={t("providers.serviceApiKeyPlaceholder")}
+              placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })}
               disabled={savingKey}
             />
             <button className="settings-primary-button" type="submit" disabled={savingKey || !apiKey.trim()}>
@@ -717,8 +662,7 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
             </button>
           </div>
           {keyError ? <p className="settings-error" role="alert">{keyError}</p> : null}
-        </form>
-      </ProviderAdvanced>
+      </form>
       {provider.configured ? <AudioModels providerId={provider.id} /> : null}
     </>
   );

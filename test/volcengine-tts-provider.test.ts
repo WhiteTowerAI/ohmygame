@@ -158,19 +158,20 @@ describe("Volcengine TTS provider", () => {
   });
 });
 
-describe("TTS voice controls and persistent subtitles", () => {
-  it("maps pitch, loudness, pronunciation, dialect, language and subtitle options", async () => {
+describe("TTS voice controls", () => {
+  it("maps speech options while ignoring unsolicited subtitle events", async () => {
     const response = () => new Response([
       JSON.stringify({ code: 0, data: MP3.toString("base64"), sentence: { text: "Hello", words: [{ word: "Hello", startTime: 0.02, endTime: 0.2, confidence: 0.9 }] } }),
       JSON.stringify({ code: 20000000, usage: { text_words: 5 } }),
     ].join("\n"));
     const request = vi.fn<typeof fetch>().mockImplementation(async () => response());
     const provider = new VolcengineTtsProvider(() => "key", request);
-    const generated = await provider.generate({ operation: "speech", model: MODEL, text: "Hello", voiceId: "zh_female_vv_uranus_bigtts", language: "en", autoLanguage: true, dialect: "yue", pitch: -4, volume: 30, subtitles: true, silenceMs: 100, pronunciation: [{ word: "OMG", replacement: "oh my game" }], output: { bitRate: 32000 } });
+    const generated = await provider.generate({ operation: "speech", model: MODEL, text: "Hello", voiceId: "zh_female_vv_uranus_bigtts", language: "en", autoLanguage: true, dialect: "yue", pitch: -4, volume: 30, silenceMs: 100, pronunciation: [{ word: "OMG", replacement: "oh my game" }], output: { bitRate: 32000 } });
     const params = JSON.parse(String(request.mock.calls[0]![1]!.body)).req_params;
-    expect(params.audio_params).toMatchObject({ loudness_rate: 30, enable_subtitle: true, bit_rate: 32000 });
+    expect(params.audio_params).toMatchObject({ loudness_rate: 30, bit_rate: 32000 });
     expect(JSON.parse(params.additions)).toMatchObject({ post_process: { pitch: -4 }, explicit_language: "en", enable_auto_language_recognition: true, explicit_dialect: "yue", silence_duration: 100, pronunciation_dict: { tone: ["OMG/oh my game"] }, disable_default_bit_rate: true });
-    expect(generated.subtitles).toEqual({ text: "Hello", sentences: [{ text: "Hello", startMs: 20, endMs: 200, words: [{ text: "Hello", startMs: 20, endMs: 200, confidence: 0.9 }] }] });
+    expect(generated).not.toHaveProperty("subtitles");
+    expect(params.audio_params).not.toHaveProperty("enable_subtitle");
     expect(generated.metadata?.usageCharacters).toBe(5);
   });
   it("selects the cloned voice resource and rejects incompatible voice instructions", async () => {

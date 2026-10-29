@@ -1664,6 +1664,22 @@ describe("daemon", () => {
     expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/openrouter/seedance-key" })).statusCode).toBe(404);
   });
 
+  it("removes unified audio settings and companion downloads, and rejects removed generation options", async () => {
+    const generate = vi.fn();
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-audio-options-")), audioGenerator: { catalog: () => ({ models: [], providers: [] }), generate } });
+    apps.push(app);
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/doubao-voice" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "PUT", url: "/settings/models/providers/doubao-voice", payload: { apiKey: "key" } })).statusCode).toBe(404);
+    for (const file of ["audio.audio.json", "audio.srt", "audio.vtt"]) expect((await app.inject({ method: "GET", url: `/library/assets/unused/audio/${file}` })).statusCode).toBe(404);
+    for (const tool of ["generate-speech", "generate-sound-effect", "generate-music", "generate-audio"]) {
+      for (const removed of [{ subtitles: true }, { references: [{ type: "audio", assetId: "rain" }] }, { referenceAssetId: "rain" }]) {
+        const response = await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload: { text: "hello", prompt: "rain", ...removed } });
+        expect(response.statusCode).toBe(400);
+      }
+    }
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it("stores the Doubao Speech key and default voice without exposing them", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-volcengine-tts-settings-")) });
     apps.push(app);
