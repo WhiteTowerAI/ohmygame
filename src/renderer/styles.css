@@ -9486,13 +9486,14 @@ summary.work-summary:hover {
   flex: 1;
 }
 
-.questionnaire-card button:focus-visible,
+.questionnaire-card button:not(.ui-button):focus-visible,
 .inline-answer:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: -2px;
 }
 
-.questionnaire-card button:disabled {
+.questionnaire-card button:not(.ui-button):disabled,
+.plan-approval-card button:not(.ui-button):disabled {
   cursor: default;
   opacity: 0.45;
 }
@@ -9520,6 +9521,9 @@ summary.work-summary:hover {
   bottom: 0;
   z-index: 5;
   flex: 0 0 auto;
+}
+
+.agent-body > .plan-review {
   background: var(--surface);
 }
 
