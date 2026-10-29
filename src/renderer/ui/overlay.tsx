@@ -395,16 +395,22 @@ export function ContextMenu({
 
 function useModal(open: boolean, onClose: () => void) {
   const panel = useRef<HTMLDivElement>(null);
+  // Read the latest onClose without re-running the effect, which would move
+  // focus back to the first field on every render of an inline handler.
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
-    panel.current
-      ?.querySelector<HTMLElement>(
-        "[autofocus], input, textarea, select, button:not(.ui-dialog-close)",
-      )
-      ?.focus();
+    // Content that focused its own field on mount keeps it.
+    if (!panel.current?.contains(document.activeElement))
+      panel.current
+        ?.querySelector<HTMLElement>(
+          "[autofocus], input, textarea, select, button:not(.ui-dialog-close)",
+        )
+        ?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") close.current();
       if (event.key !== "Tab" || !panel.current) return;
       const focusable = [
         ...panel.current.querySelectorAll<HTMLElement>(
@@ -427,7 +433,7 @@ function useModal(open: boolean, onClose: () => void) {
       document.removeEventListener("keydown", onKey);
       previous?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
   return panel;
 }
 
