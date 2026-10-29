@@ -146,7 +146,7 @@ describe("coding workspace", () => {
     expect(publishAction({ type: "asset-canvas" }, idle)).toBeUndefined();
   });
 
-  it("exposes Godot workspace controls and leaves publishing to the top bar", () => {
+  it("opens a Godot workspace on its code and leaves publishing to the top bar", () => {
     const html = renderToStaticMarkup(
       createElement(CodingWorkspace, {
         project: {
@@ -163,12 +163,12 @@ describe("coding workspace", () => {
         onPublish: async () => false,
         onClosePublish: () => undefined,
         onRestart: () => undefined,
-        onClose: () => undefined,
       }),
     );
 
     expect(html).not.toContain("workspace-publish-button");
-    expect(html).toContain('aria-label="Hide workspace"');
+    expect(html).toContain('data-active-tab="code"');
+    expect(html).not.toContain("<iframe");
   });
 
   it.each(["mobile", "mobile-landscape"] as const)("uses the saved route and %s preset when opening a Web Game preview", (viewport) => {
@@ -206,11 +206,11 @@ describe("coding workspace", () => {
     const project = { ...previewProject, type: "general" as const, preview: { status: "waiting" as const } };
     const blank = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project }));
     expect(blank).toContain('aria-label="Project settings"');
-    expect(blank).not.toContain(">Preview<");
+    expect(blank).toContain('data-active-tab="code"');
     expect(blank).not.toContain("<iframe");
 
     const runnable = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project: { ...project, webPreviewEnabled: true, preview: previewProject.preview } }));
-    expect(runnable).toContain(">Preview<");
+    expect(runnable).toContain('data-active-tab="preview"');
     expect(runnable).toContain(`src="${previewProject.preview.url}/?__ohmygame_client=`);
     expect(runnable).toContain('aria-label="Play"');
     expect(runnable).not.toContain("Publishing requires a Web build");

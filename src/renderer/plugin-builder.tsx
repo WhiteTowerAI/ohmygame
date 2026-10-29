@@ -16,9 +16,8 @@ import { WorkspaceFileBrowser } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
-import { WorkspaceShell, WorkspaceAgentPane, WorkspaceBackButton } from "./workspace-shell.js";
+import { WorkspaceShell, WorkspaceAgentPane } from "./workspace-shell.js";
 import { ComposerActions } from "./composer-actions.js";
-import { readChatLayout } from "./chat-layout.js";
 import { pluginBuilderHash, pluginHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { readPluginBuilderInput, removePluginBuilderInput, savePluginBuilderInput } from "./plugin-builder-drafts.js";
@@ -138,7 +137,6 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
   const [operation, setOperation] = useState<string>();
   const [retry, setRetry] = useState(0);
   const [fileRequest, updateFileRequest] = useState<{ path: string; id: number }>();
-  const [chatLayout] = useState(readChatLayout);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const timeline = useRef<HTMLDivElement>(null);
@@ -271,7 +269,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
   }
 
   const goToPlugins = () => { window.location.hash = pluginHash(); };
-  return <WorkspaceShell className="plugin-builder-shell" chatLayout={chatLayout} agentCollapsed={agentCollapsed}
+  return <WorkspaceShell className="plugin-builder-shell" agentCollapsed={agentCollapsed}
     onHome={goToPlugins} homeLabel={t("pluginBuilder.backToPlugins")} homeIcon={ArrowLeft} onExpandAgent={() => setAgentCollapsed(false)}
     agent={<WorkspaceAgentPane label={t("pluginBuilder.assistant")}
       actions={<>
@@ -316,11 +314,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
       <section className="viewer-pane plugin-builder-preview" aria-label={t("pluginBuilder.preview")} data-active-tab={view === "files" ? "code" : view}>
         <header className="pane-header viewer-header window-drag-handle">
           <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-          <div className={`viewer-navigation${chatLayout === "right" ? " is-chat-right" : ""}`}>
-            {chatLayout === "right" ? <>
-              <WorkspaceBackButton onClick={goToPlugins} label={t("pluginBuilder.backToPlugins")} icon={ArrowLeft} />
-              {agentCollapsed ? <button className="icon-button pane-header-action" type="button" title={t("workspace.showAgent")} aria-label={t("workspace.showAgent")} onClick={() => setAgentCollapsed(false)}><PanelToggle size={14} /></button> : null}
-            </> : null}
+          <div className="viewer-navigation">
             <WorkspaceTabs tabs={TABS} active={view} onChange={setView} label={t("pluginBuilder.views")} />
           </div>
           <div className="viewer-publish">

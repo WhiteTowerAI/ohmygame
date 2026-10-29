@@ -1,18 +1,15 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type Ref, type UIEventHandler } from "react";
 import { House, PanelToggle, type IconComponent } from "./icons.js";
-import type { ChatLayout } from "./chat-layout.js";
 import { t } from "./i18n.js";
 
 const DEFAULT_AGENT_WIDTH = 430;
 const MIN_AGENT_WIDTH = 320;
 const AGENT_WIDTH_STORAGE_KEY = "ohmygame-agent-width";
 
-/** Shared chrome and layout for game and plugin workspaces. */
-export function WorkspaceShell({ chatLayout, agentCollapsed, viewerCollapsed = false, onHome, onExpandAgent, homeLabel = t("sidebar.home"), homeIcon = House, className = "", agent, children }: {
-  chatLayout: ChatLayout;
+/** The Plugin Builder's chrome: its assistant on the left, beside the plugin. */
+export function WorkspaceShell({ agentCollapsed, onHome, onExpandAgent, homeLabel = t("sidebar.home"), homeIcon = House, className = "", agent, children }: {
   agentCollapsed: boolean;
-  viewerCollapsed?: boolean;
-  /** The back button at the chat's top-left; a project has its rail instead. */
+  /** The back button at the chat's top-left. */
   onHome?: () => void;
   onExpandAgent: () => void;
   homeLabel?: string;
@@ -27,7 +24,7 @@ export function WorkspaceShell({ chatLayout, agentCollapsed, viewerCollapsed = f
   const shell = useRef<HTMLElement>(null);
   const widthRef = useRef(agentWidth);
   const resizingRef = useRef(false);
-  const collapsed = agentCollapsed || viewerCollapsed;
+  const collapsed = agentCollapsed;
 
   useEffect(() => {
     const updateMaximum = () => {
@@ -50,7 +47,7 @@ export function WorkspaceShell({ chatLayout, agentCollapsed, viewerCollapsed = f
   function resize(clientX: number) {
     const bounds = shell.current?.getBoundingClientRect();
     if (!bounds || !shell.current) return;
-    const distance = chatLayout === "right" ? bounds.right - clientX : clientX - bounds.left;
+    const distance = clientX - bounds.left;
     const width = Math.round(Math.min(maximumWidth(bounds.width), Math.max(MIN_AGENT_WIDTH, distance)));
     widthRef.current = width;
     shell.current.style.setProperty("--agent-width", `${width}px`);
@@ -71,22 +68,18 @@ export function WorkspaceShell({ chatLayout, agentCollapsed, viewerCollapsed = f
   function resizeWithKeyboard(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    const direction = chatLayout === "left"
-      ? (event.key === "ArrowLeft" ? -1 : 1)
-      : (event.key === "ArrowLeft" ? 1 : -1);
+    const direction = event.key === "ArrowLeft" ? -1 : 1;
     const bounds = shell.current?.getBoundingClientRect();
     if (!bounds) return;
-    resize(chatLayout === "right"
-      ? bounds.right - widthRef.current - direction * 16
-      : bounds.left + widthRef.current + direction * 16);
+    resize(bounds.left + widthRef.current + direction * 16);
     setAgentWidth(widthRef.current);
     saveWidth(widthRef.current);
   }
 
-  return <main ref={shell} className={`workspace-shell workspace-shell-chat-${chatLayout}${agentCollapsed ? " workspace-shell-agent-collapsed" : ""}${viewerCollapsed ? " workspace-shell-viewer-collapsed" : ""}${resizingAgent ? " workspace-shell-resizing" : ""} ${className}`}
+  return <main ref={shell} className={`workspace-shell workspace-shell-chat-left${agentCollapsed ? " workspace-shell-agent-collapsed" : ""}${resizingAgent ? " workspace-shell-resizing" : ""} ${className}`}
     style={{ "--agent-width": `${agentWidth}px` } as CSSProperties}>
     {resizingAgent ? <div className="workspace-resize-shield" /> : null}
-    {chatLayout === "left" && (onHome || agentCollapsed) ? <div className="workspace-navigation-actions" role="toolbar" aria-label={t("workspace.navigation")}>
+    {onHome || agentCollapsed ? <div className="workspace-navigation-actions" role="toolbar" aria-label={t("workspace.navigation")}>
       {onHome ? <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={homeIcon} /> : null}
       {agentCollapsed ? <button className="icon-button" type="button" onClick={onExpandAgent} title={t("workspace.showAgent")} aria-label={t("workspace.showAgent")}><PanelToggle size={15} /></button> : null}
     </div> : null}

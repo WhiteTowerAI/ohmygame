@@ -18,6 +18,7 @@ let container: HTMLDivElement;
 beforeEach(() => {
   vi.resetModules();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  localStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -244,20 +245,26 @@ async function click(name: string) {
 }
 
 describe("project shell layout", () => {
-  it("opens General Game Design with chat expanded and preserves manual toggles across project updates", async () => {
+  it("opens Game Design in its panel and keeps a closed chat closed across project updates", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const daemon = await openProject(() => undefined, detail("live-turn"), {
       view: "design",
     });
-    const collapsed = () =>
-      container
-        .querySelector(".workspace-shell")!
-        .classList.contains("workspace-shell-agent-collapsed");
+    const tabs = (area: string) =>
+      [...container.querySelectorAll(`.dock-area-${area} .dock-tab`)].map(
+        (tab) =>
+          `${tab.classList.contains("is-active") ? "*" : ""}${tab.querySelector(".dock-tab-label")!.textContent}`,
+      );
+    const menuItem = (name: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find(
+        (item) => item.textContent?.trim() === name,
+      )!;
 
-    expect(collapsed()).toBe(false);
-    expect(button("Hide agent")).toBeDefined();
-    await click("Hide agent");
-    expect(collapsed()).toBe(true);
+    // A General project without a preview offers no game panel.
+    expect(tabs("left")).toEqual(["*Chat"]);
+    expect(tabs("center")).toEqual(["Code", "*Design", "Assets"]);
+    await click("Close Chat");
+    expect(container.querySelector(".dock-area-left")).toBeNull();
 
     await act(async () =>
       daemon.send(1, "workspace.restored", {
@@ -266,10 +273,16 @@ describe("project shell layout", () => {
       }),
     );
     await settle();
-    expect(collapsed()).toBe(true);
+    expect(container.querySelector(".dock-area-left")).toBeNull();
+    expect(
+      JSON.parse(localStorage.getItem("ohmygame-workspace-layout")!)
+        .layout.left.panels,
+    ).toEqual([]);
 
-    await click("Show agent");
-    expect(collapsed()).toBe(false);
+    await click("Layout and panels");
+    await act(async () => menuItem("Chat").click());
+    await settle();
+    expect(tabs("left")).toEqual(["*Chat"]);
   });
 });
 
@@ -894,6 +907,28 @@ describe("checkpoints in the project shell", () => {
     expect(save).toHaveBeenCalledTimes(2);
     expect(exported()).toBe(1);
     expect(document.body.textContent).toContain("Disk full");
+  });
+
+  it("reopens a closed story panel to show a file the chat links to", async () => {
+    const PLAYABLE = path.resolve("src/renderer/playable-editor-workspace.tsx");
+    vi.doMock(PLAYABLE, () => ({ PlayableEditorWorkspace: () => <p>Story editor</p> }));
+    const linked = detail("live-turn");
+    linked.turns[0]!.items[1] = { ...linked.turns[0]!.items[1]!, text: "Edited [the story](story/scenes.json)." } as never;
+    try {
+      await openProject((route) => route === "/projects/project" ? Response.json({
+        id: "project", name: "Test", type: "interactive-story", workspacePath: "/tmp/project",
+        updatedAt: new Date(0).toISOString(), preview: { status: "stopped" },
+      }) : undefined, linked);
+      const storyTab = () => [...container.querySelectorAll('[role="tab"]')].find((tab) => tab.getAttribute("aria-label") === "Story");
+      expect(storyTab()).toBeDefined();
+      await click("Close Story");
+      expect(storyTab()).toBeUndefined();
+      await act(async () => container.querySelector<HTMLAnchorElement>(".workspace-file-link")!.click());
+      await settle();
+      expect(storyTab()?.getAttribute("aria-selected")).toBe("true");
+    } finally {
+      vi.doUnmock(PLAYABLE);
+    }
   });
 
   it("opens the publish dialog from the top bar", async () => {
