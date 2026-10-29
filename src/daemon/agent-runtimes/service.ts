@@ -465,12 +465,12 @@ export class AgentRuntimeService {
     const definition = AGENT_RUNTIME_DEFINITIONS[request.runtime];
     if (!settings.enabled)
       throw new Error(
-        `${definition.name} is turned off. Turn it on in Providers & Models to continue.`,
+        `${definition.name} is turned off. Turn it on in Settings → Agents to continue.`,
       );
     const binary = await resolveBinary(request.runtime, settings.binaryPath);
     if (!binary)
       throw new Error(
-        `${definition.name} is not installed. Install it, then check again in Providers & Models.`,
+        `${definition.name} is not installed. Install it, then check again in Settings → Agents.`,
       );
     const probe = await this.#probe(request.runtime, binary, false, request.profileId);
     if (probe?.requirementError) throw probe.requirementError;

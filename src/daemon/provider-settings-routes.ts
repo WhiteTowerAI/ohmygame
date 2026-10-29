@@ -88,7 +88,7 @@ export interface ProviderSettingsRouteOptions {
   modelAuth: ModelAuthManager;
 }
 
-/** Settings → Providers & Models: provider connections, keys, custom providers, model lists, and sign-in. */
+/** Settings → Providers: provider connections, keys, custom providers, model lists, and sign-in. */
 export function registerProviderSettingsRoutes(app: FastifyInstance, options: ProviderSettingsRouteOptions): void {
   const {
     providerSummaries,
