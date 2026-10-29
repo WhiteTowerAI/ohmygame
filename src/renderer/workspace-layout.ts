@@ -124,12 +124,20 @@ export function fitLayout(saved: SavedLayout, offered: readonly WorkspacePanel[]
     const panels = saved.layout[id].panels.filter((panel) => offered.includes(panel as WorkspacePanel) && !placed.has(panel));
     panels.forEach((panel) => placed.add(panel));
     const active = [saved.layout[id].active, fallback[id].active].find((panel) => panel && panels.includes(panel));
-    next[id] = { ...saved.layout[id], panels, active: active ?? panels[0] };
+    next[id] = { ...saved.layout[id], panels, active };
   }
-  for (const panel of offered) {
-    if (placed.has(panel) || saved.known.includes(panel)) continue;
+  // New panels follow the default's order.
+  const order = new Set([...AREAS.flatMap((id) => fallback[id].panels as WorkspacePanel[]), ...offered]);
+  for (const panel of order) {
+    if (!offered.includes(panel) || placed.has(panel) || saved.known.includes(panel)) continue;
     const home = AREAS.find((id) => fallback[id].panels.includes(panel)) ?? homeOf(panel);
-    next[home] = { ...next[home], panels: [...next[home].panels, panel], active: next[home].active ?? panel };
+    next[home] = { ...next[home], panels: [...next[home].panels, panel] };
+  }
+  // Where the saved layout doesn't say, the default's front tab leads.
+  for (const id of AREAS) {
+    const { panels, active } = next[id];
+    const front = fallback[id].active && panels.includes(fallback[id].active) ? fallback[id].active : panels[0];
+    next[id] = { ...next[id], active: active ?? front };
   }
   return next;
 }

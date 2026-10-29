@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it } from "vitest";
-import { closePanel, movePanel, showPanel, visiblePanels, type Layout } from "../src/renderer/panel-layout.js";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { closePanel, createPanelNodes, movePanel, PanelLayout, PanelMount, showPanel, visiblePanels, type Layout, type PanelDef } from "../src/renderer/panel-layout.js";
 import { fitLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type WorkspacePanel } from "../src/renderer/workspace-layout.js";
 
 const tabs = (layout: Layout) => Object.fromEntries(Object.entries(layout).map(([area, value]) => [area, value.panels.map((id) => id === value.active ? `*${id}` : id).join(",")]));
@@ -47,6 +49,14 @@ describe("workspace layouts", () => {
     expect(tabs(fitLayout(saved, STORY, presetLayout("default", STORY)))).toMatchObject({ left: "*chat", center: "*story", right: "" });
   });
 
+  it("opens new panels on the default's front tab", () => {
+    // Saved from a story, a Godot project without a preview opens on Code, in
+    // the default's order.
+    const story = { layout: presetLayout("default", STORY), known: STORY };
+    const general = panelsOf({ type: "godot-game" });
+    expect(tabs(fitLayout(story, general, presetLayout("default", general))).center).toBe("*code,design,assets");
+  });
+
   it("keeps the other types' panels when a story's layout changes", () => {
     const game = { layout: movePanel(presetLayout("default", GAME), "code", "right"), known: GAME };
     const story = fitLayout(game, STORY, presetLayout("default", STORY));
@@ -76,5 +86,74 @@ describe("workspace layouts", () => {
     expect(tabs(closePanel(layout, "game")).center).toBe("*design,code,assets");
     expect(tabs(showPanel(closePanel(layout, "game"), "game", "center")).center).toBe("design,code,assets,*game");
     expect(visiblePanels(moved, new Set(["chat", "game", "code"])).sort()).toEqual(["chat", "game"]);
+  });
+});
+
+describe("the panel layout", () => {
+  let container: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+  const game = createPanelNodes();
+  const panels: PanelDef[] = [
+    { id: "chat", title: "Chat", icon: null, content: "Talk", home: "left" },
+    { id: "game", title: "Game", icon: null, content: createElement(PanelMount, { nodes: game }), home: "center" },
+    { id: "code", title: "Code", icon: null, content: "Files", home: "right", badge: 2 },
+  ];
+  const layout: Layout = {
+    left: { panels: ["chat"], active: "chat", size: 280 },
+    center: { panels: ["game"], active: "game", size: 0 },
+    right: { panels: ["code"], active: "code", size: 280 },
+    bottom: { panels: [], size: 200 },
+  };
+  const render = (value: Layout) => act(async () =>
+    root.render(createElement(PanelLayout, { layout: value, panels, onChange: () => {}, empty: null })));
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps a closed panel's view in the document and moves it without reloading", async () => {
+    const frame = document.createElement("iframe");
+    game.body.append(frame);
+    const moveBefore = vi.fn(function (this: Element, node: Node) { this.append(node); });
+    Object.defineProperty(Element.prototype, "moveBefore", { configurable: true, value: moveBefore });
+    try {
+      await render(layout);
+      expect(container.querySelector(".dock-area-center .dock-mount")?.contains(frame)).toBe(true);
+      await render(closePanel(layout, "game"));
+      // Closed, the view waits out of reach in the document, so the game keeps running.
+      expect(frame.isConnected).toBe(true);
+      const parking = frame.closest<HTMLElement>(".dock-parking")!;
+      expect(parking.getAttribute("aria-hidden")).toBe("true");
+      expect(parking.inert).toBe(true);
+      await render(movePanel(layout, "game", "right"));
+      expect(container.querySelector(".dock-area-right .dock-mount")?.contains(frame)).toBe(true);
+      expect(moveBefore).toHaveBeenCalledWith(game.body, null);
+    } finally {
+      delete (Element.prototype as { moveBefore?: unknown }).moveBefore;
+    }
+  });
+
+  it("stacks the areas when the window is too narrow for the sides", async () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(600);
+    await render(layout);
+    const dock = container.querySelector<HTMLElement>(".dock")!;
+    expect(dock.classList.contains("is-stacked")).toBe(true);
+    expect(dock.style.gridTemplateAreas).toBe('"left" "center" "right"');
+    expect(container.querySelector(".dock-resizer")).toBeNull();
+  });
+
+  it("names every tab, so a narrow area's icon-only tabs still read", async () => {
+    await render(layout);
+    expect([...container.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute("aria-label"))).toEqual(["Chat", "Game", "Code (2)"]);
+    expect(container.querySelector(".dock")!.classList.contains("is-stacked")).toBe(false);
   });
 });

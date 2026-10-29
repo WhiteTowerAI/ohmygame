@@ -882,11 +882,15 @@ export function ProjectShell({
   ];
   const publishButton = project ? publishAction(project, { publishing, agentBusy }) : undefined;
 
-  // The code panel opens the file; the story editor shows its code view first.
+  // The code panel opens the file. The story editor and the canvas show their
+  // code view first, and come back if their panel was closed.
   const openWorkspaceFile = useCallback((path: string): void => {
-    if (offered.includes("story")) changeWorkspaceView(false);
+    if (offered.includes("story")) {
+      changeWorkspaceView(false);
+      revealPanel("story");
+    } else if (offered.includes("canvas")) revealPanel("canvas");
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
-  }, [changeWorkspaceView, offered.includes("story")]);
+  }, [changeWorkspaceView, offered.includes("story"), offered.includes("canvas")]);
   const addToChat = useCallback((text: string) => {
     if (!conversation) return;
     composerDrafts.get({ projectId, conversationId: conversation.id }).update({ reference: { text } });
