@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, useState } from "react";
+import { act, StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -231,15 +231,37 @@ it("closes the command menu alone over a dialog, and gives focus back", async ()
       </Dialog>
     );
   }
+  // A dialog of the page's own that listens on the window, as the rename dialog does.
+  const pageEscape = vi.fn((event: KeyboardEvent) => { if (event.key === "Escape") closeDialog(); });
+  window.addEventListener("keydown", pageEscape);
   await act(async () => root.render(<Screen menu={false} />));
   const field = document.querySelector<HTMLInputElement>('[aria-label="Key"]')!;
   field.focus();
   await act(async () => root.render(<Screen menu />));
   expect(document.activeElement).toBe(document.querySelector('[role="combobox"]'));
   await key(document.activeElement!, "Escape");
+  window.removeEventListener("keydown", pageEscape);
   expect(closeDialog).not.toHaveBeenCalled();
   await act(async () => root.render(<Screen menu={false} />));
   expect(document.activeElement).toBe(field);
   await key(field, "Escape");
   expect(closeDialog).toHaveBeenCalledOnce();
+});
+
+it("gives Escape to the dialog that holds focus, whichever opened last", async () => {
+  const closed: string[] = [];
+  const Pair = ({ outer, inner }: { outer: boolean; inner: boolean }) => (
+    <StrictMode>
+      {outer ? <Dialog open onClose={() => closed.push("outer")} title="Outer"><input aria-label="Outer field" /></Dialog> : null}
+      <Dialog open={inner} onClose={() => closed.push("inner")} title="Inner"><input aria-label="Inner field" /></Dialog>
+    </StrictMode>
+  );
+  await act(async () => root.render(<Pair outer={false} inner={false} />));
+  // The outer dialog mounts as the inner one opens; StrictMode replays the new
+  // one's effects, so the order they registered in says nothing about which is on top.
+  await act(async () => root.render(<Pair outer inner />));
+  const inner = document.querySelector<HTMLInputElement>('[aria-label="Inner field"]')!;
+  inner.focus();
+  await key(inner, "Escape");
+  expect(closed).toEqual(["inner"]);
 });

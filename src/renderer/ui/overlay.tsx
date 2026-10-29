@@ -395,9 +395,15 @@ export function ContextMenu({
 
 // ---------- Dialog and Sheet ----------
 
-// The open modals, innermost last: only the innermost one answers Escape and
-// Tab, so a menu opened over a dialog closes alone.
-const openModals: object[] = [];
+// The open modals' panels. Only the one holding focus answers Escape and Tab
+// (the innermost, when one holds another), so a menu opened over a dialog
+// closes alone; with focus outside them all, the last opened answers.
+const openModals: RefObject<HTMLDivElement | null>[] = [];
+
+function modalFor(target: EventTarget | null): RefObject<HTMLDivElement | null> | undefined {
+  const holding = openModals.filter((modal) => target instanceof Node && modal.current?.contains(target));
+  return holding.find((modal) => holding.every((other) => other === modal || !modal.current?.contains(other.current))) ?? openModals.at(-1);
+}
 
 function useModal(open: boolean, onClose: () => void) {
   const panel = useRef<HTMLDivElement>(null);
@@ -407,8 +413,7 @@ function useModal(open: boolean, onClose: () => void) {
   close.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const modal = {};
-    openModals.push(modal);
+    openModals.push(panel);
     const previous = document.activeElement as HTMLElement | null;
     // Content that focused its own field on mount keeps it.
     if (!panel.current?.contains(document.activeElement))
@@ -418,8 +423,12 @@ function useModal(open: boolean, onClose: () => void) {
         )
         ?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (openModals.at(-1) !== modal) return;
-      if (event.key === "Escape") close.current();
+      if (modalFor(event.target) !== panel) return;
+      if (event.key === "Escape") {
+        // Handled here, so a page's own Escape listener doesn't close it too.
+        event.stopPropagation();
+        close.current();
+      }
       if (event.key !== "Tab" || !panel.current) return;
       const focusable = [
         ...panel.current.querySelectorAll<HTMLElement>(
@@ -440,7 +449,7 @@ function useModal(open: boolean, onClose: () => void) {
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
-      openModals.splice(openModals.indexOf(modal), 1);
+      openModals.splice(openModals.indexOf(panel), 1);
       previous?.focus();
     };
   }, [open]);
@@ -595,6 +604,12 @@ export function CommandMenu({
               } else if (event.key === "Enter" && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 run(filtered[active]);
+              } else if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+                // Closes the menu before Escape reaches a dialog beneath that
+                // listens for it on the document or window.
+                event.preventDefault();
+                event.stopPropagation();
+                onClose();
               }
             }}
           />
