@@ -23,7 +23,7 @@ import {
 } from "react";
 import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
-import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
   ApiError,
   acquirePreview,
@@ -807,7 +807,8 @@ export function ProjectShell({
     localStorage.setItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY, String(open));
   }, []);
 
-  const isGodotProject = project?.type === "godot-game";
+  // A Godot project whose plugin builds a web version plays in the game panel like a web game.
+  const isGodotProject = project?.type === "godot-game" && !buildsWebPreview(project);
 
   const openWorkspaceFile = useCallback((path: string): void => {
     changeWorkspaceView(false);
