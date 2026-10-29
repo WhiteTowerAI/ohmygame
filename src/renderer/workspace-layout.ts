@@ -1,80 +1,65 @@
-import { movePanel, type AreaState, type Layout } from "./panel-layout.js";
-import type { ProjectState } from "../shared/contracts.js";
-import { buildsWebPreview, supportsProjectPreview } from "../shared/project-runtime.js";
+import { movePanel, type AreaId, type AreaState, type Layout } from "./panel-layout.js";
+import type { ProjectState, ProjectType } from "../shared/contracts.js";
+import { supportsProjectPreview } from "../shared/project-runtime.js";
 
-// What a project's workspace holds depends on its type. Each kind offers its
-// panels and presets and opens with its default; the person's arrangement is
-// kept per kind, across the projects of that kind. A preset replaces it in one
-// step.
+// One layout for every project. A project type only names the panels it
+// offers, in the order they open (the shape of a format 2 plugin's
+// `projectTypes[].panels`); the host decides where they go. The person's
+// arrangement is kept once and fitted to each project's panels, so moving the
+// chat to the right holds everywhere.
 
 const STORAGE_KEY = "ohmygame-workspace-layout";
-const VERSION = 1;
-
-/**
- * The kinds of workspace, from the project type:
- * - game: web games and general projects. The game, its design canvas, code and assets.
- * - engine: Godot without a web build. The agent does the work; design, code and assets are there to look in.
- * - story: interactive stories, in the story editor.
- * - canvas: asset canvas projects.
- */
-export type WorkspaceKind = "game" | "engine" | "story" | "canvas";
-
-export function workspaceKind(project: Pick<ProjectState, "type"> & Parameters<typeof buildsWebPreview>[0]): WorkspaceKind {
-  if (project.type === "interactive-story") return "story";
-  if (project.type === "asset-canvas") return "canvas";
-  if (project.type === "godot-game" && !buildsWebPreview(project)) return "engine";
-  return "game";
-}
+const VERSION = 2;
+const AREAS = ["left", "center", "right", "bottom"] as const;
 
 export type WorkspacePanel = "chat" | "game" | "design" | "code" | "assets" | "story" | "canvas";
 export type Preset = "default" | "art" | "code";
 
-const KINDS: Record<WorkspaceKind, { panels: readonly WorkspacePanel[]; presets: readonly Preset[] }> = {
-  game: { panels: ["chat", "game", "design", "code", "assets"], presets: ["default", "art", "code"] },
-  engine: { panels: ["chat", "design", "code", "assets"], presets: ["default", "code"] },
-  story: { panels: ["chat", "story"], presets: ["default"] },
-  canvas: { panels: ["chat", "canvas"], presets: ["default"] },
+/** The panels each built-in type offers. A Godot plugin will name its own. */
+const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
+  "web-game": ["chat", "game", "design", "code", "assets"],
+  general: ["chat", "game", "design", "code", "assets"],
+  "godot-game": ["chat", "game", "design", "code", "assets"],
+  "interactive-story": ["chat", "story"],
+  "asset-canvas": ["chat", "canvas"],
 };
 
-/** The panels a project offers: its kind's, less the game where it has no preview. */
-export function panelsOf(project: Parameters<typeof supportsProjectPreview>[0] & Parameters<typeof workspaceKind>[0]): WorkspacePanel[] {
-  return KINDS[workspaceKind(project)].panels.filter((panel) => panel !== "game" || supportsProjectPreview(project));
+/** The panels a project offers: its type's, less the game where it has no preview. */
+export function panelsOf(project: Pick<ProjectState, "type"> & Parameters<typeof supportsProjectPreview>[0]): WorkspacePanel[] {
+  return TYPE_PANELS[project.type].filter((panel) => panel !== "game" || supportsProjectPreview(project));
 }
 
-export const presetsOf = (kind: WorkspaceKind): readonly Preset[] => KINDS[kind].presets;
+/** Where a panel opens when it isn't in the layout. */
+export const homeOf = (panel: WorkspacePanel): AreaId => panel === "chat" ? "left" : "center";
+
+/** The presets that make sense for these panels: Art and Code put that panel first. */
+export function presetsFor(offered: readonly WorkspacePanel[]): Preset[] {
+  return ["default", ...(offered.includes("design") ? ["art" as const] : []), ...(offered.includes("code") ? ["code" as const] : [])];
+}
 
 const area = (panels: WorkspacePanel[], size: number): AreaState => ({ panels, active: panels[0], size });
 
 /**
- * Every preset but an engine's starts with the chat on the left; dragging it
- * elsewhere is remembered with the rest of the layout. Default: the chat
- * beside the project. Art: the design canvas first. Code: the code first. An
- * engine project is the conversation itself, in the middle, with its files
- * beside it. A game without a preview opens on its code.
+ * The chat on the left and the rest in the middle in the type's order, the
+ * first in front. A project without a game opens on its code. Art and Code
+ * bring the design canvas or the code forward.
  */
-export function presetLayout(kind: WorkspaceKind, preset: Preset, offered?: readonly WorkspacePanel[]): Layout {
-  const left = area(["chat"], 380);
-  const right = area([], 280);
-  const bottom = area([], 240);
-  if (kind === "engine") {
-    return preset === "code"
-      ? { left, right, center: area(["code", "design", "assets"], 0), bottom }
-      : { left: area([], 380), right, center: area(["chat", "design", "code", "assets"], 0), bottom };
-  }
-  if (kind === "story") return { left, right, center: area(["story"], 0), bottom };
-  if (kind === "canvas") return { left, right, center: area(["canvas"], 0), bottom };
-  if (preset === "art") return { left, right, center: area(["design", "game", "code", "assets"], 0), bottom };
-  if (preset === "code") return { left, right, center: area(["code", "game", "design", "assets"], 0), bottom };
-  if (offered && !offered.includes("game")) return { left, right, center: area(["code", "design", "assets"], 0), bottom };
-  return { left, right, center: area(["game", "design", "code", "assets"], 0), bottom };
+export function presetLayout(preset: Preset, offered: readonly WorkspacePanel[]): Layout {
+  let middle = offered.filter((panel) => homeOf(panel) === "center");
+  const first: WorkspacePanel | undefined = preset === "art" ? "design" : preset === "code" || !middle.includes("game") ? "code" : undefined;
+  if (first && middle.includes(first)) middle = [first, ...middle.filter((panel) => panel !== first)];
+  return {
+    left: area(offered.filter((panel) => homeOf(panel) === "left"), 380),
+    center: area(middle, 0),
+    right: area([], 280),
+    bottom: area([], 240),
+  };
 }
 
 /** While the project loads: the chat where it opens, and nothing in the middle yet. */
 export function loadingLayout(): Layout {
-  return { ...presetLayout("game", "default"), center: area([], 0) };
+  return presetLayout("default", ["chat"]);
 }
-
-const keyOf = (kind: WorkspaceKind) => `${STORAGE_KEY}.${kind}`;
 
 /** A saved arrangement, with every panel it knew about, closed ones included. */
 export interface SavedLayout {
@@ -82,9 +67,9 @@ export interface SavedLayout {
   known: readonly string[];
 }
 
-export function readLayout(kind: WorkspaceKind): SavedLayout | undefined {
+export function readLayout(): SavedLayout | undefined {
   try {
-    const saved = JSON.parse(localStorage.getItem(keyOf(kind)) ?? "{}") as { version?: number } & Partial<SavedLayout>;
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as { version?: number } & Partial<SavedLayout>;
     return saved.version === VERSION && saved.layout && validLayout(saved.layout) && Array.isArray(saved.known)
       ? { layout: saved.layout, known: saved.known }
       : undefined;
@@ -93,17 +78,17 @@ export function readLayout(kind: WorkspaceKind): SavedLayout | undefined {
   }
 }
 
-export function saveLayout(kind: WorkspaceKind, saved: SavedLayout): void {
+export function saveLayout(saved: SavedLayout): void {
   try {
-    localStorage.setItem(keyOf(kind), JSON.stringify({ version: VERSION, ...saved }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, ...saved }));
   } catch { /* The layout still works without storage. */ }
 }
 
-/** What a project of this kind opens with: the saved arrangement, or the default. */
-export function openingLayout(kind: WorkspaceKind, offered: readonly WorkspacePanel[]): SavedLayout {
-  const saved = readLayout(kind);
+/** What a project opens with: the saved arrangement, or the default. */
+export function openingLayout(offered: readonly WorkspacePanel[]): SavedLayout {
+  const saved = readLayout();
   if (saved) return saved;
-  const layout = presetLayout(kind, "default", offered);
+  const layout = presetLayout("default", offered);
   // The chat-side setting this replaced still decides where the chat first opens.
   if (!legacyChatRight() || !layout.left.panels.includes("chat")) return { layout, known: [] };
   const moved = movePanel(layout, "chat", "right");
@@ -125,12 +110,10 @@ function validLayout(layout: Layout): boolean {
   });
 }
 
-const AREAS = ["left", "center", "right", "bottom"] as const;
-
 /**
- * A saved layout with the panels this project offers. Panels it doesn't offer
- * are dropped, and an area whose tab was one of them shows the default's tab.
- * A panel the saved layout never knew (a newer panel, or the game once a
+ * The saved layout with the panels this project offers. Panels it doesn't offer
+ * are left out, and an area whose tab was one of them shows the default's tab.
+ * A panel the saved layout never knew (one of another type, or the game once a
  * preview turns on) opens where the default puts it; panels the person closed
  * stay closed.
  */
@@ -145,8 +128,35 @@ export function fitLayout(saved: SavedLayout, offered: readonly WorkspacePanel[]
   }
   for (const panel of offered) {
     if (placed.has(panel) || saved.known.includes(panel)) continue;
-    const home = AREAS.find((id) => fallback[id].panels.includes(panel)) ?? "center";
+    const home = AREAS.find((id) => fallback[id].panels.includes(panel)) ?? homeOf(panel);
     next[home] = { ...next[home], panels: [...next[home].panels, panel], active: next[home].active ?? panel };
   }
   return next;
+}
+
+/**
+ * What to keep after the person changes a project's layout from `before` to
+ * `next`: the change, with the other types' panels where they were, so a
+ * story's arrangement doesn't move a game's panels. An area whose front tab
+ * didn't change keeps the saved one, which may be another type's.
+ */
+export function mergeLayout(saved: SavedLayout | undefined, before: Layout, next: Layout, offered: readonly WorkspacePanel[]): SavedLayout {
+  const layout = { ...next };
+  if (saved) {
+    const mine = (panel: string) => offered.includes(panel as WorkspacePanel);
+    for (const id of AREAS) {
+      // The saved order, with this project's panels replaced by the new ones in turn.
+      const queue = [...next[id].panels];
+      const panels: string[] = [];
+      for (const panel of saved.layout[id].panels) {
+        if (!mine(panel)) panels.push(panel);
+        else if (queue.length) panels.push(queue.shift()!);
+      }
+      panels.push(...queue);
+      const kept = saved.layout[id].active;
+      const active = next[id].active === before[id].active && kept && panels.includes(kept) ? kept : next[id].active ?? panels[0];
+      layout[id] = { ...next[id], panels, active };
+    }
+  }
+  return { layout, known: [...new Set([...(saved?.known ?? []), ...offered])] };
 }

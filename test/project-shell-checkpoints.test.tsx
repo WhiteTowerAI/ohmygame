@@ -275,7 +275,7 @@ describe("project shell layout", () => {
     await settle();
     expect(container.querySelector(".dock-area-left")).toBeNull();
     expect(
-      JSON.parse(localStorage.getItem("ohmygame-workspace-layout.game")!)
+      JSON.parse(localStorage.getItem("ohmygame-workspace-layout")!)
         .layout.left.panels,
     ).toEqual([]);
 

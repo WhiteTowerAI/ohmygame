@@ -100,8 +100,8 @@ import type { PublishDetails } from "./publish-dialog.js";
 import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
-import { closePanel, createPanelNodes, PanelLayout, PanelMount, showPanel, visiblePanels, areaOf, type AreaId, type Layout, type PanelNodes } from "./panel-layout.js";
-import { fitLayout, loadingLayout, openingLayout, panelsOf, presetLayout, presetsOf, saveLayout, workspaceKind, type SavedLayout, type WorkspaceKind, type WorkspacePanel } from "./workspace-layout.js";
+import { closePanel, createPanelNodes, PanelLayout, PanelMount, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
+import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import type { CodingView } from "./coding-workspace.js";
 import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
@@ -130,14 +130,14 @@ interface ProjectShellProps {
 }
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
-const PANELS: Record<WorkspacePanel, { title: () => string; icon: IconComponent; home: AreaId }> = {
-  chat: { title: () => t("panels.chat"), icon: MessageCircle, home: "left" },
-  game: { title: () => t("panels.game"), icon: Gamepad2, home: "center" },
-  design: { title: () => t("workspace.tab.design"), icon: FileText, home: "center" },
-  code: { title: () => t("workspace.tab.code"), icon: Code2, home: "center" },
-  assets: { title: () => t("workspace.tab.assets"), icon: Layers3, home: "center" },
-  story: { title: () => t("panels.story"), icon: Clapperboard, home: "center" },
-  canvas: { title: () => t("panels.canvas"), icon: Palette, home: "center" },
+const PANELS: Record<WorkspacePanel, { title: () => string; icon: IconComponent }> = {
+  chat: { title: () => t("panels.chat"), icon: MessageCircle },
+  game: { title: () => t("panels.game"), icon: Gamepad2 },
+  design: { title: () => t("workspace.tab.design"), icon: FileText },
+  code: { title: () => t("workspace.tab.code"), icon: Code2 },
+  assets: { title: () => t("workspace.tab.assets"), icon: Layers3 },
+  story: { title: () => t("panels.story"), icon: Clapperboard },
+  canvas: { title: () => t("panels.canvas"), icon: Palette },
 };
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
@@ -174,31 +174,31 @@ export function ProjectShell({
     setDesignOpen(open);
     onViewChange?.(open ? "design" : "workspace", options);
   }, [onViewChange]);
-  // The workspace's panels, arranged per kind of project (see workspace-layout.ts).
-  // Each panel's view renders into nodes of its own, which the panel shows.
-  const kind = state.project ? workspaceKind(state.project) : undefined;
+  // The workspace's panels, in the one layout every project shares (see
+  // workspace-layout.ts). Each panel's view renders into nodes of its own,
+  // which the panel shows.
   const offered = state.project ? panelsOf(state.project) : [];
-  const opening = useMemo(() => kind ? openingLayout(kind, offered) : undefined, [kind]);
-  const [arrangement, setArrangement] = useState<{ kind: WorkspaceKind; saved: SavedLayout }>();
-  const saved = kind && arrangement?.kind === kind ? arrangement.saved : opening;
-  const layout = kind && saved ? fitLayout(saved, offered, presetLayout(kind, "default", offered)) : undefined;
+  const [saved, setSaved] = useState<SavedLayout | undefined>();
+  const opening = useMemo(() => state.project ? openingLayout(offered) : undefined, [!!state.project]);
+  const current = saved ?? opening;
+  const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered)) : undefined;
   const visible = layout ? visiblePanels(layout, new Set(offered)) : [];
   const chatShown = !layout || visible.includes("chat");
   const [nodes] = useState(() => Object.fromEntries(Object.keys(PANELS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
-  const latestLayout = useRef({ kind, saved, offered, layout });
-  latestLayout.current = { kind, saved, offered, layout };
+  const latestLayout = useRef({ current, offered, layout });
+  latestLayout.current = { current, offered, layout };
   function changeLayout(next: Layout): void {
-    const { kind, saved, offered } = latestLayout.current;
-    if (!kind) return;
-    const value = { layout: next, known: [...new Set([...(saved?.known ?? []), ...offered])] };
-    latestLayout.current = { ...latestLayout.current, saved: value, layout: next };
-    setArrangement({ kind, saved: value });
-    saveLayout(kind, value);
+    const { current, offered, layout } = latestLayout.current;
+    if (!offered.length || !layout) return;
+    const value = mergeLayout(current, layout, next, offered);
+    latestLayout.current = { ...latestLayout.current, current: value, layout: next };
+    setSaved(value);
+    saveLayout(value);
   }
   /** Brings a panel forward, opening it where it belongs if it was closed. */
   function revealPanel(id: WorkspacePanel): void {
     const { layout, offered } = latestLayout.current;
-    if (layout && offered.includes(id)) changeLayout(showPanel(layout, id, PANELS[id].home));
+    if (layout && offered.includes(id)) changeLayout(showPanel(layout, id, homeOf(id)));
   }
   const [publishing, setPublishing] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
@@ -242,7 +242,7 @@ export function ProjectShell({
   const followTimeline = useRef(true);
 
   // The route's design view brings the design panel forward, and the route follows it.
-  const designPanel = kind === "game" || kind === "engine";
+  const designPanel = offered.includes("design");
   const designShown = designPanel ? visible.includes("design") : designOpen;
   useEffect(() => { if (view === "design" && designPanel) revealPanel("design"); }, [view, designPanel]);
   useEffect(() => {
@@ -880,9 +880,9 @@ export function ProjectShell({
 
   // The code panel opens the file; the story editor shows its code view first.
   const openWorkspaceFile = useCallback((path: string): void => {
-    if (kind === "story") changeWorkspaceView(false);
+    if (offered.includes("story")) changeWorkspaceView(false);
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
-  }, [changeWorkspaceView, kind]);
+  }, [changeWorkspaceView, offered.includes("story")]);
   const addToChat = useCallback((text: string) => {
     if (!conversation) return;
     composerDrafts.get({ projectId, conversationId: conversation.id }).update({ reference: { text } });
@@ -894,15 +894,15 @@ export function ProjectShell({
     composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
   }
 
-  const toggleMenu: MenuEntry[] = kind ? [
+  const toggleMenu: MenuEntry[] = offered.length ? [
     { heading: t("panels.layout") },
-    ...presetsOf(kind).map((preset) => ({ label: t(`panels.preset.${preset}`), onSelect: () => changeLayout(presetLayout(kind, preset, offered)) })),
+    ...presetsFor(offered).map((preset) => ({ label: t(`panels.preset.${preset}`), onSelect: () => changeLayout(presetLayout(preset, offered)) })),
     "separator",
     { heading: t("panels.list") },
     ...offered.map((id) => {
       const Icon = PANELS[id].icon;
       const open = !!layout && !!areaOf(layout, id);
-      return { label: PANELS[id].title(), icon: <Icon size={14} />, checked: open, onSelect: () => layout && changeLayout(open ? closePanel(layout, id) : showPanel(layout, id, PANELS[id].home)) };
+      return { label: PANELS[id].title(), icon: <Icon size={14} />, checked: open, onSelect: () => layout && changeLayout(open ? closePanel(layout, id) : showPanel(layout, id, homeOf(id))) };
     }),
   ] : [];
   const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "code" || id === "assets" ? [id] : []));
@@ -929,9 +929,9 @@ export function ProjectShell({
     {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayout}
       panels={(project ? offered : ["chat" as const]).map((id) => {
         const Icon = PANELS[id].icon;
-        return { id, title: PANELS[id].title(), icon: <Icon size={14} />, home: PANELS[id].home, content: <PanelMount nodes={nodes[id]} /> };
+        return { id, title: PANELS[id].title(), icon: <Icon size={14} />, home: homeOf(id), content: <PanelMount nodes={nodes[id]} /> };
       })}
-      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => kind && changeLayout(presetLayout(kind, "default", offered))}>{t("panels.reset")}</Button>} /> : null} /> : null}
+      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered))}>{t("panels.reset")}</Button>} /> : null} /> : null}
     {createPortal(<div className="pane-header-actions">
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
               <CanvasChipSelect icon={UserRound} label={t("codingAgents.chatProfile", { name: accountRuntime === "codex-cli" ? "Codex" : "Claude Code" })} value={selectedProfileId}
@@ -1082,7 +1082,7 @@ export function ProjectShell({
       </div>
     </section>, nodes.chat.body)}
       <ErrorBoundary key={`${projectId}:${workspaceEpoch}`} label={t("errorBoundary.label.workspace")} resetKey={project?.id} onHome={onHome} homeLabel={homeLabel}>
-      {!project ? null : kind === "game" || kind === "engine" ? (
+      {!project ? null : offered.includes("design") ? (
         <CodingWorkspace
           project={project}
           agentBusy={agentBusy}
@@ -1107,7 +1107,7 @@ export function ProjectShell({
             onShow: (view) => revealPanel(view === "preview" ? "game" : view),
           }}
         />
-      ) : kind === "canvas" ? createPortal(<Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+      ) : offered.includes("canvas") ? createPortal(<Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         workspaceRevision={workspaceRevision}

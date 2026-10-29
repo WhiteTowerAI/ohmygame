@@ -59,7 +59,7 @@ An Interactive Story opens in the project frame with two panels:
 
 - **Chat** and **Story** are panels, which drag to another side, close from
   their tab, and come back from **Layout and panels** in the top bar. The
-  arrangement is kept for every Interactive Story; see
+  arrangement is shared with every project; see
   [workspace panels](../runtime.md#workspace-panels).
 - The Story panel shows either the **Story** view, the flow canvas, or the
   Workbench of one Scene, with a breadcrumb (`Story › Case archive`) to
