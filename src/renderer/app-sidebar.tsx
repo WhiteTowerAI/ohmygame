@@ -375,6 +375,8 @@ function editedAgo(value: string, now = Date.now()): string {
 
 // A recent project in the rail. Hovering it lists that project's
 // conversations, so switching between them, or to another project, is one move.
+// From the keyboard, the right arrow opens the list and the arrows move through
+// it; the left arrow or Escape goes back to the icon.
 function RailProject({ project, open: openProject, conversations }: {
   project: ProjectState;
   open: (hash: string) => void;
@@ -382,7 +384,9 @@ function RailProject({ project, open: openProject, conversations }: {
   conversations?: RailConversations;
 }) {
   const anchor = useRef<HTMLButtonElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const timer = useRef<number>(undefined);
+  const focusFirst = useRef(false);
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState<readonly ConversationSummary[]>();
   const active = !!conversations;
@@ -398,13 +402,27 @@ function RailProject({ project, open: openProject, conversations }: {
       disposed = true;
     };
   }, [open, active, project.id]);
+  const focusInside = () => !!body.current?.contains(document.activeElement);
+  const menuItems = () => [...(body.current?.querySelectorAll<HTMLButtonElement>(".rail-popover-item") ?? [])];
+  useEffect(() => {
+    if (!open || !focusFirst.current) return;
+    const first = menuItems()[0];
+    if (!first) return;
+    focusFirst.current = false;
+    first.focus();
+  }, [open, items.length]);
   const hover = (next: boolean) => {
     window.clearTimeout(timer.current);
+    // The pointer leaving doesn't close a list the keyboard is in.
+    if (!next && focusInside()) return;
     timer.current = window.setTimeout(() => setOpen(next), next ? HOVER_OPEN : HOVER_CLOSE);
   };
-  // Closing now also drops a pending hover, which would open it again.
+  // Closing now also drops a pending hover, which would open it again. Focus
+  // inside the list goes back to the icon.
   const close = () => {
     window.clearTimeout(timer.current);
+    focusFirst.current = false;
+    if (focusInside()) anchor.current?.focus();
     setOpen(false);
   };
   const pick = (conversationId: string) => {
@@ -421,12 +439,39 @@ function RailProject({ project, open: openProject, conversations }: {
           if (!active) openProject(projectHash(project.id));
         }}
         onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}
-        onFocus={() => hover(true)} onBlur={() => hover(false)}>
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowRight") return;
+          event.preventDefault();
+          window.clearTimeout(timer.current);
+          focusFirst.current = true;
+          setOpen(true);
+          menuItems()[0]?.focus();
+        }}
+        onBlur={(event) => {
+          // Leaving before the list loaded cancels moving into it.
+          if (!focusFirst.current || body.current?.contains(event.relatedTarget as Node | null)) return;
+          close();
+        }}>
         <SidebarCover project={project} className="sidebar-app-cover" />
       </button>
       <Popover open={open} onClose={close} anchor={anchor} placement="right-start" className="rail-popover"
         label={t("sidebar.projectConversations", { name: project.name })}>
-        <div onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}>
+        <div ref={body} onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}
+          onKeyDown={(event) => {
+            const list = menuItems();
+            const at = list.indexOf(document.activeElement as HTMLButtonElement);
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              const step = event.key === "ArrowDown" ? 1 : -1;
+              list[(at + step + list.length) % list.length]?.focus();
+            } else if (event.key === "ArrowLeft") close();
+            else return;
+            event.preventDefault();
+          }}
+          onBlur={(event) => {
+            const next = event.relatedTarget as Node | null;
+            if (next && (body.current?.contains(next) || anchor.current?.contains(next))) return;
+            close();
+          }}>
           <div className="rail-popover-head">
             <strong>{project.name}</strong>
             <small>{t("sidebar.editedAgo", { time: editedAgo(project.updatedAt) })}</small>
@@ -458,13 +503,17 @@ function RailProject({ project, open: openProject, conversations }: {
 // search and the account. The pages' sidebar comes back on the way out.
 // `onLeave` runs before anything here leaves the project, so the project can
 // save first.
-export function ProjectRail({ projectId, conversations, onNavigate, onLeave }: {
+export function ProjectRail({ projectId, project, conversations, onNavigate, onLeave }: {
   projectId: string;
+  /** The open project, listed even when it isn't among the recent ones. */
+  project?: ProjectState;
   conversations?: RailConversations;
   onNavigate: (page: AppNavigationTarget) => void;
   onLeave: (go: () => void) => void;
 }) {
-  const recent = useRecentProjects();
+  const latest = useRecentProjects();
+  const recent = !project || latest.some((item) => item.id === project.id)
+    ? latest : [...latest.slice(0, RECENT_LIMIT - 1), project];
   const history = useHistoryState();
   const mac = window.ohMyGameDesktop?.platform === "darwin";
   const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
@@ -473,8 +522,8 @@ export function ProjectRail({ projectId, conversations, onNavigate, onLeave }: {
     <nav className="sidebar project-rail" aria-label={t("sidebar.projectNavigation")}>
       {mac ? (
         <div className="sidebar-titlebar">
-          <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => window.history.back()}><ArrowLeft size={16} /></IconButton>
-          <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => window.history.forward()}><ArrowRight size={16} /></IconButton>
+          <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => onLeave(() => window.history.back())}><ArrowLeft size={16} /></IconButton>
+          <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => onLeave(() => window.history.forward())}><ArrowRight size={16} /></IconButton>
         </div>
       ) : null}
       <div className="sidebar-head">
