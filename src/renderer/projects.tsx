@@ -197,7 +197,8 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
           actions={(
             <div className="projects-controls">
               <div className="projects-search" ref={search}>
-                <SearchInput value={query} label={t("projects.search")} placeholder={t("projects.search")}
+                {/* The sidebar's Search focuses this field by its id. */}
+                <SearchInput id="projects-search-input" value={query} label={t("projects.search")} placeholder={t("projects.search")}
                   onChange={(value) => onFiltersChange({ ...filters, query: value }, true)} />
               </div>
               <Select<ProjectType | "all"> label={t("creator.projectType")} value={projectType}

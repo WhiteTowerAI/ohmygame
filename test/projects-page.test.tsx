@@ -79,6 +79,12 @@ describe("Projects page", () => {
   const names = () => [...container.querySelectorAll(".project-card-name")].map((name) => name.textContent);
   const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
 
+  it("gives its search field the id the sidebar's Search focuses", async () => {
+    await render();
+    const field = document.querySelector<HTMLInputElement>("#projects-search-input");
+    expect(field?.getAttribute("aria-label")).toBe("Search projects");
+  });
+
   it("switches to the list and keeps the choice for next time", async () => {
     await render();
     expect(container.querySelector(".projects-grid")).not.toBeNull();

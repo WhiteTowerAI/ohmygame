@@ -90,15 +90,18 @@ export function SearchInput({
   placeholder = t("ui.search"),
   size = "md",
   label = t("ui.search"),
+  id,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   size?: "sm" | "md";
   label?: string;
+  id?: string;
 }) {
   return (
     <Input
+      id={id}
       size={size}
       type="search"
       aria-label={label}
