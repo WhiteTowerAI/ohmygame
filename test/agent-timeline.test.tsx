@@ -476,7 +476,7 @@ describe("AgentTimeline", () => {
 
   it("says when copying an error's diagnostics fails, and lets the copied note expire", async () => {
     vi.useFakeTimers();
-    const writeText = vi.fn(async () => { throw new Error("denied"); });
+    const writeText = vi.fn<(text: string) => Promise<void>>(async () => { throw new Error("denied"); });
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const container = document.createElement("div");
     document.body.append(container);
