@@ -2913,6 +2913,13 @@ select.settings-search-input {
   outline: 0;
 }
 
+/* Above the Windows menu bar, as the dialog was before the kit frame. */
+.ui-backdrop.project-settings-backdrop {
+  z-index: 100;
+  padding: var(--space-4);
+  background: rgb(0 0 0 / 45%);
+}
+
 .project-settings-form {
   display: flex;
   flex-direction: column;
@@ -3035,7 +3042,7 @@ select.settings-search-input {
 }
 
 .project-settings :is(input, select)::placeholder {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .project-settings fieldset:disabled :is(input, select),
