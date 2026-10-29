@@ -49,7 +49,7 @@ replace a driver's transport without changing orchestration or persistence.
 
 Configure CLIs under **Settings → Agents**, next to OhMyGame's own agent, and
 choose native models in the existing conversation model picker. Agents is its
-own settings section rather than a group in Providers & Models: a provider
+own settings section rather than a group in Providers: a provider
 supplies models and credentials for every capability, while an agent runs the
 conversation with its own install, account, configuration and sandbox. Do not add a competing
 runtime selector or runtime-specific conversation settings route.

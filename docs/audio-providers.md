@@ -7,7 +7,7 @@ provider-neutral settings and asset references.
 
 ## Providers and connection settings
 
-**Settings → Providers & Models → Doubao Voice** is one provider page with one
+**Settings → Providers → Doubao Voice** is one provider page with one
 shared API key. The Speech synthesis and Audio generation tabs below the key
 keep separate enable states, previews, model lists, and an optional per-service
 key under **Advanced**. The header's delete button and enable switch act on the

@@ -19,7 +19,7 @@ OhMyGame's tools for one conversation.
 
 People who already work in a coding agent have chosen and paid for its model.
 What they lack is what only OhMyGame has: the media providers configured in
-Providers & Models, the Design and Asset Canvas, and the playtest window.
+Providers, the Design and Asset Canvas, and the playtest window.
 OhMyGame offers exactly those as tools; the external agent plans and writes
 the code.
 

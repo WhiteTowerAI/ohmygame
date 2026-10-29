@@ -268,7 +268,7 @@ OhMyGame ships without a model. On first launch, it walks you through setup:
    a Claude Code, Codex, or OpenCode CLI you already have. Use **+** to add a
    custom or local endpoint. **Skip and start** enters without setup.
 2. **Add creative tools (optional).** Connect image, video, 3D, and audio
-   providers now or later in **Settings → Providers & Models**. A language
+   providers now or later in **Settings → Providers**. A language
    model alone can design and build a game. Generating media needs a
    corresponding provider:
 

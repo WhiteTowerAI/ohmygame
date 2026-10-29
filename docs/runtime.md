@@ -122,7 +122,7 @@ reuses Settings' provider connection forms. All providers in the selected catego
 are shown directly, without a More section. The **+** button opens the shared
 custom-provider form inline, without changing the conversation model. The footer
 offers **Start creating**; step indicators handle navigation. The description points
-to **Settings → Providers & Models** for later configuration.
+to **Settings → Providers** for later configuration.
 Media default models stay in Settings; this step does not load their catalogs.
 Media setup never changes the chat model or reloads the conversation catalog
 when media connections change. **Start creating** enters the studio without
@@ -495,7 +495,13 @@ leads with **Sign in…**. A pending desktop update shows above the account unti
 it needs a restart. The sidebar collapses to icons and its edge drags between
 200 and 360px (double-click restores 232px); both stay across pages and
 restarts. Settings is a page in this frame, with its sections beside the
-content. The studio home pages (`#/web-game`, `#/interactive-story`,
+content in four groups: General and Appearance; AI (Agents, Providers, Web
+Search); Connections (MCP Server, Network); and Account, Billing and About.
+`#/settings` opens General. Each agent, OhMyGame's own included, has its own
+page at `#/settings/agents/<id>`, and Back returns to the list. Appearance
+also sets the grey palette (Neutral, Warm, High contrast) and a serif chat
+font; both are stored in the renderer and applied as `data-palette` and
+`data-chat-font` on the root before the first render. The studio home pages (`#/web-game`, `#/interactive-story`,
 `#/godot`, `#/asset-canvas`, `#/general`) are no longer in the sidebar but still
 open from their links.
 
