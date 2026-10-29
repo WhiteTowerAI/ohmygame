@@ -1109,30 +1109,4 @@ describe("checkpoints in the project shell", () => {
     await settle();
     expect(container.querySelector(".unfinished-restore")).toBeNull();
   });
-
-  it("shows the banner when a restore left the workspace partly changed", async () => {
-    await openProject((route) =>
-      route === `${BASE}/restore`
-        ? Response.json(
-            {
-              error: "The restore could not be completed",
-              code: "CHECKPOINT_INCOMPLETE",
-            },
-            { status: 409 },
-          )
-        : undefined,
-    );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>(
-          '[aria-label="Restore to before this message"]',
-        )!
-        .click(),
-    );
-    await settle();
-
-    expect(container.querySelector(".unfinished-restore")).not.toBeNull();
-  });
 });

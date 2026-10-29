@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { existsSync, readdirSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AgentRuntimeId } from "../../shared/agent-runtimes.js";
@@ -161,106 +160,6 @@ export function loginShellPath(recheck = false): Promise<string | undefined> {
     return value;
   });
   return shellPath;
-}
-
-/**
- * Folders a sandboxed command must read to run the person's own toolchains:
- * each folder on the child's PATH and the installation it belongs to, such as
- * an fnm or nvm Node, Homebrew or Bun, so node, npm and git start. A shared
- * folder like ~/.local/bin grants only the installations its programs link
- * to, never the rest of the folder above it, and the home folder itself is
- * never granted. On macOS the command-line developer tools behind the
- * /usr/bin shims (git, python3, make) are readable too.
- */
-export function toolchainRoots(
-  pathValue: string,
-  home = os.homedir(),
-  platform: NodeJS.Platform = process.platform,
-): string[] {
-  const shared = new Set([path.join(home, ".local"), "/"]);
-  const roots = new Set<string>();
-  const installation = (target: string) => {
-    const folder = path.dirname(target);
-    return path.basename(folder) === "bin" ? path.dirname(folder) : folder;
-  };
-  for (const entry of pathValue.split(path.delimiter)) {
-    if (!path.isAbsolute(entry)) continue;
-    let folder: string;
-    try {
-      folder = realpathSync(entry);
-    } catch {
-      continue;
-    }
-    if (folder === home || folder === "/") continue;
-    roots.add(folder);
-    if (path.basename(folder) !== "bin") continue;
-    const prefix = path.dirname(folder);
-    if (prefix !== home && !shared.has(prefix)) {
-      roots.add(prefix);
-      continue;
-    }
-    let names: string[] = [];
-    try {
-      names = readdirSync(folder);
-    } catch {
-      continue;
-    }
-    for (const name of names) {
-      try {
-        const target = realpathSync(path.join(folder, name));
-        if (!target.startsWith(`${folder}${path.sep}`)) {
-          const linked = installation(target);
-          if (linked !== home && !shared.has(linked)) roots.add(linked);
-        }
-      } catch {
-        /* A dangling link runs nothing. */
-      }
-    }
-  }
-  if (platform === "darwin")
-    for (const developer of [
-      // Node/npm read the system OpenSSL configuration when starting TLS.
-      // Grant this immutable file without exposing the whole system Library.
-      "/System/Library/OpenSSL/openssl.cnf",
-      "/Library/Developer/CommandLineTools",
-      "/Applications/Xcode.app",
-    ])
-      if (existsSync(developer)) roots.add(developer);
-  return [...roots];
-}
-
-/**
- * Package caches kept in a session's temporary folder: the home folder's
- * caches are outside the folders a sandboxed command may write.
- */
-export function sessionCaches(temporary: string): Record<string, string> {
-  return {
-    XDG_CACHE_HOME: path.join(temporary, "cache"),
-    npm_config_cache: path.join(temporary, "npm-cache"),
-    BUN_INSTALL_CACHE_DIR: path.join(temporary, "bun-cache"),
-    YARN_CACHE_FOLDER: path.join(temporary, "yarn-cache"),
-  };
-}
-
-/**
- * The PATH for sandboxed commands. On macOS the /usr/bin shims for git,
- * python3 and make go through xcrun, which writes a cache to the system
- * temporary folder that a sandbox does not let commands write; the
- * command-line tools' own programs come just before them, so anything the
- * person installed earlier on PATH still wins.
- */
-export function sandboxedPath(
-  pathValue: string,
-  platform: NodeJS.Platform = process.platform,
-  developer = "/Library/Developer/CommandLineTools/usr/bin",
-): string {
-  if (platform !== "darwin" || !existsSync(developer)) return pathValue;
-  const parts = pathValue
-    .split(path.delimiter)
-    .filter((part) => part !== developer);
-  const shims = parts.indexOf("/usr/bin");
-  parts.splice(shims < 0 ? parts.length : shims, 0, developer);
-  return parts.join(path.delimiter);
 }
 
 function uniquePath(parts: string[]): string {

@@ -3,7 +3,7 @@ import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
 import type { MediaContentType } from "./media-files.js";
-import type { AccountProfileIds, AgentRuntimeAuthStatus, AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "./agent-runtimes.js";
+import type { AccountProfileIds, AgentRuntimeAuthStatus, AgentRuntimeId, ApprovalRequestDetails, StoredApprovalDecision } from "./agent-runtimes.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
@@ -828,7 +828,7 @@ export type ThreadItem = (
       requestId: string;
       request: ApprovalRequestDetails;
       status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "failed">;
-      decision?: ApprovalDecision;
+      decision?: StoredApprovalDecision;
     }
   | {
       id: string;

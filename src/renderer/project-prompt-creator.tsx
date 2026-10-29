@@ -1,11 +1,12 @@
 import { LoaderCircle, Package, SendArrow } from "./icons.js";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import { isAgentRuntimeId, nativeEffort } from "../shared/agent-runtimes.js";
 import { getHomeComposerCapabilities, updateAgentDefaults, waitForRuntime } from "./api.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
+import { composerDrafts, homeDraftScope, type SavedComposerDraft } from "./composer-drafts.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { matchesPlanCommand, PlanModeIndicator } from "./plan-mode-control.js";
 import { PromptBox, type DroppedFile } from "./prompt-box.js";
@@ -41,21 +42,32 @@ type IdeaKey = (typeof IDEAS)[keyof typeof IDEAS][number] | (typeof GENERAL_IDEA
 
 /**
  * Home's prompt box. Sending hands the prompt to the new-project dialog as the
- * first message; the project is created there.
+ * first message; the project is created there, and the dialog clears the draft.
  */
-export function ProjectPromptCreator({ placeholder, disabled: creating = false, onSubmit }: {
+export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating = false, onSubmit }: {
+  /** Each start page keeps its own unsent prompt while the user visits projects. */
+  draftKey: string;
   placeholder: string;
   disabled?: boolean;
-  onSubmit: (message: FirstMessage) => void;
+  /** `clearDraft` empties the prompt box once the project has been created. */
+  onSubmit: (message: FirstMessage, clearDraft: () => void) => void;
 }) {
-  const [prompt, setPrompt] = useState("");
-  const [selectedSkill, setSelectedSkill] = useState<string>();
-  const [selectedPlugin, setSelectedPlugin] = useState<PluginMention>();
-  const [pluginMentions, setPluginMentions] = useState<PluginMention[]>([]);
+  const draftSession = composerDrafts.get(homeDraftScope(draftKey));
+  const draft = useSyncExternalStore(draftSession.subscribe, draftSession.getSnapshot, draftSession.getSnapshot);
+  const { prompt, selectedSkill, selectedPlugin, mentions: pluginMentions, planning, attachments } = draft;
+  function draftSetter<K extends keyof SavedComposerDraft>(field: K) {
+    return (value: SavedComposerDraft[K] | ((current: SavedComposerDraft[K]) => SavedComposerDraft[K])) => draftSession.update((current) => ({
+      [field]: typeof value === "function" ? (value as (current: SavedComposerDraft[K]) => SavedComposerDraft[K])(current[field]) : value,
+    }));
+  }
+  const setPrompt = draftSetter("prompt");
+  const setSelectedSkill = draftSetter("selectedSkill");
+  const setSelectedPlugin = draftSetter("selectedPlugin");
+  const setPluginMentions = draftSetter("mentions");
+  const setPlanning = draftSetter("planning");
+  const setAttachments = draftSetter("attachments");
   const [capabilities, setCapabilities] = useState(EMPTY_CAPABILITIES);
   const [mentionCursor, setMentionCursor] = useState(0);
-  const [planning, setPlanning] = useState(false);
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   // Until the person picks one, the first enabled starter is used.
   const [starterTouched, setStarterTouched] = useState(false);
   const [savingDefaults, setSavingDefaults] = useState(false);
@@ -137,12 +149,13 @@ export function ProjectPromptCreator({ placeholder, disabled: creating = false, 
     // The starting plugin alone is not a message.
     if ((!prompt.trim() && !selectedSkill && attachments.length === 0) || creating) return;
     const submittedPrompt = formatComposerInvocation(selectedSkill, selectedPlugin, prompt.trim());
+    const submittedDraft = draft;
     onSubmit({
       prompt: submittedPrompt,
       mentions: activePluginMentions(submittedPrompt, pluginMentions),
       attachments,
       mode: planning ? "planning" : "normal",
-    });
+    }, () => { draftSession.clearSubmitted(submittedDraft); });
   }
 
   function addAttachments(next: ComposerAttachment[]): void {

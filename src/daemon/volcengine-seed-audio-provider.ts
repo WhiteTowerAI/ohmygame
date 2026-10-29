@@ -2,10 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   AUDIO_VOICE_ID_PATTERN,
   DOUBAO_SEED_AUDIO_PROVIDER_NAME,
-  resolveAudioMentions,
   type AudioGenerationRequest,
   type AudioModel,
-  type AudioReferenceData,
   type GeneratedAudio,
 } from "../shared/audio.js";
 import {
@@ -18,17 +16,14 @@ import {
   doubaoErrorStatus,
   inspectAudio,
   readAudioJson,
-  seedSubtitles,
   audioHttpError,
   validateControl,
 } from "./audio-media.js";
-import { sniffImageType } from "./image-format.js";
 
 const DEFAULT_ENDPOINT = "https://openspeech.bytedance.com/api/v3/tts/create";
 const PROVIDER_ID = "volcengine-seed-audio";
 const MODEL_ID = "seed-audio-1.0";
 const MAX_PROMPT_CHARACTERS = 3000;
-const MAX_REFERENCE_BYTES = 10 * 1024 * 1024;
 // A fixed public budget leaves room for the operation and timing instructions.
 const INSTRUCTION_BUDGET = 256;
 const SAMPLE_RATES = [8000, 16000, 24000, 32000, 40000, 44100, 48000] as const;
@@ -75,18 +70,10 @@ export const VOLCENGINE_SEED_AUDIO_MODELS: readonly AudioModel[] = [
       supportsLyrics: false,
       supportsInstrumental: false,
       supportsVocalToggle: false,
-      supportsReferenceAudio: true,
-      supportsReferenceImage: true,
       supportsSpeaker: true,
       supportsPitch: true,
       supportsVolume: true,
-      supportsAlignment: true,
       supportsStyle: true,
-      maxReferenceAudio: 3,
-      maxReferenceImages: 1,
-      maxReferenceBytes: MAX_REFERENCE_BYTES,
-      maxReferenceSeconds: 30,
-      referenceModesExclusive: true,
       supportsNegativePrompt: false,
     },
   },
@@ -114,7 +101,6 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
   async generate(
     input: AudioGenerationRequest,
     signal?: AbortSignal,
-    references: readonly AudioReferenceData[] = [],
   ): Promise<GeneratedAudio> {
     if (input.operation === "dialogue")
       throw new AudioGenerationError(
@@ -202,87 +188,7 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
       !new RegExp(AUDIO_VOICE_ID_PATTERN).test(input.voiceId)
     )
       throw new AudioGenerationError("Invalid Speaker ID", 400);
-    const requested = input.references ?? [];
-    if (
-      new Set(requested.map((reference) => reference.id)).size !==
-        requested.length ||
-      requested.length !== references.length ||
-      requested.some(
-        (reference, i) =>
-          reference.assetId !== references[i]?.assetId ||
-          reference.id !== references[i]?.id ||
-          reference.type !== references[i]?.type,
-      )
-    )
-      throw new AudioGenerationError(
-        "Invalid or unresolved audio references",
-        400,
-      );
-    const images = references.filter((reference) => reference.type === "image"),
-      audios = references.filter((reference) => reference.type === "audio");
-    // A Speaker ID is sent as one more audio-side reference; images stand alone.
-    if (
-      images.length > caps.maxReferenceImages! ||
-      audios.length + (input.voiceId ? 1 : 0) > caps.maxReferenceAudio! ||
-      (images.length && (audios.length || input.voiceId))
-    )
-      throw new AudioGenerationError(
-        `Use one image, or up to ${caps.maxReferenceAudio} audio references including an optional Speaker ID`,
-        400,
-      );
-    const providerReferences: Array<{
-      image_data?: string;
-      audio_data?: string;
-      speaker?: string;
-    }> = await Promise.all(
-      references.map(async (reference) => {
-        if (
-          !reference.bytes.length ||
-          reference.bytes.length > caps.maxReferenceBytes!
-        )
-          throw new AudioGenerationError(
-            `Each reference must be no more than ${caps.maxReferenceBytes! / 1024 / 1024} MB`,
-            400,
-          );
-        if (reference.type === "image") {
-          if (
-            !["image/png", "image/jpeg", "image/webp"].includes(
-              sniffImageType(Buffer.from(reference.bytes)) ?? "",
-            )
-          )
-            throw new AudioGenerationError(
-              "Seed Audio requires a PNG, JPEG or WebP image",
-              400,
-            );
-          return {
-            image_data: Buffer.from(reference.bytes).toString("base64"),
-          };
-        }
-        const info = await inspectAudio(reference.bytes);
-        if (!(
-          info.mime.includes("wav") ||
-          info.codec === "mp3" ||
-          (info.mime.includes("ogg") && info.codec === "opus")
-        ))
-          throw new AudioGenerationError(
-            "Reference audio must be WAV, MP3 or Ogg Opus; convert this file first",
-            400,
-          );
-        if (info.durationMs > caps.maxReferenceSeconds! * 1000)
-          throw new AudioGenerationError(
-            `Reference audio must be ${caps.maxReferenceSeconds} seconds or shorter; select a shorter clip`,
-            400,
-          );
-        return { audio_data: Buffer.from(reference.bytes).toString("base64") };
-      }),
-    );
-    if (input.voiceId) providerReferences.push({ speaker: input.voiceId });
-    let textPrompt: string;
-    try {
-      textPrompt = resolveAudioMentions(prompt.trim(), requested);
-    } catch (cause) {
-      throw new AudioGenerationError((cause as Error).message, 400);
-    }
+    let textPrompt = prompt.trim();
     const duration =
       "durationSeconds" in input && input.durationSeconds !== undefined
         ? ` approximately ${input.durationSeconds} seconds long`
@@ -317,16 +223,13 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
         body: JSON.stringify({
           model: MODEL_ID,
           text_prompt: textPrompt,
-          ...(providerReferences.length
-            ? { references: providerReferences }
-            : {}),
+          ...(input.voiceId ? { references: [{ speaker: input.voiceId }] } : {}),
           audio_config: {
             format,
             sample_rate: sampleRate,
             pitch_rate: input.pitch ?? 0,
             speech_rate: input.speed ?? 0,
             loudness_rate: input.volume ?? 0,
-            enable_subtitle: input.subtitles ?? false,
           },
           watermark: { aigc_watermark: false, aigc_metadata: { enable: true } },
         }),
@@ -348,9 +251,6 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
         throw new AudioGenerationError("Seed Audio returned no audio", 502);
       const bytes = decodeAudioBase64(result.audio);
       const info = await inspectAudio(bytes, format, 502);
-      const subtitles = input.subtitles
-        ? seedSubtitles(result.subtitle)
-        : undefined;
       return {
         bytes,
         mediaType:
@@ -379,7 +279,6 @@ export class VolcengineSeedAudioProvider implements AudioProviderAdapter {
           codec: format,
           providerRequestId: response.headers.get("x-tt-logid") ?? requestId,
         },
-        ...(subtitles ? { subtitles } : {}),
       };
     } catch (cause) {
       if (signal?.aborted) throw cause;
