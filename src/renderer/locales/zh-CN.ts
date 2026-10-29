@@ -1814,9 +1814,6 @@ const zhCN: typeof en = {
     putBack_other: "已恢复 {{count}} 个文件。",
     kept_one: "{{count}} 个文件保持原样。",
     kept_other: "{{count}} 个文件保持原样。",
-    restoreToMessage: "恢复到这条消息之前",
-    restoreConfirm:
-      "要把项目恢复到这条消息之前吗？\n\n此后的所有文件更改（包括你自己做的）以及这条消息和之后的对话都会被移除。",
     unfinished: {
       interrupted: "恢复文件的过程被中断，项目文件可能只更改了一部分。",
       alreadyBack: "文件已经是中断之前的状态。",

@@ -1170,11 +1170,6 @@ export async function reviseLastPrompt(
   });
 }
 
-/** Puts the workspace and the conversation back to just before the message the checkpoint was taken for. */
-export async function restoreCheckpoint(projectId: string, conversationId: string, checkpointId: string): Promise<void> {
-  return request(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/restore`, { method: "POST" });
-}
-
 /** Lists the files the turn of the checkpoint's message changed. */
 export async function getCheckpointChanges(projectId: string, conversationId: string, checkpointId: string): Promise<CheckpointChangeItem[]> {
   const { changes } = await request<{ changes: CheckpointChangeItem[] }>(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/changes`);

@@ -506,9 +506,8 @@ once a day.
 
 **Undo** takes back one turn's files while preserving the conversation, and
 **Reapply** restores their exact pre-undo contents. Editing a message preserves
-files. **Restore to before this message** explicitly restores the workspace and
-rewinds the selected conversation. These operations coordinate project writes,
-check later edits for conflicts, and retain recovery data if interrupted.
+files. These operations coordinate project writes, check later edits for
+conflicts, and retain recovery data if interrupted.
 
 See [turn file changes and recovery](checkpoints.md) for the UI, file scope,
 workspace versions, model notices, storage limits, and API routes, and
