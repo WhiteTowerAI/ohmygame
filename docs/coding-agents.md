@@ -19,11 +19,11 @@ creative tools. Switching agents retains each selection until it is saved. OhMyG
 enables a CLI.
 
 **Settings → Agents** lists who can work in a conversation. OhMyGame's own
-agent comes first: it uses the models set up in Providers & Models, and its row
-links there. The coding agent CLIs follow, under **Coding agent CLIs on this
+agent comes first: it uses the models set up in Providers, and its page links
+there, to plugin skills and to the MCP server. The coding agent CLIs follow, under **Coding agent CLIs on this
 computer**; **Rescan** checks for them again. Each row shows whether the CLI
-was found and its version; the detail page provides account and permission
-controls. The agent whose model new conversations start with is marked **Default**.
+was found and its version; its page (`#/settings/agents/<id>`) provides
+account and permission controls. The agent whose model new conversations start with is marked **Default**.
 Agents are off by default. Enabling the switch offers their models in the conversation model picker; the
 detail page signs in, checks again, chooses the executable and permissions, and
 explains that the CLI loads the person's existing configuration.
@@ -207,11 +207,11 @@ is permitted by a provider's terms.
 
 ## Codex as an image provider
 
-**Providers & Models → Codex CLI** exposes one image entry, **Codex Image**,
+**Providers → Codex CLI** exposes one image entry, **Codex Image**,
 using the installed CLI and its saved sign-in. Its image switch is independent
 of the Codex conversation-agent switch in Agents. Any chat agent can use it
 through `generate_image`; canvas image nodes and global/project image defaults
-use the same provider. Choose the global image default in the Providers & Models
+use the same provider. Choose the global image default in the Providers
 overview. The Codex CLI detail page shows its image status and model without a
 default-model selector. Closing a terminal does not disconnect the provider.
 

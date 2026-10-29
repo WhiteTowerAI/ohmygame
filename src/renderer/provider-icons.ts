@@ -78,7 +78,7 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   nvidia: color(nvidia),
   openai: monochrome(openAI),
   "openai-codex": color(codex),
-  // Coding agent CLIs, listed with the providers in Providers & Models.
+  // Coding agent CLIs, listed in Agents.
   "claude-code-cli": color(claudeCode),
   "codex-cli": color(codex),
   "opencode-cli": monochrome(openCode),
