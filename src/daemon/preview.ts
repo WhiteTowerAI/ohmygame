@@ -991,18 +991,27 @@ async function waitForCommand(
 /**
  * Whether a changed file, relative to the workspace, can change the running
  * game. Hidden and generated folders, logs and temporary files can't, and nor
- * can the design canvas at the workspace root: opening Design saves its board
- * there, which would otherwise reload the game beside it.
+ * can the files Design keeps in the workspace's root `canvas/` folder: opening
+ * Design saves its board there, which would otherwise reload the game beside
+ * it. Other files in `canvas/` may belong to the game and still count.
  */
 export function isPreviewSourceChange(filename: string): boolean {
   const parts = filename.replaceAll("\\", "/").split("/");
   const name = parts.at(-1) ?? "";
   return !(
-    parts[0] === "canvas" ||
+    isDesignCanvasFile(parts) ||
     parts.some((part) => part.startsWith(".") || ["node_modules", "dist", "build"].includes(part)) ||
     !path.extname(name) ||
     /\.(?:pid|log|tmp|swp)$/i.test(name)
   );
+}
+
+const DESIGN_CANVAS_FILES = new Set(["index.json", "assets.json", "jobs.json", "AGENTS.md", "README.md"]);
+const DESIGN_CANVAS_FOLDERS = new Set(["boards", "documents", "tables", "editor", "schemas"]);
+
+function isDesignCanvasFile(parts: string[]): boolean {
+  if (parts[0] !== "canvas" || parts.length < 2) return false;
+  return parts.length === 2 ? DESIGN_CANVAS_FILES.has(parts[1]) : DESIGN_CANVAS_FOLDERS.has(parts[1]);
 }
 
 /** Hidden entries and generated folders are not files someone wrote for the project. */

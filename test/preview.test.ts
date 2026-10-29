@@ -672,10 +672,10 @@ function isProcessRunning(pid: number): boolean {
 
 describe("preview source changes", () => {
   it("reloads for the game's files, but not for the design canvas, generated folders or logs", () => {
-    for (const file of ["index.html", "src/main.js", "src/canvas/renderer.ts", "assets/hero.png", "src\\style.css"]) {
+    for (const file of ["index.html", "src/main.js", "src/canvas/renderer.ts", "canvas/game.js", "canvas/levels/one.json", "assets/hero.png", "src\\style.css"]) {
       expect(isPreviewSourceChange(file), file).toBe(true);
     }
-    for (const file of ["canvas/boards/board.json", "canvas/editor/board.json", "canvas\\documents\\design.md", ".data/state.json", "node_modules/x/index.js", "dist/index.js", "src/build/out.js", "server.log", "LICENSE"]) {
+    for (const file of ["canvas/boards/board.json", "canvas/editor/board.json", "canvas\\documents\\design.md", "canvas/index.json", "canvas/jobs.json", ".data/state.json", "node_modules/x/index.js", "dist/index.js", "src/build/out.js", "server.log", "LICENSE"]) {
       expect(isPreviewSourceChange(file), file).toBe(false);
     }
   });

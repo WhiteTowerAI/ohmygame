@@ -139,9 +139,11 @@ separate popup, which reload the game on switching. Static file changes reload
 active pages through a local event
 stream, while development servers retain their own HMR protocol. Changes that
 can't affect the game don't reload or rebuild it: hidden folders, `node_modules`,
-`dist`, `build`, logs and temporary files, and the design canvas in the
-workspace's root `canvas/` folder, which Design saves when it opens
-(`isPreviewSourceChange` in `src/daemon/preview.ts`).
+`dist`, `build`, logs and temporary files, and the files Design keeps in the
+workspace's root `canvas/` folder (its index, asset and job lists, instructions,
+and the `boards`, `documents`, `tables`, `editor` and `schemas` folders), which
+Design saves when it opens. Other files under `canvas/`, such as a game's own
+scripts, still reload it (`isPreviewSourceChange` in `src/daemon/preview.ts`).
 
 HTTP readiness and content diagnostics are separate: a responding server can
 still have compilation or runtime errors. The proxy forwards HTTP and HMR;
