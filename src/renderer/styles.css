@@ -4800,12 +4800,12 @@ select.settings-search-input {
   height: 26px;
   padding: 0 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: rgb(0 0 0 / 55%);
   color: #fff;
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .model-preview-state {
@@ -4831,7 +4831,7 @@ select.settings-search-input {
   min-height: 34px;
   align-items: center;
   gap: 7px;
-  color: var(--color-text-secondary);
+  color: var(--text-muted);
   font-size: var(--text-xs);
 }
 
@@ -13770,7 +13770,7 @@ summary.work-summary:hover {
 .audio-voice-picker > span > select { flex: 1 1 auto; }
 .settings-detail-inline > .settings-voice-sample { width: 40px; min-width: 40px; padding: 0; }
 .story-media-composer:has(.canvas-audio-options) { max-height: min(44vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
-.story-media-composer:has(.canvas-audio-options) .story-media-controls { position: sticky; bottom: 0; z-index: 2; padding-top: 10px; background: var(--color-surface-raised); }
+.story-media-composer:has(.canvas-audio-options) .story-media-controls { position: sticky; bottom: 0; z-index: 2; padding-top: 10px; background: var(--surface-raised); }
 /* Account controls reuse the compact model rows and composer menu. */
 .agent-account-profiles .provider-model-copy > small:not(.provider-model-default) { font-family: inherit; font-size: 11px; }
 .agent-account-profiles .agent-usage-inline { flex: 0 1 auto; justify-content: flex-end; }
