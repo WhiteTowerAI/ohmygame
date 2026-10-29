@@ -31,5 +31,25 @@ export {
   useToast,
 } from "./overlay.js";
 export type { MenuEntry, MenuItem } from "./overlay.js";
+export {
+  Alert,
+  Avatar,
+  AvatarStack,
+  Badge,
+  Breadcrumb,
+  Card,
+  Collapsible,
+  Empty,
+  Item,
+  Kbd,
+  Progress,
+  Separator,
+  Skeleton,
+  Spinner,
+  Stat,
+  Table,
+  Tabs,
+} from "./display.js";
+export type { Category, Column } from "./display.js";
 export { SegmentedControl } from "./segmented-control.js";
 export type { SegmentedOption } from "./segmented-control.js";

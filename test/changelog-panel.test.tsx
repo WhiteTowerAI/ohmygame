@@ -23,6 +23,18 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
+const versionSelect = () =>
+  container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Release notes version"]',
+  );
+async function chooseVersion(version: string): Promise<void> {
+  await act(async () => versionSelect()!.click());
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (item) => item.textContent === `v${version}`,
+  )!;
+  await act(async () => option.click());
+}
+
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
@@ -37,7 +49,7 @@ it("shows the installed release offline with safe external links", async () => {
   expect(container.textContent).toContain(`v${installed}`);
   expect(container.textContent).not.toContain("Installed version");
   expect(container.textContent).not.toContain("All releases");
-  expect(container.querySelector("select")).toBeNull();
+  expect(versionSelect()).toBeNull();
   expect(container.querySelector("time")?.dateTime).toBe("2026-10-12");
   const link = container.querySelector<HTMLAnchorElement>(
     'a[href$="/pull/205"]',
@@ -57,13 +69,9 @@ it("shows new update notes and lets the user switch back to the installed releas
     ),
   );
   expect(container.textContent).toContain("Recover previews.");
-  expect(container.querySelector("select")?.value).toBe(release.version);
+  expect(versionSelect()?.textContent).toBe(`v${release.version}`);
   expect(container.querySelector("script")).toBeNull();
-  const select = container.querySelector("select")!;
-  await act(async () => {
-    select.value = installed;
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  await chooseVersion(installed);
   expect(container.textContent).toContain("AI plugin builder");
   expect(container.textContent).not.toContain("Recover previews.");
 });
@@ -79,15 +87,12 @@ it("handles missing notes and falls back to the installed version when an update
   expect(
     container.querySelector('a[href$="/tag/v0.0.0-beta.4.7"]'),
   ).not.toBeNull();
-  const select = container.querySelector("select")!;
-  await act(async () =>
-    select.dispatchEvent(new Event("change", { bubbles: true })),
-  );
+  await chooseVersion(release.version);
   await act(async () =>
     root.render(<ChangelogPanel currentVersion={installed} />),
   );
   expect(container.textContent).toContain("AI plugin builder");
-  expect(container.querySelector("select")).toBeNull();
+  expect(versionSelect()).toBeNull();
   expect(container.textContent).toContain(`v${installed}`);
 });
 

@@ -67,7 +67,7 @@ it("shows recovery actions and routes retry to the failed update phase", async (
   ));
   await vi.waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent)
     .toContain("Your projects and conversations were not deleted."));
-  expect(container.querySelector(".settings-page-nav")?.textContent).not.toContain("Plugins");
+  expect(container.querySelector(".settings-nav")?.textContent).not.toContain("Plugins");
 
   const button = (label: string) => [...container.querySelectorAll("button")]
     .find((item) => item.textContent === label) as HTMLButtonElement;
@@ -92,7 +92,7 @@ it("shows bundled notes in browser settings without an update bridge", async () 
     <SettingsPage section="about" onNavigate={() => {}} onSectionChange={() => {}} />,
   ));
   expect(container.querySelector(".settings-changelog-content")?.textContent?.trim()).toBeTruthy();
-  expect(container.querySelector<HTMLSelectElement>('[aria-label="Release notes version"]')?.value).toBe(__APP_VERSION__);
+  expect(container.querySelector('[aria-label="Release notes version"]')?.textContent).toBe(`v${__APP_VERSION__}`);
   expect(container.textContent).not.toContain("Not checked yet");
   const links = container.querySelectorAll<HTMLAnchorElement>('[aria-label="Project links"] a');
   expect([...links].map((link) => link.href)).toEqual([
@@ -130,7 +130,7 @@ it("shows new notes received over the desktop update subscription while download
   }));
   expect(container.textContent).toContain("Downloading update (50%)");
   expect(container.textContent).toContain("Recover interrupted previews.");
-  expect(container.querySelector<HTMLSelectElement>('[aria-label="Release notes version"]')?.value).toBe("0.0.0-beta.4.7");
+  expect(container.querySelector('[aria-label="Release notes version"]')?.textContent).toBe("v0.0.0-beta.4.7");
 });
 
 it("shows one update action and keeps download and restart controls tied to their phase", async () => {
