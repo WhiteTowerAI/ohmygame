@@ -265,6 +265,7 @@ function UnpublishConfirmation({
       ref={dialog}
       className="community-edit-dialog community-unpublish-dialog"
       role="alertdialog"
+      aria-modal="true"
       aria-labelledby={id}
       aria-describedby={`${id}-description`}
       aria-busy={busy}

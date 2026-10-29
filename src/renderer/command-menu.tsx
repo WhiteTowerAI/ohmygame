@@ -69,7 +69,17 @@ if (typeof window !== "undefined") window.addEventListener("keydown", (event) =>
 // A dialog in the way, such as Sign In or a rename, keeps its keys: the menu
 // and the shortcuts wait until it closes rather than open over it.
 function otherModalOpen(): boolean {
-  return !!document.querySelector('[aria-modal="true"]:not(.ui-command)');
+  return !!document.querySelector('[aria-modal="true"]:not(.ui-command)')
+    || [...document.querySelectorAll("dialog[open]")].some(isModalDialog);
+}
+
+// A native <dialog> opened with showModal(), such as Community's confirmations.
+function isModalDialog(dialog: Element): boolean {
+  try {
+    return dialog.matches(":modal");
+  } catch {
+    return true;
+  }
 }
 
 function leave(go: () => void): void {

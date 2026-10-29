@@ -90,6 +90,16 @@ it("waits for an open dialog to close before it opens or a shortcut leaves", asy
   expect(document.querySelector(".ui-command")).toBeNull();
   expect(pending).toHaveLength(0);
   await render(false);
+  // A native dialog opened with showModal() counts too.
+  const native = document.createElement("dialog");
+  document.body.append(native);
+  native.showModal();
+  // happy-dom doesn't match :modal, which a browser does after showModal().
+  const matches = native.matches.bind(native);
+  vi.spyOn(native, "matches").mockImplementation((selector) => selector === ":modal" || matches(selector));
+  await press("k");
+  expect(document.querySelector(".ui-command")).toBeNull();
+  native.remove();
   await press("k");
   expect(document.querySelector(".ui-command")).not.toBeNull();
 });
