@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ExtensionHosts } from "../dist/daemon/extension-hosts.js";
 import { startDaemon } from "../dist/desktop/daemon-process.js";
 import { checkStoryWeb } from "./check-story-web.mjs";
 
@@ -68,10 +69,30 @@ try {
   const result = await tested.json();
   assert.equal(result.status, "connected", JSON.stringify(result));
   assert.equal(result.toolCount, 1);
+  await checkExtensionHosts(path.join(directory, "native-plugin"));
 } finally {
   await daemon?.stop();
   await rm(directory, { recursive: true, force: true });
 }
 console.log(
-  `Node.js ${process.versions.node}: daemon startup, authenticated API, story creation, upgrade and preview, project export/import, native MCP runtime and graceful shutdown passed`,
+  `Node.js ${process.versions.node}: daemon startup, authenticated API, story creation, upgrade and preview, project export/import, native MCP runtime, extension hosts and graceful shutdown passed`,
 );
+
+// The built host runs plugins' native code, and its heap limit holds on Node.
+async function checkExtensionHosts(folder) {
+  await mkdir(folder, { recursive: true });
+  await writeFile(path.join(folder, "index.mjs"), `export function activate(context) {
+    context.registerTool("ping", (input) => ({ pong: input }));
+    context.registerTool("hog", () => { const kept = []; for (;;) kept.push(new Array(1e5).fill(1)); });
+  }`);
+  const hosts = new ExtensionHosts({ maxHeapMb: 32, crashLimit: 1 });
+  const plugin = { id: "check/native", version: "1.0.0", root: folder, entry: "index.mjs", tools: ["ping", "hog"], commands: [], projectTypes: [] };
+  try {
+    assert.deepEqual(await hosts.invoke({ scope: "app", plugin, tool: "ping", input: 1 }), { pong: 1 });
+    const crash = await hosts.invoke({ scope: "app", plugin, tool: "hog", timeoutMs: 20_000 }).then(() => undefined, error => error);
+    assert.equal(crash?.code, "crashed", "Running out of heap must crash only the extension host");
+    assert.equal(hosts.quarantined("check/native"), true);
+  } finally {
+    await hosts.dispose();
+  }
+}
