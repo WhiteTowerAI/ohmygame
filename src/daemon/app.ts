@@ -41,7 +41,6 @@ import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, l
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
 import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { AgentRuntimeService } from "./agent-runtimes/service.js";
-import { neverTouchPaths } from "./agent-runtimes/policy.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
 import { ACCOUNT_RUNTIME_IDS, isAccountRuntimeId, isAccountProfileIds, isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest } from "../shared/agent-runtimes.js";
@@ -408,7 +407,7 @@ const answerApprovalSchema = {
     type: "object",
     additionalProperties: false,
     required: ["decision"],
-    properties: { decision: { enum: ["allow", "allow-session", "deny"] } },
+    properties: { decision: { enum: ["allow", "allow-always", "deny"] } },
   },
 } as const;
 
@@ -907,10 +906,6 @@ export function createApp(options: AppOptions = {}) {
       pluginMcp: { config: effectiveMcp, host: pluginCapabilities.host, agentDir: piAgentDirectory },
       skillDirectories: [...pluginSkillFolders(pluginSkills), ...ownSkills],
       instructions: appendSystemPromptForProject(project).join("\n\n"),
-      policy: {
-        workspacePath: project.workspacePath,
-        neverTouch: [...neverTouchPaths(dataDirectory, piAgentDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)), ...ACCOUNT_RUNTIME_IDS.flatMap((runtime) => agentRuntimes.settings.profiles(runtime)).flatMap((profile) => profile.configDirectory ? [profile.configDirectory] : [])],
-      },
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
       requestApproval: (details, toolCallId, signal) => agents.askApproval(project.id, conversation.summary.id, toolCallId, details, signal),
