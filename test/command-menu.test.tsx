@@ -15,6 +15,7 @@ let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 const navigate = vi.fn((hash: string) => { window.location.hash = hash; });
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("ohMyGameDesktop", { platform: "darwin" });
   window.location.hash = "#/projects";
   container = document.createElement("div");
   document.body.append(container);
@@ -27,8 +28,8 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-const press = (key: string) => act(async () => {
-  window.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: true, bubbles: true }));
+const press = (key: string, init: KeyboardEventInit = { metaKey: true }) => act(async () => {
+  window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, ...init }));
 });
 const options = () => [...document.querySelectorAll('[role="option"]')].map((option) => option.querySelector(".ui-command-label")?.textContent);
 const option = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent?.includes(label))!;
@@ -54,6 +55,33 @@ it("lists the page's commands, the app's pages and projects, newest first, and t
   await press("k");
   await press("k");
   expect(document.querySelector('[role="dialog"]')).toBeNull();
+  // On macOS, Ctrl+K edits text; a key an editor handled, or one mid-composition, is its own.
+  await press("k", { ctrlKey: true });
+  await press("k", { metaKey: true, isComposing: true });
+  await act(async () => {
+    const event = new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true });
+    event.preventDefault();
+    window.dispatchEvent(event);
+  });
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
+
+it("uses Ctrl elsewhere", async () => {
+  vi.stubGlobal("ohMyGameDesktop", { platform: "win32" });
+  await act(async () => root.render(<CommandMenuHost navigate={navigate} />));
+  await press("k");
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  await press("k", { ctrlKey: true });
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+});
+
+it("drops a page's commands from the open menu when the page goes", async () => {
+  const render = (page: boolean) => act(async () => root.render(<>{page ? <Page /> : null}<CommandMenuHost navigate={navigate} /></>));
+  await render(true);
+  await press("k");
+  expect(options()).toContain("Show Code");
+  await render(false);
+  expect(options()).not.toContain("Show Code");
 });
 
 it("leaves the page through its guard, from the menu and from ⌘N and ⌘,", async () => {

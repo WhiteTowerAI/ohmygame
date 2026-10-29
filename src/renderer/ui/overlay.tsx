@@ -395,6 +395,10 @@ export function ContextMenu({
 
 // ---------- Dialog and Sheet ----------
 
+// The open modals, innermost last: only the innermost one answers Escape and
+// Tab, so a menu opened over a dialog closes alone.
+const openModals: object[] = [];
+
 function useModal(open: boolean, onClose: () => void) {
   const panel = useRef<HTMLDivElement>(null);
   // Read the latest onClose without re-running the effect, which would move
@@ -403,6 +407,8 @@ function useModal(open: boolean, onClose: () => void) {
   close.current = onClose;
   useEffect(() => {
     if (!open) return;
+    const modal = {};
+    openModals.push(modal);
     const previous = document.activeElement as HTMLElement | null;
     // Content that focused its own field on mount keeps it.
     if (!panel.current?.contains(document.activeElement))
@@ -412,6 +418,7 @@ function useModal(open: boolean, onClose: () => void) {
         )
         ?.focus();
     const onKey = (event: KeyboardEvent) => {
+      if (openModals.at(-1) !== modal) return;
       if (event.key === "Escape") close.current();
       if (event.key !== "Tab" || !panel.current) return;
       const focusable = [
@@ -433,6 +440,7 @@ function useModal(open: boolean, onClose: () => void) {
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
+      openModals.splice(openModals.indexOf(modal), 1);
       previous?.focus();
     };
   }, [open]);
@@ -568,7 +576,6 @@ export function CommandMenu({
         <div className="ui-command-input">
           <Search size={16} aria-hidden="true" />
           <input
-            autoFocus
             value={query}
             placeholder={placeholder ?? t("commandMenu.placeholder")}
             aria-label={t("commandMenu.label")}

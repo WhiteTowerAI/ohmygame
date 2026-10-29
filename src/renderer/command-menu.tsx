@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { CirclePlus, Gamepad2, Globe2, House, Image, Palette, Plug } from "./icons.js";
 import { listProjects } from "./api.js";
 import { setAppearance } from "./appearance.js";
@@ -19,8 +19,11 @@ export function openCommandMenu(): void {
   window.dispatchEvent(new Event(OPEN_EVENT));
 }
 
-// What mounted pages add, read when the menu opens.
+// What mounted pages add, read when the menu renders; the host renders again
+// when a page comes or goes, so an open menu drops a page that has left.
 const sources = new Set<{ current: () => Command[] }>();
+const sourceListeners = new Set<() => void>();
+const sourcesChanged = () => sourceListeners.forEach((listener) => listener());
 
 /** Adds commands to the menu while the calling component is mounted. */
 export function useCommands(commands: () => Command[]): void {
@@ -29,7 +32,11 @@ export function useCommands(commands: () => Command[]): void {
   useEffect(() => {
     const entry = source;
     sources.add(entry);
-    return () => { sources.delete(entry); };
+    sourcesChanged();
+    return () => {
+      sources.delete(entry);
+      sourcesChanged();
+    };
   }, []);
 }
 
@@ -53,10 +60,14 @@ function leave(go: () => void): void {
   else go();
 }
 
+function isMac(): boolean {
+  const platform = window.ohMyGameDesktop?.platform;
+  return platform ? platform === "darwin" : /Mac/.test(navigator.platform);
+}
+
 /** The platform's modifier before a key, as the menus show shortcuts. */
 export function shortcut(key: string): string {
-  const platform = window.ohMyGameDesktop?.platform;
-  return (platform ? platform === "darwin" : /Mac/.test(navigator.platform)) ? `⌘${key.toUpperCase()}` : `Ctrl+${key.toUpperCase()}`;
+  return isMac() ? `⌘${key.toUpperCase()}` : `Ctrl+${key.toUpperCase()}`;
 }
 
 const PAGES: { page: SidebarPage; label: () => string; icon: typeof House }[] = [
@@ -73,11 +84,21 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const latestNavigate = useRef(navigate);
   latestNavigate.current = navigate;
+  const [, refresh] = useReducer((count: number) => count + 1, 0);
+
+  useEffect(() => {
+    sourceListeners.add(refresh);
+    return () => { sourceListeners.delete(refresh); };
+  }, []);
 
   useEffect(() => {
     const show = () => setOpen(true);
     const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      // Only the platform's modifier: Ctrl+K and Ctrl+N edit text on macOS.
+      // A key an editor already handled, or one mid-composition, is left alone.
+      if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey) return;
+      const mac = isMac();
+      if (!(mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
       const key = event.key.toLowerCase();
       if (key === "k") {
         event.preventDefault();

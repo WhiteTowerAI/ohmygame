@@ -220,3 +220,26 @@ it("filters commands under their headings and runs the one picked from the keybo
   await key(input, "Escape");
   expect(onClose).toHaveBeenCalledTimes(2);
 });
+
+it("closes the command menu alone over a dialog, and gives focus back", async () => {
+  const closeDialog = vi.fn();
+  function Screen({ menu }: { menu: boolean }) {
+    return (
+      <Dialog open onClose={closeDialog} title="Provider">
+        <input aria-label="Key" />
+        <CommandMenu open={menu} onClose={() => {}} commands={[]} />
+      </Dialog>
+    );
+  }
+  await act(async () => root.render(<Screen menu={false} />));
+  const field = document.querySelector<HTMLInputElement>('[aria-label="Key"]')!;
+  field.focus();
+  await act(async () => root.render(<Screen menu />));
+  expect(document.activeElement).toBe(document.querySelector('[role="combobox"]'));
+  await key(document.activeElement!, "Escape");
+  expect(closeDialog).not.toHaveBeenCalled();
+  await act(async () => root.render(<Screen menu={false} />));
+  expect(document.activeElement).toBe(field);
+  await key(field, "Escape");
+  expect(closeDialog).toHaveBeenCalledOnce();
+});
