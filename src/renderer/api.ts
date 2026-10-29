@@ -5,7 +5,7 @@ import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
-import type { AgentNotificationPreferences, AgentNotificationTarget } from "../shared/agent-notifications.js";
+import type { AgentNotificationPermission, AgentNotificationPreferences, AgentNotificationTarget } from "../shared/agent-notifications.js";
 import {
   RUNTIME_EVENT_TYPES,
   type AgentContextUsage,
@@ -189,6 +189,12 @@ declare global {
         /** The conversation a clicked notification opens, once. */
         takeTarget: () => Promise<AgentNotificationTarget | undefined>;
         onTarget: (listener: () => void) => () => void;
+        permission: () => Promise<AgentNotificationPermission>;
+        /** Shows the system prompt if the user has not decided yet. */
+        requestPermission: () => Promise<AgentNotificationPermission>;
+        /** Asks for permission on the first prompt of each launch. */
+        promptSent: () => Promise<AgentNotificationPermission>;
+        openSettings: () => Promise<void>;
       };
       updates: {
         state: () => Promise<DesktopUpdateState | null>;

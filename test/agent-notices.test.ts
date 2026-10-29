@@ -52,6 +52,14 @@ describe("agent notices", () => {
     expect(log.read(0).waiting).toEqual([]);
   });
 
+  it("announces Claude Code's question tool as a question", () => {
+    const { events, log } = setup();
+    const question = approval("inProgress");
+    events.publish("p1", "item.started", { item: { ...question, request: { kind: "other", tool: "AskUserQuestion" } } as ThreadItem }, scope);
+    expect(log.read(0).notices).toEqual([expect.objectContaining({ kind: "question" })]);
+    expect(log.read(0).waiting).toEqual([expect.objectContaining({ kind: "question" })]);
+  });
+
   it("forgets requests when their turn ends", () => {
     const { events, log } = setup();
     events.publish("p1", "item.started", { item: approval("inProgress") }, scope);

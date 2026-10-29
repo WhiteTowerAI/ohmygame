@@ -1,20 +1,19 @@
-import { useEffect, useRef } from "react";
-import type { AgentNotificationTarget } from "../shared/agent-notifications.js";
+import { useEffect, useRef, useState } from "react";
+import type { AgentNotificationPermission, AgentNotificationTarget } from "../shared/agent-notifications.js";
 import { t } from "./i18n.js";
 
 const NOTIFICATIONS_STORAGE_KEY = "ohmygame:notifications";
 
 export interface NotificationSettings {
   enabled: boolean;
-  sound: boolean;
 }
 
 export function readNotificationSettings(): NotificationSettings {
   try {
     const stored = JSON.parse(localStorage.getItem(NOTIFICATIONS_STORAGE_KEY) ?? "{}") as Partial<NotificationSettings>;
-    return { enabled: stored.enabled !== false, sound: stored.sound !== false };
+    return { enabled: stored.enabled !== false };
   } catch {
-    return { enabled: true, sound: true };
+    return { enabled: true };
   }
 }
 
@@ -39,6 +38,32 @@ export function sendNotificationPreferences(settings = readNotificationSettings(
       failed: t("notifications.failed"),
     },
   }).catch(() => undefined);
+}
+
+/** Asks for the system permission on the first prompt of each launch, while the user is at the app. */
+export function notifyPromptSent(): void {
+  if (!readNotificationSettings().enabled) return;
+  void window.ohMyGameDesktop?.notifications?.promptSent().catch(() => undefined);
+}
+
+/** The system permission, read again whenever the window comes back to the front, such as from System Settings. */
+export function useNotificationPermission(): [AgentNotificationPermission | undefined, (next: AgentNotificationPermission) => void] {
+  const [permission, setPermission] = useState<AgentNotificationPermission>();
+  useEffect(() => {
+    const notifications = window.ohMyGameDesktop?.notifications;
+    if (!notifications) return undefined;
+    let current = true;
+    const refresh = () => {
+      void notifications.permission().then((next) => { if (current) setPermission(next); }, () => undefined);
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      current = false;
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+  return [permission, setPermission];
 }
 
 /** Tells the desktop app which conversation is on screen, so its notifications are not shown while the window is in front. */

@@ -184,6 +184,7 @@ const zhCN: typeof en = {
       agents: "智能体",
       account: "账户",
       appearance: "外观",
+      notifications: "通知",
       webSearch: "联网搜索",
       network: "网络",
       mcpServer: "MCP 服务",
@@ -211,10 +212,10 @@ const zhCN: typeof en = {
       languageLabel: "界面语言",
     },
     notifications: {
-      heading: "通知",
       enabled: "智能体动态通知",
       enabledDescription: "智能体需要你批准或回答时提醒你；OhMyGame 在后台时，智能体完成也会提醒。",
-      sound: "播放提示音",
+      blocked: "已被 macOS 阻止。",
+      openSystemSettings: "打开系统设置",
     },
     account: {
       signedInAs: "当前登录",

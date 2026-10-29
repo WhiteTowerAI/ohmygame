@@ -83,7 +83,7 @@ describe("renderer routes", () => {
   it("parses and formats Settings routes", () => {
     expect(DEFAULT_SETTINGS_SECTION).toBe("providers");
     expect(parseAppRoute("#/settings")).toEqual({ page: "settings", section: "providers" });
-    for (const section of ["account", "billing", "appearance", "providers", "agents", "web-search", "network", "mcp-server", "about"] as const) {
+    for (const section of ["account", "billing", "appearance", "notifications", "providers", "agents", "web-search", "network", "mcp-server", "about"] as const) {
       expect(parseAppRoute(`#/settings/${section}`)).toEqual({ page: "settings", section });
       expect(settingsHash(section)).toBe(`#/settings/${section}`);
     }

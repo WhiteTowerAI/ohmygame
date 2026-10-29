@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { ArrowLeft, Bot, Check, ExternalLink, Globe2, InfoCircle, Palette, Plug, Server, UserRound, Wifi } from "./icons.js";
+import { ArrowLeft, Bell, Bot, Check, ExternalLink, Globe2, InfoCircle, Palette, Plug, Server, UserRound, Wifi } from "./icons.js";
 import { useAuth } from "./auth.js";
 import { readSidebarWidth } from "./app-sidebar.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
@@ -13,7 +13,7 @@ import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { NetworkSettingsPanel } from "./network-settings.js";
 import { ExternalAgentsSettings } from "./external-agents-settings.js";
 import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js";
-import { readNotificationSettings, setNotificationSettings, type NotificationSettings } from "./agent-notifications.js";
+import { readNotificationSettings, setNotificationSettings, useNotificationPermission, type NotificationSettings } from "./agent-notifications.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
 import { ChangelogPanel } from "./changelog-panel.js";
@@ -37,6 +37,8 @@ const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: 
   { section: "agents", label: t("settings.nav.agents"), icon: Bot },
   { section: "account", label: t("settings.nav.account"), icon: UserRound },
   { section: "appearance", label: t("settings.nav.appearance"), icon: Palette },
+  // Only the desktop app shows system notifications.
+  ...(window.ohMyGameDesktop?.notifications ? [{ section: "notifications" as const, label: t("settings.nav.notifications"), icon: Bell }] : []),
   { section: "web-search", label: t("settings.nav.webSearch"), icon: Globe2 },
   { section: "network", label: t("settings.nav.network"), icon: Wifi },
   { section: "mcp-server", label: t("settings.nav.mcpServer"), icon: Plug },
@@ -94,6 +96,7 @@ export function SettingsPage({ section, onBack, onSectionChange, onOpenOnboardin
           {section === "account" ? <AccountSettings /> : null}
           {section === "billing" ? <BillingSettings /> : null}
           {section === "appearance" ? <AppearanceSettings /> : null}
+          {section === "notifications" ? <NotificationSettings /> : null}
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} onOpenAgents={() => chooseSection("agents")} /> : null}
           {section === "agents" ? <AgentsSettings view={agentsView} onViewChange={setAgentsView} onOpenProviders={() => chooseSection("providers")} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
@@ -131,12 +134,6 @@ function AppearanceSettings() {
   const [appearance, setAppearance] = useState<Appearance>(readAppearance);
   const [chatLayout, updateChatLayout] = useState<ChatLayout>(readChatLayout);
   const [language, updateLanguage] = useState<LanguagePreference>(readLanguagePreference);
-  const [notifications, updateNotifications] = useState<NotificationSettings>(readNotificationSettings);
-
-  function changeNotifications(next: NotificationSettings): void {
-    updateNotifications(next);
-    setNotificationSettings(next);
-  }
 
   function chooseAppearance(next: Appearance): void {
     setAppearance(next);
@@ -175,15 +172,36 @@ function AppearanceSettings() {
           <SegmentedControl className="settings-chat-layout-control" label={t("settings.appearance.languageLabel")} options={LANGUAGE_OPTIONS} value={language} onChange={chooseLanguage} />
         </div>
       </div>
-      {window.ohMyGameDesktop?.notifications ? (
-        <div className="settings-appearance-group">
-          <h4 className="settings-section-heading">{t("settings.notifications.heading")}</h4>
-          <SettingsSwitchRow label={t("settings.notifications.enabled")} description={t("settings.notifications.enabledDescription")}
-            checked={notifications.enabled} onChange={(enabled) => changeNotifications({ ...notifications, enabled })} />
-          <SettingsSwitchRow label={t("settings.notifications.sound")} checked={notifications.sound} disabled={!notifications.enabled}
-            onChange={(sound) => changeNotifications({ ...notifications, sound })} />
-        </div>
-      ) : null}
+    </section>
+  );
+}
+
+function NotificationSettings() {
+  const [notifications, updateNotifications] = useState<NotificationSettings>(readNotificationSettings);
+  const [permission, setPermission] = useNotificationPermission();
+  const desktop = window.ohMyGameDesktop?.notifications;
+
+  function changeEnabled(enabled: boolean): void {
+    const next = { ...notifications, enabled };
+    updateNotifications(next);
+    setNotificationSettings(next);
+    // Turning them on is the moment to ask macOS, while it has not asked yet.
+    if (enabled && permission === "not-determined" && desktop) void desktop.requestPermission().then(setPermission, () => undefined);
+  }
+
+  return (
+    <section className="settings-panel settings-overview-panel settings-notifications-panel">
+      <header className="settings-panel-header"><h3>{t("settings.nav.notifications")}</h3></header>
+      <div className="settings-appearance-group">
+        <SettingsSwitchRow label={t("settings.notifications.enabled")} description={t("settings.notifications.enabledDescription")}
+          checked={notifications.enabled} onChange={changeEnabled} />
+        {notifications.enabled && permission === "denied" ? (
+          <p className="settings-notification-blocked" role="status">
+            {t("settings.notifications.blocked")}
+            <button type="button" onClick={() => void desktop?.openSettings()}>{t("settings.notifications.openSystemSettings")}</button>
+          </p>
+        ) : null}
+      </div>
     </section>
   );
 }

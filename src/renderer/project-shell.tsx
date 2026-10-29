@@ -77,7 +77,7 @@ import { Composer, type ComposerDraft } from "./composer.js";
 import { composerDrafts } from "./composer-drafts.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { ApprovalCard } from "./approval-card.js";
-import { useNotificationView } from "./agent-notifications.js";
+import { notifyPromptSent, useNotificationView } from "./agent-notifications.js";
 import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
@@ -381,6 +381,7 @@ export function ProjectShell({
     void integrationGate.ensure(project).then(ready => {
       if (!ready) return;
       sent = true;
+      notifyPromptSent();
       return sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments);
     }).then(() => {
       if (sent && (initialPrompt.images.length || initialPrompt.attachments?.length)) setWorkspaceRevision((value) => value + 1);
@@ -471,6 +472,7 @@ export function ProjectShell({
       const contexts = [surface?.context, ...previewContexts.map((attachment) => attachment.context)].filter((context) => context !== undefined);
       const sentImages = previewImage ? [...images, previewImage] : images;
       const allReferences = [...(surface?.references ?? []), ...references.filter((reference) => !(surface?.references ?? []).some((current) => current.path === reference.path))];
+      notifyPromptSent();
       await sendPrompt(project.id, conversation.id, nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : [])]);
       if (sentImages.length || attachments.length) setWorkspaceRevision((value) => value + 1);
       if (previewContexts.length) playableChat?.clearAttachments();
@@ -491,6 +493,7 @@ export function ProjectShell({
     const surface = playableChat?.surface;
     try {
       await saveDesign.current?.();
+      notifyPromptSent();
       await sendPrompt(project.id, conversation.id, text, surface?.references ?? [], [], "normal", [], [], [...(surface ? [surface.context] : []), ...contexts]);
       setAgentCollapsed(false);
       return true;

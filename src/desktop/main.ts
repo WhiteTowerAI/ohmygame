@@ -27,6 +27,7 @@ import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-playe
 import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
 import { AgentNotifications } from "./agent-notifications.js";
+import { NotificationPermission } from "./notification-permission.js";
 import type { AgentNoticesResponse } from "../shared/agent-notices.js";
 import { parseAgentNotificationPreferences, parseAgentNotificationTarget, type AgentNotificationTarget } from "../shared/agent-notifications.js";
 import { isNodeGraph } from "../shared/playable-graph-validation.js";
@@ -50,6 +51,8 @@ const daemonLog = new RotatingLogFile({ directory: logDirectory, name: "daemon",
 recordConsole(mainLog);
 recordUncaughtErrors(mainLog);
 mainLog.line(`OhMyGame ${app.getVersion()} starting on ${process.platform} ${process.arch}`);
+// Windows shows notifications only for the app ID of the installer's Start menu shortcut, the `appId` in electron-builder.yml.
+if (process.platform === "win32") app.setAppUserModelId("ai.ohmygame.desktop");
 let mainWindow: BrowserWindow | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
 /** A Node that fails to start never reports back; its window gives up after this. */
@@ -89,6 +92,12 @@ const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame
 const windowMenuLabels = new Set(["File", "Edit", "View", "Window"]);
 /** The conversation a clicked notification opens, kept until the main window takes it. */
 let notificationTarget: AgentNotificationTarget | undefined;
+const notificationPermission = new NotificationPermission({
+  platform: process.platform,
+  packaged: app.isPackaged,
+  openExternal: (url) => shell.openExternal(url),
+  log: (message) => console.warn(message),
+});
 const agentNotifications = new AgentNotifications({
   notices: async (after) => {
     if (!daemon) return undefined;
@@ -100,13 +109,15 @@ const agentNotifications = new AgentNotifications({
     return response.ok ? await response.json() as AgentNoticesResponse : undefined;
   },
   focused: () => Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()),
+  permission: () => notificationPermission.status(),
   show: (options, onClick) => {
     if (!Notification.isSupported()) return undefined;
     const notification = new Notification(options);
     notification.on("click", onClick);
     // macOS refuses notifications from an unsigned app, such as Electron in development.
     notification.on("failed", (_event, error) => console.warn(`Could not show a notification: ${error}`));
-    notification.on("show", () => console.log("Notification shown"));
+    // Accepted is not shown: the system still drops it when its settings allow no banners.
+    notification.on("show", () => console.log("Notification accepted by the system"));
     notification.show();
     return notification;
   },
@@ -516,6 +527,22 @@ handle("ohmygame:take-notification-target", (event) => {
   const target = notificationTarget;
   notificationTarget = undefined;
   return target;
+});
+handle("ohmygame:notification-permission", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid notification source");
+  return notificationPermission.status();
+});
+handle("ohmygame:request-notification-permission", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid notification source");
+  return notificationPermission.request();
+});
+handle("ohmygame:notification-prompt-sent", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid notification source");
+  return notificationPermission.requestOncePerLaunch();
+});
+handle("ohmygame:open-notification-settings", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid notification source");
+  return notificationPermission.openSettings();
 });
 handle("ohmygame:update-state", () => updater?.state() ?? null);
 handle("ohmygame:check-for-update", () => (updateChecks ? updateChecks.manual() : updater?.check()));

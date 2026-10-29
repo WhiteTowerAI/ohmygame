@@ -7,20 +7,27 @@ export interface AgentNotificationTarget {
 }
 
 /**
+ * Whether the system lets the app show notifications. `quiet` notifications
+ * reach Notification Center without a banner. `unknown` is a system whose
+ * permission the app cannot read, such as Windows; `unavailable` is a macOS
+ * development build, which shares Electron's permission with every other app.
+ */
+export type AgentNotificationPermission = "allowed" | "denied" | "not-determined" | "quiet" | "unknown" | "unavailable";
+
+/**
  * Notification settings and wording. The renderer owns both, since the
- * settings live with the other renderer preferences and the wording follows
+ * setting lives with the other renderer preferences and the wording follows
  * the UI language; the main process keeps the last copy it was sent so
- * notifications still work while the window is closed.
+ * notifications still work while the window is closed. Sound follows the
+ * system's notification settings.
  */
 export interface AgentNotificationPreferences {
   enabled: boolean;
-  sound: boolean;
   text: Record<AgentNoticeKind, string> & { fallbackTitle: string };
 }
 
 export const DEFAULT_AGENT_NOTIFICATION_PREFERENCES: AgentNotificationPreferences = {
   enabled: true,
-  sound: true,
   text: {
     fallbackTitle: "OhMyGame",
     approval: "Waiting for your approval",
@@ -37,7 +44,7 @@ const MAX_TEXT_LENGTH = 200;
 export function parseAgentNotificationPreferences(value: unknown): AgentNotificationPreferences | undefined {
   if (!value || typeof value !== "object") return undefined;
   const candidate = value as Partial<AgentNotificationPreferences>;
-  if (typeof candidate.enabled !== "boolean" || typeof candidate.sound !== "boolean") return undefined;
+  if (typeof candidate.enabled !== "boolean") return undefined;
   const text = candidate.text as Record<string, unknown> | undefined;
   if (!text || typeof text !== "object") return undefined;
   const parsed = {} as AgentNotificationPreferences["text"];
@@ -46,7 +53,7 @@ export function parseAgentNotificationPreferences(value: unknown): AgentNotifica
     if (typeof entry !== "string" || !entry.trim() || entry.length > MAX_TEXT_LENGTH) return undefined;
     parsed[key] = entry;
   }
-  return { enabled: candidate.enabled, sound: candidate.sound, text: parsed };
+  return { enabled: candidate.enabled, text: parsed };
 }
 
 /** Checks a target sent over IPC; `null` means no conversation. */

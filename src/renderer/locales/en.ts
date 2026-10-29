@@ -183,6 +183,7 @@ const en = {
       agents: "Agents",
       account: "Account",
       appearance: "Appearance",
+      notifications: "Notifications",
       webSearch: "Web Search",
       network: "Network",
       mcpServer: "MCP Server",
@@ -211,10 +212,10 @@ const en = {
       languageLabel: "Interface language",
     },
     notifications: {
-      heading: "Notifications",
       enabled: "Notify me about agent work",
       enabledDescription: "When an agent needs your approval or an answer, or finishes while OhMyGame is in the background.",
-      sound: "Play a sound",
+      blocked: "Blocked by macOS.",
+      openSystemSettings: "Open System Settings",
     },
     account: {
       signedInAs: "Signed in as",

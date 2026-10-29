@@ -111,7 +111,8 @@ export class AgentNoticeLog {
       return;
     }
     if (this.#waiting.has(id)) return;
-    const kind = item.type === "approvalRequest" ? "approval" : "question";
+    // Claude Code asks its questions through a tool that waits for approval.
+    const kind = item.type === "approvalRequest" && item.request.tool !== "AskUserQuestion" ? "approval" : "question";
     this.#waiting.set(id, { id, kind, projectId, conversationId });
     this.#add(kind, projectId, conversationId, id);
   }

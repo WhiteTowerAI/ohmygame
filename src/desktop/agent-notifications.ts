@@ -1,5 +1,5 @@
 import type { AgentNotice, AgentNoticeKind, AgentNoticesResponse } from "../shared/agent-notices.js";
-import { DEFAULT_AGENT_NOTIFICATION_PREFERENCES, type AgentNotificationPreferences, type AgentNotificationTarget } from "../shared/agent-notifications.js";
+import { DEFAULT_AGENT_NOTIFICATION_PREFERENCES, type AgentNotificationPermission, type AgentNotificationPreferences, type AgentNotificationTarget } from "../shared/agent-notifications.js";
 
 const POLL_MS = 2_000;
 
@@ -8,7 +8,9 @@ export interface AgentNotificationHost {
   notices(after: number): Promise<AgentNoticesResponse | undefined>;
   /** Whether the main window is open, visible and focused. */
   focused(): boolean;
-  show(notification: { title: string; body: string; silent: boolean }, onClick: () => void): { close(): void } | undefined;
+  /** The system permission, read before showing new notices. */
+  permission(): Promise<AgentNotificationPermission>;
+  show(notification: { title: string; body: string }, onClick: () => void): { close(): void } | undefined;
   setBadgeCount(count: number): void;
   /** Asks for attention once, such as one bounce of the Dock icon. */
   requestAttention(): void;
@@ -77,7 +79,9 @@ export class AgentNotifications {
       this.#cursor = { epoch: page.epoch, after: Math.max(this.#cursor.after, page.latestSeq) };
       const waiting = new Set(page.waiting.map((item) => item.id));
       // A request answered or cancelled since the last poll is no longer news.
-      for (const notice of fresh) if (!notice.waitingId || waiting.has(notice.waitingId)) this.#announce(notice);
+      const news = fresh.filter((notice) => !notice.waitingId || waiting.has(notice.waitingId));
+      const permission = news.length && this.#preferences.enabled ? await this.#permission() : undefined;
+      for (const notice of news) this.#announce(notice, permission);
     }
     this.#sync(page.waiting);
   }
@@ -101,10 +105,23 @@ export class AgentNotifications {
     }
   }
 
-  #announce(notice: AgentNotice): void {
+  async #permission(): Promise<AgentNotificationPermission | undefined> {
+    try {
+      return await this.host.permission();
+    } catch {
+      return undefined;
+    }
+  }
+
+  #announce(notice: AgentNotice, permission: AgentNotificationPermission | undefined): void {
     const label = `Agent notice ${notice.seq} (${notice.kind}, project ${notice.projectId})`;
     if (!this.#preferences.enabled) {
       this.host.log?.(`${label} not shown: notifications are off`);
+      return;
+    }
+    if (permission === "denied") {
+      // The system would drop it silently while Electron still reports it as shown.
+      this.host.log?.(`${label} not shown: the system blocks notifications`);
       return;
     }
     const focused = this.host.focused();
@@ -120,7 +137,6 @@ export class AgentNotifications {
     const notification = this.host.show({
       title: notice.projectName ?? text.fallbackTitle,
       body: text[notice.kind],
-      silent: !this.#preferences.sound,
     }, () => {
       this.#shown.delete(key);
       this.host.open(target);
