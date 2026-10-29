@@ -446,6 +446,11 @@ function RailProject({ project, open: openProject, conversations }: {
           focusFirst.current = true;
           setOpen(true);
           menuItems()[0]?.focus();
+        }}
+        onBlur={(event) => {
+          // Leaving before the list loaded cancels moving into it.
+          if (!focusFirst.current || body.current?.contains(event.relatedTarget as Node | null)) return;
+          close();
         }}>
         <SidebarCover project={project} className="sidebar-app-cover" />
       </button>

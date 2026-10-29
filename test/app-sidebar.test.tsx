@@ -318,6 +318,17 @@ describe("in a project", () => {
     expect(document.activeElement).toBe(icon);
   });
 
+  it("doesn't pull focus into a list that loads after the keyboard left", async () => {
+    const icon = button("Old Garden")!;
+    await act(async () => icon.focus());
+    // The list is still loading when focus moves on.
+    act(() => { icon.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })); });
+    act(() => button("Search")!.focus());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(document.querySelector(".rail-popover")).toBeNull();
+    expect(document.activeElement).toBe(button("Search"));
+  });
+
   it("lists an open project that isn't among the recent ones, and saves before going back", async () => {
     vi.stubGlobal("ohMyGameDesktop", { platform: "darwin" });
     const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
