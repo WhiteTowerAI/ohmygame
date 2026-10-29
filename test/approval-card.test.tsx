@@ -119,7 +119,7 @@ it("offers only a single answer when the agent cannot remember one", async () =>
     [...container.querySelectorAll("button")].map(
       (button) => button.textContent,
     ),
-  ).toEqual(["Deny", "Allow"]);
+  ).toEqual(["Allow", "Deny"]);
 });
 
 it("keeps waiting requests out of the timeline and shows answered ones as work", () => {
@@ -195,9 +195,9 @@ it("names how long allowing beyond this request lasts, as the agent offers it", 
       (button) => button.textContent,
     );
   await render({ scope: "saved", rules: [] });
-  expect(labels()).toEqual(["Deny", "Always allow", "Allow"]);
+  expect(labels()).toEqual(["Allow", "Always allow", "Deny"]);
   await render({ scope: "session", rules: [] });
-  expect(labels()).toEqual(["Deny", "Allow for this conversation", "Allow"]);
+  expect(labels()).toEqual(["Allow", "Allow for this conversation", "Deny"]);
   expect(container.textContent).not.toContain("covers");
 });
 
