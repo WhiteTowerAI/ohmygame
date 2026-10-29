@@ -89,6 +89,7 @@ import { PlayableEditorWorkspace } from "./playable-editor-workspace.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
 import { composerDrafts } from "./composer-drafts.js";
+import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { ApprovalCard } from "./approval-card.js";
 import { PlanApprovalCard } from "./plan-approval-card.js";
@@ -134,7 +135,7 @@ const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module)
 const PANELS: Record<WorkspacePanel, { title: () => string; icon: IconComponent }> = {
   chat: { title: () => t("panels.chat"), icon: MessageCircle },
   game: { title: () => t("panels.game"), icon: Gamepad2 },
-  design: { title: () => t("workspace.tab.design"), icon: FileText },
+  design: { title: () => t("panels.design"), icon: FileText },
   code: { title: () => t("workspace.tab.code"), icon: Code2 },
   assets: { title: () => t("workspace.tab.assets"), icon: Layers3 },
   story: { title: () => t("panels.story"), icon: Clapperboard },
@@ -242,13 +243,14 @@ export function ProjectShell({
   const timeline = useRef<HTMLDivElement>(null);
   const followTimeline = useRef(true);
 
-  // The route's design view brings the design panel forward, and the route follows it.
-  const designPanel = offered.includes("design");
-  const designShown = designPanel ? visible.includes("design") : designOpen;
-  useEffect(() => { if (view === "design" && designPanel) revealPanel("design"); }, [view, designPanel]);
+  // A game's panels include Code; its route's design view is the canvas, which
+  // it brings forward, and the route follows it.
+  const coding = offered.includes("code");
+  const designShown = coding ? visible.includes("canvas") : designOpen;
+  useEffect(() => { if (view === "design" && coding) revealPanel("canvas"); }, [view, coding]);
   useEffect(() => {
-    if (layout && designPanel && designShown !== (view === "design")) onViewChange?.(designShown ? "design" : "workspace", { replace: true });
-  }, [designShown, designPanel]);
+    if (layout && coding && designShown !== (view === "design")) onViewChange?.(designShown ? "design" : "workspace", { replace: true });
+  }, [designShown, coding]);
 
   useEffect(() => {
     const current = state.conversation;
@@ -888,13 +890,36 @@ export function ProjectShell({
     if (offered.includes("story")) {
       changeWorkspaceView(false);
       revealPanel("story");
-    } else if (offered.includes("canvas")) revealPanel("canvas");
+    } else if (!coding && offered.includes("canvas")) revealPanel("canvas");
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
-  }, [changeWorkspaceView, offered.includes("story"), offered.includes("canvas")]);
+  }, [changeWorkspaceView, coding, offered.includes("story"), offered.includes("canvas")]);
   const addToChat = useCallback((text: string) => {
     if (!conversation) return;
     composerDrafts.get({ projectId, conversationId: conversation.id }).update({ reference: { text } });
   }, [projectId, conversation?.id]);
+
+  // The design document panel shows whether the next message references it.
+  const [referencedDocument, setReferencedDocument] = useState<string>();
+  useEffect(() => {
+    setReferencedDocument(undefined);
+    if (!conversation) return;
+    const scope = { projectId, conversationId: conversation.id };
+    const read = () => setReferencedDocument(composerDrafts.peek(scope)?.designReference?.references[0]?.path);
+    read();
+    return composerDrafts.watch(scope, read);
+  }, [projectId, conversation?.id]);
+  const referenceDocument = useCallback((document: { id: string; title: string } | undefined) => {
+    revealPanel("chat");
+    if (!conversation) return;
+    composerDrafts.get({ projectId, conversationId: conversation.id }).update({ designReference: document ? {
+      references: [{ type: "workspace-file", path: canvasDocumentPath(document.id) }],
+      context: { kind: "design-document", label: document.title || t("composer.gameDesign"), text: "Reference the saved game design document for this message." },
+    } : undefined });
+  }, [projectId, conversation?.id]);
+  const quoteDocument = useCallback((text: string) => {
+    revealPanel("chat");
+    addToChat(text);
+  }, [addToChat]);
 
   function requestPrompt(text: string): void {
     revealPanel("chat");
@@ -913,7 +938,7 @@ export function ProjectShell({
       return { label: PANELS[id].title(), icon: <Icon size={14} />, checked: open, onSelect: () => layout && changeLayout(open ? closePanel(layout, id) : showPanel(layout, id, homeOf(id))) };
     }),
   ] : [];
-  const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "code" || id === "assets" ? [id] : []));
+  const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "canvas" || id === "code" || id === "assets" ? [id] : []));
 
   return (
     <>
@@ -1090,7 +1115,7 @@ export function ProjectShell({
       </div>
     </section>, nodes.chat.body)}
       <ErrorBoundary key={`${projectId}:${workspaceEpoch}`} label={t("errorBoundary.label.workspace")} resetKey={project?.id} onHome={onHome} homeLabel={homeLabel}>
-      {!project ? null : offered.includes("design") ? (
+      {!project ? null : coding ? (
         <CodingWorkspace
           project={project}
           agentBusy={agentBusy}
@@ -1109,8 +1134,11 @@ export function ProjectShell({
           onDesignSaveReady={registerDesignSave}
           onDesignContextChange={setDesignContext}
           onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
+          referencedDocument={referencedDocument}
+          onReferenceDocument={referenceDocument}
+          onQuoteDocument={quoteDocument}
           panels={{
-            nodes: { preview: nodes.game, design: nodes.design, code: nodes.code, assets: nodes.assets },
+            nodes: { preview: nodes.game, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
             visible: codingVisible,
             onShow: (view) => revealPanel(view === "preview" ? "game" : view),
           }}
