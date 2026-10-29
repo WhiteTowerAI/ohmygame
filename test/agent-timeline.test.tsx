@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { fileURLToPath, URL } from "node:url";
+import path from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -8,7 +8,7 @@ import type { ComponentProps } from "react";
 import type { ThreadItem, Turn } from "../src/shared/contracts.js";
 
 // Inspect the expanded contents in presentation tests. Mount behavior is tested separately.
-const lazyDetailsPath = fileURLToPath(new URL("../src/renderer/lazy-details.tsx", import.meta.url));
+const lazyDetailsPath = path.resolve("src/renderer/lazy-details.tsx");
 vi.doMock(lazyDetailsPath, () => ({
   LazyDetails: ({ className, summary, children }: { className: string; summary: React.ReactNode; children: React.ReactNode }) =>
     <details className={className}>{summary}{children}</details>,
