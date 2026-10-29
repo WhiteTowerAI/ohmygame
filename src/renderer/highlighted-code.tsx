@@ -62,7 +62,9 @@ export async function highlightWorkspaceCode(content: string, language: string, 
   return highlighter.codeToHtml(content, { lang: language, theme });
 }
 
-export function HighlightedCode({ path, content }: { path: string; content: string }) {
+export function HighlightedCode({ path, content: text }: { path: string; content: string }) {
+  // A file's final newline would show as an empty, numbered line.
+  const content = text.endsWith("\n") ? text.slice(0, -1) : text;
   const language = workspaceLanguage(path);
   const [theme, setTheme] = useState<ShikiTheme>(resolvedShikiTheme);
   const [html, setHtml] = useState<string>();
@@ -95,6 +97,7 @@ export function HighlightedCode({ path, content }: { path: string; content: stri
     };
   }, [content, language, theme]);
 
-  if (!html) return <pre className="workspace-code">{content}</pre>;
+  // Shiki writes each line as a span.line; the plain text does the same, so both get line numbers.
+  if (!html) return <pre className="workspace-code"><code>{content.split("\n").map((line, index) => <span key={index}>{index ? "\n" : ""}<span className="line">{line}</span></span>)}</code></pre>;
   return <div className="workspace-code workspace-code-highlighted" dangerouslySetInnerHTML={{ __html: html }} />;
 }

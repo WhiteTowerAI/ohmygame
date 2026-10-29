@@ -3,7 +3,10 @@
 The Files view renders `.md` and `.markdown` files as formatted Markdown.
 Workspace links and images resolve relative to the document's folder; links
 open the selected file in Code, and relative paths cannot leave the project.
-Other source files keep their syntax-highlighted preview.
+Other source files keep their syntax-highlighted preview, with line numbers
+that stay in view when the code scrolls sideways. In the Code panel, the open
+file's path and its open actions sit in the panel's toolbar, beside a button
+that hides the file tree; files in the tree carry an icon for their kind.
 
 ![Markdown file preview and the publish slash command](assets/workspace-markdown-publish-command.png)
 

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { highlightWorkspaceCode } from "../src/renderer/highlighted-code.js";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { HighlightedCode, highlightWorkspaceCode } from "../src/renderer/highlighted-code.js";
 
 const initialization = vi.hoisted(() => ({ failOnce: true }));
 vi.mock("shiki/core", async (importOriginal) => {
@@ -43,5 +45,10 @@ describe("workspace code highlighting", () => {
         }
       }
     }
+  });
+
+  it("writes plain text as numbered lines, without the file's final newline", () => {
+    const html = renderToStaticMarkup(createElement(HighlightedCode, { path: "notes.unknown", content: "one\ntwo\n" }));
+    expect([...html.matchAll(/<span class="line">([^<]*)<\/span>/g)].map((match) => match[1])).toEqual(["one", "two"]);
   });
 });

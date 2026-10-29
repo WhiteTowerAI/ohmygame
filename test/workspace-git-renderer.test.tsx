@@ -74,6 +74,26 @@ const button = (name: string) =>
 const click = (name: string) => act(async () => button(name).click());
 
 describe("Code Git changes view", () => {
+  it("puts the open file's path and a tree toggle in the panel toolbar", async () => {
+    const toolbar = document.createElement("div");
+    document.body.appendChild(toolbar);
+    const props = {
+      projectId: "project", files: [], selectedPath: "src/saved.ts", loading: false, onSelect: () => {}, toolbarTarget: toolbar,
+      selectedFile: { path: "src/saved.ts", size: 1, binary: false, content: "saved" },
+    };
+    await act(async () => root.render(<WorkspaceFileBrowser {...props} />));
+    expect(container.querySelector(".file-content-header")).toBeNull();
+    expect(toolbar.querySelector(".file-content-path")?.textContent).toBe("src/saved.ts");
+    expect(toolbar.querySelector(".file-content-name")?.textContent).toBe("saved.ts");
+    const toggle = toolbar.querySelector<HTMLButtonElement>('button[aria-label="Hide files"]')!;
+    await act(async () => toggle.click());
+    expect(container.querySelector<HTMLElement>(".file-explorer")?.hidden).toBe(true);
+    expect(container.querySelector(".code-view")?.classList.contains("is-tree-hidden")).toBe(true);
+    await act(async () => toolbar.querySelector<HTMLButtonElement>('button[aria-label="Show files"]')!.click());
+    expect(container.querySelector<HTMLElement>(".file-explorer")?.hidden).toBe(false);
+    toolbar.remove();
+  });
+
   it("opens diffs only in Changes and preserves the selected file when returning to Files", async () => {
     await render();
     expect(api.getWorkspaceGitFile).not.toHaveBeenCalled();
