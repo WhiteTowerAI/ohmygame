@@ -59,7 +59,7 @@ export function useLeaveGuard(guard: (go: () => void) => void): void {
 // in the capture phase from the moment the app loads, ahead of any dialog's
 // own Escape listener, even one that captures too.
 let closeOpenMenu: (() => void) | undefined;
-window.addEventListener("keydown", (event) => {
+if (typeof window !== "undefined") window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape" || event.isComposing || !closeOpenMenu) return;
   event.preventDefault();
   event.stopImmediatePropagation();
