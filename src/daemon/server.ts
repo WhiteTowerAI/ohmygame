@@ -62,6 +62,8 @@ try {
     networkSettings,
     piAgentDirectory,
     bundledPluginsDirectory: process.env.OHMYGAME_BUNDLED_PLUGINS_DIR,
+    pluginUiDirectory: process.env.OHMYGAME_PLUGIN_UI_DIR,
+    ...(process.env.OHMYGAME_PLUGIN_UI_PORT ? { pluginUiPort: Number(process.env.OHMYGAME_PLUGIN_UI_PORT) } : {}),
     preinstalledPluginsDirectory: process.env.OHMYGAME_PREINSTALLED_PLUGINS_DIR
       ?? path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),
     examplesDirectory: process.env.OHMYGAME_EXAMPLES_DIR ?? path.join(repositoryRoot, ".runtime", "examples"),
@@ -70,6 +72,11 @@ try {
       .split(",")
       .map((origin) => origin.trim())
       .filter(Boolean),
+    // Browser development reaches the daemon through the renderer's proxy,
+    // so no origin is allowed, but the renderer still frames plugin pages.
+    ...(development && !process.env.OHMYGAME_ALLOWED_ORIGINS
+      ? { pluginFrameAncestors: ["http://127.0.0.1:43120", "http://localhost:43120"] }
+      : {}),
     logger: true,
     logDirectory: process.env.OHMYGAME_LOG_DIR,
     publishApiUrl: process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL,

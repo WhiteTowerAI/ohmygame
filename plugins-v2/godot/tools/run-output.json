@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "exitCode": { "type": ["integer", "null"] },
+    "errors": { "type": "array", "items": { "type": "string" } },
+    "output": { "type": "string" }
+  },
+  "required": ["exitCode", "errors", "output"]
+}
