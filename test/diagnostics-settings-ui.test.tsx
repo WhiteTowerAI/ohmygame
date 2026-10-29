@@ -37,7 +37,7 @@ async function renderAbout(): Promise<HTMLButtonElement> {
     root.render(
       <SettingsPage
         section="about"
-        onBack={() => {}}
+        onNavigate={() => {}}
         onSectionChange={() => {}}
       />,
     ),

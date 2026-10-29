@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import type { PluginMention, ProjectState, ProjectType, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { ExampleShelf, useExamples } from "./examples.js";
-import { AppSidebar } from "./app-sidebar.js";
+import { publishRecentProjects } from "./app-sidebar.js";
+import { PageFrame } from "./page-frame.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
@@ -30,6 +31,8 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const activity = useProjectActivity(phase === "ready" && projects.length > 0, setProjects);
+  // Renames, removals and automatic names reach the sidebar too.
+  useEffect(() => { if (phase === "ready") publishRecentProjects(projects); }, [phase, projects]);
   const [loadError, setLoadError] = useState<string>();
   const [projectActionError, setProjectActionError] = useState<string>();
   const [projectType, setProjectType] = useState<ProjectType>("web-game");
@@ -44,7 +47,8 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
     setLoadError(undefined);
     try {
       await waitForRuntime();
-      setProjects(await listProjects());
+      const loaded = await listProjects();
+      setProjects(loaded);
       setPhase("ready");
     } catch (error) {
       setLoadError(errorMessage(error));
@@ -83,8 +87,7 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
   const visibleExamples = examples.slice(0, columns * 2);
 
   return (
-    <main className="home-shell" inert={inert}>
-      <AppSidebar active="home" onNavigate={onNavigate} />
+    <PageFrame active="home" inert={inert} onNavigate={onNavigate}>
 
       <section className="home-content home-content-fitted">
         <WindowDragRegion />
@@ -155,7 +158,7 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
         setCreateOpen(false);
         onOpen(project.id, createdProjectView(project.type));
       }} /> : null}
-    </main>
+    </PageFrame>
   );
 }
 

@@ -16,7 +16,8 @@ import {
 } from "./api.js";
 import { ExampleShelf, useExamples } from "./examples.js";
 import { Plus, RefreshCw } from "./icons.js";
-import { AppSidebar } from "./app-sidebar.js";
+import { publishRecentProjects } from "./app-sidebar.js";
+import { PageFrame } from "./page-frame.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
@@ -60,6 +61,8 @@ export function GameStudioHome({
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const activity = useProjectActivity(phase === "ready" && projects.length > 0, setProjects);
+  // Renames, removals and automatic names reach the sidebar too.
+  useEffect(() => { if (phase === "ready") publishRecentProjects(projects); }, [phase, projects]);
   const [error, setError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
@@ -77,7 +80,8 @@ export function GameStudioHome({
     setError(undefined);
     try {
       await waitForRuntime();
-      setProjects(recentStudioProjects(await listProjects(), projectType, MAX_RECENT_PROJECTS));
+      const loaded = await listProjects();
+      setProjects(recentStudioProjects(loaded, projectType, MAX_RECENT_PROJECTS));
       setPhase("ready");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -105,8 +109,7 @@ export function GameStudioHome({
   }
 
   return (
-    <main className="home-shell">
-      <AppSidebar active={studio.page} onNavigate={onNavigate} />
+    <PageFrame active={studio.page} onNavigate={onNavigate}>
       <section
         className={`home-content home-content-fitted game-studio-home studio-${studio.page}`}
       >
@@ -238,6 +241,6 @@ export function GameStudioHome({
           }}
         />
       ) : null}
-    </main>
+    </PageFrame>
   );
 }

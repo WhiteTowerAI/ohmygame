@@ -35,6 +35,11 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
 vi.doMock(path.resolve("src/renderer/use-project-activity.ts"), () => ({
   useProjectActivity: () => new Map(),
 }));
+vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({
+  PageFrame: ({ children }: { children: React.ReactNode }) => (
+    <main>{children}</main>
+  ),
+}));
 vi.doMock(path.resolve("src/renderer/sidebar-page.tsx"), () => ({
   SidebarPageLayout: ({ children }: { children: React.ReactNode }) => (
     <main>{children}</main>

@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { ArrowLeft, Bot, Check, ExternalLink, Globe2, InfoCircle, Palette, Plug, Server, UserRound, Wifi } from "./icons.js";
+import { useState } from "react";
+import { Bot, Check, ExternalLink, Globe2, InfoCircle, Palette, Plug, Server, UserRound, Wifi } from "./icons.js";
 import { useAuth } from "./auth.js";
-import { readSidebarWidth } from "./app-sidebar.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
 import { AgentsSettings, type AgentsView } from "./agents-settings.js";
-import type { SettingsSection } from "./routes.js";
+import { PageFrame } from "./page-frame.js";
+import type { AppNavigationTarget, SettingsSection } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
 import { WindowDragRegion } from "./window-drag-region.js";
-import type { DesktopUpdateState } from "../shared/desktop-update.js";
+import { useDesktopUpdate } from "./use-desktop-update.js";
 import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { NetworkSettingsPanel } from "./network-settings.js";
@@ -42,22 +42,14 @@ const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: 
   { section: "about", label: t("settings.nav.about"), icon: InfoCircle },
 ];
 
-export function SettingsPage({ section, onBack, onSectionChange, onOpenOnboarding }: {
+export function SettingsPage({ section, onSectionChange, onNavigate, onOpenOnboarding }: {
   section: SettingsSection;
-  onBack: () => void;
   onSectionChange: (section: SettingsSection) => void;
+  onNavigate: (page: AppNavigationTarget) => void;
   onOpenOnboarding?: () => void;
 }) {
   const [modelsView, setModelsView] = useState<ModelsView>({ page: "providers" });
   const [agentsView, setAgentsView] = useState<AgentsView>({ page: "agents" });
-  const navigation = useRef<HTMLElement>(null);
-  const sidebarStyle = { "--sidebar-width": `${readSidebarWidth()}px` } as CSSProperties;
-
-  useEffect(() => {
-    if (window.matchMedia("(max-width: 720px)").matches) {
-      navigation.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    }
-  }, [section]);
 
   function chooseSection(next: SettingsSection): void {
     if (next === "providers") setModelsView({ page: "providers" });
@@ -66,28 +58,22 @@ export function SettingsPage({ section, onBack, onSectionChange, onOpenOnboardin
   }
 
   return (
-    <main className="home-shell settings-page-shell" style={sidebarStyle}>
-      <aside className="home-sidebar settings-page-sidebar">
-        <div className="home-sidebar-header-spacer" aria-hidden="true" />
-        <button className="settings-page-back" type="button" onClick={onBack}>
-          <ArrowLeft size={17} />
-          <span>{t("settings.backToApp")}</span>
-        </button>
-        <nav className="settings-page-nav" aria-label={t("settings.nav.label")} ref={navigation}>
-          <div className="home-nav-label">{t("settings.nav.heading")}</div>
-          {SETTINGS_SECTIONS.map((item) => {
-            const Icon = item.icon;
-            const active = section === item.section;
-            return (
-              <button className={`settings-page-nav-item${active ? " is-active" : ""}`} type="button" aria-current={active ? "page" : undefined} onClick={() => chooseSection(item.section)} key={item.section}>
-                <Icon size={17} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
-      <section className="settings-page-content">
+    <PageFrame active="settings" onNavigate={onNavigate} aside={
+      <nav className="settings-page-nav" aria-label={t("settings.nav.label")}>
+        <div className="settings-page-nav-title">{t("common.settings")}</div>
+        {SETTINGS_SECTIONS.map((item) => {
+          const Icon = item.icon;
+          const active = section === item.section;
+          return (
+            <button className={`settings-page-nav-item${active ? " is-active" : ""}`} type="button" aria-current={active ? "page" : undefined} onClick={() => chooseSection(item.section)} key={item.section}>
+              <Icon size={16} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    }>
+      <main className="settings-page-content">
         <WindowDragRegion />
         <div className="settings-page-inner">
           {section === "account" ? <AccountSettings /> : null}
@@ -100,8 +86,8 @@ export function SettingsPage({ section, onBack, onSectionChange, onOpenOnboardin
           {section === "mcp-server" ? <ExternalAgentsSettings /> : null}
           {section === "about" ? <AboutSettings onOpenNetwork={() => chooseSection("network")} onOpenOnboarding={onOpenOnboarding} /> : null}
         </div>
-      </section>
-    </main>
+      </main>
+    </PageFrame>
   );
 }
 
@@ -248,16 +234,9 @@ function AccountSettings() {
 }
 
 function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () => void; onOpenOnboarding?: () => void }) {
-  const [update, setUpdate] = useState<DesktopUpdateState | null>(null);
+  const update = useDesktopUpdate();
   const [copied, setCopied] = useState(false);
   const updates = window.ohMyGameDesktop?.updates;
-  useEffect(() => {
-    if (!updates) return;
-    let disposed = false;
-    void updates.state().then((state) => { if (!disposed) setUpdate(state); }).catch(() => undefined);
-    const unsubscribe = updates.onState(setUpdate);
-    return () => { disposed = true; unsubscribe(); };
-  }, [updates]);
   const status = update?.status;
   const message = status?.type === "up-to-date" ? t("settings.about.upToDate")
     : status?.type === "checking" ? t("settings.about.checking")
