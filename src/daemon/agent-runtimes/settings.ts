@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  AGENT_PERMISSION_MODES,
   AGENT_RUNTIME_IDS,
   ACCOUNT_RUNTIME_IDS,
   isAccountRuntimeId,
   type AccountRuntimeId,
+  isAgentPermissionMode,
   isAgentRuntimeId,
+  FULL_ACCESS_PERMISSION_MODES,
   type AgentPermissionMode,
   type AgentRuntimeId,
   type AgentAccountProfile,
@@ -26,10 +27,39 @@ export interface AgentRuntimeSettings {
   defaultProfileId?: string;
 }
 
-const DEFAULTS: AgentRuntimeSettings = {
-  enabled: false,
-  permissionMode: "standard",
-};
+/** Every runtime is off until enabled, and asks nothing once it is, as OhMyGame's own agent does. */
+function defaults(id: AgentRuntimeId): AgentRuntimeSettings {
+  return { enabled: false, permissionMode: FULL_ACCESS_PERMISSION_MODES[id] };
+}
+
+/**
+ * The CLI's mode for OhMyGame's former "standard", which ran each agent in
+ * its usual mode. "full" was each agent's mode that asks nothing.
+ */
+const STANDARD_PERMISSION_MODES = {
+  "claude-code-cli": "acceptEdits",
+  "codex-cli": ":workspace",
+  "opencode-cli": "default",
+} as const satisfies Record<AgentRuntimeId, AgentPermissionMode>;
+
+/**
+ * Version 1 saved the former default, "standard", whenever any setting was
+ * saved, so it cannot tell a choice from the default. When agents' own
+ * permission modes replaced OhMyGame's and asking nothing became the
+ * default, those files move to it; a later choice is kept.
+ */
+const SETTINGS_VERSION = 2;
+
+/** A saved mode in the CLI's own words; OhMyGame's former two modes become the CLI's. */
+function storedPermissionMode(
+  id: AgentRuntimeId,
+  value: unknown,
+  legacy: boolean,
+): AgentPermissionMode {
+  if (isAgentPermissionMode(id, value)) return value;
+  if (value === "standard" && !legacy) return STANDARD_PERMISSION_MODES[id];
+  return FULL_ACCESS_PERMISSION_MODES[id];
+}
 
 /**
  * The person's choices for each coding agent, in `agent-runtimes.json`. A
@@ -68,6 +98,8 @@ export class AgentRuntimeSettingsStore {
         ? (value as Record<string, unknown>)
         : {};
     this.#default = parseDefault(stored.defaultModel);
+    const legacy =
+      typeof stored.version !== "number" || stored.version < SETTINGS_VERSION;
     const profiles = stored.accountProfiles && typeof stored.accountProfiles === "object" ? stored.accountProfiles as Record<string, unknown> : {};
     for (const runtime of ACCOUNT_RUNTIME_IDS) {
       const saved = profiles[runtime];
@@ -94,13 +126,13 @@ export class AgentRuntimeSettingsStore {
         enabled:
           typeof stored.enabled === "boolean"
             ? stored.enabled
-            : DEFAULTS.enabled,
+            : defaults(id).enabled,
         ...(isAccountRuntimeId(id) && typeof stored.defaultProfileId === "string" && this.profiles(id).some((profile) => profile.id === stored.defaultProfileId) ? { defaultProfileId: stored.defaultProfileId } : {}),
-        permissionMode: AGENT_PERMISSION_MODES.includes(
-          stored.permissionMode as AgentPermissionMode,
-        )
-          ? (stored.permissionMode as AgentPermissionMode)
-          : DEFAULTS.permissionMode,
+        permissionMode: storedPermissionMode(
+          id,
+          stored.permissionMode,
+          legacy,
+        ),
         ...(typeof stored.binaryPath === "string" &&
         path.isAbsolute(stored.binaryPath)
           ? { binaryPath: stored.binaryPath }
@@ -110,7 +142,7 @@ export class AgentRuntimeSettingsStore {
   }
 
   get(id: AgentRuntimeId): AgentRuntimeSettings {
-    return { ...DEFAULTS, ...this.#settings.get(id) };
+    return { ...defaults(id), ...this.#settings.get(id) };
   }
 
   profiles(runtime: AccountRuntimeId): AgentAccountProfile[] {
@@ -157,6 +189,13 @@ export class AgentRuntimeSettingsStore {
     id: AgentRuntimeId,
     change: Partial<AgentRuntimeSettings>,
   ): Promise<AgentRuntimeSettings> {
+    if (
+      change.permissionMode !== undefined &&
+      !isAgentPermissionMode(id, change.permissionMode)
+    )
+      return Promise.reject(
+        new Error(`${change.permissionMode} is not a permission mode of this coding agent`),
+      );
     const next: AgentRuntimeSettings = { ...this.get(id), ...change };
     if (!next.binaryPath) delete next.binaryPath;
     this.#settings.set(id, next);
@@ -177,7 +216,7 @@ export class AgentRuntimeSettingsStore {
       try {
         await writeFile(
           temporary,
-          `${JSON.stringify({ version: 1, runtimes: snapshot, accountProfiles, ...(defaults ? { defaultModel: defaults } : {}) }, null, 2)}\n`,
+          `${JSON.stringify({ version: SETTINGS_VERSION, runtimes: snapshot, accountProfiles, ...(defaults ? { defaultModel: defaults } : {}) }, null, 2)}\n`,
         );
         await rename(temporary, this.#filePath);
       } catch (cause) {

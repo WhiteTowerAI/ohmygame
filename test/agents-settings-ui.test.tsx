@@ -17,8 +17,13 @@ const agent = (
   installed: true,
   version: "1.0.0",
   auth: { status: "signed-in", billing: "subscription" },
-  commandSandbox: "os",
-  permissionMode: "standard",
+  // Each agent's usual mode, short of asking nothing.
+  permissionMode:
+    id === "claude-code-cli"
+      ? "acceptEdits"
+      : id === "codex-cli"
+        ? ":workspace"
+        : "default",
   diagnostics: [],
 });
 let catalog: AgentModelCatalog;
@@ -229,21 +234,24 @@ it("shows the installed version and missing capability without reference metadat
   expect(host.textContent).not.toContain("too old");
 });
 
-it("switches a CLI to full access and says what that means", async () => {
+it("offers each agent's own permission modes and says what the chosen one means", async () => {
   await detail("claude-code-cli");
   const trust = "Use full access only in projects you trust.";
+  const radios = () => [...host.querySelectorAll<HTMLInputElement>('[role="radiogroup"][aria-label="Permissions"] input')];
+  const labelOf = (input: HTMLInputElement) =>
+    input.closest("label")?.querySelector(".ui-check-text > span")?.textContent;
+  expect(radios().map(labelOf)).toEqual(["Manual", "Accept edits", "Auto", "Bypass permissions"]);
   expect(host.textContent).not.toContain(trust);
-  const full = [...host.querySelectorAll<HTMLInputElement>('input[type="radio"]')].find(
-    (input) => input.closest("label")?.querySelector(".ui-check-text > span")?.textContent === "Full access",
-  )!;
-  expect(full.closest("label")?.textContent).toContain(
-    "without a sandbox or asking",
+  expect(host.textContent).toContain(
+    "Claude Code edits project files without asking and asks about other actions as your rules say.",
   );
-  await act(async () => full.click());
+  const bypass = radios().find((input) => labelOf(input) === "Bypass permissions")!;
+  expect(bypass.closest("label")?.textContent).toContain("anywhere without asking");
+  await act(async () => bypass.click());
   expect(api.updateAgentRuntime).toHaveBeenCalledWith("claude-code-cli", {
-    permissionMode: "full",
+    permissionMode: "bypassPermissions",
   });
-  expect(full.checked).toBe(true);
+  expect(bypass.checked).toBe(true);
   expect(host.textContent).toContain(trust);
   expect(host.textContent).not.toContain("Command sandbox");
 });
@@ -441,22 +449,22 @@ it("keeps the account and displays the error when deletion is refused", async ()
   expect(host.querySelector(".settings-provider-delete-confirmation")).not.toBeNull();
 });
 
-it("explains a Windows sandbox incompatibility instead of reporting an empty model catalog", async () => {
+it("explains a missing CLI capability instead of reporting an empty model catalog", async () => {
   api.listAgentRuntimes.mockResolvedValueOnce([
     {
       ...agent("codex-cli", "Codex", true),
       diagnostics: [
         {
           code: "runtime-incompatible",
-          capability: "Windows sandbox filesystem read restrictions",
-          message: "Codex sandbox cannot enforce read restrictions",
+          capability: "permissions / activePermissionProfile",
+          message: "Codex did not activate its :workspace permission profile",
         },
       ],
     },
   ]);
   await detail("codex-cli");
-  expect(host.textContent).toContain("unelevated Windows sandbox");
-  expect(host.textContent).toContain("Set up the elevated sandbox");
-  expect(host.textContent).toContain("Windows sandbox guide");
+  expect(host.textContent).toContain(
+    "Codex is missing a required capability: permissions / activePermissionProfile.",
+  );
   expect(host.textContent).not.toContain("Codex did not list its models");
 });

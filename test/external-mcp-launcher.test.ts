@@ -19,6 +19,7 @@ import {
   markExternalMcpApp,
 } from "../src/desktop/external-mcp-install.js";
 import {
+  appStartCommand,
   ExternalMcpLauncher,
   type Message,
 } from "../src/desktop/external-mcp-launcher.js";
@@ -296,6 +297,31 @@ it("starts OhMyGame on the first tool call and binds the folder the client works
 
   await launcher.close();
   expect(requests.at(-1)).toMatchObject({ method: "DELETE" });
+});
+
+it("opens the packaged macOS app through LaunchServices so it does not inherit the agent's sandbox", () => {
+  const executable = "/Applications/OhMyGame.app/Contents/MacOS/OhMyGame";
+  expect(appStartCommand(executable, undefined, "darwin")).toEqual({
+    command: "/usr/bin/open",
+    args: ["/Applications/OhMyGame.app"],
+  });
+  expect(
+    appStartCommand(
+      "/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
+      "/repo",
+      "darwin",
+    ),
+  ).toEqual({
+    command:
+      "/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
+    args: ["/repo"],
+  });
+  expect(
+    appStartCommand("C:\\OhMyGame\\OhMyGame.exe", undefined, "win32"),
+  ).toEqual({
+    command: "C:\\OhMyGame\\OhMyGame.exe",
+    args: [],
+  });
 });
 
 it("waits for an app that is already starting instead of starting a second one", async () => {

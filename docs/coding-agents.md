@@ -54,23 +54,12 @@ compatibility and sign-in are separate checks; finding a bundled CLI does not
 guarantee that its version supports OhMyGame's integration.
 
 If Codex is found and signed in but offers no models, check the diagnostics on
-its detail page. Model discovery first verifies the permission profile by
-starting an ephemeral thread without a prompt. On Windows, the probe,
-conversations, and image generation use `:root` read access because the elevated
-sandbox rejects `:minimal` access. Protected paths remain explicitly denied.
-If thread creation still reports `elevated Windows sandbox requires effective
-:root read access`, OhMyGame identifies a compatibility failure before requesting
-the model catalog; update Codex and check its sandbox configuration.
-Windows' legacy `unelevated` sandbox can also reject filesystem read restrictions.
-OhMyGame reports this as a Windows sandbox compatibility issue and links to the
-[Codex Windows sandbox guide](https://learn.chatgpt.com/docs/windows/windows-sandbox).
-For the legacy sandbox error, configure the `elevated` sandbox in Codex
-(including its administrator-approved setup), or use MXC with a supported device
-and CLI, then choose **Check again**.
-OhMyGame does not change the saved sandbox configuration. The Windows profile
-permits general filesystem reads while preserving explicit protected-path denies
-and workspace write restrictions. A successful model probe still
-requires a real conversation test on the target Windows installation.
+its detail page. Model discovery first verifies that Codex activates its
+built-in `:read-only` permission profile by starting an ephemeral thread
+without a prompt; a CLI that ignores named permission profiles is reported as
+incompatible before the model catalog is requested. OhMyGame does not change
+Codex's sandbox configuration. A successful model probe still requires a real
+conversation test on the target installation, including on Windows.
 
 ![Codex settings showing the desktop-bundled executable and automatic detection](assets/codex-cli-discovery.png)
 
@@ -307,14 +296,15 @@ plan mode, cancellation, errors and events are the same code.
   out because no other model can verify it.
 
 Terminal approval decisions and native compaction results are custom entries
-in the same session file. Reload restores their history without restoring
-permission grants. No second conversation manager or event database is needed.
+in the same session file. OhMyGame keeps no permission grants: an agent's
+"always allow" lives in that agent's own session or settings. No second
+conversation manager or event database is needed.
 
 ## How each agent is driven
 
 | Agent       | Transport                                                        | OhMyGame tools                                          | Approvals                                            |
 | ----------- | ---------------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------- |
-| Claude Code | `claude -p` with stream-json in and out; one process per session | In-process MCP server answered over the same pipe       | PreToolUse hook plus `can_use_tool` control requests |
+| Claude Code | `claude -p` with stream-json in and out; one process per session | In-process MCP server answered over the same pipe       | `can_use_tool` control requests                      |
 | Codex       | `codex app-server` JSON-RPC; one thread per conversation         | The thread's dynamic tools, answered over the same pipe | App server approval requests                         |
 | OpenCode    | `opencode serve` on loopback with its own password               | Remote MCP on the daemon with a turn token              | `permission.asked` events, answered on the server    |
 
@@ -350,10 +340,11 @@ conversation timeline retain the original tool names. Skills (plugin Skills and
 OhMyGame's own) are copied into a private folder for the session and handed to
 the CLI: a session plugin for Claude Code, `skills/extraRoots/set` for Codex,
 the `skills` array for OpenCode v2. Staging copies regular files and omits symbolic
-links, so it cannot copy an external credential through a Skill's link. The
-policy permits reading only this session's staged Skill roots, while their
-writes and adjacent app data remain protected. Running a staged script still
-requires command approval. Nothing is written to the workspace.
+links, so it cannot copy an external credential through a Skill's link. Each
+agent reads the staged Skills without asking: Claude Code also gets the folder
+with `--add-dir`, OpenCode's session allows it as an external directory, and
+Codex's profiles read it already. Running a staged script follows the agent's
+own rules. Nothing is written to the workspace.
 
 The OpenCode tool endpoint, `POST /agent-runtime-bridge/mcp`, takes the
 turn's token instead of the app's. It is revoked permanently on completion,
@@ -365,126 +356,83 @@ extensions do not reach coding agents.
 
 ## Approvals and limits
 
-Each agent's detail page has a **Permissions** setting:
+Each coding agent keeps its own permission system: its rules decide what it
+does without asking and what it asks. OhMyGame adds no rules, sandbox settings
+or protected folders of its own, as its own agent works without asking. Each
+agent's detail page has a **Permissions** setting with the agent's own modes,
+by the names its CLI uses, and a note on what the chosen one does:
 
-- **Standard** (default): the rules below. Commands run in the CLI's OS
-  sandbox where it has one.
-- **Full access**: no sandbox and no questions, as with OhMyGame's own agent.
-  Claude Code runs without its sandbox settings, Codex uses its own
-  `:danger-full-access` profile, and OpenCode's requests are all allowed.
-  Requests that name a protected root, such as a CLI sign-in folder, are
-  still refused, and planning stays read-only.
+- **Claude Code**: Manual (`default`, called `manual` by newer CLIs: asks
+  before edits and commands), Accept edits (`acceptEdits`), Auto (`auto`:
+  Claude Code's classifier allows safe actions and asks about risky ones; a
+  model without auto mode stays in Manual), and Bypass permissions
+  (`bypassPermissions`, the default).
+- **Codex**: Default (`:workspace`: works in the project and asks,
+  `on-request`, before edits outside it or internet access) and Full Access
+  (`:danger-full-access` without approvals, the default).
+- **OpenCode**, which has no modes: Your rules (the person's OpenCode
+  permission rules) and Allow all (the session allows everything, the
+  default).
 
-Changing permissions or the executable path lets go
-of the agent's idle open conversations. A running turn keeps its setting and
-is released when its run closes. The next run restarts the CLI with the new
-settings and resumes its session, including when settings change during startup.
+The default asks nothing, as OhMyGame's own agent does. Read-only modes are not
+offered, since planning uses them. Earlier versions offered OhMyGame's own
+Standard and Full access: settings saved by versions that stored Standard with
+any setting move to the mode that asks nothing, and a later Standard choice
+becomes the agent's usual mode (Accept edits, Default, Your rules). A mode
+chosen from then on is kept. Every mode loads the
+person's CLI configuration, including the permission rules they set up in the
+CLI. Changing permissions or the executable path lets go of the agent's idle
+open conversations. A running turn keeps its setting and is released when its
+run closes. The next run restarts the CLI with the new settings and resumes its
+session, including when settings change during startup.
 
-In the project folder an agent works without asking, as OhMyGame's own agent
-does. `judgeApproval` decides each request first:
+What an agent asks appears as an approval card above the composer, with the
+command, files, network access and reason the agent gives. The card offers
+**Allow**, **Deny**, and, when the agent offers it, **Always allow** (saved in
+the agent's own settings) or **Allow for this conversation** (for the agent's
+session), with the agent's own description of what that covers, such as Claude
+Code's `Bash(npm install:*)` or Codex's proposed command prefix. Always allowing
+goes back to the agent in its own form: Claude Code's suggested permission
+updates, Codex's exec-policy amendment or session-wide acceptance, OpenCode's
+`always` reply. Answered requests stay in the timeline. Stopping the turn
+denies every request still waiting. OhMyGame's own tools never ask; the daemon
+runs them.
 
-- **Deny** anything that reaches a CLI sign-in folder (`~/.claude`,
-  `~/.codex`, OpenCode's folders, `~/.pi`), `~/.ssh` and similar, OhMyGame's
-  data folder, OhMyGame's own agent folder (`pi-agent`, which holds provider
-  keys and sign-ins and sits beside the data folder in the desktop app), or
-  another project. Paths resolve symlinks, including missing descendants,
-  and include custom CLI credential homes. A command reaches a folder when it names it or a folder
-  that holds it, including quoted paths containing spaces and paths with
-  backslash-escaped spaces.
-- **Allow** workspace file requests and a small set of simple read commands.
-  Claude Code's own tools that touch no file and run no command (`TodoWrite`,
-  `Skill`, `Task`, `WebSearch`, `WebFetch` and its background-shell and MCP
-  resource readers) also run without asking; a subagent's tool calls are
-  checked like any other.
-- **Ask** the person for paths outside the workspace and other commands,
-  including build scripts, interpreters, Git, compound commands, globs and
-  recursive link-following (`grep -R`, `rg -L`). Where Claude Code runs its
-  commands in its OS sandbox, which keeps their writes in the workspace and
-  protected folders unreadable, only commands that publish or escalate
-  (`git push`, `npm publish`, `sudo`, `curl … | sh`) and commands naming paths
-  outside the workspace are asked about; installs, builds, Git, pipes and
-  compound commands run. Planning still allows only the simple read commands. A request
-  Codex makes to leave its sandbox always asks, because Codex only makes one
-  when its sandbox would stop the command.
+OpenCode file patterns resolve from its reported session location rather than
+assuming it equals the application workspace, and search metadata identifies
+the actual search directory. Child-session permission requests are admitted
+only after verifying their ancestry through the native API; they cannot be
+dropped merely because their session ID differs from the parent.
 
-OpenCode's subagents, todo list, Skill loading and web research are allowed in
-the same way. Planning turns are read-only on every path: they accept file reads
-and the simple read commands the policy allows, and refuse everything else with
-feedback naming what is allowed, so the agent adjusts instead of stopping; a
-bare OpenCode rejection would end its loop. Native agents are told that
-OhMyGame's tools, including `update_plan`, come from its `ohmygame` tool server
-under their CLI's MCP names. Claude's `ExitPlanMode` is
-declined with a pointer to `update_plan`, because OhMyGame reviews plans itself.
-Codex registers every OhMyGame tool when its thread starts, since a thread that
-begins in planning continues after the plan is approved; tools the current mode
-does not allow are refused when called.
+Planning turns are read-only in every mode. Each agent plans in its own
+read-only mode: Claude Code in its default permission mode with file-changing
+tools refused, Codex in its `:read-only` profile, OpenCode with its `plan`
+agent. Whatever an agent would ask about while planning is refused without
+asking, with feedback, so the agent adjusts instead of stopping; a bare
+OpenCode rejection would end its loop. Native agents are told that OhMyGame's
+tools, including `update_plan`, come from its `ohmygame` tool server under
+their CLI's MCP names. Claude's `ExitPlanMode` is declined with a pointer to
+`update_plan`, because OhMyGame reviews plans itself. Codex registers every
+OhMyGame tool when its thread starts, since a thread that begins in planning
+continues after the plan is approved; tools the current mode does not allow
+are refused when called.
 
 Claude Code runs with background tasks and scheduled prompts disabled
 (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`, `CLAUDE_CODE_DISABLE_CRON`): a
 background subagent or shell would report after the turn's result, with no turn
 to receive it. OhMyGame's tools are marked always loaded so Claude's tool search
 does not hide them. Planning uses Claude's default permission mode instead of
-its plan mode, which would write a plan file and call `ExitPlanMode`.
+its plan mode, which would write a plan file and call `ExitPlanMode`. Full
+access launches Claude Code with `--allow-dangerously-skip-permissions`, so a
+planning turn can leave `bypassPermissions` and return to it.
 
-A request the policy leaves to the person appears as an approval card above the
-composer: Allow, Allow for this conversation, or Deny. Answered requests stay
-in the timeline. Stopping the turn denies every request still waiting.
+Codex requires named permission profiles and checks that its app server
+activated the requested built-in profile before delivering a prompt.
 
-Explicit permission grants show all read/write roots and network access.
-Codex grants only understood concrete paths that were reviewed, for one turn.
-Allowing for the conversation covers the exact request, with two exceptions
-the card names: a sandboxed `git push` or package publish covers that command
-whatever its remote or package, and a read outside the workspace covers its
-folder (never the home folder or the disk root). A sandboxed command naming an
-outside path covers reads in that folder, since its sandbox keeps writes in the
-workspace. Escalations such as `sudo` and `curl … | sh` are asked each time. OpenCode read/edit/search/shell requests are mediated,
-with file patterns resolved from its reported Git root rather than assuming
-that it equals the application workspace. Search metadata identifies the actual
-search directory. Child-session permission requests are admitted only after
-verifying their ancestry through the native API; they cannot be dropped merely
-because their session ID differs from the parent.
-
-Shell syntax checks cannot resolve globs, brace expansion or links, so a
-command a person allows could still name a protected file indirectly. Codex and
-Claude Code therefore also run commands in their own OS sandbox (Seatbelt on
-macOS, bubblewrap on Linux); the settings page says which agents have one.
-When the approval policy relies on that sandbox, Claude Code must stop at
-startup if it cannot enable it; it cannot silently fall back to unconfined
-commands. This requires Claude Code 2.1.83 or newer. Where the required
-dependencies are absent, the strict command approval policy applies instead.
-OpenCode has none, so its approvals are its only boundary. Each CLI's parent
-process runs as the signed-in OS user and is not confined. Strong
-confidentiality isolation requires a separate process/container sandbox and
-isolated credentials.
-
-Codex requires named permission profiles and checks that its app server actually
-activated the requested profile before delivering a prompt. The legacy
-`workspaceWrite` policy is not a fallback: it permits reads outside the project.
-The profiles allow runtime files, this workspace and private temporary/Skill
-folders, plus the person's toolchains: each folder on the commands' PATH and
-the installation it belongs to (an fnm or nvm Node, Homebrew, Bun) and, on
-macOS, the command-line developer tools, whose own programs come before the
-`/usr/bin` shims. The home folder itself and `~/.local` as a whole are never
-granted. Package caches (npm, Bun, Yarn, XDG) live in the session's temporary
-folder, Git reads a private configuration holding only the person's name and
-email (`~/.gitconfig` may name credential helpers), commands run without a
-login shell, and the workspace's `.git` stays read-only. Credential roots, app
-data, other projects and the shared `/tmp` and `/var/tmp` folders (which
-Codex's minimal access would otherwise read) are denied. Unlisted
-paths require a scoped permission request. Unrestricted command/patch sandbox
-escapes are refused. Planning uses a read-only profile and cannot accept write
-grants. The native `request_permissions` tool is enabled explicitly, with grants
-limited to the current turn. Shell snapshots are off and the shell environment
-is rebuilt from the same allowlist, without CLI authentication tokens.
-
-Claude Code's sandbox is turned on through flag settings, which apply whether
-or not the person's own configuration loads. Protected roots are unreadable,
-the workspace and the session's staged Skills stay readable, commands cannot
-opt out of the sandbox, approvals still go through OhMyGame, and the network
-stays available for installs. Package caches live in the session's temporary
-folder, which commands may write. Where the sandbox cannot start (Windows, or
-Linux without bubblewrap and socat), Claude Code runs commands without it and
-the settings page says approvals are the boundary.
+Each CLI runs as the signed-in OS user. What it can read, including other CLIs'
+sign-ins and OhMyGame's data, is what its own configuration and sandbox allow.
+Strong confidentiality isolation requires a separate process/container sandbox
+and isolated credentials.
 
 ## Environment and isolation
 
@@ -507,23 +455,21 @@ All three runtimes load the person's existing CLI configuration, including
 settings, hooks, MCP servers, Skills and instructions supported by that CLI.
 There is no configuration-isolation switch. Stored `isolateUserConfig` values
 from earlier versions are ignored and dropped when settings are next saved.
-OhMyGame adds its tools, project instructions and staged Skills, and the selected
-permission mode still applies. A configured external `ohmygame-studio` MCP
+OhMyGame adds its tools, project instructions and staged Skills, and selects the
+permission mode. A configured external `ohmygame-studio` MCP
 connection is disabled inside Claude Code and Codex to avoid reconnecting to the
 same app recursively. Other user MCP servers and notification hooks remain enabled.
 
-Codex keeps the workspace as its project root (`project_root_markers = []`):
-parent-folder instructions may live in app data denied by the permission profile
-and otherwise prevent thread startup. Its own configuration-folder instructions,
-Skills and plugins still load. Configuration inheritance does not remove the
-permission profile, shell environment controls or read-only planning.
+Codex's own project root markers, shell environment policy, instructions,
+Skills and plugins apply as configured. Configuration inheritance does not
+remove read-only planning.
 
-OpenCode v2 adds callback permission rules, staged Skills and an instruction file
-in its private session directory. Its MCP bridge disables code mode so native
+OpenCode v2 adds staged Skills and an instruction file in its private session
+directory. Its MCP bridge disables code mode so native
 calls retain their tool names and structured app results. It waits for the MCP
 connection and catalog before sending a prompt. No configuration file is written
 to the workspace. Custom `OPENCODE_CONFIG_DIR` and `OPENCODE_CONFIG` paths are
-retained and protected from native file/shell access, alongside XDG roots.
+retained, alongside XDG roots.
 
 Discovery probes may suppress external MCP servers and hooks while inspecting
 protocol compatibility and model catalogs; they do not send inference prompts.
@@ -531,8 +477,8 @@ protocol compatibility and model catalogs; they do not send inference prompts.
 ## Settings and API
 
 `agent-runtimes.json` in the data directory stores, per agent, `enabled`
-(default off), `permissionMode` (`standard`
-or `full`, default `standard`), an optional absolute
+(default off), `permissionMode` (one of the
+agent's own modes, default the one that asks nothing), an optional absolute
 `binaryPath`, and an optional native model/effort `defaultModel`. A damaged file falls
 back to the defaults. Credentials remain in the CLI's own store.
 
@@ -547,7 +493,7 @@ back to the defaults. Credentials remain in the CLI's own store.
 | `POST /agent-runtimes/:id/login`                          | Start the CLI's sign-in; returns a browser URL or a command            |
 | `PUT /projects/:p/conversations/:c/reasoning`             | Select a native effort/variant string                                  |
 | `PUT /models/default`, `POST /projects/:p/conversations`  | Take `nativeReasoningLevel` for a native model, never `reasoningLevel` |
-| `POST /projects/:p/conversations/:c/approvals/:requestId` | Answer an approval request: `allow`, `allow-session` or `deny`         |
+| `POST /projects/:p/conversations/:c/approvals/:requestId` | Answer an approval request: `allow`, `allow-always` or `deny`          |
 
 Status and models are probed only when asked for and cached by executable
 signature. Conversation model discovery does not start disabled CLIs; the
@@ -581,30 +527,23 @@ executable signature and invalidated when settings change or **Check again** is
 used. Temporary failures remain probe/catalog errors and retry after the short
 failure cache expires; they are not classified as unsupported capabilities.
 
-- Codex discovery starts an ephemeral thread with a dynamic tool, OhMyGame's
-  approval policy and a named permission profile, and checks the returned
+- Codex discovery starts an ephemeral thread with a dynamic tool in Codex's
+  built-in `:read-only` permission profile, and checks the returned
   `activePermissionProfile`. It sends no model turn. The real driver checks the
   profile again on start/resume. Codex 0.162.0-alpha.17.2 has passed this protocol
   probe; that alone is not a full inference or sandbox acceptance run.
 - Claude discovery registers the SDK tool server and PreToolUse callback during
   its control handshake, and accepts catalogs from `initialize` or `list_models`.
-  Standard permissions on a platform where approvals rely on its OS sandbox
-  require `sandbox.failIfUnavailable`, introduced in
-  [Claude Code 2.1.83](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#2183).
-  This documented feature requirement does not apply to Full access or platforms
-  using the strict command approval policy without an OS sandbox. An unknown
-  version cannot establish that sandbox requirement and remains a probe failure.
 - OpenCode discovery starts `serve --stdio --hostname 127.0.0.1 --port 0` with
   a private password and reads its JSON address announcement. It establishes
-  `/api/event`, checks `/api/info` and `/api/location`, waits for the agents'
-  permission transformations, and lists `/api/model`. This creates no session
-  and sends no inference. Real sessions create or reapply a wildcard `ask`
-  permission rule and read it back before sending a prompt. Child-session
-  requests must have verified ancestry and the same workspace location; file resources resolve relative to
-  that session's location rather than the Git root. Saved CLI grants for the
-  project can override callback rules, so discovery/startup and each prompt
-  refuse them with a diagnostic; OhMyGame never deletes those grants. Remove
-  them in OpenCode before retrying. User plugins remain trusted CLI code.
+  `/api/event`, checks `/api/info` and `/api/location`, waits for its `build`
+  and `plan` agents, and lists `/api/model`. This creates no session and sends
+  no inference. Before each prompt a real session applies the rules its mode
+  needs: the staged Skills readable and, in its Allow all mode outside planning,
+  everything allowed. Child-session requests must have verified ancestry and
+  the same workspace location; file resources resolve relative to that
+  session's location rather than the Git root. Saved OpenCode grants are the
+  person's own and apply. User plugins remain trusted CLI code.
 
 OpenCode v2 native session IDs carry an `opencode-v2:` marker in OhMyGame's
 session record. A v1 marker or missing v2 session triggers the existing fresh
@@ -638,10 +577,6 @@ orphan recovery.
 
 Real inference is opt-in and consumes the provider's quota:
 
-On macOS, Codex's command profile includes read-only access to the system
-`/System/Library/OpenSSL/openssl.cnf` file so Node/npm can initialize TLS.
-This does not grant access to the rest of the system Library.
-
 ```bash
 bun run test:agent-runtimes:live opencode-cli opencode/mimo-v2.6-flash-free
 bun run test:agent-runtimes:live codex-cli YOUR_AVAILABLE_MODEL
@@ -649,18 +584,22 @@ bun run test:agent-runtimes:live claude-code-cli YOUR_AVAILABLE_MODEL
 ```
 
 Choose a currently listed model with a working account. The script uses isolated
-app data and a disposable workspace, grants only scoped test requests, and saves
-evidence under ignored `.runtime/`. It checks writes, an OhMyGame tool call,
+app data and a disposable workspace, runs the agent in its usual mode
+(Accept edits, Default, Your rules) so its own
+approvals reach the test, grants only scoped test requests, and saves evidence
+under ignored `.runtime/`. It checks writes, an OhMyGame tool call,
 continuation, daemon restart, compaction, editing a later message, checkpoint
-restore, denial of external dummy files, approval persistence, cancellation
-during an executing shell tool, running the toolchain (Node, `npm install` over
-the network and Git), loading a staged Skill without approval, and a
-planning turn that records its plan with `update_plan` and changes no file.
+restore, denial of external dummy files where the agent asks before reading
+outside the project (Claude Code and OpenCode; Codex's workspace sandbox reads
+anywhere), approval persistence, cancellation during an executing shell tool,
+running the toolchain (Node, `npm install` over the network and Git), loading
+a staged Skill without approval, a planning turn that records its plan with
+`update_plan` and changes no file, and a turn in the mode that asks nothing.
 Claude Code refuses a standalone `sleep`, so its cancellation step runs an
 equivalent `node` command.
 
-Earlier acceptance passed on macOS with Claude Code 2.1.302 / `sonnet` and
-Codex 0.163.0 / `gpt-6-luna`. OpenCode 2.1.0 with
+Earlier acceptance, before agents kept their own permission rules, passed on
+macOS with Claude Code 2.1.302 / `sonnet` and Codex 0.163.0 / `gpt-6-luna`. OpenCode 2.1.0 with
 `opencode/deepseek-v4.1-flash-free` passed the full live
 acceptance on macOS: file edits, direct app tools, native continuation and daemon
 restart, compaction, message revision, Undo, denied external reads, an approved
@@ -669,10 +608,11 @@ and structured read-only planning. Image request parameters and native effort
 selection are covered by protocol fixtures; this run did not send an image.
 
 Historical v1 acceptance used OpenCode 1.18.33 with
-`opencode/mimo-v2.6-flash-free` on macOS; that run does not establish v2 acceptance. In Claude's `-p` mode
-it has no `TodoWrite`, `Glob`, `Grep` or `LS` and searches with `Bash`, so
-planning turns accept the read commands the policy allows without asking. Keep a runtime opt-in until real acceptance
-passes on the target platform; fixture success alone is insufficient.
+`opencode/mimo-v2.6-flash-free` on macOS; that run does not establish v2
+acceptance. In Claude's `-p` mode it has no `TodoWrite`, `Glob`, `Grep` or `LS`
+and searches with `Bash`, so planning turns run the read commands Claude Code
+allows without asking. Keep a runtime opt-in until real acceptance passes on the
+target platform; fixture success alone is insufficient.
 
 An optional final argument selects an absolute executable path, for example
 `bun run test:agent-runtimes:live codex-cli MODEL /absolute/path/to/codex`.

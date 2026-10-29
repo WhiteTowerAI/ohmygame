@@ -41,7 +41,6 @@ import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, l
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
 import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { AgentRuntimeService } from "./agent-runtimes/service.js";
-import { neverTouchPaths } from "./agent-runtimes/policy.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
 import { ACCOUNT_RUNTIME_IDS, isAccountRuntimeId, isAccountProfileIds, isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest } from "../shared/agent-runtimes.js";
@@ -102,7 +101,7 @@ import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
 import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
 import { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
-import { AUDIO_REFERENCE_ID_PATTERN, DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioOperation } from "../shared/audio.js";
+import { DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioOperation } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -408,7 +407,7 @@ const answerApprovalSchema = {
     type: "object",
     additionalProperties: false,
     required: ["decision"],
-    properties: { decision: { enum: ["allow", "allow-session", "deny"] } },
+    properties: { decision: { enum: ["allow", "allow-always", "deny"] } },
   },
 } as const;
 
@@ -497,7 +496,6 @@ const toolRunSchema = {
       instrumental: { type: "boolean" },
       lyrics: { type: "string", maxLength: 20_000 },
       negativePrompt: { type: "string", maxLength: 4_000 },
-      referenceAssetId: { type: "string", minLength: 1, maxLength: 100 },
       referenceMode: { enum: ["frame", "reference"] },
       targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
@@ -538,7 +536,6 @@ const toolRunSchema = {
           additionalProperties: false,
           required: ["type", "assetId"],
           properties: {
-            id: { type: "string", pattern: AUDIO_REFERENCE_ID_PATTERN, maxLength: 120 },
             type: { enum: ["image", "video", "audio"] },
             assetId: { type: "string", minLength: 1, maxLength: 100 },
           },
@@ -707,11 +704,7 @@ export function createApp(options: AppOptions = {}) {
     undefined,
     () => providerEnabled("volcengine-seed-audio"),
   );
-  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider], async (assetId) => {
-    const content = await library.content(assetId);
-    if (content.asset.size > 10 * 1024 * 1024) throw new AudioGenerationError("Reference assets must be 10 MB or smaller", 400);
-    return { bytes: await readFile(content.absolutePath), mediaType: content.asset.contentType };
-  });
+  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider]);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -907,10 +900,6 @@ export function createApp(options: AppOptions = {}) {
       pluginMcp: { config: effectiveMcp, host: pluginCapabilities.host, agentDir: piAgentDirectory },
       skillDirectories: [...pluginSkillFolders(pluginSkills), ...ownSkills],
       instructions: appendSystemPromptForProject(project).join("\n\n"),
-      policy: {
-        workspacePath: project.workspacePath,
-        neverTouch: [...neverTouchPaths(dataDirectory, piAgentDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)), ...ACCOUNT_RUNTIME_IDS.flatMap((runtime) => agentRuntimes.settings.profiles(runtime)).flatMap((profile) => profile.configDirectory ? [profile.configDirectory] : [])],
-      },
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
       requestApproval: (details, toolCallId, signal) => agents.askApproval(project.id, conversation.summary.id, toolCallId, details, signal),
@@ -1293,7 +1282,15 @@ export function createApp(options: AppOptions = {}) {
 
   app.post<{ Params: { toolId: string }; Body: RunToolRequest & { title?: string; projectId?: string; nodeId?: string } }>(
     "/tools/:toolId/jobs",
-    { schema: toolRunSchema, bodyLimit: TOOL_RUN_BODY_LIMIT },
+    {
+      schema: toolRunSchema,
+      bodyLimit: TOOL_RUN_BODY_LIMIT,
+      preValidation: async (request, reply) => {
+        if (!["generate-speech", "generate-sound-effect", "generate-music", "generate-audio"].includes(request.params.toolId) || !request.body || typeof request.body !== "object") return;
+        const removed = ["references", "referenceAssetId", "subtitles"].find((key) => key in request.body);
+        if (removed) return reply.code(400).send({ error: `Unexpected ${removed} option` });
+      },
+    },
     async (request, reply) => {
       try {
         const { title, projectId, nodeId, ...input } = request.body;
