@@ -246,6 +246,10 @@ export function audioCanvasSettings(data: AudioCanvasSettings): AudioCanvasSetti
 export function isAudioNodeType(type: string): type is "speech" | "sound-effect" | "music" | "audio-scene" {
   return ["speech", "sound-effect", "music", "audio-scene"].includes(type);
 }
+/** Music and Audio creation nodes offer no audio settings; saved values are ignored. */
+export function audioNodeHasSettings(type: string): type is "speech" | "sound-effect" {
+  return type === "speech" || type === "sound-effect";
+}
 
 export function audioCompanionFiles(name: string, data: AudioAssetData): Array<{ name: string; mediaType: string; role: "metadata"; text: string }> {
   const metadata = {

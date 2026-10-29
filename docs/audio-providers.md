@@ -51,6 +51,11 @@ speech nodes additionally support eligible TTS options such as SSML,
 pronunciation, language detection, dialect, trailing silence and bit rate.
 Preset voices offer official samples without synthesis quota use.
 
+Music and Audio creation nodes show no **Audio settings**: they keep the
+prompt, model, target duration and the model's instrumental and loop toggles.
+Audio settings saved on these nodes are neither remembered for new nodes nor
+sent with new generations, so the provider's defaults apply.
+
 Audio reference uploads, trimming and image/audio references are no longer
 available in audio nodes or generation requests. Existing canvas reference
 fields remain readable but do not affect new generations. This change does not

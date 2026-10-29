@@ -964,7 +964,7 @@ describe("design merge and validation", () => {
   });
 });
 
-it("reads legacy scene settings but omits references and subtitles from new generations", async () => {
+it("reads legacy scene settings but omits references, subtitles and audio settings from new generations", async () => {
   const model = { provider: "volcengine-seed-audio", id: "seed-audio-1.0" };
   const subtitles = { text: "Welcome", sentences: [{ text: "Welcome", startMs: 100, endMs: 800, words: [{ text: "Welcome", startMs: 100, endMs: 800 }] }] };
   const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("fixture audio"), mediaType: "audio/wav", model, metadata: { durationMs: 1000, originalDurationMs: 1200, providerRequestId: "trace-scene" }, subtitles });
@@ -977,7 +977,9 @@ it("reads legacy scene settings but omits references and subtitles from new gene
   await store.generateNode(project.id, boardId, "scene");
   const job = await waitForJob(store, project.id);
   expect(job.status).toBe("succeeded");
-  expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "audio-scene", pitch: -3, volume: 10 }), expect.any(AbortSignal));
+  expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "audio-scene" }), expect.any(AbortSignal));
+  // Audio creation offers no audio settings, so saved ones are not sent.
+  for (const key of ["pitch", "volume", "output"]) expect(generate.mock.calls[0]![0]).not.toHaveProperty(key);
   expect(generate.mock.calls[0]![0]).not.toHaveProperty("subtitles");
   expect(generate.mock.calls[0]![0]).not.toHaveProperty("references");
   const output = job.run!.files.find((file) => file.role === "audio")!;

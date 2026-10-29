@@ -526,9 +526,8 @@ export class CanvasStore {
       }));
       return this.start(id, boardId, nodeId, "image-to-3d", { ...buildModel3DToolRequest(node.data, images, operation), operation, ...(prompt ? { prompt } : {}), ...(node.data.source ? { sourceAssetId: assetId(node.data.source) } : {}), ...(node.data.options ? { options: node.data.options } : {}) }, revision, undefined, reuse);
     }
-    const audio = node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene" ? {
-      ...audioSettings(node.data),
-    } : {};
+    // Music and Audio creation offer no audio settings, so saved ones are not sent.
+    const audio = node.type === "speech" || node.type === "sound-effect" ? audioSettings(node.data) : {};
     if (node.type === "speech") {
       const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
       const linkedText = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
