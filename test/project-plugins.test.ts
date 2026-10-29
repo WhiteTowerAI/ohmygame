@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
+import { PluginServices } from "../src/daemon/plugin-services.js";
 import {
   PluginGrants,
   createProjectPlugins,
@@ -209,6 +210,32 @@ describe("project plugins", () => {
     expect(
       resolved?.ok && projectSkills(resolved).map((skill) => skill.name),
     ).toEqual(["game-foundations", "game-qa", "game-studio"]);
+  });
+
+  it("gives agent sessions the Skills of plugins the project allows", async () => {
+    const services = new PluginServices({ directory: await temporary() });
+    try {
+      expect((await services.index.add(await gameStudio())).ok).toBe(true);
+      const folder = await temporary();
+      await writeProjectFile(folder, (file) => file, {
+        type: "general",
+        plugins: { "ohmygame/game-studio": "1.0.0" },
+      });
+      // Not yet allowed in this folder: no Skills.
+      expect(await services.skills(folder)).toEqual([]);
+      await services.grants.consent("ohmygame/game-studio", []);
+      await services.grants.approve(await projectFolderKey(folder), "ohmygame/game-studio", []);
+      const skills = await services.skills(folder);
+      expect(skills.map((skill) => path.basename(path.dirname(skill.path)))).toEqual([
+        "game-foundations",
+        "game-qa",
+        "game-studio",
+      ]);
+      expect(skills[0]).toMatchObject({ marketplaceDisplayName: "ohmygame" });
+      expect(skills[0]!.path.endsWith(path.join("skills", "game-foundations", "SKILL.md"))).toBe(true);
+    } finally {
+      await services.close();
+    }
   });
 
   it("asks again when a version wants more, and only for what is new", async () => {

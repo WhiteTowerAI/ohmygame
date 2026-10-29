@@ -930,9 +930,14 @@ export function createApp(options: AppOptions = {}) {
     ...(externalClients.launcher ? { launcher: externalClients.launcher } : {}),
     clients: await externalClients.states(),
   });
+  /** Skills from the plugins the project uses: format 1 by type, format 2 from its project file. */
+  const projectPluginSkills = async (project: ProjectState) => [
+    ...await resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type),
+    ...await pluginServices.skills(project.workspacePath).catch(() => []),
+  ];
   /** A conversation run by a coding agent CLI, kept in the same session file and checkpoints as Pi's. */
   const createNativeSession = async (project: ProjectState, conversation: StoredConversation, runtime: AgentRuntimeId, modelId: string) => {
-    const resolvePlugins = () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type);
+    const resolvePlugins = () => projectPluginSkills(project);
     const [pluginSkills, ownSkills, catalog, effectiveMcp, reasoningLevel] = await Promise.all([
       resolvePlugins(),
       skillFolders(path.join(piAgentDirectory, "skills")),
@@ -975,7 +980,7 @@ export function createApp(options: AppOptions = {}) {
       loadSkills: (project) => loadPiSkills(
         project.workspacePath,
         piAgentDirectory,
-        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type),
+        () => projectPluginSkills(project),
       ),
     }),
     createSession: options.createSession ?? (async (project, conversation) => {
@@ -996,7 +1001,7 @@ export function createApp(options: AppOptions = {}) {
         modelRuntime,
         model,
         piAgentDirectory,
-        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type),
+        () => projectPluginSkills(project),
         Object.keys(effectiveMcp.mcpServers).length ? { factory: await pluginCapabilities.host.extension(effectiveMcp), host: pluginCapabilities.host } : undefined,
         (provider) => providerModelSettings.responsesTransport(provider),
         () => snapshotWorkspace(project),

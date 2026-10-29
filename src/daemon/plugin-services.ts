@@ -27,9 +27,11 @@ import {
   capabilityGrants,
   PluginGrants,
   projectFolderKey,
+  projectSkills,
   resolveProjectPlugins,
   setProjectPlugin,
 } from "./project-plugins.js";
+import type { PluginSkillRegistration } from "./plugin-runtime.js";
 
 // The format 2 plugin services the daemon holds: the index of installed
 // packages, the person's decisions, and the hosts that run native code. They
@@ -161,6 +163,30 @@ export class PluginServices {
         );
     }
     return tools;
+  }
+
+  /**
+   * The Skills of a project's active plugins, for agent sessions to load
+   * beside the format 1 plugins' Skills.
+   */
+  async skills(folder: string): Promise<PluginSkillRegistration[]> {
+    await this.ready();
+    this.#watch(folder);
+    const resolved = await resolveProjectPlugins({
+      folder,
+      index: this.index,
+      grants: this.grants,
+    }).catch(() => undefined);
+    if (!resolved?.ok) return [];
+    return projectSkills(resolved).map((skill) => {
+      const entry = this.index.get(skill.plugin)!;
+      return {
+        path: path.join(skill.root, skill.path),
+        pluginDisplayName: localizePluginString(entry, entry.manifest.displayName, "en"),
+        // Format 2 plugins have no marketplace; their publisher stands in.
+        marketplaceDisplayName: skill.plugin.split("/")[0]!,
+      };
+    });
   }
 
   /**
