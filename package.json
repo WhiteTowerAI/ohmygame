@@ -29,6 +29,7 @@
     "start:desktop": "bun run prepare:preinstalled-plugins && bun run prepare:examples && bun run build:host && bun run build:renderer && bun --bun node_modules/electron/cli.js . --built-renderer",
     "prepare:preinstalled-plugins": "node --import tsx scripts/prepare-preinstalled-plugins.ts",
     "prepare:examples": "bun scripts/prepare-examples.ts",
+    "plugin:schema": "node --import tsx scripts/plugin-schema.ts",
     "voices:doubao": "bun scripts/sync-doubao-voices.ts",
     "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",
     "changelog:check": "node scripts/release-notes.mjs --check",

@@ -6,7 +6,7 @@ import path from "node:path";
 import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { LibraryAssetProject, MediaModelDefaults, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
-import { isProjectType, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import { buildsWebPreview, isProjectType, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { getWorkspaceMedia, workspaceMediaInfo, resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
@@ -32,6 +32,7 @@ interface ProjectMetadata extends ProjectPreviewSettings {
   nameSource?: ProjectState["nameSource"];
   type: ProjectType;
   integration?: ProjectState["integration"];
+  pluginType?: ProjectState["pluginType"];
   updatedAt: string;
   webPreviewEnabled?: boolean;
   /** Present only when a Web Game starts from a directory below its workspace root. */
@@ -135,7 +136,7 @@ export class ProjectManager {
     }
   }
 
-  async create(name?: string, type: ProjectType = "web-game", selectedWorkspacePath?: string, integration?: ProjectState["integration"]): Promise<ProjectState> {
+  async create(name?: string, type: ProjectType = "web-game", selectedWorkspacePath?: string, integration?: ProjectState["integration"], pluginType?: ProjectState["pluginType"]): Promise<ProjectState> {
     const id = randomUUID();
     const projectDirectory = path.join(this.#projectsDirectory, id);
     const hasExternalWorkspace = selectedWorkspacePath !== undefined;
@@ -149,7 +150,8 @@ export class ProjectManager {
       nameSource: name?.trim() ? "manual" : "default",
       type,
       ...(integration ? { integration } : {}),
-      ...(type === "general" ? { webPreviewEnabled: integration?.preview !== "external" } : {}),
+      ...(pluginType ? { pluginType } : {}),
+      ...(type === "general" ? { webPreviewEnabled: pluginType ? pluginType.preview === "web" : integration?.preview !== "external" } : {}),
       updatedAt: new Date().toISOString(),
       ...(hasExternalWorkspace ? { workspacePath } : {}),
     };
@@ -220,7 +222,7 @@ export class ProjectManager {
   async setRunSettings(id: string, input: ProjectRunSettings): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    if (!isWebRuntimeProjectType(project.type)) throw new ProjectWorkspaceError("Run settings require a Web Game or General Game project");
+    if (!isWebRuntimeProjectType(project.type) && !buildsWebPreview(project)) throw new ProjectWorkspaceError("Run settings require a Web Game or General Game project");
 
     if (project.type !== "general" && input.webPreviewEnabled !== undefined) throw new ProjectWorkspaceError("Only General Game projects have a Web preview switch");
     if (input.webPreviewEnabled !== undefined && typeof input.webPreviewEnabled !== "boolean") throw new ProjectWorkspaceError("Web preview enabled must be a boolean");
@@ -280,6 +282,19 @@ export class ProjectManager {
     return project;
   }
 
+  /**
+   * The plugin type recorded for the project, after its project file moved to
+   * another version of the plugin. A General Game's Web preview follows the type.
+   */
+  async setPluginType(id: string, pluginType: NonNullable<ProjectState["pluginType"]>): Promise<ProjectState> {
+    const project = this.#projects.get(id);
+    if (!project) throw new ProjectWorkspaceError("Project not found");
+    const current = project.pluginType;
+    if (current?.id === pluginType.id && current.plugin === pluginType.plugin && current.preview === pluginType.preview) return project;
+    await this.#save(project, { pluginType, ...(project.type === "general" ? { webPreviewEnabled: pluginType.preview === "web" } : {}) });
+    return project;
+  }
+
   /** Web preview stays off; the user re-enables it in Project settings. */
   async clearIntegration(id: string): Promise<ProjectState> {
     const project = this.#projects.get(id);
@@ -301,6 +316,7 @@ export class ProjectManager {
       nameSource: "manual",
       type: source.type,
       ...(source.integration ? { integration: source.integration } : {}),
+      ...(source.pluginType ? { pluginType: source.pluginType } : {}),
       ...(source.type === "general" ? { webPreviewEnabled: source.webPreviewEnabled ?? false } : {}),
       updatedAt,
       ...previewSettings(source),
@@ -376,11 +392,15 @@ export class ProjectManager {
     return project;
   }
 
-  async delete(id: string): Promise<ProjectState> {
+  /**
+   * `registrationOnly` takes back a project whose creation failed: its own
+   * storage goes, and a folder the person chose is left exactly as it is.
+   */
+  async delete(id: string, { registrationOnly = false } = {}): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     const operation = (this.#metadataWrites.get(id) ?? Promise.resolve()).catch(() => {}).then(async () => {
-      if (project.workspaceLocation === "external") {
+      if (project.workspaceLocation === "external" && !registrationOnly) {
         await rm(path.join(project.workspacePath, ".data", "agent-attachments"), { recursive: true, force: true });
       }
       await rm(this.#projectDirectory(id), { recursive: true, force: false });
@@ -785,7 +805,7 @@ export class ProjectManager {
 
   async #save(
     project: ProjectState,
-    changes: Partial<Pick<ProjectMetadata, "integration" | "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | keyof ProjectPreviewSettings>>,
+    changes: Partial<Pick<ProjectMetadata, "integration" | "pluginType" | "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | keyof ProjectPreviewSettings>>,
   ): Promise<boolean> {
     const operation = (this.#metadataWrites.get(project.id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       if (this.#projects.get(project.id) !== project || changes.nameSource === "ai" && project.nameSource !== "default") return false;
@@ -794,6 +814,7 @@ export class ProjectManager {
       for (const key of PREVIEW_SETTING_KEYS) { delete project[key]; }
       Object.assign(project, previewSettings(metadata));
       project.integration = metadata.integration;
+      if (metadata.pluginType) project.pluginType = metadata.pluginType;
       project.name = metadata.name;
       if (metadata.nameSource) project.nameSource = metadata.nameSource;
       project.updatedAt = metadata.updatedAt;
@@ -878,6 +899,7 @@ function projectState(
     ...(metadata.nameSource ? { nameSource: metadata.nameSource } : {}),
     type: metadata.type,
     ...(metadata.integration ? { integration: metadata.integration } : {}),
+    ...(metadata.pluginType ? { pluginType: metadata.pluginType } : {}),
     ...(metadata.type === "general" ? { webPreviewEnabled: metadata.webPreviewEnabled ?? false } : {}),
     updatedAt: metadata.updatedAt,
     workspacePath,
@@ -896,8 +918,10 @@ function projectState(
   };
 }
 
-async function isRunnableStartupWorkspace(project: Pick<ProjectState, "type" | "integration" | "webPreviewEnabled" | "workspacePath" | "startupDirectory" | "startupScript" | keyof ProjectPreviewSettings>): Promise<boolean> {
+async function isRunnableStartupWorkspace(project: Pick<ProjectState, "type" | "integration" | "pluginType" | "webPreviewEnabled" | "workspacePath" | "startupDirectory" | "startupScript" | keyof ProjectPreviewSettings>): Promise<boolean> {
   if (project.type === "general" && !supportsWebPreview(project)) return false;
+  // Its plugin builds what the preview serves.
+  if (buildsWebPreview(project)) return true;
   try {
     return (await resolvePreviewWorkspace(project)).runnable;
   } catch {
@@ -1062,6 +1086,7 @@ function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): L
     (parsed.nameSource === undefined || ["default", "ai", "manual"].includes(parsed.nameSource)) &&
     (parsed.type === undefined || isProjectType(parsed.type)) &&
     (parsed.integration === undefined || (typeof parsed.integration?.pluginId === "string" && !!parsed.integration.pluginId && (parsed.integration.preview === undefined || parsed.integration.preview === "external"))) &&
+    (parsed.pluginType === undefined || (typeof parsed.pluginType?.id === "string" && typeof parsed.pluginType.plugin === "string" && parsed.pluginType.id.startsWith(`${parsed.pluginType.plugin}:`) && ["web", "web-build", "native"].includes(parsed.pluginType.preview))) &&
     (parsed.webPreviewEnabled === undefined || typeof parsed.webPreviewEnabled === "boolean") &&
     (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
     (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
@@ -1091,6 +1116,7 @@ function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): L
         ...(parsed.nameSource ? { nameSource: parsed.nameSource } : {}),
         type,
         ...(parsed.integration ? { integration: parsed.integration } : {}),
+        ...(parsed.pluginType ? { pluginType: { id: parsed.pluginType.id, plugin: parsed.pluginType.plugin, preview: parsed.pluginType.preview } } : {}),
         ...(type === "general" ? { webPreviewEnabled: parsed.webPreviewEnabled ?? false } : {}),
         updatedAt,
         ...(startupDirectory ? { startupDirectory } : {}),
@@ -1119,6 +1145,7 @@ function metadataFor(project: ProjectState): ProjectMetadata {
     ...(project.nameSource ? { nameSource: project.nameSource } : {}),
     type: project.type,
     ...(project.integration ? { integration: project.integration } : {}),
+    ...(project.pluginType ? { pluginType: project.pluginType } : {}),
     ...(project.type === "general" ? { webPreviewEnabled: project.webPreviewEnabled ?? false } : {}),
     updatedAt: project.updatedAt,
     ...(project.startupDirectory ? { startupDirectory: project.startupDirectory } : {}),

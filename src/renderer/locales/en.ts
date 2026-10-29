@@ -1052,6 +1052,7 @@ const en = {
     processStopped: "The preview process stopped.",
     phase: {
       checking: "Checking environment",
+      building: "Building web version",
       installing: "Installing dependencies",
       launching: "Starting preview server",
       connecting: "Waiting for preview server",

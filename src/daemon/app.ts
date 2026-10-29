@@ -2,8 +2,8 @@ import { PluginIntegrationHost } from "./plugin-integration.js";
 import { matchesPluginProject, requireIntegrationPlugin, registerPluginIntegrationRoutes, projectPreviewTool } from "./plugin-integration-routes.js";
 import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
 import { inspectPreviewConfiguration } from "./preview-configuration.js";
-import { CheckpointStore } from "./checkpoints.js";
-import { ProjectWrites } from "./project-writes.js";
+import { CheckpointConflictError, CheckpointStore } from "./checkpoints.js";
+import { ProjectWriteError, ProjectWrites } from "./project-writes.js";
 import { registerCheckpointRoutes } from "./checkpoint-routes.js";
 import { registerStoryWebRoutes } from "./story-web-routes.js";
 import { readWorkspaceNotice, readWorkspaceVersion } from "./workspace-notice.js";
@@ -17,7 +17,7 @@ import { registerPluginCapabilityRoutes } from "./plugin-capability-routes.js";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
 import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
 import path from "node:path";
@@ -30,7 +30,7 @@ import { ActivityLog } from "./activity-log.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
-import { isWebRuntimeProjectType, pluginProjectType, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
+import { buildsWebPreview, isWebRuntimeProjectType, pluginProjectType, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
@@ -114,6 +114,17 @@ import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settin
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { registerPluginPortabilityRoutes } from "./plugin-portability.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
+import { PluginServices, PluginToolSchemaError } from "./plugin-services.js";
+import { localizePluginString } from "./plugin-index.js";
+import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
+import { PluginConfigurationError } from "./plugin-values.js";
+import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
+import { capabilityGrants } from "./project-plugins.js";
+import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
+import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
+import { PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
+import { ExtensionHostError } from "./extension-hosts.js";
+import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectKind, projectKindAt } from "./project-types.js";
 import { LegacyMcpConfiguration } from "./legacy-mcp.js";
 import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
@@ -159,6 +170,8 @@ export interface AppOptions {
   logDirectory?: string;
   accessToken?: string;
   allowedOrigins?: string[];
+  /** Pages that may frame plugin pages; the allowed origins when unset. */
+  pluginFrameAncestors?: string[];
   publishApiUrl?: string;
   publishFetch?: typeof fetch;
   /** Enabled by the development entry point only when product auth is unconfigured. */
@@ -176,6 +189,12 @@ export interface AppOptions {
   modelDiscoveryFetch?: typeof fetch;
   createModelRuntime?: () => Promise<ModelRuntime>;
   bundledPluginsDirectory?: string;
+  /** The `@ohmygame/plugin-ui` package that plugin pages load their styles and bridge from. */
+  pluginUiDirectory?: string;
+  /** The plugin pages' port, which the desktop app picks so it can keep their frames in. */
+  pluginUiPort?: number;
+  /** Keys whose signatures make a format 2 release installable, and the publishers each signs for. */
+  pluginReleaseKeys?: PluginReleaseKeys;
   preinstalledPluginsDirectory?: string;
   /** Examples prepared by scripts/prepare-examples.ts; omitted means no examples. */
   examplesDirectory?: string;
@@ -209,6 +228,7 @@ const createProjectSchema = {
       },
       workspacePath: { type: "string", minLength: 1, maxLength: 4096 },
       pluginId: { type: "string", minLength: 1, maxLength: 512 },
+      projectType: { type: "string", minLength: 1, maxLength: 512 },
     },
   },
 } as const;
@@ -572,7 +592,10 @@ export function createApp(options: AppOptions = {}) {
     fetch: options.publishFetch,
     visitorTokenFile: path.join(dataDirectory, "community-visitor.json"),
   });
-  const previews = new PreviewManager(events);
+  // The plugin services are made below; a build only runs once the app is up.
+  const previews = new PreviewManager(events, {
+    webBuild: (project, signal, log) => buildWebPreview({ folder: project.workspacePath, services: pluginServices, signal, onProgress: log }),
+  });
   const checkpoints = new CheckpointStore();
   const projectWrites = new ProjectWrites();
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
@@ -757,6 +780,11 @@ export function createApp(options: AppOptions = {}) {
     options.audioGenerator ?? providerAudio,
   );
   const pluginSettings = new PluginSettingsStore(dataDirectory);
+  /** Format 2 plugins: their index, the person's decisions, and the hosts that run native code. */
+  const pluginServices = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
+  // Format 2 plugins that ship with the app sit next to the format 1 ones.
+  const bundledPluginsV2 = path.join(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"), "..", "plugins-v2");
+  void pluginServices.addBundled(bundledPluginsV2).catch((err: unknown) => app.log.warn({ err }, "Could not index the bundled format 2 plugins"));
   const legacyMcp = new LegacyMcpConfiguration(piAgentDirectory);
   const bundledPlugins = new BundledPluginStore(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"));
   const preinstalledPlugins = new PreinstalledPluginManager(
@@ -787,13 +815,25 @@ export function createApp(options: AppOptions = {}) {
     await canvasStore.waitForProject(project.id);
     return withCanvasLock(project.workspacePath, () => checkpoints.snapshot(project));
   });
+  // A plugin's writes outside a turn get their own checkpoints and history entry.
+  const pluginWrites = new PluginWrites({
+    writes: projectWrites, checkpoints,
+    // Plugin writes hold the workspace themselves, so this snapshot doesn't take it again.
+    snapshot: async (project) => {
+      if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before continuing.");
+      await canvasStore.waitForProject(project.id);
+      return withCanvasLock(project.workspacePath, () => checkpoints.snapshot(project));
+    },
+    busy: (project) => agents.isProjectBusy(project.id) || publishing.has(project.id) || canvasStore.isProjectBusy(project.id) || tools.jobs().some((job) => job.context?.projectId === project.id && job.status === "running"),
+    announce: (project, version, changed) => events.publish(project.id, "workspace.restored", { version, changed }),
+  });
   // At most once a day, after a run, the snapshots that no conversation names any more are removed. Removing the
   // project, Undo and Restore hold the workspace exclusively; a prune whose turn comes then is left for later.
   const pruneCheckpoints = async (project: ProjectState) => {
     const idle = () => !!projects.get(project.id) && !agents.isProjectBusy(project.id) && !projectWrites.isMutating(project.id);
     if (!idle()) return;
     try {
-      await checkpoints.prune(project, () => referencedSnapshots(sessionDirectory(project)), {
+      await checkpoints.prune(project, async () => new Set([...await referencedSnapshots(sessionDirectory(project)), ...await pluginWrites.snapshots(project)]), {
         interval: CHECKPOINT_PRUNE_INTERVAL_MS,
         proceed: idle,
       });
@@ -847,6 +887,15 @@ export function createApp(options: AppOptions = {}) {
         undefined, canvasStore,
       );
     },
+    // An outside agent's call isn't part of an OhMyGame turn, so it is a change of its own.
+    pluginTools: async (project) => (await pluginServices.agentTools(project.workspacePath)).map((tool) => ({
+      ...tool,
+      execute: async (...args: Parameters<typeof tool.execute>) => (await pluginWrites.run(
+        project,
+        { plugin: tool.namespace?.name.replace("__", "/") ?? tool.name, action: `tool:${tool.name}`, title: tool.label ?? tool.name },
+        () => tool.execute(...args),
+      )).result,
+    })),
     catalog: () => {
       // Only the schemas are read. A story project has every project tool, and the
       // full game_use input is listed; a story's own game_use accepts a subset.
@@ -874,9 +923,14 @@ export function createApp(options: AppOptions = {}) {
     ...(externalClients.launcher ? { launcher: externalClients.launcher } : {}),
     clients: await externalClients.states(),
   });
+  /** Skills from the plugins the project uses: format 1 by type, format 2 from its project file. */
+  const projectPluginSkills = async (project: ProjectState) => [
+    ...await resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type),
+    ...await pluginServices.skills(project.workspacePath).catch(() => []),
+  ];
   /** A conversation run by a coding agent CLI, kept in the same session file and checkpoints as Pi's. */
   const createNativeSession = async (project: ProjectState, conversation: StoredConversation, runtime: AgentRuntimeId, modelId: string) => {
-    const resolvePlugins = () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type);
+    const resolvePlugins = () => projectPluginSkills(project);
     const [pluginSkills, ownSkills, catalog, effectiveMcp, reasoningLevel] = await Promise.all([
       resolvePlugins(),
       skillFolders(path.join(piAgentDirectory, "skills")),
@@ -895,7 +949,7 @@ export function createApp(options: AppOptions = {}) {
       ...(model?.contextWindow ? { contextWindow: model.contextWindow } : {}),
       workspacePath: project.workspacePath,
       sessionManager: conversations.open(project, conversation),
-      tools: projectAgentTools(project, conversation),
+      tools: [...projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
       saveGeneratedImage: (fileName, bytes, prompt) => projects.addGeneratedAsset(project.id, fileName, bytes, { prompt }),
       pluginMcp: { config: effectiveMcp, host: pluginCapabilities.host, agentDir: piAgentDirectory },
       skillDirectories: [...pluginSkillFolders(pluginSkills), ...ownSkills],
@@ -915,7 +969,7 @@ export function createApp(options: AppOptions = {}) {
       loadSkills: (project) => loadPiSkills(
         project.workspacePath,
         piAgentDirectory,
-        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type),
+        () => projectPluginSkills(project),
       ),
     }),
     createSession: options.createSession ?? (async (project, conversation) => {
@@ -932,11 +986,11 @@ export function createApp(options: AppOptions = {}) {
       return createPiSession(
         project,
         conversations.open(project, conversation),
-        projectAgentTools(project, conversation),
+        [...projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
         modelRuntime,
         model,
         piAgentDirectory,
-        () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type),
+        () => projectPluginSkills(project),
         Object.keys(effectiveMcp.mcpServers).length ? { factory: await pluginCapabilities.host.extension(effectiveMcp), host: pluginCapabilities.host } : undefined,
         (provider) => providerModelSettings.responsesTransport(provider),
         () => snapshotWorkspace(project),
@@ -961,6 +1015,21 @@ export function createApp(options: AppOptions = {}) {
   const invalidatePluginSessions = () => {
     for (const project of projects.list()) agents.invalidateProjectSessions(project.id);
   };
+  // A session's plugin tools are fixed when it starts; a change to them starts fresh sessions.
+  pluginServices.onChange(invalidatePluginSessions);
+  // The app records each plugin-typed project's type when it is created; the
+  // project file can later pin a version whose type previews differently.
+  async function syncPluginType(project: ProjectState): Promise<void> {
+    if (!project.pluginType) return;
+    const recorded = await projectKindAt(project.workspacePath, pluginServices).catch(() => undefined);
+    if (recorded?.pluginType) await projects.setPluginType(project.id, recorded.pluginType);
+  }
+  pluginServices.onChange((folder) => {
+    for (const project of projects.list()) {
+      if (folder && project.workspacePath !== folder) continue;
+      void syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"));
+    }
+  });
   const app = Fastify({
     logger: options.logger ? daemonLoggerOptions() : false,
     logController: new LogController({ disableRequestLogging: true }),
@@ -1034,6 +1103,7 @@ export function createApp(options: AppOptions = {}) {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
     }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), providerModelSettings.load(), externalMcp.load(), externalClients.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
+    await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     // Updates the Skill and launcher path in connected clients without holding up startup.
     void externalClients.refresh();
@@ -1065,6 +1135,193 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/health", async () => ({ status: "ok" }));
+
+  // The format 2 plugin store: what is installed, the person's decisions, and signed releases.
+  const storeReply = (reply: { code(status: number): { send(body: unknown): unknown } }, cause: unknown) =>
+    reply.code(cause instanceof PluginReleaseError || cause instanceof PluginConfigurationError ? 400 : 409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+  app.get<{ Querystring: { locale?: string } }>("/plugin-store/plugins", async (request) => {
+    await pluginServices.ready();
+    const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
+    return pluginServices.index.entries().map((entry) => ({
+      id: entry.id,
+      version: entry.version,
+      displayName: localizePluginString(entry, entry.manifest.displayName, locale),
+      description: localizePluginString(entry, entry.manifest.description, locale),
+      capabilities: capabilityGrants(entry.manifest),
+      grants: pluginServices.grants.plugin(entry.id) ?? null,
+    }));
+  });
+  app.post<{ Body: { release: unknown } }>("/plugin-store/releases", {
+    schema: { body: { type: "object", required: ["release"], additionalProperties: false, properties: { release: { type: "object" } } } },
+  }, async (request, reply) => {
+    try {
+      const entry = await installRelease({
+        release: request.body.release,
+        keys: options.pluginReleaseKeys ?? {},
+        services: pluginServices,
+        directory: pluginServices.packagesDirectory,
+        download: downloadRelease,
+      });
+      // What it asks for still needs the person's consent.
+      return { id: entry.id, version: entry.version, capabilities: capabilityGrants(entry.manifest) };
+    } catch (cause) {
+      return storeReply(reply, cause);
+    }
+  });
+  app.post<{ Params: { publisher: string; name: string }; Body: { allowed: string[] } }>("/plugin-store/:publisher/:name/consent", {
+    schema: { body: { type: "object", required: ["allowed"], additionalProperties: false, properties: { allowed: { type: "array", maxItems: 100, items: { type: "string", maxLength: 300 } } } } },
+  }, async (request, reply) => {
+    try {
+      await pluginServices.consent(`${request.params.publisher}/${request.params.name}`, request.body.allowed);
+      return reply.code(204).send();
+    } catch (cause) {
+      return storeReply(reply, cause);
+    }
+  });
+  app.put<{ Params: { publisher: string; name: string }; Body: { enabled: boolean } }>("/plugin-store/:publisher/:name/enabled", {
+    schema: { body: { type: "object", required: ["enabled"], additionalProperties: false, properties: { enabled: { type: "boolean" } } } },
+  }, async (request, reply) => {
+    try {
+      await pluginServices.setEnabled(`${request.params.publisher}/${request.params.name}`, request.body.enabled);
+      return reply.code(204).send();
+    } catch (cause) {
+      return storeReply(reply, cause);
+    }
+  });
+  app.delete<{ Params: { publisher: string; name: string; version: string } }>("/plugin-store/:publisher/:name/:version", async (request, reply) => {
+    await pluginServices.uninstall(`${request.params.publisher}/${request.params.name}`, request.params.version);
+    return reply.code(204).send();
+  });
+  // Moving a project to another installed version is how an update reaches it, and how it rolls back.
+  app.put<{ Params: { projectId: string; publisher: string; name: string }; Body: { version: string | null } }>("/projects/:projectId/plugins/:publisher/:name", {
+    schema: { body: { type: "object", required: ["version"], additionalProperties: false, properties: { version: { anyOf: [{ type: "string", maxLength: 256 }, { type: "null" }] } } } },
+  }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish first" });
+    try {
+      await pluginServices.setProjectPlugin(project.workspacePath, `${request.params.publisher}/${request.params.name}`, request.body.version);
+      // The change listener does this too; waiting here means the reply follows it.
+      await syncPluginType(project);
+      return reply.code(204).send();
+    } catch (cause) {
+      return storeReply(reply, cause);
+    }
+  });
+
+  // Format 2 plugins' pages: served by their own server, which starts with the first panel shown.
+  let pluginUi: Promise<PluginUiServer> | undefined;
+  const pluginUiServer = () => {
+    pluginUi ??= pluginServices.ready().then(() => startPluginUiServer({
+      index: pluginServices.index,
+      sdkDirectory: options.pluginUiDirectory ?? path.join(repositoryRoot, "packages", "plugin-ui"),
+      frameAncestors: options.pluginFrameAncestors ?? options.allowedOrigins ?? [],
+      ...(options.pluginUiPort ? { port: options.pluginUiPort } : {}),
+    }));
+    pluginUi.catch(() => (pluginUi = undefined));
+    return pluginUi;
+  };
+  const pageStorage = new PluginPageStorage();
+  app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-panels", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
+    const panels = await pluginServices.panels(project.workspacePath, locale);
+    if (!panels.length) return [];
+    const server = await pluginUiServer();
+    return panels.map((panel) => ({ ...panel, url: server.panelUrl(panel.plugin, panel.version, panel.id) }));
+  });
+  // Only a plugin the project uses, with a page, has storage there.
+  const pagePlugin = async (projectId: string, publisher: string, name: string) => {
+    const project = projects.get(projectId);
+    if (!project) return undefined;
+    const id = `${publisher}/${name}`;
+    return (await pluginServices.panels(project.workspacePath)).some((panel) => panel.plugin === id) ? { project, id } : undefined;
+  };
+  app.get<{ Params: { projectId: string; publisher: string; name: string; key: string } }>("/projects/:projectId/plugin-storage/:publisher/:name/:key", async (request, reply) => {
+    const found = await pagePlugin(request.params.projectId, request.params.publisher, request.params.name);
+    if (!found) return reply.code(404).send({ error: "No such plugin page in this project" });
+    return { value: await pageStorage.get(found.project, found.id, request.params.key) };
+  });
+  app.put<{ Params: { projectId: string; publisher: string; name: string; key: string }; Body: { value: unknown } }>("/projects/:projectId/plugin-storage/:publisher/:name/:key", {
+    schema: { params: { type: "object", properties: { key: { type: "string", pattern: "^[A-Za-z0-9._-]{1,100}$" } } }, body: { type: "object", required: ["value"] } },
+    bodyLimit: PLUGIN_UI_STORAGE_MAX_BYTES + 1024,
+  }, async (request, reply) => {
+    const found = await pagePlugin(request.params.projectId, request.params.publisher, request.params.name);
+    if (!found) return reply.code(404).send({ error: "No such plugin page in this project" });
+    try {
+      await pageStorage.set(found.project, found.id, request.params.key, request.body.value);
+      return reply.code(204).send();
+    } catch (cause) {
+      if (cause instanceof PluginPageStorageError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  // Format 2 plugin commands, and the history of what plugins changed outside a turn.
+  const pluginChangeReply = (reply: { code(status: number): { send(body: unknown): unknown } }, cause: unknown) => {
+    if (cause instanceof PluginChangeError || cause instanceof ProjectWriteError || cause instanceof PluginToolSchemaError) return reply.code(cause.statusCode).send({ error: cause.message });
+    if (cause instanceof ExtensionHostError) return reply.code(cause.code === "unavailable" ? 409 : 503).send({ error: cause.message, code: cause.code });
+    throw cause;
+  };
+  app.post<{ Params: { projectId: string }; Body: { command: string } }>("/projects/:projectId/plugin-commands", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string", minLength: 3, maxLength: 512 } } } },
+  }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      const found = await pluginServices.projectCommand(project.workspacePath, request.body.command);
+      if (!found) return reply.code(409).send({ error: `${request.body.command} isn't a command of a plugin this project uses` });
+      const { entry, command } = found;
+      const { run } = command;
+      // Prompts, links, panels and settings run in the app; these run plugin code.
+      if (!("native" in run) && !("tool" in run)) return reply.code(400).send({ error: "This command runs in the app" });
+      const { result, change } = await pluginWrites.run(project, { plugin: entry.id, action: `command:${command.id}`, title: localizePluginString(entry, command.title, "en") }, () =>
+        "native" in run
+          ? pluginServices.native.runCommand(request.body.command, { folder: project.workspacePath, version: entry.version })
+          : pluginServices.callTool(entry, run.tool, { folder: project.workspacePath, input: run.input ?? {} }));
+      return { result: result ?? null, ...(change ? { change } : {}) };
+    } catch (cause) {
+      return pluginChangeReply(reply, cause);
+    }
+  });
+  app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-commands", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return pluginServices.commands(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
+  });
+  // A format 2 plugin's settings: values for its page, secrets only as set or not.
+  app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/configuration", async (request, reply) => {
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`);
+    if (!entry) return reply.code(404).send({ error: "Plugin not installed" });
+    return pluginServices.values.view(entry);
+  });
+  app.put<{ Params: { publisher: string; name: string }; Body: Record<string, string | boolean | null> }>("/plugin-store/:publisher/:name/configuration", {
+    schema: { body: { type: "object", maxProperties: 100, additionalProperties: { anyOf: [{ type: "string", maxLength: 4096 }, { type: "boolean" }, { type: "null" }] } } },
+  }, async (request, reply) => {
+    try {
+      await pluginServices.configure(`${request.params.publisher}/${request.params.name}`, request.body);
+      return pluginServices.values.view(pluginServices.index.get(`${request.params.publisher}/${request.params.name}`)!);
+    } catch (cause) {
+      return reply.code(cause instanceof PluginConfigurationError ? 400 : 404).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/plugin-changes", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return pluginWrites.history(project);
+  });
+  app.post<{ Params: { projectId: string; changeId: string } }>("/projects/:projectId/plugin-changes/:changeId/undo", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      return await pluginWrites.undo(project, request.params.changeId);
+    } catch (cause) {
+      if (cause instanceof CheckpointConflictError) return reply.code(409).send({ error: "Files this change wrote were changed again", conflicts: cause.conflicts });
+      return pluginChangeReply(reply, cause);
+    }
+  });
 
   registerCheckpointRoutes(app, {
     store: checkpoints,
@@ -1348,6 +1605,33 @@ export function createApp(options: AppOptions = {}) {
       // an explicit step in its connection panel.
       const existing = request.body?.workspacePath ? await projects.findByWorkspace(request.body.workspacePath) : undefined;
       if (existing) return reply.code(200).send(existing);
+      if (request.body?.projectType) {
+        if (request.body.pluginId || request.body.viewport) return reply.code(400).send({ error: "A plugin project type defines its own plugin and viewport" });
+        const selected = (await availableProjectTypes(pluginServices)).find((type) => type.id === request.body.projectType);
+        if (!selected?.plugin) return reply.code(400).send({ error: `${request.body.projectType} is not an installed plugin project type` });
+        // A chosen folder that already holds files is taken on as it is; an empty one starts from the type.
+        const adopting = request.body.workspacePath ? (await readdir(request.body.workspacePath).catch(() => [])).some((item) => item !== ".DS_Store") : false;
+        if (adopting) {
+          try {
+            await adoptTypedProject({ folder: request.body.workspacePath!, type: selected.id, services: pluginServices });
+          } catch (cause) {
+            throw new LocalPluginError(cause instanceof Error ? cause.message : String(cause), 400);
+          }
+        }
+        // An adopted folder keeps the version it pins, so the record comes from that version.
+        const { kind, pluginType } = (adopting ? await projectKindAt(request.body.workspacePath!, pluginServices) : undefined) ?? projectKind(selected);
+        const project = await projects.create(request.body.name, kind, request.body.workspacePath, undefined, pluginType);
+        if (!adopting) {
+          try {
+            await createTypedProject({ folder: project.workspacePath, type: selected.id, name: project.name, services: pluginServices, plugins: { [selected.plugin.id]: selected.plugin.version } });
+          } catch (cause) {
+            // Only the registration is taken back; a folder the person chose is left as it is.
+            await projects.delete(project.id, { registrationOnly: true });
+            throw new LocalPluginError(cause instanceof Error ? cause.message : String(cause), 400);
+          }
+        }
+        return reply.code(201).send(project);
+      }
       let plugin = request.body?.pluginId ? await requireIntegrationPlugin(plugins, request.body.pluginId) : undefined;
       if (!plugin && request.body?.workspacePath) {
         const matches = [];
@@ -1445,6 +1729,10 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/examples", async () => examples.list());
+
+  // Core project types and those installed format 2 plugins contribute.
+  app.get<{ Querystring: { locale?: string } }>("/project-types", async (request) =>
+    availableProjectTypes(pluginServices, request.query.locale === "zh-CN" ? "zh-CN" : "en"));
 
   app.post<{ Params: { exampleId: string } }>("/examples/:exampleId/play", async (request, reply) => {
     try {
@@ -1848,6 +2136,7 @@ export function createApp(options: AppOptions = {}) {
     await canvasStore.waitForProject(project.id);
     // A snapshot that is still being taken writes into the folder that is about to be removed.
     await checkpoints.settled(project);
+    await pluginServices.closeProject(project.workspacePath).catch(() => {});
     await projects.delete(project.id);
     return reply.code(204).send();
     });
@@ -2716,8 +3005,8 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const reuse = request.query.reuse === "1";
-    // A web story plays its own page through the preview.
-    if (reuse && !isWebRuntimeProjectType(project.type) && project.type !== "interactive-story") return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
+    // A web story plays its own page through the preview, and a plugin-built game its web version.
+    if (reuse && !isWebRuntimeProjectType(project.type) && project.type !== "interactive-story" && !buildsWebPreview(project)) return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
     try {
       const url = await (reuse ? previews.ensureStarted(project) : previews.start(project, request.query.reinstall === "1"));
       return { url, title: project.name };
@@ -3260,6 +3549,8 @@ export function createApp(options: AppOptions = {}) {
     codexImages.close();
     await projectNaming.close();
     await pluginCapabilities.host.close();
+    await pluginServices.close();
+    await (await pluginUi?.catch(() => undefined))?.close();
     await cloudModels.setSession(null);
     await canvasStore.close();
     await tools.close();

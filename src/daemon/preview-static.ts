@@ -4,7 +4,7 @@ import { realpath, stat } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 
-const MIME: Record<string, string> = {
+export const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
   ".mjs": "text/javascript",
@@ -27,9 +27,11 @@ const MIME: Record<string, string> = {
   ".glb": "model/gltf-binary",
 };
 
+/** `index` is the page a folder serves; a plugin's web build may name another. */
 export async function startStaticPreview(
   directory: string,
   port: number,
+  index = "index.html",
 ): Promise<{ url: string; close(): Promise<void> }> {
   const root = await realpath(directory);
   const server = createServer((incoming, outgoing) => {
@@ -52,7 +54,7 @@ export async function startStaticPreview(
       try {
         if ((await stat(filename)).isDirectory()) {
           redirectDirectory = !requestUrl.pathname.endsWith("/");
-          filename = path.join(filename, "index.html");
+          filename = path.join(filename, index);
         }
       } catch (cause) {
         if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
@@ -60,7 +62,7 @@ export async function startStaticPreview(
           !path.extname(pathname) &&
           incoming.headers.accept?.includes("text/html")
         )
-          filename = path.join(root, "index.html");
+          filename = path.join(root, index);
       }
       filename = await realpath(filename);
       const relative = path.relative(root, filename);

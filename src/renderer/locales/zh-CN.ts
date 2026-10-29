@@ -1034,6 +1034,7 @@ const zhCN: typeof en = {
     processStopped: "预览进程已停止。",
     phase: {
       checking: "正在检查环境",
+      building: "正在构建网页版",
       installing: "正在安装依赖",
       launching: "正在启动预览服务器",
       connecting: "正在等待预览服务器",

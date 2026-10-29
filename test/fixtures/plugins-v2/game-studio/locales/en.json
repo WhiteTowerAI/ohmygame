@@ -1,0 +1,7 @@
+{
+  "displayName": "Game Studio",
+  "description": "Design, build, extend and verify games across engines.",
+  "starter.create": "Create a game from an idea",
+  "starter.feature": "Add a feature",
+  "starter.fix": "Fix a gameplay bug"
+}

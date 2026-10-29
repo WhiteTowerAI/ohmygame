@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-w
 import { Type } from "typebox";
 import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
-import { supportsWebPreview } from "../shared/project-runtime.js";
+import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
@@ -633,7 +633,7 @@ export function createAgentTools(
         return { content: [{ type: "text", text: `${summary} Inspect or play the relevant output to evaluate the actual result.` }], details: { canvasGeneration: current } };
       } finally { signal?.removeEventListener("abort", cancel); }
     },
-  })] : []), ...(playtest?.driver.available && playtest.driver.capabilities.projectTypes.includes(project.type) && (project.type !== "general" || supportsWebPreview(project))
+  })] : []), ...(playtest?.driver.available && (playtest.driver.capabilities.projectTypes.includes(project.type) || buildsWebPreview(project)) && (project.type !== "general" || supportsWebPreview(project))
     ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full" })]
     : [])];
 }

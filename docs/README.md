@@ -62,6 +62,7 @@ and how an import becomes a new project.
 | [coding-agents.md](coding-agents.md)             | Coding agent CLIs: discovery, sessions, tools, approvals, isolation, and adding an agent.                                      |
 | [external-agents.md](external-agents.md)         | OhMyGame as an MCP server for Claude Code, Codex, and other external agents: setup, launcher, tools, and contract.            |
 | [plugins.md](plugins.md)                         | Plugin packages, configuration, credentials, MCP sessions, authoring, and migration.                                           |
+| [plugins-v2.md](plugins-v2.md)                   | Plugin format 2: manifest, project file, extension hosts, pages, releases, and where its code is.                              |
 | [custom-models.md](custom-models.md)             | Provider protocols, capabilities, visibility, model definitions, and defaults.                                                 |
 | [3d-providers.md](3d-providers.md)               | 3D operations, provider compatibility, paid-task recovery, and GLB validation.                                                 |
 | [free-cloud-models.md](free-cloud-models.md)     | Account models, personal quotas, and the desktop/cloud contract. Cloud deployment sections need access to the private service. |
