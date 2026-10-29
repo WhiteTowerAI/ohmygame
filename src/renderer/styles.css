@@ -7926,8 +7926,9 @@ button {
   color: var(--color-text-secondary);
 }
 
+/* Mixed toward the text colour, so small error text stays readable on the raised card in every palette. */
 .turn-changes-error {
-  color: var(--color-danger);
+  color: color-mix(in srgb, var(--color-danger) 85%, var(--color-text));
   overflow-wrap: anywhere;
 }
 
@@ -7975,6 +7976,16 @@ button {
 .turn-changes .turn-changes-actions button.primary {
   background: var(--color-ink);
   color: var(--color-on-ink);
+}
+
+.turn-changes .turn-changes-actions button.primary:hover:not(:disabled) {
+  background: var(--color-ink);
+  opacity: 0.88;
+}
+
+/* The ring sits outside the ink fill, which shares its colour. */
+.turn-changes .turn-changes-actions button.primary:focus-visible {
+  outline-offset: 2px;
 }
 
 .turn-changes-list {
