@@ -35,12 +35,39 @@ function button(label: string): HTMLButtonElement {
   )!;
 }
 
+const MODE_LABELS: Record<string, string> = {
+  auto: "Automatic",
+  manual: "Manual",
+  direct: "Direct",
+};
+
+function modes(): HTMLButtonElement[] {
+  return [
+    ...container.querySelectorAll<HTMLButtonElement>(
+      '[role="radiogroup"][aria-label="Network proxy mode"] [role="radio"]',
+    ),
+  ];
+}
+
+function selectedMode(): string | undefined {
+  const selected = modes().find(
+    (item) => item.getAttribute("aria-checked") === "true",
+  );
+  return Object.keys(MODE_LABELS).find(
+    (mode) => MODE_LABELS[mode] === selected?.textContent,
+  );
+}
+
 async function chooseMode(mode: string) {
   await act(async () => {
-    container
-      .querySelector<HTMLInputElement>(`input[value="${mode}"]`)!
+    modes()
+      .find((item) => item.textContent === MODE_LABELS[mode])!
       .click();
   });
+}
+
+function testResult(): HTMLElement | null {
+  return container.querySelector<HTMLElement>('[role="status"] [title]');
 }
 
 async function enterProxy(value: string) {
@@ -90,14 +117,12 @@ it("tests manual drafts without saving and reopens with the saved mode selected"
   });
   vi.stubGlobal("fetch", fetchMock);
   await act(async () => root.render(<NetworkSettingsPanel />));
-  expect(
-    [...container.querySelectorAll('input[type="radio"]')].map(
-      (input) => (input as HTMLInputElement).value,
-    ),
-  ).toEqual(["direct", "manual", "auto"]);
-  expect(
-    container.querySelector<HTMLInputElement>('input[value="direct"]')!.checked,
-  ).toBe(true);
+  expect(modes().map((item) => item.textContent)).toEqual([
+    "Automatic",
+    "Manual",
+    "Direct",
+  ]);
+  expect(selectedMode()).toBe("direct");
   expect(button("Save").disabled).toBe(true);
 
   await chooseMode("manual");
@@ -117,10 +142,10 @@ it("tests manual drafts without saving and reopens with the saved mode selected"
   );
   expect(container.textContent).toContain("api.openai.com reachable · 42 ms");
   expect(
-    container.querySelector('[role="status"]')!.getAttribute("title"),
+    testResult()!.getAttribute("title"),
   ).toBe("HTTP 401 · Manual proxy · http://127.0.0.1:7890");
   expect(container.textContent).toContain("Unsaved changes.");
-  expect(button("Test connection").title).toContain("without saving");
+  expect(button("Test connection").closest(".settings-row")?.textContent).toContain("without saving");
 
   await act(async () => button("Save").click());
   expect(container.textContent).toContain("Saved. Restart to apply.");
@@ -129,9 +154,7 @@ it("tests manual drafts without saving and reopens with the saved mode selected"
   expect(button("Save").disabled).toBe(true);
 
   await act(async () => root.render(<NetworkSettingsPanel key="reopened" />));
-  expect(
-    container.querySelector<HTMLInputElement>('input[value="manual"]')!.checked,
-  ).toBe(true);
+  expect(selectedMode()).toBe("manual");
   expect(
     container.querySelector<HTMLInputElement>('input[type="url"]')!.value,
   ).toBe("http://127.0.0.1:7890");
@@ -179,13 +202,8 @@ it("keeps Automatic selected when detecting a proxy requires a restart", async (
   expect(container.textContent).toContain(
     "Use environment proxy settings first",
   );
-  await act(async () => {
-    container.querySelector("summary")!.click();
-    button("Detect system proxy").click();
-  });
-  expect(
-    container.querySelector<HTMLInputElement>('input[value="auto"]')!.checked,
-  ).toBe(true);
+  await act(async () => button("Detect system proxy").click());
+  expect(selectedMode()).toBe("auto");
   expect(container.textContent).not.toContain("Current connection");
   expect(container.textContent).not.toContain("After restart");
   expect(container.textContent).toContain(
@@ -215,11 +233,9 @@ it("keeps failed tests compact without changing the selected mode", async () => 
   await act(async () => button("Test connection").click());
   expect(container.textContent).toContain("The connection timed out.");
   expect(
-    container.querySelector('[role="status"]')!.getAttribute("title"),
+    testResult()!.getAttribute("title"),
   ).toBe("HTTP — · Direct connection");
-  expect(
-    container.querySelector<HTMLInputElement>('input[value="direct"]')!.checked,
-  ).toBe(true);
+  expect(selectedMode()).toBe("direct");
   expect(container.textContent).not.toContain("Saved.");
 });
 
@@ -238,7 +254,6 @@ it("hides system detection when Automatic uses an environment proxy", async () =
     vi.fn(async () => Response.json(state)),
   );
   await act(async () => root.render(<NetworkSettingsPanel />));
-  await act(async () => container.querySelector("summary")!.click());
   expect(button("Detect system proxy")).toBeUndefined();
   await chooseMode("manual");
   expect(button("Detect system proxy")).toBeUndefined();

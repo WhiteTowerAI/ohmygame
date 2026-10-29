@@ -5,7 +5,7 @@ import { AuthProvider } from "./auth.js";
 import { PlaytestPage } from "./playtest.js";
 import { NodeThumbnailPage } from "./node-thumbnail-page.js";
 import { parseAppRoute } from "./routes.js";
-import { applyAppearance, readAppearance } from "./appearance.js";
+import { applyAppearance, applyChatFont, applyPalette, readAppearance, readChatFont, readPalette } from "./appearance.js";
 import { DesktopWindowFrame } from "./desktop-window-frame.js";
 import { initializeAnalytics } from "./analytics.js";
 import { initializeRuntimeConnection } from "./runtime-connection.js";
@@ -24,6 +24,8 @@ if (window.ohMyGameDesktop) initSentry();
 // capture and report; it themes and connects without asking the app.
 const thumbnail = route.page === "thumbnail";
 applyAppearance(readAppearance(), { desktop: !thumbnail });
+applyPalette(readPalette());
+applyChatFont(readChatFont());
 await initializeRuntimeConnection({ followService: !thumbnail });
 if (window.ohMyGameDesktop?.platform === "darwin") {
   document.documentElement.classList.add("desktop-macos");
