@@ -163,6 +163,16 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   // panel keeps its place (the story map, the design canvas, the open file).
   const opened = useRef(new Set<StoryView>());
   for (const view of visible) opened.current.add(view);
+  // Code and Assets stay mounted while hidden, but the canvas and the design
+  // document write files too, so each reloads when it shows again.
+  const [reloads, setReloads] = useState({ code: 0, assets: 0 });
+  const hiddenViews = useRef(new Set<"code" | "assets">());
+  useEffect(() => {
+    for (const view of ["code", "assets"] as const) {
+      if (!shows(view)) { if (opened.current.has(view)) hiddenViews.current.add(view); }
+      else if (hiddenViews.current.delete(view)) setReloads((current) => ({ ...current, [view]: current[view] + 1 }));
+    }
+  }, [shows("code"), shows("assets")]);
   const [designHeaderActions, setDesignHeaderActions] = useState<HTMLDivElement | null>(null);
   const [documentToolbar, setDocumentToolbar] = useState<HTMLDivElement | null>(null);
   // The design document and the canvas show the same documents, so they share
@@ -678,15 +688,16 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const selectedNavigation = Boolean(selectedEdgeId && edges.some((edge) => edge.id === selectedEdgeId
     && nodes.find((node) => node.id === edge.source)?.data.node.signals.some((signal) => signal.id === edge.sourceHandle && signal.role === "navigation")));
   useEffect(() => {
-    if (!selectedNavigation || openedNodeId || projectSettingsOpen) return;
+    if (!selectedNavigation || openedNodeId || projectSettingsOpen || !shows("story")) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.key !== "Delete" && event.key !== "Backspace") || isTextEntry(event.target)) return;
+      if (event.target instanceof Element && event.target.closest(".dock-view") && !storyPane.current?.contains(event.target)) return;
       setEdges((current) => current.filter((edge) => edge.id !== selectedEdgeId));
       setSelectedEdgeId(undefined);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedNavigation, selectedEdgeId, openedNodeId, projectSettingsOpen]);
+  }, [selectedNavigation, selectedEdgeId, openedNodeId, projectSettingsOpen, shows("story")]);
 
   const save = useCallback((next: NodeCodebaseUpdate): Promise<void> => {
     const serialized = JSON.stringify(next);
@@ -1080,6 +1091,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setBuilding(true);
     try {
       await save(codebase);
+      // The project is read from disk, so the design's pending edits are saved too.
+      if (kind === "project" && documentsOpened) await saveDesign();
       const artifact = kind === "game"
         ? await buildInteractiveStory(projectId, writeVersion)
         : await exportProject(projectId, writeVersion);
@@ -1192,7 +1205,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
                     onAdd={(presetId, position) => void addNodeFromPreset(presetId, position)}
                   />}
                   onOpenMenu={setCanvasContextMenu}
-                  deleteKeyCode={openedNode || projectSettingsOpen ? null : ["Backspace", "Delete"]}
+                  deleteKeyCode={openedNode || projectSettingsOpen || !shows("story") ? null : ["Backspace", "Delete"]}
                   onNodesChange={onNodesChange}
                   onNodeDragStart={() => { setCanvasContextMenu(undefined); beginHistoryGesture(); }}
                   onNodeDragStop={finishHistoryGesture}
@@ -1287,14 +1300,14 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     },
     code: {
       body: <main className="story-code-view" aria-label={t("storyEditor.code")}>
-        <WorkspaceCodeView projectId={projectId} revision={workspaceRevision + codeRevision} openFileRequest={fileRequest} />
+        <WorkspaceCodeView projectId={projectId} revision={workspaceRevision + codeRevision + reloads.code} openFileRequest={fileRequest} />
       </main>,
     },
     assets: {
       body: <main className="story-assets-view" aria-label={t("workspace.tab.assets")}>
         <WorkspaceAssetsView
           projectId={projectId}
-          revision={workspaceRevision + codeRevision}
+          revision={workspaceRevision + codeRevision + reloads.assets}
           onShowInCode={(path) => {
             setFileRequest({ path, id: Date.now() });
             show("code");

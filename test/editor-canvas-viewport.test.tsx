@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, type Ref } from "react";
 import { createRoot } from "react-dom/client";
 import type { Edge, Node, ReactFlowProps } from "@xyflow/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -7,16 +7,19 @@ import { EditorCanvas } from "../src/renderer/editor-canvas.js";
 
 const flow = vi.hoisted(() => ({
   props: undefined as ReactFlowProps<Node, Edge> | undefined,
+  /** The props of each canvas on the page, by its id. */
+  byId: {} as Record<string, ReactFlowProps<Node, Edge>>,
   initialized: false,
   fitView: vi.fn<() => Promise<boolean>>(),
   getViewport: vi.fn(() => ({ x: 80, y: 40, zoom: 0.4 })),
 }));
 
 vi.mock("@xyflow/react", () => ({
-  ReactFlow: (props: ReactFlowProps<Node, Edge>) => {
+  ReactFlow: (props: ReactFlowProps<Node, Edge> & { ref?: Ref<HTMLDivElement> }) => {
     flow.props = props;
+    if (props.id) flow.byId[props.id] = props;
     return (
-      <div data-testid="canvas" style={props.style}>
+      <div data-testid="canvas" className="react-flow" ref={props.ref} style={props.style}>
         {props.children}
       </div>
     );
@@ -120,4 +123,28 @@ it("reveals empty boards and boards with only hidden nodes without waiting for a
     expect(flow.fitView).not.toHaveBeenCalled();
     await act(async () => root.render(null));
   }
+});
+
+it("gives delete keys to the canvas used last when canvases share the page", async () => {
+  await act(async () =>
+    root.render(
+      <>
+        {["story", "assets"].map((id) => (
+          <EditorCanvas key={id} id={id} nodes={nodes} addControl={null} onOpenMenu={vi.fn()} deleteKeyCode={["Delete"]} />
+        ))}
+        <button type="button">Elsewhere</button>
+      </>,
+    ),
+  );
+  const [story, assets] = container.querySelectorAll<HTMLElement>('[data-testid="canvas"]');
+  const press = (target: Element) => act(async () => { target.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+  const keys = () => [flow.byId.story!.deleteKeyCode, flow.byId.assets!.deleteKeyCode];
+  expect(keys()).toEqual([["Delete"], ["Delete"]]);
+  await press(assets!);
+  expect(keys()).toEqual([null, ["Delete"]]);
+  // A click outside every canvas changes nothing.
+  await press(container.querySelector("button")!);
+  expect(keys()).toEqual([null, ["Delete"]]);
+  await press(story!);
+  expect(keys()).toEqual([["Delete"], null]);
 });

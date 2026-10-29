@@ -91,6 +91,24 @@ export function EditorCanvas<N extends Node>({
   // but do not paint its initial 100% view before the saved viewport (or fit).
   const [viewportReady, setViewportReady] = useState(false);
   const needsInitialFit = fitViewOnLoad && nodes.some((node) => !node.hidden);
+  // React Flow takes delete keys anywhere on the page, so with canvases in
+  // panels side by side each takes them only while it is the one used last:
+  // a click or focus in another canvas hands them over.
+  const wrapper = useRef<HTMLDivElement>(null);
+  const [keysActive, setKeysActive] = useState(true);
+  useEffect(() => {
+    const track = (event: Event) => {
+      if (!(event.target instanceof Element)) return;
+      if (wrapper.current?.contains(event.target)) setKeysActive(true);
+      else if (event.target.closest(".react-flow")) setKeysActive(false);
+    };
+    document.addEventListener("pointerdown", track, true);
+    document.addEventListener("focusin", track, true);
+    return () => {
+      document.removeEventListener("pointerdown", track, true);
+      document.removeEventListener("focusin", track, true);
+    };
+  }, []);
 
   function openMenu(event: { preventDefault: () => void; clientX: number; clientY: number }, kind: CanvasContextMenuState["kind"], nodeId?: string): void {
     event.preventDefault();
@@ -106,6 +124,7 @@ export function EditorCanvas<N extends Node>({
 
   return (
     <ReactFlow<N, Edge>
+      ref={wrapper}
       className={`story-canvas story-canvas-${mode}`}
       nodes={nodes}
       edges={edges?.map((edge) => edge.selected ? { ...edge, ...SELECTED_EDGE_OPTIONS } : edge)}
@@ -125,6 +144,7 @@ export function EditorCanvas<N extends Node>({
       zoomOnDoubleClick={false}
       proOptions={{ hideAttribution: true }}
       {...props}
+      {...(!keysActive ? { deleteKeyCode: null } : {})}
       style={{ ...style, ...(!viewportReady ? { opacity: 0, pointerEvents: "none" as const } : {}) }}
       onInit={(value) => {
         instance.current = value;
