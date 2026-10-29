@@ -4835,8 +4835,8 @@ select.settings-search-input {
   font-size: var(--text-xs);
 }
 
-/* The Code and Library media previews stay dark in every appearance. */
-:is(.workspace-media-preview, .library-dialog-preview) .model-preview-standalone {
+/* Code's media preview stays dark in every appearance. */
+.workspace-media-preview .model-preview-standalone {
   color: #a1a1aa;
 }
 
