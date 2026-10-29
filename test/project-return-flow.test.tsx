@@ -14,10 +14,6 @@ const project: ProjectState = {
   preview: { status: "stopped" },
 };
 
-vi.doMock(path.resolve("src/renderer/asset-canvas-quick-start.ts"), () => ({
-  invalidateQuickStartModels: vi.fn(),
-  loadQuickStartModels: vi.fn(),
-}));
 vi.doMock(
   path.resolve("src/renderer/runtime-connection.ts"),
   async (original) => ({

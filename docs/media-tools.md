@@ -54,9 +54,11 @@ At most two media tasks run concurrently, with up to eight waiting. The canvas
 checks available node capacity before starting and again before registering
 results. Grid splitting preserves every source pixel even
 when dimensions are not evenly divisible; edge cells can differ by one pixel.
-Video composition uses the first frame's displayed dimensions and fits every
-other frame inside that canvas with transparent padding, so mixed-size frames
-do not fail or lose content. MP4 dimensions are rounded up to even pixels for
+When frame dimensions differ by at most one pixel (as with rounded grid splits), GIF/video composition preserves every frame at its original pixel scale and local coordinates, padding only the bottom and right edges to the largest frame size. This avoids resampling or recentering jitter. More varied image sizes retain the existing fit-to-first-frame behavior with transparent padding. This does not correct character drift already drawn into the source sheet. All temporary frames use RGBA so mixed padding or
+source transparency does not reset GIF palette processing and discard frames.
+GIF encoding disables cropped frame offsets and transparent difference frames to keep opaque backgrounds
+intact when padded frames change disposal behavior; actual input transparency is retained.
+MP4 dimensions are rounded up to even pixels for
 the H.264 encoder.
 Composition writes temporary input frames numbered from 1, avoiding the
 `-start_number` option that some FFmpeg builds do not recognize.

@@ -7,57 +7,76 @@ requiring the user to open Design first.
 The agent shows final media deliverables on the relevant board, reusing existing
 nodes and asset IDs. Local media can reference existing project-relative paths.
 
-Creation templates appear beside Explore as five example cards: Pixel game assets,
-Character reference sheet, Character outfits & skins, Character continuous scenes,
-and Character action set. Each opens an Asset Canvas board with a visible introduction text node, an
-editable image generator, and a separate image upload node where a reference is
-required. Opening a template does not start generation. The user describes or
-uploads input on the canvas and generates there. Image input panels follow the
-same selection behavior as other image nodes.
+New Asset Canvas boards have three pixel-density groups. Home's Creative
+templates picker groups character, creature, animation, scene, terrain, object,
+and skin presets. Choosing a preset creates a new canvas with its matching
+generator or workflow in each density group. Character outfits & skins adds two
+image inputs and a linked output directly to each group, without a nested frame.
+Each new category template also adds an introduction above the density groups.
+It explains the intended game use of every output, including the distinction
+between static animation sheets that need frame splitting and storyboard panels.
+These text nodes use `pixel-asset-template:<category>` to render localized guidance;
+their saved text also preserves the introduction for file-based readers.
+The bottom-toolbar picker adds one generator outside those groups, with the
+density in its title; outfits & skins adds one standalone workflow frame.
 
-Introduction nodes reuse the existing `text` node type, carry an
-`asset-canvas-template:<id>` instruction marker, and show example art and output
-guidance. Character reference sheet and Character outfits & skins introductions
-show text guidance only. The other introductions and all five launcher covers reuse the
-bundled example images shown on the template's image nodes. Multiple
-asset types, sequence modes, and actions appear together in grids; individual
-images fit in full without cropping. Introduction panels size to their content, including on saved
-boards with an older fixed introduction height, so all guidance is visible without
-extra space below it.
-Pixel game assets opens with character and style reference inputs at the top,
-followed by four category groups: Characters (side-view, RPG, portrait), Creatures
-(monster, animal), Environments (scene, terrain, building), and Items (prop, icon).
-Each row contains the corresponding generators, all linked to both references.
-The image model must accept at least two reference images. Character continuous
-scenes opens with separate continuous-action and consistent-scene image nodes. Both templates lay out all
-their nodes when the board is created; the examples in the introduction do not
-add nodes. Character sheets and Character outfits & skins are separate templates.
-The latter has separate person and clothing image inputs and a prefilled editable prompt;
-its image model must accept two references. Older reskin nodes keep their
-single-image behavior. Pixel art, character sheets, and character sequence
-generators show their complete editable prompt in the node; generation sends
-that prompt as written. Their image references remain linked to the shared
-reference input. The two character sequence modes share one image reference per
-board. Character continuous scenes produce a static 4×3 action sheet or 3×3 scene
-grid. Action set has six prepared prompts, each producing one static action sheet from the same reference.
-Its examples are arranged in two rows: idle, walk, run; then attack, hurt, down.
-New template projects show bundled example images on every image node. Pixel game
-assets, Character outfits & skins, Character continuous scenes, and action set
-use a bundled character sheet in their replaceable reference node. Pixel assets
-also include a style example; Character outfits & skins include a clothing example. Each output node displays the image matching its preset or action.
-Character sheets have no reference node. They prefer a 16:9 output with a
-dominant main portrait on the left and smaller front/side/back turnaround, three
-distinct expressions, and costume or equipment details on the right. Generation
-only runs when requested and an image model is available. Each new template board places all example inputs
-and outputs inside one group named **Template examples** (localized in the UI).
-Pixel assets contain the four category subgroups within this outer group.
-The introduction stays outside the group. Grouping preserves the node references
-and their positions on the canvas.
-Model, resolution, aspect ratio, and prompt controls stay in the shared image
-generator. The example art illustrates formats rather than guaranteed model output.
-Existing boards retain their earlier
-`asset-canvas-template:free-image:<style>` markers and can still be read without
-rewriting saved nodes.
+Pixel density sets the prompt's logical design size and palette budget, then
+requires uniform nearest-neighbor enlargement. Coarse pixels use oversized
+clusters and minimal features; classic pixels use medium clusters; fine pixels
+use a finer grid and controlled secondary detail. Their shading budgets are
+respectively 1–2, 2–3, and 4–6 hard-edged tones per major material, within shared
+palettes of 8, 16, and 48 colors plus one plain background color or transparency.
+Each density has separate character, creature, environment, object, and animation
+detail rules. Environment and object prompts do not receive human facial rules.
+References supply subject design and essential colors, even when the source is
+already pixel art; the selected density determines rendering complexity.
+Portraits and reference-sheet close-ups retain that density's pixel scale and
+detail budget.
+
+Subject consistency means retaining the hairstyle or head silhouette, body
+proportions, main costume shapes, primary color blocks, essential equipment,
+and a few defining markings. It does not require copying every facial detail,
+accessory, seam, or pattern. Reuse the density-appropriate simplifications across
+views, action frames, and close-ups. Pixel construction takes priority over detail
+reduction at every density: silhouettes, diagonals, curves, and internal color
+boundaries use visible square-pixel clusters and stepped contours. Simplifying
+features must not turn them into smooth flat vector shapes; detailed features
+must also remain visibly pixel-built. These are prompt instructions, not
+additional provider controls or image post-processing.
+
+Prompts distinguish each cell's logical size from the complete sheet. Animation
+uses four columns and three rows of 32×32, 64×64, or 192×192 cells; creature sheets
+use four by four, and item sheets four by three. Nine-scene sheets use a square
+three-by-three composition with 96×96, 160×160, or 480×480 panels. Reference sheets
+use a complete 16:9 logical canvas and separate full-body sprite budgets. Explicit
+tile sizes and atlas layouts override density defaults. Visible pixel block size
+comes from the complete logical canvas and actual output dimensions, with plain
+margins if needed to preserve square pixels, rather than fixed output-width hints.
+
+New preset image nodes store `data.pixelStyle` alongside their expanded prompt.
+When expanding an unprepared preset, generation uses that explicit density, then
+the nearest ancestor density group, then classic. Saved, expanded prompts stay as
+edited; create a new preset node to use the updated defaults. Empty optional
+requests use reference-based instructions instead of unresolved placeholders;
+custom continuous actions still require an action description before generation.
+These are prompt targets:
+image generation does not enforce palette limits or guarantee logical dimensions.
+The animation presets include idle, walk, run, attack, hurt, and down. Walk and
+run specify one complete two-step cycle across 12 chronological frames, facing
+screen-right with consistent near/far leg identities. Walk fixes the head, torso,
+and hips while the arms and legs animate around them. Run adds grounded landing
+compression, knee passing, and brief low flight. Both alternate the limbs in the
+second half and avoid duplicating the first frame.
+Custom actions retain a fixed camera and scale while allowing the body movement
+required by jumps, rolls, crouches, or falls. Only inherently repeating actions
+need to connect the last frame to the first.
+
+Older boards are not migrated. Existing introduction nodes using
+`asset-canvas-template:<id>` and `asset-canvas-template:free-image:<style>` remain
+readable, and groups without `data.pixelStyle` keep their existing meaning.
+Saved prompts and node references stay as stored. During desktop development,
+schema changes require rebuilding the host and restarting the desktop app because
+renderer hot reload does not update the daemon's validation schema.
 
 ```text
 canvas/
@@ -79,7 +98,8 @@ optional `title` and `description`, content, and references. Markdown bodies
 are shared between document nodes. Connections for prompts and media are
 derived from `promptSource`, `images`, `references`, and `source`.
 
-Boards may also contain `group` nodes with `data.name`. A grouped node stores
+Boards may also contain `group` nodes with `data.name` and the optional pixel
+density marker `data.pixelStyle`. A grouped node stores
 `parentId` pointing to a group on the same board, and its layout position is
 relative to that parent. Groups can be nested, but parent chains cannot form a
 cycle. Group frames have width and height in `editor/<board-id>.json`. The editor

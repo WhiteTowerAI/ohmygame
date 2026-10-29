@@ -10,6 +10,7 @@ import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "./audio.js";
 import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
 import { CANVAS_IMAGE_PRESETS, CANVAS_MATERIAL_STYLES } from "./canvas-image-presets.js";
+import { PIXEL_ART_LEVELS } from "./canvas-pixel-style.js";
 
 export const MAX_ASSET_CANVAS_NODES = 2_000;
 export const MAX_TEXT_NODE_REFERENCES = 14;
@@ -59,7 +60,7 @@ const model3DOptions = { type: "object", additionalProperties: false, properties
   rigModel: { enum: ["v1.0-20240301", "v2.5-20260210", "v3.0-20260909"] }, rigType: { enum: ["biped", "quadruped", "hexapod", "octopod", "serpentine", "aquatic"] }, animateInPlace: { type: "boolean" },
 } } as const;
 const nodes = [
-  node("group", { type: "object", additionalProperties: false, required: ["name"], properties: { name: { type: "string", minLength: 1, maxLength: 120 } } }),
+  node("group", { type: "object", additionalProperties: false, required: ["name"], properties: { name: { type: "string", minLength: 1, maxLength: 120 }, pixelStyle: { enum: ["coarse", "classic", "detailed"] } } }),
   node("table", { type: "object", additionalProperties: false, required: ["tableId"], properties: { tableId: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" } } }),
   node("file", { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1, maxLength: 1000, pattern: "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.{0,2}(?:/|$))(?!.*\\\\).+", description: "Project-relative path of a file that is not a document, table or media asset." }, directory: { const: true, description: "The path is a folder." } } }),
   node("document", { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: id, references: nodeReferences } }),
@@ -77,6 +78,8 @@ const nodes = [
       prompt: { type: "string" },
       presetId: { enum: CANVAS_IMAGE_PRESETS },
       promptExpanded: { type: "boolean" },
+      pixelStyle: { enum: PIXEL_ART_LEVELS },
+      actionDescription: { type: "string" },
       materialStyle: { enum: CANVAS_MATERIAL_STYLES },
       sourceInput: { type: "boolean" },
       sourceInputLabel: { type: "string", maxLength: 100 },

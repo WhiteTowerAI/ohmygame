@@ -9,6 +9,9 @@ import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { ensureCanvasAssets, readCanvasAssets } from "../src/daemon/canvas-assets.js";
 import { MAX_ASSET_CANVAS_NODES } from "../src/shared/asset-canvas-schema.js";
+import { canvasImagePresetPrompt } from "../src/shared/canvas-image-presets.js";
+import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
+import { createPixelAssetWorkflowNodes } from "../src/renderer/asset-canvas-pixel-workflows.js";
 import {
   allActionsPrompt,
   characterAssetPrompt,
@@ -58,11 +61,39 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
-it.each(["pixel", "general"] as const)("saves the %s category and passes its style to generation", async (materialStyle) => {
+it("saves and reopens a new pixel material workflow with its density group", async () => {
+  const boardId = (await store.workspace(project.id)).boards[0]!.id;
+  const current = await store.board(project.id, boardId);
+  const workflow = createPixelAssetWorkflowNodes("tileset", "classic", [], "tileset-workflow");
+  const document = createAssetCanvasDocument();
+  document.nodes = [
+    { id: "pixel-classic", type: "group", position: { x: 0, y: 0 }, width: 600, height: 720, data: { name: "Classic", pixelStyle: "classic" } },
+    { id: "tileset-workflow", type: "group", parentId: "pixel-classic", position: { x: 24, y: 48 }, width: 540, height: 650, data: { name: "Terrain · Tileset" } },
+    ...workflow.nodes,
+  ];
+  document.editorLayout.nodes = Object.fromEntries(document.nodes.map((node) => [node.id, {
+    ...node.position,
+    ...(node.width ? { width: node.width } : {}),
+    ...(node.height ? { height: node.height } : {}),
+  }]));
+  const response = await app.inject({
+    method: "PUT", url: `/projects/${project.id}/canvas/boards/${boardId}`,
+    payload: { board: { ...document, id: boardId }, revision: current.revision },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const reopened = await store.board(project.id, boardId);
+  expect(reopened.board.nodes).toHaveLength(document.nodes.length);
+  expect(reopened.board.nodes.find((node) => node.id === "pixel-classic")).toMatchObject({ type: "group", data: { pixelStyle: "classic" } });
+  expect(reopened.board.nodes.find((node) => node.id === workflow.outputNodeId)).toMatchObject({ type: "image", data: { presetId: "tileset", promptExpanded: true } });
+});
+
+it.each(["building", "terrain", "tileset"].flatMap((presetId) =>
+  (["pixel", "general"] as const).map((materialStyle) => ({ presetId, materialStyle })),
+))("saves the $materialStyle $presetId category and passes its prompt to generation", async ({ presetId, materialStyle }) => {
   const workspace = await store.workspace(project.id);
   const boardId = workspace.boards[0]!.id;
   const current = await store.board(project.id, boardId);
-  const node = { id: "building", type: "image", position: { x: 0, y: 0 }, data: { prompt: "Castle", presetId: "building", materialStyle, resolution: "1K", aspectRatio: "1:1", images: [] } };
+  const node = { id: "building", type: "image", position: { x: 0, y: 0 }, data: { prompt: "Castle", presetId, materialStyle, resolution: "1K", aspectRatio: "1:1", images: [] } };
   const response = await app.inject({
     method: "PUT", url: `/projects/${project.id}/canvas/boards/${boardId}`,
     payload: { board: { ...current.board, nodes: [node], editorLayout: { ...current.board.editorLayout, nodes: { building: node.position } } }, revision: current.revision },
@@ -74,22 +105,61 @@ it.each(["pixel", "general"] as const)("saves the %s category and passes its sty
   const input = start.mock.calls[0]![4];
   if (!("prompt" in input)) throw new Error("Expected an image generation prompt");
   expect(input.prompt).toContain("Castle");
-  if (materialStyle === "pixel") expect(input.prompt).toContain("Render in pixel art");
+  if (materialStyle === "pixel") {
+    expect(input.prompt).toMatch(/pixel art/i);
+    if (presetId === "terrain") expect(input.prompt).toContain("MANDATORY ASSET TYPE: CONTINUOUS TERRAIN");
+    if (presetId === "tileset") expect(input.prompt).toContain("MANDATORY ASSET TYPE: TERRAIN TILESET");
+  }
   else {
     expect(input.prompt).not.toMatch(/pixel/i);
     expect(input.prompt).toContain("Follow the art style requested");
   }
 });
 
-it("sends an expanded template prompt exactly as it appears in the image node", async () => {
+it.each(["coarse", "classic", "detailed"] as const)("preserves %s density across saving, reopening, and generation", async (level) => {
   const boardId = (await store.workspace(project.id)).boards[0]!.id;
   const current = await store.board(project.id, boardId);
-  const prompt = "Create a character sheet with four panels. Render in pixel art.";
+  const workflow = createPixelAssetWorkflowNodes("tileset", level, [], "nested");
+  const output = workflow.nodes[0]!;
+  const nodes = [
+    { id: "density", type: "group" as const, position: { x: 0, y: 0 }, width: 600, height: 720, data: { name: "Density", pixelStyle: level } },
+    { id: "nested", type: "group" as const, parentId: "density", position: { x: 0, y: 0 }, width: 540, height: 650, data: { name: "Nested workflow" } },
+    output,
+  ];
+  const board = { ...current.board, nodes, editorLayout: { ...current.board.editorLayout, nodes: Object.fromEntries(nodes.map((node) => [node.id, { ...node.position, ...(node.width ? { width: node.width } : {}), ...(node.height ? { height: node.height } : {}) }])) } };
+  await store.saveBoard(project.id, board, current.revision);
+  const reopened = await store.board(project.id, boardId);
+  expect(reopened.board.nodes.find((node) => node.id === output.id)).toMatchObject({ data: { pixelStyle: level, promptExpanded: true } });
+  const start = vi.spyOn(store, "start").mockResolvedValue({ id: "density-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Tiles" });
+  await store.generateNode(project.id, boardId, output.id);
+  expect(start.mock.calls.at(-1)![4]).toMatchObject({ prompt: output.type === "image" ? output.data.prompt : "" });
+
+  // An unexpanded older node inherits through nested groups. An explicit node
+  // density takes priority over the surrounding group.
+  if (output.type !== "image") throw new Error("Expected an image node");
+  output.data = { ...output.data, prompt: "Snow tiles", promptExpanded: false };
+  delete output.data.pixelStyle;
+  const inherited = await store.saveBoard(project.id, board, reopened.revision);
+  await store.generateNode(project.id, boardId, output.id);
+  expect(start.mock.calls.at(-1)![4]).toMatchObject({ prompt: canvasImagePresetPrompt("tileset", "Snow tiles", undefined, 0, level) });
+  const override = level === "detailed" ? "coarse" : "detailed";
+  output.data.pixelStyle = override;
+  await store.saveBoard(project.id, board, inherited.revision);
+  await store.generateNode(project.id, boardId, output.id);
+  expect(start.mock.calls.at(-1)![4]).toMatchObject({ prompt: canvasImagePresetPrompt("tileset", "Snow tiles", undefined, 0, override) });
+});
+
+it.each(["character-sheet", "consistent-sequence"] as const)("sends an expanded %s prompt exactly as it appears in the image node", async (presetId) => {
+  const boardId = (await store.workspace(project.id)).boards[0]!.id;
+  const current = await store.board(project.id, boardId);
+  const prompt = presetId === "consistent-sequence"
+    ? canvasImagePresetPrompt(presetId, "A fox explores nine winter scenes")
+    : "Create a character sheet with four panels. Render in pixel art.";
   const node = {
     id: "expanded-template-prompt",
     type: "image",
     position: { x: 0, y: 0 },
-    data: { prompt, promptExpanded: true, presetId: "character-sheet", resolution: "1K", aspectRatio: "16:9", images: [] },
+    data: { prompt, promptExpanded: true, presetId, resolution: "1K", aspectRatio: "16:9", images: [] },
   };
   const board = { ...current.board, nodes: [node], editorLayout: { ...current.board.editorLayout, nodes: { [node.id]: node.position } } };
   const saved = await app.inject({ method: "PUT", url: `/projects/${project.id}/canvas/boards/${boardId}`, payload: { board, revision: current.revision } });
@@ -100,6 +170,39 @@ it("sends an expanded template prompt exactly as it appears in the image node", 
   const input = start.mock.calls[0]![4];
   if (!("prompt" in input)) throw new Error("Expected an image generation prompt");
   expect(input.prompt).toBe(prompt);
+});
+
+it.each(["prompt", "legacy field"])("requires a custom action entered through %s before generation", async (mode) => {
+  const boardId = (await store.workspace(project.id)).boards[0]!.id;
+  const current = await store.board(project.id, boardId);
+  const workflow = createPixelAssetWorkflowNodes("continuous-sequence", "classic", [], "animation-workflow");
+  const node = workflow.nodes.find((candidate) => candidate.id === workflow.outputNodeId);
+  if (node?.type !== "image") throw new Error("Missing continuous action node");
+  const document = createAssetCanvasDocument();
+  document.nodes = [
+    { id: "pixel-classic", type: "group", position: { x: 0, y: 0 }, width: 600, height: 720, data: { name: "Classic", pixelStyle: "classic" } },
+    { id: "animation-workflow", type: "group", parentId: "pixel-classic", position: { x: 24, y: 48 }, width: 540, height: 650, data: { name: "Animation · Continuous action frames" } },
+    ...workflow.nodes,
+  ];
+  document.editorLayout.nodes = Object.fromEntries(document.nodes.map((entry) => [entry.id, {
+    ...entry.position,
+    ...(entry.width ? { width: entry.width } : {}),
+    ...(entry.height ? { height: entry.height } : {}),
+  }]));
+  const board = { ...document, id: boardId };
+  const saved = await store.saveBoard(project.id, board, current.revision);
+  const start = vi.spyOn(store, "start").mockResolvedValue({ id: "action-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Action" });
+  await expect(store.generateNode(project.id, boardId, node.id)).rejects.toThrow("Enter an action description");
+  expect(start).not.toHaveBeenCalled();
+  const action = "raise a shield, brace, then lower it $& $'";
+  if (mode === "legacy field") node.data.actionDescription = action;
+  else node.data.prompt = node.data.prompt.replace("{USER_ACTION}", () => action);
+  await ensureCanvasAssets(project, projects, library, [assetId]);
+  node.data.images = [{ type: "library", assetId }];
+  await store.saveBoard(project.id, board, saved.revision);
+  await store.generateNode(project.id, boardId, node.id);
+  const input = start.mock.calls[0]![4];
+  expect(input).toMatchObject({ prompt: continuousActionsPrompt(action), images: expect.any(Array) });
 });
 
 it("requires one source image for quick reskin and sends it with the appearance prompt", async () => {

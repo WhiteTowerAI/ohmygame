@@ -22,10 +22,6 @@ vi.doMock(path.resolve("src/renderer/examples.tsx"), () => ({
   useExamples: () => ({ examples: [], covers: {} }),
   ExampleShelf: () => null,
 }));
-vi.doMock(path.resolve("src/renderer/asset-canvas-quick-start.ts"), async original => ({
-  ...(await original<typeof import("../src/renderer/asset-canvas-quick-start.js")>()),
-  loadQuickStartModels: async () => undefined,
-}));
 const { Home } = await import("../src/renderer/home.js");
 const { ProjectsPage } = await import("../src/renderer/projects.js");
 const { GameStudioHome } = await import("../src/renderer/game-studio-home.js");
@@ -69,14 +65,12 @@ afterEach(async () => {
 const tick = () => act(async () => vi.advanceTimersByTimeAsync(2_000));
 
 describe("project activity on project lists", () => {
-  it("shows the template demo below Recent Projects on the main home", async () => {
-    await act(async () => root.render(pages[0].view));
-    const recent = container.querySelector(".home-recent");
-    const launcher = container.querySelector(".asset-template-launcher");
-    expect(recent).not.toBeNull();
-    expect(launcher).not.toBeNull();
-    expect(recent!.compareDocumentPosition(launcher!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(launcher!.querySelectorAll('[role="tab"]')).toHaveLength(3);
+  it("keeps both home pages free of creation shortcuts", async () => {
+    for (const view of [pages[0].view, pages[3].view]) {
+      await act(async () => root.render(view));
+      expect(container.querySelector(".asset-template-launcher")).toBeNull();
+      expect(container.querySelector(".asset-canvas-quick-start")).toBeNull();
+    }
   });
 
   it.each(pages)("refreshes a generated name on $name without changing the cover", async ({ type, view }) => {

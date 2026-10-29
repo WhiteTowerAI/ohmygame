@@ -441,24 +441,23 @@ export async function composeVideo(
     path.join(os.tmpdir(), "ohmygame-video-compose-"),
   );
   try {
-    const firstImage = sharp(options.framePaths[0]!, {
-      animated: false,
-      limitInputPixels: MAX_PIXELS,
-    }).autoOrient();
-    const firstMetadata = await firstImage.metadata();
-    const firstDimensions = firstMetadata.autoOrient ?? firstMetadata;
-    if (!firstDimensions.width || !firstDimensions.height)
-      throw new Error("Could not read the first frame dimensions");
-    const width =
-      format === "mp4"
-        ? firstDimensions.width + (firstDimensions.width % 2)
-        : firstDimensions.width;
-    const height =
-      format === "mp4"
-        ? firstDimensions.height + (firstDimensions.height % 2)
-        : firstDimensions.height;
-    checkPixelBudget(width * height * options.framePaths.length);
     await inputPixels(options.framePaths);
+    const dimensions = await Promise.all(options.framePaths.map(async (source) => {
+      const metadata = await sharp(source, { animated: false, limitInputPixels: MAX_PIXELS }).metadata();
+      const displayed = metadata.autoOrient ?? metadata;
+      if (!displayed.width || !displayed.height) throw new Error("Could not read frame dimensions");
+      return { width: displayed.width, height: displayed.height };
+    }));
+    const maxWidth = Math.max(...dimensions.map((frame) => frame.width));
+    const maxHeight = Math.max(...dimensions.map((frame) => frame.height));
+    // Rounded grid boundaries can produce cells differing by one pixel.
+    // Preserve their local coordinates instead of resizing each cell's pixels.
+    const preserveGridPixels = dimensions.every((frame) => maxWidth - frame.width <= 1 && maxHeight - frame.height <= 1);
+    const canvasWidth = preserveGridPixels ? maxWidth : dimensions[0]!.width;
+    const canvasHeight = preserveGridPixels ? maxHeight : dimensions[0]!.height;
+    const width = format === "mp4" ? canvasWidth + (canvasWidth % 2) : canvasWidth;
+    const height = format === "mp4" ? canvasHeight + (canvasHeight % 2) : canvasHeight;
+    checkPixelBudget(width * height * options.framePaths.length);
     for (let start = 0; start < options.framePaths.length; start += 2) {
       await Promise.all(options.framePaths.slice(start, start + 2).map(async (source, offset) => {
         const index = start + offset;
@@ -466,14 +465,22 @@ export async function composeVideo(
           animated: false,
           limitInputPixels: MAX_PIXELS,
         }).autoOrient();
-        await image
-          .resize({
-            width,
-            height,
-            fit: "contain",
-            background: { r: 0, g: 0, b: 0, alpha: 0 },
-            withoutEnlargement: false,
-          })
+        const normalized = preserveGridPixels
+          ? image.extend({
+              top: 0, left: 0,
+              bottom: height - dimensions[index]!.height,
+              right: width - dimensions[index]!.width,
+              background: { r: 0, g: 0, b: 0, alpha: 0 },
+            })
+          : image.resize({
+              width, height, fit: "contain",
+              background: { r: 0, g: 0, b: 0, alpha: 0 },
+              withoutEnlargement: false,
+            });
+        await normalized
+          // Padding can add alpha to only some frames. Keep a stable pixel
+          // format so FFmpeg does not reset its palette filter mid-sequence.
+          .ensureAlpha()
           .png()
           .toFile(
             path.join(temporary, `frame-${String(index + 1).padStart(6, "0")}.png`),
@@ -496,6 +503,10 @@ export async function composeVideo(
       args.push(
         "-filter_complex",
         "[0:v]split[a][b];[a]palettegen=stats_mode=full[p];[b][p]paletteuse=dither=sierra2_4a",
+        // Cropped offsets and transparent difference frames can lose opaque
+        // regions during disposal. Encode complete frames with their actual alpha.
+        "-gifflags",
+        "-offsetting-transdiff",
         "-loop",
         "0",
       );

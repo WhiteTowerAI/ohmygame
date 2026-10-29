@@ -323,7 +323,9 @@ await writeFile(args.at(-1), JSON.stringify(dimensions));
   it("encodes MP4 and GIF with the installed FFmpeg binary", async () => {
     const first = await fixturePath("encode-first.png");
     const second = await fixturePath("encode-second.png");
-    await sharp({ create: { width: 16, height: 16, channels: 4, background: "red" } }).png().toFile(first);
+    await sharp({ create: { width: 12, height: 12, channels: 4, background: "red" } })
+      .extend({ top: 2, bottom: 2, left: 2, right: 2, background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png().toFile(first);
     await sharp({ create: { width: 10, height: 8, channels: 4, background: "blue" } }).png().toFile(second);
 
     const mp4 = await composeVideo({ framePaths: [first, second], format: "mp4" });
@@ -333,6 +335,8 @@ await writeFile(args.at(-1), JSON.stringify(dimensions));
     const gif = await composeGif([first, second]);
     expect(gif.mediaType).toBe("image/gif");
     expect((await sharp(gif.bytes, { animated: true }).metadata()).pages).toBe(2);
+    const secondFrame = await sharp(gif.bytes, { page: 1, pages: 1 }).ensureAlpha().raw().toBuffer();
+    expect(secondFrame[3]).toBe(0); // A transparent source background stays transparent.
   });
 
   it("exports only selected video frames with their original indices", async () => {
@@ -373,6 +377,73 @@ await writeFile(args.at(-1), JSON.stringify(dimensions));
       ]);
     } finally {
       await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps GIF frames when uneven grid cells need transparent padding", async () => {
+    const paths = [];
+    for (const [index, color] of ["red", "green", "blue"].entries()) {
+      const file = await fixturePath(`uneven-gif-${index}.png`);
+      const subject = await sharp({ create: { width: 1, height: 1, channels: 3, background: color } }).png().toBuffer();
+      await sharp({ create: { width: index === 1 ? 6 : 5, height: 5, channels: 3, background: "#999999" } })
+        .composite([{ input: subject, left: 2, top: 2 }]).removeAlpha().png().toFile(file);
+      paths.push(file);
+    }
+    const gif = await composeGif(paths, 2);
+    const metadata = await sharp(gif.bytes, { animated: true }).metadata();
+    expect(metadata.pages).toBe(3);
+    expect(metadata.delay).toEqual([500, 500, 500]);
+    const inputPath = await fixturePath("uneven-grid.gif");
+    await writeFile(inputPath, gif.bytes);
+    const frames = await extractGifFrames({ inputPath });
+    expect(metadata.width).toBe(6);
+    expect(metadata.pageHeight).toBe(5);
+    // Each source region remains opaque; only the extra right column is padded.
+    for (const [index, frame] of frames.entries()) {
+      const { data } = await sharp(frame.bytes).extract({ left: 0, top: 0, width: index === 1 ? 6 : 5, height: 5 }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      expect([...data].filter((_, index) => index % 4 === 3).every((alpha) => alpha === 255)).toBe(true);
+    }
+    const colors = await Promise.all(frames.map(async (frame) => {
+      const pixel = await sharp(frame.bytes).extract({ left: 2, top: 2, width: 1, height: 1 }).removeAlpha().raw().toBuffer();
+      return [...pixel];
+    }));
+    expect(colors).toEqual([[255, 0, 0], [0, 128, 0], [0, 0, 255]]);
+  });
+
+  it("keeps the subject anchored after splitting an uneven 12-frame sheet and composing a GIF", async () => {
+    const width = 37, height = 28, columns = 4, rows = 3;
+    const pixels = Buffer.alloc(width * height * 4);
+    for (let row = 0; row < rows; row++) {
+      for (let column = 0; column < columns; column++) {
+        const left = Math.round(column * width / columns);
+        const top = Math.round(row * height / rows);
+        const color = (row * columns + column) * 20 + 20;
+        for (let y = 5; y < 8; y++) for (let x = 3; x < 5; x++) {
+          pixels.set([color, 0, 0, 255], ((top + y) * width + left + x) * 4);
+        }
+      }
+    }
+    const sheet = await fixturePath("registered-sheet.png");
+    await sharp(pixels, { raw: { width, height, channels: 4 } }).png().toFile(sheet);
+    const split = await splitImageGrid({ inputPath: sheet, columns, rows, includeManifest: false });
+    const paths = await Promise.all(split.map(async (frame, index) => {
+      const file = await fixturePath(`registered-frame-${index}.png`);
+      await writeFile(file, frame.bytes);
+      return file;
+    }));
+    const gif = await composeGif(paths, 12);
+    const metadata = await sharp(gif.bytes, { animated: true }).metadata();
+    expect(metadata.pages).toBe(12);
+    expect(metadata.width).toBe(10);
+    expect(metadata.pageHeight).toBe(10);
+    for (let page = 0; page < 12; page++) {
+      const { data, info } = await sharp(gif.bytes, { page, pages: 1 }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const occupied = [];
+      for (let y = 0; y < info.height; y++) for (let x = 0; x < info.width; x++) {
+        if (data[(y * info.width + x) * 4 + 3]) occupied.push([x, y]);
+      }
+      expect(occupied).toEqual([[3, 5], [4, 5], [3, 6], [4, 6], [3, 7], [4, 7]]);
+      expect([...data.subarray((5 * info.width + 3) * 4, (5 * info.width + 3) * 4 + 4)]).toEqual([page * 20 + 20, 0, 0, 255]);
     }
   });
 

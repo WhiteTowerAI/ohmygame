@@ -8,6 +8,24 @@ import { buildModel3DToolRequest } from "../src/shared/generation-config.js";
 import { MODEL3D_CONNECTION_ID } from "../src/shared/model3d-operations.js";
 
 describe("Asset Canvas node serialization", () => {
+  it("round-trips pixel density groups while keeping legacy groups unchanged", () => {
+    const canvas = createAssetCanvasDocument();
+    const legacy = toAssetCanvasNode({ id: "legacy", type: "group", position: { x: 0, y: 0 }, width: 400, height: 300, data: { name: "Old assets" } });
+    const pixel = toAssetCanvasNode({ id: "pixel", type: "group", position: { x: 500, y: 0 }, width: 400, height: 300, data: { name: "Classic pixels", pixelStyle: "classic" } });
+    const image = toAssetCanvasNode({ id: "image", type: "image", position: { x: 500, y: 400 }, data: { prompt: "Snow tiles", presetId: "tileset", pixelStyle: "detailed" } });
+    canvas.nodes = [legacy, pixel, image];
+    canvas.editorLayout.nodes = {
+      legacy: { x: 0, y: 0, width: 400, height: 300 },
+      pixel: { x: 500, y: 0, width: 400, height: 300 },
+      image: { x: 500, y: 400 },
+    };
+    expect(legacy).toMatchObject({ type: "group", data: { name: "Old assets" } });
+    expect(legacy.data).not.toHaveProperty("pixelStyle");
+    expect(pixel).toMatchObject({ type: "group", data: { name: "Classic pixels", pixelStyle: "classic" } });
+    expect(image).toMatchObject({ type: "image", data: { pixelStyle: "detailed" } });
+    expect(isAssetCanvasDocument(canvas)).toBe(true);
+  });
+
   it("omits inferred material styles for older daemons but preserves nondefault styles", () => {
     for (const [presetId, materialStyle] of [["building", "pixel"], ["character-sheet", "general"], ["building", "general"]] as const) {
       const node = toAssetCanvasNode({ id: materialStyle, type: "image", position: { x: 0, y: 0 }, data: { presetId, materialStyle, prompt: "Castle", resolution: "1K", aspectRatio: "1:1", images: [] } });

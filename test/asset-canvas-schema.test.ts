@@ -10,6 +10,16 @@ const canvas = (node: object) => ({
 });
 
 describe("Asset Canvas schema diagnostics", () => {
+  it.each([
+    [{ name: "Legacy group" }, true],
+    [{ name: "Coarse pixels", pixelStyle: "coarse" }, true],
+    [{ name: "Classic pixels", pixelStyle: "classic" }, true],
+    [{ name: "Fine pixels", pixelStyle: "detailed" }, true],
+    [{ name: "Invalid group", pixelStyle: "smooth" }, false],
+  ] as const)("validates group metadata %j", (data, accepted) => {
+    expect(Check(ASSET_CANVAS_SCHEMA, canvas({ id: "group", type: "group", data }))).toBe(accepted);
+  });
+
   it.each([[16, true], [17, false]] as const)("validates a board with %i image references", (count, accepted) => {
     expect(Check(ASSET_CANVAS_SCHEMA, canvas({ id: "image", type: "image", data: {
       prompt: "Compose references", resolution: "1K", aspectRatio: "1:1",
