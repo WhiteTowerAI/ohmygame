@@ -115,7 +115,7 @@ import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settin
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { registerPluginPortabilityRoutes } from "./plugin-portability.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
-import { PluginServices } from "./plugin-services.js";
+import { PluginServices, PluginToolSchemaError } from "./plugin-services.js";
 import { localizePluginString } from "./plugin-index.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
@@ -1266,7 +1266,7 @@ export function createApp(options: AppOptions = {}) {
 
   // Format 2 plugin commands, and the history of what plugins changed outside a turn.
   const pluginChangeReply = (reply: { code(status: number): { send(body: unknown): unknown } }, cause: unknown) => {
-    if (cause instanceof PluginChangeError || cause instanceof ProjectWriteError) return reply.code(cause.statusCode).send({ error: cause.message });
+    if (cause instanceof PluginChangeError || cause instanceof ProjectWriteError || cause instanceof PluginToolSchemaError) return reply.code(cause.statusCode).send({ error: cause.message });
     if (cause instanceof ExtensionHostError) return reply.code(cause.code === "unavailable" ? 409 : 503).send({ error: cause.message, code: cause.code });
     throw cause;
   };
@@ -1285,7 +1285,7 @@ export function createApp(options: AppOptions = {}) {
       const { result, change } = await pluginWrites.run(project, { plugin: entry.id, action: `command:${command.id}`, title: localizePluginString(entry, command.title, "en") }, () =>
         "native" in run
           ? pluginServices.native.runCommand(request.body.command, { folder: project.workspacePath, version: entry.version })
-          : pluginServices.native.callTool(`${entry.id}:${run.tool}`, { folder: project.workspacePath, input: run.input ?? {}, version: entry.version }));
+          : pluginServices.callTool(entry, run.tool, { folder: project.workspacePath, input: run.input ?? {} }));
       return { result: result ?? null, ...(change ? { change } : {}) };
     } catch (cause) {
       return pluginChangeReply(reply, cause);

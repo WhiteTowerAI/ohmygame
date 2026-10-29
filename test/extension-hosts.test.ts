@@ -998,6 +998,15 @@ describe("plugin tools", () => {
           undefined as never,
         ),
       ).rejects.toThrow("doesn't match its output schema");
+      // Commands call tools through the same checks as agents.
+      const entry = services.index.get("acme/tiles", "1.0.0")!;
+      await expect(
+        services.callTool(entry, "count", { folder, input: { wrong: "yes" } }),
+      ).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining("input schema") });
+      await expect(
+        services.callTool(entry, "count", { folder, input: { wrong: true } }),
+      ).rejects.toMatchObject({ statusCode: 502 });
+      expect(await services.callTool(entry, "count", { folder })).toEqual({ n: 3 });
 
       // The coding agents and external agents get the same definitions.
       const bridge = new ToolBridge(tools);

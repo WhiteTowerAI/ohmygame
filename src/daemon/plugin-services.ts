@@ -14,7 +14,7 @@ import {
   ExtensionHosts,
   type ExtensionHostOptions,
 } from "./extension-hosts.js";
-import { NativePlugins } from "./native-plugins.js";
+import { NativePlugins, type PluginCallOptions } from "./native-plugins.js";
 import {
   localizePluginString,
   PluginIndex,
@@ -42,6 +42,24 @@ import {
 
 /** Model-facing text past this length is cut; `structuredContent` keeps the whole result. */
 const TOOL_TEXT_MAX_CHARS = 100_000;
+
+/** A tool's input or result that doesn't match the schema its manifest names. */
+export class PluginToolSchemaError extends Error {
+  /** Bad input is the caller's to fix; a bad result is the plugin's. */
+  readonly statusCode: 400 | 502;
+  constructor(id: string, side: "input" | "output", schema: TSchema, value: unknown) {
+    const problems = [...Errors(schema, value)]
+      .slice(0, 3)
+      .map((error) => `${error.instancePath || "/"} ${error.message}`)
+      .join("; ");
+    super(
+      side === "input"
+        ? `${id} was given input that doesn't match its input schema: ${problems}`
+        : `${id} returned a result that doesn't match its output schema: ${problems}`,
+    );
+    this.statusCode = side === "input" ? 400 : 502;
+  }
+}
 
 type Contributions = NonNullable<PluginIndexEntry["manifest"]["contributes"]>;
 
@@ -438,7 +456,7 @@ export class PluginServices {
         signal,
         onUpdate,
       ): Promise<AgentToolResult<unknown>> => {
-        const value = await this.native.callTool(`${entry.id}:${tool.name}`, {
+        const value = await this.callTool(entry, tool.name, {
           folder,
           input,
           signal,
@@ -448,19 +466,7 @@ export class PluginServices {
               details: { plugin: entry.id, tool: tool.name, progress: message },
             }),
           turn: turn?.() ?? toolCallId,
-          // A session made before a version change must not run the new
-          // code with this version's schemas.
-          version: entry.version,
         });
-        if (output && !Check(output, value))
-          throw new Error(
-            `${entry.id} returned a result that doesn't match its output schema: ${[
-              ...Errors(output, value),
-            ]
-              .slice(0, 3)
-              .map((error) => `${error.instancePath || "/"} ${error.message}`)
-              .join("; ")}`,
-          );
         const text =
           typeof value === "string"
             ? value
@@ -480,6 +486,28 @@ export class PluginServices {
         };
       },
     };
+  }
+
+  /**
+   * Runs a plugin tool with its input and result checked against the schemas
+   * its manifest names. Agents and commands both call tools through here.
+   */
+  async callTool(
+    entry: PluginIndexEntry,
+    name: string,
+    options: Omit<PluginCallOptions, "version">,
+  ): Promise<unknown> {
+    const tool = entry.manifest.contributes?.tools?.find((item) => item.name === name);
+    if (!tool) throw new Error(`${entry.id} does not declare a tool named ${name}`);
+    const id = `${entry.id}:${name}`;
+    const input = this.#schema(entry, tool.input);
+    if (!Check(input, options.input ?? {})) throw new PluginToolSchemaError(id, "input", input, options.input ?? {});
+    // A session made before a version change must not run the new code with
+    // this version's schemas.
+    const value = await this.native.callTool(id, { ...options, input: options.input ?? {}, version: entry.version });
+    const output = tool.output ? this.#schema(entry, tool.output) : undefined;
+    if (output && !Check(output, value)) throw new PluginToolSchemaError(id, "output", output, value);
+    return value;
   }
 
   /** A tool whose schema can't be read still shows, and says why it can't run. */
