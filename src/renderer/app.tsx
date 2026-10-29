@@ -4,7 +4,6 @@ import { Home } from "./home.js";
 import "./plugin-builder.css";
 import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, projectsHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { historyState, useAppNavigation } from "./app-navigation.js";
-import { invalidateQuickStartModels, loadQuickStartModels } from "./asset-canvas-quick-start.js";
 import { PageFrame } from "./page-frame.js";
 import { SidebarPageLayout } from "./sidebar-page.js";
 import type { SidebarActive } from "./app-sidebar.js";
@@ -26,8 +25,6 @@ const GamePlayer = lazy(() => import("./games.js").then((module) => ({ default: 
 const LibraryPage = lazy(() => import("./library.js").then((module) => ({ default: module.LibraryPage })));
 const ProjectsPage = lazy(() => import("./projects.js").then((module) => ({ default: module.ProjectsPage })));
 const ProjectShell = lazy(() => import("./project-shell.js").then((module) => ({ default: module.ProjectShell })));
-const AssetCanvasHome = lazy(() => import("./asset-canvas-home.js").then((module) => ({ default: module.AssetCanvasHome })));
-const GameStudioHome = lazy(() => import("./game-studio-home.js").then((module) => ({ default: module.GameStudioHome })));
 const SettingsPage = lazy(() => import("./settings-page.js").then((module) => ({ default: module.SettingsPage })));
 const PluginsSettings = lazy(() => import("./plugins.js").then((module) => ({ default: module.PluginsSettings })));
 const PluginBuilder = lazy(() => import("./plugin-builder.js").then((module) => ({ default: module.PluginBuilder })));
@@ -39,18 +36,12 @@ export function App() {
   const [welcoming, setWelcoming] = useState(false);
   const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
-  const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
   const [playtestEditorProjectId, setPlaytestEditorProjectId] = useState<string>();
   const creationGate = usePluginIntegrationGate();
 
-  // Provider catalogs are slow; load them now so asset canvas quick starts open without waiting.
+  // A reconnected runtime may have different providers; model pickers reload theirs.
   useEffect(() => {
-    invalidateQuickStartModels();
-    void loadQuickStartModels();
     if (serviceGeneration > 1) window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
-    const refresh = () => { invalidateQuickStartModels(); void loadQuickStartModels(); };
-    window.addEventListener(MODELS_CHANGED_EVENT, refresh);
-    return () => window.removeEventListener(MODELS_CHANGED_EVENT, refresh);
   }, [serviceGeneration]);
 
   // ⌘, (Ctrl+, elsewhere) opens settings from anywhere, as the account menu shows.
@@ -93,8 +84,6 @@ export function App() {
   if (route.page === "community-profile") return <Suspense fallback={sidebarFallback("community")}><CommunityProfilePage authorId={route.authorId} onNavigate={navigateToSidebarPage} onBack={goToGames} onOpenGame={ohMyGame} /></Suspense>;
   if (route.page === "game") return <Suspense fallback={sidebarFallback("community")}><GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} /></Suspense>;
   if (route.page === "projects") return <Suspense fallback={sidebarFallback("projects")}><ProjectsPage projectType={route.projectType} query={route.query} sort={route.sort} onFiltersChange={(filters, replace) => navigate(projectsHash(filters), { replace })} onNavigate={navigateToSidebarPage} onOpenProject={openProject} /></Suspense>;
-  if (route.page === "general" || route.page === "web-game" || route.page === "interactive-story" || route.page === "godot") return <Suspense fallback={sidebarFallback(route.page)}><GameStudioHome key={route.page} projectType={route.page === "godot" ? "godot-game" : route.page} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} /></Suspense>;
-  if (route.page === "asset-canvas") return <Suspense fallback={sidebarFallback("asset-canvas")}><AssetCanvasHome onNavigate={navigateToSidebarPage} onOpenProject={openAssetCanvasProject} /></Suspense>;
   if (route.page === "library") return <Suspense fallback={sidebarFallback("library")}><LibraryPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} /></Suspense>;
   if (route.page === "playtest") return null;
   if (route.page !== "project") return null;
@@ -111,8 +100,6 @@ export function App() {
       }}
       initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt : undefined}
       initialDraft={initialDraft && initialDraft.conversationId === route.conversationId ? initialDraft.draft : undefined}
-      initialCanvasNodeId={initialCanvasNode?.projectId === route.projectId ? initialCanvasNode.nodeId : undefined}
-      onInitialCanvasNodeHandled={() => setInitialCanvasNode(undefined)}
       showStoryMap={playtestEditorProjectId === route.projectId}
       onStoryMapShown={() => setPlaytestEditorProjectId(undefined)}
       onInitialPromptHandled={clearInitialPrompt}
@@ -137,15 +124,7 @@ export function App() {
   function openProject(projectId: string, view?: "design"): void {
     setInitialPrompt(undefined);
     setInitialDraft(undefined);
-    setInitialCanvasNode(undefined);
     navigate(projectHash(projectId, view));
-  }
-
-  function openAssetCanvasProject(projectId: string, nodeId?: string): void {
-    setInitialPrompt(undefined);
-    setInitialDraft(undefined);
-    setInitialCanvasNode(nodeId ? { projectId, nodeId } : undefined);
-    navigate(projectHash(projectId));
   }
 
   async function tryPlugin(plugin: PluginDetail, prompt: string, projectId?: string): Promise<void> {

@@ -2008,16 +2008,6 @@ it("shows the arrival only after saving setup and reveals the interactive studio
     Home: ({ inert }: { inert?: boolean }) => <main inert={inert}>Studio</main>,
   }));
   vi.doMock(
-    path.resolve("src/renderer/asset-canvas-quick-start.ts"),
-    async (original) => ({
-      ...(await original<
-        typeof import("../src/renderer/asset-canvas-quick-start.js")
-      >()),
-      invalidateQuickStartModels: vi.fn(),
-      loadQuickStartModels: vi.fn().mockResolvedValue([]),
-    }),
-  );
-  vi.doMock(
     path.resolve("src/renderer/app-navigation.ts"),
     async (original) => ({
       ...(await original<typeof import("../src/renderer/app-navigation.js")>()),

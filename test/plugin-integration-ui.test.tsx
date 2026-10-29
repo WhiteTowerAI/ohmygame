@@ -10,7 +10,6 @@ import {
 import type { PluginIntegrationState } from "../src/shared/plugin-integration.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 import { ProjectCreateDialog } from "../src/renderer/project-create-dialog.js";
-import { ProjectPromptCreator } from "../src/renderer/project-prompt-creator.js";
 
 const project: ProjectState = {
   id: "native",
@@ -105,7 +104,8 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 async function click(text: string) {
-  const button = [...container.querySelectorAll("button")].find(
+  // Dialogs render in the body, outside the container.
+  const button = [...document.querySelectorAll("button")].find(
     (element) => element.textContent === text,
   )!;
   expect(button, text).toBeDefined();
@@ -113,7 +113,7 @@ async function click(text: string) {
   await act(async () => button.click());
 }
 async function fillName(value: string) {
-  const input = container.querySelector("input")!;
+  const input = document.querySelector("input")!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
@@ -136,7 +136,7 @@ describe("plugin connection UI", () => {
           <button onClick={() => setOpen(true)}>New project</button>
           {open ? (
             <ProjectCreateDialog
-              fixedType="general"
+              initialType="general"
               onClose={() => setOpen(false)}
               onCreated={() => setOpen(false)}
             />
@@ -148,9 +148,11 @@ describe("plugin connection UI", () => {
     const opener = container.querySelector("button")!;
     opener.focus();
     await click("New project");
-    expect(document.activeElement).toBe(container.querySelector("input"));
+    expect(document.activeElement).toBe(
+      document.querySelector('[role="dialog"] input'),
+    );
     await click("Cancel");
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(opener);
   });
 
@@ -247,7 +249,7 @@ describe("plugin connection UI", () => {
       ),
     ).toBeNull();
   });
-  it("preserves the real home composer on cancel and continues with its description after creation", async () => {
+  it("keeps the first message through a cancelled plugin creation and sends it after creation", async () => {
     state.result = { connection: { status: "ready" }, project: null };
     const fetchIntegration = fetch;
     vi.stubGlobal(
@@ -268,7 +270,6 @@ describe("plugin connection UI", () => {
             ],
             skills: [],
           });
-        if (route.endsWith("/models")) return Response.json({ models: [] });
         if (route.endsWith("/projects") && init.method === "POST")
           return Response.json(project);
         if (route.endsWith("/conversations") && init.method === "POST")
@@ -277,58 +278,51 @@ describe("plugin connection UI", () => {
       }),
     );
     const opened = vi.fn();
+    const mention = {
+      name: "fixture",
+      displayName: "TapTap Maker",
+      marketplaceId: "test",
+    };
     await act(async () =>
       root.render(
-        <ProjectPromptCreator draftKey="test"
-          projectType="general"
-          placeholder="Describe your game"
-          onCreate={opened}
+        <ProjectCreateDialog
+          firstMessage={{
+            prompt: "@TapTap Maker Make a forest adventure",
+            mentions: [mention],
+            attachments: [],
+            mode: "normal",
+          }}
+          onClose={() => {}}
+          onCreated={opened}
         />,
       ),
     );
-    const textarea = container.querySelector("textarea")!;
-    async function fillPrompt(value: string) {
-      await act(async () => {
-        Object.getOwnPropertyDescriptor(
-          HTMLTextAreaElement.prototype,
-          "value",
-        )!.set!.call(textarea, value);
-        textarea.setSelectionRange(value.length, value.length);
-        textarea.dispatchEvent(new Event("input", { bubbles: true }));
-      });
-    }
-    await fillPrompt("@");
-    const option = [
-      ...container.querySelectorAll<HTMLElement>('[role="option"]'),
-    ].find((element) => element.textContent?.includes("TapTap Maker"))!;
-    await act(async () => option.click());
-    await fillPrompt("Make a forest adventure");
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>('button[type="submit"]')!
-        .click(),
-    );
-    expect(container.querySelector("textarea")).toBe(textarea);
-    expect(textarea.value).toBe("Make a forest adventure");
-    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(textarea.closest("[inert]")).not.toBeNull();
+    await click("Create and start");
+    expect(
+      document.querySelector(
+        '[aria-label="Create a project with TapTap Maker"]',
+      ),
+    ).not.toBeNull();
     await act(async () =>
       window.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       ),
     );
-    await vi.waitFor(() => expect(document.activeElement).toBe(textarea));
-    expect(textarea.value).toBe("Make a forest adventure");
-    expect(textarea.closest("[inert]")).toBeNull();
+    const textarea = document.querySelector<HTMLTextAreaElement>(
+      '[role="dialog"] textarea',
+    )!;
+    expect(textarea.value).toBe("@TapTap Maker Make a forest adventure");
     expect(opened).not.toHaveBeenCalled();
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>('button[type="submit"]')!
-        .click(),
-    );
+    await click("Create and start");
     await click("Create project");
     expect(opened).toHaveBeenCalledOnce();
-    expect(opened.mock.calls[0]?.[2]).toContain("Make a forest adventure");
+    expect(opened.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        conversationId: "chat",
+        prompt: "@TapTap Maker Make a forest adventure",
+        mentions: [mention],
+      }),
+    );
   });
   it("keeps new-project initialization inside the explicit creation window", async () => {
     state.result = { connection: { status: "ready" }, project: null };
@@ -369,23 +363,22 @@ describe("plugin connection UI", () => {
         />,
       ),
     );
-    const select = container.querySelector("select")!;
-    await act(async () => {
-      select.value = "fixture";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
     await act(async () =>
-      container
-        .querySelector("form")!
-        .dispatchEvent(
-          new Event("submit", { bubbles: true, cancelable: true }),
-        ),
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Project plugin"]')!
+        .click(),
     );
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+        .find((option) => option.textContent === "Maker")!
+        .click(),
+    );
+    await click("Create");
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ type: "general", pluginId: "fixture" }),
     );
-    expect(container.querySelectorAll('[role="dialog"]')).toHaveLength(1);
-    expect(container.querySelectorAll('[role="dialog"] h2')).toHaveLength(1);
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[role="dialog"] h2')).toHaveLength(1);
     expect(opened).not.toHaveBeenCalled();
     await click("Create project");
     expect(opened).toHaveBeenCalledOnce();

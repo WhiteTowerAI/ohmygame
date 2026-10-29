@@ -9,7 +9,7 @@ export function useProjectShelfLayout() {
 
   useLayoutEffect(() => {
     const section = sectionRef.current;
-    const heading = section?.querySelector(".studio-section-heading");
+    const heading = section?.querySelector(".home-section-head");
     if (!section || !heading) return;
     const update = () => {
       const count = Number.parseInt(getComputedStyle(heading).getPropertyValue("--project-shelf-columns"), 10);

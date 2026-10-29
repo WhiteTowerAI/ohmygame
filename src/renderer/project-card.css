@@ -1,0 +1,138 @@
+/* Project cards on Home and Projects: no box, the cover is the card and the
+   text sits under it. */
+
+.project-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--color-text);
+}
+
+.project-card-body {
+  position: relative;
+  min-width: 0;
+}
+
+.project-card-open {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-card-open:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 4px;
+}
+
+.project-card-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--color-surface-raised);
+  transition: filter var(--duration-fast);
+}
+
+.project-card-open:hover .project-card-preview {
+  filter: brightness(1.08);
+}
+
+.project-card-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.project-card-meta {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+  /* room for the "…" button, which sits over the meta's right end */
+  padding: 0 32px 0 2px;
+}
+
+.project-card-type {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+}
+
+.project-card-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-card-name {
+  overflow: hidden;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-card-details {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.project-card-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-secondary);
+}
+
+/* Shown on hover and focus, and kept while its menu is open. */
+.project-card-actions {
+  position: absolute;
+  right: -2px;
+  bottom: 6px;
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.project-card:hover .project-card-actions,
+.project-card:focus-within .project-card-actions,
+.project-card-actions:has([aria-expanded="true"]) {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .project-card-actions {
+    opacity: 1;
+  }
+}
+
+.project-card-error {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
