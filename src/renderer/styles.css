@@ -3237,9 +3237,10 @@ select.settings-search-input {
   white-space: nowrap;
 }
 
+/* Mixed toward the text colour, so the small success line stays readable in light palettes. */
 .publication-summary p {
   margin: 0;
-  color: var(--color-success);
+  color: color-mix(in srgb, var(--color-success) 80%, var(--color-text));
   font-size: var(--text-sm);
 }
 

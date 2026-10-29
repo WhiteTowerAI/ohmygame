@@ -225,7 +225,8 @@
   padding: 0;
   border: 0;
   border-radius: var(--radius-pill);
-  background: var(--color-border-strong);
+  /* Dark enough that the thumb and the track both stand out when off (3:1). */
+  background: var(--color-text-tertiary);
   cursor: pointer;
   transition: background var(--duration-fast);
 }
