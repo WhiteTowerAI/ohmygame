@@ -6,6 +6,7 @@ import {
   GitBranch,
   ChevronRight,
   Copy,
+  DangerCircle,
   Diskette,
   FilePenLine,
   FileText,
@@ -19,7 +20,6 @@ import {
   Wrench,
   WandSparkles,
   Wifi,
-  WifiOff,
   X,
   type IconComponent,
 } from "./icons.js";
@@ -40,6 +40,8 @@ import { MarkdownContent } from "./markdown-content.js";
 import { LazyDetails } from "./lazy-details.js";
 import { agentErrorDiagnosticRows, agentErrorDiagnosticText, agentErrorPresentation } from "./agent-error-presentation.js";
 import { language, t } from "./i18n.js";
+import { settingsHash, type SettingsSection } from "./routes.js";
+import { Button } from "./ui/index.js";
 import { TurnChangesFooter, TurnChangesViews, type TurnChangesControls } from "./turn-changes.js";
 
 type ToolCallItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
@@ -631,26 +633,76 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
 }
 
 function AgentErrorActivity({ error, retry, active = false }: { error: ThreadItemError; retry?: Extract<ThreadItem, { type: "retry" }>; active?: boolean }) {
-  const failed = !retry || retry.status === "failed";
-  const shimmering = active && retry?.status === "inProgress";
-  const presentation = agentErrorPresentation(error);
-  const label = failed ? presentation.title : t("timeline.reconnecting", { attempt: retry.attempt, max: retry.maxAttempts });
-  const preview = failed && !error.code ? error.message.replace(/\s+/g, " ").trim() : "";
-  const summary = preview ? `${label} — ${preview}` : label;
-  const Icon = failed ? (["dns_error", "connection_refused", "connection_reset", "timeout", "tls_error", "stream_error", "network_error"].includes(error.code ?? "") ? WifiOff : X) : Wifi;
+  if (!retry || retry.status === "failed") return <AgentErrorCard error={error} />;
+  const shimmering = active && retry.status === "inProgress";
+  const label = t("timeline.reconnecting", { attempt: retry.attempt, max: retry.maxAttempts });
   return (
-    <LazyDetails className={`connection-activity-details${failed ? " connection-activity-failed" : ""}`} summary={
+    <LazyDetails className="connection-activity-details" summary={
       <summary className="tool-activity tool-row timeline-activity connection-activity">
-        <Icon size={13} aria-hidden="true" />
-        <ShimmerText text={summary} active={shimmering} className="tool-label" title={summary} role={failed ? "alert" : shimmering ? "status" : undefined} />
+        <Wifi size={13} aria-hidden="true" />
+        <ShimmerText text={label} active={shimmering} className="tool-label" title={label} role={shimmering ? "status" : undefined} />
         <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
       </summary>}>
-      <AgentErrorDetails error={error} guidance={failed ? presentation.message : undefined} />
+      <AgentErrorDetails error={error} />
     </LazyDetails>
   );
 }
 
-function AgentErrorDetails({ error, guidance }: { error: ThreadItemError; guidance?: string }) {
+const NETWORK_ERRORS = new Set(["dns_error", "connection_refused", "connection_reset", "timeout", "tls_error", "network_error"]);
+
+/** The settings page that fixes an error, where its guidance points there. */
+function errorSettings(code: ThreadItemError["code"]): SettingsSection | undefined {
+  if (code === "runtime_incompatible" || code === "runtime_probe_failed") return "agents";
+  if (code === "model_not_configured" || code === "authentication_failed") return "providers";
+  return code && NETWORK_ERRORS.has(code) ? "network" : undefined;
+}
+
+/**
+ * A turn that ended on an error: what happened and what to do, with the
+ * provider's own response behind Details, the same rows the copy button takes.
+ */
+function AgentErrorCard({ error }: { error: ThreadItemError }) {
+  const [open, setOpen] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const copied = copyStatus === "copied";
+  useEffect(() => { setCopyStatus("idle"); }, [error]);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopyStatus("idle"), 1_500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+  const presentation = agentErrorPresentation(error);
+  const preview = error.code ? "" : error.message.replace(/\s+/g, " ").trim();
+  const settings = errorSettings(error.code);
+  async function copyDiagnostics() {
+    try {
+      await navigator.clipboard.writeText(agentErrorDiagnosticText(error));
+      setCopyStatus("copied");
+    } catch { setCopyStatus("failed"); }
+  }
+  return (
+    <div className="agent-error-card" role="alert">
+      <div className="agent-error-head">
+        <DangerCircle size={15} aria-hidden="true" />
+        <strong>{presentation.title}</strong>
+      </div>
+      {preview ? <p className="agent-error-preview" title={preview}>{preview}</p> : null}
+      <p className="agent-error-text">{presentation.message}</p>
+      {open ? (
+        <dl className="agent-error-rows">{agentErrorDiagnosticRows(error).map(([label, value], index) => <div key={`${label}:${index}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+      ) : null}
+      {copyStatus === "failed" ? <p className="agent-error-text" role="status">{t("timeline.copyFailed")}</p> : null}
+      <div className="agent-error-actions">
+        {settings ? <Button size="sm" onClick={() => { window.location.hash = settingsHash(settings); }}>{t("timeline.openSettings")}</Button> : null}
+        <span className="agent-error-spacer" />
+        {open ? <Button size="sm" variant="ghost" onClick={() => void copyDiagnostics()}>{copied ? t("timeline.diagnosticsCopied") : t("timeline.copyDiagnostics")}</Button> : null}
+        <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? t("timeline.hideDetails") : t("timeline.showDetails")}</Button>
+      </div>
+    </div>
+  );
+}
+
+function AgentErrorDetails({ error }: { error: ThreadItemError }) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const copied = copyStatus === "copied";
   useEffect(() => { setCopyStatus("idle"); }, [error]);
@@ -668,7 +720,6 @@ function AgentErrorDetails({ error, guidance }: { error: ThreadItemError; guidan
   }
   return (
     <div className="connection-activity-diagnostics">
-      {guidance ? <p className="connection-activity-guidance">{guidance}</p> : null}
       <dl className="connection-activity-error">{rows.map(([label, value], index) => <div key={`${label}:${index}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       {copyStatus === "failed" ? <p className="connection-activity-guidance" role="status">{t("timeline.copyFailed")}</p> : null}
       <button type="button" className="connection-activity-copy" aria-label={copied ? t("timeline.diagnosticsCopied") : t("timeline.copyDiagnostics")} title={copied ? t("common.copied") : t("timeline.copyDiagnostics")} onClick={() => void copyDiagnostics()}>

@@ -8164,16 +8164,21 @@ button {
 
 .work-summary {
   display: grid;
-  width: 100%;
-  min-height: 30px;
-  grid-template-columns: minmax(0, auto) 14px minmax(0, 1fr);
+  width: fit-content;
+  max-width: calc(100% + 6px);
+  min-height: 26px;
+  grid-template-columns: minmax(0, auto) 14px;
   align-items: center;
-  gap: 8px;
-  padding: 0;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--border) 58%, transparent);
+  gap: 6px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   list-style: none;
+}
+
+summary.work-summary:hover {
+  background: var(--color-hover);
 }
 
 .work-summary-active {
@@ -8192,7 +8197,6 @@ button {
 
 .work-summary-thinking {
   grid-template-columns: minmax(0, 1fr);
-  border-bottom-color: transparent;
   color: var(--text-faint);
 }
 
@@ -8252,10 +8256,6 @@ button {
   gap: 7px;
   color: var(--text-muted);
   font-size: 11px;
-}
-
-.composer-error {
-  color: var(--danger);
 }
 
 .plan-status {
@@ -8480,8 +8480,90 @@ button {
   margin: 0;
 }
 
-.assistant-message + .connection-activity-details {
+.assistant-message + .agent-error-card {
   margin-top: 10px;
+}
+
+/* A turn that ended on an error. */
+.agent-error-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 4px 0 8px;
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  font-family: var(--font-sans);
+}
+
+.agent-error-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-size: var(--text-md);
+}
+
+.agent-error-head > svg {
+  flex: none;
+  color: var(--color-danger);
+}
+
+.agent-error-head strong {
+  font-weight: var(--weight-medium);
+}
+
+.agent-error-text,
+.agent-error-preview {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.agent-error-preview {
+  overflow: hidden;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-error-rows {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px var(--space-3);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-stage);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.agent-error-rows > div {
+  display: contents;
+}
+
+.agent-error-rows dt {
+  color: var(--color-text-tertiary);
+}
+
+.agent-error-rows dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+}
+
+.agent-error-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-error-spacer {
+  flex: 1;
 }
 
 .connection-activity {
@@ -8503,10 +8585,6 @@ button {
 
 .connection-activity-details[open] > .connection-activity .tool-detail-chevron {
   transform: rotate(90deg);
-}
-
-.connection-activity-failed .connection-activity > svg:first-child {
-  color: var(--danger);
 }
 
 .connection-activity-error {
@@ -9573,31 +9651,58 @@ button {
   background: var(--surface);
 }
 
-.composer-error {
-  margin: 0 2px 8px;
-  font-size: 10px;
-  line-height: 1.4;
-}
-
-.composer-resume {
+/* Why the agent isn't taking messages right now, above the prompt box. */
+.composer-notice {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0 2px 8px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.4;
+  gap: var(--space-2);
+  min-height: 34px;
+  margin: 0 0 var(--space-2);
+  padding: 4px 4px 4px var(--space-2);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
 }
 
-.composer-resume button {
+.composer-notice > svg {
   flex: none;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  background: transparent;
+  color: var(--color-warning);
+}
+
+.composer-notice > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.composer-notice.composer-error {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+
+.composer-notice.composer-error > svg {
+  color: var(--color-danger);
+}
+
+.composer-notice button {
+  flex: none;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text);
   font: inherit;
+  cursor: pointer;
+}
+
+.composer-notice button:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.composer-notice button:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .prompt-box {
@@ -10150,8 +10255,7 @@ button {
   object-fit: cover;
 }
 
-.composer-image button,
-.message-queue button {
+.composer-image button {
   display: inline-grid;
   width: 20px;
   height: 20px;
@@ -10172,72 +10276,88 @@ button {
   color: var(--text);
 }
 
-.composer-image button:hover,
-.message-queue button:hover:not(:disabled) {
+.composer-image button:hover {
   color: var(--text);
 }
 
+/* Messages waiting their turn, above the prompt box. */
 .message-queue {
-  position: relative;
-  z-index: 0;
-  display: grid;
-  gap: 0;
-  margin: 0 12px;
-  padding: 5px;
+  display: flex;
+  flex-direction: column;
   max-height: 144px;
-  border: 0.75px solid #292b33;
-  border-radius: 12px 12px 0 0;
-  background: #1b1d23;
+  margin: 0 0 var(--space-1);
   overflow-y: auto;
+  font-family: var(--font-sans);
 }
 
 .message-queue-row {
-  position: relative;
-  display: grid;
+  display: flex;
   min-width: 0;
-  height: 27px;
-  grid-template-columns: 10px minmax(0, 1fr) auto;
+  height: 30px;
+  flex: none;
   align-items: center;
-  column-gap: 4px;
-  color: var(--text-muted);
+  gap: var(--space-2);
+  padding: 0 4px 0 var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.message-queue-row:hover {
+  background: var(--color-hover);
 }
 
 .message-queue-marker {
-  color: var(--text-faint);
+  flex: none;
+  color: var(--color-text-tertiary);
 }
 
 .message-queue-text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
-  color: var(--text);
-  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .message-queue-actions {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex: none;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.message-queue-row:hover .message-queue-actions,
+.message-queue-row:focus-within .message-queue-actions {
+  opacity: 1;
 }
 
 .message-queue-actions button {
   display: inline-flex;
-  width: auto;
-  height: 24px;
+  min-width: 22px;
+  height: 22px;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  color: var(--text-faint);
-  font-size: 11px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-tertiary);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
 }
 
-.message-queue-actions button[aria-label="Edit queued message"] {
-  width: 24px;
-  justify-content: center;
+.message-queue-actions button:hover:not(:disabled) {
+  background: var(--color-selected);
+  color: var(--color-text);
 }
 
 .message-queue-actions button:disabled {
   cursor: default;
-  opacity: 0.45;
+  opacity: 0.4;
 }
 
 .icon-button {
@@ -12380,7 +12500,7 @@ button {
   opacity: 1;
 }
 
-:root[data-appearance="light"] :is(.composer-image button, .message-queue) {
+:root[data-appearance="light"] .composer-image button {
   border-color: var(--border);
   background: var(--surface-hover);
 }

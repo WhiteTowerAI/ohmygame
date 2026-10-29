@@ -1,4 +1,7 @@
-import { fileURLToPath } from "node:url";
+// @vitest-environment happy-dom
+import { fileURLToPath, URL } from "node:url";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
@@ -386,7 +389,7 @@ describe("AgentTimeline", () => {
     expect(html).toContain("solar-alt-arrow-right-linear work-chevron");
   });
 
-  it("renders a failed stream as a connection activity inside Worked", () => {
+  it("renders a failed stream as an error card inside Worked", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
       id: "assistant-error",
       turnId: "turn-1",
@@ -399,8 +402,9 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Worked for");
     expect(html).toContain("I started checking the project.");
     expect(html).toContain("Response interrupted");
-    expect(html).toContain("OpenAI Responses stream ended before a terminal response event");
-    expect(html).toContain('class="connection-activity-details connection-activity-failed"');
+    // The provider's response waits behind Details.
+    expect(html).not.toContain("OpenAI Responses stream ended before a terminal response event");
+    expect(html).toContain('class="agent-error-card" role="alert"');
     expect(html).toContain('class="work-activity work-activity-failed"');
     expect(html).not.toContain('<details class="work-activity"');
     expect(html).not.toContain('class="message-error"');
@@ -420,9 +424,10 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Choose an available model or connect its provider in Settings");
     expect(html).not.toContain("No API key");
     expect(html).not.toContain("/local/path/providers.md");
+    expect(html).toContain(">Open settings</button>");
   });
 
-  it("folds DNS guidance and copyable diagnostics under a single error summary", () => {
+  it("shows DNS guidance on the card and keeps its diagnostics behind Details", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
       id: "assistant-error", turnId: "turn-1", type: "agentMessage", text: "", status: "failed",
       error: { code: "dns_error", message: "Connection error.", diagnostics: {
@@ -431,30 +436,53 @@ describe("AgentTimeline", () => {
         causes: [{ code: "ENOTFOUND", message: "getaddrinfo api.deepseek.com" }],
       } },
     }]} failedTurnId="turn-1" />);
-    expect(html).toContain("DNS lookup failed");
-    const summary = html.match(/<summary class="tool-activity tool-row timeline-activity connection-activity">([\s\S]*?)<\/summary>/)?.[1];
-    expect(summary).toContain("DNS lookup failed");
-    expect(summary).not.toContain("A hostname could not be resolved");
-    expect(html).toContain('<details class="connection-activity-details connection-activity-failed">');
-    expect(html).not.toContain('<details class="connection-activity-details connection-activity-failed" open');
-    expect(html).not.toContain('<summary>Details');
-    expect(html.indexOf("A hostname could not be resolved")).toBeGreaterThan(html.indexOf('class="connection-activity-diagnostics"'));
-    expect(html).toContain('aria-label="Copy diagnostics"');
-    expect(html).toContain("ENOTFOUND");
-    expect(html).toContain("req-123");
-    expect(html).toContain("Manual proxy");
+    expect(html).toContain("<strong>DNS lookup failed</strong>");
+    expect(html).toContain("A hostname could not be resolved");
+    expect(html).toContain('aria-expanded="false">Details</button>');
+    expect(html).toContain(">Open settings</button>");
+    expect(html).not.toContain("agent-error-rows");
+    expect(html).not.toContain("ENOTFOUND");
   });
 
-  it("previews an unclassified error on one line while preserving its full response", () => {
+  it("opens an error card's diagnostics and copies them", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<AgentTimeline items={[user(), {
+      id: "assistant-error", turnId: "turn-1", type: "agentMessage", text: "", status: "failed",
+      error: { code: "dns_error", message: "Connection error.", diagnostics: {
+        provider: "deepseek", requestId: "req-123", network: { source: "manual", proxyUrl: "http://localhost:7890/" },
+        causes: [{ code: "ENOTFOUND", message: "getaddrinfo api.deepseek.com" }],
+      } },
+    }]} failedTurnId="turn-1" />));
+    const button = (label: string) => [...container.querySelectorAll("button")].find((item) => item.textContent === label)!;
+    await act(async () => button("Details").click());
+    const rows = container.querySelector(".agent-error-rows")?.textContent;
+    expect(rows).toContain("ENOTFOUND");
+    expect(rows).toContain("req-123");
+    expect(rows).toContain("Manual proxy");
+    await act(async () => button("Copy diagnostics").click());
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("DNS lookup failed"));
+    expect(button("Diagnostics copied")).toBeTruthy();
+    await act(async () => button("Hide details").click());
+    expect(container.querySelector(".agent-error-rows")).toBeNull();
+    await act(async () => button("Open settings").click());
+    expect(window.location.hash).toBe("#/settings/network");
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("previews an unclassified error on one line while keeping its full response for Details", () => {
     const message = "Unexpected gateway response\n  upstream request failed with additional diagnostic context";
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
       id: "assistant-error", turnId: "turn-1", type: "agentMessage", text: "", status: "failed", error: { message },
     }]} failedTurnId="turn-1" />);
-    const summary = html.match(/<summary class="tool-activity tool-row timeline-activity connection-activity">([\s\S]*?)<\/summary>/)?.[1];
-    expect(summary).toContain("Model request failed — Unexpected gateway response upstream request failed");
-    expect(summary).not.toContain("\n");
-    expect(summary).toContain('role="alert"');
-    expect(html).toContain(`<dd>${message}</dd>`);
+    expect(html).toContain("<strong>Model request failed</strong>");
+    const preview = html.match(/<p class="agent-error-preview"[^>]*>([\s\S]*?)<\/p>/)?.[1];
+    expect(preview).toBe("Unexpected gateway response upstream request failed with additional diagnostic context");
+    expect(html).not.toContain(">Open settings</button>");
     expect(html).not.toContain("activity-shimmer");
   });
 
@@ -486,10 +514,10 @@ describe("AgentTimeline", () => {
       failedMessage("attempt-3", "Third partial response.", "final disconnect"),
     ]} failedTurnId="turn-1" />);
 
-    expect(html.match(/>Connection interrupted<\/span>/g)).toHaveLength(1);
+    expect(html.match(/<strong>Connection interrupted<\/strong>/g)).toHaveLength(1);
+    expect(html.match(/class="agent-error-card"/g)).toHaveLength(1);
     expect(html).not.toContain("first disconnect");
     expect(html).not.toContain("second disconnect");
-    expect(html).toContain("final disconnect");
     expect(html.indexOf("Third partial response.")).toBeLessThan(html.indexOf("Connection interrupted"));
   });
 
@@ -655,8 +683,8 @@ describe("AgentTimeline", () => {
       error: { message: "stream disconnected" },
     }]} failedTurnId="turn-1" />);
 
-    expect(html.match(/>Response interrupted<\/span>/g)).toHaveLength(1);
-    expect(html.match(/stream disconnected/g)).toHaveLength(1);
+    expect(html.match(/<strong>Response interrupted<\/strong>/g)).toHaveLength(1);
+    expect(html.match(/class="agent-error-card"/g)).toHaveLength(1);
   });
 
   it("keeps an unclassified completed process message inside Worked", () => {

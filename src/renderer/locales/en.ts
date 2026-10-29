@@ -1774,6 +1774,9 @@ const en = {
       "Could not copy. Select the details above to copy them manually.",
     diagnosticsCopied: "Diagnostics copied",
     copyDiagnostics: "Copy diagnostics",
+    showDetails: "Details",
+    hideDetails: "Hide details",
+    openSettings: "Open settings",
     detail: {
       query: "Query",
       provider: "Provider",
