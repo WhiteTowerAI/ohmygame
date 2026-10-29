@@ -67,7 +67,7 @@ async function renderDialog() {
       />,
     ),
   );
-  return container.querySelector<HTMLInputElement>('[role="switch"]')!;
+  return container.querySelector<HTMLButtonElement>('[role="switch"]')!;
 }
 
 describe("publish cover controls", () => {
@@ -97,15 +97,15 @@ describe("publish cover controls", () => {
 
   it("turns automatic replacement off and on without an image upload", async () => {
     const toggle = await renderDialog();
-    expect(toggle.checked).toBe(true);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
     await act(async () => toggle.click());
     expect(setProjectCoverMode).toHaveBeenLastCalledWith(project.id, "custom");
-    expect(toggle.checked).toBe(false);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(setProjectCover).not.toHaveBeenCalled();
     expect(container.querySelector("img")).not.toBeNull();
     await act(async () => toggle.click());
     expect(setProjectCoverMode).toHaveBeenLastCalledWith(project.id, "auto");
-    expect(toggle.checked).toBe(true);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
     expect(container.textContent).not.toContain("Restore automatic cover");
     expect(container.textContent).not.toContain(
       "Automatic replacement is off.",
@@ -119,7 +119,7 @@ describe("publish cover controls", () => {
     );
     const toggle = await renderDialog();
     await act(async () => toggle.click());
-    expect(toggle.checked).toBe(false);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(toggle.disabled).toBe(false);
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "Could not save cover mode",
@@ -140,7 +140,7 @@ describe("publish cover controls", () => {
       input.dispatchEvent(new Event("change", { bubbles: true })),
     );
     expect(toggle.disabled).toBe(true);
-    expect(toggle.checked).toBe(true);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
     expect(container.querySelector('[role="status"]')).toBe(status);
     expect(status?.textContent).toContain("Apply or cancel");
     const apply = [
@@ -148,7 +148,7 @@ describe("publish cover controls", () => {
     ].find((button) => button.textContent === "Apply cover")!;
     await act(async () => apply.click());
     expect(setProjectCover).toHaveBeenCalledWith(project.id, expect.any(Blob));
-    expect(toggle.checked).toBe(false);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
     expect(toggle.disabled).toBe(false);
     expect(container.textContent).toContain("Cover applied.");
     expect(container.querySelector('[role="status"]')).toBe(status);
