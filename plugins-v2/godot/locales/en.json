@@ -1,0 +1,9 @@
+{
+  "displayName": "Godot",
+  "description": "Make Godot games: a project type that plays in the game panel as a web build, tools to run scenes and export, and skills for scenes and scripts.",
+  "type.title": "Godot game",
+  "type.description": "A Godot 4 project. Needs Godot 4.3 or later with its web export templates.",
+  "command.run": "Run in Godot",
+  "config.godotPath": "Godot executable",
+  "config.godotPath.description": "Leave empty to use GODOT_PATH, then the PATH and the usual install folders."
+}

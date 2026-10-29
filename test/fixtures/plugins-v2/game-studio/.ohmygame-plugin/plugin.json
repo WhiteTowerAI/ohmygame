@@ -1,0 +1,46 @@
+{
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "ohmygame/game-studio",
+  "version": "1.0.0",
+  "engines": { "ohmygame-api": "^2.0.0" },
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "icon": "./assets/icon.svg",
+  "categories": ["workflow"],
+  "appliesTo": ["general", "interactive-story", "ohmygame/godot:godot-game"],
+  "contributes": {
+    "skills": "./skills/",
+    "commands": [
+      {
+        "id": "create-game",
+        "title": "%starter.create%",
+        "run": {
+          "prompt": "Create a playable game from this idea using a suitable engine.",
+          "skill": "game-studio",
+          "insert": true
+        },
+        "slots": [{ "slot": "home.starters" }]
+      },
+      {
+        "id": "add-feature",
+        "title": "%starter.feature%",
+        "run": {
+          "prompt": "Add a feature to the current game without regressing existing play.",
+          "skill": "game-studio",
+          "insert": true
+        },
+        "slots": [{ "slot": "composer.add" }]
+      },
+      {
+        "id": "fix-bug",
+        "title": "%starter.fix%",
+        "slash": "fix-bug",
+        "run": {
+          "prompt": "Diagnose and fix a gameplay bug, then verify the affected flow.",
+          "skill": "game-qa",
+          "insert": true
+        }
+      }
+    ]
+  }
+}
