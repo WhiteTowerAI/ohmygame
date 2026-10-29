@@ -187,6 +187,11 @@ export interface ExternalMcpOptions {
   tools: (project: ProjectState, sessionId: string) => ToolDefinition[];
   /** Every public project tool, for listing before a project is chosen. */
   catalog: () => ToolDefinition[];
+  /**
+   * The tools of the project's plugins, named `publisher__name__tool`. They
+   * are listed for the project a session uses when it asks for its tools.
+   */
+  pluginTools?: (project: ProjectState) => Promise<ToolDefinition[]>;
   /** A session ended or moved to another project. */
   release?: (projectId: string, sessionId: string) => Promise<void> | void;
   waitMs?: number;
@@ -485,7 +490,13 @@ export class ExternalMcpService {
       case "ping":
         return { jsonrpc: "2.0", id, result: {} };
       case "tools/list":
-        return { jsonrpc: "2.0", id, result: { tools: this.tools() } };
+        return {
+          jsonrpc: "2.0",
+          id,
+          result: {
+            tools: [...this.tools(), ...(await this.#pluginTools(session))],
+          },
+        };
       case "tools/call": {
         const name = typeof params.name === "string" ? params.name : "";
         const outcome = await this.#call(
@@ -500,6 +511,9 @@ export class ExternalMcpService {
           id,
           result: {
             content: outcome.result.content,
+            ...(outcome.result.structuredContent !== undefined
+              ? { structuredContent: outcome.result.structuredContent }
+              : {}),
             ...(outcome.isError ? { isError: true } : {}),
           },
         };
@@ -518,6 +532,16 @@ export class ExternalMcpService {
           },
         };
     }
+  }
+
+  /** The session's project's plugin tools; none before it uses a project. */
+  async #pluginTools(session: Session): Promise<BridgeTool[]> {
+    const project = this.#project(session);
+    if (!project || !this.#options.pluginTools) return [];
+    const tools = await this.#options.pluginTools(project).catch(() => []);
+    return new ToolBridge(tools)
+      .list("all")
+      .map(({ _meta: _, ...tool }) => tool);
   }
 
   /** The public tool list: the same for every session, whichever project it uses. */
@@ -572,6 +596,16 @@ export class ExternalMcpService {
       case "wait_job":
       case "cancel_job":
         return this.#jobCall(name, input);
+    }
+    if (isPluginToolName(name) && this.#options.pluginTools) {
+      const project = this.#project(session);
+      if (!project) return failure(noProject());
+      const tools = await this.#options.pluginTools(project);
+      if (!tools.some((tool) => tool.name === name))
+        return failure(
+          `Tool ${name} is not available for project ${project.name}. Its plugin may be off, not allowed in this project, or not installed.`,
+        );
+      return new ToolBridge(tools).call(name, input, callId, signal);
     }
     if (!(EXTERNAL_PROJECT_TOOLS as readonly string[]).includes(name))
       return failure(`Tool ${name} is not available`);
@@ -662,6 +696,11 @@ export class ExternalMcpService {
       return failure(`Job ${job.id} was cancelled`);
     return job.outcome ?? failure(`Job ${job.id} ended without a result`);
   }
+}
+
+/** Plugin tools are `publisher__name__tool`; OhMyGame's own never contain `__`. */
+function isPluginToolName(name: string): boolean {
+  return /^[a-z0-9-]+__[a-z0-9-]+__[a-z0-9_]+$/.test(name);
 }
 
 function publicTools(tools: readonly ToolDefinition[]): ToolDefinition[] {
