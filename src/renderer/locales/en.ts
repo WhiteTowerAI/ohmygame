@@ -1407,11 +1407,12 @@ const en = {
     completed: "{{completed}} / {{total}} steps completed",
   },
   planApproval: {
+    kind: "Plan",
     label: "Plan approval",
     title: "Implement this plan?",
     cancel: "Cancel plan",
-    approve: "Yes, implement this plan",
-    refine: "No, and tell OhMyGame what to do differently",
+    approve: "Approve and run",
+    refine: "Revise plan",
     refinePlaceholder: "Tell OhMyGame what to do differently",
   },
   agents: {
@@ -1563,6 +1564,7 @@ const en = {
     notAnswered: "Not answered: {{subject}}",
   },
   questionnaire: {
+    kind: "Question",
     label: "Planning questions",
     previous: "Previous question",
     position: "{{current}} of {{total}}",
