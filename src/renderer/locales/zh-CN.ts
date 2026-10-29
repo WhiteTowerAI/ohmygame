@@ -1756,6 +1756,9 @@ const zhCN: typeof en = {
     copyFailed: "无法复制，请选中上方的详情手动复制。",
     diagnosticsCopied: "诊断信息已复制",
     copyDiagnostics: "复制诊断信息",
+    showDetails: "详情",
+    hideDetails: "收起",
+    openSettings: "打开设置",
     detail: {
       query: "查询",
       provider: "服务商",
