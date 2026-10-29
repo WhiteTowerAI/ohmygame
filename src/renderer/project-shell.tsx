@@ -6,13 +6,21 @@ import {
   FolderOpen,
   LoaderCircle,
   MessageSquarePlus,
-  PanelToggle,
+  Clapperboard,
+  Code2,
+  FileText,
+  Gamepad2,
+  Layers3,
+  LayoutGrid,
+  MessageCircle,
+  Palette,
   Pencil,
   RefreshCw,
   Share2,
   UserRound,
   X,
 } from "./icons.js";
+import { createPortal } from "react-dom";
 import { observeWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
 import {
   Activity,
@@ -27,7 +35,7 @@ import {
 } from "react";
 import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
-import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
   ApiError,
   acquirePreview,
@@ -87,18 +95,20 @@ import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
 import { useAuth } from "./auth.js";
-import { readChatLayout, type ChatLayout } from "./chat-layout.js";
 import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from "./pending-publish.js";
 import type { PublishDetails } from "./publish-dialog.js";
 import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
-import { WorkspaceShell, WorkspaceAgentPane } from "./workspace-shell.js";
+import { closePanel, createPanelNodes, PanelLayout, PanelMount, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
+import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
+import type { CodingView } from "./coding-workspace.js";
 import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
-import { Button, type MenuEntry } from "./ui/index.js";
+import { Button, DropdownMenu, Empty, IconButton, type MenuEntry } from "./ui/index.js";
+import type { IconComponent } from "./icons.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { t } from "./i18n.js";
 
@@ -121,7 +131,15 @@ interface ProjectShellProps {
 }
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
-const GODOT_WORKSPACE_OPEN_STORAGE_KEY = "ohmygame-godot-workspace-open";
+const PANELS: Record<WorkspacePanel, { title: () => string; icon: IconComponent }> = {
+  chat: { title: () => t("panels.chat"), icon: MessageCircle },
+  game: { title: () => t("panels.game"), icon: Gamepad2 },
+  design: { title: () => t("workspace.tab.design"), icon: FileText },
+  code: { title: () => t("workspace.tab.code"), icon: Code2 },
+  assets: { title: () => t("workspace.tab.assets"), icon: Layers3 },
+  story: { title: () => t("panels.story"), icon: Clapperboard },
+  canvas: { title: () => t("panels.canvas"), icon: Palette },
+};
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
 const NAMED_UNFINISHED_FILES = 10;
@@ -151,15 +169,38 @@ export function ProjectShell({
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
   const [initialPromptDeferred, setInitialPromptDeferred] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
-  const [agentCollapsed, setAgentCollapsed] = useState(view === "design" && !initialPrompt && !initialDraft);
   const [designOpen, setDesignOpen] = useState(view === "design");
   useEffect(() => { setDesignOpen(view === "design"); }, [view]);
   const changeWorkspaceView = useCallback((open: boolean, options?: { replace?: boolean }): void => {
     setDesignOpen(open);
     onViewChange?.(open ? "design" : "workspace", options);
   }, [onViewChange]);
-  const [godotWorkspaceOpen, setGodotWorkspaceOpen] = useState(readGodotWorkspaceOpen);
-  const [chatLayout] = useState<ChatLayout>(readChatLayout);
+  // The workspace's panels, in the one layout every project shares (see
+  // workspace-layout.ts). Each panel's view renders into nodes of its own,
+  // which the panel shows.
+  const offered = state.project ? panelsOf(state.project) : [];
+  const [saved, setSaved] = useState<SavedLayout | undefined>();
+  const opening = useMemo(() => state.project ? openingLayout(offered) : undefined, [!!state.project]);
+  const current = saved ?? opening;
+  const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered)) : undefined;
+  const visible = layout ? visiblePanels(layout, new Set(offered)) : [];
+  const chatShown = !layout || visible.includes("chat");
+  const [nodes] = useState(() => Object.fromEntries(Object.keys(PANELS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
+  const latestLayout = useRef({ current, offered, layout });
+  latestLayout.current = { current, offered, layout };
+  function changeLayout(next: Layout): void {
+    const { current, offered, layout } = latestLayout.current;
+    if (!offered.length || !layout) return;
+    const value = mergeLayout(current, layout, next, offered);
+    latestLayout.current = { ...latestLayout.current, current: value, layout: next };
+    setSaved(value);
+    saveLayout(value);
+  }
+  /** Brings a panel forward, opening it where it belongs if it was closed. */
+  function revealPanel(id: WorkspacePanel): void {
+    const { layout, offered } = latestLayout.current;
+    if (layout && offered.includes(id)) changeLayout(showPanel(layout, id, homeOf(id)));
+  }
   const [publishing, setPublishing] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
@@ -201,16 +242,13 @@ export function ProjectShell({
   const timeline = useRef<HTMLDivElement>(null);
   const followTimeline = useRef(true);
 
-  // Apply project defaults on load, preserving later manual pane toggles.
-  const godotDefaultViewApplied = useRef(false);
+  // The route's design view brings the design panel forward, and the route follows it.
+  const designPanel = offered.includes("design");
+  const designShown = designPanel ? visible.includes("design") : designOpen;
+  useEffect(() => { if (view === "design" && designPanel) revealPanel("design"); }, [view, designPanel]);
   useEffect(() => {
-    if (state.project?.type === "general" || state.project?.type === "godot-game") setAgentCollapsed(false);
-    if (state.project?.type !== "godot-game") return;
-    if (godotDefaultViewApplied.current) return;
-    godotDefaultViewApplied.current = true;
-    // Godot has no Preview, so keep its workspace visible on Design.
-    if (view !== "design" && godotWorkspaceOpen) changeWorkspaceView(true, { replace: true });
-  }, [state.project?.id, state.project?.type]);
+    if (layout && designPanel && designShown !== (view === "design")) onViewChange?.(designShown ? "design" : "workspace", { replace: true });
+  }, [designShown, designPanel]);
 
   useEffect(() => {
     const current = state.conversation;
@@ -405,11 +443,11 @@ export function ProjectShell({
 
   useEffect(() => {
     const element = timeline.current;
-    if (element && followTimeline.current && (state.project?.type === "godot-game" || !agentCollapsed)) {
+    if (element && followTimeline.current && chatShown) {
       const frame = requestAnimationFrame(() => { element.scrollTop = element.scrollHeight; });
       return () => cancelAnimationFrame(frame);
     }
-  }, [state.turns, agentCollapsed, state.project?.type]);
+  }, [state.turns, chatShown]);
 
   useEffect(() => {
     const element = timeline.current;
@@ -459,7 +497,7 @@ export function ProjectShell({
     ? activePlanItem.plan
     : state.plan.mode !== "normal" ? state.plan.plan : undefined;
 
-  const canvasOpen = designOpen || project?.type === "asset-canvas";
+  const canvasOpen = designShown || project?.type === "asset-canvas";
   const playableSurface = !canvasOpen && playableChat?.surface && playableChat.surface.key !== dismissedSurface ? playableChat.surface : undefined;
   const designChipKey = designContext ? `design:${designContext.text}` : undefined;
   const currentDesignContext = canvasOpen && designChipKey !== dismissedDesign ? designContext : undefined;
@@ -500,7 +538,7 @@ export function ProjectShell({
     try {
       await saveDesign.current?.();
       await sendPrompt(project.id, conversation.id, text, surface?.references ?? [], [], "normal", [], [], [...(surface ? [surface.context] : []), ...contexts]);
-      setAgentCollapsed(false);
+      revealPanel("chat");
       return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
@@ -844,32 +882,38 @@ export function ProjectShell({
   ];
   const publishButton = project ? publishAction(project, { publishing, agentBusy }) : undefined;
 
-  const setGodotWorkspaceVisibility = useCallback((open: boolean): void => {
-    setGodotWorkspaceOpen(open);
-    localStorage.setItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY, String(open));
-  }, []);
-
-  // A Godot project whose plugin builds a web version plays in the game panel like a web game.
-  const isGodotProject = project?.type === "godot-game" && !buildsWebPreview(project);
-
+  // The code panel opens the file. The story editor and the canvas show their
+  // code view first, and come back if their panel was closed.
   const openWorkspaceFile = useCallback((path: string): void => {
-    changeWorkspaceView(false);
+    if (offered.includes("story")) {
+      changeWorkspaceView(false);
+      revealPanel("story");
+    } else if (offered.includes("canvas")) revealPanel("canvas");
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
-    if (isGodotProject) setGodotWorkspaceVisibility(true);
-  }, [changeWorkspaceView, isGodotProject, setGodotWorkspaceVisibility]);
+  }, [changeWorkspaceView, offered.includes("story"), offered.includes("canvas")]);
   const addToChat = useCallback((text: string) => {
     if (!conversation) return;
     composerDrafts.get({ projectId, conversationId: conversation.id }).update({ reference: { text } });
   }, [projectId, conversation?.id]);
 
   function requestPrompt(text: string): void {
-    setAgentCollapsed(false);
+    revealPanel("chat");
     if (!state.conversation) return;
     composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
   }
 
-  const agentIsCollapsed = !isGodotProject && agentCollapsed;
-  const viewerCollapsed = isGodotProject && !godotWorkspaceOpen && !designOpen;
+  const toggleMenu: MenuEntry[] = offered.length ? [
+    { heading: t("panels.layout") },
+    ...presetsFor(offered).map((preset) => ({ label: t(`panels.preset.${preset}`), onSelect: () => changeLayout(presetLayout(preset, offered)) })),
+    "separator",
+    { heading: t("panels.list") },
+    ...offered.map((id) => {
+      const Icon = PANELS[id].icon;
+      const open = !!layout && !!areaOf(layout, id);
+      return { label: PANELS[id].title(), icon: <Icon size={14} />, checked: open, onSelect: () => layout && changeLayout(open ? closePanel(layout, id) : showPanel(layout, id, homeOf(id))) };
+    }),
+  ] : [];
+  const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "code" || id === "assets" ? [id] : []));
 
   return (
     <>
@@ -883,16 +927,20 @@ export function ProjectShell({
         onNew: () => void newConversation(),
       }} />}
       top={<ProjectTop name={project?.name ?? ""} menu={projectMenu}>
+        {toggleMenu.length ? <DropdownMenu placement="bottom-end" items={toggleMenu} trigger={(props) => (
+          <IconButton {...props} size="sm" label={t("panels.menu")}><LayoutGrid size={16} /></IconButton>
+        )} /> : null}
         {project && publishButton ? <Button size="sm" variant="primary" icon={publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
           disabled={publishButton.disabled} title={publishButton.label}
           onClick={() => setPublishDialog({ projectId: project.id, status: "open" })}>{t("workspace.publish")}</Button> : null}
       </ProjectTop>}>
-    <WorkspaceShell chatLayout={chatLayout} agentCollapsed={agentIsCollapsed} viewerCollapsed={viewerCollapsed}
-      onExpandAgent={() => setAgentCollapsed(false)}
-      agent={<WorkspaceAgentPane bodyRef={timeline} onScroll={(event) => {
-        const element = event.currentTarget;
-        followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
-      }} actions={<>
+    {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayout}
+      panels={(project ? offered : ["chat" as const]).map((id) => {
+        const Icon = PANELS[id].icon;
+        return { id, title: PANELS[id].title(), icon: <Icon size={14} />, home: homeOf(id), content: <PanelMount nodes={nodes[id]} /> };
+      })}
+      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered))}>{t("panels.reset")}</Button>} /> : null} /> : null}
+    {createPortal(<div className="pane-header-actions">
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
               <CanvasChipSelect icon={UserRound} label={t("codingAgents.chatProfile", { name: accountRuntime === "codex-cli" ? "Codex" : "Claude Code" })} value={selectedProfileId}
                 options={accountProfiles.map((profile) => {
@@ -919,31 +967,15 @@ export function ProjectShell({
               onRename={rename}
               onSelect={onOpenConversation}
             />
-            {viewerCollapsed ? (
-              <button
-                className="icon-button pane-header-action"
-                type="button"
-                onClick={() => setGodotWorkspaceVisibility(true)}
-                title={t("projectShell.showWorkspace")}
-                aria-label={t("projectShell.showWorkspace")}
-              >
-                <PanelToggle size={14} />
-              </button>
-            ) : !isGodotProject ? (
-              <button
-                className="icon-button pane-header-action"
-                type="button"
-                onClick={() => setAgentCollapsed(true)}
-                title={t("projectShell.hideAgent")}
-                aria-label={t("projectShell.hideAgent")}
-              >
-                <PanelToggle size={14} />
-              </button>
-            ) : null}
-      </>}>
+    </div>, nodes.chat.toolbar)}
+    {createPortal(<section className="agent-pane" aria-label={t("workspace.agent")}>
+      <div className="agent-body" ref={timeline} onScroll={(event) => {
+        const element = event.currentTarget;
+        followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+      }}>
           <div className="timeline" aria-live="polite">
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
-            <Activity mode={agentIsCollapsed ? "hidden" : "visible"}>
+            <Activity mode={chatShown ? "visible" : "hidden"}>
               <ErrorBoundary label={t("errorBoundary.label.conversation")} resetKey={conversation?.id}>
               <AgentTimeline
                 turns={state.turns}
@@ -1055,10 +1087,10 @@ export function ProjectShell({
             canPublish={Boolean(project && (isWebRuntimeProjectType(project.type) || project.type === "interactive-story") && !publishing && !agentBusy)}
             onPublish={project ? () => setPublishDialog({ projectId: project.id, status: "open" }) : undefined}
           /> : null}
-      </WorkspaceAgentPane>}
-    >
+      </div>
+    </section>, nodes.chat.body)}
       <ErrorBoundary key={`${projectId}:${workspaceEpoch}`} label={t("errorBoundary.label.workspace")} resetKey={project?.id} onHome={onHome} homeLabel={homeLabel}>
-      {!project ? <section className="viewer-pane" /> : project.type !== "interactive-story" && project.type !== "asset-canvas" ? (
+      {!project ? null : offered.includes("design") ? (
         <CodingWorkspace
           project={project}
           agentBusy={agentBusy}
@@ -1074,27 +1106,24 @@ export function ProjectShell({
             try { await stopPreview(project.id); } catch (cause) { dispatch({ type: "notice", message: errorMessage(cause) }); }
           }}
           onAskAgent={requestPrompt}
-          designOpen={designOpen}
-          onDesignOpenChange={changeWorkspaceView}
           onDesignSaveReady={registerDesignSave}
           onDesignContextChange={setDesignContext}
           onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
-          onClose={isGodotProject ? () => setGodotWorkspaceVisibility(false) : undefined}
-          chatOnRight={chatLayout === "right"}
-          chatCollapsed={agentIsCollapsed}
-          onToggleChat={isGodotProject ? undefined : () => setAgentCollapsed((collapsed) => !collapsed)}
+          panels={{
+            nodes: { preview: nodes.game, design: nodes.design, code: nodes.code, assets: nodes.assets },
+            visible: codingVisible,
+            onShow: (view) => revealPanel(view === "preview" ? "game" : view),
+          }}
         />
-      ) : project.type === "asset-canvas" ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+      ) : offered.includes("canvas") ? createPortal(<Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         workspaceRevision={workspaceRevision}
         openFileRequest={openFileRequest}
         onSaveReady={registerDesignSave}
         onContextChange={setDesignContext}
-        chatOnRight={chatLayout === "right"}
-        chatCollapsed={agentIsCollapsed}
-        onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
-      /></Suspense> : <PlayableEditorWorkspace
+        headerActionsTarget={nodes.canvas.toolbar}
+      /></Suspense>, nodes.canvas.body) : createPortal(<PlayableEditorWorkspace
         project={project}
         showStoryMap={showStoryMap}
         onStoryMapShown={onStoryMapShown}
@@ -1110,15 +1139,12 @@ export function ProjectShell({
         onPublish={publish}
         publishDialog={publishDialogStatus}
         onClosePublish={() => setPublishDialog(undefined)}
-        chatOnRight={chatLayout === "right"}
-        chatCollapsed={agentIsCollapsed}
-        onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
+        toolbarTarget={nodes.story.toolbar}
         onChatContextChange={setPlayableChat}
         onAskAgent={requestPrompt}
         onSendToAgent={sendEditorRequest}
-      />}
+      />, nodes.story.body)}
       </ErrorBoundary>
-    </WorkspaceShell>
     </ProjectFrame>
     </>
   );
@@ -1222,9 +1248,4 @@ async function initialConversationModel(): Promise<AgentModelRef | undefined> {
   } catch {
     return undefined;
   }
-}
-
-function readGodotWorkspaceOpen(): boolean {
-  // Open unless the user hid it; storage may be unavailable.
-  try { return localStorage.getItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY) !== "false"; } catch { return true; }
 }

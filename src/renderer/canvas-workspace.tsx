@@ -15,8 +15,7 @@ import { LibraryAssetPicker } from "./node-workbench.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
 import type { CanvasDocuments } from "./canvas-document-node.js";
-import { ArrowLeft, Check, ChevronLeft, ChevronRight, Code2, Layers3, LoaderCircle, MoreHorizontal, PanelToggle, Pencil, Plus, Trash2, X } from "./icons.js";
-import { WorkspaceBackButton } from "./workspace-shell.js";
+import { Check, ChevronLeft, ChevronRight, Code2, Layers3, LoaderCircle, MoreHorizontal, Pencil, Plus, Trash2, X } from "./icons.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { CanvasContextMenu } from "./editor-canvas.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
@@ -33,8 +32,10 @@ class CanvasSaveFailure extends Error {
   constructor(cause: unknown) { super(cause instanceof Error ? cause.message : String(cause), { cause }); }
 }
 
-export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveReady, onSaveReady, onContextChange, initialNodeId, onInitialNodeHandled, workspaceRevision = 0, openFileRequest, chatOnRight, chatCollapsed, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onProjectUpdated }: {
-  project: ProjectState; headerActionsTarget?: HTMLElement | null;
+export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveReady, onSaveReady, onContextChange, initialNodeId, onInitialNodeHandled, workspaceRevision = 0, openFileRequest, onProjectUpdated }: {
+  project: ProjectState;
+  /** Where its controls go, such as its panel's toolbar. Without one, an asset canvas has its own header. */
+  headerActionsTarget?: HTMLElement | null;
   onLeaveReady?: (leave: ((action: () => void) => void) | undefined) => void;
   onSaveReady?: (save: (() => Promise<void>) | undefined) => void;
   onContextChange?: (context: PromptContext | undefined) => void;
@@ -42,11 +43,6 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   onInitialNodeHandled?: () => void;
   workspaceRevision?: number;
   openFileRequest?: { path: string; id: number };
-  chatOnRight?: boolean;
-  chatCollapsed?: boolean;
-  onHome?: () => void;
-  homeLabel?: string;
-  onToggleChat?: () => void;
   onProjectUpdated?: (project: ProjectState) => void;
 }) {
   const [writeVersion] = useState(() => workspaceVersion(project.id));
@@ -174,21 +170,17 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
       optionAction={{ label: (option) => t("canvas.boardOptions", { name: option.label }), icon: MoreHorizontal, onSelect: (id, anchor) => setBoardOptions({ id, x: anchor.left, y: anchor.bottom + 5 }) }}
       onChange={(id) => void run(async () => { await flush(); setActiveId(id); setBoardStatus("loading"); })} />
   </div>;
+  const modeTabs = singleBoard ? <WorkspaceTabs tabs={[{ id: "canvas", label: t("canvas.tab.canvas"), icon: Layers3 }, { id: "code", label: t("workspace.tab.code"), icon: Code2 }]} active={workspaceView} onChange={changeView} label={t("canvas.workspaceMode")} /> : null;
   const settingsButton = <ProjectMediaModelSettings key={project.id} project={project} onSaved={(updated) => onProjectUpdated?.(updated)} />;
   return <CanvasAssetProvider assets={assetPaths}><section className="viewer-pane design-workspace" data-active-tab={singleBoard ? workspaceView : undefined} aria-label={singleBoard ? t("canvas.assetCanvasWorkspace") : t("canvas.designWorkspace")}>
-    {singleBoard ? <header className="pane-header viewer-header interactive-story-header window-drag-handle">
-      <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-      <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
-        {chatOnRight && onHome ? <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={ArrowLeft} /> : null}
-        <WorkspaceTabs tabs={[{ id: "canvas", label: t("canvas.tab.canvas"), icon: Layers3 }, { id: "code", label: t("workspace.tab.code"), icon: Code2 }]} active={workspaceView} onChange={changeView} label={t("canvas.workspaceMode")} />
-      </div>
+    {singleBoard && !headerActionsTarget ? <header className="pane-header viewer-header interactive-story-header">
+      <div className="viewer-navigation">{modeTabs}</div>
       <div className="viewer-controls-slot" />
       <div className="viewer-publish design-header-actions">
         {saveStatus}
         {settingsButton}
-        {chatOnRight && chatCollapsed && onToggleChat ? <button className="icon-button pane-header-action" type="button" title={t("workspace.showChat")} aria-label={t("workspace.showChat")} onClick={onToggleChat}><PanelToggle size={14} /></button> : null}
       </div>
-    </header> : headerActionsTarget ? createPortal(<>{saveStatus}{settingsButton}</>, headerActionsTarget) : null}
+    </header> : headerActionsTarget ? createPortal(<>{singleBoard ? modeTabs : null}{saveStatus}{settingsButton}</>, headerActionsTarget) : null}
     {error && error !== docs.error && error !== docs.loadError && error !== tableStorage.error ? <CanvasNotice className="design-notice" message={t("canvas.actionFailed")} detail={error} onDismiss={() => setError(undefined)} /> : null}
     {syncRetryError ? <CanvasNotice className="design-notice" message={t("canvas.reconnectFailed")} detail={syncRetryError} actionLabel={t("canvas.retrySyncAction")} onAction={retrySync} onDismiss={() => setSyncRetryError(undefined)} /> : null}
     {docs.loadError && !workspace ? <CanvasNotice className="design-notice" tone="error" message={t("canvas.loadFailed")} detail={docs.loadError} actionLabel={t("canvas.reloadWorkspace")} onAction={() => docsRef.current.refresh()} /> : null}

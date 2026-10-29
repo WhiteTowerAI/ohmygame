@@ -540,6 +540,45 @@ See the [project menu example](assets/project-card-menu.png).
 The desktop file opener resolves `.` through `/projects/:projectId/files/location`
 to open the workspace root; file reads and writes still require a file path.
 
+## Workspace panels
+
+Below the top bar a project is a set of panels in four areas: left, middle,
+right and bottom. Each panel is a tab; its controls sit beside the tabs. A tab
+drags to another area or to an empty edge, its right-click menu moves or
+closes it, and an area's **+** reopens a closed panel there. Area edges drag to
+resize. A moved or closed panel keeps its state, such as the open file, the
+design canvas or a running game, until the project closes: a closed panel's
+view waits hidden in the page, and views move with `moveBefore`, which keeps an
+iframe from reloading. When the window is too narrow for the side areas beside
+the middle one, the areas stack in one scrolling column. Every tab is named for
+screen readers, also when a narrow area shows only its icon.
+
+Every project shares one layout. Its type only names the panels it offers, in
+the order they open (`src/renderer/workspace-layout.ts`):
+
+| Project types | Panels |
+|---|---|
+| Web games, General projects, Godot | Chat, Game, Design, Code, Assets |
+| Interactive Story | Chat, Story |
+| Asset canvas | Chat, Canvas |
+
+The default puts Chat on the left and the rest in the middle, the first in
+front. A project without a preview, such as Godot without a web build, has no
+Game and opens on Code; panels new to the saved layout join it in the
+default's order and front tab. A chat moved to the middle reads in one centered
+column.
+
+**Layout and panels** in the top bar applies a preset (Default; Art and Code
+bring Design or Code forward where a project has them) and turns each panel
+on or off. The arrangement is kept once in local storage
+(`ohmygame-workspace-layout`) and fitted to each project's panels, so moving
+the chat to the right holds in every project. A change keeps other types'
+panels where they were; a panel the layout never knew opens where the default
+puts it, and closed ones stay closed. The chat side used to be a setting; a
+saved **Right** still decides where the chat first opens. The route's
+`design` view brings the Design panel forward and follows it, and a file link
+in the chat reopens a closed Story or Canvas panel to show the file.
+
 ## Checkpoints
 
 All project types record private workspace snapshots before each consumed user

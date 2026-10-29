@@ -1,13 +1,10 @@
 import { workspaceVersion } from "./workspace-version.js";
 import {
-  ArrowLeft,
   Clapperboard,
   Code2,
   FileText,
   Layers3,
   LoaderCircle,
-  PanelToggle,
-  Share2,
   Settings,
 } from "./icons.js";
 import {
@@ -20,6 +17,7 @@ import {
   Suspense,
   type CSSProperties,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   applyEdgeChanges,
   applyNodeChanges,
@@ -81,7 +79,6 @@ import { PlayableAddControl, PlayableCanvasContextMenu } from "./playable-canvas
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
 import { t } from "./i18n.js";
-import { WorkspaceBackButton } from "./workspace-shell.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -111,7 +108,7 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onClosePublish, toolbarTarget, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
   project: ProjectState;
   onProjectUpdated?: (project: ProjectState) => void;
   agentBusy: boolean;
@@ -124,11 +121,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   onPublish: (details: PublishDetails) => Promise<boolean>;
   publishDialog?: "open" | "success";
   onClosePublish: () => void;
-  chatOnRight?: boolean;
-  chatCollapsed?: boolean;
-  onHome?: () => void;
-  homeLabel?: string;
-  onToggleChat?: () => void;
+  /** Where its tabs and controls go, such as its panel's toolbar. Without one, it has its own header. */
+  toolbarTarget?: HTMLElement | null;
   designOpen?: boolean;
   onDesignOpenChange?: (open: boolean) => void;
   /** Receives what the open Workbench adds to the next chat message. */
@@ -1136,15 +1130,21 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     if (designOpen && designLeave.current) designLeave.current(navigate);
     else navigate();
   };
-  const renderNavigation = () => <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
-    {chatOnRight && onHome ? (
-      <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={ArrowLeft} />
-    ) : null}
-    <WorkspaceTabs
-      tabs={tabs} active={designOpen ? "design" : workspaceView}
-      onChange={showTab.current}
-    />
-  </div>;
+  const headerContent = <>
+    <div className="viewer-navigation">
+      <WorkspaceTabs
+        tabs={tabs} active={designOpen ? "design" : workspaceView}
+        onChange={showTab.current}
+      />
+    </div>
+    <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
+      {!designOpen ? <><button className="icon-button pane-header-action" type="button" title={t("projectSettings.title")} aria-label={t("projectSettings.title")} aria-haspopup="dialog" disabled={phase !== "ready"} onClick={() => setProjectSettingsOpen(true)}>
+        <Settings size={14} />
+      </button>
+      <PlaytestControls disabled={phase !== "ready" || building} busy={playtesting} onOpen={() => void startPlaytest()} onAction={(action) => void startPlaytest({ action })} />
+      </> : null}
+    </div>
+  </>;
 
   return (
     <section
@@ -1159,22 +1159,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         "--story-card-title-height": `${PLAYABLE_CARD_TITLE_HEIGHT}px`,
       } as CSSProperties}
     >
-      <header className="pane-header viewer-header interactive-story-header window-drag-handle">
-        <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-        {renderNavigation()}
-        <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
-          {!designOpen ? <><button className="icon-button pane-header-action" type="button" title={t("projectSettings.title")} aria-label={t("projectSettings.title")} aria-haspopup="dialog" disabled={phase !== "ready"} onClick={() => setProjectSettingsOpen(true)}>
-            <Settings size={14} />
-          </button>
-          <PlaytestControls disabled={phase !== "ready" || building} busy={playtesting} onOpen={() => void startPlaytest()} onAction={(action) => void startPlaytest({ action })} />
-          {chatOnRight && chatCollapsed && onToggleChat ? (
-            <button className="icon-button pane-header-action" type="button" title={t("workspace.showChat")} aria-label={t("workspace.showChat")} onClick={onToggleChat}>
-              <PanelToggle size={14} />
-            </button>
-          ) : null}
-          </> : null}
-        </div>
-      </header>
+      {toolbarTarget ? createPortal(headerContent, toolbarTarget) : <header className="pane-header viewer-header interactive-story-header">{headerContent}</header>}
       {designOpen ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady} onContextChange={onDesignContextChange}
       /></Suspense> : workspaceView === "canvas" ? <div className="interactive-story-body">

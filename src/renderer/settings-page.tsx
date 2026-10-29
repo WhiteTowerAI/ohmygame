@@ -15,7 +15,6 @@ import {
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { NetworkSettingsPanel } from "./network-settings.js";
 import { ExternalAgentsSettings } from "./external-agents-settings.js";
-import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
 import { ChangelogPanel } from "./changelog-panel.js";
 import { exportDiagnostics } from "./api.js";
@@ -118,7 +117,6 @@ export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOp
 
 function GeneralSettings() {
   const [language, updateLanguage] = useState<LanguagePreference>(readLanguagePreference);
-  const [chatLayout, updateChatLayout] = useState<ChatLayout>(readChatLayout);
   return (
     <>
       <SettingsGroup>
@@ -127,17 +125,6 @@ function GeneralSettings() {
             updateLanguage(next);
             setLanguagePreference(next);
           }} />
-        </SettingsRow>
-      </SettingsGroup>
-      <SettingsGroup title={t("settings.general.conversations")}>
-        <SettingsRow title={t("settings.appearance.chatPosition")} description={t("settings.general.chatPositionHint")}>
-          <SegmentedControl size="sm" label={t("settings.appearance.chatPositionLabel")} value={chatLayout} onChange={(next) => {
-            updateChatLayout(next);
-            setChatLayout(next);
-          }} options={[
-            { value: "left", label: t("settings.appearance.left") },
-            { value: "right", label: t("settings.appearance.right") },
-          ]} />
         </SettingsRow>
       </SettingsGroup>
     </>
