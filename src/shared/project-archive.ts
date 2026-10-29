@@ -24,6 +24,7 @@ export const PROJECT_ARCHIVE_SETTING_KEYS = [
   "name",
   "type",
   "integration",
+  "pluginType",
   "webPreviewEnabled",
   "startupDirectory",
   "startupScript",

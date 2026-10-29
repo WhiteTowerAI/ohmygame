@@ -20,7 +20,7 @@ import type {
   ProjectState,
 } from "../shared/contracts.js";
 import { inspectProjectPreview, updateProjectRunSettings } from "./api.js";
-import { supportsWebPreview } from "../shared/project-runtime.js";
+import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { t } from "./i18n.js";
 
 const PREVIEW_VIEWPORT_LABEL_KEYS = {
@@ -145,6 +145,8 @@ export function ProjectSettingsDialog({
   const [webPreviewEnabled, setWebPreviewEnabled] = useState(
     supportsWebPreview(project),
   );
+  // Its plugin builds what the preview serves, so startup settings don't apply.
+  const builtByPlugin = buildsWebPreview(project);
   const previewStartDisabled =
     project.preview.status === "starting" ||
     project.preview.status === "waiting";
@@ -188,7 +190,7 @@ export function ProjectSettingsDialog({
   }>();
   useEffect(() => {
     setInspection(undefined);
-    if (!webPreviewEnabled) return;
+    if (!webPreviewEnabled || builtByPlugin) return;
     let disposed = false;
     const timer = setTimeout(() => {
       let settings: ProjectRunSettings;
@@ -358,7 +360,7 @@ export function ProjectSettingsDialog({
           <h3 id="preview-startup-heading">{t("projectSettings.startup")}</h3>
           <fieldset
             className="project-settings-section"
-            disabled={saving || !webPreviewEnabled}
+            disabled={saving || !webPreviewEnabled || builtByPlugin}
           >
             <div className="project-settings-field-row">
               <label>
