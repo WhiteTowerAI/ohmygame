@@ -8,7 +8,7 @@ import { convertToPng } from "@earendil-works/pi-coding-agent";
 import type { AssetCanvasNode, PromptImage, RunToolRequest, ToolJob, ToolId } from "../shared/contracts.js";
 import { createCanvasBoard, fitCanvasLayout, isCanvasBoard, isCanvasIndex, CANVAS_INDEX_SCHEMA, CANVAS_BOARD_SCHEMA, CANVAS_LAYOUT_SCHEMA, type CanvasBoard, type CanvasBoardDetail, type CanvasWorkspaceDetail, type CanvasWorkspaceIndex } from "../shared/canvas-workspace.js";
 import { CANVAS_ASSETS_SCHEMA, canvasNodeAssetIds } from "../shared/canvas-assets.js";
-import { combineAssetCanvasPrompt, createAssetCanvasDocument, resolveAssetCanvasAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
+import { combineAssetCanvasPrompt, createAssetCanvasDocument, effectLibraryPrompt, resolveAssetCanvasAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { canvasImagePresetPrompt } from "../shared/canvas-image-presets.js";
 import { buildModel3DToolRequest } from "../shared/generation-config.js";
 import { getWorkspaceMedia } from "./workspace.js";
@@ -545,7 +545,10 @@ export class CanvasStore {
     if (node.type !== "image" && node.type !== "video") throw new CanvasError("Unsupported generation node");
     const linked = board.nodes.find((candidate) => candidate.id === node.data.promptSource?.nodeId);
     const text = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
-    const prompt = combineAssetCanvasPrompt(text, node.data.prompt);
+    const localPrompt = node.type === "image"
+      ? effectLibraryPrompt(node.data.effectBasePrompt, node.data.effectColor, node.data.effectRhythm, node.data.prompt)
+      : node.data.prompt;
+    const prompt = combineAssetCanvasPrompt(text, localPrompt);
     if (!prompt) throw new CanvasError("Add a prompt before generating");
     if (node.type === "image") {
       if (node.data.quickReskinMode === "person-clothing" && node.data.images.length !== 2) throw new CanvasError("Quick reskin requires a person image and a clothing image");

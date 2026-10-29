@@ -8,11 +8,12 @@ import { preferredCharacterSheetOption } from "../shared/canvas-character-tools.
 import {
   createAssetCanvasDocument,
   createAssetGenerationNode,
+  EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT,
   preferredImageOption,
 } from "../shared/asset-canvas.js";
 import { createProject, deleteLibraryAsset, deleteProject, getProjectCover, listImageModels, setProjectCover, uploadLibraryAsset } from "./api.js";
 import effectLibraryCover from "./assets/templates/examples/effect-library-cover.webp";
-import effectFireHitSheet from "./assets/templates/examples/effect-fire-hit-sheet.webp";
+import effectFireHitSheet from "./assets/templates/examples/effect-fire-hit-sheet.png";
 import effectFireHitPreview from "./assets/templates/examples/effect-fire-hit-preview.gif";
 import { TEMPLATE_SAMPLE_IMAGES, type TemplateSample } from "./asset-canvas-template-samples.js";
 import {
@@ -105,6 +106,30 @@ const EFFECT_LIBRARY_PRESETS = [
   { category: "general", name: "烟团消散", frames: "4 × 3 · 12 帧", prompt: "Create one complete 4-column by 3-row sprite sheet for a pixel-art smoke puff dispersing. Read cells left to right, top to bottom: smoke appears, expands, separates into wisps, then fades away. Transparent background, no labels, no borders, fixed center." },
 ] as const;
 
+const EFFECT_LIBRARY_EXAMPLE_PROMPT = `Requested action: pixel-art fire impact animation in a 4-column by 3-row Sprite Sheet (12 frames)
+
+Main color: original orange, yellow, red, and dark-brown fire palette
+
+Motion rhythm: balanced buildup, brightest peak, then a clean fade-out
+
+Additional direction:
+Create exactly one square sheet with exactly 12 equal-sized cells, read left to right and top to bottom. Every cell must have the same transparent background, identical camera framing, identical scale, and one fixed ground-impact point at the bottom center. Do not add borders, grid lines, labels, text, UI, characters, weapons, scenery, or extra effects. Do not leave any cell empty.
+
+Frame 1: a tiny orange ignition spark on the ground.
+Frame 2: a small flame emerges.
+Frame 3: the flame grows with a few glowing debris pixels.
+Frame 4: a taller flame expands outward.
+Frame 5: the first compact fiery burst.
+Frame 6: the brightest and largest explosion peak, white-yellow core and orange-red flame.
+Frame 7: the burst recedes, with debris moving outward.
+Frame 8: a smaller collapsing fire burst with a glowing hot core.
+Frame 9: fading flame and scattered ember chunks.
+Frame 10: a small diminishing ground flame.
+Frame 11: sparse floating embers above a faint glow.
+Frame 12: only a few tiny fading embers over the fixed ground point.
+
+Style: crisp 2D fantasy game pixel art, limited orange, yellow, red, and dark-brown palette, hard pixel edges, no blur. Each cell must show one clearly distinct consecutive moment of the same animation. Transparent background.`;
+
 const EFFECT_LIBRARY_CATEGORIES = ["fire", "water", "ice", "lightning", "general"] as const;
 
 async function uploadTemplateSample(sample: TemplateSample): Promise<string> {
@@ -114,7 +139,7 @@ async function uploadTemplateSample(sample: TemplateSample): Promise<string> {
   return (await uploadLibraryAsset(file, "image/webp", undefined, "reference")).id;
 }
 
-async function uploadEffectExample(source: string, name: string, contentType: "image/webp" | "image/gif"): Promise<string> {
+async function uploadEffectExample(source: string, name: string, contentType: "image/png" | "image/gif"): Promise<string> {
   const response = await fetch(source);
   if (!response.ok) throw new Error(`Could not load the Effect Library example: ${name}`);
   return (await uploadLibraryAsset(new File([await response.blob()], name, { type: contentType }), contentType, undefined, "reference")).id;
@@ -420,11 +445,11 @@ export async function createEffectLibraryProject(): Promise<{ projectId: string;
       data: { instruction: "effect-library", text: t("effectLibrary.canvasGuide") },
     };
     const [sheetAssetId, gifAssetId] = await Promise.all([
-      uploadEffectExample(effectFireHitSheet, "火焰命中-sprite-sheet.webp", "image/webp"),
+      uploadEffectExample(effectFireHitSheet, "火焰命中-sprite-sheet.png", "image/png"),
       uploadEffectExample(effectFireHitPreview, "火焰命中-preview.gif", "image/gif"),
     ]);
     const exampleGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 560, y: 80 }, width: 1040, height: 470, data: { name: t("effectLibrary.templateExample") } };
-    const sheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 54 }, title: t("effectLibrary.spriteSheetExample"), description: "4 × 3 · 12 帧", data: { assetId: sheetAssetId, mediaType: "image" } };
+    const sheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 54 }, title: t("effectLibrary.spriteSheetExample"), description: "4 × 3 · 12 帧", data: { assetId: sheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_EXAMPLE_PROMPT } };
     const preview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 54 }, title: t("effectLibrary.gifPreview"), description: t("effectLibrary.gifPreviewHint"), data: { assetId: gifAssetId, mediaType: "image" } };
     const workGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 560, y: 620 }, width: 1040, height: 460, data: { name: t("effectLibrary.myEffects") } };
     const imageOption = preferredImageOption(imageModels[0], "1:1");
@@ -435,7 +460,10 @@ export async function createEffectLibraryProject(): Promise<{ projectId: string;
     image.parentId = workGroup.id;
     image.title = EFFECT_LIBRARY_PRESETS[0].name;
     image.description = EFFECT_LIBRARY_PRESETS[0].frames;
-    image.data.prompt = EFFECT_LIBRARY_PRESETS[0].prompt;
+    image.data.effectBasePrompt = EFFECT_LIBRARY_PRESETS[0].prompt;
+    image.data.effectColor = "original";
+    image.data.effectRhythm = "sample";
+    image.data.prompt = "";
     image.data.promptExpanded = true;
     const nodes: AssetCanvasNode[] = [guide, exampleGroup, sheet, preview, workGroup, image];
     document.nodes = nodes;

@@ -77,6 +77,9 @@ const nodes = [
       prompt: { type: "string" },
       presetId: { enum: CANVAS_IMAGE_PRESETS },
       promptExpanded: { type: "boolean" },
+      effectBasePrompt: { type: "string" },
+      effectColor: { enum: ["original", "ice-blue", "electric-purple", "toxic-green", "gold"] },
+      effectRhythm: { enum: ["sample", "quick", "extended"] },
       materialStyle: { enum: CANVAS_MATERIAL_STYLES },
       sourceInput: { type: "boolean" },
       sourceInputLabel: { type: "string", maxLength: 100 },
@@ -179,7 +182,7 @@ const nodes = [
     type: "object",
     additionalProperties: false,
     required: ["assetId", "mediaType"],
-    properties: { assetId: id, mediaType: { enum: ["image", "video", "audio", "model"] } },
+    properties: { assetId: id, mediaType: { enum: ["image", "video", "audio", "model"] }, examplePrompt: { type: "string", maxLength: 20000 } },
   }),
 ];
 

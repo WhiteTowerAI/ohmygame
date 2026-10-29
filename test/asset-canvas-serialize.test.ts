@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAssetCanvasDocument, isAssetCanvasDocument, validateAssetCanvasDocument, withoutContentNodeSizes } from "../src/shared/asset-canvas.js";
+import { createAssetCanvasDocument, effectLibraryPrompt, isAssetCanvasDocument, validateAssetCanvasDocument, withoutContentNodeSizes } from "../src/shared/asset-canvas.js";
 import { canvasHistoryKey, model3DViewLabels, toAssetCanvasNode } from "../src/renderer/asset-canvas-workspace.js";
 import type { Model3DModel } from "../src/shared/contracts.js";
 import { model3DModel } from "../src/shared/custom-models.js";
@@ -8,6 +8,16 @@ import { buildModel3DToolRequest } from "../src/shared/generation-config.js";
 import { MODEL3D_CONNECTION_ID } from "../src/shared/model3d-operations.js";
 
 describe("Asset Canvas node serialization", () => {
+  it("keeps Effect Library choices separate from the user's additional direction", () => {
+    const node = toAssetCanvasNode({ id: "effect", type: "image", position: { x: 0, y: 0 }, data: {
+      prompt: "Scatter fragments upward.", effectBasePrompt: "Create a 4-column by 3-row sprite sheet.", effectColor: "ice-blue", effectRhythm: "quick", resolution: "1K", aspectRatio: "1:1", images: [],
+    } });
+    if (node.type !== "image") throw new Error("Expected an image node");
+    expect(node.data).toMatchObject({ effectColor: "ice-blue", effectRhythm: "quick", prompt: "Scatter fragments upward." });
+    expect(effectLibraryPrompt(node.data.effectBasePrompt, node.data.effectColor, node.data.effectRhythm, node.data.prompt)).toContain("icy cyan");
+    expect(effectLibraryPrompt(node.data.effectBasePrompt, node.data.effectColor, node.data.effectRhythm, node.data.prompt)).toContain("short and forceful");
+    expect(effectLibraryPrompt(node.data.effectBasePrompt, node.data.effectColor, node.data.effectRhythm, node.data.prompt)).toContain("at least 10% transparent padding");
+  });
   it("omits inferred material styles for older daemons but preserves nondefault styles", () => {
     for (const [presetId, materialStyle] of [["building", "pixel"], ["character-sheet", "general"], ["building", "general"]] as const) {
       const node = toAssetCanvasNode({ id: materialStyle, type: "image", position: { x: 0, y: 0 }, data: { presetId, materialStyle, prompt: "Castle", resolution: "1K", aspectRatio: "1:1", images: [] } });

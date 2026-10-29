@@ -93,5 +93,12 @@ describe("template project reference", () => {
     await createEffectLibraryProject();
 
     expect(api.setProjectCover).toHaveBeenCalledWith("project-1", expect.any(Blob));
+    const saved = (canvas.saveCanvasBoard.mock.calls[0]?.[1] as CanvasBoardDetail | undefined)?.board;
+    const effect = saved?.nodes.find((node) => node.type === "image" && node.title === "火焰命中");
+    expect(effect).toMatchObject({ data: { effectColor: "original", effectRhythm: "sample", prompt: "" } });
+    if (effect?.type !== "image") throw new Error("Expected Effect Library image node");
+    expect(effect.data.effectBasePrompt).toContain("4-column by 3-row");
+    const sheet = saved?.nodes.find((node) => node.type === "asset" && node.data.examplePrompt);
+    expect(sheet).toMatchObject({ data: { examplePrompt: expect.stringContaining("pixel-art fire impact animation") } });
   });
 });

@@ -498,6 +498,8 @@ export type AssetCanvasNode = (
   | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
     assetId: string;
     mediaType: "image" | "video" | "audio" | "model";
+    /** Optional read-only prompt documentation attached to a fixed template asset. */
+    examplePrompt?: string;
   } }
   | { id: string; type: "text"; position: AssetCanvasPosition; data: {
     text: string;
@@ -510,6 +512,10 @@ export type AssetCanvasNode = (
     prompt: string;
     presetId?: import("./canvas-image-presets.js").CanvasImagePreset;
     promptExpanded?: boolean;
+    /** Prompt parts managed by the Effect Library template. */
+    effectBasePrompt?: string;
+    effectColor?: "original" | "ice-blue" | "electric-purple" | "toxic-green" | "gold";
+    effectRhythm?: "sample" | "quick" | "extended";
     materialStyle?: import("./canvas-image-presets.js").CanvasMaterialStyle;
     sourceInput?: boolean;
     sourceInputLabel?: string;

@@ -204,3 +204,32 @@ export function resolveAssetCanvasAssetId(nodes: readonly AssetCanvasNode[], ref
 export function combineAssetCanvasPrompt(linkedText: string | undefined, localPrompt: string): string {
   return [linkedText, localPrompt].map((part) => part?.trim()).filter(Boolean).join("\n\n");
 }
+
+/** Safety constraint for generated sprite sheets so grid splitting cannot clip a frame. */
+export const EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT = "Keep every frame fully inside its own cell with at least 10% transparent padding on all four sides. No visual element may touch, cross, or be clipped by the cell boundaries. Keep the full effect visible from top to bottom in every frame.";
+
+/** Builds the complete, portable prompt behind an Effect Library image node. */
+export function effectLibraryPrompt(
+  basePrompt: string | undefined,
+  color: "original" | "ice-blue" | "electric-purple" | "toxic-green" | "gold" | undefined,
+  rhythm: "sample" | "quick" | "extended" | undefined,
+  additionalPrompt: string,
+): string {
+  if (!basePrompt) return [additionalPrompt, EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT].map((part) => part.trim()).filter(Boolean).join("\n\n");
+  const colorDirection = {
+    original: "Color direction: preserve the effect's original palette consistently across every frame.",
+    "ice-blue": "Color direction: use an icy cyan and deep-blue palette across every frame, with a near-white core. Do not use the original warm palette.",
+    "electric-purple": "Color direction: use an electric violet and indigo palette across every frame, with a near-white core.",
+    "toxic-green": "Color direction: use a luminous toxic-green and deep-teal palette across every frame, with a pale green core.",
+    gold: "Color direction: use a radiant gold and amber palette across every frame, with a near-white core.",
+  }[color ?? "original"];
+  const rhythmDirection = {
+    sample: "Timing direction: keep the sample rhythm: a balanced buildup, peak impact, and fade-out.",
+    quick: "Timing direction: make the motion short and forceful: a very brief buildup, an immediate peak impact, then a fast fade-out.",
+    extended: "Timing direction: make the motion spacious and extended: a gradual buildup, a longer peak hold, then a slow fade-out.",
+  }[rhythm ?? "sample"];
+  return [colorDirection, rhythmDirection, EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT, basePrompt, additionalPrompt]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
