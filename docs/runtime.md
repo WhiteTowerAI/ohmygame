@@ -509,7 +509,8 @@ view adds (a project's panels and layout presets), the app's pages and **New
 project** (also **⌘N** or **Ctrl+N**, which focuses Home's prompt), every
 project, most recently edited first, the Settings sections, and switching
 between dark and light. Leaving an open project from the menu or a shortcut
-saves its design first, as the rail does. A pending desktop update shows above the account until
+saves its design first, as the rail does. While a dialog is open, the menu and
+these shortcuts wait for it to close. A pending desktop update shows above the account until
 it needs a restart. The sidebar collapses to icons and its edge drags between
 200 and 360px (double-click restores 232px); both stay across pages and
 restarts. Settings is a page in this frame, with its sections beside the

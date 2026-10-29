@@ -56,8 +56,8 @@ export function useLeaveGuard(guard: (go: () => void) => void): void {
 }
 
 // Escape while the menu is open is the menu's alone. This listens on the window
-// in the capture phase from the moment the app loads, ahead of any dialog's
-// own Escape listener, even one that captures too.
+// in the capture phase, ahead of an open popover's own Escape listener on the
+// document, even one that captures too.
 let closeOpenMenu: (() => void) | undefined;
 if (typeof window !== "undefined") window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape" || event.isComposing || !closeOpenMenu) return;
@@ -65,6 +65,12 @@ if (typeof window !== "undefined") window.addEventListener("keydown", (event) =>
   event.stopImmediatePropagation();
   closeOpenMenu();
 }, true);
+
+// A dialog in the way, such as Sign In or a rename, keeps its keys: the menu
+// and the shortcuts wait until it closes rather than open over it.
+function otherModalOpen(): boolean {
+  return !!document.querySelector('[aria-modal="true"]:not(.ui-command)');
+}
 
 function leave(go: () => void): void {
   if (leaveGuard) leaveGuard(go);
@@ -103,13 +109,14 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
   }, []);
 
   useEffect(() => {
-    const show = () => setOpen(true);
+    const show = () => { if (!otherModalOpen()) setOpen(true); };
     const onKey = (event: KeyboardEvent) => {
       // Only the platform's modifier: Ctrl+K and Ctrl+N edit text on macOS.
       // A key an editor already handled, or one mid-composition, is left alone.
       if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey) return;
       const mac = isMac();
       if (!(mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
+      if (otherModalOpen()) return;
       const key = event.key.toLowerCase();
       if (key === "k") {
         event.preventDefault();

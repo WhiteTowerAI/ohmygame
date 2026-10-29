@@ -75,7 +75,26 @@ it("uses Ctrl elsewhere", async () => {
   expect(document.querySelector('[role="dialog"]')).not.toBeNull();
 });
 
-it("keeps Escape from a dialog beneath that captures it too", async () => {
+it("waits for an open dialog to close before it opens or a shortcut leaves", async () => {
+  const pending: (() => void)[] = [];
+  const render = (dialog: boolean) => act(async () => root.render(<>
+    <Page guard={(go) => pending.push(go)} />
+    {dialog ? <div role="dialog" aria-modal="true" /> : null}
+    <CommandMenuHost navigate={navigate} />
+  </>));
+  await render(true);
+  await press("k");
+  await act(async () => openCommandMenu());
+  await press("n");
+  await press(",");
+  expect(document.querySelector(".ui-command")).toBeNull();
+  expect(pending).toHaveLength(0);
+  await render(false);
+  await press("k");
+  expect(document.querySelector(".ui-command")).not.toBeNull();
+});
+
+it("keeps Escape from a popover beneath that captures it too", async () => {
   const dialogEscape = vi.fn((event: KeyboardEvent) => event.key === "Escape");
   window.addEventListener("keydown", dialogEscape, true);
   await act(async () => root.render(<CommandMenuHost navigate={navigate} />));

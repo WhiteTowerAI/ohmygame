@@ -424,7 +424,7 @@ function useModal(open: boolean, onClose: () => void) {
         ?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (modalFor(event.target) !== panel) return;
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.isComposing) {
         // Handled here, so a page's own Escape listener doesn't close it too.
         event.stopPropagation();
         close.current();

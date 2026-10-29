@@ -217,6 +217,9 @@ it("filters commands under their headings and runs the one picked from the keybo
   expect(run).toHaveBeenCalledExactlyOnceWith("night");
   await type("nothing here");
   expect(document.querySelector(".ui-command-empty")?.textContent).toContain("nothing here");
+  // Escape mid-composition cancels the composition, not the menu.
+  await key(input, "Escape", { isComposing: true });
+  expect(onClose).toHaveBeenCalledOnce();
   await key(input, "Escape");
   expect(onClose).toHaveBeenCalledTimes(2);
 });
