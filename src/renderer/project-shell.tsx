@@ -104,6 +104,7 @@ import { closePanel, createPanelNodes, PanelLayout, PanelMount, showPanel, visib
 import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import type { CodingView } from "./coding-workspace.js";
 import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
+import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { Button, DropdownMenu, Empty, IconButton, type MenuEntry } from "./ui/index.js";
@@ -842,6 +843,9 @@ export function ProjectShell({
     if (!project || exporting) return;
     setExporting(true);
     try {
+      // The archive is read from disk, so pending edits are saved first.
+      await saveDesign.current?.();
+      await desktopSave.flush();
       const archive = await exportProject(project.id);
       const url = URL.createObjectURL(archive);
       const link = document.createElement("a");
@@ -912,7 +916,7 @@ export function ProjectShell({
     {integrationGate.dialog}
     {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
     <ProjectFrame
-      rail={<ProjectRail projectId={projectId} onNavigate={onNavigate} onLeave={leave} conversations={{
+      rail={<ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={{
         items: conversations,
         current: conversation?.id,
         onOpen: (id) => onOpenConversation(id),
