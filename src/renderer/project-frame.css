@@ -230,6 +230,20 @@
   border-radius: var(--radius-lg);
 }
 
+/* In a narrow window the chat and the views stack. They share the body's
+   height rather than the window's, which would run past the body's edge. */
+@media (max-width: 720px) {
+  .project-body .workspace-shell {
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .project-body .workspace-shell.workspace-shell-agent-collapsed {
+    grid-template-rows: 0 minmax(0, 1fr);
+  }
+  .project-body .workspace-shell.workspace-shell-viewer-collapsed {
+    grid-template-rows: minmax(0, 1fr) 0;
+  }
+}
+
 /* The top bar drags the window, so the panel headers under it don't. */
 .desktop-macos .project-body .window-drag-handle {
   app-region: no-drag;

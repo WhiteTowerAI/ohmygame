@@ -293,4 +293,48 @@ describe("in a project", () => {
     await act(async () => railItem("First level").click());
     expect(window.location.hash).toBe("#/projects/old/conversations/start");
   });
+
+  it("opens and walks the conversations from the keyboard", async () => {
+    const icon = button("New Rocket")!;
+    // Focus alone doesn't open the list.
+    await act(async () => icon.focus());
+    expect(document.querySelector(".rail-popover")).toBeNull();
+    await act(async () => icon.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    expect(document.activeElement).toBe(railItem("Boss fight"));
+    const key = async (name: string) => act(async () =>
+      document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true })));
+    await key("ArrowDown");
+    expect(document.activeElement).toBe(railItem("Rocket fuel"));
+    await key("ArrowUp");
+    await key("ArrowUp");
+    expect(document.activeElement).toBe(railItem("New conversation"));
+    await key("ArrowLeft");
+    expect(document.querySelector(".rail-popover")).toBeNull();
+    expect(document.activeElement).toBe(icon);
+    // Escape closes it and returns to the icon too.
+    await act(async () => icon.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    await key("Escape");
+    expect(document.querySelector(".rail-popover")).toBeNull();
+    expect(document.activeElement).toBe(icon);
+  });
+
+  it("lists an open project that isn't among the recent ones, and saves before going back", async () => {
+    vi.stubGlobal("ohMyGameDesktop", { platform: "darwin" });
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
+    const recent = Array.from({ length: 8 }, (_, index) => project(`p${index}`, `Project ${index}`, `2026-10-2${index}T00:00:00Z`));
+    publishRecentProjects([...recent, project("older", "Older Cave", "2026-09-01T00:00:00Z")]);
+    await act(async () =>
+      root.render(<ProjectRail projectId="older" project={project("older", "Older Cave", "2026-09-01T00:00:00Z")}
+        onNavigate={onNavigate} onLeave={onLeave} conversations={{ items: [], onOpen, onNew }} />),
+    );
+    const icons = [...sidebar().querySelectorAll(".sidebar-recent .sidebar-app[aria-haspopup]")].map((item) => item.getAttribute("aria-label"));
+    expect(icons).toHaveLength(8);
+    expect(icons.at(-1)).toBe("Older Cave");
+    expect(sidebar().querySelector('[aria-current="page"]')?.getAttribute("aria-label")).toBe("Older Cave");
+    onLeave.mockClear();
+    await act(async () => button("Back")!.click());
+    expect(onLeave).toHaveBeenCalledOnce();
+    expect(back).toHaveBeenCalledOnce();
+    back.mockRestore();
+  });
 });
