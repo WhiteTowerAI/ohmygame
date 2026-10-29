@@ -15,7 +15,7 @@ import {
 } from "./api.js";
 import { AgentMark, CommandText } from "./coding-agents-settings.js";
 import { t } from "./i18n.js";
-import { Badge, Button, Switch } from "./ui/index.js";
+import { Button, Switch } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 
 const CLIENTS: Record<
@@ -105,7 +105,6 @@ export function ExternalAgentsSettings() {
                       : t("externalAgents.notConnected")
                 }
               >
-                {client.connected ? <Badge tone="success">{t("externalAgents.connected")}</Badge> : null}
                 {client.available ? (
                   <Button
                     size="sm"
