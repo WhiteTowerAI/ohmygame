@@ -6,6 +6,7 @@ import {
   useState,
   type InputHTMLAttributes,
   type ReactNode,
+  type Ref,
   type TextareaHTMLAttributes,
 } from "react";
 import { Check, ChevronDown, Search, X } from "../icons.js";
@@ -62,6 +63,7 @@ export interface InputProps extends Omit<
   InputHTMLAttributes<HTMLInputElement>,
   "size" | "prefix"
 > {
+  ref?: Ref<HTMLInputElement>;
   size?: "sm" | "md";
   prefix?: ReactNode;
   suffix?: ReactNode;
