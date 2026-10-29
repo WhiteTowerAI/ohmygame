@@ -131,6 +131,8 @@ const zhCN: typeof en = {
     searchPlaceholder: "搜索…",
     selectPlaceholder: "选择…",
     noMatchingOptions: "没有匹配的选项",
+    loading: "加载中",
+    breadcrumb: "位置",
   },
   onboarding: {
     changeAgent: "切换",

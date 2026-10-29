@@ -130,6 +130,8 @@ const en = {
     searchPlaceholder: "Search…",
     selectPlaceholder: "Select…",
     noMatchingOptions: "No matching options",
+    loading: "Loading",
+    breadcrumb: "Location",
   },
   onboarding: {
     changeAgent: "Switch",
