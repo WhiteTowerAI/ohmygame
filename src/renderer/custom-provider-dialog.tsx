@@ -193,8 +193,8 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
   const formId = useId();
   const title = settings ? t("customProvider.edit") : initialProvider ? t("customProvider.connect", { name: initialProvider.name }) : t("providers.add");
   const submitLabel = saving ? t("common.saving") : settings ? t("common.saveChanges") : initialProvider ? t("providers.action.connect") : t("providers.add");
-  const fields = <form id={formId} noValidate onSubmit={(event) => void submit(event)}>
-        <div className="custom-provider-dialog-body">
+  // One body for both: the dialog puts its buttons in its footer, the inline form keeps its own.
+  const body = <div className="custom-provider-dialog-body">
       <fieldset className="project-settings-section" disabled={saving}>
         <label><span>{t("models.displayName")}</span><input ref={nameInput} value={form.name} onChange={(event) => field("name", event.target.value)} placeholder={t("customProvider.namePlaceholder")} maxLength={100} required autoComplete="off" /></label>
         <label><span>{t("providers.baseUrl")}</span><input ref={endpointInput} type="url" value={form.baseUrl} onChange={(event) => field("baseUrl", event.target.value)} placeholder="https://api.example.com/v1" required autoComplete="off" spellCheck={false} /><small>{t("customProvider.baseUrlHint")}</small></label>
@@ -238,8 +238,8 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
         </details>
       </section>
       {error ? <p className="project-settings-error" role="alert">{error}</p> : null}
-    </div>
-  </form>;
+    </div>;
+  const fields = <form id={formId} noValidate onSubmit={(event) => void submit(event)}>{body}</form>;
   if (modal) return <Dialog open size="lg" title={title} onClose={() => { if (!savingRef.current) onClose(); }} footer={<>
     <Button variant="ghost" disabled={saving} onClick={onClose}>{t("common.cancel")}</Button>
     <Button variant="primary" type="submit" form={formId} className="project-settings-submit" disabled={saving} icon={saving ? <LoaderCircle className="spin" size={14} /> : undefined}>{submitLabel}</Button>
@@ -248,52 +248,8 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
   </Dialog>;
   return <section ref={dialog} className="project-settings-dialog custom-provider-dialog custom-provider-form" role="region" aria-label={t("onboarding.customProvider")}>
     <form noValidate onSubmit={(event) => void submit(event)}>
-        <div className="custom-provider-dialog-body">
-          <fieldset className="project-settings-section" disabled={saving}>
-            <label><span>{t("models.displayName")}</span><input ref={nameInput} value={form.name} onChange={(event) => field("name", event.target.value)} placeholder={t("customProvider.namePlaceholder")} maxLength={100} required autoComplete="off" /></label>
-            <label><span>{t("providers.baseUrl")}</span><input ref={endpointInput} type="url" value={form.baseUrl} onChange={(event) => field("baseUrl", event.target.value)} placeholder="https://api.example.com/v1" required autoComplete="off" spellCheck={false} /><small>{t("customProvider.baseUrlHint")}</small></label>
-            <div className="project-settings-field-row">
-              <label><span>{t("customProvider.defaultProtocol")}</span><select ref={apiInput} value={form.api} onChange={(event) => field("api", event.target.value)}>{CUSTOM_MODEL_APIS.map((api) => <option key={api} value={api}>{PROVIDER_API_LABELS[api]}</option>)}</select></label>
-              <label><span>{t("customProvider.authentication")}</span><select ref={authenticationInput} value={form.authentication} onChange={(event) => field("authentication", event.target.value as SaveCustomProviderRequest["authentication"])}><option value="api_key">{t("providers.apiKey")}</option><option value="none">{t("customProvider.noApiKey")}</option></select></label>
-            </div>
-            {form.authentication === "api_key" ? <label><span>{t("providers.apiKey")}</span><input ref={keyInput} type="password" value={form.apiKey ?? ""} onChange={(event) => field("apiKey", event.target.value)} required={!settings || settings.authentication !== "api_key"} placeholder={settings?.authentication === "api_key" ? t("customProvider.keepKeyPlaceholder") : t("customProvider.keyPlaceholder")} autoComplete="new-password" spellCheck={false} /></label> : null}
-          </fieldset>
-          <section className="custom-provider-model-picker" aria-label={t("customProvider.modelSettings")}>
-            <div className="custom-provider-model-heading">
-              <h3>{t("models.title")} <small>{t("customProvider.enabledCount", { count: enabledCount })}</small></h3>
-              <button ref={fetchButton} className="settings-secondary-button" type="button" disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}{fetching ? usesPresets ? t("common.loading") : t("customProvider.fetching") : usesPresets ? t("customProvider.loadPresets") : t("customProvider.fetch")}</button>
-            </div>
-            {discoveryWarnings.map((warning) => <p className="custom-provider-hint" role="status" key={warning}>{warning}</p>)}
-            {discoveryError ? <p className="project-settings-error" role="alert">{discoveryError}</p> : null}
-            {fetchedCount !== undefined ? <p className="custom-provider-hint" role="status">{truncated ? t("customProvider.fetchedFirst", { count: fetchedCount }) : discoverySource === "presets" ? t("customProvider.loadedPresets", { count: fetchedCount }) : t("customProvider.fetchedModels", { count: fetchedCount })}</p> : null}
-            {rows.length ? <>
-              <label className="custom-provider-model-search"><Search size={14} /><input ref={modelSearch} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("models.search")} aria-label={t("models.search")} disabled={saving} /></label>
-              {visibleModels.length ? <>
-                <label className="custom-provider-select-all"><input type="checkbox" checked={allVisibleEnabled} onChange={(event) => toggleModels(configuredModels.map((row) => row.model.id), event.target.checked)} disabled={saving || !configuredModels.length} />{search ? t("customProvider.enableMatching") : t("customProvider.enableAll")}</label>
-                <div className={`custom-provider-model-results${visibleModels.some((row) => row.model.id === editing) ? " is-editing" : ""}`} role="group" aria-label={t("customProvider.availableModels")}>
-                  {visibleModels.map((row) => <div className="custom-provider-model-item" key={row.model.id}>
-                    <div className="custom-provider-model-row">
-                      <label className="custom-provider-model-choice"><input type="checkbox" aria-label={t("customProvider.enableModel", { name: row.model.name || row.model.id })} checked={row.enabled} onChange={(event) => { toggleModels([row.model.id], event.target.checked); if (event.target.checked && !modelUsageList(row.model).length) setEditing(row.model.id); }} disabled={saving} /><span><strong>{row.model.name || row.model.id}</strong><small>{row.model.id}</small><span className="custom-model-usage-badges">{modelUsageList(row.model).length ? modelUsageList(row.model).map((usage) => <small key={usage}>{t(`capability.${usage}`)}</small>) : <small>{t("models.unassigned")}</small>}</span></span></label>
-                      <button className="icon-button" type="button" aria-label={t("common.editName", { name: row.model.name || row.model.id })} data-tooltip={t("common.editName", { name: row.model.name || row.model.id })} aria-expanded={editing === row.model.id} disabled={saving} onClick={() => setEditing((current) => current === row.model.id ? undefined : row.model.id)}><Pencil size={14} /></button>
-                      <button className="icon-button" type="button" aria-label={t("common.removeName", { name: row.model.name || row.model.id })} data-tooltip={t("common.removeName", { name: row.model.name || row.model.id })} disabled={saving} onClick={() => { setRows((current) => current.filter((item) => item.model.id !== row.model.id)); if (editing === row.model.id) setEditing(undefined); }}><Trash2 size={14} /></button>
-                    </div>
-                    {editing === row.model.id ? <div className="custom-provider-model-editor" role="group" aria-label={t("customProvider.editModel", { id: row.model.id })}><ModelFields model={row.model} preset={form.preset} onChange={(model) => updateModel(row.model.id, model)} disabled={saving} /></div> : null}
-                  </div>)}
-                </div>
-              </> : <p className="custom-provider-hint">{t("customProvider.noSearchMatch")}</p>}
-            </> : !manualOpen ? <p className="custom-provider-model-empty">{t("customProvider.noModels")}</p> : null}
-            <details className="custom-provider-manual" open={manualOpen} onToggle={(event) => setManualOpen(event.currentTarget.open)}>
-              <summary><Plus size={14} aria-hidden="true" /><span>{t("customProvider.addManually")}</span><ChevronDown size={14} aria-hidden="true" /></summary>
-              <div className="custom-provider-manual-fields">
-                <label><span>{t("models.modelId")}</span><input value={manual.id} onChange={(event) => setManual((current) => ({ ...current, id: event.target.value }))} placeholder={form.preset === "ollama" ? "qwen3:8b" : t("customProvider.modelIdPlaceholder")} maxLength={200} disabled={saving} autoComplete="off" spellCheck={false} /></label>
-                <ModelFields model={manual} preset={form.preset} onChange={setManual} disabled={saving || !manual.id.trim()} />
-                <button className="settings-secondary-button custom-provider-manual-add" type="button" disabled={saving || !manual.id.trim()} onClick={addManualModel}><Plus size={13} />{t("models.add")}</button>
-              </div>
-            </details>
-          </section>
-          {error ? <p className="project-settings-error" role="alert">{error}</p> : null}
-        </div>
-        <footer><button type="button" disabled={saving} onClick={onClose}>{t("common.cancel")}</button><button className="project-settings-submit" type="submit" disabled={saving}>{saving ? <LoaderCircle className="spin" size={14} /> : null}{submitLabel}</button></footer>
+      {body}
+      <footer><button type="button" disabled={saving} onClick={onClose}>{t("common.cancel")}</button><button className="project-settings-submit" type="submit" disabled={saving}>{saving ? <LoaderCircle className="spin" size={14} /> : null}{submitLabel}</button></footer>
     </form>
   </section>;
 }
