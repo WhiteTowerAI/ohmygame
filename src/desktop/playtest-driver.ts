@@ -73,6 +73,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       } else {
         state.window.hide();
       }
+      state.window.webContents.setAudioMuted(!visible);
     }
     return this.#publishWatchState();
   }
@@ -161,6 +162,8 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     // The session outlives the window, and reading `window.webContents` after the window is destroyed throws.
     const webContents = window.webContents;
     const webContentsId = webContents.id;
+    // The game runs out of sight until someone watches it, so it must not be heard either.
+    webContents.setAudioMuted(true);
     webContents.session.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
       const requestingUrl = details.requestingUrl ?? requestingOrigin;
       return contents === webContents && permission === "pointerLock" && details.isMainFrame &&
@@ -188,7 +191,10 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       await window.loadURL(url.href);
       signal?.throwIfAborted();
       state.ready = true;
-      if (this.#visible) window.showInactive();
+      if (this.#visible) {
+        window.showInactive();
+        webContents.setAudioMuted(false);
+      }
       return await this.#inspect(state, signal);
     } catch (cause) {
       this.#close(id);
