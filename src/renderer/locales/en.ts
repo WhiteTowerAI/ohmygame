@@ -235,6 +235,11 @@ const en = {
       openLogs: "Open logs folder",
       openLogsFailed: "Could not open the logs folder: {{message}}",
     },
+    usageData: {
+      title: "Usage data",
+      description: "Helps us see which features work and fix errors faster. When you're signed in, it is linked to your OhMyGame account.",
+      toggle: "Send usage data",
+    },
   },
   capability: {
     language: "Language",

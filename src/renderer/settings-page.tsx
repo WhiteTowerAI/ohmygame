@@ -17,6 +17,7 @@ import { SegmentedControl } from "./segmented-control.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
 import { ChangelogPanel } from "./changelog-panel.js";
 import { exportDiagnostics } from "./api.js";
+import { readUsageDataEnabled, setUsageDataEnabled } from "./analytics.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 
 const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
@@ -333,6 +334,7 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
         {onOpenOnboarding ? <div><button className="settings-secondary-button" type="button" onClick={onOpenOnboarding}>{t("onboarding.reopen")}</button></div> : null}
       </section>
       <DiagnosticsSettings />
+      <UsageDataSettings />
       <ChangelogPanel currentVersion={update?.currentVersion ?? __APP_VERSION__} availableRelease={update?.availableRelease} />
     </>
   );
@@ -380,6 +382,31 @@ function DiagnosticsSettings() {
         ) : null}
       </div>
       {error ? <p className="settings-error" role="alert">{error}</p> : null}
+    </section>
+  );
+}
+
+function UsageDataSettings() {
+  const [enabled, setEnabled] = useState(readUsageDataEnabled);
+  return (
+    <section className="settings-panel settings-overview-panel settings-diagnostics-panel">
+      <header className="settings-panel-header"><h3>{t("settings.usageData.title")}</h3></header>
+      <div className="settings-usage-data-row">
+        <p>{t("settings.usageData.description")}</p>
+        <label className="settings-toggle">
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label={t("settings.usageData.toggle")}
+            checked={enabled}
+            onChange={(event) => {
+              setEnabled(event.target.checked);
+              setUsageDataEnabled(event.target.checked);
+            }}
+          />
+          <span aria-hidden="true" />
+        </label>
+      </div>
     </section>
   );
 }

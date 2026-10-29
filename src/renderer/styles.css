@@ -2565,6 +2565,13 @@ select.settings-search-input {
   color: var(--danger);
 }
 
+.settings-usage-data-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .settings-diagnostics-actions {
   display: flex;
   flex-wrap: wrap;
