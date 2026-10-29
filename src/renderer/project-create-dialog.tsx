@@ -40,6 +40,19 @@ export interface ProjectStart {
 type Plugin = ConversationCapabilities["plugins"][number];
 
 /**
+ * Asks for an existing folder (desktop app only). It comes back as the project
+ * that already uses it, or as a path for a new project; undefined if cancelled.
+ */
+export async function pickProjectFolder(): Promise<{ owner: ProjectState } | { path: string } | undefined> {
+  const selectDirectory = window.ohMyGameDesktop?.selectProjectDirectory;
+  if (!selectDirectory) throw new Error(t("createDialog.restartForFolders"));
+  const selected = await selectDirectory();
+  if (!selected) return undefined;
+  const owner = (await listProjects()).find((project) => project.workspacePath === selected);
+  return owner ? { owner } : { path: selected };
+}
+
+/**
  * One dialog for every new project: from Home's prompt (with the prompt as the
  * first message), Start blank, Import folder and the Projects page. It asks
  * only what the folder needs; the agent asks the rest in the project.
@@ -141,20 +154,14 @@ export function ProjectCreateDialog({
   }
 
   async function chooseWorkspace(): Promise<void> {
-    const selectDirectory = window.ohMyGameDesktop?.selectProjectDirectory;
-    if (!selectDirectory) {
-      setError(t("createDialog.restartForFolders"));
-      return;
-    }
     setSelectingWorkspace(true);
     setError(undefined);
     setExistingProject(undefined);
     try {
-      const selected = await selectDirectory();
-      if (!selected) return;
-      const owner = (await listProjects()).find((project) => project.workspacePath === selected);
-      if (owner) setExistingProject(owner);
-      else setWorkspacePath(selected);
+      const picked = await pickProjectFolder();
+      if (!picked) return;
+      if ("owner" in picked) setExistingProject(picked.owner);
+      else setWorkspacePath(picked.path);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {

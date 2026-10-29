@@ -7,7 +7,7 @@ import { ExampleShelf, useExamples } from "./examples.js";
 import { publishRecentProjects } from "./app-sidebar.js";
 import { PageFrame } from "./page-frame.js";
 import { ProjectCard, useProjectActions } from "./project-card.js";
-import { ProjectCreateDialog, type FirstMessage } from "./project-create-dialog.js";
+import { pickProjectFolder, ProjectCreateDialog, type FirstMessage } from "./project-create-dialog.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import { createdProjectView, type AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
@@ -44,7 +44,7 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
   const { examples, covers: exampleCovers } = useExamples();
   const { sectionRef, columns, recentProjectLimit } = useProjectShelfLayout();
   const projectActions = useProjectActions(loadProjects);
-  const selectDirectory = window.ohMyGameDesktop?.selectProjectDirectory;
+  const canImportFolder = !!window.ohMyGameDesktop?.selectProjectDirectory;
 
   async function loadProjects() {
     setPhase("loading");
@@ -65,14 +65,12 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
 
   // An existing folder opens its project if it has one, or becomes a new project's workspace.
   async function importFolder(): Promise<void> {
-    if (!selectDirectory) return;
     setImportError(undefined);
     try {
-      const selected = await selectDirectory();
-      if (!selected) return;
-      const owner = (await listProjects()).find((project) => project.workspacePath === selected);
-      if (owner) onOpen(owner.id);
-      else setCreating({ workspacePath: selected });
+      const picked = await pickProjectFolder();
+      if (!picked) return;
+      if ("owner" in picked) onOpen(picked.owner.id);
+      else setCreating({ workspacePath: picked.path });
     } catch (error) {
       setImportError(errorMessage(error));
     }
@@ -95,7 +93,7 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
             />
             <div className="home-starts">
               <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
-              {selectDirectory ? <Button variant="ghost" size="sm" icon={<Import size={14} />} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
+              {canImportFolder ? <Button variant="ghost" size="sm" icon={<Import size={14} />} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
             </div>
             {importError ? <p className="home-notice" role="alert">{importError}</p> : null}
           </section>
