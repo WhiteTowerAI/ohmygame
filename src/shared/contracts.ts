@@ -376,7 +376,7 @@ export interface PreviewRuntimeState {
   error?: string;
   diagnostic?: import("./preview-diagnostics.js").PreviewDiagnostic;
   diagnostics?: import("./preview-diagnostics.js").PreviewDiagnostic[];
-  phase?: "checking" | "installing" | "launching" | "connecting";
+  phase?: "checking" | "building" | "installing" | "launching" | "connecting";
   startedAt?: string;
   logs?: string;
   command?: string;
@@ -400,6 +400,11 @@ export interface ProjectState extends ProjectPreviewSettings {
   workspacePath: string;
   /** The plugin owns the binding file; OhMyGame stores only its identity and presentation. */
   integration?: { pluginId: string; preview?: "external" };
+  /**
+   * A format 2 plugin project type, `publisher/name:type`, and how its game is
+   * previewed, recorded for the app's screens. `ohmygame.json` decides what runs.
+   */
+  pluginType?: { id: string; plugin: string; preview: "web" | "web-build" | "native" };
   /** General Game's explicit Web preview opt-in; missing means disabled. */
   webPreviewEnabled?: boolean;
   /** Directory, relative to the workspace root, in which the Web Game preview starts. */
@@ -909,6 +914,8 @@ export interface CreateProjectRequest {
   /** Absolute path returned by the desktop directory picker. */
   workspacePath?: string;
   pluginId?: string;
+  /** A format 2 plugin project type, `publisher/name:type` (see GET /project-types). */
+  projectType?: string;
 }
 /** `reasoningLevel` is for a Pi model and `nativeReasoningLevel` for a coding agent's. */
 export interface CreateConversationRequest {

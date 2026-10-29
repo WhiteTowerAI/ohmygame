@@ -46,10 +46,12 @@ export function registerCheckpointRoutes(
     options;
   // Cancel remains available while a boundary waits for generation to settle.
   // Upgrading a story and copying its Library media take the workspace to themselves, as Undo does.
+  // So do plugin commands and undoing their changes; plugin pages' storage and lists aren't workspace files.
   const exempt = (url: string) =>
     /\/checkpoints\/|\/events(?:\?|$)/.test(url) ||
     /\/cancel(?:\?|$)/.test(url) ||
-    /\/interactive-story\/(?:upgrade|library-media)(?:\/|\?|$)/.test(url);
+    /\/interactive-story\/(?:upgrade|library-media)(?:\/|\?|$)/.test(url) ||
+    /\/plugin-(?:commands|changes|storage|panels)(?:\/|\?|$)/.test(url);
   app.addHook("preHandler", async (request, reply) => {
     const id = (request.params as { projectId?: string }).projectId;
     if (!id) return;

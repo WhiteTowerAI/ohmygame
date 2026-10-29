@@ -1,0 +1,9 @@
+{
+  "displayName": "Godot",
+  "description": "制作 Godot 游戏：项目在游戏面板中以 Web 构建运行，提供运行场景和导出的工具，以及场景和脚本技能。",
+  "type.title": "Godot 游戏",
+  "type.description": "Godot 4 项目。需要 Godot 4.3 或更新版本及其 Web 导出模板。",
+  "command.run": "在 Godot 中运行",
+  "config.godotPath": "Godot 可执行文件",
+  "config.godotPath.description": "留空时依次使用 GODOT_PATH、PATH 和常见安装位置。"
+}

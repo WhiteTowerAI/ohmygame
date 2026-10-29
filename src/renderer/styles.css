@@ -13640,6 +13640,53 @@ button {
   border-color: var(--border);
 }
 
+:is(
+  .home-sidebar-account-popover,
+  .home-project-type-menu,
+  .project-card-actions-menu,
+  .projects-sort-menu,
+  .library-asset-actions-menu,
+  .library-dialog-actions-menu,
+  .plugin-install-dialog,
+  .story-add-node-menu,
+  .story-add-node-submenu,
+  .project-switcher-popover,
+  .conversation-popover,
+  .selected-text-menu,
+  .composer-command-menu,
+  .model-selector-menu,
+  .model-selector-reasoning-menu,
+  .viewport-menu-popover,
+  .preview-location-popover,
+  .sign-in-dialog,
+  .project-create-dialog,
+  .project-settings-dialog,
+  .publish-dialog,
+  .library-delete-dialog,
+  .library-dialog,
+  .story-video-picker
+) {
+  box-shadow: var(--menu-shadow);
+}
+
+:is(
+  .home-sidebar-account-popover,
+  .project-switcher-popover,
+  .conversation-popover,
+  .model-selector-menu,
+  .model-selector-reasoning-menu,
+  .sign-in-dialog,
+  .project-create-dialog,
+  .project-settings-dialog,
+  .publish-dialog,
+  .library-delete-dialog,
+  .library-dialog,
+  .plugin-install-dialog,
+  .story-video-picker
+) {
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
 /* Playable Nodes editor: the canvas chrome is shared with the story canvas,
    so only the Node card extras and the edge inspector are defined here. */
 .playable-node-badges {
