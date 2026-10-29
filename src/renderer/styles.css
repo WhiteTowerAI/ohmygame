@@ -3076,7 +3076,7 @@ select.settings-search-input {
 .project-card-preview {
   display: block;
   width: 100%;
-  aspect-ratio: 252 / 142;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   border-radius: 8px;
 }
@@ -3281,7 +3281,7 @@ select.settings-search-input {
 .project-card-new-art {
   display: grid;
   width: 100%;
-  aspect-ratio: 252 / 142;
+  aspect-ratio: 16 / 9;
   place-items: center;
   border: 0;
   border-radius: 8px;
@@ -4112,6 +4112,8 @@ select.settings-search-input {
   cursor: pointer;
 }
 .publish-cover-preview > img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -12716,7 +12718,7 @@ button {
 .community-card-cover {
   position: relative;
   overflow: hidden;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 16 / 9;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-raised);
