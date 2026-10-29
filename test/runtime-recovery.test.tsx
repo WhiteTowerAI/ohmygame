@@ -529,7 +529,7 @@ describe("pane and preview boundaries", () => {
     const url = new URL(String(open.mock.calls[0][0]));
     expect(`${url.pathname}?level=${url.searchParams.get("level")}${url.hash}`).toBe("/scene-2?level=2#boss");
     expect(container.querySelector(".preview-run-menu")).toBeNull();
-    await act(async () => (container.querySelector('.project-settings-dialog [aria-label="Close"]') as HTMLButtonElement).click());
+    await act(async () => (container.querySelector('.project-settings [aria-label="Close"]') as HTMLButtonElement).click());
     await act(async () => (container.querySelector('[aria-label="Reload preview"]') as HTMLButtonElement).click());
     expect(container.querySelector("iframe")).not.toBe(frame);
     const reloaded = new URL(container.querySelector("iframe")!.src);
@@ -557,7 +557,7 @@ describe("pane and preview boundaries", () => {
     const logs = [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Preview logs")!;
     await act(async () => logs.click());
     expect(document.querySelector(".coding-workspace")?.getAttribute("data-active-tab")).toBe("code");
-    expect(document.querySelector(".project-settings-dialog")).toBeNull();
+    expect(document.querySelector(".project-settings")).toBeNull();
     expect(document.querySelector(".coding-workspace > .preview-logs")?.textContent).toContain("Preview was stopped.");
     await act(async () => (document.querySelector('[aria-label="Close preview logs"]') as HTMLButtonElement).click());
     expect(document.querySelector(".preview-logs")).toBeNull();

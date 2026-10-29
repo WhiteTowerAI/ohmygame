@@ -33,9 +33,8 @@ describe("ProjectSettingsDialog", () => {
           onSaved: () => {},
         }),
       );
-      expect(html).toContain('role="switch" aria-label="Web preview"');
-      expect(/aria-label="Web preview"[^>]*checked=""/.test(html)).toBe(
-        webPreviewEnabled,
+      expect(html).toContain(
+        `role="switch" aria-checked="${webPreviewEnabled}" aria-label="Web preview"`,
       );
       expect(
         html.includes('fieldset class="project-settings-section" disabled=""'),

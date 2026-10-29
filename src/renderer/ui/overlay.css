@@ -152,6 +152,8 @@
   padding: var(--space-4);
   background: rgb(0 0 0 / 45%);
   animation: ui-fade-in var(--duration-base) var(--ease-out);
+  /* Over the desktop title bar, clicks reach the modal instead of dragging the window. */
+  app-region: no-drag;
 }
 
 @keyframes ui-fade-in {

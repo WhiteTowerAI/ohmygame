@@ -225,12 +225,14 @@ export function RadioGroup<T extends string>({
 }
 
 export function Switch({
+  ref,
   checked,
   onChange,
   label,
   disabled,
   size = "md",
 }: {
+  ref?: Ref<HTMLButtonElement>;
   checked: boolean;
   onChange: (checked: boolean) => void;
   label: string;
@@ -239,6 +241,7 @@ export function Switch({
 }) {
   return (
     <button
+      ref={ref}
       type="button"
       role="switch"
       aria-checked={checked}
