@@ -321,7 +321,10 @@ export function undoShortcut(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctr
 let lastCanvas: Element | undefined;
 if (typeof document !== "undefined") {
   const track = (event: Event) => {
-    const canvas = event.target instanceof Element ? event.target.closest(".react-flow") : null;
+    if (!(event.target instanceof Element)) return;
+    // Within a canvas, or on an element around just one, such as a focusable wrapper.
+    const around = event.target.querySelectorAll(".react-flow");
+    const canvas = event.target.closest(".react-flow") ?? (around.length === 1 ? around[0] : null);
     if (canvas) lastCanvas = canvas;
   };
   document.addEventListener("pointerdown", track, true);
