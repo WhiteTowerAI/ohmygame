@@ -158,6 +158,26 @@ export function orderedCanvasNodes<T extends Groupable>(
   return result;
 }
 
+export function layoutPixelLevelGroups<T extends Groupable & { data: object }>(
+  nodes: readonly T[],
+): T[] {
+  const groups = nodes
+    .filter((node) => node.type === "group" && Boolean((node.data as { pixelStyle?: unknown }).pixelStyle) && !node.parentId)
+    .sort((left, right) => left.position.x - right.position.x);
+  if (groups.length < 2) return [...nodes];
+
+  const positions = new Map<string, number>();
+  let x = groups[0]!.position.x;
+  for (const group of groups) {
+    positions.set(group.id, x);
+    x += (group.width ?? group.measured?.width ?? 560) + 40;
+  }
+  return nodes.map((node) => {
+    const x = positions.get(node.id);
+    return x === undefined ? node : { ...node, position: { ...node.position, x } };
+  });
+}
+
 export function reparentCanvasNode<T extends Groupable>(
   node: T,
   parentId: string | undefined,

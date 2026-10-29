@@ -19,6 +19,16 @@ describe("offline canvas migration", () => {
     await Promise.all([library.load(), projects.load()]);
     const tools = new ToolRunner(directory, { generate: async () => { throw new Error("Unexpected generation"); } }, undefined, undefined, library);
     const store = new CanvasStore(projects, library, tools);
+    const freshAssetCanvas = await projects.create("Fresh asset canvas", "asset-canvas");
+    const freshWorkspace = await store.workspace(freshAssetCanvas.id);
+    const freshBoard = (await store.board(freshAssetCanvas.id, freshWorkspace.boards[0]!.id)).board;
+    const pixelLevels = freshBoard.nodes.flatMap((node) => node.type === "group" && node.data.pixelStyle ? [node.data.pixelStyle] : []);
+    expect(pixelLevels).toEqual(["coarse", "classic", "detailed"]);
+    expect(new Set(freshBoard.nodes.filter((node) => node.type === "group").map((node) => node.position.x)).size).toBe(3);
+    expect(freshBoard.editorLayout.viewport.zoom).toBe(0.62);
+    const secondWorkspace = await store.changeBoards(freshAssetCanvas.id, { type: "create", name: "Second" });
+    const secondBoard = (await store.board(freshAssetCanvas.id, secondWorkspace.boards.at(-1)!.id)).board;
+    expect(secondBoard.nodes.flatMap((node) => node.type === "group" && node.data.pixelStyle ? [node.data.pixelStyle] : [])).toEqual(["coarse", "classic", "detailed"]);
     const project = await projects.create("Existing canvas"), asset = await library.add("reference.png", Buffer.from("reference"));
     const workspace = await store.workspace(project.id), boardId = workspace.boards[0]!.id;
     const old = (await store.board(project.id, boardId)).board;
@@ -63,7 +73,9 @@ describe("offline canvas migration", () => {
     const migratedAssetCanvas = await store.workspace(assetCanvas.id);
     expect(migratedAssetCanvas.mainDocumentId).toBeUndefined();
     expect(migratedAssetCanvas.documents).toEqual([]);
-    expect((await store.board(assetCanvas.id, migratedAssetCanvas.boards[0]!.id)).board.nodes[0]).toMatchObject({ id: "reference", position: { x: 320, y: 120 } });
+    const migratedBoard = (await store.board(assetCanvas.id, migratedAssetCanvas.boards[0]!.id)).board;
+    expect(migratedBoard.nodes[0]).toMatchObject({ id: "reference", position: { x: 320, y: 120 } });
+    expect(migratedBoard.nodes.filter((node) => node.type === "group" && node.data.pixelStyle)).toHaveLength(0);
     expect((await checkCanvasWorkspace(assetCanvas.workspacePath)).ok).toBe(true);
     expect(await readFile(path.join(assetCanvas.workspacePath, "AGENTS.md"), "utf8")).toContain("My custom instructions. Read canvas/boards/<board-id>.json");
     expect(await readdir(assetCanvas.workspacePath)).not.toContain("canvas.json");

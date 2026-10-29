@@ -1,48 +1,15 @@
-import characterSheet from "./assets/templates/examples/character-sheet.webp";
-import sideViewCharacter from "./assets/templates/examples/side-view-character.webp";
-import rpgCharacter from "./assets/templates/examples/rpg-character.webp";
-import portrait from "./assets/templates/examples/portrait.webp";
-import monster from "./assets/templates/examples/monster.webp";
-import animal from "./assets/templates/examples/animal.webp";
-import scene from "./assets/templates/examples/scene.webp";
-import terrain from "./assets/templates/examples/terrain.webp";
-import building from "./assets/templates/examples/building.webp";
-import prop from "./assets/templates/examples/prop.webp";
-import icon from "./assets/templates/examples/icon.webp";
-import clothing from "./assets/templates/examples/clothing.webp";
-import quickReskin from "./assets/templates/examples/quick-reskin.webp";
-import continuousSequence from "./assets/templates/examples/continuous-sequence.webp";
-import consistentSequence from "./assets/templates/examples/consistent-sequence.webp";
-import idle from "./assets/templates/examples/idle.webp";
-import walk from "./assets/templates/examples/walk.webp";
-import run from "./assets/templates/examples/run.webp";
-import attack from "./assets/templates/examples/attack.webp";
-import hurt from "./assets/templates/examples/hurt.webp";
-import down from "./assets/templates/examples/down.webp";
+import type { AssetCanvasTemplate } from "./asset-canvas-templates.js";
+import characterSheet from "./assets/templates/examples/role-reference-cover.webp";
+import pixelGameMaterials from "./assets/templates/examples/pixel-game-materials-cover.webp";
+import costumeChange from "./assets/templates/examples/costume-change.webp";
+import continuousFootage from "./assets/templates/examples/continuous-footage-cover.webp";
+import roleActions from "./assets/templates/examples/role-action-cover.webp";
 
-/** Shared by template covers, guides, and the images saved into new boards. */
-export const TEMPLATE_SAMPLE_IMAGES = {
+/** Cover art kept for introduction nodes saved on older boards. */
+export const TEMPLATE_COVER_IMAGES: Record<AssetCanvasTemplate, string> = {
+  "pixel-art": pixelGameMaterials,
   "character-sheet": characterSheet,
-  "side-view-character": sideViewCharacter,
-  "rpg-character": rpgCharacter,
-  portrait,
-  monster,
-  animal,
-  scene,
-  terrain,
-  building,
-  prop,
-  icon,
-  clothing,
-  "quick-reskin": quickReskin,
-  "continuous-sequence": continuousSequence,
-  "consistent-sequence": consistentSequence,
-  idle,
-  walk,
-  run,
-  attack,
-  hurt,
-  down,
-} as const;
-
-export type TemplateSample = keyof typeof TEMPLATE_SAMPLE_IMAGES;
+  "quick-reskin": costumeChange,
+  "free-sequence": continuousFootage,
+  "action-set": roleActions,
+};

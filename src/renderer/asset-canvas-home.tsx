@@ -1,13 +1,9 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Box, Film, Image, LoaderCircle, Plus, RefreshCw, type IconComponent } from "./icons.js";
+import { Image, Plus, RefreshCw } from "./icons.js";
 import { useEffect, useRef, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
-import type { AssetCanvasStarter } from "../shared/asset-canvas.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
-import { ASSET_CANVAS_QUICK_STARTS, createAssetCanvasQuickStart, loadQuickStartModels, QuickStartModelUnavailableError, type AssetCanvasQuickStart } from "./asset-canvas-quick-start.js";
-import { AssetCanvasTemplateLauncher } from "./asset-canvas-template-launcher.js";
-import { backfillEffectLibraryCover } from "./asset-canvas-templates.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
@@ -17,11 +13,6 @@ import { WindowDragRegion } from "./window-drag-region.js";
 import { useProjectActivity } from "./use-project-activity.js";
 import { t } from "./i18n.js";
 
-const QUICK_START_ICONS: Record<AssetCanvasStarter, IconComponent> = {
-  image: Image,
-  video: Film,
-  "model-3d": Box,
-};
 export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   onNavigate: (page: AppNavigationTarget) => void;
   onOpenProject: (projectId: string, initialNodeId?: string) => void;
@@ -35,18 +26,12 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   const [createOpen, setCreateOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<ProjectState>();
   const renameTrigger = useRef<HTMLElement | null>(null);
-  const [creatingStarter, setCreatingStarter] = useState<string>();
-  const [quickStartError, setQuickStartError] = useState<{ message: string; manageProviders: boolean }>();
 
   async function load() {
     setPhase("loading");
     try {
       await waitForRuntime();
-      const recentProjects = recentAssetCanvasProjects(await listProjects());
-      await Promise.all(recentProjects
-        .filter((project) => project.name === t("effectLibrary.title"))
-        .map((project) => backfillEffectLibraryCover(project.id).catch(() => undefined)));
-      setProjects(recentProjects);
+      setProjects(recentAssetCanvasProjects(await listProjects()));
       setError(undefined);
       setPhase("ready");
     } catch (cause) {
@@ -56,9 +41,6 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   }
 
   useEffect(() => { void load(); }, [serviceGeneration]);
-
-  // Picks up providers connected since the last visit, so a starter click rarely waits.
-  useEffect(() => { void loadQuickStartModels(); }, []);
 
   async function action(run: () => Promise<unknown>) {
     setActionError(undefined);
@@ -70,53 +52,16 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
     }
   }
 
-  async function quickStart(item: AssetCanvasQuickStart): Promise<void> {
-    if (creatingStarter) return;
-    setCreatingStarter(item.key);
-    setQuickStartError(undefined);
-    try {
-      const { project, nodeId } = await createAssetCanvasQuickStart(item);
-      setCreatingStarter(undefined);
-      onOpenProject(project.id, nodeId);
-    } catch (cause) {
-      setCreatingStarter(undefined);
-      const manageProviders = cause instanceof QuickStartModelUnavailableError;
-      setQuickStartError({ message: errorMessage(cause), manageProviders });
-      if (!manageProviders) await load();
-    }
-  }
-
   return <main className="home-shell">
     <AppSidebar active="asset-canvas" onNavigate={onNavigate} />
     <section className="home-content asset-canvas-home">
       <WindowDragRegion />
       <div className="asset-canvas-home-inner">
-        <button className="asset-canvas-primary-create" type="button" disabled={creatingStarter !== undefined} onClick={() => setCreateOpen(true)}>
+        <button className="asset-canvas-primary-create" type="button" onClick={() => setCreateOpen(true)}>
           <span className="asset-canvas-primary-icon"><Plus size={24} /></span>
           <span><strong>{t("assetCanvasHome.new")}</strong><small>{t("assetCanvasHome.newHint")}</small></span>
         </button>
 
-        <section className="asset-canvas-quick-start" aria-labelledby="asset-canvas-quick-start-heading">
-          <h2 id="asset-canvas-quick-start-heading">{t("assetCanvasHome.quickStart")}</h2>
-          <div className="asset-canvas-quick-grid">
-            {ASSET_CANVAS_QUICK_STARTS.map((item) => {
-              const Icon = QUICK_START_ICONS[item.type];
-              const creating = creatingStarter === item.key;
-              return <button key={item.key} type="button" disabled={creatingStarter !== undefined} aria-busy={creating} onClick={() => void quickStart(item)}>
-                <span className="asset-canvas-quick-icon">{creating ? <LoaderCircle className="spin" size={20} /> : <Icon size={20} />}</span>
-                <strong title={item.label}>{item.label}</strong>
-              </button>;
-            })}
-          </div>
-          {quickStartError ? <p className="home-notice" role="alert">
-            {quickStartError.message}
-            {quickStartError.manageProviders ? <button type="button" onClick={() => onNavigate("settings")}>{t("modelSelector.manage")}</button> : null}
-          </p> : null}
-        </section>
-
-        <section className="home-discover asset-canvas-recent" aria-labelledby="asset-canvas-template-launcher-heading">
-          <AssetCanvasTemplateLauncher onOpenProject={onOpenProject} />
-        </section>
         <section className="home-discover asset-canvas-recent" aria-labelledby="recent-asset-canvases-heading">
           <div className="home-section-heading">
             <h2 id="recent-asset-canvases-heading">{t("assetCanvasHome.recent")}</h2>

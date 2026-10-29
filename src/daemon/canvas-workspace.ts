@@ -10,6 +10,7 @@ import { createCanvasBoard, fitCanvasLayout, isCanvasBoard, isCanvasIndex, CANVA
 import { CANVAS_ASSETS_SCHEMA, canvasNodeAssetIds } from "../shared/canvas-assets.js";
 import { combineAssetCanvasPrompt, createAssetCanvasDocument, effectLibraryPrompt, resolveAssetCanvasAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { canvasImagePresetPrompt } from "../shared/canvas-image-presets.js";
+import { resolveContinuousActionPrompt } from "../shared/canvas-character-tools.js";
 import { buildModel3DToolRequest } from "../shared/generation-config.js";
 import { getWorkspaceMedia } from "./workspace.js";
 import { createCanvasDocument, canvasDocumentPath, type CanvasDocumentDetail, type CanvasMarkdownDocument } from "../shared/canvas-document.js";
@@ -82,7 +83,7 @@ export async function readCanvasIndex(workspace: string): Promise<CanvasWorkspac
   if (!isCanvasIndex(value)) throw new CanvasError("canvas/index.json: duplicate IDs or unknown mainDocumentId");
   return value;
 }
-async function ensureCanvasIndex(workspace: string): Promise<CanvasWorkspaceIndex> {
+async function ensureCanvasIndex(workspace: string, includePixelLevelGroups = false): Promise<CanvasWorkspaceIndex> {
   const current = await readCanvasIndex(workspace);
   if (current) return current;
   for (const legacy of ["design", "canvas.json"]) {
@@ -96,7 +97,7 @@ async function ensureCanvasIndex(workspace: string): Promise<CanvasWorkspaceInde
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
   }
-  const board = createCanvasBoard();
+  const board = createCanvasBoard(undefined, includePixelLevelGroups);
   const index: CanvasWorkspaceIndex = { version: 1, boards: [{ id: board.id, name: "Untitled" }], documents: [] };
   await writeCanvasBoard(workspace, board);
   await writeJson(workspace, "assets.json", { version: 1, assets: {} });
@@ -120,9 +121,9 @@ async function readDocumentEntry(workspace: string, entry: CanvasWorkspaceIndex[
 export function readCanvasDocuments(workspace: string, index: CanvasWorkspaceIndex): Promise<CanvasDocumentDetail[]> {
   return Promise.all(index.documents.map((entry) => readDocumentEntry(workspace, entry)));
 }
-export async function writeCanvasDocument(workspace: string, document: CanvasMarkdownDocument, selectMain = true): Promise<CanvasDocumentDetail> {
+export async function writeCanvasDocument(workspace: string, document: CanvasMarkdownDocument, selectMain = true, includePixelLevelGroups = false): Promise<CanvasDocumentDetail> {
   if (!isCanvasDocument(document) || Buffer.byteLength(document.markdown) > 2 * 1024 * 1024) throw new CanvasError("Invalid or oversized canvas document");
-  const index = await ensureCanvasIndex(workspace);
+  const index = await ensureCanvasIndex(workspace, includePixelLevelGroups);
   const entry = index.documents.find((entry) => entry.id === document.id);
   if (!entry && index.documents.length >= 200) throw new CanvasError("The workspace supports up to 200 documents");
   await writeAtomic(workspace, `documents/${validId(document.id)}.md`, document.markdown);
@@ -144,11 +145,11 @@ async function readTableFile(workspace: string, tableId: string): Promise<Canvas
   if (!isCanvasTable(table) || table.id !== tableId) throw new CanvasError(`canvas/${file}: invalid table IDs or cell types`);
   return { table, revision: revision(text) };
 }
-async function writeCanvasTable(workspace: string, table: CanvasTable): Promise<CanvasTableDetail> {
+async function writeCanvasTable(workspace: string, table: CanvasTable, includePixelLevelGroups = false): Promise<CanvasTableDetail> {
   if (!isCanvasTable(table)) throw new CanvasError("Invalid canvas table");
   const text = `${JSON.stringify(table, null, 2)}\n`;
   if (Buffer.byteLength(text) > 4 * 1024 * 1024) throw new CanvasError("Canvas table is too large");
-  const index = await ensureCanvasIndex(workspace);
+  const index = await ensureCanvasIndex(workspace, includePixelLevelGroups);
   const tables = index.tables ??= [];
   const entry = tables.find((entry) => entry.id === table.id);
   if (!entry && tables.length >= 200) throw new CanvasError("The workspace supports up to 200 tables");
@@ -311,7 +312,7 @@ export class CanvasStore {
   async workspace(id: string): Promise<CanvasWorkspaceDetail> {
     const project = this.#project(id), workspace = project.workspacePath;
     return withCanvasLock(workspace, async () => {
-      const index = await ensureCanvasIndex(workspace);
+      const index = await ensureCanvasIndex(workspace, project.type === "asset-canvas");
       const tableIssues: NonNullable<CanvasWorkspaceDetail["tableIssues"]> = [];
       const tables = (await Promise.all((index.tables ?? []).map(async (entry) => {
         try { const detail = await readTableFile(workspace, entry.id); return { ...detail.table, revision: detail.revision, source: canvasTablePath(entry.id) }; }
@@ -332,16 +333,16 @@ export class CanvasStore {
   }
   async createDocument(id: string, title: string) {
     const project = this.#project(id), workspace = project.workspacePath;
-    return withCanvasLock(workspace, () => writeCanvasDocument(workspace, createCanvasDocument(title.trim() || "Untitled document"), project.type !== "asset-canvas"));
+    return withCanvasLock(workspace, () => writeCanvasDocument(workspace, createCanvasDocument(title.trim() || "Untitled document"), project.type !== "asset-canvas", project.type === "asset-canvas"));
   }
   async save(id: string, document: CanvasMarkdownDocument, expected: string, documentId?: string) {
-    const workspace = this.#project(id).workspacePath;
+    const project = this.#project(id), workspace = project.workspacePath;
     return withCanvasLock(workspace, async () => {
       const current = await readCanvasDocument(workspace, documentId);
       if (!current) throw new CanvasError("Document not found", 404);
       if (current.revision !== expected) throw new CanvasError("The document changed. Review the latest version before saving.", 409);
       if (current.document.id !== document.id) throw new CanvasError("The document ID must stay unchanged");
-      return writeCanvasDocument(workspace, document, this.#project(id).type !== "asset-canvas");
+      return writeCanvasDocument(workspace, document, project.type !== "asset-canvas", project.type === "asset-canvas");
     });
   }
   async table(id: string, tableId: string): Promise<CanvasTableDetail> {
@@ -350,15 +351,15 @@ export class CanvasStore {
     return detail;
   }
   async createTable(id: string, title: string): Promise<CanvasTableDetail> {
-    const workspace = this.#project(id).workspacePath;
-    return withCanvasLock(workspace, () => writeCanvasTable(workspace, createCanvasTable(title)));
+    const project = this.#project(id), workspace = project.workspacePath;
+    return withCanvasLock(workspace, () => writeCanvasTable(workspace, createCanvasTable(title), project.type === "asset-canvas"));
   }
   async saveTable(id: string, table: CanvasTable, expected: string): Promise<CanvasTableDetail> {
-    const workspace = this.#project(id).workspacePath;
+    const project = this.#project(id), workspace = project.workspacePath;
     return withCanvasLock(workspace, async () => {
       const current = await this.table(id, table.id);
       if (current.revision !== expected) throw new CanvasError("The table changed. Review the latest version before saving.", 409);
-      return writeCanvasTable(workspace, table);
+      return writeCanvasTable(workspace, table, project.type === "asset-canvas");
     });
   }
   async setMainDocument(id: string, documentId: string) {
@@ -396,12 +397,13 @@ export class CanvasStore {
     });
   }
   async changeBoards(id: string, action: { type: "create"; name: string } | { type: "rename" | "delete" | "move"; boardId: string; name?: string; direction?: number }) {
-    const workspace = this.#project(id).workspacePath;
+    const project = this.#project(id), workspace = project.workspacePath;
     return withCanvasLock(workspace, async () => {
-      const index = await ensureCanvasIndex(workspace);
+      const includePixelLevelGroups = project.type === "asset-canvas";
+      const index = await ensureCanvasIndex(workspace, includePixelLevelGroups);
       if (action.type === "create") {
         if (index.boards.length >= 100) throw new CanvasError("The workspace supports up to 100 boards");
-        const board = createCanvasBoard(); await writeCanvasBoard(workspace, board); index.boards.push({ id: board.id, name: action.name.trim() || "Untitled" });
+        const board = createCanvasBoard(undefined, includePixelLevelGroups); await writeCanvasBoard(workspace, board); index.boards.push({ id: board.id, name: action.name.trim() || "Untitled" });
       } else {
         const position = index.boards.findIndex((board) => board.id === action.boardId);
         if (position < 0) throw new CanvasError("Canvas board not found", 404);
@@ -418,23 +420,24 @@ export class CanvasStore {
     });
   }
   async insertAsset(id: string, documentId: string, assetId: string): Promise<CanvasDocumentDetail> {
-    const workspace = this.#project(id).workspacePath;
+    const project = this.#project(id), workspace = project.workspacePath;
     return withCanvasLock(workspace, async () => {
-      const manifest = await ensureCanvasAssets(this.#project(id), this.projects, this.library, [assetId]);
+      const manifest = await ensureCanvasAssets(project, this.projects, this.library, [assetId]);
       const asset = (await canvasAssetCatalog(workspace, manifest, [assetId]))[0]!;
       if (asset.mediaType !== "image") throw new CanvasError("Choose an image asset");
       const detail = await readCanvasDocument(workspace, documentId);
       if (!detail) throw new CanvasError("Document not found", 404);
       const label = asset.name.replace(/[\[\]\n]/g, "");
       const link = asset.path.split("/").map(encodeURIComponent).join("/");
-      const saved = await writeCanvasDocument(workspace, { ...detail.document, markdown: `${detail.document.markdown.trimEnd()}\n\n![${label}](../../${link})\n` }, this.#project(id).type !== "asset-canvas");
+      const saved = await writeCanvasDocument(workspace, { ...detail.document, markdown: `${detail.document.markdown.trimEnd()}\n\n![${label}](../../${link})\n` }, project.type !== "asset-canvas", project.type === "asset-canvas");
       if (asset.libraryAssetId && this.library.get(asset.libraryAssetId)) await this.library.save(asset.libraryAssetId);
       return saved;
     });
   }
   async #loadJobs(id: string): Promise<StoredJob[]> {
     if (this.#jobs.has(id)) return this.#jobs.get(id)!;
-    await ensureCanvasIndex(this.#project(id).workspacePath);
+    const project = this.#project(id);
+    await ensureCanvasIndex(project.workspacePath, project.type === "asset-canvas");
     let jobs: StoredJob[] = [];
     try {
       const value: unknown = JSON.parse(await readFile(await canvasPath(this.#project(id).workspacePath, "jobs.json"), "utf8"));
@@ -551,9 +554,25 @@ export class CanvasStore {
     const prompt = combineAssetCanvasPrompt(text, localPrompt);
     if (!prompt) throw new CanvasError("Add a prompt before generating");
     if (node.type === "image") {
+      let imagePrompt = prompt;
+      if (node.data.presetId === "continuous-sequence" && node.data.actionDescription !== undefined) {
+        try { imagePrompt = resolveContinuousActionPrompt(prompt, node.data.actionDescription); }
+        catch (cause) { throw new CanvasError(cause instanceof Error ? cause.message : String(cause)); }
+      }
+      if (node.data.presetId === "continuous-sequence" && imagePrompt.includes("{USER_ACTION}")) throw new CanvasError("Enter an action description before generating");
       if (node.data.quickReskinMode === "person-clothing" && node.data.images.length !== 2) throw new CanvasError("Quick reskin requires a person image and a clothing image");
       if (node.data.presetId === "quick-reskin" && !node.data.quickReskinMode && node.data.images.length !== 1) throw new CanvasError("Quick reskin requires one source image");
-      return this.start(id, boardId, nodeId, "generate-image", { prompt: node.data.promptExpanded ? prompt : canvasImagePresetPrompt(node.data.presetId, prompt, node.data.materialStyle, node.data.images.length), resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), images: await Promise.all(node.data.images.map(image)) }, revision);
+      let pixelStyle = node.data.pixelStyle;
+      let parentId = node.parentId;
+      const visited = new Set<string>();
+      while (!pixelStyle && parentId && !visited.has(parentId)) {
+        visited.add(parentId);
+        const parent = board.nodes.find((candidate) => candidate.id === parentId);
+        if (parent?.type !== "group") break;
+        pixelStyle = parent.data.pixelStyle;
+        parentId = parent.parentId;
+      }
+      return this.start(id, boardId, nodeId, "generate-image", { prompt: node.data.promptExpanded ? imagePrompt : canvasImagePresetPrompt(node.data.presetId, imagePrompt, node.data.materialStyle, node.data.images.length, pixelStyle ?? "classic"), resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), images: await Promise.all(node.data.images.map(image)) }, revision);
     }
     const referenceIds = node.data.references.map(assetId);
     const catalog = await canvasAssetCatalog(project.workspacePath, manifest, referenceIds);

@@ -55,7 +55,7 @@ describe("canvas board storage", () => {
     const node = recovered.nodes[0];
     if (node?.type !== "image") throw new Error("Expected recovered image node");
     expect(node.data.prompt).toContain("pixel knight");
-    expect(node.data.prompt).toContain("production-ready 2D game character");
+    expect(node.data.prompt).toContain("production-oriented 2D pixel art game character");
     expect(node.data).not.toHaveProperty("generationMode");
     await storage.save(recovered);
     expect(api.saveCanvasBoard.mock.calls[0]![1].board.nodes[0]?.data).not.toHaveProperty("generationMode");

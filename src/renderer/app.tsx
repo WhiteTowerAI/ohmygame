@@ -4,15 +4,14 @@ import { Home } from "./home.js";
 import "./plugin-builder.css";
 import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, projectsHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection, type SidebarPage } from "./routes.js";
 import { historyState, useAppNavigation } from "./app-navigation.js";
-import { invalidateQuickStartModels, loadQuickStartModels } from "./asset-canvas-quick-start.js";
 import { SidebarPageLayout } from "./sidebar-page.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import { pluginMentionToken } from "../shared/plugins.js";
-import { createConversation, createProject, getProject, MODELS_CHANGED_EVENT } from "./api.js";
+import { createConversation, createProject, getProject } from "./api.js";
 import type { ComposerDraft } from "./composer.js";
-import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connection.js";
+import { runtimeConnection } from "./runtime-connection.js";
 import { Onboarding, OnboardingArrival, OnboardingLoading } from "./onboarding.js";
 import { useOnboarding } from "./use-onboarding.js";
 import { usePluginIntegrationGate } from "./plugin-integration.js";
@@ -31,7 +30,6 @@ const PluginsSettings = lazy(() => import("./plugins.js").then((module) => ({ de
 const PluginBuilder = lazy(() => import("./plugin-builder.js").then((module) => ({ default: module.PluginBuilder })));
 
 export function App() {
-  const serviceGeneration = useReadyRuntimeGeneration();
   const { route, navigate, projectReturnTo, projectBackLabel } = useAppNavigation();
   const onboarding = useOnboarding(route.page === "home");
   const [welcoming, setWelcoming] = useState(false);
@@ -40,16 +38,6 @@ export function App() {
   const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
   const [playtestEditorProjectId, setPlaytestEditorProjectId] = useState<string>();
   const creationGate = usePluginIntegrationGate();
-
-  // Provider catalogs are slow; load them now so asset canvas quick starts open without waiting.
-  useEffect(() => {
-    invalidateQuickStartModels();
-    void loadQuickStartModels();
-    if (serviceGeneration > 1) window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
-    const refresh = () => { invalidateQuickStartModels(); void loadQuickStartModels(); };
-    window.addEventListener(MODELS_CHANGED_EVENT, refresh);
-    return () => window.removeEventListener(MODELS_CHANGED_EVENT, refresh);
-  }, [serviceGeneration]);
 
   // A Playtest window that cannot play asks for its project's editor.
   const routeProjectId = route.page === "project" ? route.projectId : undefined;

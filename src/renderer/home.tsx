@@ -1,11 +1,10 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Plus, RefreshCw } from "./icons.js";
+import { LoaderCircle, Plus, RefreshCw } from "./icons.js";
 import { useEffect, useRef, useState } from "react";
 import type { PluginMention, ProjectState, ProjectType, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { ExampleShelf, useExamples } from "./examples.js";
 import { AppSidebar } from "./app-sidebar.js";
-import { AssetCanvasTemplateLauncher } from "./asset-canvas-template-launcher.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
@@ -18,6 +17,22 @@ import { useProjectShelfLayout } from "./use-project-shelf-layout.js";
 import { useProjectActivity } from "./use-project-activity.js";
 import "./studios.css";
 import { t } from "./i18n.js";
+import { pixelAssetTemplateCategories, type PixelAssetTemplateCategory } from "./asset-canvas-pixel-workflows.js";
+import characterTemplateCover from "./assets/templates/examples/role-reference-cover.webp";
+import creatureTemplateCover from "./assets/templates/examples/monster.webp";
+import animationTemplateCover from "./assets/templates/examples/role-action-cover.webp";
+import sceneTemplateCover from "./assets/templates/examples/scene.webp";
+import objectTemplateCover from "./assets/templates/examples/prop.webp";
+import skinTemplateCover from "./assets/templates/examples/quick-reskin.webp";
+
+const PIXEL_TEMPLATE_COVERS: Record<PixelAssetTemplateCategory, string> = {
+  characters: characterTemplateCover,
+  creatures: creatureTemplateCover,
+  animation: animationTemplateCover,
+  scenes: sceneTemplateCover,
+  objects: objectTemplateCover,
+  skins: skinTemplateCover,
+};
 
 interface HomeProps {
   inert?: boolean;
@@ -36,6 +51,7 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
   const [projectActionError, setProjectActionError] = useState<string>();
   const [projectType, setProjectType] = useState<ProjectType>("web-game");
   const [createOpen, setCreateOpen] = useState(false);
+  const [templateCreating, setTemplateCreating] = useState<PixelAssetTemplateCategory>();
   const [renameTarget, setRenameTarget] = useState<ProjectState>();
   const renameTrigger = useRef<HTMLElement | null>(null);
   const { examples, covers: exampleCovers } = useExamples();
@@ -77,6 +93,20 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
       await loadProjects();
     } catch (error) {
       setProjectActionError(errorMessage(error));
+    }
+  }
+
+  async function createTemplate(category: PixelAssetTemplateCategory): Promise<void> {
+    setTemplateCreating(category);
+    setProjectActionError(undefined);
+    try {
+      const { createPixelAssetTemplateProject } = await import("./asset-canvas-template-project.js");
+      const created = await createPixelAssetTemplateProject(category);
+      onOpenAssetCanvas(created.projectId, created.nodeId);
+    } catch (error) {
+      setProjectActionError(errorMessage(error));
+    } finally {
+      setTemplateCreating(undefined);
     }
   }
 
@@ -141,7 +171,30 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
           ) : null}
           {projectActionError ? <p className="home-notice" role="alert">{projectActionError}</p> : null}
         </section>
-        <AssetCanvasTemplateLauncher onOpenProject={onOpenAssetCanvas} />
+        <section className="home-discover home-explore studio-examples studio-templates" aria-labelledby="home-templates-heading">
+          <div className="studio-section-heading"><h2 id="home-templates-heading">{t("home.templates")}</h2></div>
+          <div className="home-whats-new-grid">
+            {pixelAssetTemplateCategories().map((category) => (
+              <button
+                className="home-whats-new-item home-template-card"
+                type="button"
+                key={category.id}
+                disabled={templateCreating !== undefined}
+                aria-busy={templateCreating === category.id}
+                onClick={() => void createTemplate(category.id)}
+              >
+                <span className="home-whats-new-icon home-explore-cover">
+                  <img src={PIXEL_TEMPLATE_COVERS[category.id]} alt="" />
+                  {templateCreating === category.id ? <span className="home-template-loading"><LoaderCircle className="spin" size={16} /></span> : null}
+                </span>
+                <span className="home-whats-new-copy">
+                  <strong>{category.label}</strong>
+                  <small>{category.description}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
         {visibleExamples.length > 0 ? <section className="home-discover home-explore studio-examples" aria-labelledby="home-examples-heading">
           <div className="studio-section-heading"><h2 id="home-examples-heading">{t("home.explore")}</h2></div>
           <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen} />

@@ -4,6 +4,7 @@ import { canvasNodeLayout } from "./canvas-node-layout.js";
 import { Check } from "typebox/value";
 import type { AssetCanvasDocument, AssetCanvasNode } from "./contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "./asset-canvas.js";
+import { PIXEL_ART_LEVELS } from "./canvas-pixel-style.js";
 import type { CanvasMarkdownDocument } from "./canvas-document.js";
 import type { CanvasAssetCatalogEntry, UnavailableCanvasAsset } from "./canvas-assets.js";
 import { ASSET_CANVAS_SCHEMA, ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA } from "./asset-canvas-schema.js";
@@ -54,7 +55,27 @@ export function isCanvasBoard(value: unknown): value is CanvasBoard {
   const { id: boardId, ...canvas } = value as CanvasBoard;
   return typeof boardId === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(boardId) && isAssetCanvasDocument(canvas);
 }
-export function createCanvasBoard(id = crypto.randomUUID()): CanvasBoard { return { ...createAssetCanvasDocument(), id }; }
+export function createCanvasBoard(id = crypto.randomUUID(), includePixelLevelGroups = false): CanvasBoard {
+  const document = createAssetCanvasDocument();
+  if (includePixelLevelGroups) {
+    const groups = PIXEL_ART_LEVELS.map((pixelStyle, index) => ({
+      id: crypto.randomUUID(),
+      type: "group" as const,
+      position: { x: -880 + index * 600, y: -360 },
+      width: 560,
+      height: 720,
+      data: { name: pixelStyle, pixelStyle },
+    }));
+    document.nodes = groups;
+    document.editorLayout.nodes = Object.fromEntries(groups.map((group) => [group.id, {
+      ...group.position,
+      width: group.width,
+      height: group.height,
+    }]));
+    document.editorLayout.viewport = { x: 640, y: 360, zoom: 0.62 };
+  }
+  return { ...document, id };
+}
 export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanvasDocument, remote: AssetCanvasDocument): AssetCanvasDocument | undefined {
   const serialize = (value: unknown) => JSON.stringify(value, (_key, item) =>
     item && typeof item === "object" && !Array.isArray(item)

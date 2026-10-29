@@ -162,6 +162,7 @@ describe("renderer service recovery", () => {
     const { initializeRuntimeConnection } = await import("../src/renderer/runtime-connection.js");
     const { Home } = await import("../src/renderer/home.js");
     const { AuthProvider } = await import("../src/renderer/auth.js");
+    const { t } = await import("../src/renderer/i18n.js");
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       requests.push(new URL(url).pathname);
@@ -171,6 +172,16 @@ describe("renderer service recovery", () => {
     await initializeRuntimeConnection();
     await act(async () => root.render(<AuthProvider><Home onNavigate={() => {}} onCreate={() => {}} onOpen={() => {}} onOpenAssetCanvas={() => {}} /></AuthProvider>));
     expect(requests.filter((route) => route === "/projects")).toHaveLength(1);
+    const templates = [...container.querySelectorAll<HTMLButtonElement>(".home-start-blank")].find((button) => button.textContent?.includes(t("home.templates")));
+    expect(templates).toBeDefined();
+    await act(async () => {
+      templates?.click();
+      await import("../src/renderer/asset-canvas-pixel-preset-dialog.js");
+    });
+    const templateDialog = document.body.querySelector('[role="dialog"]');
+    expect(templateDialog).not.toBeNull();
+    expect(templateDialog?.querySelector(".pixel-preset-levels")).toBeNull();
+    expect(Array.from(templateDialog?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []).some((tab) => tab.textContent?.startsWith(t("assetCanvas.pixelPresets.categories.characters")))).toBe(true);
   });
 
   it("keeps a newer service event when the initial IPC state reply arrives late", async () => {

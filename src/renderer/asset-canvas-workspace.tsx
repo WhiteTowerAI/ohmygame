@@ -43,7 +43,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type SyntheticEvent, type ClipboardEvent, type FormEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type SyntheticEvent, type ClipboardEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
   Handle,
@@ -62,12 +62,12 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { CANVAS_GRID_SIZE, snapCanvasPosition } from "./canvas-alignment.js";
-import { clampCanvasGroupResize, canvasAbsolutePosition, canvasDescendantIds, canvasDropGroup, canvasGroupExecutionPlan, canvasSelectionRoots, expandCanvasGroups, orderedCanvasNodes, reparentCanvasNode } from "./canvas-groups.js";
+import { clampCanvasGroupResize, canvasAbsolutePosition, canvasDescendantIds, canvasDropGroup, canvasGroupExecutionPlan, canvasSelectionRoots, expandCanvasGroups, layoutPixelLevelGroups, orderedCanvasNodes, reparentCanvasNode } from "./canvas-groups.js";
 import { RESIZABLE_CANVAS_NODE_SIZES, canvasNodeLayout, isResizableCanvasNodeType } from "../shared/canvas-node-layout.js";
 import { CanvasNodeResizer, CanvasNodeSizeActions, type CanvasNodeResizeRuntime } from "./canvas-node-resizer.js";
 import { MAX_ASSET_CANVAS_NODES, MAX_TEXT_NODE_REFERENCES } from "../shared/asset-canvas-schema.js";
 import { createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, lastCanvasClipboard, parseCanvasClipboard, rememberCanvasClipboard, type CanvasClipboard } from "./asset-canvas-clipboard.js";
-import { AssetCanvasTemplateGuide } from "./asset-canvas-template-guide.js";
+import { AssetCanvasTemplateGuide, PixelAssetTemplateGuide } from "./asset-canvas-template-guide.js";
 import { templateGuideInfo, templateImagePresets, type AssetCanvasTemplate } from "./asset-canvas-templates.js";
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
 import { CanvasContextMenu, EditorCanvas, isTextEntry, undoShortcut, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
@@ -105,8 +105,8 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, effectLibraryPrompt, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { allActionsPrompt, characterAssetPrompt, continuousActionsPrompt, preferredCharacterSheetOption } from "../shared/canvas-character-tools.js";
-import { canvasMaterialStyle, type CanvasImagePreset, type CanvasMaterialStyle } from "../shared/canvas-image-presets.js";
+import { allActionsPrompt, continuousActionsPrompt, resolveContinuousActionPrompt, preferredCharacterSheetOption } from "../shared/canvas-character-tools.js";
+import { canvasImagePresetPrompt, canvasMaterialStyle, type CanvasImagePreset, type CanvasMaterialStyle } from "../shared/canvas-image-presets.js";
 import { VOLCENGINE_TTS_VOICES, availableAudioOperations, type AudioModel, type AudioOperation, type AudioProviderCatalogStatus } from "../shared/audio.js";
 import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DAnimations, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset, importCanvasFile, createCanvasImportFolder } from "./api.js";
 import { useAuth } from "./auth.js";
@@ -123,6 +123,9 @@ import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
 import { ModelPreview } from "./model-preview.js";
+import { type PixelArtLevel } from "../shared/canvas-pixel-style.js";
+import { createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, placePixelPresetOutsideDensityGroups, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
+import { AssetCanvasPixelPresetDialog } from "./asset-canvas-pixel-preset-dialog.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, DEFAULT_VIDEO_NODE_CONFIG, MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_REFERENCE_IMAGES, normalizeModel3DConfig, resolveModel3D, resolveModel3DConnection } from "../shared/generation-config.js";
@@ -234,8 +237,10 @@ type AssetCanvasFlowData = {
   effectBasePrompt?: string;
   effectColor?: "original" | "ice-blue" | "electric-purple" | "toxic-green" | "gold";
   effectRhythm?: "sample" | "quick" | "extended";
+  actionDescription?: string;
   materialStyle?: CanvasMaterialStyle;
   sourceInput?: boolean;
+  pixelStyle?: PixelArtLevel;
   generationMode?: "character-asset" | "continuous-actions" | "all-actions";
   promptSource?: AssetCanvasTextReference;
   text?: string;
@@ -265,7 +270,6 @@ type AssetCanvasFlowData = {
   referenceMentions?: Record<string, AssetCanvasReference>;
   assetId?: string;
   mediaType?: "image" | "video" | "audio" | "model";
-  examplePrompt?: string;
   model3DConfig?: Model3DGenerationConfig;
   heightMeters?: number;
   actionIds?: Model3DActionId[];
@@ -290,6 +294,7 @@ type AssetCanvasFlowData = {
   textRuntime?: TextNodeRuntime;
 };
 type AssetCanvasFlowNode = Node<AssetCanvasFlowData, AssetCanvasNodeType> & { title?: string; description?: string };
+type CanvasGroupFlowNode = Node<AssetCanvasFlowData, "group"> & { title?: string; description?: string };
 
 interface MediaNodeRuntime {
   generating: boolean;
@@ -389,7 +394,7 @@ const STORY_NODE_TYPES: NodeTypes = {
 function CanvasGroupNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   return <div className={`canvas-group-node${selected ? " is-selected" : ""}`}>
     <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
-    <div className="canvas-group-heading"><Layers3 size={14} /><strong>{data.name}</strong></div>
+    <div className="canvas-group-heading"><Layers3 size={14} /><strong>{data.pixelStyle ? pixelArtLevelLabel(data.pixelStyle) : data.name}</strong></div>
   </div>;
 }
 
@@ -560,24 +565,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const loadedVideoModels = videoCatalog.models;
       if (disposed) return;
       setViewport(story.viewport);
-      // Upgrade the one editable generator in older Effect Library boards when
-      // they are opened. Its former complete prompt becomes the protected base;
-      // new free-form text is kept separate as an additional direction.
-      const effectLibrary = story.nodes.some((node) => node.type === "text" && node.data.instruction === "effect-library");
-      const storedNodes = effectLibrary ? story.nodes.map((node) => {
-        if (node.type !== "image" || !node.data.promptExpanded || node.data.effectBasePrompt) return node;
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            effectBasePrompt: node.data.prompt,
-            effectColor: "original" as const,
-            effectRhythm: "sample" as const,
-            prompt: "",
-          },
-        };
-      }) : story.nodes;
-      const loadedNodes = orderedCanvasNodes(storedNodes).map((node) => toFlowNode(node, models, loadedVideoModels));
+      const loadedNodes = orderedCanvasNodes(story.nodes).map((node) => toFlowNode(node, models, loadedVideoModels));
       const request = initialNodeRequest.current;
       initialNodeRequest.current = { nodeId: undefined, onHandled: undefined };
       const initialNode = request.nodeId ? loadedNodes.find((node) => node.id === request.nodeId) : undefined;
@@ -1172,6 +1160,39 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const created = createFlowNode(type, position, imageModels, videoModels, defaultTextModel);
     const node = { ...applyRememberedSettings(created, rememberedSettings.current[type], { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, model3DModels, defaultModel3D, textModels: textModelCatalog.models }), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
+  }
+
+  function addPixelAssetPreset(presetId: PixelAssetPresetId, pixelStyle: PixelArtLevel, position: { x: number; y: number }): void {
+    const current = nodesRef.current;
+    const densityGroups = current.filter((node): node is CanvasGroupFlowNode => node.type === "group" && !node.parentId && Boolean(node.data.pixelStyle));
+    const placement = placePixelPresetOutsideDensityGroups(presetId, position, densityGroups.map((group) => ({
+      position: group.position,
+      width: group.width ?? group.measured?.width ?? 560,
+      height: group.height ?? group.measured?.height ?? 720,
+    })));
+    placement.workflowGroupPosition = snapCanvasPosition(placement.workflowGroupPosition);
+    const contents = createPixelAssetPresetContents(presetId, pixelStyle, imageModels, placement);
+    const nodes = contents.nodes.map((node) => ({ ...toFlowNode(node, imageModels, videoModels), selected: node.id === contents.outputNodeId, deletable: true }));
+    const workflowGroup = contents.group ? { ...toFlowNode(contents.group, imageModels, videoModels), deletable: true } : undefined;
+    const additions = [...(workflowGroup ? [workflowGroup] : []), ...nodes];
+    if (current.length + additions.length > MAX_ASSET_CANVAS_NODES) {
+      setNotice({ kind: "action", message: t("assetCanvas.nodeLimit") });
+      return;
+    }
+
+    commitPendingHistory();
+    const next = layoutPixelLevelGroups(expandCanvasGroups([
+      ...current.map((node) => ({ ...node, selected: false })),
+      ...additions,
+    ]));
+    setNodes(orderedCanvasNodes(next));
+    const flow = flowInstance.current;
+    const focusNode = next.find((node) => node.id === (workflowGroup?.id ?? contents.outputNodeId))!;
+    const focusPosition = canvasAbsolutePosition(focusNode, next);
+    void flow?.setCenter(focusPosition.x + (workflowGroup ? 730 : MEDIA_NODE_MAX_WIDTH / 2), focusPosition.y + (workflowGroup ? 325 : 240), {
+      zoom: Math.min(flow.getViewport().zoom, workflowGroup ? 0.72 : 1),
+      duration: 300,
+    });
   }
 
   function addAssetNode(asset: Pick<LibraryAsset, "id" | "name" | "mediaType" | "contentType" | "duration" | "width" | "height">, position: { x: number; y: number }): void {
@@ -1944,23 +1965,25 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   const tableContents = [...tables.storage.sessions.values()].map((session) => session.local);
   const templateBoard = nodes.flatMap((node) => node.type === "text" ? [templateGuideInfo(node.data.instruction)?.template] : []).find((value) => value !== undefined);
-  const effectLibraryBoard = nodes.some((node) => node.type === "text" && node.data.instruction === "effect-library");
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const pixelStyleGroupIds = new Set(nodes.filter((node) => node.type === "group" && node.data.pixelStyle).map((node) => node.id));
   const renderedNodes = orderedCanvasNodes(nodes).map((original) => {
     const size = isResizableCanvasNodeType(original.type) ? RESIZABLE_CANVAS_NODE_SIZES[original.type] : undefined;
-    const isTemplateGuide = original.type === "text" && Boolean(templateGuideInfo(original.data.instruction));
+    const isTemplateGuide = original.type === "text" && Boolean(templateGuideInfo(original.data.instruction) || pixelAssetTemplateGuideCategory(original.data.instruction));
+    const parent = original.parentId ? nodesById.get(original.parentId) : undefined;
+    const isPixelWorkflow = Boolean(parent?.parentId && pixelStyleGroupIds.has(parent.parentId));
     // A render can arrive before React Flow publishes its first dimensions.
     // An empty measurement keeps it from clearing freshly measured handle bounds.
-    const nodeDetails = effectLibraryBoard && original.type === "image" ? undefined : {
-      title: original.title?.trim(), label: canvasNodeTitle(toAssetCanvasNode(original, model3DModels), documents.documents, libraryAssets, tableContents), description: original.description,
-      edit: () => setNodeDetails({ id: original.id, title: original.type === "group" ? original.data.name ?? "" : original.title ?? "", description: original.description ?? "" }),
-    };
     const node = { ...original, measured: original.measured ?? {}, ...(isTemplateGuide ? { height: undefined } : {}), ...(size ? { style: { ...original.style, width: original.width ?? size.width, height: isTemplateGuide ? "auto" : original.height ?? size.height } } : {}), data: { ...original.data,
       ...(size ? { resizeRuntime: {
         start: beginHistoryGesture,
         end: finishHistoryGesture,
         reset: () => { beginHistoryGesture(); setNodes((current) => current.map((node) => { if (node.id !== original.id || node.type === "group") return node; const { width: _width, height: _height, ...rest } = node; return rest; })); finishHistoryGesture(); },
         ...(original.type === "text" ? { open: () => setExpandedTextId(original.id) } : {}),
-    } } : {}), assetAspectRatio: mediaAspectRatio(libraryAssets.find((asset) => asset.id === original.data.assetId)), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails } };
+    } } : {}), assetAspectRatio: mediaAspectRatio(libraryAssets.find((asset) => asset.id === original.data.assetId)), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails: {
+      title: original.title?.trim(), label: canvasNodeTitle(toAssetCanvasNode(original, model3DModels), documents.documents, libraryAssets, tableContents), description: original.description,
+      edit: () => setNodeDetails({ id: original.id, title: original.type === "group" ? original.data.name ?? "" : original.title ?? "", description: original.description ?? "" }),
+    } } };
     if (node.type === "group") return { ...node, dragHandle: ".canvas-group-heading" };
     if (node.type === "table") {
       const session = tables.storage.sessions.get(node.data.tableId ?? "");
@@ -2164,9 +2187,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       data: node.type === "image"
         ? { ...node.data, imageRuntime: { ...referenceRuntime,
           template: templateBoard,
-          models: node.data.quickReskinMode === "person-clothing" || (templateBoard === "pixel-art" && !node.data.sourceInput && (node.data.images?.length ?? 0) >= 2)
+          models: node.data.quickReskinMode === "person-clothing"
             ? imageModels.filter((model) => model.supportsReferenceImage && (model.maxReferenceImages ?? IMAGE_MAX_REFERENCE_IMAGES) >= 2)
-            : node.data.presetId === "quick-reskin" || (templateBoard && (node.data.sourceInput || templateBoard === "pixel-art" || templateBoard === "action-set" || node.data.presetId === "continuous-sequence" || node.data.presetId === "consistent-sequence")) ? imageModels.filter((model) => model.supportsReferenceImage && model.maxReferenceImages !== 0) : imageModels,
+            : node.data.presetId === "quick-reskin" || isPixelWorkflow || (templateBoard && (node.data.sourceInput || templateBoard === "pixel-art" || templateBoard === "action-set" || node.data.presetId === "continuous-sequence" || node.data.presetId === "consistent-sequence")) ? imageModels.filter((model) => model.supportsReferenceImage && model.maxReferenceImages !== 0) : imageModels,
           ...(node.data.quickReskinMode === "person-clothing" ? { slotLabels: [t("assetCanvasTemplates.quickReskinPerson"), t("assetCanvasTemplates.quickReskinClothing")] } : {}),
           providers: imageProviders, onUploadSourceImage: (file) => void uploadSourceImage(node, file), onSetSourceAsset: (asset) => setSourceAsset(node, asset) } satisfies ImageNodeRuntime }
         : { ...node.data, videoRuntime: { ...referenceRuntime, models: videoModels, providers: videoProviders } satisfies VideoNodeRuntime },
@@ -2231,6 +2254,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
                 libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model")}
                 importing={importingAssets}
                 onAdd={addNode}
+                onAddPixelPreset={addPixelAssetPreset}
                 onAddAsset={addAssetNode}
                 onUpload={(files, position) => void importAssetFiles(files, position)}
               />}
@@ -2283,7 +2307,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
                 allNodes={nodes}
                 onGroup={canGroupSelection ? groupSelection : undefined}
                 onUngroup={canUngroupSelection ? ungroupSelection : undefined}
-                onDelete={() => removeCanvasNodes(new Set(selectedNodes.map((node) => node.id)))}
               /> : null}
               {selectedGroup ? <GroupCanvasToolbarOverlay
                 node={selectedGroup}
@@ -2303,7 +2326,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
                 onOpen={openMediaTool}
                 onGroup={canGroupSelection ? groupSelection : undefined}
                 onUngroup={canUngroupSelection ? ungroupSelection : undefined}
-                onDelete={() => removeCanvasNodes(new Set(selectedNodes.map((node) => node.id)))}
               /> : null}
               {cropNodeId && selectedMediaNodes[0]?.id === cropNodeId ? <CanvasImageCrop
                 key={cropNodeId} nodeId={cropNodeId} busy={mediaToolBusy} error={mediaToolError}
@@ -2395,7 +2417,7 @@ export function canvasHistoryKey(canvas: AssetCanvasDocument): string {
 type MediaGridSize = { columns: number; rows: number };
 type DialogMediaOperation = Exclude<CanvasMediaOperation, "crop-image" | "split-image-grid" | "extract-gif-frames">;
 
-function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onOpen, onGroup, onUngroup, onDelete }: {
+function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onOpen, onGroup, onUngroup }: {
   mediaType: "image" | "video";
   imageCount: number;
   isGif: boolean;
@@ -2404,7 +2426,6 @@ function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onO
   onOpen: (operation: CanvasMediaToolbarAction, grid?: MediaGridSize) => void;
   onGroup?: () => void;
   onUngroup?: () => void;
-  onDelete?: () => void;
 }) {
   const [openGroup, setOpenGroup] = useState<string>();
   const [customGrid, setCustomGrid] = useState(false);
@@ -2444,7 +2465,6 @@ function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onO
   return <div ref={toolbar} className="asset-media-toolbar" role="toolbar" aria-label={t("assetCanvas.mediaTools.toolbar") } onPointerDown={(event) => event.stopPropagation()}>
     {onGroup ? <button className="asset-media-toolbar-button" type="button" onClick={onGroup}><Layers3 size={16} /><span>{t("assetCanvas.createGroup")}</span></button> : null}
     {onUngroup ? <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size={16} /><span>{t("assetCanvas.ungroup")}</span></button> : null}
-    {onDelete ? <button className="asset-media-toolbar-button is-danger" type="button" onClick={onDelete}><Trash2 size={16} /><span>{t("common.delete")}</span></button> : null}
     {mediaType === "image" ? <>
       {MEDIA_TOOL_GROUPS.map((entry) => <Fragment key={entry.id}>
         {entry.id === "gif-frames" ? group("grid", t("assetCanvas.mediaTools.grid"), Widget, [
@@ -2478,12 +2498,11 @@ function MediaGridPicker({ onPick }: { onPick: (grid: MediaGridSize) => void }) 
   </div>;
 }
 
-function SelectionCanvasToolbarOverlay({ nodes, allNodes, onGroup, onUngroup, onDelete }: {
+function SelectionCanvasToolbarOverlay({ nodes, allNodes, onGroup, onUngroup }: {
   nodes: readonly AssetCanvasFlowNode[];
   allNodes: readonly AssetCanvasFlowNode[];
   onGroup?: () => void;
   onUngroup?: () => void;
-  onDelete?: () => void;
 }) {
   const { y, zoom } = useViewport();
   const below = y + Math.min(...nodes.map((node) => canvasAbsolutePosition(node, allNodes).y)) * zoom < 70;
@@ -2491,7 +2510,6 @@ function SelectionCanvasToolbarOverlay({ nodes, allNodes, onGroup, onUngroup, on
     <div className="asset-media-toolbar">
       {onGroup ? <button className="asset-media-toolbar-button" type="button" onClick={onGroup}><Layers3 size={16} /><span>{t("assetCanvas.createGroup")}</span></button> : null}
       {onUngroup ? <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size={16} /><span>{t("assetCanvas.ungroup")}</span></button> : null}
-      {onDelete ? <button className="asset-media-toolbar-button is-danger" type="button" onClick={onDelete}><Trash2 size={16} /><span>{t("common.delete")}</span></button> : null}
     </div>
   </NodeToolbar>;
 }
@@ -2513,7 +2531,7 @@ function GroupCanvasToolbarOverlay({ node, nodes, canExecute, onExecute, onUngro
   </NodeToolbar>;
 }
 
-function MediaCanvasToolbarOverlay({ node, nodes, canvasElement, mediaType, imageCount, isGif, busy, onOpen, onGroup, onUngroup, onDelete }: {
+function MediaCanvasToolbarOverlay({ node, nodes, canvasElement, mediaType, imageCount, isGif, busy, onOpen, onGroup, onUngroup }: {
   node: AssetCanvasFlowNode;
   nodes: readonly AssetCanvasFlowNode[];
   canvasElement: RefObject<HTMLDivElement | null>;
@@ -2524,7 +2542,6 @@ function MediaCanvasToolbarOverlay({ node, nodes, canvasElement, mediaType, imag
   onOpen: (operation: CanvasMediaToolbarAction, grid?: MediaGridSize) => void;
   onGroup?: () => void;
   onUngroup?: () => void;
-  onDelete?: () => void;
 }) {
   const { y, zoom } = useViewport();
   const toolbar = useRef<HTMLDivElement>(null);
@@ -2558,7 +2575,7 @@ function MediaCanvasToolbarOverlay({ node, nodes, canvasElement, mediaType, imag
   const screenTop = y + canvasAbsolutePosition(node, nodes).y * zoom;
   const below = screenTop < toolbarHeight + 20;
   return <NodeToolbar nodeId={node.id} isVisible position={below ? Position.Bottom : Position.Top} offset={10 + (below ? formOffset : 0)} className="asset-media-toolbar-panel nodrag nopan nowheel">
-    <div ref={toolbar}><MediaCanvasToolbar key={node.id} mediaType={mediaType} imageCount={imageCount} isGif={isGif} busy={busy} menuBelow={below || screenTop < toolbarHeight + 320} onOpen={onOpen} onGroup={onGroup} onUngroup={onUngroup} onDelete={onDelete} /></div>
+    <div ref={toolbar}><MediaCanvasToolbar key={node.id} mediaType={mediaType} imageCount={imageCount} isGif={isGif} busy={busy} menuBelow={below || screenTop < toolbarHeight + 320} onOpen={onOpen} onGroup={onGroup} onUngroup={onUngroup} /></div>
   </NodeToolbar>;
 }
 
@@ -2718,6 +2735,13 @@ function MediaToolFrame({ assetId, index, count, busy, onMove }: { assetId: stri
 
 function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.textRuntime;
+  const category = pixelAssetTemplateGuideCategory(data.instruction);
+  if (category) return <div className="story-node story-text-node asset-template-guide-node">
+    <div data-alignment-frame className="story-text-output">
+      <CanvasNodeLabel icon={FileText} label={t("assetCanvas.pixelPresets.introductionTitle", { category: t(`assetCanvas.pixelPresets.categories.${category}`) })} details={data.nodeDetails} />
+      <PixelAssetTemplateGuide category={category} />
+    </div>
+  </div>;
   const guide = templateGuideInfo(data.instruction);
   if (guide) return <div className="story-node story-text-node asset-template-guide-node">
     <div data-alignment-frame className="story-text-output">
@@ -2818,31 +2842,19 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   </MediaNodeShell>;
 
   return (
-    <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails} emptyHint={data.promptExpanded ? t("effectLibrary.nodeHint") : undefined}>
+    <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails}>
       <MediaReferenceStrip runtime={runtime} />
-      {data.effectBasePrompt ? <EffectPromptEditor
-        data={data}
-        disabled={runtime?.busy}
+      <MediaPrompt
+        kind="image"
+        value={data.presetId === "continuous-sequence" && data.actionDescription?.trim() ? resolveContinuousActionPrompt(data.prompt ?? "", data.actionDescription) : data.prompt ?? ""}
+        runtime={runtime}
+        label={sequence ? t("assetCanvasTemplates.free-sequence.promptLabel") : undefined}
+        placeholder={sequence ? t(`assetCanvasTemplates.free-sequence.${sequenceMode}.placeholder`) : data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinPlaceholder") : undefined}
         onSubmit={canGenerate ? runtime?.onGenerate : undefined}
-        onChange={(next) => runtime?.onChange({ ...data, imageRuntime: undefined, ...next })}
-      /> : <MediaPrompt
-          kind="image"
-          value={data.prompt ?? ""}
-          runtime={runtime}
-          label={sequence ? t("assetCanvasTemplates.free-sequence.promptLabel") : undefined}
-          placeholder={sequence ? t(`assetCanvasTemplates.free-sequence.${sequenceMode}.placeholder`) : data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinPlaceholder") : undefined}
-          onSubmit={canGenerate ? runtime?.onGenerate : undefined}
-          onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, prompt })}
-        />}
+        onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, actionDescription: undefined, prompt })}
+      />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
-        {presets.length ? <CanvasChipSelect
-          label={t("assetCanvas.imagePresets.label")}
-          value={data.presetId ?? "free"}
-          options={presets.map((preset) => ({ value: preset, label: t(`assetCanvas.imagePresets.${preset}`) }))}
-          disabled={runtime?.busy}
-          onChange={selectPreset}
-        /> : null}
         <CanvasChipSelect
           label={t("assetCanvas.imageModel")}
           wide
@@ -3263,13 +3275,6 @@ function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
         {preview.url && kind === "audio" ? <CanvasAudio src={preview.url} /> : null}
         {!preview.url ? <div className="story-media-empty"><Icon size={34} /><strong>{data.assetError || preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset")}</strong>{data.assetError ? <span>{data.assetError}</span> : <CanvasAssetRecovery preview={preview} />}</div> : null}
       </div>
-      {selected && data.examplePrompt ? <div className="effect-example-prompt-panel nodrag nowheel">
-        <div className="effect-example-prompt-heading">
-          <strong>{t("effectLibrary.examplePrompt")}</strong>
-          <span>{t("effectLibrary.examplePromptHint")}</span>
-        </div>
-        <textarea aria-label={t("effectLibrary.examplePrompt")} value={data.examplePrompt} readOnly rows={10} />
-      </div> : null}
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
   );
@@ -3491,30 +3496,6 @@ function MediaPrompt({ kind, label, placeholder, value, runtime, onChange, onSub
       onSubmit={onSubmit}
     />
   );
-}
-
-function EffectPromptEditor({
-  data,
-  disabled,
-  onChange,
-  onSubmit,
-}: {
-  data: Pick<AssetCanvasFlowData, "effectColor" | "effectRhythm" | "prompt">;
-  disabled?: boolean;
-  onChange: (next: Pick<AssetCanvasFlowData, "effectColor" | "effectRhythm" | "prompt">) => void;
-  onSubmit?: () => void;
-}) {
-  const value = data.prompt || "Requested action: {USER_ACTION}\n\nMain color: {EFFECT_COLOR}\n\nMotion rhythm: {MOTION_RHYTHM}\n\nAdditional direction:\n{ADDITIONAL_PROMPT}";
-  return <div className="effect-prompt-editor nodrag">
-    <CanvasTextarea
-      aria-label="Effect prompt"
-      rows={8}
-      value={value}
-      disabled={disabled}
-      onChange={(prompt) => onChange({ ...data, prompt })}
-      onSubmit={onSubmit}
-    />
-  </div>;
 }
 
 function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceStripRuntime; large?: boolean }) {
@@ -3892,6 +3873,7 @@ function AssetCanvasAddControl({
   libraryAssets,
   importing,
   onAdd,
+  onAddPixelPreset,
   onAddAsset,
   onUpload,
 }: {
@@ -3902,6 +3884,7 @@ function AssetCanvasAddControl({
   libraryAssets: LibraryAsset[];
   importing: boolean;
   onAdd: (type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }, documentId?: string) => void;
+  onAddPixelPreset: (preset: PixelAssetPresetId, level: PixelArtLevel, position: { x: number; y: number }) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (files: File[], position: { x: number; y: number }) => void;
 }) {
@@ -3909,6 +3892,7 @@ function AssetCanvasAddControl({
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [pixelPresetsOpen, setPixelPresetsOpen] = useState(false);
   const addMenu = useRef<HTMLDivElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const placementPosition = useCanvasCenter();
@@ -3984,11 +3968,22 @@ function AssetCanvasAddControl({
           <Plus size={18} />
         </button>
       </div>
+      <button className="story-pixel-presets-button" type="button" title={t("assetCanvas.pixelPresets.open")} aria-label={t("assetCanvas.pixelPresets.open")} onClick={() => setPixelPresetsOpen(true)}>
+        <Layers3 size={17} /><span>{t("assetCanvas.pixelPresets.short")}</span>
+      </button>
       {libraryOpen ? <LibraryAssetPicker title={t("assetCanvas.addFromLibrary")} projectId={project.id} project={project} assets={libraryAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
         const position = placementPosition();
         if (position) onAddAsset(asset, position);
         setLibraryOpen(false);
       }} /> : null}
+      {pixelPresetsOpen ? <AssetCanvasPixelPresetDialog
+        onClose={() => setPixelPresetsOpen(false)}
+        onSelect={(preset, level) => {
+          const position = placementPosition();
+          if (position) onAddPixelPreset(preset, level, position);
+          setPixelPresetsOpen(false);
+        }}
+      /> : null}
   </>;
 }
 
@@ -4201,7 +4196,7 @@ function toFlowNode(node: AssetCanvasNode, imageModels: ImageModel[], videoModel
   return { ...flowNodeData(node, imageModels, videoModels), ...(node.parentId ? { parentId: node.parentId } : {}), ...(measured ? { measured } : {}), ...(node.width !== undefined ? { width: node.width } : {}), ...(node.height !== undefined ? { height: node.height } : {}), ...(node.title !== undefined ? { title: node.title } : {}), ...(node.description !== undefined ? { description: node.description } : {}) };
 }
 function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoModels: VideoModel[]): AssetCanvasFlowNode {
-  if (node.type === "group") return { id: node.id, type: "group", position: node.position, data: { name: node.data.name }, width: node.width, height: node.height, deletable: true };
+  if (node.type === "group") return { id: node.id, type: "group", position: node.position, data: { name: node.data.name, ...(node.data.pixelStyle ? { pixelStyle: node.data.pixelStyle } : {}) }, width: node.width, height: node.height, deletable: true };
   if (node.type === "asset" || node.type === "file") return { ...node, deletable: true };
   if (node.type === "text") return {
     id: node.id,
@@ -4468,7 +4463,7 @@ export function toAssetCanvasNode(node: AssetCanvasFlowNode, model3DModels?: rea
   return { ...assetCanvasNodeData(node, model3DModels), ...(node.parentId ? { parentId: node.parentId } : {}), ...(node.width !== undefined ? { width: node.width } : {}), ...(node.height !== undefined ? { height: node.height } : {}), ...(node.title !== undefined ? { title: node.title } : {}), ...(node.description !== undefined ? { description: node.description } : {}) };
 }
 function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly Model3DModel[]): AssetCanvasNode {
-  if (node.type === "group") return { id: node.id, type: "group", position: node.position, data: { name: node.data.name ?? "Group" } };
+  if (node.type === "group") return { id: node.id, type: "group", position: node.position, data: { name: node.data.name ?? "Group", ...(node.data.pixelStyle ? { pixelStyle: node.data.pixelStyle } : {}) } };
   if (node.type === "animate-3d") {
     const source = node.data.images?.[0];
     return {
@@ -4492,7 +4487,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
     id: node.id,
     type: "asset",
     position: node.position,
-    data: { assetId: node.data.assetId ?? "", mediaType: node.data.mediaType ?? "image", ...(node.data.examplePrompt ? { examplePrompt: node.data.examplePrompt } : {}) },
+    data: { assetId: node.data.assetId ?? "", mediaType: node.data.mediaType ?? "image" },
   };
   if (node.type === "text") return {
     id: node.id,
@@ -4511,14 +4506,16 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
     type: "image",
     position: node.position,
     data: {
-      prompt: node.data.generationMode === "character-asset" ? characterAssetPrompt(node.data.prompt ?? "")
-        : node.data.generationMode === "continuous-actions" ? continuousActionsPrompt(node.data.prompt ?? "")
-          : node.data.generationMode === "all-actions" ? allActionsPrompt(node.data.prompt ?? "") : node.data.prompt ?? "",
+      prompt: node.data.generationMode === "character-asset" ? canvasImagePresetPrompt("character-sheet", node.data.prompt ?? "", "pixel", 1, node.data.pixelStyle ?? "classic")
+        : node.data.generationMode === "continuous-actions" ? continuousActionsPrompt(node.data.prompt ?? "", node.data.pixelStyle ?? "classic")
+          : node.data.generationMode === "all-actions" ? allActionsPrompt(node.data.prompt ?? "", node.data.pixelStyle ?? "classic") : node.data.prompt ?? "",
       ...(node.data.presetId ? { presetId: node.data.presetId } : {}),
-      ...(node.data.promptExpanded ? { promptExpanded: true } : {}),
+      ...(node.data.promptExpanded || node.data.generationMode ? { promptExpanded: true } : {}),
       ...(node.data.effectBasePrompt ? { effectBasePrompt: node.data.effectBasePrompt } : {}),
       ...(node.data.effectColor ? { effectColor: node.data.effectColor } : {}),
       ...(node.data.effectRhythm ? { effectRhythm: node.data.effectRhythm } : {}),
+      ...(node.data.pixelStyle ? { pixelStyle: node.data.pixelStyle } : {}),
+      ...(node.data.actionDescription !== undefined ? { actionDescription: node.data.actionDescription } : {}),
       ...(node.data.quickReskinMode ? { quickReskinMode: node.data.quickReskinMode } : {}),
       ...(node.data.materialStyle && node.data.materialStyle !== canvasMaterialStyle(node.data.presetId) ? { materialStyle: node.data.materialStyle } : {}),
       ...(node.data.sourceInput ? { sourceInput: true } : {}),
@@ -4866,8 +4863,7 @@ function resolveLinkedPrompt(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNo
 }
 
 function effectivePrompt(data: AssetCanvasFlowData, runtime?: MediaNodeRuntime): string {
-  const prompt = effectLibraryPrompt(data.effectBasePrompt, data.effectColor, data.effectRhythm, data.prompt ?? "");
-  return combineAssetCanvasPrompt(runtime?.linkedPrompt, prompt);
+  return combineAssetCanvasPrompt(runtime?.linkedPrompt, effectLibraryPrompt(data.effectBasePrompt, data.effectColor, data.effectRhythm, data.prompt ?? ""));
 }
 
 async function promptImage(blob: Blob): Promise<CreateLibraryImageRequest["image"]> {

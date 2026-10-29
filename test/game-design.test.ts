@@ -271,7 +271,7 @@ describe("Markdown design workspace", () => {
     await store.saveBoard(project.id, original.board, original.revision);
     await store.generateNode(project.id, boardId, freeImage.id);
     await waitForJob(store, project.id);
-    expect(generate.mock.calls[0]?.[0].prompt).toContain("pixel-art game monster sprite");
+    expect(generate.mock.calls[0]?.[0].prompt).toContain("MANDATORY ASSET TYPE: MONSTER");
     expect(generate.mock.calls[0]?.[0].prompt).toContain("forest guardian");
 
     const reference = await library.add("character.png", Buffer.from("image"));
