@@ -95,7 +95,7 @@ describe("Community covers", () => {
     expect(container.querySelectorAll("article")).toHaveLength(1);
     expect(container.textContent).toContain("Example 28");
     await act(async () =>
-      container.querySelector<HTMLButtonElement>(".explore-game-open")!.click(),
+      container.querySelector<HTMLButtonElement>(".community-card-open")!.click(),
     );
     expect(onOpen).toHaveBeenLastCalledWith(games[28]);
   });
@@ -109,17 +109,17 @@ describe("Community covers", () => {
     expect(observers[0].observe).toHaveBeenCalledWith(
       container.querySelector("article"),
     );
-    expect(container.querySelector(".explore-game-cover")).toBeNull();
+    expect(container.querySelector("img.community-card-cover")).toBeNull();
     await act(async () => observers[0].notify([{ isIntersecting: false }]));
-    expect(container.querySelector(".explore-game-cover")).toBeNull();
+    expect(container.querySelector("img.community-card-cover")).toBeNull();
     await act(async () => observers[0].notify([{ isIntersecting: true }]));
     expect(
-      container.querySelector(".explore-game-cover")?.getAttribute("src"),
+      container.querySelector("img.community-card-cover")?.getAttribute("src"),
     ).toBe("https://play.example/cover.webp");
     expect(observers[0].disconnect).toHaveBeenCalled();
     await render({ ...game, stats: { viewCount: 5, likeCount: 3 } }, "owner-token");
     expect(
-      container.querySelector(".explore-game-cover")?.getAttribute("src"),
+      container.querySelector("img.community-card-cover")?.getAttribute("src"),
     ).toBe("https://play.example/cover.webp");
     expect(mocks.cover).not.toHaveBeenCalled();
     expect(URL.createObjectURL).not.toHaveBeenCalled();
@@ -136,7 +136,7 @@ describe("Community covers", () => {
     await act(async () => observers[0].notify([{ isIntersecting: true }]));
     expect(mocks.cover).toHaveBeenCalledWith("game", "deployment", undefined);
     expect(
-      container.querySelector(".explore-game-cover")?.getAttribute("src"),
+      container.querySelector("img.community-card-cover")?.getAttribute("src"),
     ).toBe("blob:cover");
     await render({ ...local, stats: { viewCount: 5, likeCount: 3 } });
     expect(mocks.cover).toHaveBeenCalledTimes(1);
