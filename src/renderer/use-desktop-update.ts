@@ -17,7 +17,12 @@ function subscribe(listener: () => void): () => void {
   const updates = window.ohMyGameDesktop?.updates;
   if (updates && !unsubscribe) {
     let disposed = false;
-    const stop = updates.onState(publish);
+    // An event that arrives before the first query answers is newer than it.
+    let pushed = false;
+    const stop = updates.onState((state) => {
+      pushed = true;
+      publish(state);
+    });
     unsubscribe = () => {
       disposed = true;
       stop();
@@ -25,7 +30,7 @@ function subscribe(listener: () => void): () => void {
     void updates
       .state()
       .then((state) => {
-        if (!disposed) publish(state);
+        if (!disposed && !pushed) publish(state);
       })
       .catch(() => undefined);
   }
