@@ -1006,12 +1006,22 @@ export function isPreviewSourceChange(filename: string): boolean {
   );
 }
 
+// What Design writes in canvas/ (src/daemon/canvas-workspace.ts): its index,
+// lists and instructions, and one file per board, layout, document, table and
+// schema. Anything else there may be the game's.
 const DESIGN_CANVAS_FILES = new Set(["index.json", "assets.json", "jobs.json", "AGENTS.md", "README.md"]);
-const DESIGN_CANVAS_FOLDERS = new Set(["boards", "documents", "tables", "editor", "schemas"]);
+const DESIGN_CANVAS_ENTRIES: Record<string, RegExp> = {
+  boards: /^[^/]+\.json$/,
+  editor: /^[^/]+\.json$/,
+  tables: /^[^/]+\.json$/,
+  documents: /^[^/]+\.md$/,
+  schemas: /^[^/]+\.schema\.json$/,
+};
 
 function isDesignCanvasFile(parts: string[]): boolean {
-  if (parts[0] !== "canvas" || parts.length < 2) return false;
-  return parts.length === 2 ? DESIGN_CANVAS_FILES.has(parts[1]) : DESIGN_CANVAS_FOLDERS.has(parts[1]);
+  if (parts[0] !== "canvas") return false;
+  if (parts.length === 2) return DESIGN_CANVAS_FILES.has(parts[1]);
+  return parts.length === 3 && Object.hasOwn(DESIGN_CANVAS_ENTRIES, parts[1]) && DESIGN_CANVAS_ENTRIES[parts[1]].test(parts[2]);
 }
 
 /** Hidden entries and generated folders are not files someone wrote for the project. */
