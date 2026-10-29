@@ -1,8 +1,11 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
-import type { ApprovalRequestDetails } from "../../shared/agent-runtimes.js";
+import {
+  FULL_ACCESS_PERMISSION_MODES,
+  isAgentPermissionMode,
+  type ApprovalDecision,
+  type ApprovalRequestDetails,
+} from "../../shared/agent-runtimes.js";
 import type {
   NativeDriver,
   NativeToolResult,
@@ -13,12 +16,12 @@ import type {
 import {
   CodexAppServer,
   codexLimits,
-  CODEX_APPROVAL_POLICY,
   requireCodexPermissionProfile,
 } from "./codex-app-server.js";
 import {
   BridgeResults,
   number,
+  PLANNING_DENIAL,
   record,
   textResult,
   type DriverContext,
@@ -28,8 +31,6 @@ import {
   type CodexServerLease,
 } from "./codex-server-pool.js";
 import { NativeSessionExpiredError } from "./native-session.js";
-import { canonicalPath, judgeApproval } from "./policy.js";
-import { sandboxedPath, sessionCaches, toolchainRoots } from "./environment.js";
 import type { AgentContextUsage } from "../../shared/contracts.js";
 import { runtimeStartupError } from "./compatibility.js";
 import { importCodexImage } from "./codex-images.js";
@@ -55,14 +56,14 @@ interface CodexTurn {
 /**
  * Codex through its app server: one thread per conversation, one turn per
  * message. OhMyGame's tools are the thread's dynamic tools, answered over the
- * same pipe; commands run in Codex's own workspace sandbox, and what it asks
- * to do beyond it comes back as an approval request.
+ * same pipe. Codex's built-in permission profiles and approval policy decide
+ * what it may do and what it asks; OhMyGame shows the question and returns
+ * the person's answer.
  */
 export class CodexDriver implements NativeDriver {
   #disposed = false;
-  readonly #profile = `ohmygame-${randomUUID()}`;
-  readonly #readProfile = `${this.#profile}-read`;
-  /** Full access is Codex's own unsandboxed profile; planning keeps the read-only one. */
+  readonly #privateKey = `private-${randomUUID()}`;
+  /** The Codex permission profile the person chose for work; planning uses its read-only one. */
   readonly #writeProfile: string;
   #limits: NonNullable<AgentContextUsage["limits"]> = [];
   #lease?: CodexServerLease;
@@ -73,9 +74,12 @@ export class CodexDriver implements NativeDriver {
 
   constructor(private readonly context: DriverContext) {
     this.#threadId = context.resume;
-    this.#writeProfile = context.policy.fullAccess
-      ? ":danger-full-access"
-      : this.#profile;
+    this.#writeProfile = isAgentPermissionMode(
+      "codex-cli",
+      context.permissionMode,
+    )
+      ? context.permissionMode
+      : FULL_ACCESS_PERMISSION_MODES["codex-cli"];
   }
 
   async runTurn(
@@ -117,7 +121,7 @@ export class CodexDriver implements NativeDriver {
             ? { effort: this.context.reasoningLevel }
             : {}),
           model: this.context.model,
-          permissions: input.readOnly ? this.#readProfile : this.#writeProfile,
+          permissions: input.readOnly ? READ_PROFILE : this.#writeProfile,
         })
         .then(
           (response) => {
@@ -195,7 +199,7 @@ export class CodexDriver implements NativeDriver {
         const lease = await acquireCodexServer(
           {
             // Without a shared identity the server is this session's alone.
-            key: shared?.key ?? `private-${this.#profile}`,
+            key: shared?.key ?? this.#privateKey,
             directory: shared?.directory ?? this.context.privateDirectory,
             shared: Boolean(shared),
             binaryPath: this.context.binaryPath,
@@ -236,13 +240,13 @@ export class CodexDriver implements NativeDriver {
   async #thread(server: CodexAppServer, sink: NativeTurnSink): Promise<string> {
     const settings = {
       cwd: this.context.workspacePath,
-      // Never approve unrestricted sandbox escapes. Scoped permission requests
-      // can still be reviewed without removing the protected-read boundary.
-      approvalPolicy: CODEX_APPROVAL_POLICY,
+      // Codex asks when a command needs more than its sandbox allows; full access never asks.
+      approvalPolicy:
+        this.#writeProfile === ":danger-full-access" ? "never" : "on-request",
       permissions: this.#writeProfile,
       model: this.context.model,
       developerInstructions: this.context.instructions,
-      config: await this.#config(server),
+      config: await codexConfig(server, this.context.workspacePath),
     };
     if (this.#threadId) {
       try {
@@ -285,94 +289,6 @@ export class CodexDriver implements NativeDriver {
     this.#lease?.bind(id);
     sink.nativeSession(id);
     return id;
-  }
-
-  /** Permission overrides and prevention of a recursive OhMyGame MCP connection. */
-  async #config(server: CodexAppServer): Promise<Record<string, unknown>> {
-    // An explicit root deny prevents even scoped grants. Unlisted paths are
-    // restricted by default; only protected roots get an explicit deny.
-    // Windows' sandbox requires `:root` read access; `:minimal` is rejected.
-    const filesystem: Record<string, unknown> =
-      process.platform === "win32" ? { ":root": "read" } : { ":minimal": "read" };
-    const temporary = path.join(this.context.privateDirectory, "tmp");
-    await mkdir(temporary, { recursive: true, mode: 0o700 });
-    filesystem[canonicalPath(temporary)] = "write";
-    const workspace = canonicalPath(this.context.workspacePath);
-    // The person's toolchains run, as for OhMyGame's own agent; protected roots below stay denied.
-    for (const root of toolchainRoots(this.context.env.PATH ?? ""))
-      filesystem[canonicalPath(root)] ??= "read";
-    // Private staged Skills remain readable; the rest of app data stays denied.
-    if (this.#lease?.skillsRoot)
-      filesystem[canonicalPath(this.#lease.skillsRoot)] = "read";
-    for (const protectedPath of this.context.policy.neverTouch) {
-      const target = canonicalPath(protectedPath);
-      // The app may own the workspace's parent; its narrower workspace grant wins.
-      if (target !== workspace) filesystem[target] = "deny";
-    }
-    // Codex's minimal access reads the shared temporary folders, where other
-    // programs and people leave files; commands get their own temporary
-    // folder instead. A workspace inside one keeps its narrower grant.
-    if (process.platform !== "win32")
-      for (const shared of ["/tmp", "/var/tmp"])
-        filesystem[canonicalPath(shared)] ??= "deny";
-    const profile = (readOnly: boolean) => ({
-      filesystem: {
-        ...filesystem,
-        ":workspace_roots": {
-          ".": readOnly ? "read" : "write",
-          ".git": "read",
-          ".agents": "read",
-          ".codex": "read",
-          ".aws": "read",
-        },
-      },
-      network: { enabled: true },
-    });
-    const config: Record<string, unknown> = {
-      default_permissions: this.#writeProfile,
-      "features.request_permissions_tool": true,
-      "features.shell_snapshot": false,
-      // A login shell would rebuild PATH with macOS's path_helper and read
-      // startup files the profile denies; the PATH given here already holds
-      // the login shell's folders.
-      allow_login_shell: false,
-      // Parent instructions can live in app data denied by the permission profile.
-      project_root_markers: [],
-      permissions: {
-        [this.#profile]: profile(false),
-        [this.#readProfile]: profile(true),
-      },
-      // A child must not inherit authentication tokens or proxy secrets from the CLI.
-      "shell_environment_policy.inherit": "none",
-      "shell_environment_policy.set": {
-        ...Object.fromEntries(
-          Object.entries(this.context.env).filter(
-            ([name]) => name !== "CLAUDE_CODE_OAUTH_TOKEN",
-          ),
-        ),
-        PATH: sandboxedPath(this.context.env.PATH ?? ""),
-        TMPDIR: temporary,
-        TMP: temporary,
-        TEMP: temporary,
-        ...sessionCaches(temporary),
-        // ~/.gitconfig may hold credential helpers; commands get only the person's identity.
-        GIT_CONFIG_GLOBAL: await privateGitConfig(temporary, this.context.env),
-      },
-    };
-    let servers: Record<string, unknown>;
-    try {
-      const read = await server.request<{ config?: Record<string, unknown> }>(
-        "config/read",
-        { cwd: this.context.workspacePath },
-      );
-      servers = record(read.config?.mcp_servers) ?? {};
-    } catch {
-      return config;
-    }
-    // Avoid recursively reconnecting to OhMyGame through the person's own MCP config.
-    if (servers[EXTERNAL_MCP_SERVER_NAME])
-      config[`mcp_servers.${EXTERNAL_MCP_SERVER_NAME}.enabled`] = false;
-    return config;
   }
 
   #notification(method: string, params: Record<string, unknown>): void {
@@ -694,115 +610,18 @@ export class CodexDriver implements NativeDriver {
         success: !outcome.isError,
       };
     }
-    if (!turn || turn.signal.aborted)
-      return method === "item/permissions/requestApproval"
-        ? { permissions: {}, scope: "turn" }
-        : method === "item/tool/requestUserInput"
-          ? { answers: {} }
-          : { decision: "decline" };
-    if (
-      method === "item/commandExecution/requestApproval" ||
-      method === "execCommandApproval"
-    ) {
-      return { decision: "decline" };
-    }
-    if (
-      method === "item/fileChange/requestApproval" ||
-      method === "applyPatchApproval"
-    ) {
-      return { decision: "decline" };
-    }
-    if (method === "item/permissions/requestApproval") {
-      const permissions = record(params.permissions);
-      const files = record(permissions?.fileSystem);
-      let paths: NonNullable<ApprovalRequestDetails["paths"]> = [];
-      for (const access of ["read", "write"] as const) {
-        const requested = files?.[access];
-        if (
-          requested != null &&
-          (!Array.isArray(requested) ||
-            requested.some((value) => typeof value !== "string"))
-        )
-          return { permissions: {}, scope: "turn" };
-        for (const value of (requested ?? []) as string[])
-          paths.push({ path: value, access });
-      }
-      if (files?.entries != null) {
-        if (!Array.isArray(files.entries))
-          return { permissions: {}, scope: "turn" };
-        for (const value of files.entries) {
-          const entry = record(value);
-          const location = record(entry?.path);
-          if (
-            location?.type !== "path" ||
-            typeof location.path !== "string" ||
-            (entry?.access !== "read" && entry?.access !== "write")
-          )
-            return { permissions: {}, scope: "turn" };
-          paths.push({ path: location.path, access: entry.access });
-        }
-      }
-      // New CLIs can send both legacy lists and entries for the same grant.
-      paths = [
-        ...new Map(
-          paths.map((entry) => [
-            JSON.stringify([entry.path, entry.access]),
-            entry,
-          ]),
-        ).values(),
-      ];
-      if (
-        !permissions ||
-        (turn.readOnly && paths.some((entry) => entry.access === "write")) ||
-        paths.length > 100 ||
-        paths.some(
-          (entry) =>
-            !path.isAbsolute(entry.path) ||
-            /[*?\[\]{}\0]/.test(entry.path) ||
-            judgeApproval(
-              {
-                kind: "file",
-                tool: entry.access === "read" ? "Read" : "Write",
-                path: entry.path,
-                canAllowSession: false,
-              },
-              this.context.policy,
-            ) === "deny",
-        )
-      )
-        return { permissions: {}, scope: "turn" };
-      const details: ApprovalRequestDetails = {
-        kind: "other",
-        tool: "permissions",
-        ...(typeof params.reason === "string" ? { reason: params.reason } : {}),
-        canAllowSession: false,
-        ...(paths.length ? { paths } : {}),
-        ...(record(permissions.network)?.enabled === true
-          ? { network: true }
-          : {}),
-      };
-      const decision = await turn.sink.requestApproval(details, {
+    if (!turn || turn.signal.aborted || this.#turn !== turn)
+      return refusal(method);
+    const approval = codexApproval(method, params);
+    if (approval) {
+      // Planning never stops to ask: what Codex would ask about is not reading.
+      if (turn.readOnly) return refusal(method, PLANNING_DENIAL);
+      const decision = await turn.sink.requestApproval(approval, {
+        ...(typeof params.itemId === "string" ? { callId: params.itemId } : {}),
         signal: turn.signal,
       });
-      return decision === "deny"
-        ? { permissions: {}, scope: "turn" }
-        : {
-            permissions: {
-              ...(files
-                ? {
-                    fileSystem: {
-                      read: Array.isArray(files.read) ? files.read : null,
-                      write: Array.isArray(files.write) ? files.write : null,
-                      ...(Array.isArray(files.entries)
-                        ? { entries: files.entries }
-                        : {}),
-                    },
-                  }
-                : {}),
-              ...(details.network ? { network: { enabled: true } } : {}),
-            },
-            scope: "turn",
-          };
+      if (turn.signal.aborted || this.#turn !== turn) return refusal(method);
+      return codexAnswer(method, params, decision);
     }
     if (method === "item/tool/requestUserInput") return { answers: {} };
     if (method === "mcpServer/elicitation/request")
@@ -861,33 +680,185 @@ function codexError(message: unknown): string {
   return message;
 }
 
-/**
- * A Git configuration for sandboxed commands with the person's name and email
- * and nothing else from ~/.gitconfig, which may name credential helpers and
- * is outside the permission profile.
- */
-async function privateGitConfig(
-  directory: string,
-  env: Record<string, string>,
-): Promise<string> {
-  const file = path.join(directory, "gitconfig");
-  const identity: string[] = [];
-  for (const key of ["user.name", "user.email"]) {
-    const value = await new Promise<string>((resolve) =>
-      execFile(
-        "git",
-        ["config", "--global", "--get", key],
-        { env, timeout: 3_000, encoding: "utf8" },
-        (error, stdout) => resolve(error ? "" : stdout.trim()),
-      ),
+const READ_PROFILE = ":read-only";
+
+const APPROVAL_METHODS = new Set([
+  "item/commandExecution/requestApproval",
+  "execCommandApproval",
+  "item/fileChange/requestApproval",
+  "applyPatchApproval",
+  "item/permissions/requestApproval",
+]);
+
+/** Keeps the person's Codex configuration, without a recursive connection to OhMyGame. */
+async function codexConfig(
+  server: CodexAppServer,
+  workspacePath: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const read = await server.request<{ config?: Record<string, unknown> }>(
+      "config/read",
+      { cwd: workspacePath },
     );
-    if (value && !/[\r\n"\\]/.test(value))
-      identity.push(`\t${key.slice(5)} = "${value}"`);
+    // Avoid recursively reconnecting to OhMyGame through the person's own MCP config.
+    return record(record(read.config?.mcp_servers)?.[EXTERNAL_MCP_SERVER_NAME])
+      ? { [`mcp_servers.${EXTERNAL_MCP_SERVER_NAME}.enabled`]: false }
+      : {};
+  } catch {
+    return {};
   }
-  await writeFile(
-    file,
-    identity.length ? `[user]\n${identity.join("\n")}\n` : "",
-    { mode: 0o600 },
-  );
-  return file;
+}
+
+/** What Codex asks to be allowed, for the approval card; undefined for other requests. */
+export function codexApproval(
+  method: string,
+  params: Record<string, unknown>,
+): ApprovalRequestDetails | undefined {
+  if (!APPROVAL_METHODS.has(method)) return undefined;
+  const reason =
+    typeof params.reason === "string" && params.reason
+      ? { reason: params.reason }
+      : {};
+  if (
+    method === "item/commandExecution/requestApproval" ||
+    method === "execCommandApproval"
+  ) {
+    const amendment = Array.isArray(params.proposedExecpolicyAmendment)
+      ? params.proposedExecpolicyAmendment.map(String)
+      : [];
+    return {
+      kind: "command",
+      tool: "shell",
+      command: commandText(params.command),
+      ...reason,
+      ...(record(params.networkApprovalContext) ? { network: true } : {}),
+      always: amendment.length
+        ? { scope: "saved", rules: [amendment.join(" ")] }
+        : { scope: "session", rules: [] },
+    };
+  }
+  if (
+    method === "item/fileChange/requestApproval" ||
+    method === "applyPatchApproval"
+  ) {
+    const root =
+      typeof params.grantRoot === "string" ? params.grantRoot : undefined;
+    const files = Object.keys(record(params.fileChanges) ?? {});
+    return {
+      kind: "file",
+      tool: "apply_patch",
+      ...(root ? { path: root } : {}),
+      ...(!root && files.length
+        ? {
+            paths: files.map((file) => ({
+              path: file,
+              access: "write" as const,
+            })),
+          }
+        : {}),
+      ...reason,
+      always: { scope: "session", rules: root ? [root] : [] },
+    };
+  }
+  const permissions = record(params.permissions);
+  const files = record(permissions?.fileSystem);
+  const paths: NonNullable<ApprovalRequestDetails["paths"]> = [];
+  for (const access of ["read", "write"] as const)
+    for (const value of Array.isArray(files?.[access]) ? files[access] : [])
+      if (typeof value === "string") paths.push({ path: value, access });
+  for (const value of Array.isArray(files?.entries) ? files.entries : []) {
+    const entry = record(value);
+    const location = record(entry?.path);
+    if (
+      typeof location?.path === "string" &&
+      (entry?.access === "read" || entry?.access === "write")
+    )
+      paths.push({ path: location.path, access: entry.access });
+  }
+  return {
+    kind: "other",
+    tool: "permissions",
+    ...reason,
+    ...(paths.length
+      ? {
+          paths: [
+            ...new Map(
+              paths.map((entry) => [`${entry.access}:${entry.path}`, entry]),
+            ).values(),
+          ],
+        }
+      : {}),
+    ...(record(permissions?.network)?.enabled === true
+      ? { network: true }
+      : {}),
+    always: { scope: "session", rules: [] },
+  };
+}
+
+/** The person's answer in the form each Codex request expects. */
+export function codexAnswer(
+  method: string,
+  params: Record<string, unknown>,
+  decision: ApprovalDecision,
+): unknown {
+  if (decision === "deny") return refusal(method);
+  const always = decision === "allow-always";
+  switch (method) {
+    case "item/commandExecution/requestApproval": {
+      const amendment = params.proposedExecpolicyAmendment;
+      return {
+        decision: !always
+          ? "accept"
+          : Array.isArray(amendment) && amendment.length
+            ? {
+                acceptWithExecpolicyAmendment: {
+                  execpolicy_amendment: amendment,
+                },
+              }
+            : "acceptForSession",
+      };
+    }
+    case "execCommandApproval": {
+      const amendment = params.proposedExecpolicyAmendment;
+      return {
+        decision: !always
+          ? "approved"
+          : Array.isArray(amendment) && amendment.length
+            ? {
+                approved_execpolicy_amendment: {
+                  proposed_execpolicy_amendment: amendment,
+                },
+              }
+            : "approved_for_session",
+      };
+    }
+    case "item/fileChange/requestApproval":
+      return { decision: always ? "acceptForSession" : "accept" };
+    case "applyPatchApproval":
+      return { decision: always ? "approved_for_session" : "approved" };
+    default:
+      // A permission grant is what Codex asked for, for this turn or its session.
+      return {
+        permissions: record(params.permissions) ?? {},
+        scope: always ? "session" : "turn",
+      };
+  }
+}
+
+/** Declines a request in the form Codex expects for it. */
+function refusal(
+  method: string,
+  reason = "The person denied this request.",
+): unknown {
+  switch (method) {
+    case "item/permissions/requestApproval":
+      return { permissions: {}, scope: "turn" };
+    case "item/tool/requestUserInput":
+      return { answers: {} };
+    case "execCommandApproval":
+    case "applyPatchApproval":
+      return { decision: { denied: { rejection: reason } } };
+    default:
+      return { decision: "decline" };
+  }
 }

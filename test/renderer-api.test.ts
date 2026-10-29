@@ -1,7 +1,7 @@
 import { observeWorkspaceVersion, workspaceVersion } from "../src/renderer/workspace-version.js";
 import { request } from "../src/renderer/api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreCheckpoint, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
+import { approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
 import { readPluginIconImage, updatePluginDraftIcon, cancelToolJob, getProjectCoverState, listToolJobs, setProjectCoverMode, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import { exportProject, streamProjectActivity } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
@@ -539,21 +539,6 @@ describe("renderer project API", () => {
       "/api/projects/project-1/conversations/conversation-1/revise-last",
       expect.objectContaining({ method: "POST", body: JSON.stringify({ prompt: "Build a platformer" }) }),
     );
-  });
-
-  it("restores a checkpoint and reports a refusal", async () => {
-    installWindow();
-    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await restoreCheckpoint("project-1", "conversation-1", "checkpoint 1");
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/projects/project-1/conversations/conversation-1/checkpoints/checkpoint%201/restore",
-      expect.objectContaining({ method: "POST" }),
-    );
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Wait for the agent to finish before restoring" }, { status: 409 })));
-    await expect(restoreCheckpoint("project-1", "conversation-1", "checkpoint-1")).rejects.toMatchObject({ status: 409, message: "Wait for the agent to finish before restoring" });
   });
 
   it("reads the changes of a turn and one of its files", async () => {

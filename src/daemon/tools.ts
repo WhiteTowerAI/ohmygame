@@ -302,16 +302,16 @@ export class ToolRunner {
       return this.#runVideo(input as RunVideoToolRequest, signal);
     }
     if (toolId === "generate-speech") {
-      assertOnlyKeys(input, ["text", "model", "voiceId", "language", "style", "speed", "output", ...AUDIO_SETTING_KEYS, "references"]);
+      assertOnlyKeys(input, ["text", "model", "voiceId", "language", "style", "speed", "output", ...AUDIO_SETTING_KEYS]);
       return this.#runAudio(toolId, { operation: "speech", ...(input as RunSpeechToolRequest) }, signal);
     }
     if (toolId === "generate-sound-effect") {
-      assertOnlyKeys(input, ["prompt", "model", "durationSeconds", "loop", "negativePrompt", "output", ...AUDIO_SETTING_KEYS, "references"]);
+      assertOnlyKeys(input, ["prompt", "model", "durationSeconds", "loop", "negativePrompt", "output", ...AUDIO_SETTING_KEYS]);
       return this.#runAudio(toolId, { operation: "sound-effect", ...(input as RunSoundEffectToolRequest) }, signal);
     }
-    if (toolId === "generate-audio") { assertOnlyKeys(input, ["prompt", "model", "durationSeconds", "references", ...AUDIO_SETTING_KEYS]); return this.#runAudio(toolId, { ...(input as RunSceneAudioToolRequest), operation: "audio-scene" }, signal); }
+    if (toolId === "generate-audio") { assertOnlyKeys(input, ["prompt", "model", "durationSeconds", ...AUDIO_SETTING_KEYS]); return this.#runAudio(toolId, { ...(input as RunSceneAudioToolRequest), operation: "audio-scene" }, signal); }
     if (toolId === "generate-music") {
-      assertOnlyKeys(input, ["prompt", "model", "instrumental", "lyrics", "durationSeconds", "loop", "referenceAssetId", "output", ...AUDIO_SETTING_KEYS, "references"]);
+      assertOnlyKeys(input, ["prompt", "model", "instrumental", "lyrics", "durationSeconds", "loop", "output", ...AUDIO_SETTING_KEYS]);
       return this.#runAudio(toolId, { operation: "music", ...(input as RunMusicToolRequest) }, signal);
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
@@ -584,7 +584,7 @@ export class ToolRunner {
       const prompt = input.operation === "speech" ? input.text.trim()
         : input.operation === "dialogue" ? input.turns.map((turn) => turn.text.trim()).filter(Boolean).join("\n")
           : input.prompt.trim();
-      const audio = { ...(generated.metadata ? { metadata: generated.metadata } : {}), ...(generated.subtitles ? { subtitles: generated.subtitles } : {}), request: input };
+      const audio = { ...(generated.metadata ? { metadata: generated.metadata } : {}), request: input };
       const companions = audioCompanionFiles(fileName, audio);
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add(fileName, generated.bytes, {

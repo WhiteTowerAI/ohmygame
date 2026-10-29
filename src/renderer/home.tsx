@@ -27,6 +27,8 @@ interface HomeProps {
 /** What the new-project dialog opens with, if it is open. */
 interface CreateRequest {
   firstMessage?: FirstMessage;
+  /** Empties Home's prompt box once the first message has been sent. */
+  clearDraft?: () => void;
   workspacePath?: string;
 }
 
@@ -90,8 +92,9 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
           <section className="home-hero">
             <h1>{t("home.title")}</h1>
             <ProjectPromptCreator
+              draftKey="home"
               placeholder={t("home.placeholder")}
-              onSubmit={(firstMessage) => setCreating({ firstMessage })}
+              onSubmit={(firstMessage, clearDraft) => setCreating({ firstMessage, clearDraft })}
             />
             <div className="home-starts">
               <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
@@ -146,7 +149,10 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
         onOpenProject={(projectId) => { setCreating(undefined); onOpen(projectId); }}
         onCreated={(project, start) => {
           setCreating(undefined);
-          if (start) onCreate(project, start.conversationId, start.prompt, start.mentions, [], start.mode, start.attachments);
+          if (start) {
+            creating.clearDraft?.();
+            onCreate(project, start.conversationId, start.prompt, start.mentions, [], start.mode, start.attachments);
+          }
           else onOpen(project.id, createdProjectView(project.type));
         }}
       /> : null}

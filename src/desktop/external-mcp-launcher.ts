@@ -449,6 +449,26 @@ export class ExternalMcpLauncher {
   }
 }
 
+/**
+ * The command that starts OhMyGame. A packaged macOS app is opened through
+ * LaunchServices: started directly by an agent that runs in a macOS sandbox,
+ * such as Codex, it inherits that sandbox and crashes at launch.
+ */
+export function appStartCommand(
+  executable: string,
+  appPath?: string,
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[] } {
+  if (platform === "darwin" && !appPath) {
+    // macOS paths stay POSIX when the platform is simulated on Windows.
+    // <name>.app/Contents/MacOS/<name>
+    const bundle = path.posix.resolve(executable, "../../..");
+    if (bundle.endsWith(".app"))
+      return { command: "/usr/bin/open", args: [bundle] };
+  }
+  return { command: executable, args: appPath ? [appPath] : [] };
+}
+
 const TURNED_OFF =
   "OhMyGame is not accepting other agents. Open OhMyGame and turn on Settings → MCP Server → Allow other agents to use OhMyGame.";
 const NOT_RUNNING = "Open the OhMyGame app and try again.";

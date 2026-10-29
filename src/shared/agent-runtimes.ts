@@ -74,13 +74,37 @@ export interface AgentRuntimeDiagnostic {
 }
 
 /**
- * How freely a coding agent works. "standard" runs its commands in the CLI's
- * sandbox where it has one and asks about anything the policy cannot clear;
- * "full" turns the sandbox off and asks nothing, as OhMyGame's own agent does.
- * Planning is read-only either way.
+ * How freely a coding agent works, in each CLI's own permission modes: those
+ * that suit working in a project, from asking most to asking nothing. What a
+ * mode asks reaches the person as an approval card. Planning uses the CLI's
+ * read-only mode whatever is chosen, so read-only modes are not listed.
+ * Claude Code's `default` is the mode its newer releases call `manual`;
+ * OpenCode has no modes, so `default` follows the person's OpenCode rules
+ * and `allow` allows everything.
  */
-export const AGENT_PERMISSION_MODES = ["standard", "full"] as const;
-export type AgentPermissionMode = (typeof AGENT_PERMISSION_MODES)[number];
+export const AGENT_PERMISSION_MODES = {
+  "claude-code-cli": ["default", "acceptEdits", "auto", "bypassPermissions"],
+  "codex-cli": [":workspace", ":danger-full-access"],
+  "opencode-cli": ["default", "allow"],
+} as const satisfies Record<AgentRuntimeId, readonly string[]>;
+export type AgentPermissionMode =
+  (typeof AGENT_PERMISSION_MODES)[AgentRuntimeId][number];
+
+/** Each agent's mode that asks nothing, as OhMyGame's own agent does. */
+export const FULL_ACCESS_PERMISSION_MODES = {
+  "claude-code-cli": "bypassPermissions",
+  "codex-cli": ":danger-full-access",
+  "opencode-cli": "allow",
+} as const satisfies Record<AgentRuntimeId, AgentPermissionMode>;
+
+export function isAgentPermissionMode(
+  runtime: AgentRuntimeId,
+  value: unknown,
+): value is AgentPermissionMode {
+  return (AGENT_PERMISSION_MODES[runtime] as readonly unknown[]).includes(
+    value,
+  );
+}
 
 export type AgentRuntimeBinarySource =
   | "manual"
@@ -126,11 +150,6 @@ export interface AgentRuntimeStatus {
     account?: string;
     billing: AgentRuntimeBilling;
   };
-  /**
-   * Whether the commands the agent runs are confined by an operating-system
-   * sandbox, beyond OhMyGame's approvals. "none" means approvals alone.
-   */
-  commandSandbox: "os" | "none";
   permissionMode: AgentPermissionMode;
   /** The account's quota windows as last reported, by a conversation or a check of the CLI. */
   limits?: AgentUsageLimit[];
@@ -156,7 +175,10 @@ export interface AgentRuntimeLoginResponse {
 /** What an agent asks to be allowed to do. */
 export type ApprovalKind = "command" | "file" | "tool" | "other";
 
-export type ApprovalDecision = "allow" | "allow-session" | "deny";
+export type ApprovalDecision = "allow" | "allow-always" | "deny";
+
+/** Decisions stored before "allow-always" replaced OhMyGame's own conversation grants. */
+export type StoredApprovalDecision = ApprovalDecision | "allow-session";
 
 export interface ApprovalRequestDetails {
   kind: ApprovalKind;
@@ -168,13 +190,12 @@ export interface ApprovalRequestDetails {
   paths?: Array<{ path: string; access: "read" | "write" }>;
   network?: boolean;
   reason?: string;
-  /** Whether "allow for this conversation" can be offered. */
-  canAllowSession: boolean;
   /**
-   * What "allow for this conversation" covers when that is broader than this
-   * exact request: every use of these commands, or reads in these folders.
+   * What the agent itself offers in place of asking again, when it does:
+   * for the rest of its session, or saved in its own settings. The rules
+   * are the agent's own description of what that covers.
    */
-  sessionScope?: { commands?: string[]; readFolders?: string[] };
+  always?: { scope: "session" | "saved"; rules: string[] };
 }
 
 export interface AnswerApprovalRequest {

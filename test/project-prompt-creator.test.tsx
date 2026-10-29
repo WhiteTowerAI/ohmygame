@@ -30,6 +30,8 @@ const { ProjectPromptCreator } =
 
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 const onSubmit = vi.fn();
+// Drafts outlive a mounted prompt box, so each test gets its own.
+let draftKey = "";
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   // Blender helps any project but does not start one, so the picker leaves it out.
@@ -42,6 +44,7 @@ beforeEach(() => {
     skills: [],
   };
   onSubmit.mockReset();
+  draftKey = `test-${crypto.randomUUID()}`;
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -56,6 +59,7 @@ async function render() {
   await act(async () =>
     root.render(
       <ProjectPromptCreator
+        draftKey={draftKey}
         placeholder="Describe the game"
         onSubmit={onSubmit}
       />,
@@ -123,7 +127,7 @@ describe("Home prompt box", () => {
       ],
       attachments: [],
       mode: "normal",
-    });
+    }, expect.any(Function));
   });
 
   it("sends the prompt alone with No plugin", async () => {
@@ -138,6 +142,7 @@ describe("Home prompt box", () => {
     await send();
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ prompt: "Make a maze", mentions: [] }),
+      expect.any(Function),
     );
   });
 
@@ -145,5 +150,23 @@ describe("Home prompt box", () => {
     capabilities = { plugins: [plugin("blender", "Blender")], skills: [] };
     await render();
     expect(picker()).toBeNull();
+  });
+
+  it("keeps the unsent prompt when Home mounts again", async () => {
+    await render();
+    await type("A tiny racing game");
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    expect(container.querySelector("textarea")!.value).toBe("A tiny racing game");
+  });
+
+  it("clears the prompt once the dialog has created the project", async () => {
+    await render();
+    await type("Make a maze");
+    await send();
+    expect(container.querySelector("textarea")!.value).toBe("Make a maze");
+    await act(async () => onSubmit.mock.calls[0]![1]());
+    expect(container.querySelector("textarea")!.value).toBe("");
   });
 });

@@ -71,12 +71,10 @@ describe("provider groups", () => {
   });
 });
 
-it("groups both Doubao services as one connection without hiding a Seed-only credential", async () => {
-  const { withDoubaoConnection } = await import("../src/renderer/provider-groups.js");
-  const services = [
-    { id: "volcengine-tts", name: "Doubao Speech", configured: false, enabled: false, status: "not_configured", methods: [], capabilities: ["audio"] },
-    { id: "volcengine-seed-audio", name: "Doubao Seed Audio", configured: true, enabled: true, status: "connected", methods: [], capabilities: ["audio"] },
-  ] as import("../src/shared/contracts.js").ProviderSummary[];
-  expect(withDoubaoConnection(services)).toMatchObject([{ id: "volcengine-tts", name: "Doubao Voice", configured: true, enabled: true }]);
-  expect(services[0]!.configured).toBe(false);
+it("keeps both Doubao services independent, including a Seed-only connection", () => {
+  const tts = summary("volcengine-tts", { enabled: false });
+  const seed = summary("volcengine-seed-audio", { configured: true, status: "connected" });
+  const groups = groupProviders([tts, seed], predicates);
+  expect(groups.connected).toEqual([seed]);
+  expect(groups.more).toEqual([tts]);
 });
