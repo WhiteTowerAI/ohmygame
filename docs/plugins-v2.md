@@ -54,6 +54,13 @@ project type hooks the manifest declares can be registered.
 - Types: `GET /project-types`; `POST /projects` with `projectType` creates a
   typed project in an empty folder or adopts a folder that holds one.
 - Tools reach every agent through the session's tool list and external MCP.
+  Agents and commands both call them through `PluginServices.callTool`, which
+  checks the input and the result against the manifest's schemas.
+- Skills of a project's active plugins load in its agent sessions, both
+  OhMyGame's agent and the coding agents, beside format 1 plugins' Skills.
+- A typed project's preview follows the plugin version its `ohmygame.json`
+  pins; the app updates what it recorded when that file changes and at
+  startup.
 - Commands and changes: `GET`/`POST /projects/:id/plugin-commands`,
   `GET /projects/:id/plugin-changes`,
   `POST /projects/:id/plugin-changes/:changeId/undo`.
@@ -69,7 +76,9 @@ project type hooks the manifest declares can be registered.
 
 Releases install only when they are signed by a key the app trusts for
 their publisher (`AppOptions.pluginReleaseKeys`). The app ships with none
-yet. A release's package is checked before it is indexed; uninstalling a
+yet. A release's package is checked before it is indexed and may hold what
+a folder install can, dotfiles such as a template's `.gitignore` included;
+only `.ohmygame-plugin/` must sit at the package's top. Uninstalling a
 release deletes its folder.
 
 ## Plugin pages

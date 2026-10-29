@@ -63,9 +63,6 @@ export interface PluginWritesOptions {
 }
 
 export class PluginWrites {
-  /** History files are read and written one change at a time per project. */
-  readonly #queues = new Map<string, Promise<unknown>>();
-
   constructor(private readonly options: PluginWritesOptions) {}
 
   /**
@@ -212,23 +209,17 @@ export class PluginWrites {
       : [];
   }
 
-  #update(
+  /** Callers hold the project's exclusive write, so the history changes one at a time. */
+  async #update(
     project: Project,
     change: (entries: PluginChange[]) => PluginChange[],
   ): Promise<void> {
-    const previous = this.#queues.get(project.id) ?? Promise.resolve();
-    const next = previous
-      .catch(() => {})
-      .then(async () => {
-        const file = this.#file(project);
-        await mkdir(path.dirname(file), { recursive: true });
-        await writeAtomically(
-          path.dirname(file),
-          file,
-          `${JSON.stringify({ version: 1, changes: change(await this.#read(project)) }, null, 2)}\n`,
-        );
-      });
-    this.#queues.set(project.id, next);
-    return next;
+    const file = this.#file(project);
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeAtomically(
+      path.dirname(file),
+      file,
+      `${JSON.stringify({ version: 1, changes: change(await this.#read(project)) }, null, 2)}\n`,
+    );
   }
 }
