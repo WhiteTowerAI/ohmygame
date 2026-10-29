@@ -211,7 +211,7 @@ async function openProject(
           projectId="project"
           conversationId="conversation"
           onOpenConversation={() => {}}
-          onHome={() => {}}
+          onNavigate={() => {}} onHome={() => {}}
           {...shellProps}
         />
       </AuthProvider>,
@@ -859,6 +859,55 @@ describe("checkpoints in the project shell", () => {
     expect(container.querySelector(".turn-changes-result")!.textContent).toBe(
       "2 files were put back.",
     );
+  });
+
+  it("saves pending edits before it exports, and exports nothing when saving fails", async () => {
+    let saved!: () => void;
+    const save = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { saved = resolve; }))
+      .mockRejectedValueOnce(new Error("Disk full"));
+    vi.doMock(CODING_WORKSPACE, () => ({
+      CodingWorkspace: ({ onDesignSaveReady }: { onDesignSaveReady: (save: (() => Promise<void>) | undefined) => void }) => {
+        useEffect(() => onDesignSaveReady(save), [onDesignSaveReady]);
+        return null;
+      },
+    }));
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:archive"), revokeObjectURL: vi.fn() }));
+    const daemon = await openProject((route) =>
+      route === "/projects/project/export" ? new Response(new Blob(["zip"])) : undefined);
+    const exported = () => daemon.requests.filter((request) => request.route === "/projects/project/export").length;
+    const exportArchive = async () => {
+      await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
+      await act(async () => [...document.querySelectorAll<HTMLElement>(".ui-menu-item")]
+        .find((item) => item.textContent?.includes("Export"))!.click());
+      await settle();
+    };
+
+    await exportArchive();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(exported()).toBe(0);
+    await act(async () => saved());
+    await settle();
+    expect(exported()).toBe(1);
+
+    await exportArchive();
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(exported()).toBe(1);
+    expect(document.body.textContent).toContain("Disk full");
+  });
+
+  it("opens the publish dialog from the top bar", async () => {
+    const publishDialog = vi.fn();
+    vi.doMock(CODING_WORKSPACE, () => ({
+      CodingWorkspace: (props: { publishDialog?: string }) => {
+        publishDialog(props.publishDialog);
+        return null;
+      },
+    }));
+    await openProject(() => undefined);
+    expect(publishDialog).not.toHaveBeenCalledWith("open");
+    await click("Publish");
+    expect(publishDialog).toHaveBeenLastCalledWith("open");
   });
 
   it("asks before it puts the files back after a restore that was cut off, and shows why that failed", async () => {

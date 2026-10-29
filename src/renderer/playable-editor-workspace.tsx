@@ -111,7 +111,7 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
   project: ProjectState;
   onProjectUpdated?: (project: ProjectState) => void;
   agentBusy: boolean;
@@ -123,7 +123,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   onStoryMapShown?: () => void;
   onPublish: (details: PublishDetails) => Promise<boolean>;
   publishDialog?: "open" | "success";
-  onOpenPublish: () => void;
   onClosePublish: () => void;
   chatOnRight?: boolean;
   chatCollapsed?: boolean;
@@ -1168,10 +1167,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             <Settings size={14} />
           </button>
           <PlaytestControls disabled={phase !== "ready" || building} busy={playtesting} onOpen={() => void startPlaytest()} onAction={(action) => void startPlaytest({ action })} />
-          <button className="publish-button workspace-publish-button" type="button" title={publishing ? t("workspace.publishing") : t("workspace.publish")} aria-label={publishing ? t("workspace.publishing") : t("workspace.publish")} disabled={agentBusy || publishing || building} onClick={onOpenPublish}>
-            {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
-            <span>{t("workspace.publish")}</span>
-          </button>
           {chatOnRight && chatCollapsed && onToggleChat ? (
             <button className="icon-button pane-header-action" type="button" title={t("workspace.showChat")} aria-label={t("workspace.showChat")} onClick={onToggleChat}>
               <PanelToggle size={14} />

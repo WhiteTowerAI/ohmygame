@@ -24,6 +24,22 @@ describe("saving before desktop close", () => {
     expect(save).not.toHaveBeenCalled();
     expect(coordinator.getSnapshot().closing).toBe(true);
   });
+  it("flushes every workspace without closing, rejecting with the first failure", async () => {
+    const coordinator = new DesktopSaveCoordinator();
+    let finish!: () => void;
+    const slow = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    coordinator.register(slow);
+    coordinator.register(async () => { throw new Error("Disk full"); });
+    const flushing = coordinator.flush();
+    let settled = false;
+    void flushing.catch(() => { settled = true; });
+    await vi.waitFor(() => expect(slow).toHaveBeenCalledOnce());
+    // It waits for the slow save before reporting the failure.
+    expect(settled).toBe(false);
+    finish();
+    await expect(flushing).rejects.toThrow("Disk full");
+    expect(coordinator.getSnapshot().closing).toBe(false);
+  });
   it("saves a newly opened workspace when a cancelled close is retried", async () => {
     const coordinator = new DesktopSaveCoordinator();
     let finish!: () => void;

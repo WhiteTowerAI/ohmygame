@@ -71,7 +71,7 @@ async function openWorkspace() {
   };
   const render = (revision: number) => act(async () => root.render(<PlayableEditorWorkspace
     project={{ id: "p", type: "interactive-story" } as ProjectState} agentBusy={false} publishing={false}
-    workspaceRevision={revision} onPublish={async () => false} onOpenPublish={() => {}} onClosePublish={() => {}}
+    workspaceRevision={revision} onPublish={async () => false} onClosePublish={() => {}}
   />));
   await render(0);
   return { capture, cancel, prepare, render, jobs };

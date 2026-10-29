@@ -842,6 +842,7 @@ const en = {
   },
   sidebar: {
     mainNavigation: "Main navigation",
+    projectNavigation: "Project navigation",
     brandHome: "OhMyGame home",
     search: "Search",
     home: "Home",
@@ -850,6 +851,9 @@ const en = {
     community: "Community",
     plugins: "Plugins",
     recent: "Recent projects",
+    newProject: "New project",
+    projectConversations: "{{name}} conversations",
+    editedAgo: "Edited {{time}}",
     showRecent: "Show recent projects",
     hideRecent: "Hide recent projects",
     collapse: "Collapse sidebar",
@@ -1321,6 +1325,7 @@ const en = {
     folderMissing: "The selected workspace folder is no longer available.",
     runtimeUnreachable: "Could not reach the local runtime.",
     newConversation: "New conversation",
+    renameProject: "Rename project…",
     showWorkspace: "Show workspace",
     hideAgent: "Hide agent",
     promptPaused:

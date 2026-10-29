@@ -12,7 +12,8 @@ export function WorkspaceShell({ chatLayout, agentCollapsed, viewerCollapsed = f
   chatLayout: ChatLayout;
   agentCollapsed: boolean;
   viewerCollapsed?: boolean;
-  onHome: () => void;
+  /** The back button at the chat's top-left; a project has its rail instead. */
+  onHome?: () => void;
   onExpandAgent: () => void;
   homeLabel?: string;
   homeIcon?: IconComponent;
@@ -85,8 +86,8 @@ export function WorkspaceShell({ chatLayout, agentCollapsed, viewerCollapsed = f
   return <main ref={shell} className={`workspace-shell workspace-shell-chat-${chatLayout}${agentCollapsed ? " workspace-shell-agent-collapsed" : ""}${viewerCollapsed ? " workspace-shell-viewer-collapsed" : ""}${resizingAgent ? " workspace-shell-resizing" : ""} ${className}`}
     style={{ "--agent-width": `${agentWidth}px` } as CSSProperties}>
     {resizingAgent ? <div className="workspace-resize-shield" /> : null}
-    {chatLayout === "left" ? <div className="workspace-navigation-actions" role="toolbar" aria-label={t("workspace.navigation")}>
-      <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={homeIcon} />
+    {chatLayout === "left" && (onHome || agentCollapsed) ? <div className="workspace-navigation-actions" role="toolbar" aria-label={t("workspace.navigation")}>
+      {onHome ? <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={homeIcon} /> : null}
       {agentCollapsed ? <button className="icon-button" type="button" onClick={onExpandAgent} title={t("workspace.showAgent")} aria-label={t("workspace.showAgent")}><PanelToggle size={15} /></button> : null}
     </div> : null}
     {agent}

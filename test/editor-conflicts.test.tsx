@@ -447,7 +447,6 @@ async function openStory(workspaceRevision = 0) {
         publishing={false}
         workspaceRevision={workspaceRevision}
         onPublish={async () => false}
-        onOpenPublish={() => {}}
         onClosePublish={() => {}}
       />,
     ),

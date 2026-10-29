@@ -480,12 +480,22 @@ first, so an open Projects page does not hold shutdown open.
 
 ## Project navigation
 
-Project workspaces return to their entry page using the top-left Back arrow.
-The destination survives conversation/view changes and refreshes in the same
-tab; a project link opened without an entry page returns to Projects. The
-Projects URL preserves its type filter, search (`q`), and name sorting
-(`sort=name`) when returning or refreshing. See the
-[workspace return example](assets/project-return-navigation.webp).
+Inside a project the sidebar becomes a rail: the logo (Home), the recent
+projects as covers, **New project** (Home), Search, the desktop update and the
+account. The open project is marked; hovering a project lists its
+conversations, newest first, and the open project's list ends with **New
+conversation**. On macOS the rail's Back and Forward sit beside the window
+controls. The top bar holds the project's name as its menu (**Rename
+project…**, **Open in folder** in the desktop app, **Export project**, and a
+return to the entry page) and **Publish**, which an asset canvas does not have
+and Godot and plugin projects show disabled. Leaving through the rail or the
+menu saves the open design first.
+
+The return item goes back to the page the project was opened from. The
+destination survives conversation/view changes and refreshes in the same tab; a
+project link opened without an entry page returns to Projects. The Projects URL
+preserves its type filter, search (`q`), and name sorting (`sort=name`) when
+returning or refreshing.
 
 Pages outside a project share one sidebar: Search (the Projects search field
 until the command menu arrives), Home, Projects, Library, Community, Plugins,

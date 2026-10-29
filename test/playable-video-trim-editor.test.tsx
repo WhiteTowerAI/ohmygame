@@ -78,7 +78,6 @@ beforeEach(async () => {
         agentBusy={false}
         publishing={false}
         onPublish={async () => false}
-        onOpenPublish={() => {}}
         onClosePublish={() => {}}
       />,
     ),
