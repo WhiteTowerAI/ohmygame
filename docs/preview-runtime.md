@@ -126,8 +126,13 @@ application relaunches. If another process occupies that port, an available port
 is used and saved; browser storage at the previous origin cannot migrate
 automatically. Duplicated projects receive a separate origin.
 
-Page reload and server restart are separate controls. Internal navigation updates
-the toolbar without reloading the game. The desktop editor owns one human game
+Page reload and server restart are separate controls. The Game panel's toolbar
+leads with the preview's address, like a browser's: a dot for the preview's state
+(running, starting, failed or not started), the current page, which opens the page
+picker, and reload. The viewport, playtest, settings and Play controls follow at
+its end, and in a narrow panel the address shrinks to its dot, the page
+picker's chevron and reload.
+Internal navigation updates the address without reloading the game. The desktop editor owns one human game
 WebContentsView per project. Play moves that view into a separate native window;
 closing Play returns it to Preview. Both directions preserve the same document,
 current route, in-memory state, localStorage and IndexedDB. Refresh explicitly
