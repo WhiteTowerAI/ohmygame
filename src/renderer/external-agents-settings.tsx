@@ -15,6 +15,8 @@ import {
 } from "./api.js";
 import { AgentMark, CommandText } from "./coding-agents-settings.js";
 import { t } from "./i18n.js";
+import { Button, Switch } from "./ui/index.js";
+import { SettingsBadge, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 
 const CLIENTS: Record<
   ExternalAgentClientId,
@@ -57,133 +59,81 @@ export function ExternalAgentsSettings() {
     }
   }
   return (
-    <section className="settings-panel settings-overview-panel external-agents-settings">
-      <header className="settings-panel-header">
-        <h3>{t("externalAgents.title")}</h3>
-      </header>
-      <div className="settings-provider-list">
-        {!settings && !error ? (
-          <div className="settings-loading">
-            <LoaderCircle className="spin" size={18} />
-            {t("externalAgents.loading")}
-          </div>
-        ) : null}
-        {settings ? (
-          <section className="settings-provider-group">
-            <div className="settings-provider-row is-featured">
-              <span className="settings-provider-mark-slot" aria-hidden="true">
-                <Terminal size={20} />
-              </span>
-              <span className="settings-provider-copy">
-                <strong className="settings-provider-name">
-                  <span>{t("externalAgents.enable")}</span>
-                </strong>
-                <span className="settings-provider-details">
-                  <span className="settings-provider-description">
-                    {t("externalAgents.description")}
-                  </span>
-                </span>
-              </span>
-              <label
-                className="settings-toggle settings-provider-toggle"
-                title={
-                  settings.enabled ? t("common.enabled") : t("common.disabled")
+    <>
+      {!settings && !error ? (
+        <div className="settings-loading-row">
+          <LoaderCircle className="spin" size={16} />
+          {t("externalAgents.loading")}
+        </div>
+      ) : null}
+      {settings ? (
+        <SettingsGroup>
+          <SettingsRow
+            icon={<span className="settings-mark" aria-hidden="true"><Terminal size={18} /></span>}
+            title={t("externalAgents.enable")}
+            description={t("externalAgents.description")}
+          >
+            <Switch
+              label={t("externalAgents.enable")}
+              checked={settings.enabled}
+              disabled={pending !== undefined}
+              onChange={(enabled) =>
+                void change("enabled", () => updateExternalAgentSettings({ enabled }))
+              }
+            />
+          </SettingsRow>
+        </SettingsGroup>
+      ) : null}
+      {settings?.enabled && !settings.launcher ? (
+        <SettingsNote>{t("externalAgents.desktopOnly")}</SettingsNote>
+      ) : null}
+      {settings?.enabled && settings.launcher ? (
+        <SettingsGroup className="external-agents-clients" title={t("externalAgents.clients")}>
+          {settings.clients.map((client) => {
+            const { name, runtime } = CLIENTS[client.id];
+            const busy = pending === client.id;
+            return (
+              <SettingsRow
+                key={client.id}
+                icon={<AgentMark id={runtime} />}
+                title={name}
+                description={
+                  !client.available
+                    ? t("codingAgents.notFound")
+                    : client.connected
+                      ? t("externalAgents.connected")
+                      : t("externalAgents.notConnected")
                 }
               >
-                <input
-                  type="checkbox"
-                  role="switch"
-                  aria-label={t("externalAgents.enable")}
-                  checked={settings.enabled}
-                  disabled={pending !== undefined}
-                  onChange={(event) => {
-                    const enabled = event.target.checked;
-                    void change("enabled", () =>
-                      updateExternalAgentSettings({ enabled }),
-                    );
-                  }}
-                />
-                <span aria-hidden="true" />
-              </label>
-            </div>
-          </section>
-        ) : null}
-        {settings?.enabled && !settings.launcher ? (
-          <p className="settings-provider-description">
-            {t("externalAgents.desktopOnly")}
-          </p>
-        ) : null}
-        {settings?.enabled && settings.launcher ? (
-          <section
-            className="settings-provider-group external-agents-clients"
-            aria-label={t("externalAgents.clients")}
-          >
-            <h4>{t("externalAgents.clients")}</h4>
-            {settings.clients.map((client) => {
-              const { name, runtime } = CLIENTS[client.id];
-              const busy = pending === client.id;
-              const actionLabel = t(
-                client.connected ? "externalAgents.disconnect" : "externalAgents.connect",
-              );
-              return (
-                <div className="settings-provider-row" key={client.id}>
-                  <AgentMark id={runtime} />
-                  <span className="settings-provider-copy">
-                    <strong className="settings-provider-name">
-                      <span>{name}</span>
-                    </strong>
-                    <span className="settings-provider-details">
-                      <span className="settings-provider-description">
-                        {!client.available
-                          ? t("codingAgents.notFound")
-                          : client.connected
-                            ? t("externalAgents.connected")
-                            : t("externalAgents.notConnected")}
-                      </span>
-                    </span>
-                  </span>
-                  {client.available ? (
-                    <button
-                      type="button"
-                      className={`external-agent-action${client.connected ? " is-danger" : ""}`}
-                      aria-label={actionLabel}
-                      title={actionLabel}
-                      aria-busy={busy}
-                      disabled={pending !== undefined}
-                      onClick={() =>
-                        void change(client.id, () =>
-                          client.connected
-                            ? disconnectExternalAgent(client.id)
-                            : connectExternalAgent(client.id),
-                        )
-                      }
-                    >
-                      {busy ? (
-                        <LoaderCircle
-                          className="spin"
-                          size={14}
-                          aria-hidden="true"
-                        />
-                      ) : client.connected ? (
-                        <CircleX size={16} aria-hidden="true" />
-                      ) : (
-                        <Plug size={16} aria-hidden="true" />
-                      )}
-                    </button>
-                  ) : null}
-                </div>
-              );
-            })}
-            <ManualSetup launcher={settings.launcher} />
-          </section>
-        ) : null}
-        {error ? (
-          <p className="settings-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </div>
-    </section>
+                {client.connected ? <SettingsBadge tone="success">{t("externalAgents.connected")}</SettingsBadge> : null}
+                {client.available ? (
+                  <Button
+                    size="sm"
+                    variant={client.connected ? "ghost" : "secondary"}
+                    className={`external-agent-action${client.connected ? " is-danger" : ""}`}
+                    aria-label={t(client.connected ? "settings.mcp.disconnectName" : "settings.mcp.connectName", { name })}
+                    aria-busy={busy}
+                    disabled={pending !== undefined}
+                    icon={busy ? <LoaderCircle className="spin" size={14} /> : client.connected ? <CircleX size={14} /> : <Plug size={14} />}
+                    onClick={() =>
+                      void change(client.id, () =>
+                        client.connected
+                          ? disconnectExternalAgent(client.id)
+                          : connectExternalAgent(client.id),
+                      )
+                    }
+                  >
+                    {t(client.connected ? "externalAgents.disconnect" : "externalAgents.connect")}
+                  </Button>
+                ) : null}
+              </SettingsRow>
+            );
+          })}
+          <ManualSetup launcher={settings.launcher} />
+        </SettingsGroup>
+      ) : null}
+      {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
+    </>
   );
 }
 
@@ -193,21 +143,19 @@ function ManualSetup({ launcher }: { launcher: ExternalMcpLauncher }) {
     ([name, value]) => `${name}=${value}`,
   );
   return (
-    <details className="external-agents-manual">
+    <details className="settings-pad settings-details external-agents-manual">
       <summary>{t("externalAgents.otherClients")}</summary>
-      <p className="settings-provider-description">
-        {t("externalAgents.otherClientsHint", {
-          name: EXTERNAL_MCP_SERVER_NAME,
-        })}
-      </p>
-      <CommandText
-        command={[launcher.command, ...launcher.args].map(quote).join(" ")}
-      />
-      {environment.length ? (
-        <p className="settings-provider-description">
-          {t("externalAgents.environment", { value: environment.join(" ") })}
+      <div className="settings-form">
+        <p className="settings-muted">
+          {t("externalAgents.otherClientsHint", { name: EXTERNAL_MCP_SERVER_NAME })}
         </p>
-      ) : null}
+        <CommandText command={[launcher.command, ...launcher.args].map(quote).join(" ")} />
+        {environment.length ? (
+          <p className="settings-muted">
+            {t("externalAgents.environment", { value: environment.join(" ") })}
+          </p>
+        ) : null}
+      </div>
     </details>
   );
 }

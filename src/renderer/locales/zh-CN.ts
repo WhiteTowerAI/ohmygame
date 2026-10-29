@@ -300,6 +300,18 @@ const zhCN: typeof en = {
       back: "回到服务商",
       defaultsHint: "画布和 agent 出图、出视频、做 3D 时默认用的模型，每次都还可以再换。",
     },
+    webSearch: {
+      toggleHint: "让 agent 在需要时搜索网页。",
+    },
+    network: {
+      mode: "网络代理模式",
+      currentSource: "当前来源",
+      status: "网络状态",
+    },
+    mcp: {
+      connectName: "连接 {{name}}",
+      disconnectName: "断开 {{name}}",
+    },
   },
   capability: {
     language: "语言",

@@ -300,6 +300,18 @@ const en = {
       back: "Back to Providers",
       defaultsHint: "What the canvas and the agent use to make images, video and 3D unless you pick another.",
     },
+    webSearch: {
+      toggleHint: "Let the agent search the web when it needs to.",
+    },
+    network: {
+      mode: "Proxy mode",
+      currentSource: "Current source",
+      status: "Connection",
+    },
+    mcp: {
+      connectName: "Connect {{name}}",
+      disconnectName: "Disconnect {{name}}",
+    },
   },
   capability: {
     language: "Language",
