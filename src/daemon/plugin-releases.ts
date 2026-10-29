@@ -178,8 +178,9 @@ async function installVerified(release: PluginRelease, options: InstallReleaseOp
     await pipeline(createReadStream(archive), hash);
     if (hash.digest("hex") !== release.sha256)
       throw new PluginReleaseError(`${release.id} ${release.version} doesn't match its digest`);
-    // The manifest folder is the only private name, at the top of the
-    // package or inside the one folder a package was zipped with.
+    // A package holds what a folder install would, dotfiles such as a
+    // template's `.gitignore` included. Only the manifest folder has a fixed
+    // place: the top of the package, or inside the one folder it was zipped with.
     let wrapped = false;
     await extractArchive(archive, staging, {
       maxEntries: PLUGIN_ARCHIVE_MAX_ENTRIES,
@@ -187,13 +188,12 @@ async function installVerified(release: PluginRelease, options: InstallReleaseOp
       include: (relative) => {
         const parts = relative.split("/").filter(Boolean);
         parts.forEach((part, index) => {
-          if (!part.startsWith(".")) return;
-          if (part === ".ohmygame-plugin" && index === 0) return;
-          if (part === ".ohmygame-plugin" && index === 1 && !parts[0]!.startsWith(".")) {
+          if (part !== ".ohmygame-plugin" || index === 0) return;
+          if (index === 1 && !parts[0]!.startsWith(".")) {
             wrapped = true;
             return;
           }
-          throw new PluginReleaseError(`${release.id} has a private file: ${relative}`);
+          throw new PluginReleaseError(`${release.id} has a manifest folder outside its package: ${relative}`);
         });
         return true;
       },

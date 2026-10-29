@@ -728,14 +728,16 @@ describe("plugin releases", () => {
     await pipeline(zip.outputStream, createWriteStream(file));
   }
 
-  async function setup({ wrapper = "" } = {}) {
+  async function setup({ wrapper = "", prepare }: { wrapper?: string; prepare?: (dir: string) => Promise<void> } = {}) {
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     const keys = {
       test: { publicKey: publicKey.export({ format: "der", type: "spki" }).toString("base64"), publishers: ["ohmygame"] },
     };
     const dir = await temporary();
     const archive = path.join(dir, "solarized.zip");
-    await zipPackage(await solarized(), archive, wrapper);
+    const packageDir = await solarized();
+    await prepare?.(packageDir);
+    await zipPackage(packageDir, archive, wrapper);
     const bytes = await readFile(archive);
     const release = {
       id: "ohmygame/solarized",
@@ -822,6 +824,32 @@ describe("plugin releases", () => {
       expect(path.relative(path.join(dir, "store/packages"), entry.root)).toBe(path.join("ohmygame", "solarized", "1.0.0"));
     } finally {
       await close();
+    }
+  });
+
+  it("keeps a template's dotfiles, and refuses a manifest folder elsewhere", async () => {
+    const template = await setup({
+      prepare: async (dir) => {
+        await mkdir(path.join(dir, "templates/game"), { recursive: true });
+        await writeFile(path.join(dir, "templates/game/.gitignore"), ".godot/\n");
+      },
+    });
+    try {
+      const entry = await template.install(template.sign(template.release));
+      expect(await readFile(path.join(entry.root, "templates/game/.gitignore"), "utf8")).toBe(".godot/\n");
+    } finally {
+      await template.close();
+    }
+    const nested = await setup({
+      prepare: async (dir) => {
+        await mkdir(path.join(dir, "assets/.ohmygame-plugin"), { recursive: true });
+        await writeFile(path.join(dir, "assets/.ohmygame-plugin/plugin.json"), "{}");
+      },
+    });
+    try {
+      await expect(nested.install(nested.sign(nested.release))).rejects.toThrow("manifest folder outside its package");
+    } finally {
+      await nested.close();
     }
   });
 
