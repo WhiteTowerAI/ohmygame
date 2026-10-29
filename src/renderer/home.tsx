@@ -91,6 +91,7 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
         <div className="home-start">
           <h1>{t("home.title")}</h1>
           <ProjectPromptCreator
+            draftKey="home"
             projectType={projectType}
             projectTypes={GAME_PROJECT_TYPES}
             placeholder={t("home.placeholder")}
