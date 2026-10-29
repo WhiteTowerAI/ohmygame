@@ -21,9 +21,15 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listExamples: async () => examples,
   getExampleCover: async () => undefined,
   waitForRuntime: async () => undefined,
+  getHomeComposerCapabilities: async () => ({ plugins: [], skills: [] }),
 }));
 vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({ PageFrame: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
-vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({ ProjectPromptCreator: () => null }));
+// Stands in for the prompt box: sending hands its message to Home.
+vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({
+  ProjectPromptCreator: ({ onSubmit }: { onSubmit: (message: unknown) => void }) => (
+    <button type="button" onClick={() => onSubmit({ prompt: "Make a maze", mentions: [], attachments: [], mode: "normal" })}>Send prompt</button>
+  ),
+}));
 
 const { Home } = await import("../src/renderer/home.js");
 let root: ReturnType<typeof createRoot> | undefined;
@@ -47,4 +53,25 @@ it("shows two rows of examples in Explore, so an example past the first row is t
   expect(shown).toHaveLength(8);
   expect(shown.some((text) => text?.includes("Last Bus"))).toBe(true);
   expect(shown.some((text) => text?.includes("meadow"))).toBe(false);
+});
+
+it("opens the new-project dialog from the prompt, with the prompt as its first message, and from Blank project", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  await act(async () => root!.render(<Home onNavigate={() => {}} onCreate={async () => {}} onOpen={() => {}} />));
+  const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!;
+
+  await act(async () => button("Send prompt").click());
+  expect(document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')?.value).toBe("Make a maze");
+  expect(button("Create and start")).toBeDefined();
+  await act(async () => button("Cancel").click());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+  await act(async () => button("Blank project").click());
+  expect(document.querySelector('[role="dialog"] textarea')).toBeNull();
+  expect(button("Create")).toBeDefined();
+  // Import folder needs the desktop folder picker.
+  expect(button("Import folder")).toBeUndefined();
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultProjectName, GAME_PROJECT_TYPES, PROJECT_TYPES, projectTypeLabel } from "../src/renderer/project-types.js";
+import { defaultProjectName, PROJECT_TYPES, projectTypeLabel } from "../src/renderer/project-types.js";
 
 describe("project types", () => {
   it("keeps the shared labels and display order", () => {
@@ -10,10 +10,6 @@ describe("project types", () => {
       { label: "Godot", value: "godot-game" },
       { label: "General Game", value: "general" },
     ]);
-  });
-
-  it("keeps Asset Canvas out of the home game types", () => {
-    expect(GAME_PROJECT_TYPES.map(({ value }) => value)).toEqual(["web-game", "interactive-story", "godot-game", "general"]);
   });
 
   it("provides labels and default names", () => {

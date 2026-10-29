@@ -6,9 +6,13 @@ describe("renderer routes", () => {
     expect(parseAppRoute("")).toEqual({ page: "home" });
     expect(parseAppRoute("#/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/unknown")).toEqual({ page: "home" });
-    for (const page of ["projects", "library", "general", "web-game", "interactive-story", "godot", "asset-canvas"] as const) {
+    for (const page of ["projects", "library"] as const) {
       expect(parseAppRoute(`#/${page}`)).toEqual({ page });
       expect(sidebarHash(page)).toBe(`#/${page}`);
+    }
+    // The studio pages are gone; their old links open Home.
+    for (const page of ["general", "web-game", "interactive-story", "godot", "asset-canvas"]) {
+      expect(parseAppRoute(`#/${page}`)).toEqual({ page: "home" });
     }
     expect(sidebarHash("home")).toBe("#/");
     expect(sidebarHash("community")).toBe("#/community/games");

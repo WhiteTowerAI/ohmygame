@@ -692,8 +692,44 @@ const zhCN: typeof en = {
   home: {
     title: "今天想做点什么？",
     placeholder: "描述你想做的游戏…",
-    startBlank: "从空白开始",
+    startBlank: "空白项目",
     explore: "探索",
+    importFolder: "导入文件夹",
+    allProjects: "全部项目",
+    toCommunity: "去社区",
+    starter: "用哪个插件开始",
+    noStarter: "不用插件",
+    ideas: {
+      web: {
+        dungeon: "做一个像素风地牢 Roguelike，回合制战斗",
+        merge: "做一个手机竖屏的休闲合成小游戏",
+        racing: "做一个双人同屏的赛车小游戏",
+      },
+      studio: {
+        platformer: "做一个 2D 平台跳跃游戏，先做三关",
+        towerDefense: "做一个塔防游戏，五种防御塔",
+        cards: "做一个带 AI 对手的卡牌对战游戏",
+      },
+      godot: {
+        thirdPerson: "用 Godot 做一个能自由走动的第三人称 3D 场景",
+        shooter: "做一个俯视角射击游戏",
+        physics: "做一个带物理的解谜关卡",
+      },
+      world: {
+        island: "做一个可以探索的低多边形小岛",
+        cyberpunk: "做一个夜晚的赛博朋克街区，能走能看",
+        station: "做一个太空站内部场景",
+      },
+      minigame: {
+        match: "做一个 60 秒一局的三消微信小游戏",
+        rhythm: "做一个节奏跳跃类的微信小游戏",
+      },
+      general: {
+        platformer: "做一个结尾有 Boss 的短平台跳跃游戏",
+        puzzle: "做一个 20 关的轻松解谜游戏",
+        story: "做一个有三个结局的分支悬疑故事",
+      },
+    },
   },
   projectType: {
     general: "通用游戏",
@@ -735,29 +771,6 @@ const zhCN: typeof en = {
     resize: "调整侧栏宽度",
     resizeHint: "拖动调整宽度，双击恢复默认",
   },
-  studio: {
-    examples: "示例",
-    general: {
-      title: "你想创作什么？",
-      placeholder: "描述你的游戏创意，或你想做的东西…",
-      new: "新建游戏项目",
-    },
-    web: {
-      title: "今天做个什么游戏？",
-      placeholder: "描述你想做的网页游戏…",
-      new: "新建游戏",
-    },
-    story: {
-      title: "今天讲个什么故事？",
-      placeholder: "描述你想做的互动故事…",
-      new: "新建故事",
-    },
-    godot: {
-      title: "要用 Godot 做什么？",
-      placeholder: "描述你想做的 Godot 游戏…",
-      new: "新建 Godot 项目",
-    },
-  },
   examples: {
     loadingName: "正在加载 {{name}}",
     play: "试玩",
@@ -772,22 +785,20 @@ const zhCN: typeof en = {
     planPlaceholder: "描述要规划的内容",
     folderInUse: "这个文件夹已经是“{{name}}”的工作区。",
     openProject: "打开项目",
-    workspaceValue: "工作区：{{path}}",
-    workspaceNew: "工作区：在 OhMyGame 存储中新建文件夹",
-    workspaceNewTitle: "在 OhMyGame 的项目存储中新建一个文件夹",
-    newFolder: "新文件夹",
     workspace: "工作区",
-    chooseAnother: "选择其他文件夹…",
     chooseFolder: "选择文件夹…",
     projectType: "项目类型",
   },
   createDialog: {
     restartForFolders: "请重启 OhMyGame 桌面应用以启用文件夹选择。",
-    newType: "新建{{type}}",
     newProject: "新建项目",
     opening: "正在打开…",
     chooseAnother: "选择其他…",
     type: "类型",
+    firstMessage: "第一条消息",
+    namedFromPrompt: "根据第一条消息命名",
+    managedFolder: "在 OhMyGame 中新建文件夹",
+    createAndStart: "创建并开始",
   },
   signIn: {
     unavailable: "登录暂时不可用。",
@@ -889,6 +900,8 @@ const zhCN: typeof en = {
     editedOn: "{{date}} 编辑",
     export: "导出项目",
     exporting: "正在导出…",
+    openItem: "打开",
+    removeConfirm: "移除",
   },
   conversations: {
     history: "对话记录",
@@ -912,15 +925,6 @@ const zhCN: typeof en = {
     added: "已添加到 {{project}}：{{path}}",
     noMatch: "没有匹配的项目",
     none: "还没有游戏项目",
-  },
-  assetCanvasHome: {
-    new: "新建素材画布",
-    newHint: "从空白工作流开始",
-    quickStart: "快速开始",
-    audio: "音频",
-    recent: "最近的画布",
-    none: "还没有素材画布",
-    loading: "正在加载素材画布",
   },
   workspace: {
     navigation: "工作区导航",

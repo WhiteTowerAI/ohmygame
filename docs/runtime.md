@@ -495,9 +495,19 @@ leads with **Sign in…**. A pending desktop update shows above the account unti
 it needs a restart. The sidebar collapses to icons and its edge drags between
 200 and 360px (double-click restores 232px); both stay across pages and
 restarts. Settings is a page in this frame, with its sections beside the
-content. The studio home pages (`#/web-game`, `#/interactive-story`,
-`#/godot`, `#/asset-canvas`, `#/general`) are no longer in the sidebar but still
-open from their links.
+content.
+
+Every project starts from Home. Sending its prompt opens the new-project dialog
+(name, type and folder) with the prompt as the project's first message; **Blank
+project** opens the dialog empty, and **Import folder** (desktop app) picks an
+existing folder, opening its project if it already has one. The dialog offers
+every project type, narrowed to those the prompt's plugins support. A picker in
+the prompt box chooses the plugin to start with, from the enabled plugins that
+start projects (Web Game Studio, Game Studio, Godot, Three.js World and the
+engine and mini-game plugins); its plugin mention leads the first message.
+Ideas under the box fill the prompt. The former studio pages are gone; their
+links (`#/web-game`, `#/interactive-story`, `#/godot`, `#/asset-canvas`,
+`#/general`) open Home.
 
 In the desktop app, the project card menu's **Open in folder** action opens the
 project's workspace in the system file manager, including projects using an
@@ -531,7 +541,7 @@ workspace versions, model notices, storage limits, and API routes, and
 Projects without an image use a small Solar outline icon on a moderately saturated
 background. The project ID selects a stable combination, so sorting, filtering,
 refreshing or renaming never changes the placeholder. The same renderer is used
-on Home, Projects and the project-type entry pages. These placeholders are not
+on Home and Projects. These placeholders are not
 saved as images or used for publishing. Both themes share the palette centralized
 in the `--project-cover-*` variables in `src/renderer/styles.css`.
 

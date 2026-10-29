@@ -67,16 +67,6 @@ function returnPageLabel(hash: string): string {
   switch (route.page) {
     case "home":
       return t("sidebar.home");
-    case "general":
-      return t("projectType.general");
-    case "web-game":
-      return t("projectType.web-game");
-    case "interactive-story":
-      return t("projectType.interactive-story");
-    case "godot":
-      return t("projectType.godot-game");
-    case "asset-canvas":
-      return t("projectType.asset-canvas");
     case "library":
       return t("sidebar.library");
     case "community":

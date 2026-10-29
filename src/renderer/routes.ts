@@ -6,11 +6,6 @@ export type SidebarPage =
   | "projects"
   | "library"
   | "plugins"
-  | "general"
-  | "web-game"
-  | "interactive-story"
-  | "godot"
-  | "asset-canvas"
   | "community";
 
 export type SettingsSection = "account" | "billing" | "appearance" | "providers" | "agents" | "web-search" | "network" | "mcp-server" | "about";
@@ -26,7 +21,7 @@ type SidebarRoutePage = Exclude<SidebarPage, "community" | "projects" | "plugins
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "providers";
 
 const SIDEBAR_PAGES = new Set<SidebarRoutePage>([
-  "home", "library", "general", "web-game", "interactive-story", "godot", "asset-canvas",
+  "home", "library",
 ]);
 
 export type AppRoute =

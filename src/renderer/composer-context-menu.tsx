@@ -227,7 +227,7 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover, 
     const element = menuRef.current;
     const anchor = element?.closest(".prompt-box");
     if (!element || !anchor) return;
-    const pane = anchor.closest(".agent-body, .home-content");
+    const pane = anchor.closest(".agent-body, .home-page");
     const content = anchor.closest(".desktop-window-content");
     const updateHeight = () => {
       const anchorRect = anchor.getBoundingClientRect();

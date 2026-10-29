@@ -30,14 +30,8 @@ vi.doMock(path.resolve("src/renderer/examples.tsx"), () => ({
   useExamples: () => ({ examples: [], covers: {} }),
   ExampleShelf: () => null,
 }));
-vi.doMock(path.resolve("src/renderer/asset-canvas-quick-start.ts"), async original => ({
-  ...(await original<typeof import("../src/renderer/asset-canvas-quick-start.js")>()),
-  loadQuickStartModels: async () => undefined,
-}));
 const { Home } = await import("../src/renderer/home.js");
 const { ProjectsPage } = await import("../src/renderer/projects.js");
-const { GameStudioHome } = await import("../src/renderer/game-studio-home.js");
-const { AssetCanvasHome } = await import("../src/renderer/asset-canvas-home.js");
 const { useProjectActivity } = await import("../src/renderer/use-project-activity.js");
 const { runtimeConnection, updateRuntimeConnection } = await import("../src/renderer/runtime-connection.js");
 
@@ -51,8 +45,7 @@ const noop = () => undefined;
 const pages = [
   { name: "Home", type: "web-game", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} /> },
   { name: "Projects", type: "web-game", view: <ProjectsPage onNavigate={noop} onOpenProject={noop} onFiltersChange={noop} /> },
-  { name: "Game Studio", type: "web-game", view: <GameStudioHome projectType="web-game" onNavigate={noop} onCreate={noop} onOpenProject={noop} /> },
-  { name: "Asset Canvas", type: "asset-canvas", view: <AssetCanvasHome onNavigate={noop} onOpenProject={noop} /> },
+  { name: "Home with an Asset Canvas", type: "asset-canvas", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} /> },
 ] as const;
 beforeEach(() => {
   vi.useFakeTimers();

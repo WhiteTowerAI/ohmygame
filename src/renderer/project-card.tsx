@@ -1,12 +1,14 @@
-import { LoaderCircle, MoreHorizontal } from "./icons.js";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { menuPlacement } from "./popover-placement.js";
+import { Copy, Download, FolderOpen, LoaderCircle, MoreHorizontal, Pencil, Play, Trash2 } from "./icons.js";
+import { useEffect, useState, type ReactNode } from "react";
 import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
-import { exportProject, getProjectCover } from "./api.js";
+import { deleteProject, duplicateProject, exportProject, getProjectCover, renameProject } from "./api.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
+import { projectDeletionConfirmation } from "./project-deletion.js";
+import { ProjectRenameDialog } from "./project-rename-dialog.js";
+import { Button, ContextMenu, Dialog, DropdownMenu, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import { language, t } from "./i18n.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
+import "./project-card.css";
 
 export interface ProjectCardActions {
   onRename: () => void;
@@ -21,28 +23,21 @@ interface ProjectCardProps {
   agentStatus?: ProjectAgentActivity["status"];
 }
 
+// The cover is the card and the text sits under it. One menu, from the "…"
+// that shows on hover and from a right-click.
 export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCardProps) {
   const activityLabel = agentStatus === "cancelling" ? t("projectCard.stopping") : t("projectCard.working");
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number }>();
-  const [openingFolder, setOpeningFolder] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [menuError, setMenuError] = useState<string>();
   const openProjectFile = typeof window !== "undefined" ? window.ohMyGameDesktop?.openProjectFile : undefined;
-  const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
 
   async function openFolder(): Promise<void> {
-    if (!openProjectFile || openingFolder) return;
-    setOpeningFolder(true);
+    if (!openProjectFile) return;
     setMenuError(undefined);
     try {
       await openProjectFile(project.id, ".", "default");
-      setMenuOpen(false);
     } catch (cause) {
       setMenuError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setOpeningFolder(false);
     }
   }
 
@@ -58,61 +53,38 @@ export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCa
       link.download = `${project.name}.zip`;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
-      setMenuOpen(false);
     } catch (cause) {
       setMenuError(cause instanceof Error ? cause.message : String(cause));
-      // A large project can take a while; show the failure even if the menu was closed meanwhile.
-      setMenuOpen(true);
     } finally {
       setExporting(false);
     }
   }
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = () => setMenuOpen(false);
-    const closeOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (!menu.current?.contains(target) && !trigger.current?.contains(target)) close();
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("mousedown", closeOutside);
-    window.addEventListener("keydown", closeOnEscape);
-    // The menu is fixed to the viewport, so it would drift away from its card on scroll.
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("mousedown", closeOutside);
-      window.removeEventListener("keydown", closeOnEscape);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [menuOpen]);
+  const menu: MenuEntry[] | undefined = actions ? [
+    { label: t("projectCard.openItem"), icon: <Play size={14} />, onSelect: onOpen },
+    { label: t("common.rename"), icon: <Pencil size={14} />, onSelect: actions.onRename },
+    { label: t("common.duplicate"), icon: <Copy size={14} />, onSelect: actions.onDuplicate },
+    ...(openProjectFile ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => void openFolder() }] : []),
+    { label: exporting ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: exporting, onSelect: () => void exportArchive() },
+    "separator",
+    {
+      label: project.workspaceLocation === "external" ? t("projectCard.remove") : t("common.delete"),
+      icon: <Trash2 size={14} />,
+      danger: true,
+      onSelect: actions.onDelete,
+    },
+  ] : undefined;
 
-  useLayoutEffect(() => {
-    if (!menuOpen) {
-      setMenuPosition(undefined);
-      return;
-    }
-    const anchor = trigger.current?.getBoundingClientRect();
-    const popup = menu.current?.getBoundingClientRect();
-    if (!anchor || !popup) return;
-    setMenuPosition(menuPlacement(anchor, popup, { width: window.innerWidth, height: window.innerHeight }));
-  }, [menuOpen, menuError]);
-
-  return (
+  const card = (
     <article className="project-card">
+      <div className="project-card-body">
       <button className="project-card-open" type="button" onClick={onOpen} aria-label={t("projectCard.open", { name: project.name })}>
         <ProjectCover projectId={project.id} />
         <span className="project-card-meta">
+          <ProjectTypeMark type={project.type} />
           <span className="project-card-copy">
             <span className="project-card-name" title={project.name}>{project.name}</span>
-            <span className="project-card-details" title={`${projectTypeLabel(project.type)} · ${agentStatus ? t("projectCard.agentStatus", { status: activityLabel }) : projectTimestamp(project.updatedAt) ?? projectTime(project.updatedAt)}`}>
-              <ProjectTypeIcon type={project.type} size={12} />
-              <span>{projectTypeLabel(project.type)}</span>
-              <i aria-hidden="true">·</i>
+            <span className="project-card-details" title={projectTimestamp(project.updatedAt)}>
               {agentStatus ? <span className="project-card-activity" role="status">
                 <LoaderCircle className="spin" size={11} aria-hidden="true" />
                 {activityLabel}
@@ -121,42 +93,85 @@ export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCa
           </span>
         </span>
       </button>
-      {actions ? (
-        <div className="project-card-actions">
-          <button
-            ref={trigger}
-            className="project-card-menu"
-            type="button"
-            aria-label={t("projectCard.actions", { name: project.name })}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            onClick={() => { setMenuError(undefined); setMenuOpen((current) => !current); }}
-          >
-            <MoreHorizontal size={16} />
-          </button>
-          {menuOpen ? createPortal(
-            // Rendered in body so scroll containers such as .home-content cannot clip it.
-            <div
-              ref={menu}
-              className="project-card-actions-menu"
-              role="menu"
-              style={menuPosition ?? { top: 0, left: 0, visibility: "hidden" }}
-            >
-              {openProjectFile ? <button type="button" role="menuitem" disabled={openingFolder} onClick={() => void openFolder()}>{t("projectCard.openFolder")}</button> : null}
-              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onRename(); }}>{t("common.rename")}</button>
-              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDuplicate(); }}>{t("common.duplicate")}</button>
-              <button type="button" role="menuitem" disabled={exporting} onClick={() => void exportArchive()}>{exporting ? t("projectCard.exporting") : t("projectCard.export")}</button>
-              <button className="project-card-actions-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDelete(); }}>
-                {project.workspaceLocation === "external" ? t("projectCard.remove") : t("common.delete")}
-              </button>
-              {menuError ? <p className="project-card-folder-error" role="alert">{menuError}</p> : null}
-            </div>,
-            document.body,
-          ) : null}
-        </div>
+      {menu ? (
+        <span className="project-card-actions">
+          <DropdownMenu placement="bottom-end" items={menu} trigger={(props) => (
+            <IconButton {...props} size="sm" className="project-card-menu" label={t("projectCard.actions", { name: project.name })}>
+              <MoreHorizontal size={16} />
+            </IconButton>
+          )} />
+        </span>
       ) : null}
+      </div>
+      {menuError ? <p className="project-card-error" role="alert">{menuError}</p> : null}
     </article>
   );
+  return menu ? <ContextMenu items={menu}>{card}</ContextMenu> : card;
+}
+
+/** The project's type as an icon, named in a tooltip. */
+function ProjectTypeMark({ type }: { type: ProjectState["type"] }) {
+  const label = projectTypeLabel(type);
+  return (
+    <Tooltip content={label}>
+      <span className="project-card-type" aria-label={label} role="img">
+        <ProjectTypeIcon type={type} size={14} />
+      </span>
+    </Tooltip>
+  );
+}
+
+/**
+ * Rename, copy and delete for any list of project cards. `reload` runs after
+ * each change; `error` is the last failure, for the page to show.
+ */
+export function useProjectActions(reload: () => Promise<unknown>): {
+  actionsFor: (project: ProjectState) => ProjectCardActions;
+  dialogs: ReactNode;
+  error?: string;
+} {
+  const [renaming, setRenaming] = useState<ProjectState>();
+  const [removing, setRemoving] = useState<ProjectState>();
+  const [error, setError] = useState<string>();
+
+  async function run(action: () => Promise<unknown>): Promise<void> {
+    setError(undefined);
+    try {
+      await action();
+      await reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  const actionsFor = (project: ProjectState): ProjectCardActions => ({
+    onRename: () => setRenaming(project),
+    onDuplicate: () => void run(() => duplicateProject(project.id)),
+    onDelete: () => setRemoving(project),
+  });
+
+  const external = removing?.workspaceLocation === "external";
+  const dialogs = (
+    <>
+      {renaming ? <ProjectRenameDialog name={renaming.name} returnFocus={null} onClose={() => setRenaming(undefined)} onConfirm={(input) => {
+        const project = renaming;
+        setRenaming(undefined);
+        const name = input.trim();
+        if (name && name !== project.name) void run(() => renameProject(project.id, name));
+      }} /> : null}
+      <Dialog open={!!removing} onClose={() => setRemoving(undefined)} size="sm"
+        title={removing ? projectDeletionConfirmation(removing) : ""}
+        footer={<>
+          <Button onClick={() => setRemoving(undefined)}>{t("common.cancel")}</Button>
+          <Button variant="primary" onClick={() => {
+            const project = removing!;
+            setRemoving(undefined);
+            void run(() => deleteProject(project.id));
+          }}>{external ? t("projectCard.removeConfirm") : t("common.delete")}</Button>
+        </>} />
+    </>
+  );
+  return { actionsFor, dialogs, error };
 }
 
 export function ProjectCover({ projectId }: { projectId: string }) {
