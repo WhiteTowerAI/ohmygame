@@ -1,4 +1,4 @@
-import { createContext, useContext, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Plus, X } from "./icons.js";
 import { ContextMenu, DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
@@ -38,6 +38,24 @@ export interface PanelDef {
 }
 
 const MIN_SIZE = 200;
+const SIDE_MIN = 160;
+const CENTER_MIN = 320;
+/** The gap between areas, from panel-layout.css. */
+const GAP = 6;
+
+function useWidth(element: RefObject<HTMLElement | null>): number | undefined {
+  const [width, setWidth] = useState<number>();
+  useLayoutEffect(() => {
+    const target = element.current;
+    if (!target) return;
+    setWidth(target.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setWidth(target.clientWidth));
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [element]);
+  return width;
+}
 
 // Each panel's toolbar lives in its area's tab strip, so a panel has one row of
 // chrome. A panel puts its controls there with <PanelToolbar>.
@@ -66,12 +84,49 @@ export function createPanelNodes(): PanelNodes {
   return { body, toolbar };
 }
 
+type MovingParent = Element & { moveBefore?: (node: Node, child: Node | null) => void };
+
+// Moving a connected node with moveBefore keeps its state, a running game's
+// iframe included, where append would reload it.
+function place(parent: Element, node: Element): void {
+  if (node.parentNode === parent) return;
+  const { moveBefore } = parent as MovingParent;
+  if (moveBefore && node.isConnected && parent.isConnected) {
+    try {
+      moveBefore.call(parent, node, null);
+      return;
+    } catch { /* Falls back to append, as where moveBefore is missing. */ }
+  }
+  parent.append(node);
+}
+
+// A closed panel's view waits here, out of sight but still in the document
+// and still rendered: an iframe leaving a display: none parent reloads.
+let parking: HTMLDivElement | undefined;
+function parkingLot(): HTMLDivElement {
+  if (!parking?.isConnected) {
+    parking = document.createElement("div");
+    parking.className = "dock-parking";
+    parking.setAttribute("aria-hidden", "true");
+    parking.inert = true;
+    document.body.append(parking);
+  }
+  return parking;
+}
+
 /** A panel's content that shows a view from outside the layout. */
 export function PanelMount({ nodes }: { nodes: PanelNodes }) {
   const host = useRef<HTMLDivElement>(null);
   const toolbar = useContext(ToolbarSlot);
-  useLayoutEffect(() => { host.current?.append(nodes.body); }, [nodes]);
-  useLayoutEffect(() => { toolbar?.append(nodes.toolbar); }, [toolbar, nodes]);
+  useLayoutEffect(() => {
+    if (host.current) place(host.current, nodes.body);
+    return () => place(parkingLot(), nodes.body);
+  }, [nodes]);
+  useLayoutEffect(() => {
+    if (!toolbar) return;
+    place(toolbar, nodes.toolbar);
+    return () => place(parkingLot(), nodes.toolbar);
+  }, [toolbar, nodes]);
   return <div ref={host} className="dock-mount" />;
 }
 
@@ -145,10 +200,21 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
   const present = SIDES.filter((area) => shown(area).length);
   const has = (area: AreaId) => area === "center" || present.includes(area as (typeof SIDES)[number]);
 
-  const left = has("left") ? `minmax(160px, ${layout.left.size}px)` : "", right = has("right") ? `minmax(160px, ${layout.right.size}px)` : "";
+  // Too narrow for the side areas beside the center, the areas stack and the
+  // layout scrolls.
+  const width = useWidth(root);
+  const sides = (has("left") ? 1 : 0) + (has("right") ? 1 : 0);
+  // A width of 0 means it isn't laid out yet.
+  const stacked = !!width && width < CENTER_MIN + sides * (SIDE_MIN + GAP);
+  const left = has("left") ? `minmax(${SIDE_MIN}px, ${layout.left.size}px)` : "", right = has("right") ? `minmax(${SIDE_MIN}px, ${layout.right.size}px)` : "";
   const row = (middle: string) => [has("left") ? "left" : "", middle, has("right") ? "right" : ""].filter(Boolean).join(" ");
-  const style: CSSProperties = {
-    gridTemplateColumns: [left, "minmax(320px, 1fr)", right].filter(Boolean).join(" "),
+  const order = (["left", "center", "right", "bottom"] as const).filter(has);
+  const style: CSSProperties = stacked ? {
+    gridTemplateColumns: "minmax(0, 1fr)",
+    gridTemplateRows: order.map((area) => area === "center" ? "minmax(320px, 2fr)" : "minmax(240px, 1fr)").join(" "),
+    gridTemplateAreas: order.map((area) => `"${area}"`).join(" "),
+  } : {
+    gridTemplateColumns: [left, `minmax(${CENTER_MIN}px, 1fr)`, right].filter(Boolean).join(" "),
     gridTemplateRows: has("bottom") ? `minmax(160px, 1fr) minmax(120px, ${layout.bottom.size}px)` : "minmax(0, 1fr)",
     gridTemplateAreas: has("bottom") ? `"${row("center")}" "${row("bottom")}"` : `"${row("center")}"`,
   };
@@ -195,7 +261,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
   }
 
   return (
-    <div ref={root} className={`dock${dragging ? " is-dragging" : ""}`} style={style}
+    <div ref={root} className={`dock${dragging ? " is-dragging" : ""}${stacked ? " is-stacked" : ""}`} style={style}
       onDragEnd={() => { setDragging(undefined); setTarget(undefined); }}>
       {(["left", "center", "right", "bottom"] as const).filter(has).map((area) => {
         const ids = shown(area);
@@ -224,7 +290,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
                       }}
                       onDragOver={(event) => over(event, area, id)} onDrop={(event) => drop(event, area, id)}>
                       <button type="button" role="tab" aria-selected={id === active} className="dock-tab-button"
-                        onClick={() => activate(area, id)}>
+                        aria-label={panel.badge ? `${panel.title} (${panel.badge})` : panel.title} onClick={() => activate(area, id)}>
                         <span className="dock-tab-icon" aria-hidden="true">{panel.icon}</span>
                         <span className="dock-tab-label">{panel.title}</span>
                         {panel.badge ? <span className="dock-tab-badge">{panel.badge}</span> : null}
@@ -258,7 +324,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
               {ids.length ? null : empty}
               {area === "center" ? overlay : null}
             </div>
-            {area === "center" ? null : (
+            {area === "center" || stacked ? null : (
               <div className={`dock-resizer dock-resizer-${area}`} role="separator" tabIndex={0}
                 aria-orientation={area === "bottom" ? "horizontal" : "vertical"} aria-label={t("panels.resize", { area: areaLabel(area) })}
                 aria-valuenow={layout[area].size}
