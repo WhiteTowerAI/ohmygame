@@ -14,8 +14,6 @@ export const PROJECT_TYPES: readonly ProjectTypeOption[] = [
   "general" as const,
 ].map((value) => ({ value, label: projectTypeLabel(value) }));
 
-export const GAME_PROJECT_TYPES: readonly ProjectTypeOption[] = PROJECT_TYPES.filter(({ value }) => value !== "asset-canvas");
-
 export function ProjectTypeIcon({ type, size = 14 }: { type: ProjectType; size?: number }) {
   if (type === "general") return <Gamepad2 size={size} aria-hidden="true" />;
   if (type === "web-game") return <Globe2 size={size} aria-hidden="true" />;

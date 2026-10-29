@@ -97,8 +97,6 @@ interface ProjectShellProps {
   onViewChange?: (view: "design" | "workspace", options?: { replace?: boolean }) => void;
   initialPrompt?: { generation: number; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] };
   initialDraft?: ComposerDraft;
-  initialCanvasNodeId?: string;
-  onInitialCanvasNodeHandled?: () => void;
   showStoryMap?: boolean;
   onStoryMapShown?: () => void;
   onInitialPromptHandled?: () => void;
@@ -121,8 +119,6 @@ export function ProjectShell({
   onViewChange,
   initialPrompt,
   initialDraft,
-  initialCanvasNodeId,
-  onInitialCanvasNodeHandled,
   showStoryMap,
   onStoryMapShown,
   onInitialPromptHandled,
@@ -1020,8 +1016,6 @@ export function ProjectShell({
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         workspaceRevision={workspaceRevision}
         openFileRequest={openFileRequest}
-        initialNodeId={initialCanvasNodeId}
-        onInitialNodeHandled={onInitialCanvasNodeHandled}
         onSaveReady={registerDesignSave}
         onContextChange={setDesignContext}
         chatOnRight={chatLayout === "right"}

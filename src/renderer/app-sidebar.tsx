@@ -110,7 +110,7 @@ export function useSidebarLayout(): { className: string; style?: CSSProperties }
 // Recent projects, newest first. Pages that load the project list hand it over
 // so a rename or removal shows here without another request; on the others the
 // sidebar asks for it.
-const PAGES_WITH_PROJECT_LIST = new Set<SidebarActive>(["home", "projects", "general", "web-game", "interactive-story", "godot", "asset-canvas"]);
+const PAGES_WITH_PROJECT_LIST = new Set<SidebarActive>(["home", "projects"]);
 let recentProjects: ProjectState[] = [];
 const recentListeners = new Set<() => void>();
 

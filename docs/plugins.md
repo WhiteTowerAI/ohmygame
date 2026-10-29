@@ -307,16 +307,15 @@ when an installed integration plugin is uninstalled, and stay outside exported
 plugin packages. Credentials remain in Maker's own store.
 
 Reference Maker when creating a project to select General automatically, or select
-it under Project plugin in the new-project window. Project creation includes a
-branded creation dialog before opening a conversation, keeping the original
-description visible behind it. It defaults to **New project**: enter a name and
+it under Project plugin in the new-project window. Project creation continues in
+a branded creation panel inside the new-project window before opening a
+conversation. It defaults to **New project**: enter a name and
 choose **Create project** to create the Maker project and
 prepare its empty local directory. A ready account is summarized in one line,
 with reconnect and refresh under **Account options**. Missing environment or
-authorization steps expand only when needed. The explicit new-project window
-uses the same content without opening a second dialog. **Existing project** retains explicit remote
+authorization steps expand only when needed. **Existing project** retains explicit remote
 project selection; an already bound directory can also be imported. Closing setup
-preserves the home prompt. A failed checkout resumes the created project instead
+returns to the new-project window with Home's prompt still in it. A failed checkout resumes the created project instead
 of creating another one; an unknown creation outcome requires checking the project
 list before reconnecting. Reconnecting the
 same binding only checks its status; it does not run initialization again.

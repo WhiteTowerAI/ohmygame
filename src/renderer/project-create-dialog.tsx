@@ -1,96 +1,155 @@
-import { LoaderCircle, X } from "./icons.js";
-import { useEffect, useId, useRef, useState } from "react";
-import type { ConversationCapabilities, ProjectState, ProjectType } from "../shared/contracts.js";
-import { createProject, getHomeComposerCapabilities } from "./api.js";
-import { usePluginIntegrationGate } from "./plugin-integration.js";
-import { defaultProjectName, PROJECT_TYPES, ProjectTypeIcon, projectTypeLabel, type ProjectTypeOption } from "./project-types.js";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { createConversation, createProject, getHomeComposerCapabilities, listProjects } from "./api.js";
+import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
+import { activePluginMentions } from "./composer-mentions.js";
+import { LoaderCircle } from "./icons.js";
+import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
+import { saveHomePrompt } from "./prompt-history.js";
+import { defaultProjectName, PROJECT_TYPES, ProjectTypeIcon } from "./project-types.js";
+import { Button, Dialog, Field, Input, Select, Textarea } from "./ui/index.js";
+import type {
+  ConversationCapabilities,
+  PluginMention,
+  ProjectState,
+  ProjectType,
+  PromptAttachment,
+  PromptMode,
+} from "../shared/contracts.js";
+import { pluginProjectType } from "../shared/project-runtime.js";
 import { t } from "./i18n.js";
+import "./project-create-dialog.css";
 
-export function ProjectCreateDialog({ initialType = "web-game", fixedType, projectTypes = PROJECT_TYPES, onClose, onCreated }: {
+/** What Home's prompt box hands over: it becomes the project's first message. */
+export interface FirstMessage {
+  prompt: string;
+  mentions: PluginMention[];
+  attachments: ComposerAttachment[];
+  mode: PromptMode;
+}
+
+/** The first message, sent in the new project's first conversation. */
+export interface ProjectStart {
+  conversationId: string;
+  prompt: string;
+  mentions: PluginMention[];
+  mode: PromptMode;
+  attachments: PromptAttachment[];
+}
+
+type Plugin = ConversationCapabilities["plugins"][number];
+
+/**
+ * One dialog for every new project: from Home's prompt (with the prompt as the
+ * first message), Start blank, Import folder and the Projects page. It asks
+ * only what the folder needs; the agent asks the rest in the project.
+ */
+export function ProjectCreateDialog({
+  initialType = "web-game",
+  initialWorkspacePath,
+  firstMessage,
+  onClose,
+  onCreated,
+  onOpenProject,
+}: {
   initialType?: ProjectType;
-  fixedType?: ProjectType;
-  projectTypes?: readonly ProjectTypeOption[];
+  initialWorkspacePath?: string;
+  firstMessage?: FirstMessage;
   onClose: () => void;
-  onCreated: (project: ProjectState) => void;
+  onCreated: (project: ProjectState, start?: ProjectStart) => void;
+  onOpenProject?: (projectId: string) => void;
 }) {
-  const titleId = useId();
-  const dialog = useRef<HTMLElement>(null);
-  const nameInput = useRef<HTMLInputElement>(null);
-  const creatingRef = useRef(false);
-  const onCloseRef = useRef(onClose);
+  const [prompt, setPrompt] = useState(firstMessage?.prompt ?? "");
   const [name, setName] = useState("");
-  const [type, setType] = useState<ProjectType>(fixedType ?? initialType);
-  const [workspacePath, setWorkspacePath] = useState<string>();
+  const [plugins, setPlugins] = useState<Plugin[]>([]);
+  // The type and integration come from the plugins, so creating waits for them.
+  const [pluginsPhase, setPluginsPhase] = useState<"loading" | "ready" | "error">("loading");
+  const [pluginsRetry, setPluginsRetry] = useState(0);
+  const mentions = activePluginMentions(prompt, firstMessage?.mentions ?? []);
+  const referenced = plugins.filter((plugin) =>
+    mentions.some((mention) => mention.name === plugin.name && mention.marketplaceId === plugin.marketplaceId),
+  );
+  // Types the mentioned plugins can work in; a plugin that names no types fits all of them.
+  const types = PROJECT_TYPES.filter(({ value }) => pluginProjectType(value, referenced) === value);
+  const [chosenType, setChosenType] = useState<ProjectType>();
+  const type = chosenType && types.some(({ value }) => value === chosenType)
+    ? chosenType
+    : pluginProjectType(initialType, referenced) ?? referenced.find((plugin) => plugin.projectTypes?.length)?.projectTypes?.[0] ?? types[0]?.value ?? initialType;
+  const [workspacePath, setWorkspacePath] = useState(initialWorkspacePath);
   const [selectingWorkspace, setSelectingWorkspace] = useState(false);
+  const [existingProject, setExistingProject] = useState<ProjectState>();
+  const [integrationId, setIntegrationId] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
-  const [plugins, setPlugins] = useState<ConversationCapabilities["plugins"]>([]);
-  const [pluginId, setPluginId] = useState("");
-  const created = useRef<ProjectState | undefined>(undefined);
+  const created = useRef<{ key: string; project: ProjectState; conversationId?: string } | undefined>(undefined);
   const integrationGate = usePluginIntegrationGate();
-  const integrationRef = useRef(integrationGate);
-  integrationRef.current = integrationGate;
-  const integrations = plugins.filter(plugin => plugin.integration && (!plugin.projectTypes?.length || plugin.projectTypes.includes(type)));
-  creatingRef.current = creating;
-  onCloseRef.current = onClose;
+  // A prompt picks its integration from its mentions; a blank project from this list.
+  const integrations = firstMessage
+    ? []
+    : plugins.filter((plugin) => plugin.integration && (!plugin.projectTypes?.length || plugin.projectTypes.includes(type)));
+
   useEffect(() => {
     let active = true;
-    void getHomeComposerCapabilities().then(value => { if (active) setPlugins(value.plugins); }).catch(() => {});
+    setPluginsPhase("loading");
+    void getHomeComposerCapabilities().then((value) => {
+      if (!active) return;
+      setPlugins(value.plugins);
+      setPluginsPhase("ready");
+    }).catch(() => { if (active) setPluginsPhase("error"); });
     return () => { active = false; };
-  }, []);
+  }, [pluginsRetry]);
 
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    const handleKeyboard = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && integrationRef.current.creation) {
-        event.preventDefault();
-        integrationRef.current.cancelCreation();
-        return;
-      }
-      if (event.key === "Escape" && !creatingRef.current) onCloseRef.current();
-      if (event.key !== "Tab" || !dialog.current) return;
-      const focusable = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), a[href], summary, [tabindex]:not([tabindex='-1'])")]
-        .filter(element => !element.closest('details:not([open])') || element.tagName === "SUMMARY");
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (document.activeElement === dialog.current || (!event.shiftKey && document.activeElement === last)) {
-        event.preventDefault();
-        first.focus();
-      } else if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      }
-    };
-    window.addEventListener("keydown", handleKeyboard);
-    return () => {
-      window.removeEventListener("keydown", handleKeyboard);
-      previousFocus?.focus();
-    };
-  }, []);
+  function close(): void {
+    if (!creating) onClose();
+  }
 
-  useEffect(() => {
-    if (!integrationGate.creation && !creating) nameInput.current?.focus();
-  }, [!!integrationGate.creation, creating]);
+  // State updates too late to stop a second click in the same tick.
+  const submitting = useRef(false);
+  async function submit(): Promise<void> {
+    if (submitting.current || creating || pluginsPhase !== "ready") return;
+    submitting.current = true;
+    try { await create(); }
+    finally { submitting.current = false; }
+  }
 
-  async function submit(event: React.FormEvent): Promise<void> {
-    event.preventDefault();
-    if (creating) return;
+  async function create(): Promise<void> {
     setCreating(true);
     setError(undefined);
     try {
-      const plugin = integrations.find(plugin => plugin.id === pluginId);
-      created.current ??= await createProject({
+      if (!types.length) throw new Error(t("integration.incompatible"));
+      const pluginId = firstMessage
+        ? referencedIntegration(mentions, plugins)
+        : integrations.find((plugin) => plugin.id === integrationId)?.id;
+      const input = {
         ...(name.trim() ? { name: name.trim() } : {}),
         type,
         ...(workspacePath ? { workspacePath } : {}),
-        ...(plugin ? { pluginId: plugin.id } : {}),
-      });
-      const integrationId = plugin?.id ?? created.current.integration?.pluginId;
-      const integration = plugins.find(plugin => plugin.id === integrationId)?.integration;
-      const project = await integrationGate.ensure(created.current, integrationId, integrationId ? { canCreate: !!integration?.createProject, embedded: true } : undefined);
-      if (!project) { setCreating(false); return; }
-      onCreated(project);
+        ...(pluginId ? { pluginId } : {}),
+      };
+      // Retrying after a failure reuses the project, unless the choices changed.
+      const key = JSON.stringify(input);
+      if (created.current?.key !== key) created.current = { key, project: await createProject(input) };
+      const gateId = pluginId ?? created.current.project.integration?.pluginId;
+      const integration = plugins.find((plugin) => plugin.id === gateId)?.integration;
+      const project = await integrationGate.ensure(
+        created.current.project,
+        gateId,
+        gateId ? { canCreate: !!integration?.createProject, embedded: true } : undefined,
+      );
+      if (!project) {
+        setCreating(false);
+        return;
+      }
+      created.current.project = project;
+      const text = prompt.trim();
+      if (!firstMessage || (!text && !firstMessage.attachments.length)) {
+        onCreated(project);
+        return;
+      }
+      created.current.conversationId ??= (await createConversation(project.id)).id;
+      const attachments = await uploadAttachments(project.id, crypto.randomUUID(), firstMessage.attachments);
+      saveHomePrompt({ prompt: text, mentions });
+      onCreated(project, { conversationId: created.current.conversationId, prompt: text, mentions, mode: firstMessage.mode, attachments });
     } catch (cause) {
       setError(errorMessage(cause));
       setCreating(false);
@@ -98,7 +157,6 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
   }
 
   async function chooseWorkspace(): Promise<void> {
-    if (creating || selectingWorkspace) return;
     const selectDirectory = window.ohMyGameDesktop?.selectProjectDirectory;
     if (!selectDirectory) {
       setError(t("createDialog.restartForFolders"));
@@ -106,11 +164,13 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
     }
     setSelectingWorkspace(true);
     setError(undefined);
+    setExistingProject(undefined);
     try {
       const selected = await selectDirectory();
       if (!selected) return;
-      setWorkspacePath(selected);
-      created.current = undefined;
+      const owner = (await listProjects()).find((project) => project.workspacePath === selected);
+      if (owner) setExistingProject(owner);
+      else setWorkspacePath(selected);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -118,67 +178,92 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
     }
   }
 
-  function clearWorkspace(): void {
-    created.current = undefined;
-    setWorkspacePath(undefined);
-    setError(undefined);
-  }
+  // Creating with a plugin that makes its own project (TapTap Maker) continues in its panel.
+  if (integrationGate.creation) return <IntegrationStep label={integrationGate.creationTitle} onCancel={integrationGate.cancelCreation}>{integrationGate.creation}</IntegrationStep>;
 
+  const location = workspacePath ?? t("createDialog.managedFolder");
   return (
-    <div className="project-create-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !creating) onClose();
-    }}>
-      <section ref={dialog} className="project-create-dialog" role="dialog" aria-modal="true" aria-labelledby={integrationGate.creation ? undefined : titleId} aria-label={integrationGate.creationTitle} tabIndex={-1}>
-        {!integrationGate.creation ? <header>
-          <h2 id={titleId}>{fixedType ? t("createDialog.newType", { type: projectTypeLabel(fixedType) }) : t("createDialog.newProject")}</h2>
-          <button type="button" disabled={creating} onClick={onClose} aria-label={t("common.close")}><X size={16} /></button>
-        </header> : null}
-        {integrationGate.creation ? <div className="project-create-integration">{integrationGate.creation}</div> : <form onSubmit={(event) => void submit(event)} onChange={() => { created.current = undefined; }}>
-          <label className="project-create-name">
-            <span>{t("common.name")}</span>
-            <input ref={nameInput} value={name} maxLength={120} disabled={creating} placeholder={defaultProjectName(type)} onChange={(event) => setName(event.target.value)} />
-          </label>
-          <fieldset className="project-create-workspace">
-            <legend>{t("creator.workspace")}</legend>
-            <div className="project-create-workspace-selection">
-              {workspacePath ? <span className="is-selected" title={workspacePath}>{workspacePath}</span> : null}
-              <div>
-                <button type="button" disabled={creating || selectingWorkspace} onClick={() => void chooseWorkspace()}>
-                  {selectingWorkspace ? t("createDialog.opening") : workspacePath ? t("createDialog.chooseAnother") : t("creator.chooseFolder")}
-                </button>
-                {workspacePath ? <button type="button" disabled={creating || selectingWorkspace} onClick={clearWorkspace}>{t("common.clear")}</button> : null}
-              </div>
+    <Dialog open onClose={close} title={t("createDialog.newProject")} size="md"
+      footer={<>
+        <Button disabled={creating} onClick={close}>{t("common.cancel")}</Button>
+        <Button variant="primary" disabled={creating || pluginsPhase !== "ready"} icon={creating || pluginsPhase === "loading" ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => void submit()}>
+          {firstMessage ? t("createDialog.createAndStart") : t("common.create")}
+        </Button>
+      </>}>
+      <form className="new-project-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        {firstMessage ? (
+          <Field label={t("createDialog.firstMessage")}>
+            {(props) => <Textarea {...props} rows={3} value={prompt} disabled={creating}
+              onChange={(event) => setPrompt(event.target.value)} />}
+          </Field>
+        ) : null}
+        <Field label={t("common.name")}>
+          {(props) => <Input {...props} value={name} maxLength={120} disabled={creating}
+            placeholder={firstMessage ? t("createDialog.namedFromPrompt") : defaultProjectName(type)}
+            onChange={(event) => setName(event.target.value)} />}
+        </Field>
+        <Field label={t("createDialog.type")}>
+          {(props) => <Select<ProjectType> id={props.id} label={t("createDialog.type")} value={type}
+            onChange={(value) => { setChosenType(value); setIntegrationId(""); }}
+            options={types.map((option) => ({ value: option.value, label: option.label, icon: <ProjectTypeIcon type={option.value} size={16} /> }))} />}
+        </Field>
+        {integrations.length ? (
+          <Field label={t("integration.plugin")}>
+            {(props) => <Select id={props.id} label={t("integration.plugin")} value={integrationId} onChange={setIntegrationId}
+              options={[{ value: "", label: t("integration.noPlugin") }, ...integrations.map((plugin) => ({ value: plugin.id, label: plugin.displayName }))]} />}
+          </Field>
+        ) : null}
+        <Field label={t("creator.workspace")}>
+          {(props) => (
+            <div className="new-project-location">
+              <Input {...props} readOnly value={location} title={location} />
+              <Button disabled={creating || selectingWorkspace} onClick={() => void chooseWorkspace()}>
+                {selectingWorkspace ? t("createDialog.opening") : workspacePath ? t("createDialog.chooseAnother") : t("creator.chooseFolder")}
+              </Button>
+              {workspacePath ? <Button variant="ghost" disabled={creating} onClick={() => setWorkspacePath(undefined)}>{t("common.clear")}</Button> : null}
             </div>
-          </fieldset>
-          {!fixedType ? (
-            <fieldset className="project-create-types">
-              <legend>{t("createDialog.type")}</legend>
-              {projectTypes.map((option) => (
-                <button className={option.value === type ? "is-active" : undefined} type="button" key={option.value} aria-pressed={option.value === type} disabled={creating} onClick={() => { setType(option.value); setPluginId(""); created.current = undefined; }}>
-                  <ProjectTypeIcon type={option.value} size={17} />
-                  <span>{option.label}</span>
-                </button>
-              ))}
-            </fieldset>
-          ) : null}
-          {integrations.length ? <label className="project-create-name">
-            <span>{t("integration.plugin")}</span>
-            <select value={pluginId} disabled={creating} onChange={event => setPluginId(event.target.value)}>
-              <option value="">{t("integration.noPlugin")}</option>
-              {integrations.map(plugin => <option key={plugin.id} value={plugin.id}>{plugin.displayName}</option>)}
-            </select>
-          </label> : null}
-          {error ? <p className="project-create-error" role="alert">{error}</p> : null}
-          <footer>
-            <button type="button" disabled={creating} onClick={onClose}>{t("common.cancel")}</button>
-            <button className="project-create-submit" type="submit" disabled={creating}>
-              {creating ? <LoaderCircle className="spin" size={14} /> : null}
-              {t("common.create")}
-            </button>
-          </footer>
-        </form>}
-      </section>
-    </div>
+          )}
+        </Field>
+        {existingProject ? (
+          <p className="new-project-error" role="alert">
+            {t("creator.folderInUse", { name: existingProject.name })}
+            {onOpenProject ? <Button size="sm" onClick={() => onOpenProject(existingProject.id)}>{t("creator.openProject")}</Button> : null}
+          </p>
+        ) : null}
+        {pluginsPhase === "error" ? (
+          <p className="new-project-error" role="alert">
+            {t("createDialog.pluginsFailed")}
+            <Button size="sm" onClick={() => setPluginsRetry((value) => value + 1)}>{t("common.retry")}</Button>
+          </p>
+        ) : null}
+        {error ? <p className="new-project-error" role="alert">{error}</p> : null}
+        {/* Enter in a field submits; the visible buttons are in the footer. */}
+        <button type="submit" hidden />
+      </form>
+    </Dialog>
+  );
+}
+
+/** The plugin's own creation panel, which brings its header and cancel button. */
+function IntegrationStep({ label, onCancel, children }: { label?: string; onCancel: () => void; children: React.ReactNode }) {
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    panel.current?.querySelector<HTMLElement>("input, button")?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+  return createPortal(
+    <div className="ui-backdrop">
+      <div ref={panel} className="ui-dialog ui-dialog-md new-project-integration" role="dialog" aria-modal="true" aria-label={label}>
+        {children}
+      </div>
+    </div>,
+    document.body,
   );
 }
 

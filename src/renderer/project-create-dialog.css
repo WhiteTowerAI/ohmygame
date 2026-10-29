@@ -1,0 +1,46 @@
+/* The new-project dialog: name, type and folder, and Home's prompt as the
+   first message. Controls are ui components; this is layout only. */
+
+.new-project-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.new-project-location {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.new-project-location .ui-input {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.new-project-location .ui-input input {
+  text-overflow: ellipsis;
+}
+
+.new-project-form .ui-select {
+  width: 100%;
+}
+
+.new-project-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+/* A plugin's own creation panel (TapTap Maker) brings its header. */
+.new-project-integration {
+  padding: var(--space-4);
+  overflow: auto;
+}

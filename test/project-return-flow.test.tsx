@@ -14,9 +14,11 @@ const project: ProjectState = {
   preview: { status: "stopped" },
 };
 
-vi.doMock(path.resolve("src/renderer/asset-canvas-quick-start.ts"), () => ({
-  invalidateQuickStartModels: vi.fn(),
-  loadQuickStartModels: vi.fn(),
+vi.doMock(path.resolve("src/renderer/use-onboarding.ts"), () => ({
+  useOnboarding: () => ({
+    state: { status: "completed", step: "welcome" },
+    replaying: false,
+  }),
 }));
 vi.doMock(
   path.resolve("src/renderer/runtime-connection.ts"),
@@ -53,15 +55,13 @@ vi.doMock(path.resolve("src/renderer/project-card.tsx"), () => ({
     <button onClick={onOpen}>Open Garden</button>
   ),
 }));
-vi.doMock(path.resolve("src/renderer/game-studio-home.tsx"), () => ({
-  GameStudioHome: ({
-    onOpenProject,
+vi.doMock(path.resolve("src/renderer/home.tsx"), () => ({
+  Home: ({
+    onOpen,
     onCreate,
-  }: ComponentProps<
-    typeof import("../src/renderer/game-studio-home.js").GameStudioHome
-  >) => (
+  }: ComponentProps<typeof import("../src/renderer/home.js").Home>) => (
     <>
-      <button onClick={() => onOpenProject(project.id)}>
+      <button onClick={() => onOpen(project.id)}>
         Open recent project
       </button>
       <button
@@ -101,7 +101,7 @@ let container: HTMLDivElement;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  window.history.replaceState(null, "", "#/general");
+  window.history.replaceState(null, "", "#/");
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -123,7 +123,7 @@ async function click(text: string) {
 
 describe("project return flow", () => {
   it.each(["Open recent project", "Create project"])(
-    "returns to the studio after %s and project navigation",
+    "returns to Home after %s and project navigation",
     async (entry) => {
       await act(async () => root.render(<App />));
       await click(entry);
@@ -132,8 +132,8 @@ describe("project return flow", () => {
       expect(window.location.hash).toBe(
         "#/projects/garden/conversations/second/design",
       );
-      await click("Back to General Game");
-      expect(window.location.hash).toBe("#/general");
+      await click("Back to Home");
+      expect(window.location.hash).toBe("#/");
     },
   );
 
@@ -207,7 +207,7 @@ describe("Playtest asking for its editor", () => {
     expect(window.location.hash).toBe("#/projects/garden/conversations/second");
     expect(shellProps.showStoryMap).toBe(true);
     await act(async () => shellProps.onStoryMapShown?.());
-    await click("Back to General Game");
+    await click("Back to Home");
     await click("Open recent project");
     expect(shellProps.showStoryMap).toBe(false);
   });

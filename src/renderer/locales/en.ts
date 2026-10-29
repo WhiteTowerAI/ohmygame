@@ -782,8 +782,44 @@ const en = {
   home: {
     title: "What are we making today?",
     placeholder: "Describe the game you want to create...",
-    startBlank: "Start blank",
+    startBlank: "Blank project",
     explore: "Explore",
+    importFolder: "Import folder",
+    allProjects: "All projects",
+    toCommunity: "Go to Community",
+    starter: "Start with plugin",
+    noStarter: "No plugin",
+    ideas: {
+      web: {
+        dungeon: "Make a pixel-art dungeon roguelike with turn-based combat",
+        merge: "Make a casual portrait merge game for phones",
+        racing: "Make a two-player same-screen racing game",
+      },
+      studio: {
+        platformer: "Make a 2D platformer, starting with three levels",
+        towerDefense: "Make a tower defense game with five kinds of towers",
+        cards: "Make a card battle game against an AI opponent",
+      },
+      godot: {
+        thirdPerson: "Make a third-person 3D scene in Godot you can walk around",
+        shooter: "Make a top-down shooter",
+        physics: "Make a puzzle level with physics",
+      },
+      world: {
+        island: "Make a low-poly island to explore",
+        cyberpunk: "Make a cyberpunk street at night you can walk around",
+        station: "Make the inside of a space station",
+      },
+      minigame: {
+        match: "Make a match-three WeChat mini game with 60-second rounds",
+        rhythm: "Make a rhythm jumping WeChat mini game",
+      },
+      general: {
+        platformer: "Make a short platformer with a boss at the end",
+        puzzle: "Make a relaxing puzzle game with 20 levels",
+        story: "Make a branching mystery story with three endings",
+      },
+    },
   },
   projectType: {
     general: "General Game",
@@ -825,29 +861,6 @@ const en = {
     resize: "Resize sidebar",
     resizeHint: "Drag to resize, double-click to reset",
   },
-  studio: {
-    examples: "Examples",
-    general: {
-      title: "What do you want to create?",
-      placeholder: "Describe your game idea or what you want to build...",
-      new: "New game project",
-    },
-    web: {
-      title: "What game are we making today?",
-      placeholder: "Describe the browser game you want to create...",
-      new: "New game",
-    },
-    story: {
-      title: "What story are we telling today?",
-      placeholder: "Describe the interactive story you want to create...",
-      new: "New story",
-    },
-    godot: {
-      title: "What are we building in Godot?",
-      placeholder: "Describe the Godot game you want to create...",
-      new: "New Godot project",
-    },
-  },
   examples: {
     loadingName: "Loading {{name}}",
     play: "Play",
@@ -862,23 +875,22 @@ const en = {
     planPlaceholder: "Describe what to plan",
     folderInUse: "This folder is already the workspace of “{{name}}”.",
     openProject: "Open project",
-    workspaceValue: "Workspace: {{path}}",
-    workspaceNew: "Workspace: new folder in OhMyGame storage",
-    workspaceNewTitle: "Creates a new folder in OhMyGame's project storage",
-    newFolder: "New folder",
     workspace: "Workspace",
-    chooseAnother: "Choose another folder…",
     chooseFolder: "Choose folder…",
     projectType: "Project type",
   },
   createDialog: {
+    pluginsFailed: "Couldn't load plugins, so the project type can't be chosen yet.",
     restartForFolders:
       "Restart the OhMyGame desktop app to enable folder selection.",
-    newType: "New {{type}}",
     newProject: "New project",
     opening: "Opening…",
     chooseAnother: "Choose another…",
     type: "Type",
+    firstMessage: "First message",
+    namedFromPrompt: "Named from the first message",
+    managedFolder: "New folder in OhMyGame",
+    createAndStart: "Create and start",
   },
   signIn: {
     unavailable: "Sign-in is currently unavailable.",
@@ -982,6 +994,8 @@ const en = {
     editedOn: "Edited {{date}}",
     export: "Export project",
     exporting: "Exporting…",
+    openItem: "Open",
+    removeConfirm: "Remove",
   },
   conversations: {
     history: "Conversation history",
@@ -1005,15 +1019,6 @@ const en = {
     added: "Added to {{project}} as {{path}}",
     noMatch: "No matching projects",
     none: "No game projects yet",
-  },
-  assetCanvasHome: {
-    new: "New asset canvas",
-    newHint: "Start with an empty workflow",
-    quickStart: "Quick start",
-    audio: "Audio",
-    recent: "Recent canvases",
-    none: "No asset canvases yet",
-    loading: "Loading asset canvases",
   },
   workspace: {
     navigation: "Workspace navigation",
