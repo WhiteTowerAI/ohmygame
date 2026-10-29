@@ -29,22 +29,8 @@ vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({
 vi.doMock(path.resolve("src/renderer/runtime-connection.ts"), () => ({
   useReadyRuntimeGeneration: () => 1,
 }));
-vi.doMock(path.resolve("src/renderer/sidebar-page.tsx"), () => ({
-  SidebarPageLayout: ({ children }: { children: React.ReactNode }) => (
-    <main>{children}</main>
-  ),
-  SidebarPageHeader: ({
-    title,
-    actions,
-  }: {
-    title: string;
-    actions: React.ReactNode;
-  }) => (
-    <header>
-      <h1>{title}</h1>
-      {actions}
-    </header>
-  ),
+vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({
+  PageFrame: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   waitForRuntime: async () => undefined,
@@ -138,7 +124,9 @@ async function click(label: string) {
 }
 async function sortByLikes() {
   const button = [
-    ...container.querySelectorAll<HTMLButtonElement>(".community-sort button"),
+    ...container.querySelectorAll<HTMLButtonElement>(
+      ".community-filters .ui-filter-chip",
+    ),
   ].find((element) => element.textContent === "Most liked")!;
   expect(button).toBeDefined();
   await act(async () => button.click());
@@ -162,11 +150,17 @@ async function renderPlayer(gameId = "listed") {
     ),
   );
 }
-async function chooseUnpublish() {
+async function chooseAction(label: string) {
   await click("More game actions");
-  const item = container.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
-  expect(item.textContent).toContain("Unpublish");
-  await act(async () => item.click());
+  // The menu is a popover on document.body.
+  const item = [
+    ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+  ].find((element) => element.textContent?.includes(label));
+  expect(item).toBeDefined();
+  await act(async () => item!.click());
+}
+async function chooseUnpublish() {
+  await chooseAction("Unpublish");
 }
 async function submitEditor() {
   await act(async () =>
@@ -210,7 +204,9 @@ describe("game detail management", () => {
       .mockResolvedValueOnce({ ...profile.games[0], playUrl: "about:blank" })
       .mockReturnValueOnce(new Promise(() => {}));
     await renderPlayer();
-    expect(container.querySelector('[aria-label="Edit game"]')).not.toBeNull();
+    expect(
+      container.querySelector('[aria-label="More game actions"]'),
+    ).not.toBeNull();
     expect(container.querySelector("iframe")).not.toBeNull();
     expect(mocks.projects).not.toHaveBeenCalled();
     expect(mocks.own).not.toHaveBeenCalled();
@@ -220,23 +216,22 @@ describe("game detail management", () => {
       limit: 10,
       excludeGameId: "listed",
     });
-    await click("Edit game");
+    await chooseAction("Edit game");
     expect(mocks.projects).toHaveBeenCalledTimes(1);
   });
 
   it("hides management from other users and signed-out visitors", async () => {
     mocks.auth.state = { status: "signed-in", user: { id: "viewer" } };
     await renderPlayer();
-    expect(container.querySelector('[aria-label="Edit game"]')).toBeNull();
-    expect(
-      container.querySelector(".electron-game-thumbnail img")?.getAttribute("src"),
-    ).toBe("https://play.example/listed/cover.webp");
+    expect(container.querySelector("iframe")).not.toBeNull();
     expect(
       container.querySelector('[aria-label="More game actions"]'),
     ).toBeNull();
     mocks.auth.state = { status: "signed-out", user: { id: "viewer" } };
     await renderPlayer();
-    expect(container.querySelector('[aria-label="Edit game"]')).toBeNull();
+    expect(
+      container.querySelector('[aria-label="More game actions"]'),
+    ).toBeNull();
     expect(mocks.projects).not.toHaveBeenCalled();
   });
 
@@ -246,7 +241,7 @@ describe("game detail management", () => {
     );
     await renderPlayer();
     const frame = container.querySelector("iframe");
-    await click("Edit game");
+    await chooseAction("Edit game");
     expect(document.activeElement).toBe(container.querySelector("input"));
     expect(container.textContent).not.toContain("Open project");
     expect(container.textContent).not.toContain("Publish update");
@@ -261,7 +256,7 @@ describe("game detail management", () => {
     });
     expect(container.querySelector("h1")?.textContent).toBe("Saved game");
     expect(
-      container.querySelector(".electron-game-identity")?.textContent,
+      container.querySelector(".community-game-description")?.textContent,
     ).toContain("Saved description");
     expect(container.querySelector("iframe")).toBe(frame);
     expect(mocks.detail).toHaveBeenCalledTimes(2);
@@ -277,7 +272,7 @@ describe("game detail management", () => {
     );
     await renderPlayer();
     const frame = container.querySelector("iframe");
-    await click("Edit game");
+    await chooseAction("Edit game");
     expect(container.textContent).not.toContain("Open project");
     await act(async () => resolve([localProject]));
     expect(
@@ -344,11 +339,7 @@ describe("game detail management", () => {
     expect(
       container.querySelector('button[aria-label="Like Hidden game"]'),
     ).toBeNull();
-    // Hidden works keep live play links, so their hosted cover loads the same way.
-    expect(
-      container.querySelector(".electron-game-thumbnail img")?.getAttribute("src"),
-    ).toBe("https://play.example/unlisted/cover.webp");
-    await click("Edit game");
+    await chooseAction("Edit game");
     await submitEditor();
     expect(mocks.update).toHaveBeenCalledWith("unlisted", "token", {
       title: "Hidden game",
@@ -407,7 +398,7 @@ describe("game detail management", () => {
       }),
     );
     await renderPlayer();
-    await click("Edit game");
+    await chooseAction("Edit game");
     await submitEditor();
     mocks.detail.mockResolvedValueOnce({
       ...profile.games[1],
@@ -435,7 +426,9 @@ describe("game detail management", () => {
     await renderPlayer();
     await act(async () => reject(new Error("Old account error")));
     expect(container.textContent).not.toContain("Old account error");
-    expect(container.querySelector('[aria-label="Edit game"]')).toBeNull();
+    expect(
+      container.querySelector('[aria-label="More game actions"]'),
+    ).toBeNull();
     expect(container.querySelector('[role="alertdialog"]')).toBeNull();
   });
 });
@@ -585,7 +578,7 @@ describe("Community card interactions", () => {
     mocks.detail.mockResolvedValueOnce({ ...profile.games[0], stats: { viewCount: 5, likeCount: 1 } });
     await act(async () => container.querySelector("iframe")!.dispatchEvent(new Event("load")));
     await act(async () => resolveLike({ viewCount: 3, likeCount: 2, liked: true }));
-    expect(container.querySelector('.electron-game-toolbar [aria-label="5 views"]')).not.toBeNull();
+    expect(container.querySelector('.community-game-actions [aria-label="5 views"]')).not.toBeNull();
     expect(container.querySelector('[aria-label="Unlike Public game"]')?.textContent).toBe("2");
   });
 
@@ -612,7 +605,7 @@ describe("Community card interactions", () => {
     await act(async () =>
       resolve({ ...profile.games[0], stats: { viewCount: 4, likeCount: 1, liked: false } }),
     );
-    const toolbar = container.querySelector(".electron-game-toolbar")!;
+    const toolbar = container.querySelector(".community-game-actions")!;
     expect(
       toolbar.querySelector('[aria-label="4 views"]'),
     ).not.toBeNull();

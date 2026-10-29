@@ -1162,7 +1162,6 @@ const en = {
   },
   community: {
     myProfile: "My profile",
-    creator: "Creator",
     search: "Search",
     searchPlaceholder: "Games or creators",
     sortBy: "Sort by",
@@ -1192,7 +1191,6 @@ const en = {
     publishedGames_other: "{{count, number}} published games",
     editGame: "Edit game",
     moreActions: "More game actions",
-    gameActions: "Game actions",
     unpublish: "Unpublish",
     unpublishTitle: "Unpublish “{{title}}”?",
     unpublishDescription:
@@ -1204,7 +1202,6 @@ const en = {
     updateFromProject:
       "To update the game files or cover, publish from the original project.",
     viewOnProfile: "View on my profile",
-    byAuthor: "by {{author}}",
     title: "Community",
     loading: "Loading games",
     none: "No published games yet",
@@ -1213,10 +1210,10 @@ const en = {
     games: "Games",
     loadingGame: "Loading game",
     share: "Share game",
+    shareButton: "Share",
     moreGames: "More games",
     copyFailed: "Could not copy automatically. Select the link and copy it.",
     shareUnavailable: "Sharing is unavailable. Copy the game link instead.",
-    closeShare: "Close share dialog",
     link: "Game link",
     copyLink: "Copy link",
     moreSharing: "More sharing options",
