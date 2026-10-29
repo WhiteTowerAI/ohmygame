@@ -129,9 +129,11 @@ describe("the panel layout", () => {
       await render(layout);
       expect(container.querySelector(".dock-area-center .dock-mount")?.contains(frame)).toBe(true);
       await render(closePanel(layout, "game"));
-      // Closed, the view waits hidden in the document, so the game keeps running.
+      // Closed, the view waits out of reach in the document, so the game keeps running.
       expect(frame.isConnected).toBe(true);
-      expect(frame.closest(".dock-parking")?.hasAttribute("hidden")).toBe(true);
+      const parking = frame.closest<HTMLElement>(".dock-parking")!;
+      expect(parking.getAttribute("aria-hidden")).toBe("true");
+      expect(parking.inert).toBe(true);
       await render(movePanel(layout, "game", "right"));
       expect(container.querySelector(".dock-area-right .dock-mount")?.contains(frame)).toBe(true);
       expect(moveBefore).toHaveBeenCalledWith(game.body, null);
