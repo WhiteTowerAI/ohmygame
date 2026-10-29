@@ -19,9 +19,10 @@ const created: ProjectState = {
 let capabilities: ConversationCapabilities = { plugins: [], skills: [] };
 const createProject = vi.fn(async () => created);
 const createConversation = vi.fn(async () => ({ id: "first" }));
+const getHomeComposerCapabilities = vi.fn(async () => capabilities);
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
-  getHomeComposerCapabilities: async () => capabilities,
+  getHomeComposerCapabilities,
   createProject,
   createConversation,
 }));
@@ -29,12 +30,26 @@ const { ProjectCreateDialog } =
   await import("../src/renderer/project-create-dialog.js");
 
 const godot = { name: "godot", displayName: "Godot", marketplaceId: "bundled" };
+const godotPlugin = {
+  id: "godot@bundled",
+  ...godot,
+  description: "",
+  marketplaceDisplayName: "Bundled",
+  projectTypes: ["godot-game", "general"] as const,
+};
+const godotMessage = {
+  prompt: "@Godot Make a maze",
+  mentions: [godot],
+  attachments: [],
+  mode: "normal" as const,
+};
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   capabilities = { plugins: [], skills: [] };
   createProject.mockClear();
   createConversation.mockClear();
+  getHomeComposerCapabilities.mockClear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -136,6 +151,40 @@ describe("new project dialog", () => {
       mode: "planning",
       attachments: [],
     });
+  });
+
+  it("waits for the plugins before creating, so the type follows the starting plugin", async () => {
+    let answer!: (value: ConversationCapabilities) => void;
+    getHomeComposerCapabilities.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    await act(async () =>
+      root.render(<ProjectCreateDialog firstMessage={godotMessage} onClose={() => {}} onCreated={() => {}} />),
+    );
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => button("Create and start").click());
+    expect(createProject).not.toHaveBeenCalled();
+    await act(async () => answer({ plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] }));
+    expect(button("Create and start").disabled).toBe(false);
+    // A second click while the first is still creating does nothing.
+    await act(async () => {
+      button("Create and start").click();
+      button("Create and start").click();
+    });
+    expect(createProject).toHaveBeenCalledTimes(1);
+    expect(createProject).toHaveBeenCalledWith({ type: "godot-game" });
+  });
+
+  it("offers a retry when the plugins fail to load", async () => {
+    getHomeComposerCapabilities.mockRejectedValueOnce(new Error("offline"));
+    await act(async () =>
+      root.render(<ProjectCreateDialog firstMessage={godotMessage} onClose={() => {}} onCreated={() => {}} />),
+    );
+    expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain("Couldn't load plugins");
+    expect(button("Create and start").disabled).toBe(true);
+    capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] };
+    await act(async () => button("Retry").click());
+    expect(document.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
+    expect(typeSelect().textContent).toBe("Godot");
+    expect(button("Create and start").disabled).toBe(false);
   });
 
   it("opens a blank project without a conversation", async () => {

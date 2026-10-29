@@ -75,6 +75,9 @@ export function ProjectCreateDialog({
   const [prompt, setPrompt] = useState(firstMessage?.prompt ?? "");
   const [name, setName] = useState("");
   const [plugins, setPlugins] = useState<Plugin[]>([]);
+  // The type and integration come from the plugins, so creating waits for them.
+  const [pluginsPhase, setPluginsPhase] = useState<"loading" | "ready" | "error">("loading");
+  const [pluginsRetry, setPluginsRetry] = useState(0);
   const mentions = activePluginMentions(prompt, firstMessage?.mentions ?? []);
   const referenced = plugins.filter((plugin) =>
     mentions.some((mention) => mention.name === plugin.name && mention.marketplaceId === plugin.marketplaceId),
@@ -100,16 +103,29 @@ export function ProjectCreateDialog({
 
   useEffect(() => {
     let active = true;
-    void getHomeComposerCapabilities().then((value) => { if (active) setPlugins(value.plugins); }).catch(() => {});
+    setPluginsPhase("loading");
+    void getHomeComposerCapabilities().then((value) => {
+      if (!active) return;
+      setPlugins(value.plugins);
+      setPluginsPhase("ready");
+    }).catch(() => { if (active) setPluginsPhase("error"); });
     return () => { active = false; };
-  }, []);
+  }, [pluginsRetry]);
 
   function close(): void {
     if (!creating) onClose();
   }
 
+  // State updates too late to stop a second click in the same tick.
+  const submitting = useRef(false);
   async function submit(): Promise<void> {
-    if (creating) return;
+    if (submitting.current || creating || pluginsPhase !== "ready") return;
+    submitting.current = true;
+    try { await create(); }
+    finally { submitting.current = false; }
+  }
+
+  async function create(): Promise<void> {
     setCreating(true);
     setError(undefined);
     try {
@@ -177,7 +193,7 @@ export function ProjectCreateDialog({
     <Dialog open onClose={close} title={t("createDialog.newProject")} size="md"
       footer={<>
         <Button disabled={creating} onClick={close}>{t("common.cancel")}</Button>
-        <Button variant="primary" disabled={creating} icon={creating ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => void submit()}>
+        <Button variant="primary" disabled={creating || pluginsPhase !== "ready"} icon={creating || pluginsPhase === "loading" ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => void submit()}>
           {firstMessage ? t("createDialog.createAndStart") : t("common.create")}
         </Button>
       </>}>
@@ -219,6 +235,12 @@ export function ProjectCreateDialog({
           <p className="new-project-error" role="alert">
             {t("creator.folderInUse", { name: existingProject.name })}
             {onOpenProject ? <Button size="sm" onClick={() => onOpenProject(existingProject.id)}>{t("creator.openProject")}</Button> : null}
+          </p>
+        ) : null}
+        {pluginsPhase === "error" ? (
+          <p className="new-project-error" role="alert">
+            {t("createDialog.pluginsFailed")}
+            <Button size="sm" onClick={() => setPluginsRetry((value) => value + 1)}>{t("common.retry")}</Button>
           </p>
         ) : null}
         {error ? <p className="new-project-error" role="alert">{error}</p> : null}

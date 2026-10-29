@@ -24,6 +24,11 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   waitForRuntime: async () => undefined,
   getProjectCover: async () => undefined,
 }));
+const publishRecentProjects = vi.fn();
+vi.doMock(path.resolve("src/renderer/app-sidebar.tsx"), async original => ({
+  ...(await original<typeof import("../src/renderer/app-sidebar.js")>()),
+  publishRecentProjects,
+}));
 vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({ PageFrame: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({ ProjectPromptCreator: () => null }));
 vi.doMock(path.resolve("src/renderer/examples.tsx"), () => ({
@@ -83,6 +88,8 @@ describe("project activity on project lists", () => {
     await push();
     expect(container.querySelector(".project-card-name")?.textContent).toBe("Moon Garden");
     expect(container.querySelector(".project-card-preview")!.innerHTML).toBe(cover);
+    // The sidebar's recent projects get the new name too.
+    expect(publishRecentProjects.mock.lastCall?.[0].map((item: ProjectState) => item.name)).toEqual(["Moon Garden"]);
     const calls = listProjects.mock.calls.length;
     await push();
     expect(listProjects).toHaveBeenCalledTimes(calls);
