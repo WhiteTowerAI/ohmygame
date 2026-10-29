@@ -325,7 +325,7 @@ Referencing Maker in an existing compatible project opens the connection panel;
 the project switches to Maker only when you continue, which turns off its Web
 preview and Community publishing. Closing the panel leaves the project as it was.
 While the connection cannot be used, for example after the plugin is disabled or
-removed, the Preview tab offers Disconnect plugin. It returns the project to an
+removed, the Game panel offers Disconnect plugin. It returns the project to an
 ordinary General project, stops a running native preview, and
 keeps Maker's binding files, so the project can connect again; Web preview stays
 off until you turn it on in Project settings. Conflicting plugin references

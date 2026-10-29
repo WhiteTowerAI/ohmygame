@@ -18,6 +18,7 @@ let container: HTMLDivElement;
 beforeEach(() => {
   vi.resetModules();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  localStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -244,20 +245,26 @@ async function click(name: string) {
 }
 
 describe("project shell layout", () => {
-  it("opens General Game Design with chat expanded and preserves manual toggles across project updates", async () => {
+  it("opens Game Design in its panel and keeps a closed chat closed across project updates", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const daemon = await openProject(() => undefined, detail("live-turn"), {
       view: "design",
     });
-    const collapsed = () =>
-      container
-        .querySelector(".workspace-shell")!
-        .classList.contains("workspace-shell-agent-collapsed");
+    const tabs = (area: string) =>
+      [...container.querySelectorAll(`.dock-area-${area} .dock-tab`)].map(
+        (tab) =>
+          `${tab.classList.contains("is-active") ? "*" : ""}${tab.querySelector(".dock-tab-label")!.textContent}`,
+      );
+    const menuItem = (name: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find(
+        (item) => item.textContent?.trim() === name,
+      )!;
 
-    expect(collapsed()).toBe(false);
-    expect(button("Hide agent")).toBeDefined();
-    await click("Hide agent");
-    expect(collapsed()).toBe(true);
+    // A General project without a preview offers no game panel.
+    expect(tabs("left")).toEqual(["*Chat"]);
+    expect(tabs("center")).toEqual(["Code", "*Design", "Assets"]);
+    await click("Close Chat");
+    expect(container.querySelector(".dock-area-left")).toBeNull();
 
     await act(async () =>
       daemon.send(1, "workspace.restored", {
@@ -266,10 +273,16 @@ describe("project shell layout", () => {
       }),
     );
     await settle();
-    expect(collapsed()).toBe(true);
+    expect(container.querySelector(".dock-area-left")).toBeNull();
+    expect(
+      JSON.parse(localStorage.getItem("ohmygame-workspace-layout.game")!)
+        .layout.left.panels,
+    ).toEqual([]);
 
-    await click("Show agent");
-    expect(collapsed()).toBe(false);
+    await click("Layout and panels");
+    await act(async () => menuItem("Chat").click());
+    await settle();
+    expect(tabs("left")).toEqual(["*Chat"]);
   });
 });
 

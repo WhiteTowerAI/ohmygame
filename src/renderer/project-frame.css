@@ -219,24 +219,14 @@
   -webkit-app-region: no-drag;
 }
 
-/* The workspace sits in the frame's body as one sheet, under the top bar:
-   the window controls and the way back are the frame's now. */
-.project-body .workspace-shell,
-.desktop-macos .project-body .workspace-shell {
-  --workspace-navigation-left: 16px;
-  min-height: 0;
-  height: 100%;
-  overflow: hidden;
-  border-radius: var(--radius-lg);
-}
-
 /* The top bar drags the window, so the panel headers under it don't. */
 .desktop-macos .project-body .window-drag-handle {
   app-region: no-drag;
   user-select: auto;
 }
 
-/* With the chat hidden, only its show button sits before the views. */
-.project-body .workspace-shell-agent-collapsed :is(.viewer-header, .interactive-story-header, .story-node-editor-header) {
-  padding-left: calc(var(--workspace-navigation-left) + 40px);
+/* A view's own tabs lead its panel's toolbar; its actions stay at the end. */
+.project-body .dock-view-toolbar > .viewer-navigation,
+.project-body .dock-view-toolbar > .viewer-navigation > :last-child {
+  margin-right: auto;
 }

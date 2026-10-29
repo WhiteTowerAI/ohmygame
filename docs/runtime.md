@@ -540,6 +540,33 @@ See the [project menu example](assets/project-card-menu.png).
 The desktop file opener resolves `.` through `/projects/:projectId/files/location`
 to open the workspace root; file reads and writes still require a file path.
 
+## Workspace panels
+
+Below the top bar a project is a set of panels in four areas: left, middle,
+right and bottom. Each panel is a tab; its controls sit beside the tabs. A tab
+drags to another area or to an empty edge, its right-click menu moves or
+closes it, and an area's **+** reopens a closed panel there. Area edges drag to
+resize. A moved or closed panel keeps its state, such as the open file or the
+design canvas, until the project closes.
+
+What a project offers depends on its type:
+
+| Kind | Project types | Panels | Opens with |
+|---|---|---|---|
+| Game | Web games, General projects, Godot with a web build | Chat, Game, Design, Code, Assets | Chat on the left; Game first in the middle, or Code without a preview |
+| Engine | Godot without a web build | Chat, Design, Code, Assets | Chat first in the middle, in one centered column |
+| Story | Interactive Story | Chat, Story | Chat on the left, Story in the middle |
+| Canvas | Asset canvas | Chat, Canvas | Chat on the left, Canvas in the middle |
+
+**Layout and panels** in the top bar applies a preset (Default for every kind;
+Art and Code for games; Code for engine projects) and turns each panel on or
+off. The arrangement is kept per kind in local storage
+(`ohmygame-workspace-layout.<kind>`), so it carries across the projects of that
+kind; panels added later open where the default puts them, and closed ones stay
+closed. The chat side used to be a setting; a saved **Right** still decides
+where the chat first opens. The route's `design` view brings the Design panel
+forward and follows it.
+
 ## Checkpoints
 
 All project types record private workspace snapshots before each consumed user

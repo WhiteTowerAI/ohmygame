@@ -445,21 +445,6 @@ body {
   color: var(--theme-accent);
 }
 
-.settings-chat-layout-row {
-  display: flex;
-  min-height: 36px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0 4px;
-}
-
-.settings-chat-layout-label {
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 500;
-}
-
 .segmented-control {
   position: relative;
   isolation: isolate;
@@ -485,38 +470,6 @@ body {
   transition: color 140ms ease;
 }
 
-.settings-chat-layout-control {
-  --segmented-indicator-radius: 5px;
-  --segmented-indicator-shadow: 0 1px 3px rgb(0 0 0 / 12%);
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 7px;
-  background: var(--settings-row-surface);
-}
-
-.settings-chat-layout-control button {
-  min-width: 52px;
-  height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.settings-chat-layout-control button:hover,
-.settings-chat-layout-control button:focus-visible {
-  color: var(--text);
-}
-
-.settings-chat-layout-control button[aria-pressed="true"] {
-  color: var(--text);
-}
 .plugin-connection-status {
   padding: 0;
   border: 0;
@@ -4935,15 +4888,6 @@ button {
   background: var(--canvas);
 }
 
-.workspace-shell-chat-right {
-  grid-template-columns: minmax(0, 1fr) 1px clamp(320px, var(--agent-width, 430px), 65vw);
-  grid-template-areas: "viewer resizer agent";
-}
-
-.workspace-shell-chat-right .agent-pane > .pane-header > .workspace-navigation-drag-exclusion {
-  display: none;
-}
-
 .agent-pane {
   grid-area: agent;
 }
@@ -4965,22 +4909,6 @@ button {
   grid-template-areas: "agent resizer viewer";
 }
 
-.workspace-shell-chat-right.workspace-shell-agent-collapsed {
-  grid-template-columns: minmax(0, 1fr) 0 0;
-  grid-template-areas: "viewer resizer agent";
-}
-
-.workspace-shell-viewer-collapsed {
-  --agent-content-column-width: 720px;
-  grid-template-columns: minmax(0, 1fr) 0 0;
-  grid-template-areas: "agent resizer viewer";
-}
-
-.workspace-shell-chat-right.workspace-shell-viewer-collapsed {
-  grid-template-columns: 0 0 minmax(0, 1fr);
-  grid-template-areas: "viewer resizer agent";
-}
-
 .tool-artifact-preview {
   min-height: 120px;
 }
@@ -4991,13 +4919,12 @@ button {
   pointer-events: none;
 }
 
-.workspace-shell-viewer-collapsed .viewer-pane {
-  overflow: hidden;
-  visibility: hidden;
-  pointer-events: none;
+/* A chat in the middle of the workspace reads in one centered column. */
+.dock-area-center .agent-pane {
+  --agent-content-column-width: 720px;
 }
 
-.workspace-shell-viewer-collapsed :is(.timeline, .composer, .plan-review) {
+.dock-area-center .agent-pane :is(.timeline, .composer, .plan-review) {
   padding-right: max(
     18px,
     calc((100% - var(--agent-content-column-width)) / 2)
@@ -5005,7 +4932,7 @@ button {
   padding-left: max(18px, calc((100% - var(--agent-content-column-width)) / 2));
 }
 
-.workspace-shell-viewer-collapsed .agent-body > .questionnaire-card {
+.dock-area-center .agent-body > .questionnaire-card {
   width: min(calc(100% - 36px), var(--agent-content-column-width));
   margin-right: auto;
   margin-left: auto;
@@ -5034,6 +4961,11 @@ button {
   grid-template-rows: 50px minmax(0, 1fr) auto;
   overflow: hidden;
   background: var(--surface);
+}
+
+/* In a panel, its tabs and controls are in the panel's toolbar instead of a header. */
+.dock-view > .viewer-pane.interactive-story-workspace {
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
 :root[data-appearance="light"] .viewer-pane.interactive-story-workspace {
@@ -7078,10 +7010,6 @@ button {
   pointer-events: none;
 }
 
-.workspace-shell-viewer-collapsed .workspace-resizer {
-  pointer-events: none;
-}
-
 .workspace-resize-shield {
   position: fixed;
   z-index: 20;
@@ -7353,20 +7281,6 @@ button {
 
 .workspace-shell-agent-collapsed :is(.viewer-header, .interactive-story-header, .story-node-editor-header) {
   padding-left: calc(var(--workspace-navigation-left) + 112px);
-}
-
-.workspace-shell-chat-right.workspace-shell-agent-collapsed :is(.viewer-header, .interactive-story-header, .story-node-editor-header) {
-  padding-left: 18px;
-}
-
-.desktop-macos .workspace-shell-chat-right :is(.viewer-header, .interactive-story-header, .story-node-editor-header) {
-  padding-left: var(--workspace-navigation-left);
-}
-
-.workspace-shell-chat-right.workspace-shell-agent-collapsed
-  :is(.viewer-header, .interactive-story-header)
-  > .workspace-navigation-drag-exclusion {
-  display: none;
 }
 
 .agent-body {
@@ -10680,18 +10594,6 @@ button {
   display: contents;
 }
 
-.viewer-navigation.is-chat-right {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-  grid-column: 1;
-}
-
-.viewer-navigation.is-chat-right .workspace-tabs {
-  flex: 0 0 auto;
-}
-
 .viewer-controls-slot {
   min-width: 0;
   max-width: 100%;
@@ -11089,10 +10991,6 @@ button {
 @container workspace-header (max-width: 380px) {
   .workspace-tabs {
     --workspace-tab-width: 28px;
-  }
-
-  .viewer-navigation.is-chat-right {
-    gap: 4px;
   }
 
   .viewer-navigation .workspace-home-button,
@@ -12062,20 +11960,6 @@ button {
   .workspace-shell-agent-collapsed {
     grid-template-columns: 1fr;
     grid-template-rows: 0 minmax(380px, 100dvh);
-    grid-template-areas: "agent" "viewer";
-  }
-
-  .workspace-shell-viewer-collapsed {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 100dvh) 0;
-    height: 100dvh;
-    grid-template-areas: "agent" "viewer";
-  }
-
-  .workspace-shell-chat-right,
-  .workspace-shell-chat-right.workspace-shell-agent-collapsed,
-  .workspace-shell-chat-right.workspace-shell-viewer-collapsed {
-    grid-template-columns: 1fr;
     grid-template-areas: "agent" "viewer";
   }
 
