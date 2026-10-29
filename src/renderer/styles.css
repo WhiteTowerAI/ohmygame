@@ -10886,14 +10886,24 @@ summary.work-summary:hover {
   color: var(--color-text);
 }
 
-/* In a narrow area the address shrinks to its state and reload. */
+/* In a narrow area the address shrinks to its state, the page picker's
+   chevron and reload. The path stays the picker's name for screen readers. */
 @container dock-area (max-width: 560px) {
   .preview-location {
     width: auto;
   }
 
   .preview-location-trigger {
-    display: none;
+    flex: none;
+  }
+
+  .preview-location-path {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }
 
