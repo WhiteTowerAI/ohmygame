@@ -3,7 +3,7 @@ import path from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { Node } from "@xyflow/react";
+import { ReactFlowProvider, type Node } from "@xyflow/react";
 import type { EditorCanvas } from "../src/renderer/editor-canvas.js";
 import type { CanvasBoardStorage } from "../src/renderer/canvas-board-storage.js";
 import type { CanvasDocuments } from "../src/renderer/canvas-document-node.js";
@@ -30,7 +30,7 @@ vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
   ...(await original<typeof import("../src/renderer/editor-canvas.js")>()),
   EditorCanvas: (value: CanvasProps) => {
     props = value;
-    return <div />;
+    return <ReactFlowProvider>{value.addControl}</ReactFlowProvider>;
   },
 }));
 vi.doMock(
@@ -67,6 +67,8 @@ vi.doMock(path.resolve("src/renderer/library-assets.ts"), async (original) => ({
 }));
 const { CanvasBoardEditor } =
   await import("../src/renderer/asset-canvas-workspace.js");
+const { MusicNode, SoundEffectNode, SpeechNode, AudioSceneNode } =
+  await import("../src/renderer/asset-canvas-nodes.js");
 const { CanvasTableStorage } =
   await import("../src/renderer/canvas-table-storage.js");
 const { CanvasAssetProvider, canvasAssetSources } =
@@ -247,6 +249,49 @@ async function openViewer(nodeId: string): Promise<void> {
     ),
   );
 }
+
+it.each([
+  ["music", MusicNode, false],
+  ["sound effect", SoundEffectNode, false],
+  ["existing speech", SpeechNode, true],
+  ["existing audio scene", AudioSceneNode, true],
+] as const)("renders the expected companion downloads for %s nodes", async (_label, AudioNode, showMetadata) => {
+  await act(async () => root.render(
+    <CanvasAssetProvider assets={canvasAssetSources("download", assets)}>
+      <ReactFlowProvider>
+        <AudioNode selected={false} data={{
+          prompt: "", assetId: "audio-output", audioRuntime: {
+            generating: false, busy: false, models: [], providers: [],
+            onChange: vi.fn(), onGenerate: vi.fn(),
+            audio: {
+              metadata: { durationMs: 1200 },
+              subtitles: { text: "Hello", sentences: [{ text: "Hello", startMs: 0, endMs: 1200 }] },
+            },
+          },
+        }} />
+      </ReactFlowProvider>
+    </CanvasAssetProvider>,
+  ));
+  const labels = [...container.querySelectorAll(".audio-companion-downloads button")].map((button) => button.textContent);
+  expect(container.querySelector("audio")).not.toBeNull();
+  expect(labels).toEqual(showMetadata ? ["Audio JSON", "SRT", "WebVTT"] : ["SRT", "WebVTT"]);
+});
+
+it.each(["toolbar", "context menu"])("offers only music and sound effects in the %s audio entries", async (entry) => {
+  if (entry === "toolbar") {
+    await act(async () => container.querySelector<HTMLButtonElement>(`button[aria-label="${t("assetCanvas.addNode")}"]`)!.click());
+  } else {
+    await act(async () => props.onOpenMenu({ kind: "pane", screenPosition: { x: 0, y: 0 }, flowPosition: { x: 0, y: 0 } }));
+    const add = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent === t("assetCanvas.addNode"))!;
+    await act(async () => add.click());
+  }
+  const menu = document.querySelector(`[role="menu"][aria-label="${t("assetCanvas.addNode")}"]`)!;
+  expect(menu).not.toBeNull();
+  expect(menu.textContent).toContain(t("assetCanvas.node.music"));
+  expect(menu.textContent).toContain(t("assetCanvas.node.soundEffect"));
+  expect(menu.textContent).not.toContain(t("assetCanvas.node.speech"));
+  expect(menu.textContent).not.toContain(t("audioStudio.scene"));
+});
 
 it.each([
   ["image-0", "小猫照片.webp", "assets/imported/output.webp"],

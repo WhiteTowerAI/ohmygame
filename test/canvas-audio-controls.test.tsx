@@ -3,6 +3,7 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  AudioCompanionDownloads,
   CanvasAudioControls,
   audioSettingsIssue,
 } from "../src/renderer/canvas-audio-controls.js";
@@ -26,6 +27,27 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
   vi.unstubAllGlobals();
+});
+
+it("hides the metadata button independently of subtitle downloads", async () => {
+  const data = {
+    metadata: { durationMs: 1200 },
+    subtitles: {
+      text: "Hello",
+      sentences: [{ text: "Hello", startMs: 0, endMs: 1200 }],
+    },
+  };
+  const labels = () => [...host.querySelectorAll("button")].map((button) => button.textContent);
+  await act(async () =>
+    root.render(<AudioCompanionDownloads data={data} showMetadata={false} />),
+  );
+  expect(labels()).toEqual(["SRT", "WebVTT"]);
+  await act(async () => root.render(
+    <AudioCompanionDownloads data={{ metadata: data.metadata }} showMetadata={false} />,
+  ));
+  expect(host.children).toHaveLength(0);
+  await act(async () => root.render(<AudioCompanionDownloads data={data} />));
+  expect(labels()).toEqual(["Audio JSON", "SRT", "WebVTT"]);
 });
 
 it("offers format-specific rates and persists the subtitle and voice controls", async () => {

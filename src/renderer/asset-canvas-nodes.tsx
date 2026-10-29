@@ -289,7 +289,7 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
   const label = operation === "music" ? t("assetCanvas.node.music") : operation === "speech" ? t("assetCanvas.node.speech") : operation === "audio-scene" ? t("audioStudio.scene") : t("assetCanvas.node.soundEffect");
 
   return (
-    <MediaNodeShell kind="audio" label={label} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails}>
+    <MediaNodeShell kind="audio" label={label} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails} showAudioMetadata={operation !== "music" && operation !== "sound-effect"}>
       <MediaPrompt
         kind="audio"
         label={operation === "speech" ? t("assetCanvas.node.speech") : operation === "audio-scene" ? t("audioStudio.scene") : operation === "music" ? t("assetCanvas.musicPrompt") : t("assetCanvas.soundEffectPrompt")}
@@ -744,7 +744,7 @@ function TextReferenceThumbnail({ runtime }: { runtime: Pick<MediaNodeRuntime, "
   );
 }
 
-function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, assetId, assetAspectRatio, aspectRatio, runtime, details, emptyHint, children }: {
+function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, assetId, assetAspectRatio, aspectRatio, runtime, details, emptyHint, showAudioMetadata, children }: {
   kind: "image" | "video" | "audio" | "model" | "animation";
   label?: string;
   selected: boolean;
@@ -755,6 +755,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
   runtime?: MediaNodeRuntime;
   details?: CanvasNodeDetails;
   emptyHint?: string;
+  showAudioMetadata?: boolean;
   children: React.ReactNode;
 }) {
   const preview = useWorkspaceAssetUrl(undefined, "", 0, assetId);
@@ -771,7 +772,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
         {preview.url ? kind === "audio" ? null : <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt={t("timeline.generatedImage")} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
-        {preview.url && audio ? <CanvasAudio src={preview.url} data={runtime && "audio" in runtime ? runtime.audio as AudioAssetData : undefined} /> : null}
+        {preview.url && audio ? <CanvasAudio src={preview.url} data={runtime && "audio" in runtime ? runtime.audio as AudioAssetData : undefined} showMetadata={showAudioMetadata} /> : null}
         {preview.url && threeD ? <ModelPreview source={preview.url} label={kind === "animation" ? t("assetCanvas.animated3d") : t("timeline.generated3d")} minHeight={220} interactive={false} /> : null}
         {!preview.url && !runtime?.generating ? (
           <div className="story-media-empty">
@@ -865,7 +866,7 @@ function CanvasVideo({ src, onLoadedMetadata }: {
   );
 }
 
-function CanvasAudio({ src, data }: { src: string; data?: AudioAssetData }) {
+function CanvasAudio({ src, data, showMetadata }: { src: string; data?: AudioAssetData; showMetadata?: boolean }) {
   const audio = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -899,7 +900,7 @@ function CanvasAudio({ src, data }: { src: string; data?: AudioAssetData }) {
         onLoadedMetadata={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
         onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
       />
-      <AudioCompanionDownloads data={data} />
+      <AudioCompanionDownloads data={data} showMetadata={showMetadata} />
       {data?.subtitles?.sentences.length ? <select className="audio-subtitle-seek nodrag nopan" aria-label={t("audioStudio.transcript")} value="" onChange={(event) => { const sentence = data.subtitles!.sentences[Number(event.target.value)]; if (sentence && audio.current) { audio.current.currentTime = sentence.startMs / 1000; setCurrentTime(sentence.startMs / 1000); } }}><option value="">{t("audioStudio.transcript")}</option>{data.subtitles.sentences.map((sentence, index) => <option key={index} value={index}>{(sentence.startMs / 1000).toFixed(2)}s · {sentence.text}</option>)}</select> : null}
       {data?.subtitles ? <p className="audio-current-subtitle">{data.subtitles.sentences.find((sentence) => currentTime * 1000 >= sentence.startMs && currentTime * 1000 < sentence.endMs)?.text ?? ""}</p> : null}
       <InlineVideoControls

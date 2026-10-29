@@ -44,10 +44,11 @@ prompts, or precise lyric singing. Unsupported controls fail before generation.
 
 ## Asset Canvas
 
-Speech, Sound effect, Music, and Audio creation are always offered, like Image
-and Video. Until a configured, enabled model supports the operation, the node
-shows that no audio model is available, and the Agent's audio tools report the
-same when called. Existing nodes remain readable after a service is
+The Add menu offers Sound effect and Music, and the home quick start creates a
+Music node. Speech and Audio creation are no longer offered as creation entries;
+existing nodes remain supported. Until a configured, enabled model supports the
+operation, the node shows that no audio model is available, and the Agent's audio
+tools report the same when called. Existing nodes remain readable after a service is
 disconnected. Text and Document nodes can supply prompt content.
 
 **Audio settings** exposes model-supported controls:
@@ -183,8 +184,9 @@ subtitle JSON and metadata in the Library and canvas manifest, including
 provider request ID, actual duration, original billable duration when returned,
 sample rate, codec, and reported character usage.
 
-Library/canvas previews offer Audio JSON, SRT, and WebVTT downloads. Materializing
-an asset in a game project writes companions beside the audio:
+Library/canvas previews offer Audio JSON, SRT, and WebVTT downloads. Music and
+Sound effect nodes hide the Audio JSON button while keeping subtitle downloads.
+Materializing an asset in a game project writes companions beside the audio:
 
 - `voice.mp3.audio.json` — normalized subtitles, metadata, and generation input;
 - `voice.mp3.srt` and `voice.mp3.vtt` — sentence-level subtitles, when available.

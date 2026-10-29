@@ -53,7 +53,7 @@ describe("Asset Canvas quick start", () => {
 
   it("lists generic starters first, then every model starter", () => {
     expect(quickStart.ASSET_CANVAS_QUICK_STARTS.map((item) => item.label)).toEqual([
-      "Image", "Video", "3D", "Audio", "GPT Image 2.5", "Nano Banana 2", "Seedance 2.5",
+      "Image", "Video", "3D", "Music", "GPT Image 2.5", "Nano Banana 2", "Seedance 2.5",
     ]);
   });
 
@@ -118,7 +118,7 @@ describe("Asset Canvas quick start", () => {
 
   it.each([
     ["image", "image"],
-    ["audio", "audio-scene"],
+    ["music", "music"],
   ])("creates the %s starter without a model when none is configured", async (starterKey, type) => {
     await createAssetCanvasQuickStart(starter(starterKey));
 

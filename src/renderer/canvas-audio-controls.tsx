@@ -136,14 +136,20 @@ export function audioSettingsIssue(
 export function AudioCompanionDownloads({
   data,
   name = "audio",
+  showMetadata = true,
 }: {
   data?: AudioAssetData;
   name?: string;
+  showMetadata?: boolean;
 }) {
   if (!data) return null;
+  const files = audioCompanionFiles(name, data).filter(
+    (file) => showMetadata || file.role !== "metadata",
+  );
+  if (!files.length) return null;
   return (
     <div className="audio-companion-downloads nodrag nopan">
-      {audioCompanionFiles(name, data).map((file) => (
+      {files.map((file) => (
         <button
           key={file.name}
           type="button"
