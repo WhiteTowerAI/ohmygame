@@ -13,7 +13,7 @@ export type SidebarPage =
   | "asset-canvas"
   | "community";
 
-export type SettingsSection = "account" | "billing" | "appearance" | "providers" | "agents" | "web-search" | "network" | "mcp-server" | "about";
+export type SettingsSection = "general" | "account" | "billing" | "appearance" | "providers" | "agents" | "web-search" | "network" | "mcp-server" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
 export type ProjectSort = "updated" | "name";
 export interface ProjectListFilters {
@@ -23,7 +23,7 @@ export interface ProjectListFilters {
 }
 type SidebarRoutePage = Exclude<SidebarPage, "community" | "projects" | "plugins">;
 
-export const DEFAULT_SETTINGS_SECTION: SettingsSection = "providers";
+export const DEFAULT_SETTINGS_SECTION: SettingsSection = "general";
 
 const SIDEBAR_PAGES = new Set<SidebarRoutePage>([
   "home", "library", "general", "web-game", "interactive-story", "godot", "asset-canvas",
@@ -35,7 +35,7 @@ export type AppRoute =
   | { page: "community" }
   | { page: "community-profile"; authorId: string }
   | { page: "plugins"; pluginId?: string }
-  | { page: "settings"; section: SettingsSection }
+  | { page: "settings"; section: SettingsSection; agent?: string }
   | { page: "plugin-builder"; sessionId: string }
   | { page: "game"; gameId: string }
   | { page: "playtest"; projectId: string }
@@ -54,9 +54,12 @@ export function parseAppRoute(hash: string): AppRoute {
       return { page: "plugins" };
     }
   }
-  const settingsMatch = /^#\/settings(?:\/(account|billing|appearance|providers|agents|web-search|network|connections|mcp-server|about))?$/.exec(hash);
+  const settingsMatch = /^#\/settings(?:\/(general|account|billing|appearance|providers|agents|web-search|network|connections|mcp-server|about))?$/.exec(hash);
   if (settingsMatch?.[1] === "connections") return { page: "plugins" };
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? DEFAULT_SETTINGS_SECTION };
+  // Every agent, OhMyGame's own included, has its own settings page.
+  const agentMatch = /^#\/settings\/agents\/([a-z0-9-]+)$/.exec(hash);
+  if (agentMatch?.[1]) return { page: "settings", section: "agents", agent: agentMatch[1] };
   const communityMatch = /^#\/community(?:\/games)?$/.exec(hash);
   if (communityMatch) return { page: "community" };
   const profileMatch = /^#\/community\/creators\/([^/]+)$/.exec(hash);
@@ -132,8 +135,8 @@ export function sidebarHash(page: SidebarPage): string {
   return page === "community" ? communityHash() : `#/${page}`;
 }
 
-export function settingsHash(section: SettingsSection): string {
-  return `#/settings/${section}`;
+export function settingsHash(section: SettingsSection, agent?: string): string {
+  return agent && section === "agents" ? `#/settings/agents/${agent}` : `#/settings/${section}`;
 }
 
 export function projectsHash({ projectType, query, sort }: ProjectListFilters = {}): string {

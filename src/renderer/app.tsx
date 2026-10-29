@@ -79,7 +79,7 @@ export function App() {
   if (route.page === "home" && !onboarding.state) return <OnboardingLoading error={onboarding.error} onRetry={onboarding.retry} />;
   if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} /></Suspense>;
   if (route.page === "settings") {
-    return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
+    return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} agent={route.agent} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
   }
   if (route.page === "plugins") return <>{creationGate.dialog}<SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
     <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
@@ -194,8 +194,9 @@ export function App() {
     navigate(hash);
   }
 
-  function navigateToSettingsSection(section: SettingsSection): void {
-    navigate(settingsHash(section), { replace: true, state: historyState() });
+  function navigateToSettingsSection(section: SettingsSection, agent?: string): void {
+    // An agent's page is a step into its section, so Back returns to the list.
+    navigate(settingsHash(section, agent), agent ? { state: historyState() } : { replace: true, state: historyState() });
   }
 
   function navigateToPlugin(pluginId?: string): void {

@@ -10,6 +10,7 @@ import {
 import { useAuth } from "./auth.js";
 import {
   CircleStop,
+  FolderOpen,
   LoaderCircle,
   MoreHorizontal,
   Pencil,
@@ -18,8 +19,10 @@ import {
 } from "./icons.js";
 import { PublishDialog } from "./publish-dialog.js";
 import { communityProfileHash, projectHash } from "./routes.js";
+import { DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
 
-/** Mounted only for the signed-in author; local project lookup waits for Edit. */
+/** Mounted only for the signed-in author; the local project lookup waits until
+ * the menu or the editor opens. */
 export function CommunityGameActions({
   game,
   accessToken,
@@ -32,6 +35,7 @@ export function CommunityGameActions({
   onUnpublished: () => void;
 }) {
   const auth = useAuth();
+  const [menuOpened, setMenuOpened] = useState(false);
   const [editing, setEditing] = useState(false);
   const [project, setProject] = useState<ProjectState>();
   const [confirming, setConfirming] = useState(false);
@@ -40,11 +44,9 @@ export function CommunityGameActions({
   const [publishingProject, setPublishingProject] = useState<ProjectState>();
   const [publishing, setPublishing] = useState(false);
   const [justPublished, setJustPublished] = useState(false);
-  const [more, setMore] = useState(false);
-  const menuId = useId();
-  const menu = useRef<HTMLDivElement>(null);
-  const moreButton = useRef<HTMLButtonElement>(null);
+  const moreButton = useRef<HTMLButtonElement | null>(null);
   const mounted = useRef(false);
+  const lookUpProject = menuOpened || editing;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -52,7 +54,7 @@ export function CommunityGameActions({
     };
   }, []);
   useEffect(() => {
-    if (!editing) return;
+    if (!lookUpProject) return;
     let active = true;
     void listProjects()
       .catch(() => [])
@@ -65,15 +67,7 @@ export function CommunityGameActions({
     return () => {
       active = false;
     };
-  }, [editing, game.id]);
-  useEffect(() => {
-    if (!more) return;
-    const close = (event: PointerEvent) => {
-      if (!menu.current?.contains(event.target as Node)) setMore(false);
-    };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, [more]);
+  }, [lookUpProject, game.id]);
 
   async function unpublish() {
     if (unpublishing) return;
@@ -93,71 +87,57 @@ export function CommunityGameActions({
     }
   }
 
+  const items: MenuEntry[] = [
+    {
+      label: t("community.editGame"),
+      icon: <Pencil size={14} />,
+      onSelect: () => setEditing(true),
+    },
+    ...(project
+      ? [
+          {
+            label: t("community.openProject"),
+            icon: <FolderOpen size={14} />,
+            onSelect: () => {
+              window.location.hash = projectHash(project.id);
+            },
+          },
+        ]
+      : []),
+    "separator",
+    {
+      label: t("community.unpublish"),
+      icon: <CircleStop size={14} />,
+      danger: true,
+      onSelect: () => {
+        setError(undefined);
+        setConfirming(true);
+      },
+    },
+  ];
+
   return (
     <>
-      <div className="community-game-actions">
-        <button
-          className="community-edit-button"
-          type="button"
-          aria-label={t("community.editGame")}
-          onClick={() => setEditing(true)}
-        >
-          <Pencil size={14} /> {t("community.editGame")}
-        </button>
-        <div
-          className="community-game-more"
-          ref={menu}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              setMore(false);
-              moreButton.current?.focus();
-            } else if (event.key === "Tab") setMore(false);
-          }}
-        >
-          <button
-            className="projects-icon-button"
-            type="button"
-            ref={moreButton}
-            aria-label={t("community.moreActions")}
-            title={t("community.moreActions")}
-            aria-haspopup="menu"
-            aria-expanded={more}
-            aria-controls={more ? menuId : undefined}
-            onClick={() => setMore(!more)}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                event.preventDefault();
-                setMore(true);
-              }
+      <DropdownMenu
+        placement="bottom-end"
+        items={items}
+        trigger={({ ref, onClick, ...props }) => (
+          <IconButton
+            {...props}
+            ref={(node) => {
+              ref.current = node;
+              moreButton.current = node;
+            }}
+            label={t("community.moreActions")}
+            onClick={() => {
+              setMenuOpened(true);
+              onClick();
             }}
           >
             <MoreHorizontal size={16} />
-          </button>
-          {more ? (
-            <div
-              className="community-game-menu"
-              id={menuId}
-              role="menu"
-              aria-label={t("community.gameActions")}
-            >
-              <button
-                type="button"
-                role="menuitem"
-                autoFocus
-                onClick={() => {
-                  moreButton.current?.focus();
-                  setMore(false);
-                  setError(undefined);
-                  setConfirming(true);
-                }}
-              >
-                <CircleStop size={14} /> {t("community.unpublish")}
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </div>
+          </IconButton>
+        )}
+      />
       {confirming ? (
         <UnpublishConfirmation
           game={game}

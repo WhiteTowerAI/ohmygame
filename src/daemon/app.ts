@@ -614,7 +614,7 @@ export function createApp(options: AppOptions = {}) {
     const address = app.server.address();
     return address && typeof address === "object" ? `http://127.0.0.1:${address.port}` : undefined;
   });
-  /** Whether a model's provider is on: a Pi provider in Providers & Models, or a coding agent turned on there. */
+  /** Whether a model's provider is on: a Pi provider in Providers, or a coding agent turned on there. */
   const modelProviderEnabled = (provider: string) => isAgentRuntimeId(provider) ? agentRuntimes.settings.get(provider).enabled : providerEnabled(provider);
   const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
   const openAIEndpoint = new ModelEndpointSettingsStore(
@@ -1070,7 +1070,7 @@ export function createApp(options: AppOptions = {}) {
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginCapabilities, plugins, localPlugins, invalidatePluginSessions, async ref => {
     const runtime = await getModelRuntime();
     const model = await availableModel(ref.provider, ref.id);
-    if (!model) throw new Error("Select an available model in Providers & Models");
+    if (!model) throw new Error("Select an available model in Providers");
     return { runtime, model };
   });
   registerPluginSetupRoutes(app, pluginSetup);
