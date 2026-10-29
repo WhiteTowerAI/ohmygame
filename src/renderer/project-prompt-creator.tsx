@@ -48,7 +48,12 @@ export function ProjectPromptCreator({ draftKey, projectType, projectTypes = PRO
   const [capabilities, setCapabilities] = useState(EMPTY_CAPABILITIES);
   const [mentionCursor, setMentionCursor] = useState(0);
   const created = useRef<{ project: ProjectState; conversationId?: string; workspacePath?: string } | undefined>(undefined);
-  const [creating, setCreating] = useState(false);
+  const [creatingLocally, setCreatingLocally] = useState(false);
+  const creating = creatingLocally || draft.submitting;
+  const setCreating = (value: boolean) => {
+    setCreatingLocally(value);
+    if (!value) draftSession.update({ submitting: false });
+  };
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [error, setError] = useState<string>();
   const [model, setModel] = useState<AgentModelRef>();
@@ -110,6 +115,7 @@ export function ProjectPromptCreator({ draftKey, projectType, projectTypes = PRO
     const submittedPrompt = formatComposerInvocation(selectedSkill, selectedPlugin, prompt.trim());
     if ((!submittedPrompt && attachments.length === 0) || creating) return;
     const submittedDraft = draft;
+    draftSession.update({ submitting: true });
     setCreating(true);
     setError(undefined);
     try {
@@ -141,6 +147,7 @@ export function ProjectPromptCreator({ draftKey, projectType, projectTypes = PRO
         uploaded,
       );
       draftSession.clearSubmitted(submittedDraft);
+      setCreating(false);
     } catch (cause) {
       setError(errorMessage(cause));
       setCreating(false);
