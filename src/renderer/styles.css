@@ -2824,41 +2824,6 @@ select.settings-search-input {
   gap: 14px;
   padding: 20px;
 }
-.project-settings-project {
-  display: grid;
-  gap: 5px;
-}
-.project-settings-dialog:has(.project-run-settings) { width: min(500px, 100%); }
-.project-settings-dialog .project-run-settings { gap: 16px; padding-top: 4px; }
-.project-run-settings .project-settings-project {
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
-  gap: 12px;
-}
-.project-run-settings .project-settings-project > strong { text-align: right; }
-.project-settings-switches { display: grid; gap: 4px; }
-.project-settings-switches .project-settings-preview-toggle { min-height: 30px; }
-.project-settings-preview-toggle > strong { font-weight: 500; }
-.project-settings-group { display: grid; gap: 12px; padding-top: 16px; border-top: 1px solid var(--border); }
-.project-settings-group h3 { margin: 0; color: var(--text); font-size: 12px; font-weight: 600; }
-.project-run-settings .project-settings-field-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.project-run-settings label { min-width: 0; }
-.project-run-settings .project-settings-section :is(input, select) { min-width: 0; width: 100%; }
-.project-run-settings .project-settings-fold > summary { font-weight: 600; }
-.project-run-settings .project-settings-fold.is-nested > summary { font-weight: 500; }
-.project-settings-project > span {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 500;
-}
-.project-settings-project > strong {
-  overflow: hidden;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .project-settings-section {
   display: grid;
   gap: 12px;
@@ -2871,38 +2836,6 @@ select.settings-search-input {
   color: var(--text);
   font-size: 12px;
   font-weight: 600;
-}
-.project-settings-fold {
-  border-top: 1px solid var(--border);
-}
-.project-settings-fold > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 12px 0;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 500;
-  list-style: none;
-  cursor: pointer;
-}
-.project-settings-fold > summary::-webkit-details-marker { display: none; }
-.project-settings-fold[open] > summary > svg { transform: rotate(180deg); }
-.project-settings-fold > .project-settings-section { padding: 2px 0 12px; }
-.project-settings-fold.is-nested > summary { color: var(--text-muted); font-size: 11px; }
-.project-settings-hint {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-.project-settings-preview-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  font-size: 12px;
 }
 .project-settings-field-row {
   display: grid;
@@ -2931,38 +2864,6 @@ select.settings-search-input {
 .project-settings-dialog select {
   cursor: pointer;
   font-family: inherit;
-}
-.project-settings-browser {
-  display: inline-flex;
-  width: fit-content;
-  height: 30px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--control-surface);
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 11px;
-}
-.project-settings-preview-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-  padding: 2px 0 12px;
-  border: 0;
-}
-.project-settings-export-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.project-settings-browser:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text);
 }
 .project-settings-error {
   margin: 0;
@@ -3005,6 +2906,207 @@ select.settings-search-input {
 .project-settings-dialog :disabled {
   cursor: default;
   opacity: 0.45;
+}
+
+/* Project settings: the preview switches, startup, playtest defaults and the folds below */
+.project-settings {
+  outline: 0;
+}
+
+.project-settings-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.project-settings .ui-dialog-body {
+  gap: var(--space-4);
+}
+
+.project-settings-project {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.project-settings-project > span {
+  color: var(--color-text-secondary);
+}
+
+.project-settings-project > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-settings-switches {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.project-settings-preview-toggle {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.project-settings-preview-toggle > strong {
+  font-weight: var(--weight-medium);
+}
+
+.project-settings-group {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.project-settings-group h3,
+.project-settings .project-settings-section legend {
+  margin: 0;
+  padding: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.project-settings .project-settings-section {
+  gap: var(--space-3);
+}
+
+.project-settings .project-settings-field-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.project-settings label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.project-settings label > small,
+.project-settings-hint,
+.project-settings .preview-config-hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.project-settings :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  outline: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.project-settings select {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.project-settings :is(input, select):hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+}
+
+.project-settings :is(input, select):focus-visible {
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 1px var(--color-focus);
+}
+
+.project-settings :is(input, select)::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.project-settings fieldset:disabled :is(input, select),
+.project-settings fieldset:disabled label {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.project-settings-fold {
+  border-top: 1px solid var(--color-border);
+}
+
+.project-settings-fold > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  list-style: none;
+  cursor: pointer;
+}
+
+.project-settings-fold > summary::-webkit-details-marker { display: none; }
+
+.project-settings-fold > summary > svg {
+  color: var(--color-text-tertiary);
+}
+
+.project-settings-fold > summary:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.project-settings-fold[open] > summary > svg { transform: rotate(180deg); }
+
+.project-settings-fold > .project-settings-section {
+  padding: 2px 0 var(--space-3);
+}
+
+.project-settings-fold.is-nested {
+  border-top: 0;
+}
+
+.project-settings-fold.is-nested > summary {
+  padding: var(--space-1) 0;
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium);
+}
+
+.project-settings-preview-actions,
+.project-settings-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 2px 0 var(--space-3);
+  border: 0;
+}
+
+.project-settings-open {
+  align-self: flex-start;
+}
+
+.project-settings .project-settings-error {
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
 }
 
 .sign-in-dialog {

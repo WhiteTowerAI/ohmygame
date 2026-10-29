@@ -6,6 +6,7 @@ import {
   useState,
   type InputHTMLAttributes,
   type ReactNode,
+  type Ref,
   type TextareaHTMLAttributes,
 } from "react";
 import { Check, ChevronDown, Search, X } from "../icons.js";
@@ -223,12 +224,14 @@ export function RadioGroup<T extends string>({
 }
 
 export function Switch({
+  ref,
   checked,
   onChange,
   label,
   disabled,
   size = "md",
 }: {
+  ref?: Ref<HTMLButtonElement>;
   checked: boolean;
   onChange: (checked: boolean) => void;
   label: string;
@@ -237,6 +240,7 @@ export function Switch({
 }) {
   return (
     <button
+      ref={ref}
       type="button"
       role="switch"
       aria-checked={checked}
