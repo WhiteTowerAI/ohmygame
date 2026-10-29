@@ -325,7 +325,15 @@
   gap: var(--space-3);
 }
 
+.sidebar-item-shortcut {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
 .is-sidebar-collapsed .sidebar-brand span,
+.is-sidebar-collapsed .sidebar-item-shortcut,
 .is-sidebar-collapsed .sidebar-item-label {
   display: none;
 }

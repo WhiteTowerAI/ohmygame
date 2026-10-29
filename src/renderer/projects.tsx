@@ -8,7 +8,7 @@ import { hasTransferredFiles } from "./file-transfer.js";
 import { ProjectCard, ProjectRow, useProjectActions } from "./project-card.js";
 import { pickProjectFolder, ProjectCreateDialog } from "./project-create-dialog.js";
 import { createdProjectView, type AppNavigationTarget, type ProjectListFilters, type ProjectSort } from "./routes.js";
-import { publishRecentProjects, takeProjectSearchFocus } from "./app-sidebar.js";
+import { publishRecentProjects } from "./app-sidebar.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { PROJECT_TYPES } from "./project-types.js";
 import { useProjectActivity } from "./use-project-activity.js";
@@ -44,8 +44,6 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   useEffect(() => { if (phase === "ready") publishRecentProjects(projects); }, [phase, projects]);
   const [error, setError] = useState<string>();
   const [layout, setLayout] = useState<Layout>(readLayout);
-  const [focusSearch] = useState(takeProjectSearchFocus);
-  const search = useRef<HTMLDivElement>(null);
   const [actionError, setActionError] = useState<string>();
   const [creating, setCreating] = useState<CreateRequest>();
   const [importing, setImporting] = useState(false);
@@ -72,9 +70,6 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   }
 
   useEffect(() => { void load(); }, [serviceGeneration]);
-  useEffect(() => {
-    if (focusSearch) search.current?.querySelector("input")?.focus();
-  }, [focusSearch]);
 
   const visibleProjects = useMemo(() => filterAndSortProjects(projects, query, sort, projectType), [projects, query, sort, projectType]);
   const filters = { projectType: projectType === "all" ? undefined : projectType, query, sort };
@@ -196,7 +191,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
           title={t("projects.title")}
           actions={(
             <div className="projects-controls">
-              <div className="projects-search" ref={search}>
+              <div className="projects-search">
                 {/* The sidebar's Search focuses this field by its id. */}
                 <SearchInput id="projects-search-input" value={query} label={t("projects.search")} placeholder={t("projects.search")}
                   onChange={(value) => onFiltersChange({ ...filters, query: value }, true)} />

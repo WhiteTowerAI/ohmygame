@@ -34,6 +34,7 @@ import { useDesktopUpdate } from "./use-desktop-update.js";
 import { UserAvatar } from "./user-avatar.js";
 import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
 import { language, t } from "./i18n.js";
+import { openCommandMenu, shortcut } from "./command-menu.js";
 import "./app-sidebar.css";
 
 export type SidebarActive = SidebarPage | "settings";
@@ -183,10 +184,6 @@ function SidebarCover({ project, className }: { project: ProjectState; className
 }
 
 /** The shortcut the app uses for settings. */
-function settingsShortcut(): string {
-  const platform = window.ohMyGameDesktop?.platform;
-  return (platform ? platform === "darwin" : /Mac/.test(navigator.platform)) ? "⌘," : "Ctrl+,";
-}
 
 // The Navigation API (Chromium) says whether there is somewhere to go; the
 // buttons stay enabled where it is missing.
@@ -211,9 +208,11 @@ function useHistoryState() {
   return state;
 }
 
-function SidebarItem({ icon, label, dot, active = false, onClick }: {
+function SidebarItem({ icon, label, shortcut: keys, dot, active = false, onClick }: {
   icon: ReactNode;
   label: string;
+  /** The keyboard shortcut, shown at the end while the sidebar is expanded. */
+  shortcut?: string;
   /** Marks the icon, so it shows in the collapsed sidebar too. */
   dot?: "accent" | "warning";
   active?: boolean;
@@ -224,6 +223,7 @@ function SidebarItem({ icon, label, dot, active = false, onClick }: {
       aria-current={active ? "page" : undefined} onClick={onClick}>
       <span className="sidebar-item-icon" aria-hidden="true">{icon}{dot ? <span className={`sidebar-dot is-${dot}`} /> : null}</span>
       <span className="sidebar-item-label">{label}</span>
+      {keys ? <kbd className="sidebar-item-shortcut">{keys}</kbd> : null}
     </button>
   );
 }
@@ -307,7 +307,7 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
         </div>
         <div className="sidebar-group">
           {collapsed && !mac && !narrow ? <SidebarItem icon={<PanelToggle size={18} />} label={t("sidebar.expand")} onClick={toggle} /> : null}
-          <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={() => searchProjects(onNavigate)} />
+          <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} shortcut={shortcut("k")} onClick={openCommandMenu} />
         </div>
         <div className="sidebar-group">
           {SECTIONS.map((item) => (
@@ -546,32 +546,12 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
       </div>
       <span className="sidebar-spacer" />
       <div className="sidebar-group">
-        <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={() => onLeave(() => searchProjects(onNavigate))} />
+        <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={openCommandMenu} />
         <UpdateItem />
         <AccountMenu active={false} avatarSize={28} onNavigate={leaveTo} />
       </div>
     </nav>
   );
-}
-
-// Until the command menu moves over, search is the project list's search field.
-let projectSearchRequested = false;
-
-/** Whether the Projects page should focus its search field on mount, once. */
-export function takeProjectSearchFocus(): boolean {
-  const requested = projectSearchRequested;
-  projectSearchRequested = false;
-  return requested;
-}
-
-function searchProjects(onNavigate: (page: AppNavigationTarget) => void): void {
-  const field = document.querySelector<HTMLInputElement>("#projects-search-input");
-  if (field) {
-    field.focus();
-    return;
-  }
-  projectSearchRequested = true;
-  onNavigate("projects");
 }
 
 function openSettings(section: "account" | "billing" | "about"): void {
@@ -585,7 +565,7 @@ function AccountMenu({ active, avatarSize, onNavigate }: { active: boolean; avat
   const signedIn = auth.state.status === "signed-in" ? auth.state.user : undefined;
   const loading = auth.state.status === "loading";
   const name = signedIn?.name ?? (loading ? t("sidebar.loadingAccount") : t("common.signIn"));
-  const settings: MenuEntry = { label: t("common.settings"), icon: <Settings size={16} />, shortcut: settingsShortcut(), onSelect: () => onNavigate("settings") };
+  const settings: MenuEntry = { label: t("common.settings"), icon: <Settings size={16} />, shortcut: shortcut(","), onSelect: () => onNavigate("settings") };
   const about: MenuEntry = { label: t("sidebar.about"), icon: <InfoCircle size={16} />, onSelect: () => openSettings("about") };
   const items: MenuEntry[] = signedIn ? [
     settings,

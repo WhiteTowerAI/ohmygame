@@ -834,6 +834,19 @@ const en = {
   navigation: {
     backTo: "Back to {{page}}",
   },
+  commandMenu: {
+    label: "Commands",
+    placeholder: "Search commands, projects and settings…",
+    empty: "Nothing matches “{{query}}”",
+    goTo: "Go to",
+    projects: "Projects",
+    settings: "Settings",
+    actions: "Actions",
+    panels: "Panels",
+    toggleAppearance: "Switch between dark and light",
+    showPanel: "Show {{panel}}",
+    layout: "Layout: {{preset}}",
+  },
   sidebar: {
     mainNavigation: "Main navigation",
     projectNavigation: "Project navigation",

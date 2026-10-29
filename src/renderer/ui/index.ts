@@ -23,6 +23,7 @@ export {
 export type { InputProps, SelectOption } from "./form.js";
 export { MediaTile } from "./media.js";
 export {
+  CommandMenu,
   ContextMenu,
   Dialog,
   DropdownMenu,
@@ -32,7 +33,7 @@ export {
   Tooltip,
   useToast,
 } from "./overlay.js";
-export type { MenuEntry, MenuItem } from "./overlay.js";
+export type { Command, MenuEntry, MenuItem } from "./overlay.js";
 export {
   Alert,
   Avatar,

@@ -57,7 +57,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   getProjectCover: async () => undefined,
 }));
 const { PageFrame } = await import("../src/renderer/page-frame.js");
-const { ProjectRail, publishRecentProjects, refreshRecentProject, takeProjectSearchFocus } =
+const { ProjectRail, publishRecentProjects, refreshRecentProject } =
   await import("../src/renderer/app-sidebar.js");
 
 let container: HTMLDivElement;
@@ -228,12 +228,15 @@ it("opens settings, account and billing from the signed-in menu", async () => {
   expect(onNavigate).toHaveBeenCalledWith("settings");
 });
 
-it("searches from the Projects page's search field", async () => {
+it("opens the command menu from Search, which shows its shortcut", async () => {
+  const opened = vi.fn();
+  window.addEventListener("ohmygame:command-menu", opened);
   await render();
+  expect(button("Search")!.querySelector("kbd")?.textContent).toMatch(/^(⌘K|Ctrl\+K)$/);
   button("Search")!.click();
-  expect(onNavigate).toHaveBeenCalledWith("projects");
-  expect(takeProjectSearchFocus()).toBe(true);
-  expect(takeProjectSearchFocus()).toBe(false);
+  window.removeEventListener("ohmygame:command-menu", opened);
+  expect(opened).toHaveBeenCalledOnce();
+  expect(onNavigate).not.toHaveBeenCalled();
 });
 
 describe("in a project", () => {

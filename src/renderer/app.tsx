@@ -17,6 +17,7 @@ import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connecti
 import { Onboarding, OnboardingArrival, OnboardingLoading } from "./onboarding.js";
 import { useOnboarding } from "./use-onboarding.js";
 import { usePluginIntegrationGate } from "./plugin-integration.js";
+import { CommandMenuHost } from "./command-menu.js";
 
 // Home and onboarding stay in the main chunk; every other route loads on first visit.
 const CommunityProfilePage = lazy(() => import("./community-profile.js").then((module) => ({ default: module.CommunityProfilePage })));
@@ -30,8 +31,16 @@ const PluginsSettings = lazy(() => import("./plugins.js").then((module) => ({ de
 const PluginBuilder = lazy(() => import("./plugin-builder.js").then((module) => ({ default: module.PluginBuilder })));
 
 export function App() {
+  const navigation = useAppNavigation();
+  return <>
+    <AppRoute navigation={navigation} />
+    <CommandMenuHost navigate={navigation.navigate} />
+  </>;
+}
+
+function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigation> }) {
   const serviceGeneration = useReadyRuntimeGeneration();
-  const { route, navigate, projectReturnTo, projectBackLabel } = useAppNavigation();
+  const { route, navigate, projectReturnTo, projectBackLabel } = navigation;
   const onboarding = useOnboarding(route.page === "home");
   const [welcoming, setWelcoming] = useState(false);
   const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
@@ -43,17 +52,6 @@ export function App() {
   useEffect(() => {
     if (serviceGeneration > 1) window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
   }, [serviceGeneration]);
-
-  // ⌘, (Ctrl+, elsewhere) opens settings from anywhere, as the account menu shows.
-  useEffect(() => {
-    const openSettings = (event: KeyboardEvent) => {
-      if (event.key !== "," || event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey)) return;
-      event.preventDefault();
-      if (parseAppRoute(window.location.hash).page !== "settings") navigateToSidebarPage("settings");
-    };
-    window.addEventListener("keydown", openSettings);
-    return () => window.removeEventListener("keydown", openSettings);
-  });
 
   // A Playtest window that cannot play asks for its project's editor.
   const routeProjectId = route.page === "project" ? route.projectId : undefined;
