@@ -474,6 +474,55 @@ describe("AgentTimeline", () => {
     container.remove();
   });
 
+  it("says when copying an error's diagnostics fails, and lets the copied note expire", async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn(async () => { throw new Error("denied"); });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<AgentTimeline items={[user(), {
+      id: "assistant-error", turnId: "turn-1", type: "agentMessage", text: "", status: "failed",
+      error: { code: "timeout", message: "Request timed out." },
+    }]} failedTurnId="turn-1" />));
+    const button = (label: string) => [...container.querySelectorAll("button")].find((item) => item.textContent === label);
+    await act(async () => button("Details")!.click());
+    await act(async () => button("Copy diagnostics")!.click());
+    expect(container.textContent).toContain("Could not copy. Select the details above to copy them manually.");
+    writeText.mockResolvedValue(undefined);
+    await act(async () => button("Copy diagnostics")!.click());
+    expect(button("Diagnostics copied")).toBeTruthy();
+    await act(async () => { vi.advanceTimersByTime(1_500); });
+    expect(button("Copy diagnostics")).toBeTruthy();
+    act(() => root.unmount());
+    container.remove();
+    vi.useRealTimers();
+  });
+
+  it.each([
+    ["model_not_configured", "#/settings/providers"], ["authentication_failed", "#/settings/providers"],
+    ["runtime_incompatible", "#/settings/agents"], ["runtime_probe_failed", "#/settings/agents"],
+    ["connection_refused", "#/settings/network"], ["tls_error", "#/settings/network"],
+  ] as const)("sends %s to the settings that fix it", async (code, hash) => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<AgentTimeline items={[user(), {
+      id: "assistant-error", turnId: "turn-1", type: "agentMessage", text: "", status: "failed", error: { code, message: "failed" },
+    }]} failedTurnId="turn-1" />));
+    await act(async () => [...container.querySelectorAll("button")].find((item) => item.textContent === "Open settings")!.click());
+    expect(window.location.hash).toBe(hash);
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it.each(["quota_exceeded", "rate_limited", "access_denied", "stream_error"] as const)("offers no settings shortcut for %s", (code) => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "assistant-error", turnId: "turn-1", type: "agentMessage", text: "", status: "failed", error: { code, message: "failed" },
+    }]} failedTurnId="turn-1" />);
+    expect(html).not.toContain(">Open settings</button>");
+  });
+
   it("previews an unclassified error on one line while keeping its full response for Details", () => {
     const message = "Unexpected gateway response\n  upstream request failed with additional diagnostic context";
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
