@@ -296,6 +296,10 @@ const zhCN: typeof en = {
       permissionStandardHint: "可以读写项目文件；在沙盒外运行命令前先问你。",
       permissionFullNote: "只在你信任的项目里用完全访问。",
     },
+    providers: {
+      back: "回到服务商",
+      defaultsHint: "画布和 agent 出图、出视频、做 3D 时默认用的模型，每次都还可以再换。",
+    },
   },
   capability: {
     language: "语言",

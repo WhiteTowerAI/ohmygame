@@ -296,6 +296,10 @@ const en = {
       permissionStandardHint: "Reads and writes project files; asks before running commands outside the sandbox.",
       permissionFullNote: "Use full access only in projects you trust.",
     },
+    providers: {
+      back: "Back to Providers",
+      defaultsHint: "What the canvas and the agent use to make images, video and 3D unless you pick another.",
+    },
   },
   capability: {
     language: "Language",
