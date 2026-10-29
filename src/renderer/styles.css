@@ -10687,13 +10687,23 @@ summary.work-summary:hover {
   justify-self: end;
 }
 
+/* Like a browser's toolbar: where the preview is, then how it is shown. */
+.viewer-publish:has(> .preview-controls) {
+  flex: 1;
+}
+
 .preview-controls {
   display: flex;
+  flex: 1;
   min-width: 0;
   max-width: 100%;
   align-items: center;
   gap: 6px;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-sans);
+}
+
+.preview-controls > .viewport-menu {
+  margin-left: auto;
 }
 
 .viewport-menu {
@@ -10703,23 +10713,22 @@ summary.work-summary:hover {
 
 .viewport-trigger {
   display: flex;
-  width: 42px;
-  height: 32px;
+  height: 28px;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  padding: 0;
+  gap: 2px;
+  padding: 0 4px 0 6px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: #cdd0d5;
+  color: var(--color-text-secondary);
   cursor: pointer;
 }
 
 .viewport-trigger:hover,
 .viewport-trigger[aria-expanded="true"] {
-  background: var(--surface-hover);
-  color: var(--text);
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 
 .viewport-menu-popover {
@@ -10763,40 +10772,56 @@ summary.work-summary:hover {
   color: var(--text);
 }
 
+/* The preview's address, like a browser's: its state, the page, and reload. */
 .preview-location {
   position: relative;
   display: flex;
-  width: 162px;
-  height: 32px;
+  width: 200px;
+  height: 24px;
   min-width: 0;
+  flex: 0 1 auto;
   align-items: center;
+  gap: 2px;
   overflow: visible;
+  padding-left: var(--space-2);
   border: 0;
-  border-radius: 16px;
-  background: var(--control-surface);
+  border-radius: var(--radius-sm);
+  background: var(--color-hover);
 }
 
-.preview-location:hover,
-.preview-location:focus-within {
-  background: var(--control-selected);
+.preview-location-status {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
 }
+
+.preview-location-status.is-ready { background: var(--color-success); }
+.preview-location-status.is-starting { background: var(--color-warning); }
+.preview-location-status.is-error { background: var(--color-danger); }
 
 .preview-location-refresh,
 .preview-location-trigger {
-  height: 30px;
+  height: 22px;
   padding: 0;
   border: 0;
   background: transparent;
-  color: #cdd0d5;
+  color: var(--color-text-secondary);
   cursor: pointer;
 }
 
 .preview-location-refresh {
   display: grid;
-  width: 34px;
-  flex: 0 0 34px;
+  width: 22px;
+  flex: 0 0 22px;
+  margin-right: 1px;
   place-items: center;
-  border-radius: 15px 0 0 15px;
+  border-radius: var(--radius-sm);
+}
+
+.preview-location-refresh:hover:not(:disabled) {
+  background: var(--color-selected);
 }
 
 .preview-location-trigger {
@@ -10804,11 +10829,10 @@ summary.work-summary:hover {
   flex: 1;
   min-width: 0;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px 0 4px;
-  border-radius: 0 15px 15px 0;
-  font-size: 11px;
-  font-weight: 500;
+  gap: 4px;
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   line-height: 16px;
   text-align: left;
 }
@@ -10816,7 +10840,28 @@ summary.work-summary:hover {
 .preview-location-refresh:hover:not(:disabled),
 .preview-location-trigger:hover:not(:disabled),
 .preview-location-trigger[aria-expanded="true"] {
-  color: var(--text);
+  color: var(--color-text);
+}
+
+/* In a narrow area the address shrinks to its state, the page picker's
+   chevron and reload. The path stays the picker's name for screen readers. */
+@container dock-area (max-width: 560px) {
+  .preview-location {
+    width: auto;
+  }
+
+  .preview-location-trigger {
+    flex: none;
+  }
+
+  .preview-location-path {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 .preview-location-refresh:disabled,
@@ -10926,10 +10971,6 @@ summary.work-summary:hover {
 .preview-location-option > span {
   display: grid;
   place-items: center;
-}
-
-.preview-settings-button {
-  border: 0;
 }
 
 .preview-location-option strong {
@@ -11943,21 +11984,6 @@ summary.work-summary:hover {
   }
   .assets-grid {
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  }
-}
-
-@media (max-width: 1100px) {
-  .preview-location {
-    width: 130px;
-  }
-}
-
-@media (min-width: 721px) and (max-width: 800px) {
-  .preview-location {
-    width: 72px;
-  }
-  .preview-location-path {
-    display: none;
   }
 }
 

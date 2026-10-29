@@ -1085,6 +1085,13 @@ const zhCN: typeof en = {
     loadingFile: "正在加载文件",
     binaryUnavailable: "无法预览二进制文件",
     selectFile: "从工作区文件树中选择一个文件",
+    previewStatus: {
+      ready: "预览运行中",
+      starting: "预览正在启动",
+      waiting: "预览未启动",
+      stopped: "预览已停止",
+      error: "预览出错",
+    },
     truncated: "（已截断）",
     hideFiles: "收起文件",
     showFiles: "显示文件",
