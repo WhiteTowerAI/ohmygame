@@ -158,7 +158,7 @@ const en = {
     providerStep: "Connect your AI",
     mediaStep: "Creative tools (optional)",
     mediaTitle: "Add creative tools.",
-    mediaHint: "Optional. You can also configure these in Settings → Providers & Models.",
+    mediaHint: "Optional. You can also configure these in Settings → Providers.",
     noMediaProviders: "No providers for this category yet. You can add one in Settings later.",
     localAgents: "Connect agents",
     builtInHint: "Default",
@@ -295,6 +295,7 @@ const en = {
       setUp: "Set up",
       permissionStandardHint: "Reads and writes project files; asks before running commands outside the sandbox.",
       permissionFullNote: "Use full access only in projects you trust.",
+      version: "Version",
     },
     providers: {
       back: "Back to Providers",
@@ -321,7 +322,7 @@ const en = {
     audio: "Audio",
   },
   providers: {
-    title: "Providers & Models",
+    title: "Providers",
     search: "Search providers",
     filterLabel: "Filter providers by capability",
     add: "Add provider",
@@ -1375,7 +1376,7 @@ const en = {
   agents: {
     title: "Agents",
     builtIn: "Built in",
-    ohmygameNoModels: "No models yet. Connect a provider in Providers & Models.",
+    ohmygameNoModels: "No models yet. Connect a provider in Providers.",
     manageModels: "Manage models",
     default: "Default",
     rescan: "Rescan",

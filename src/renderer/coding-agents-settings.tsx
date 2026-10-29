@@ -269,8 +269,8 @@ export function CodingAgentDetail({
       </SettingsDetailHead>
       <SettingsGroup title={t("codingAgents.status")}>
         <SettingsRow
-          title={agent.version ? `v${agent.version}` : t("codingAgents.versionUnknown")}
-          description={agentSummary(agent)}
+          title={t("settings.agents.version")}
+          description={agent.version ? `v${agent.version}` : t("codingAgents.versionUnknown")}
         >
           <IconButton
             size="sm"

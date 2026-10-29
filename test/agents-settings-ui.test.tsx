@@ -165,7 +165,7 @@ it("asks for a provider when OhMyGame has no models", async () => {
   catalog = { models: [sonnet], defaultReasoningLevel: "medium" };
   await render();
   expect(row("OhMyGame")!.textContent).toContain(
-    "No models yet. Connect a provider in Providers & Models.",
+    "No models yet. Connect a provider in Providers.",
   );
 });
 

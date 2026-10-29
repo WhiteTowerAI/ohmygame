@@ -159,7 +159,7 @@ const zhCN: typeof en = {
     providerStep: "连接 AI",
     mediaStep: "创作工具（可选）",
     mediaTitle: "添加创作工具。",
-    mediaHint: "可选。也可稍后在「设置 → 服务商与模型」中配置。",
+    mediaHint: "可选。也可稍后在「设置 → 服务商」中配置。",
     noMediaProviders: "此分类暂无服务商，之后可在设置中添加。",
     localAgents: "连接智能体",
     builtInHint: "默认",
@@ -295,6 +295,7 @@ const zhCN: typeof en = {
       setUp: "设置",
       permissionStandardHint: "可以读写项目文件；在沙盒外运行命令前先问你。",
       permissionFullNote: "只在你信任的项目里用完全访问。",
+      version: "版本",
     },
     providers: {
       back: "回到服务商",
@@ -321,7 +322,7 @@ const zhCN: typeof en = {
     audio: "音频",
   },
   providers: {
-    title: "服务商与模型",
+    title: "服务商",
     search: "搜索服务商",
     filterLabel: "按能力筛选服务商",
     add: "添加服务商",
@@ -1354,7 +1355,7 @@ const zhCN: typeof en = {
   agents: {
     title: "智能体",
     builtIn: "内置",
-    ohmygameNoModels: "还没有可用模型，请先在「服务商与模型」中连接服务商。",
+    ohmygameNoModels: "还没有可用模型，请先在「服务商」中连接服务商。",
     manageModels: "管理模型",
     default: "默认",
     rescan: "重新检测",

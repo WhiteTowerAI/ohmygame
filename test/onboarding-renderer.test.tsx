@@ -1549,7 +1549,7 @@ describe("three-step setup with coding agents", () => {
     expect(container.querySelector("footer")?.textContent).toBe(
       "Start creating",
     );
-    expect(container.textContent).toContain("Settings → Providers & Models");
+    expect(container.textContent).toContain("Settings → Providers.");
     expect(step).not.toHaveBeenCalled();
     await act(async () => button("Start creating").click());
     expect(finish).toHaveBeenCalledWith("skipped");
