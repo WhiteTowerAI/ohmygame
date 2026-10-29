@@ -36,7 +36,7 @@ https://github.com/user-attachments/assets/4d5805fe-92a2-40b4-a232-c7452f9a796a
 Updated during release preparation; see docs/maintaining.md. -->
 
 - **2026-10 · beta 5**
-  ([release notes](https://github.com/WhiteTowerAI/ohmygame/releases/tag/v0.0.0-beta.5))
+  ([release notes](https://github.com/WhiteTowerAI/ohmygame/releases/tag/v0.0.0-beta.5.0))
   - **Now with interactive stories:** make visual novels, interactive films,
     and story games. Every screen is a web page the agent builds from your
     description, with video, dialogue, choices, or even a mini-game, so your

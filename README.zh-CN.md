@@ -35,7 +35,7 @@ https://github.com/user-attachments/assets/4d5805fe-92a2-40b4-a232-c7452f9a796a
 <!-- 最多保留三条，最新的在前，只写大版本。发版准备时更新，见 docs/maintaining.md。 -->
 
 - **2026-10 · beta 5**
-  （[更新说明](https://github.com/WhiteTowerAI/ohmygame/releases/tag/v0.0.0-beta.5)）
+  （[更新说明](https://github.com/WhiteTowerAI/ohmygame/releases/tag/v0.0.0-beta.5.0)）
   - **现已支持互动故事：** 适合做视觉小说、互动电影和剧情游戏。每个画面都是一个自由的网页，
     可以放视频、写对白、给选择，甚至装下一个小游戏；描述你想要的，Agent 就帮你做好，
     不受固定节点类型的限制。
