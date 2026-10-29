@@ -50,9 +50,9 @@ const instructions: Record<
   portrait:
     "Create a detailed character portrait with a clear face, expression, costume, and plain background.",
   monster:
-    "Create a complete game monster sprite with a readable silhouette and plain background.",
+    "Create a complete game monster sprite with a menacing silhouette, exaggerated threatening features such as claws, fangs, or spikes, a dark palette with vivid danger accents, and a plain background.",
   animal:
-    "Create a complete game animal sprite with a readable silhouette and plain background.",
+    "Create a complete game animal sprite that looks naturalistic and recognizable, with accurate species anatomy, proportions, and colors on a plain background.",
   scene:
     "Create a game environment with coherent perspective, lighting, and readable foreground and background layers.",
   terrain:

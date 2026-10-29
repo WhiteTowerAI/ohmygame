@@ -2852,13 +2852,6 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
       />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
-        {presets.length ? <CanvasChipSelect
-          label={t("assetCanvas.imagePresets.label")}
-          value={data.presetId ?? "free"}
-          options={presets.map((preset) => ({ value: preset, label: t(`assetCanvas.imagePresets.${preset}`) }))}
-          disabled={runtime?.busy}
-          onChange={selectPreset}
-        /> : null}
         <CanvasChipSelect
           label={t("assetCanvas.imageModel")}
           wide

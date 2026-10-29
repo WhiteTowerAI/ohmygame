@@ -16,9 +16,27 @@ Generate exactly one distinctive monster or creature design shown across multipl
 
 The subject must remain the requested monster species or creature type.
 
-Do not reinterpret the monster as an ordinary human character or generic armored warrior.
+Do not reinterpret the monster as an ordinary human character, generic armored warrior, or realistic animal.
 
 Allow humanoid, quadrupedal, winged, serpentine, skeletal, mechanical, amorphous, or other anatomically appropriate monster forms.
+
+**MONSTER VISUAL IDENTITY**
+
+Monsters must look visually threatening, unnatural, and dangerous — never domesticated, cute, or naturalistic.
+
+Exaggerate at least two to three threatening physical features appropriate to the monster type, such as:
+- Oversized claws, talons, or crushing limbs.
+- Prominent fangs, tusks, or a distorted jaw.
+- Horns, bone spurs, spikes, or blade-like protrusions.
+- Multiple eyes, hollow eye sockets, or glowing pupils.
+- Unnatural body proportions: bloated torso, elongated neck, asymmetric limbs.
+- Exposed bone, necrotic flesh, corrupted plating, or toxic markings.
+
+Use an intimidating primary silhouette: bulky and hunched, unnaturally elongated, or asymmetrically threatening. Avoid round, symmetrical, or compact silhouettes that read as friendly or animal-like.
+
+Use a dark or desaturated primary palette with one to two vivid accent colors that signal danger, such as blood red, toxic green, sickly purple, or bioluminescent orange.
+
+If the reference shows a realistic animal, reinterpret it into a monstrous game creature: distort proportions, add supernatural features, and apply an aggressive color treatment. Do not copy the animal directly.
 
 **PRIMARY OBJECTIVE**
 
@@ -51,13 +69,15 @@ Show four sequential movement poses appropriate to the creature's anatomy.
 Use walking, running, crawling, flying, slithering, floating, or another suitable movement type.
 
 Section 3 — Combat:
-Show four distinct combat-related poses:
-- Alert or combat-ready.
-- Attack preparation.
-- Attack execution.
-- Attack recovery or follow-through.
+Show four distinct combat-related poses that communicate a threatening, aggressive monster:
+- Alert or combat-ready: hunched, tense, visibly dangerous.
+- Attack preparation: winding up a claw swipe, bite lunge, tail slam, energy charge, or other anatomy-appropriate attack.
+- Attack execution: peak of the attack with maximum limb extension, open jaw, or discharged ability — make this pose unmistakably aggressive.
+- Attack recovery or follow-through: returning to a dominant combat stance, not a neutral or relaxed pose.
 
-Adapt the attack type to the creature's anatomy and abilities.
+Choose the attack type based on the creature's anatomy: melee claws or bites for physical monsters, projectile or aura attacks for magical or elemental monsters, charge or trample for large quadrupeds.
+
+Every combat pose must reinforce the monster's threatening nature. Avoid neutral, relaxed, or friendly-looking stances in this section.
 
 Section 4 — Reactions:
 Show four gameplay reaction poses:
@@ -106,11 +126,13 @@ Avoid overlapping sprites or inconsistent cell sizes.
 
 Ordinary human character substitution, generic humanoid anatomy when inappropriate, high-resolution fantasy illustration, intricate textures, inconsistent pixel scales, duplicate poses, random extra limbs, changing creature designs, smooth gradients, anti-aliasing, and cluttered compositions.
 
+Do not produce a naturalistic or realistic animal. Do not use friendly, rounded, or domesticated silhouettes. Do not apply pastel or warm neutral palettes without a clear threatening accent. If the result could be mistaken for a normal animal sprite, redesign the silhouette and color scheme to be clearly monstrous.
+
 **FINAL REQUIREMENT**
 
-Produce one coherent low-resolution pixel art monster reference and combat sheet containing multiple viewing angles, movement poses, combat actions, and damage or defeat states.
+Produce one coherent low-resolution pixel art monster reference and combat sheet containing multiple viewing angles, movement poses, aggressive combat actions, and damage or defeat states.
 
-Prioritize monster identity, anatomy consistency, readable gameplay actions, and authentic retro pixel construction.`,
+Prioritize monster identity, intimidating visual design, anatomy consistency, readable gameplay actions, and authentic retro pixel construction. The finished sheet must be immediately distinguishable from an animal sprite sheet.`,
   "side-view-character": `Create exactly one full-body GAME CHARACTER sprite for a 2D video game, using the provided reference image as a character design reference. The selected density determines the rendering style.
 
 USER REQUEST: {user_prompt}
