@@ -250,7 +250,8 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
     setError(undefined);
     try {
       const installedPlugin = await installPlugin(input);
-      setPlugins((items) => [...items.filter((item) => item.id !== installedPlugin.id), pluginSummary(installedPlugin)]);
+      // Reload like the other ways of adding a plugin, so Skills shows its skills too.
+      capabilitiesChanged();
       closeInstallDialog();
       onPluginChange(installedPlugin.id);
     } catch (cause) {

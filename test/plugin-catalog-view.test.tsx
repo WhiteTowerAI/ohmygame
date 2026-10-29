@@ -86,6 +86,14 @@ beforeEach(() => {
         )!;
         return Response.json({ ...item, skills: skills[item.id] ?? [], connections: [] });
       }
+      if (init.method === "POST" && route === "/plugins/inspect")
+        return Response.json({ candidates: [{ key: "fresh", name: "fresh", displayName: "Fresh" }] });
+      if (init.method === "POST" && route === "/plugins/install") {
+        const fresh = plugin("fresh", "Fresh", true, true);
+        catalog.push(fresh);
+        skills[fresh.id] = [{ id: "skills/fresh/SKILL.md", name: "fresh-skill", enabled: true }];
+        return Response.json({ ...fresh, skills: skills[fresh.id], connections: [] });
+      }
       throw new Error(`Unexpected request: ${route}`);
     }),
   );
@@ -294,6 +302,25 @@ describe("plugin catalog browsing", () => {
     await search("stripes", "Search skills");
     expect(container.textContent).not.toContain("plan-game");
     expect(container.textContent).toContain("stripes");
+  });
+
+  it("shows a plugin's skills after installing it from Git", async () => {
+    await renderCatalog();
+    await click("Skills");
+    await vi.waitFor(() => expect(container.textContent).toContain("plan-game"));
+    await click("Add plugin");
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+        .find((item) => item.textContent?.startsWith("Install from Git"))!
+        .click(),
+    );
+    const url = document.querySelector<HTMLInputElement>('.ui-dialog input[type="url"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(url, "https://example.com/fresh.git");
+      url.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => url.form!.requestSubmit());
+    await vi.waitFor(() => expect(container.textContent).toContain("fresh-skill"));
   });
 });
 
