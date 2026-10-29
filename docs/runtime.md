@@ -306,8 +306,8 @@ the daemon's other settings (`OHMYGAME_*`, `DAEMON_HOST`, `DAEMON_PORT`).
 
 ## Agent game use
 
-General Game projects open on Design with the conversation pane expanded, as
-engine-independent workspaces with Code, Design, Assets and Web preview.
+General Game projects open on Canvas with the conversation pane expanded, as
+engine-independent workspaces with Code, Design, Canvas, Assets and Web preview.
 The conversation pane can still be collapsed manually; see the
 [workspace example](assets/general-game-conversation.png).
 The bundled Game Studio plugin provides game production,
@@ -320,7 +320,7 @@ Skills are listed for the agent, which reads the relevant ones for its task.
 General Game's **Web preview** switch in **Project settings** is on for newly
 created projects. Existing projects retain their saved switch; projects without
 the setting remain off. Adding a dev script does not override an explicit opt-out.
-The switch is available from Design, Code and Preview, and exposes Preview,
+The switch is available from Canvas, Code and Preview, and exposes Preview,
 Play, and the available Web `game_use` tool. It can be enabled before browser
 output exists; automatic preview starts when its
 configured script, static HTML, or custom command becomes runnable. Disabling it stops the preview server and returns
@@ -558,7 +558,7 @@ the order they open (`src/renderer/workspace-layout.ts`):
 
 | Project types | Panels |
 |---|---|
-| Web games, General projects, Godot | Chat, Game, Design, Code, Assets |
+| Web games, General projects, Godot | Chat, Game, Design, Canvas, Code, Assets |
 | Interactive Story | Chat, Story |
 | Asset canvas | Chat, Canvas |
 
@@ -568,15 +568,25 @@ Game and opens on Code; panels new to the saved layout join it in the
 default's order and front tab. A chat moved to the middle reads in one centered
 column.
 
+Design is the game design document, the Markdown the agent reads as the game's
+design (`src/renderer/design-document-panel.tsx`). Its toolbar picks one of the
+canvas documents, the main one first, and switches between reading it beside its
+outline, editing its Markdown, or both side by side. **Reference in chat**
+references the document in the next message, as the composer's design reference
+does, and text picked in it can be added to the chat as a quote. Canvas shows the
+same documents as nodes, so the two share one copy: an edit in either shows in the
+other and saves once. Neither loads the documents, which creates the project's
+`canvas/` folder, until one of them has opened.
+
 **Layout and panels** in the top bar applies a preset (Default; Art and Code
-bring Design or Code forward where a project has them) and turns each panel
+bring Canvas or Code forward where a project has them) and turns each panel
 on or off. The arrangement is kept once in local storage
 (`ohmygame-workspace-layout`) and fitted to each project's panels, so moving
 the chat to the right holds in every project. A change keeps other types'
 panels where they were; a panel the layout never knew opens where the default
 puts it, and closed ones stay closed. The chat side used to be a setting; a
 saved **Right** still decides where the chat first opens. The route's
-`design` view brings the Design panel forward and follows it, and a file link
+`design` view brings the Canvas panel forward and follows it, and a file link
 in the chat reopens a closed Story or Canvas panel to show the file.
 
 ## Checkpoints

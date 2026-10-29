@@ -2,10 +2,10 @@
 
 Web Game and newly created General Game projects have browser preview enabled,
 except projects that select a plugin external preview.
-New General projects open on Design; prompt-based creation also keeps chat open.
+New General projects open on Canvas; prompt-based creation also keeps chat open.
 Existing General projects keep their saved switch, and older projects without a
-switch remain disabled. **Project settings**, available from Design, Code and
-Preview, controls Web preview, Play and Web playtesting. Design's separate
+switch remain disabled. **Project settings**, available from Canvas, Code and
+Preview, controls Web preview, Play and Web playtesting. Canvas's separate
 **Default models** button controls generation models. Neither setting selects
 or installs a game engine.
 

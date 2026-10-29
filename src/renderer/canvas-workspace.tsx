@@ -13,7 +13,7 @@ import { CanvasBoardEditor } from "./asset-canvas-workspace.js";
 import { createCanvasBoardStorage, type CanvasBoardConflict, type CanvasBoardStorage } from "./canvas-board-storage.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
-import { useCanvasDocuments } from "./use-canvas-documents.js";
+import { useCanvasDocuments, type CanvasDocumentsState } from "./use-canvas-documents.js";
 import type { CanvasDocuments } from "./canvas-document-node.js";
 import { Check, ChevronLeft, ChevronRight, Code2, Layers3, LoaderCircle, MoreHorizontal, Pencil, Plus, Trash2, X } from "./icons.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
@@ -32,8 +32,10 @@ class CanvasSaveFailure extends Error {
   constructor(cause: unknown) { super(cause instanceof Error ? cause.message : String(cause), { cause }); }
 }
 
-export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveReady, onSaveReady, onContextChange, initialNodeId, onInitialNodeHandled, workspaceRevision = 0, openFileRequest, onProjectUpdated }: {
+export function CanvasWorkspace({ project, documents, headerActionsTarget = null, onLeaveReady, onSaveReady, onContextChange, initialNodeId, onInitialNodeHandled, workspaceRevision = 0, openFileRequest, onProjectUpdated }: {
   project: ProjectState;
+  /** The project's documents, when the workspace shares them with the design document panel. */
+  documents?: CanvasDocumentsState;
   /** Where its controls go, such as its panel's toolbar. Without one, an asset canvas has its own header. */
   headerActionsTarget?: HTMLElement | null;
   onLeaveReady?: (leave: ((action: () => void) => void) | undefined) => void;
@@ -47,7 +49,8 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
 }) {
   const [writeVersion] = useState(() => workspaceVersion(project.id));
   const singleBoard = project.type === "asset-canvas";
-  const docs = useCanvasDocuments(project.id), workspace = docs.workspace;
+  const own = useCanvasDocuments(project.id, !documents);
+  const docs = documents ?? own, workspace = docs.workspace;
   const tableStorage = useCanvasTables(project.id, workspace);
   const tablesRef = useRef(tableStorage); tablesRef.current = tableStorage;
   const [expandedTable, setExpandedTable] = useState<{ id: string; mode: "edit" | "preview" }>();

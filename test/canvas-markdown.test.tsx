@@ -6,6 +6,9 @@ import { CanvasMarkdown } from "../src/renderer/canvas-document-node.js";
 import { MarkdownContent } from "../src/renderer/markdown-content.js";
 import * as api from "../src/renderer/api.js";
 import type { CanvasMarkdownDocument } from "../src/shared/canvas-document.js";
+import { DesignDocumentPanel } from "../src/renderer/design-document-panel.js";
+import { useCanvasDocuments, type CanvasDocumentsState } from "../src/renderer/use-canvas-documents.js";
+import * as canvasApi from "../src/renderer/canvas-api.js";
 
 const canvasDocument: CanvasMarkdownDocument = {
   id: "rules",
@@ -229,5 +232,76 @@ describe("Markdown component updates", () => {
       "canvas/assets/concept.png",
     );
     expect(container.querySelectorAll("img")).toHaveLength(2);
+  });
+});
+
+describe("the design document panel", () => {
+  const rules = { id: "rules", title: "Rules", markdown: "# Rules\n\n## Combat\n\nHit hard.\n\n### Cards\n\nDraw three.\n\n## Map", revision: "1", source: "canvas/documents/rules.md", main: true };
+  const lore = { id: "lore", title: "Lore", markdown: "# Lore", revision: "1", source: "canvas/documents/lore.md", main: false };
+  function documentsState(documents: (typeof rules)[]) {
+    return {
+      workspace: { version: 1, boards: [{ id: "main", name: "Main" }], documents, assets: [] },
+      update: vi.fn(), create: vi.fn(async () => "new"), setMain: vi.fn(async () => {}), refresh: vi.fn(async () => {}), flush: vi.fn(async () => {}),
+      resolve: vi.fn(), saving: false, error: undefined, loadError: undefined, conflict: undefined,
+    } as unknown as CanvasDocumentsState;
+  }
+  async function renderPanel(documents: CanvasDocumentsState, props: Partial<Parameters<typeof DesignDocumentPanel>[0]> = {}) {
+    const toolbar = window.document.createElement("div");
+    container.append(toolbar);
+    const handlers = { onReference: vi.fn(), onQuote: vi.fn(), onAskAgent: vi.fn() };
+    await act(async () => root.render(<DesignDocumentPanel project={{ id: "project-1" }} documents={documents} toolbarTarget={toolbar} {...handlers} {...props} />));
+    return { toolbar, ...handlers };
+  }
+
+  it("reads the main document with its outline, and edits it as Markdown", async () => {
+    const documents = documentsState([lore, rules]);
+    const { toolbar } = await renderPanel(documents);
+    expect(toolbar.querySelector(".design-doc-picker")?.textContent).toBe("Rules");
+    expect([...container.querySelectorAll(".design-doc-outline-item")].map((item) => `${item.className.includes("is-h3") ? "  " : ""}${item.textContent}`))
+      .toEqual(["Combat", "  Cards", "Map"]);
+    await act(async () => [...toolbar.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Edit")!.click());
+    const source = container.querySelector<HTMLTextAreaElement>(".design-doc-source")!;
+    expect(source.value).toBe(rules.markdown);
+    expect(container.querySelector(".design-doc-outline")).toBeNull();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(source, "# Rules\n\nNew");
+      source.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(documents.update).toHaveBeenCalledWith("rules", { markdown: "# Rules\n\nNew" });
+  });
+
+  it("references the document in the next message, and stops", async () => {
+    const documents = documentsState([rules]);
+    const reference = () => toolbar.querySelector<HTMLButtonElement>("button[aria-label='Reference in chat'], button[aria-label='Stop referencing in chat']")!;
+    let { toolbar, onReference } = await renderPanel(documents);
+    await act(async () => reference().click());
+    expect(onReference).toHaveBeenCalledWith(rules);
+    ({ toolbar, onReference } = await renderPanel(documents, { referenced: "canvas/documents/rules.md" }));
+    expect(reference().getAttribute("aria-pressed")).toBe("true");
+    await act(async () => reference().click());
+    expect(onReference).toHaveBeenCalledWith(undefined);
+  });
+
+  it("offers to write a document when there is none", async () => {
+    const documents = documentsState([]);
+    const { onAskAgent } = await renderPanel(documents);
+    expect(container.textContent).toContain("This project has no game design document yet");
+    const action = (name: string) => [...container.querySelectorAll<HTMLButtonElement>(".ui-empty button")].find((button) => button.textContent === name)!;
+    await act(async () => action("Ask the agent to write one").click());
+    expect(onAskAgent).toHaveBeenCalledWith(expect.stringContaining("game design document"));
+    await act(async () => action("New document").click());
+    expect(documents.create).toHaveBeenCalledOnce();
+  });
+
+  it("doesn't load the documents, and so create the canvas, until a panel wants them", async () => {
+    const load = vi.spyOn(canvasApi, "getCanvasWorkspace").mockResolvedValue({ version: 1, boards: [{ id: "main", name: "Main" }], documents: [], assets: [] });
+    function Host({ enabled }: { enabled: boolean }) {
+      useCanvasDocuments("project-1", enabled);
+      return null;
+    }
+    await act(async () => root.render(<Host enabled={false} />));
+    expect(load).not.toHaveBeenCalled();
+    await act(async () => root.render(<Host enabled />));
+    expect(load).toHaveBeenCalledWith("project-1");
   });
 });

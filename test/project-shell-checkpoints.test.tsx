@@ -245,7 +245,7 @@ async function click(name: string) {
 }
 
 describe("project shell layout", () => {
-  it("opens Game Design in its panel and keeps a closed chat closed across project updates", async () => {
+  it("opens the design route on the canvas panel and keeps a closed chat closed across project updates", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const daemon = await openProject(() => undefined, detail("live-turn"), {
       view: "design",
@@ -260,9 +260,10 @@ describe("project shell layout", () => {
         (item) => item.textContent?.trim() === name,
       )!;
 
-    // A General project without a preview offers no game panel.
+    // A General project without a preview offers no game panel. The design
+    // route brings its canvas forward, beside the design document.
     expect(tabs("left")).toEqual(["*Chat"]);
-    expect(tabs("center")).toEqual(["Code", "*Design", "Assets"]);
+    expect(tabs("center")).toEqual(["Code", "Design", "*Canvas", "Assets"]);
     await click("Close Chat");
     expect(container.querySelector(".dock-area-left")).toBeNull();
 
