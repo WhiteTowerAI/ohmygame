@@ -4,7 +4,7 @@ import { customImageModel } from "../shared/custom-models.js";
 import { imageModelsForProvider } from "./image-models.js";
 import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
 import { customMediaSource } from "./custom-media-source.js";
-import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
+import { assertTransparentImage, ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
 import { listOpenRouterImageModels, listPublicOpenRouterImageModels, resolveOpenRouterMediaSource } from "./openrouter-media.js";
 import { SEEDREAM_BASE_URL, SEEDREAM_PROVIDER_ID, SEEDREAM_PROVIDER_NAME, seedreamModel, seedreamModels } from "./seedream-models.js";
 
@@ -172,7 +172,7 @@ export class ProviderImages implements ImageGenerator {
     }
     if (!selection.source) throw new ImageGenerationError("Image connection is unavailable", 503);
     const adapter = createImageProtocolAdapters(this.request)[definition.protocol];
-    return adapter.generate(selection.source, selection.model.id, {
+    const generated = await adapter.generate(selection.source, selection.model.id, {
       ...generationInput,
       size,
       resolution,
@@ -180,6 +180,8 @@ export class ProviderImages implements ImageGenerator {
       ...(definition.supportsResolution === false ? { resolution: undefined } : {}),
       ...(definition.supportsAspectRatio === false ? { aspectRatio: undefined } : {}),
     }, signal, definition);
+    if (input.transparentBackground) await assertTransparentImage(generated.bytes);
+    return generated;
   }
 
   async #selection(requested?: ImageModelRef, signal?: AbortSignal): Promise<ImageSelection | undefined> {

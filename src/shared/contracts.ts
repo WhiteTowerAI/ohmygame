@@ -1166,6 +1166,7 @@ export type ToolId = (typeof TOOL_IDS)[number];
 interface RunSizedImageToolRequest {
   prompt: string;
   imageModel?: ImageModelRef;
+  transparentBackground?: boolean;
   size?: ImageSize;
   resolution?: never;
   aspectRatio?: never;
@@ -1176,6 +1177,7 @@ interface RunSizedImageToolRequest {
 interface RunConfiguredImageToolRequest {
   prompt: string;
   imageModel?: ImageModelRef;
+  transparentBackground?: boolean;
   size?: never;
   resolution: ImageResolution;
   aspectRatio: ImageAspectRatio;

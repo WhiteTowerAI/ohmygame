@@ -925,7 +925,7 @@ const en = {
   },
   effectLibrary: {
     title: "Effects",
-    canvasGuide: "First look at the fixed example: it preserves a 4 × 3, 12-frame sheet and the GIF composed from it. Click “Sprite sheet example” to see a complete Prompt.\n\nOption one · Generate with an image model: add a prompt direction below, or use the + inside the node to add a reference image.\n\nOption two · Use an existing image asset: if you already have an N × M frame sheet, upload it with the canvas + button—no Prompt or image model is needed.\n\nBoth paths begin with one frame sheet: select it, use Grid split with the matching N × M, then select every frame and use Frame animation → Compose GIF.",
+    canvasGuide: "First look at the fixed example: it preserves a 4 × 3, 12-frame sheet and the GIF composed from it. Click “Sprite sheet example” to see a complete Prompt.\n\nOption one · Generate with an image model: add a prompt direction below, or use the + inside the node to add a reference image. Note: the built-in Codex image model cannot currently guarantee a transparent background; for a reliable transparent Sprite Sheet, choose an OpenAI Image model.\n\nOption two · Use an existing image asset: if you already have an N × M frame sheet, upload it with the canvas + button—no Prompt or image model is needed.\n\nBoth paths begin with one frame sheet: select it, use Grid split with the matching N × M, then select every frame and use Frame animation → Compose GIF.",
     cardDescription: "Create and organize pixel-art effect sprite sheets.",
     framePlan: "Frame plan",
     howToTitle: "How to use the Effects template",

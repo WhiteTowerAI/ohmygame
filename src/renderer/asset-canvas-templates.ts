@@ -15,6 +15,20 @@ import { createProject, deleteLibraryAsset, deleteProject, getProjectCover, list
 import effectLibraryCover from "./assets/templates/examples/effect-library-cover.webp";
 import effectFireHitSheet from "./assets/templates/examples/effect-fire-hit-sheet.png";
 import effectFireHitPreview from "./assets/templates/examples/effect-fire-hit-preview.gif";
+import effectIceImpactSheet from "./assets/templates/examples/effect-ice-impact-sheet.png";
+import effectIceImpactPreview from "./assets/templates/examples/effect-ice-impact-preview.gif";
+import effectWaveImpactSheet from "./assets/templates/examples/effect-wave-impact-sheet.png";
+import effectWaveImpactPreview from "./assets/templates/examples/effect-wave-impact-preview.gif";
+import effectWaterSplashSheet from "./assets/templates/examples/effect-water-splash-sheet.png";
+import effectWaterSplashPreview from "./assets/templates/examples/effect-water-splash-preview.gif";
+import effectElectricOrbBurstSheet from "./assets/templates/examples/effect-electric-orb-burst-sheet.png";
+import effectElectricOrbBurstPreview from "./assets/templates/examples/effect-electric-orb-burst-preview.gif";
+import effectLightningStrikeSheet from "./assets/templates/examples/effect-lightning-strike-sheet.png";
+import effectLightningStrikePreview from "./assets/templates/examples/effect-lightning-strike-preview.gif";
+import effectIceClawSlashSheet from "./assets/templates/examples/effect-ice-claw-slash-sheet.png";
+import effectIceClawSlashPreview from "./assets/templates/examples/effect-ice-claw-slash-preview.gif";
+import effectElectricTrailSheet from "./assets/templates/examples/effect-electric-trail-sheet.png";
+import effectElectricTrailPreview from "./assets/templates/examples/effect-electric-trail-preview.gif";
 import { TEMPLATE_SAMPLE_IMAGES, type TemplateSample } from "./asset-canvas-template-samples.js";
 import {
   changeCanvasBoard,
@@ -113,7 +127,178 @@ Main color: original orange, yellow, red, and dark-brown fire palette
 Motion rhythm: balanced buildup, brightest peak, then a clean fade-out
 
 Additional direction:
-Create exactly one square sheet with exactly 12 equal-sized cells. Keep every frame fully inside its cell, with a fixed ground-impact point and transparent background. Show ignition, expanding burst, brightest peak, scattered embers, and a clean fade-out in sequence.`;
+Create exactly one square sheet with exactly 12 equal-sized cells, read left to right and top to bottom. Every cell must have the same transparent background, identical camera framing, identical scale, and one fixed ground-impact point at the bottom center. Do not add borders, grid lines, labels, text, UI, characters, weapons, scenery, or extra effects. Do not leave any cell empty.
+
+Frame 1: a tiny orange ignition spark on the ground.
+Frame 2: a small flame emerges.
+Frame 3: the flame grows with a few glowing debris pixels.
+Frame 4: a taller flame expands outward.
+Frame 5: the first compact fiery burst.
+Frame 6: the brightest and largest explosion peak, white-yellow core and orange-red flame.
+Frame 7: the burst recedes, with debris moving outward.
+Frame 8: a smaller collapsing fire burst with a glowing hot core.
+Frame 9: fading flame and scattered ember chunks.
+Frame 10: a small diminishing ground flame.
+Frame 11: sparse floating embers above a faint glow.
+Frame 12: only a few tiny fading embers over the fixed ground point.
+
+Style: crisp 2D fantasy game pixel art, limited orange, yellow, red, and dark-brown palette, hard pixel edges, no blur. Each cell must show one clearly distinct consecutive moment of the same animation. Transparent background.`;
+
+const EFFECT_LIBRARY_ICE_EXAMPLE_PROMPT = `Requested action: blue ice impact animation in a 4-column by 3-row Sprite Sheet (12 frames)
+
+Main color: icy cyan, bright blue, and white highlights
+
+Motion rhythm: quick and forceful
+
+Additional direction:
+Frame 1: tiny cyan spark.
+Frame 2: small ice crystal appears.
+Frame 3: more crystals form.
+Frame 4: ice burst expands upward.
+Frame 5: sharp ice shards erupt outward.
+Frame 6: largest bright blue-white ice explosion.
+Frame 7: burst collapses.
+Frame 8: shards fall.
+Frame 9: glow fades.
+Frame 10: small remaining crystal.
+Frame 11: sparse frost particles.
+Frame 12: faint glow and tiny particles.
+
+Transparent background. Hard pixel edges. No blur. Keep every frame fully inside its own cell with at least 10% transparent padding.`;
+
+const EFFECT_LIBRARY_WAVE_EXAMPLE_PROMPT = `Requested action: a powerful ocean wave impact animation in a 4-column by 3-row Sprite Sheet (12 frames)
+
+Main color: deep ocean blue, turquoise, cyan, and bright white foam highlights
+
+Motion rhythm: fast and forceful wave movement, explosive impact, followed by a smooth retreat
+
+Additional direction:
+Frame 1: a small blue wave begins forming from the left side.
+Frame 2: the wave grows taller with a curved crest.
+Frame 3: the wave moves forward and gathers energy.
+Frame 4: the crest rises and curls inward.
+Frame 5: the wave surges toward the center with bright foam.
+Frame 6: the main wave crashes forward in a powerful impact.
+Frame 7: the largest splash expands outward with multiple foam arcs.
+Frame 8: water droplets and foam scatter around the impact point.
+Frame 9: the wave begins collapsing and flowing back.
+Frame 10: the splash becomes smaller with several falling droplets.
+Frame 11: only a low wave, foam fragments, and small droplets remain.
+Frame 12: faint foam and a few tiny water particles fade out.
+
+Transparent background. Hard pixel edges. No blur. Keep every frame fully inside its own cell with at least 10% transparent padding.`;
+
+const EFFECT_LIBRARY_WATER_SPLASH_EXAMPLE_PROMPT = `Requested action: a water droplet splash impact animation in a 4-column by 3-row Sprite Sheet (12 frames)
+
+Main color: bright cyan, electric blue, deep blue, and white water highlights
+
+Motion rhythm: quick impact, energetic splash expansion, then a smooth collapse and fade-out
+
+Additional direction:
+Frame 1: a tiny glowing blue water droplet falls from above.
+Frame 2: the droplet moves downward toward the fixed impact point.
+Frame 3: the droplet hits and creates a tiny circular splash.
+Frame 4: a small water ring expands outward.
+Frame 5: several short water arcs rise from the impact point.
+Frame 6: the splash grows upward with bright cyan highlights.
+Frame 7: the largest splash bursts outward with multiple droplets.
+Frame 8: the splash reaches its widest shape with scattered droplets.
+Frame 9: the outer arcs begin falling back toward the center.
+Frame 10: the water collapses into a smaller circular splash.
+Frame 11: only a few droplets and ripples remain.
+Frame 12: tiny fading droplets disappear above a faint blue ripple.
+
+Transparent background. Hard pixel edges. No blur. Keep every frame fully inside its own cell with at least 10% transparent padding.`;
+
+const EFFECT_LIBRARY_ELECTRIC_ORB_EXAMPLE_PROMPT = `Requested action: a spinning electric orb that bursts into lightning fragments in a 3-column by 4-row Sprite Sheet (12 frames)
+
+Main color: bright cyan, electric blue, deep indigo, and white energy highlights
+
+Motion rhythm: gradual charge-up, sudden burst, then a smooth electric fade-out
+
+Additional direction:
+Frame 1: a tiny glowing blue spark appears at the center.
+Frame 2: two small electric particles begin orbiting the center.
+Frame 3: a small cyan energy core forms.
+Frame 4: the orb grows with a thin rotating electric ring.
+Frame 5: the orb becomes brighter and several lightning arcs appear.
+Frame 6: the orb reaches maximum charge with a white-blue core.
+Frame 7: the orb violently bursts into branching lightning bolts.
+Frame 8: electric fragments scatter outward from the center.
+Frame 9: the fragments begin slowing down while small arcs remain.
+Frame 10: the central glow collapses into a smaller blue spark.
+Frame 11: only a few cyan particles and short electric arcs remain.
+Frame 12: faint blue sparks fade out completely.
+
+Transparent background. Hard pixel edges. No blur. Keep every frame fully inside its own cell with at least 10% transparent padding.`;
+
+const EFFECT_LIBRARY_LIGHTNING_STRIKE_EXAMPLE_PROMPT = `Requested action: a lightning strike impact animation in a 5-column by 2-row Sprite Sheet (10 frames)
+
+Main color: electric blue, violet, cyan, and white-hot highlights
+
+Motion rhythm: extremely fast buildup, explosive impact, then rapid dissipation
+
+Additional direction:
+Frame 1: a tiny blue electrical spark appears above the fixed ground point.
+Frame 2: thin electric branches begin forming downward.
+Frame 3: several small lightning arcs gather around the impact point.
+Frame 4: a bright lightning bolt starts descending from above.
+Frame 5: the main lightning bolt strikes the ground with a white-blue flash.
+Frame 6: the largest electric explosion expands outward with branching arcs.
+Frame 7: the impact contracts while sparks scatter in every direction.
+Frame 8: smaller electric arcs flicker around the fading impact point.
+Frame 9: only a few floating blue sparks remain.
+Frame 10: tiny fading particles disappear above the ground point.
+
+Transparent background. Hard pixel edges. No blur. Keep every frame fully inside its own cell with at least 10% transparent padding.`;
+
+const EFFECT_LIBRARY_ICE_CLAW_EXAMPLE_PROMPT = `Requested action: a three-claw ice slash animation with each slash oriented diagonally from the upper-right toward the lower-left in a 4-column by 3-row Sprite Sheet (12 frames)
+
+Main color: icy cyan, bright blue, deep navy, and white frozen highlights
+
+Motion rhythm: fast wind-up, sharp three-claw slash, brief hold, then a crystalline fade-out
+
+Important composition rule: the upper-right to lower-left direction describes only the diagonal orientation of the three claw marks. The complete effect must remain centered and stationary inside every individual cell. Do not move the effect from one corner of a cell to another. Do not create a slash path that crosses a cell boundary.
+
+Additional direction:
+Frame 1: a tiny centered icy glint.
+Frame 2: three tiny diagonal frost marks begin forming.
+Frame 3: three short parallel claw marks appear, oriented upper-right to lower-left.
+Frame 4: the three claws extend slightly while remaining centered.
+Frame 5: three sharp parallel ice slashes appear at medium size.
+Frame 6: the complete three-claw strike reaches its largest size, fully inside the cell.
+Frame 7: ice shards scatter around the centered claw marks.
+Frame 8: the slash trails begin slowing while frozen fragments remain.
+Frame 9: the three marks crack and begin fading.
+Frame 10: only shorter glowing claw traces remain.
+Frame 11: sparse ice particles and tiny blue fragments drift away.
+Frame 12: faint diagonal frost lines disappear completely.
+
+Transparent background. Hard pixel edges. No blur. No characters, weapons, scenery, text, borders, grid lines, or UI. Keep exactly three clearly separated claw marks. Keep every frame fully inside its own cell with at least 15% transparent padding on all four sides. Keep the effect within the central 70% of each cell. No claw, particle, glow, or ice fragment may touch, cross, or be clipped by a cell boundary. Keep identical camera framing, scale, center point, and diagonal orientation in every frame.`;
+
+const EFFECT_LIBRARY_ELECTRIC_TRAIL_EXAMPLE_PROMPT = `Requested action: an electric dash with a glowing lightning trail animation in a 4-column by 3-row Sprite Sheet (12 frames)
+
+Main color: electric blue, cyan, violet, and white-hot highlights
+
+Motion rhythm: extremely fast acceleration, sharp forward dash, stretched trail, then rapid dissipation
+
+Important composition rule: the left-to-right direction describes the orientation of the dash and its trail, not movement across the entire cell. The complete effect must remain centered inside every individual cell. Do not move the effect from the left edge to the right edge of a cell. Do not let the bolt or trail cross any cell boundary.
+
+Additional direction:
+Frame 1: a tiny centered electric spark.
+Frame 2: a compact blue energy core forms at the center.
+Frame 3: short lightning arcs gather behind the core.
+Frame 4: a small horizontal electric trail appears behind the centered core.
+Frame 5: the core brightens and the trail becomes longer toward the left.
+Frame 6: the centered energy bolt reaches maximum brightness with a white core.
+Frame 7: a wide cyan-blue lightning trail extends toward the left while the bolt remains inside the center area.
+Frame 8: the trail breaks into branching electric fragments around the centered bolt.
+Frame 9: the main bolt fades while several short horizontal arcs remain.
+Frame 10: scattered sparks remain along a short leftward trail.
+Frame 11: only a few tiny blue particles remain near the center.
+Frame 12: the final electric sparks fade out completely.
+
+Transparent background. Hard pixel edges. No blur. No characters, weapons, scenery, text, borders, grid lines, or UI. Keep every frame fully inside its own cell with at least 15% transparent padding on all four sides. Keep the effect within the central 70% of each cell. No lightning branch, particle, glow, or trail may touch, cross, or be clipped by a cell boundary. Keep identical camera framing, scale, center point, and motion direction in every frame.`;
 
 const EFFECT_LIBRARY_CATEGORIES = ["fire", "water", "ice", "lightning", "general"] as const;
 
@@ -429,14 +614,42 @@ export async function createEffectLibraryProject(): Promise<{ projectId: string;
       id: crypto.randomUUID(), type: "text", title: t("effectLibrary.howToTitle"), position: { x: 40, y: 80 }, width: 440,
       data: { instruction: "effect-library", text: t("effectLibrary.canvasGuide") },
     };
-    const [sheetAssetId, gifAssetId] = await Promise.all([
+    const [sheetAssetId, gifAssetId, iceSheetAssetId, iceGifAssetId, waveSheetAssetId, waveGifAssetId, waterSplashSheetAssetId, waterSplashGifAssetId, electricOrbSheetAssetId, electricOrbGifAssetId, lightningStrikeSheetAssetId, lightningStrikeGifAssetId, iceClawSheetAssetId, iceClawGifAssetId, electricTrailSheetAssetId, electricTrailGifAssetId] = await Promise.all([
       uploadEffectExample(effectFireHitSheet, "火焰命中-sprite-sheet.png", "image/png"),
       uploadEffectExample(effectFireHitPreview, "火焰命中-preview.gif", "image/gif"),
+      uploadEffectExample(effectIceImpactSheet, "冰霜冲击-sprite-sheet.png", "image/png"),
+      uploadEffectExample(effectIceImpactPreview, "冰霜冲击-preview.gif", "image/gif"),
+      uploadEffectExample(effectWaveImpactSheet, "海浪冲击-sprite-sheet.png", "image/png"),
+      uploadEffectExample(effectWaveImpactPreview, "海浪冲击-preview.gif", "image/gif"),
+      uploadEffectExample(effectWaterSplashSheet, "水花命中-sprite-sheet.png", "image/png"),
+      uploadEffectExample(effectWaterSplashPreview, "水花命中-preview.gif", "image/gif"),
+      uploadEffectExample(effectElectricOrbBurstSheet, "雷球爆裂-sprite-sheet.png", "image/png"),
+      uploadEffectExample(effectElectricOrbBurstPreview, "雷球爆裂-preview.gif", "image/gif"),
+      uploadEffectExample(effectLightningStrikeSheet, "雷点落击-sprite-sheet.png", "image/png"),
+      uploadEffectExample(effectLightningStrikePreview, "雷点落击-preview.gif", "image/gif"),
+      uploadEffectExample(effectIceClawSlashSheet, "三道寒冰爪痕-sprite-sheet.png", "image/png"),
+      uploadEffectExample(effectIceClawSlashPreview, "三道寒冰爪痕-preview.gif", "image/gif"),
+      uploadEffectExample(effectElectricTrailSheet, "电光拖尾-sprite-sheet.png", "image/png"),
+      uploadEffectExample(effectElectricTrailPreview, "电光拖尾-preview.gif", "image/gif"),
     ]);
-    const exampleGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 560, y: 80 }, width: 1040, height: 470, data: { name: t("effectLibrary.templateExample") } };
+    const exampleGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 560, y: 80 }, width: 2080, height: 1800, data: { name: t("effectLibrary.templateExample") } };
     const sheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 54 }, title: t("effectLibrary.spriteSheetExample"), description: "4 × 3 · 12 帧", data: { assetId: sheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_EXAMPLE_PROMPT } };
     const preview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 54 }, title: t("effectLibrary.gifPreview"), description: t("effectLibrary.gifPreviewHint"), data: { assetId: gifAssetId, mediaType: "image" } };
-    const workGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 560, y: 620 }, width: 1040, height: 460, data: { name: t("effectLibrary.myEffects") } };
+    const iceSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 54 }, title: `${t("effectLibrary.spriteSheetExample")} · 冰霜`, description: "4 × 3 · 12 帧", data: { assetId: iceSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ICE_EXAMPLE_PROMPT } };
+    const icePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 54 }, title: `${t("effectLibrary.gifPreview")} · 冰霜`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: iceGifAssetId, mediaType: "image" } };
+    const iceClawSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 490 }, title: `${t("effectLibrary.spriteSheetExample")} · 寒冰爪痕`, description: "4 × 3 · 12 帧", data: { assetId: iceClawSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ICE_CLAW_EXAMPLE_PROMPT } };
+    const iceClawPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 490 }, title: `${t("effectLibrary.gifPreview")} · 寒冰爪痕`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: iceClawGifAssetId, mediaType: "image" } };
+    const waveSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 490 }, title: `${t("effectLibrary.spriteSheetExample")} · 海浪`, description: "4 × 3 · 12 帧", data: { assetId: waveSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_WAVE_EXAMPLE_PROMPT } };
+    const wavePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 490 }, title: `${t("effectLibrary.gifPreview")} · 海浪`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: waveGifAssetId, mediaType: "image" } };
+    const waterSplashSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 926 }, title: `${t("effectLibrary.spriteSheetExample")} · 水花`, description: "4 × 3 · 12 帧", data: { assetId: waterSplashSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_WATER_SPLASH_EXAMPLE_PROMPT } };
+    const waterSplashPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 926 }, title: `${t("effectLibrary.gifPreview")} · 水花`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: waterSplashGifAssetId, mediaType: "image" } };
+    const electricOrbSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 926 }, title: `${t("effectLibrary.spriteSheetExample")} · 雷球`, description: "3 × 4 · 12 帧", data: { assetId: electricOrbSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ELECTRIC_ORB_EXAMPLE_PROMPT } };
+    const electricOrbPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 926 }, title: `${t("effectLibrary.gifPreview")} · 雷球`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: electricOrbGifAssetId, mediaType: "image" } };
+    const lightningStrikeSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 1362 }, title: `${t("effectLibrary.spriteSheetExample")} · 雷点`, description: "5 × 2 · 10 帧", data: { assetId: lightningStrikeSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_LIGHTNING_STRIKE_EXAMPLE_PROMPT } };
+    const lightningStrikePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 1362 }, title: `${t("effectLibrary.gifPreview")} · 雷点`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: lightningStrikeGifAssetId, mediaType: "image" } };
+    const electricTrailSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 1362 }, title: `${t("effectLibrary.spriteSheetExample")} · 电光拖尾`, description: "4 × 3 · 12 帧", data: { assetId: electricTrailSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ELECTRIC_TRAIL_EXAMPLE_PROMPT } };
+    const electricTrailPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 1362 }, title: `${t("effectLibrary.gifPreview")} · 电光拖尾`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: electricTrailGifAssetId, mediaType: "image" } };
+    const workGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 560, y: 1940 }, width: 2080, height: 460, data: { name: t("effectLibrary.myEffects") } };
     const imageOption = preferredImageOption(imageModels[0], "1:1");
     const image = createAssetGenerationNode("image", { x: 28, y: 52 }, {
       ...(imageModels[0] ? { imageModel: { provider: imageModels[0].provider, id: imageModels[0].id } } : {}),
@@ -450,7 +663,7 @@ export async function createEffectLibraryProject(): Promise<{ projectId: string;
     image.data.effectRhythm = "sample";
     image.data.prompt = "";
     image.data.promptExpanded = true;
-    const nodes: AssetCanvasNode[] = [guide, exampleGroup, sheet, preview, workGroup, image];
+    const nodes: AssetCanvasNode[] = [guide, exampleGroup, sheet, preview, iceSheet, icePreview, waveSheet, wavePreview, waterSplashSheet, waterSplashPreview, electricOrbSheet, electricOrbPreview, lightningStrikeSheet, lightningStrikePreview, iceClawSheet, iceClawPreview, electricTrailSheet, electricTrailPreview, workGroup, image];
     document.nodes = nodes;
     document.editorLayout.nodes = Object.fromEntries(nodes.map((node) => [node.id, { ...node.position, ...(node.width ? { width: node.width } : {}), ...(node.height ? { height: node.height } : {}) }]));
     const workspace = await getCanvasWorkspace(project.id);

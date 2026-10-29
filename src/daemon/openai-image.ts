@@ -1,4 +1,5 @@
 import type { ImageAspectRatio, ImageModelRef, ImageResolution, ImageSize, PromptImage } from "../shared/contracts.js";
+import sharp from "sharp";
 
 export type GeneratedImageMediaType = "image/png" | "image/jpeg" | "image/webp";
 
@@ -15,6 +16,8 @@ export interface ImageGenerationInput {
   resolution?: ImageResolution;
   aspectRatio?: ImageAspectRatio;
   images?: PromptImage[];
+  /** Request and validate a real alpha background for sprite/effect assets. */
+  transparentBackground?: boolean;
 }
 
 export interface ImageGenerator {
@@ -54,7 +57,7 @@ export class OpenAIImageGenerator implements ImageGenerator {
             prompt: input.prompt,
             size,
             quality: "medium",
-            output_format: "webp",
+            ...(input.transparentBackground ? { background: "transparent", output_format: "png" } : { output_format: "webp" }),
             n: 1,
           });
       response = await this.request(endpoint, {
@@ -83,17 +86,17 @@ export class OpenAIImageGenerator implements ImageGenerator {
     const result = body.data?.[0];
     const encoded = result?.b64_json;
     if (typeof encoded === "string" && encoded) {
-      return {
+      return this.finalize({
         bytes: Buffer.from(encoded, "base64"),
-        mediaType: "image/webp",
+        mediaType: input.transparentBackground ? "image/png" : "image/webp",
         requestId: response.headers.get("x-request-id") ?? undefined,
-      };
+      }, input.transparentBackground);
     }
-    if (typeof result?.url === "string" && result.url) return this.downloadImage(result.url, signal, response.headers.get("x-request-id"));
+    if (typeof result?.url === "string" && result.url) return this.downloadImage(result.url, signal, response.headers.get("x-request-id"), input.transparentBackground);
     throw new ImageGenerationError("OpenAI returned no generated image");
   }
 
-  private async downloadImage(url: string, signal: AbortSignal | undefined, requestId: string | null): Promise<GeneratedImage> {
+  private async downloadImage(url: string, signal: AbortSignal | undefined, requestId: string | null, transparentBackground = false): Promise<GeneratedImage> {
     let imageResponse: Response;
     try {
       const timeout = AbortSignal.timeout(30_000);
@@ -103,12 +106,28 @@ export class OpenAIImageGenerator implements ImageGenerator {
       throw new ImageGenerationError("Could not download the generated image");
     }
     if (!imageResponse.ok) throw new ImageGenerationError("Could not download the generated image");
-    return {
+    return this.finalize({
       bytes: Buffer.from(await imageResponse.arrayBuffer()),
-      mediaType: contentType(imageResponse.headers.get("content-type")) ?? "image/webp",
+      mediaType: contentType(imageResponse.headers.get("content-type")) ?? (transparentBackground ? "image/png" : "image/webp"),
       requestId: requestId ?? undefined,
-    };
+    }, transparentBackground);
   }
+
+  private async finalize(image: GeneratedImage, transparentBackground = false): Promise<GeneratedImage> {
+    if (!transparentBackground) return image;
+    await assertTransparentImage(image.bytes);
+    return image;
+  }
+}
+
+/** Rejects generated assets that carry a painted background instead of real alpha. */
+export async function assertTransparentImage(bytes: Buffer): Promise<void> {
+  const metadata = await sharp(bytes).metadata().catch(() => undefined);
+  if (!metadata?.hasAlpha) throw new ImageGenerationError("The image model did not return a transparent image", 502);
+  const { data } = await sharp(bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  for (let index = 3; index < data.length; index += 4)
+    if (data[index] !== 255) return;
+  throw new ImageGenerationError("The image model returned an opaque background instead of transparency", 502);
 }
 
 function contentType(value: string | null): GeneratedImageMediaType | undefined {
@@ -182,7 +201,8 @@ function editForm(input: ImageGenerationInput & { model?: string }, size: string
   form.set("prompt", input.prompt);
   form.set("size", size);
   form.set("quality", "medium");
-  form.set("output_format", "webp");
+  form.set("output_format", input.transparentBackground ? "png" : "webp");
+  if (input.transparentBackground) form.set("background", "transparent");
   form.set("n", "1");
   images.forEach((image, index) => {
     const extension = image.mediaType === "image/png" ? "png" : image.mediaType === "image/jpeg" ? "jpg" : "webp";

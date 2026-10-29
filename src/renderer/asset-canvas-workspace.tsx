@@ -270,6 +270,7 @@ type AssetCanvasFlowData = {
   referenceMentions?: Record<string, AssetCanvasReference>;
   assetId?: string;
   mediaType?: "image" | "video" | "audio" | "model";
+  examplePrompt?: string;
   model3DConfig?: Model3DGenerationConfig;
   heightMeters?: number;
   actionIds?: Model3DActionId[];
@@ -1720,14 +1721,18 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         const created = resultAssets.map((item) => assets.find((asset) => asset.id === item.assetId)).filter((asset): asset is LibraryAsset => Boolean(asset));
         if (!created.length || created.length !== resultAssets.length) throw new Error(t("assetCanvas.mediaTools.resultUnavailable"));
         if (nodesRef.current.length + created.length > MAX_ASSET_CANVAS_NODES) throw new Error(t("assetCanvas.canvasFull"));
-        const startX = (source?.position.x ?? 0) + (source?.measured?.width ?? 440) + 60;
-        const startY = source?.position.y ?? 0;
+        // Source nodes inside a group use parent-relative coordinates. Use their
+        // absolute canvas position so split frames are placed beside the source,
+        // rather than jumping toward the canvas origin/center.
+        const sourcePosition = source ? canvasAbsolutePosition(source, nodesRef.current) : { x: 0, y: 0 };
+        const startX = sourcePosition.x + (source?.measured?.width ?? 440) + 60;
+        const startY = sourcePosition.y;
         const createdNodes = created.map((asset, index) => assetFlowNode(asset, snapCanvasPosition({ x: startX + (index % 3) * 480, y: startY + Math.floor(index / 3) * 560 })));
         flushSync(() => setNodes((current) => [
           ...current.map((node) => ({ ...node, selected: false })),
           ...createdNodes,
         ]));
-        if (!keepEffectLibraryViewport) {
+        if (!keepEffectLibraryViewport && operation !== "split-image-grid" && operation !== "extract-gif-frames") {
           const first = createdNodes[0]!;
           const flow = flowInstance.current;
           // New nodes have not been measured yet, so fitView would ignore them.
@@ -2318,7 +2323,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             >
               {selectedNodes.length > 1 && !selectedMediaType && (canGroupSelection || canUngroupSelection) ? <SelectionCanvasToolbarOverlay
                 nodes={selectedNodes}
-                allNodes={nodes}
                 onGroup={canGroupSelection ? groupSelection : undefined}
                 onUngroup={canUngroupSelection ? ungroupSelection : undefined}
               /> : null}
@@ -2512,15 +2516,12 @@ function MediaGridPicker({ onPick }: { onPick: (grid: MediaGridSize) => void }) 
   </div>;
 }
 
-function SelectionCanvasToolbarOverlay({ nodes, allNodes, onGroup, onUngroup }: {
+function SelectionCanvasToolbarOverlay({ nodes, onGroup, onUngroup }: {
   nodes: readonly AssetCanvasFlowNode[];
-  allNodes: readonly AssetCanvasFlowNode[];
   onGroup?: () => void;
   onUngroup?: () => void;
 }) {
-  const { y, zoom } = useViewport();
-  const below = y + Math.min(...nodes.map((node) => canvasAbsolutePosition(node, allNodes).y)) * zoom < 70;
-  return <NodeToolbar nodeId={nodes.map((node) => node.id)} isVisible position={below ? Position.Bottom : Position.Top} offset={10} className="asset-media-toolbar-panel nodrag nopan nowheel">
+  return <NodeToolbar nodeId={nodes.map((node) => node.id)} isVisible position={Position.Bottom} offset={10} className="asset-media-toolbar-panel nodrag nopan nowheel">
     <div className="asset-media-toolbar">
       {onGroup ? <button className="asset-media-toolbar-button" type="button" onClick={onGroup}><Layers3 size={16} /><span>{t("assetCanvas.createGroup")}</span></button> : null}
       {onUngroup ? <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size={16} /><span>{t("assetCanvas.ungroup")}</span></button> : null}
@@ -2588,7 +2589,7 @@ function MediaCanvasToolbarOverlay({ node, nodes, canvasElement, mediaType, imag
   }, [canvasElement, node.id, node.data.panelOpen, node.measured?.width, node.measured?.height, zoom]);
   const screenTop = y + canvasAbsolutePosition(node, nodes).y * zoom;
   const below = screenTop < toolbarHeight + 20;
-  return <NodeToolbar nodeId={node.id} isVisible position={below ? Position.Bottom : Position.Top} offset={10 + (below ? formOffset : 0)} className="asset-media-toolbar-panel nodrag nopan nowheel">
+  return <NodeToolbar nodeId={node.id} isVisible position={Position.Bottom} offset={10 + formOffset} className="asset-media-toolbar-panel nodrag nopan nowheel">
     <div ref={toolbar}><MediaCanvasToolbar key={node.id} mediaType={mediaType} imageCount={imageCount} isGif={isGif} busy={busy} menuBelow={below || screenTop < toolbarHeight + 320} onOpen={onOpen} onGroup={onGroup} onUngroup={onUngroup} /></div>
   </NodeToolbar>;
 }
@@ -4528,7 +4529,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
     id: node.id,
     type: "asset",
     position: node.position,
-    data: { assetId: node.data.assetId ?? "", mediaType: node.data.mediaType ?? "image" },
+    data: { assetId: node.data.assetId ?? "", mediaType: node.data.mediaType ?? "image", ...(node.data.examplePrompt ? { examplePrompt: node.data.examplePrompt } : {}) },
   };
   if (node.type === "text") return {
     id: node.id,
