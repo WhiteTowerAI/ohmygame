@@ -909,6 +909,28 @@ describe("checkpoints in the project shell", () => {
     expect(document.body.textContent).toContain("Disk full");
   });
 
+  it("reopens a closed story panel to show a file the chat links to", async () => {
+    const PLAYABLE = path.resolve("src/renderer/playable-editor-workspace.tsx");
+    vi.doMock(PLAYABLE, () => ({ PlayableEditorWorkspace: () => <p>Story editor</p> }));
+    const linked = detail("live-turn");
+    linked.turns[0]!.items[1] = { ...linked.turns[0]!.items[1]!, text: "Edited [the story](story/scenes.json)." } as never;
+    try {
+      await openProject((route) => route === "/projects/project" ? Response.json({
+        id: "project", name: "Test", type: "interactive-story", workspacePath: "/tmp/project",
+        updatedAt: new Date(0).toISOString(), preview: { status: "stopped" },
+      }) : undefined, linked);
+      const storyTab = () => [...container.querySelectorAll('[role="tab"]')].find((tab) => tab.getAttribute("aria-label") === "Story");
+      expect(storyTab()).toBeDefined();
+      await click("Close Story");
+      expect(storyTab()).toBeUndefined();
+      await act(async () => container.querySelector<HTMLAnchorElement>(".workspace-file-link")!.click());
+      await settle();
+      expect(storyTab()?.getAttribute("aria-selected")).toBe("true");
+    } finally {
+      vi.doUnmock(PLAYABLE);
+    }
+  });
+
   it("opens the publish dialog from the top bar", async () => {
     const publishDialog = vi.fn();
     vi.doMock(CODING_WORKSPACE, () => ({

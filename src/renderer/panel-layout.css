@@ -7,6 +7,23 @@
   min-height: 0;
 }
 
+/* Closed panels' views, kept rendered off screen (see parkingLot). */
+.dock-parking {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  width: 800px;
+  height: 600px;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Stacked in a narrow window, the areas scroll as one column. */
+.dock.is-stacked {
+  overflow-y: auto;
+}
+
 .dock-area {
   position: relative;
   display: flex;
