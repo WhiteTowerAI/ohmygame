@@ -62,10 +62,12 @@ import { DesktopGamePreview } from "./desktop-game-preview.js";
 import { t } from "./i18n.js";
 import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./workspace-git-changes.js";
 import type { PanelNodes } from "./panel-layout.js";
+import { useCanvasDocuments } from "./use-canvas-documents.js";
 import { IconButton } from "./ui/index.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
+const DesignDocumentPanel = lazy(() => import("./design-document-panel.js").then((module) => ({ default: module.DesignDocumentPanel })));
 type WorkspaceContextMenu = { path: string; directory: boolean; x: number; y: number };
 type WorkspaceFileChange = { from?: string; to?: string };
 type WorkspaceEntryAction = "new-file" | "new-folder" | "rename" | "delete" | "copy-path" | "save-library";
@@ -87,12 +89,18 @@ interface CodingWorkspaceProps {
   onRestart: (project?: ProjectState, reinstall?: boolean) => void;
   onStop?: () => Promise<void>;
   onAskAgent?: (text: string) => void;
-  /** Shows the design view in place of the first one when there are no panels. */
-  designOpen?: boolean;
+  /** Shows the canvas in place of the first view when there are no panels. */
+  canvasOpen?: boolean;
   onDesignSaveReady?: (save: (() => Promise<void>) | undefined) => void;
   onDesignContextChange?: (context: import("../shared/contracts.js").PromptContext | undefined) => void;
   onProjectUpdated?: (project: ProjectState) => void;
   openFileRequest?: { path: string; id: number };
+  /** The design document the next message references, by its workspace path. */
+  referencedDocument?: string;
+  /** References a design document in the next message, or stops referencing it. */
+  onReferenceDocument?: (document: { id: string; title: string } | undefined) => void;
+  /** Quotes text picked in the design document into the next message. */
+  onQuoteDocument?: (text: string) => void;
   /**
    * The panels the views render into. Without them (in tests), the first
    * view renders in place.
@@ -101,7 +109,7 @@ interface CodingWorkspaceProps {
 }
 
 /** The workspace's views, each a panel of its own. */
-export type CodingView = "preview" | "design" | "code" | "assets";
+export type CodingView = "preview" | "design" | "canvas" | "code" | "assets";
 
 export interface CodingPanels {
   /** Where each view renders: its panel's body and its controls in the tab strip. */
@@ -124,16 +132,19 @@ export function CodingWorkspace({
   onRestart,
   onStop,
   onAskAgent,
-  designOpen = false,
+  canvasOpen = false,
   onDesignSaveReady,
   onDesignContextChange,
   onProjectUpdated,
   openFileRequest,
+  referencedDocument,
+  onReferenceDocument,
+  onQuoteDocument,
   panels,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
   const hasPreview = supportsProjectPreview(project);
-  const visible = panels?.visible ?? new Set<CodingView>([designOpen ? "design" : hasPreview ? "preview" : "code"]);
+  const visible = panels?.visible ?? new Set<CodingView>([canvasOpen ? "canvas" : hasPreview ? "preview" : "code"]);
   const shows = (view: CodingView) => visible.has(view);
   const show = (view: CodingView) => panels?.onShow(view);
   // A view's body mounts the first time it shows and then stays, so a hidden
@@ -141,6 +152,23 @@ export function CodingWorkspace({
   const opened = useRef(new Set<CodingView>());
   for (const view of visible) opened.current.add(view);
   const [designHeaderActions, setDesignHeaderActions] = useState<HTMLDivElement | null>(null);
+  const [documentToolbar, setDocumentToolbar] = useState<HTMLDivElement | null>(null);
+  // The design document and the canvas show the same documents, so they share
+  // them. Loading creates the project's canvas, so it waits for either to open.
+  const documentsOpened = !!project && (opened.current.has("design") || opened.current.has("canvas"));
+  const documents = useCanvasDocuments(project?.id ?? "", documentsOpened);
+  const documentsRef = useRef(documents);
+  documentsRef.current = documents;
+  // Saving the design saves the canvas, which saves the documents too, or the
+  // documents alone while the canvas hasn't opened.
+  const canvasSave = useRef<(() => Promise<void>) | undefined>(undefined);
+  const registerCanvasSave = useCallback((save: (() => Promise<void>) | undefined) => { canvasSave.current = save; }, []);
+  const saveDesign = useCallback(() => canvasSave.current ? canvasSave.current() : documentsRef.current.flush(), []);
+  useEffect(() => {
+    if (!documentsOpened) return;
+    onDesignSaveReady?.(saveDesign);
+    return () => onDesignSaveReady?.(undefined);
+  }, [documentsOpened, onDesignSaveReady, saveDesign]);
   const [viewport, setViewport] = useState<PreviewViewport>(project?.previewViewport ?? "fit");
   const [previewPath, setPreviewPath] = useState(project?.previewPath ?? "/");
   const [previewClient] = useState(() => crypto.randomUUID());
@@ -364,9 +392,16 @@ export function CodingWorkspace({
       </>,
     } : undefined,
     design: project ? {
+      toolbar: <div className="viewer-publish design-doc-toolbar" ref={setDocumentToolbar} />,
+      body: <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><DesignDocumentPanel
+        project={project} documents={documents} toolbarTarget={documentToolbar} referenced={referencedDocument}
+        onReference={(document) => onReferenceDocument?.(document)} onQuote={(text) => onQuoteDocument?.(text)} onAskAgent={onAskAgent}
+      /></Suspense>,
+    } : undefined,
+    canvas: project ? {
       toolbar: <div className="viewer-publish design-header-actions" ref={setDesignHeaderActions} />,
       body: <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
-        project={project} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onSaveReady={onDesignSaveReady} onContextChange={onDesignContextChange}
+        project={project} documents={documents} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onSaveReady={registerCanvasSave} onContextChange={onDesignContextChange}
       /></Suspense>,
     } : undefined,
     code: {
@@ -410,7 +445,7 @@ export function CodingWorkspace({
 
   // Each view keeps the workspace's classes, so its styles hold inside any panel.
   // The preview logs cover the bottom of the view in sight, the game's first.
-  const logsView = (["preview", "code", "assets", "design"] as const).find((view) => views[view] && shows(view));
+  const logsView = (["preview", "code", "assets", "canvas", "design"] as const).find((view) => views[view] && shows(view));
   const viewPane = (view: CodingView, body: ReactNode, header?: ReactNode) => (
     <section className="viewer-pane coding-workspace" data-active-tab={view} aria-label={t("workspace.label")}>
       {header}

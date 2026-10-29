@@ -63,6 +63,7 @@ export interface InputProps extends Omit<
   InputHTMLAttributes<HTMLInputElement>,
   "size" | "prefix"
 > {
+  ref?: Ref<HTMLInputElement>;
   size?: "sm" | "md";
   prefix?: ReactNode;
   suffix?: ReactNode;

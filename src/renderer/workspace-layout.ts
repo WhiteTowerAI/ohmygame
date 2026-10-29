@@ -9,17 +9,20 @@ import { supportsProjectPreview } from "../shared/project-runtime.js";
 // chat to the right holds everywhere.
 
 const STORAGE_KEY = "ohmygame-workspace-layout";
-const VERSION = 2;
+const VERSION = 3;
 const AREAS = ["left", "center", "right", "bottom"] as const;
 
 export type WorkspacePanel = "chat" | "game" | "design" | "code" | "assets" | "story" | "canvas";
 export type Preset = "default" | "art" | "code";
 
-/** The panels each built-in type offers. A Godot plugin will name its own. */
+/**
+ * The panels each built-in type offers. A Godot plugin will name its own.
+ * Design is the game design document; Canvas is the asset canvas beside it.
+ */
 const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
-  "web-game": ["chat", "game", "design", "code", "assets"],
-  general: ["chat", "game", "design", "code", "assets"],
-  "godot-game": ["chat", "game", "design", "code", "assets"],
+  "web-game": ["chat", "game", "design", "canvas", "code", "assets"],
+  general: ["chat", "game", "design", "canvas", "code", "assets"],
+  "godot-game": ["chat", "game", "design", "canvas", "code", "assets"],
   "interactive-story": ["chat", "story"],
   "asset-canvas": ["chat", "canvas"],
 };
@@ -32,9 +35,10 @@ export function panelsOf(project: Pick<ProjectState, "type"> & Parameters<typeof
 /** Where a panel opens when it isn't in the layout. */
 export const homeOf = (panel: WorkspacePanel): AreaId => panel === "chat" ? "left" : "center";
 
-/** The presets that make sense for these panels: Art and Code put that panel first. */
+/** The presets that make sense for these panels: Art and Code put the canvas or the code first. */
 export function presetsFor(offered: readonly WorkspacePanel[]): Preset[] {
-  return ["default", ...(offered.includes("design") ? ["art" as const] : []), ...(offered.includes("code") ? ["code" as const] : [])];
+  const code = offered.includes("code");
+  return ["default", ...(code && offered.includes("canvas") ? ["art" as const] : []), ...(code ? ["code" as const] : [])];
 }
 
 const area = (panels: WorkspacePanel[], size: number): AreaState => ({ panels, active: panels[0], size });
@@ -42,11 +46,11 @@ const area = (panels: WorkspacePanel[], size: number): AreaState => ({ panels, a
 /**
  * The chat on the left and the rest in the middle in the type's order, the
  * first in front. A project without a game opens on its code. Art and Code
- * bring the design canvas or the code forward.
+ * bring the canvas or the code forward.
  */
 export function presetLayout(preset: Preset, offered: readonly WorkspacePanel[]): Layout {
   let middle = offered.filter((panel) => homeOf(panel) === "center");
-  const first: WorkspacePanel | undefined = preset === "art" ? "design" : preset === "code" || !middle.includes("game") ? "code" : undefined;
+  const first: WorkspacePanel | undefined = preset === "art" ? "canvas" : preset === "code" || !middle.includes("game") ? "code" : undefined;
   if (first && middle.includes(first)) middle = [first, ...middle.filter((panel) => panel !== first)];
   return {
     left: area(offered.filter((panel) => homeOf(panel) === "left"), 380),

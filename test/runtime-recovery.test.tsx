@@ -547,7 +547,7 @@ describe("pane and preview boundaries", () => {
     updateRuntimeConnection(ready(1));
     const project: ProjectState = { id: "logs", name: "Logs", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/logs", preview: { status: "stopped", logs: "Preview was stopped." } };
     // Only the Code panel is on screen.
-    const nodes = { preview: createPanelNodes(), design: createPanelNodes(), code: createPanelNodes(), assets: createPanelNodes() };
+    const nodes = { preview: createPanelNodes(), design: createPanelNodes(), canvas: createPanelNodes(), code: createPanelNodes(), assets: createPanelNodes() };
     const panel = document.createElement("div");
     panel.append(nodes.code.toolbar, nodes.code.body);
     document.body.append(panel);
