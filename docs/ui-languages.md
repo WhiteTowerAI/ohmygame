@@ -30,7 +30,9 @@ for `Intl` and `toLocale*` formatting.
 - Daemon and provider error details. The renderer shows them as received,
   under a translated title when there is one.
 - The Electron menus and main-process dialogs, the published game player,
-  and the web game host page.
+  and the web game host page. System notifications are the exception: the
+  renderer sends their wording to the main process; see
+  [agent notifications](runtime.md#agent-notifications).
 - Content from outside the app: examples, plugin and skill descriptions,
   Community games, provider and model names.
 

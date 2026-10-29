@@ -6,6 +6,7 @@ import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
 import type { DaemonRuntime, DesktopRuntimeState } from "../shared/desktop-runtime.js";
 import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
+import type { AgentNotificationPreferences, AgentNotificationTarget } from "../shared/agent-notifications.js";
 
 function desktopRuntime(): { daemonUrl: string; token: string } {
   const runtime = ipcRenderer.sendSync("ohmygame:desktop-runtime") as Partial<DaemonRuntime> | null;
@@ -116,6 +117,17 @@ if (process.isMainFrame) {
         const callback = (_event: Electron.IpcRendererEvent, state: PlaytestWatchState) => listener(state);
         ipcRenderer.on("ohmygame:agent-playtest-state", callback);
         return () => ipcRenderer.removeListener("ohmygame:agent-playtest-state", callback);
+      },
+    }),
+    notifications: Object.freeze({
+      setPreferences: (preferences: AgentNotificationPreferences) =>
+        ipcRenderer.invoke("ohmygame:notification-preferences", preferences) as Promise<void>,
+      setView: (view: AgentNotificationTarget | null) => ipcRenderer.invoke("ohmygame:notification-view", view) as Promise<void>,
+      takeTarget: () => ipcRenderer.invoke("ohmygame:take-notification-target") as Promise<AgentNotificationTarget | undefined>,
+      onTarget: (listener: () => void) => {
+        const callback = () => listener();
+        ipcRenderer.on("ohmygame:notification-target", callback);
+        return () => ipcRenderer.removeListener("ohmygame:notification-target", callback);
       },
     }),
     updates: Object.freeze({

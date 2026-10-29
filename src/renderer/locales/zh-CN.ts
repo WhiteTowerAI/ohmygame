@@ -171,6 +171,13 @@ const zhCN: typeof en = {
     gettingReady: "正在准备…",
     animation: "一个小小的游戏世界逐渐成形，随后变为 OhMyGame 标志。",
   },
+  notifications: {
+    approval: "等待你批准",
+    question: "有问题想问你",
+    plan: "计划已准备好，等你审阅",
+    completed: "已完成",
+    failed: "出错停止了",
+  },
   settings: {
     nav: {
       providers: "服务商与模型",
@@ -202,6 +209,12 @@ const zhCN: typeof en = {
       right: "右侧",
       language: "语言",
       languageLabel: "界面语言",
+    },
+    notifications: {
+      heading: "通知",
+      enabled: "智能体动态通知",
+      enabledDescription: "智能体需要你批准或回答时提醒你；OhMyGame 在后台时，智能体完成也会提醒。",
+      sound: "播放提示音",
     },
     account: {
       signedInAs: "当前登录",

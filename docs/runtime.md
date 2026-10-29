@@ -494,6 +494,41 @@ See the [project menu example](assets/project-card-menu.png).
 The desktop file opener resolves `.` through `/projects/:projectId/files/location`
 to open the workspace root; file reads and writes still require a file path.
 
+## Agent notifications
+
+The desktop app shows a system notification when an agent needs the user or
+has finished, in any project, including while the main window is closed.
+
+- The daemon's `AgentNoticeLog` (`src/daemon/agent-notices.ts`) reads runtime
+  events from every project. It records an approval request, a question, a
+  plan offered for review, a finished turn, or a failed turn; a stopped turn
+  records nothing. A planning turn that leaves a plan is recorded as the plan,
+  not as a finished turn. It also lists what still waits for the user.
+- `GET /agent-notices?after=<seq>` returns the notices after `seq` and the
+  waiting list. Notices hold IDs, the kind and the project name, never prompt
+  or reply text. The log is in memory with a per-process `epoch`, so a daemon
+  restart never replays old notices.
+- The main process (`src/desktop/agent-notifications.ts`) polls the log every
+  two seconds. Requests, questions and plans are shown unless the window is in
+  front showing that conversation; finished and failed turns only while the
+  window is not in front. Each conversation keeps one notification, replaced
+  by its newer one and withdrawn once its request is answered or the
+  conversation comes to the front. Clicking it opens the conversation, opening
+  the main window first if it was closed.
+- While the window is in the background, a request also bounces the Dock icon
+  once on macOS or flashes the taskbar button on Windows. The Dock badge
+  counts conversations waiting for the user.
+- **Settings → Appearance → Notifications** turns notifications and their
+  sound off. The renderer stores the choice and sends it to the main process
+  with the notification wording in the UI language.
+
+macOS shows notifications only from a code-signed app. The Electron used by
+`bun run dev:desktop` is not, so its notifications fail with `UNErrorDomain
+error 1` in the main log. To try them in development, sign a copy of
+`node_modules/electron/dist/Electron.app` with your own identity
+(`codesign --force --deep --sign "<identity>" <copy>/Electron.app`) and start
+with `ELECTRON_OVERRIDE_DIST_PATH=<copy> bun run dev:desktop`.
+
 ## Checkpoints
 
 All project types record private workspace snapshots before each consumed user

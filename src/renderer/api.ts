@@ -5,6 +5,7 @@ import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
+import type { AgentNotificationPreferences, AgentNotificationTarget } from "../shared/agent-notifications.js";
 import {
   RUNTIME_EVENT_TYPES,
   type AgentContextUsage,
@@ -179,6 +180,15 @@ declare global {
         state: () => Promise<PlaytestWatchState>;
         setVisible: (visible: boolean) => Promise<PlaytestWatchState>;
         onState: (listener: (state: PlaytestWatchState) => void) => () => void;
+      };
+      /** Older desktop builds do not show notifications. */
+      notifications?: {
+        setPreferences: (preferences: AgentNotificationPreferences) => Promise<void>;
+        /** The conversation the window shows, so its notifications are not shown while it is in front. */
+        setView: (view: AgentNotificationTarget | null) => Promise<void>;
+        /** The conversation a clicked notification opens, once. */
+        takeTarget: () => Promise<AgentNotificationTarget | undefined>;
+        onTarget: (listener: () => void) => () => void;
       };
       updates: {
         state: () => Promise<DesktopUpdateState | null>;

@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, Notification, session, shell } from "electron";
 import { clipboardFilePaths, loadClipboardFiles } from "./file-clipboard.js";
 import { installExternalMcpLauncher, markExternalMcpApp } from "./external-mcp-install.js";
 import { DaemonSupervisor } from "./daemon-supervisor.js";
@@ -26,6 +26,9 @@ import { ElectronPlaytestDriver } from "./playtest-driver.js";
 import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
 import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
+import { AgentNotifications } from "./agent-notifications.js";
+import type { AgentNoticesResponse } from "../shared/agent-notices.js";
+import { parseAgentNotificationPreferences, parseAgentNotificationTarget, type AgentNotificationTarget } from "../shared/agent-notifications.js";
 import { isNodeGraph } from "../shared/playable-graph-validation.js";
 import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
@@ -84,12 +87,55 @@ let updater: DesktopUpdater | undefined;
 let updateChecks: DesktopUpdateCheckScheduler | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));
 const windowMenuLabels = new Set(["File", "Edit", "View", "Window"]);
+/** The conversation a clicked notification opens, kept until the main window takes it. */
+let notificationTarget: AgentNotificationTarget | undefined;
+const agentNotifications = new AgentNotifications({
+  notices: async (after) => {
+    if (!daemon) return undefined;
+    const { url, token } = daemon.runtime;
+    const response = await fetch(`${url}/agent-notices?after=${after}`, {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+    return response.ok ? await response.json() as AgentNoticesResponse : undefined;
+  },
+  focused: () => Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()),
+  show: (options, onClick) => {
+    if (!Notification.isSupported()) return undefined;
+    const notification = new Notification(options);
+    notification.on("click", onClick);
+    // macOS refuses notifications from an unsigned app, such as Electron in development.
+    notification.on("failed", (_event, error) => console.warn(`Could not show a notification: ${error}`));
+    notification.on("show", () => console.log("Notification shown"));
+    notification.show();
+    return notification;
+  },
+  setBadgeCount: (count) => { app.setBadgeCount(count); },
+  requestAttention: () => {
+    if (process.platform === "darwin") app.dock?.bounce("informational");
+    else if (mainWindow && !mainWindow.isDestroyed()) mainWindow.flashFrame(true);
+  },
+  log: (message) => console.log(message),
+  open: (target) => {
+    notificationTarget = target;
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      // The new window takes the target once its page has loaded.
+      if (daemon && !quitting) openMainWindow().catch((error) => console.error(error));
+      return;
+    }
+    mainWindow.webContents.send("ohmygame:notification-target");
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  },
+});
 
 /** Removes the record that tells `ohmygame-mcp` the app is already running. */
 let clearExternalMcpApp: (() => Promise<void>) | undefined;
 
 async function stopServices(): Promise<void> {
   updateChecks?.stop();
+  agentNotifications.stop();
   webGamePlayers.close();
   agentPlaytests.close();
   await Promise.all([daemon?.stop(), oauth.cancel()]);
@@ -453,6 +499,24 @@ handle("ohmygame:show-playtest-editor", async (event, projectId: unknown) => {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.focus();
 });
+handle("ohmygame:notification-preferences", (event, value: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid notification source");
+  const preferences = parseAgentNotificationPreferences(value);
+  if (!preferences) throw new Error("Invalid notification preferences");
+  agentNotifications.setPreferences(preferences);
+});
+handle("ohmygame:notification-view", (event, value: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid notification source");
+  const view = parseAgentNotificationTarget(value);
+  if (view === undefined) throw new Error("Invalid conversation");
+  agentNotifications.setView(view);
+});
+handle("ohmygame:take-notification-target", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid notification source");
+  const target = notificationTarget;
+  notificationTarget = undefined;
+  return target;
+});
 handle("ohmygame:update-state", () => updater?.state() ?? null);
 handle("ohmygame:check-for-update", () => (updateChecks ? updateChecks.manual() : updater?.check()));
 handle("ohmygame:download-update", () => updater?.download());
@@ -568,6 +632,7 @@ try {
     },
   });
   await daemon.start();
+  agentNotifications.start();
   updater = new DesktopUpdater(app.getVersion(), () => prepareShutdown(true));
 
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);
@@ -611,7 +676,11 @@ async function openMainWindow(): Promise<void> {
         webGamePlayers.synchronize();
         updateChecks?.onFocus();
       });
-      window.on("focus", () => updateChecks?.onFocus());
+      window.on("focus", () => {
+        updateChecks?.onFocus();
+        if (process.platform !== "darwin") window.flashFrame(false);
+        agentNotifications.focusChanged();
+      });
       window.on("hide", () => webGamePlayers.synchronize());
       window.on("minimize", () => webGamePlayers.synchronize());
       window.on("restore", () => webGamePlayers.synchronize());
@@ -632,7 +701,11 @@ async function openMainWindow(): Promise<void> {
         }).catch(() => {});
       });
       window.once("closed", () => {
-        if (mainWindow === window) { mainWindow = undefined; rendererClose = undefined; }
+        if (mainWindow === window) {
+          mainWindow = undefined;
+          rendererClose = undefined;
+          agentNotifications.setView(null);
+        }
         webGamePlayers.close();
         for (const playtest of playtestWindows.values()) {
           void Promise.resolve(playtest).then((window) => window.close(), () => {});

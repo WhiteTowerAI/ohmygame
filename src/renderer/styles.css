@@ -911,6 +911,11 @@ body {
   font-weight: 500;
 }
 
+.settings-switch-row { padding-block: 6px; }
+.settings-switch-copy { display: grid; gap: 2px; }
+.settings-switch-copy small { color: var(--text-muted); font-size: 12px; }
+.settings-switch-row .settings-toggle input:disabled + span { cursor: not-allowed; opacity: 0.48; }
+
 .segmented-control {
   position: relative;
   isolation: isolate;

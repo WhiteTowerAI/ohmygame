@@ -6,6 +6,7 @@ import { PlaytestPage } from "./playtest.js";
 import { NodeThumbnailPage } from "./node-thumbnail-page.js";
 import { parseAppRoute } from "./routes.js";
 import { applyAppearance, readAppearance } from "./appearance.js";
+import { sendNotificationPreferences } from "./agent-notifications.js";
 import { DesktopWindowFrame } from "./desktop-window-frame.js";
 import { initializeAnalytics } from "./analytics.js";
 import { initializeRuntimeConnection } from "./runtime-connection.js";
@@ -24,6 +25,8 @@ if (window.ohMyGameDesktop) initSentry();
 // capture and report; it themes and connects without asking the app.
 const thumbnail = route.page === "thumbnail";
 applyAppearance(readAppearance(), { desktop: !thumbnail });
+// Only the main window shows the conversations that notifications are about.
+if (!thumbnail && route.page !== "playtest") sendNotificationPreferences();
 await initializeRuntimeConnection({ followService: !thumbnail });
 if (window.ohMyGameDesktop?.platform === "darwin") {
   document.documentElement.classList.add("desktop-macos");

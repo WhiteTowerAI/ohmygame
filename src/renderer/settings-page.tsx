@@ -13,6 +13,7 @@ import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { NetworkSettingsPanel } from "./network-settings.js";
 import { ExternalAgentsSettings } from "./external-agents-settings.js";
 import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js";
+import { readNotificationSettings, setNotificationSettings, type NotificationSettings } from "./agent-notifications.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
 import { ChangelogPanel } from "./changelog-panel.js";
@@ -130,6 +131,12 @@ function AppearanceSettings() {
   const [appearance, setAppearance] = useState<Appearance>(readAppearance);
   const [chatLayout, updateChatLayout] = useState<ChatLayout>(readChatLayout);
   const [language, updateLanguage] = useState<LanguagePreference>(readLanguagePreference);
+  const [notifications, updateNotifications] = useState<NotificationSettings>(readNotificationSettings);
+
+  function changeNotifications(next: NotificationSettings): void {
+    updateNotifications(next);
+    setNotificationSettings(next);
+  }
 
   function chooseAppearance(next: Appearance): void {
     setAppearance(next);
@@ -168,7 +175,37 @@ function AppearanceSettings() {
           <SegmentedControl className="settings-chat-layout-control" label={t("settings.appearance.languageLabel")} options={LANGUAGE_OPTIONS} value={language} onChange={chooseLanguage} />
         </div>
       </div>
+      {window.ohMyGameDesktop?.notifications ? (
+        <div className="settings-appearance-group">
+          <h4 className="settings-section-heading">{t("settings.notifications.heading")}</h4>
+          <SettingsSwitchRow label={t("settings.notifications.enabled")} description={t("settings.notifications.enabledDescription")}
+            checked={notifications.enabled} onChange={(enabled) => changeNotifications({ ...notifications, enabled })} />
+          <SettingsSwitchRow label={t("settings.notifications.sound")} checked={notifications.sound} disabled={!notifications.enabled}
+            onChange={(sound) => changeNotifications({ ...notifications, sound })} />
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+function SettingsSwitchRow({ label, description, checked, disabled, onChange }: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="settings-chat-layout-row settings-switch-row">
+      <span className="settings-switch-copy">
+        <span className="settings-chat-layout-label">{label}</span>
+        {description ? <small>{description}</small> : null}
+      </span>
+      <label className="settings-toggle">
+        <input type="checkbox" role="switch" aria-label={label} checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
+        <span aria-hidden="true" />
+      </label>
+    </div>
   );
 }
 

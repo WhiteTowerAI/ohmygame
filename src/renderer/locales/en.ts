@@ -170,6 +170,13 @@ const en = {
     gettingReady: "Getting ready…",
     animation: "A small game world forms, then transforms into the OhMyGame logo.",
   },
+  notifications: {
+    approval: "Waiting for your approval",
+    question: "Has a question for you",
+    plan: "A plan is ready for your review",
+    completed: "Finished",
+    failed: "Stopped with an error",
+  },
   settings: {
     nav: {
       providers: "Providers & Models",
@@ -202,6 +209,12 @@ const en = {
       right: "Right",
       language: "Language",
       languageLabel: "Interface language",
+    },
+    notifications: {
+      heading: "Notifications",
+      enabled: "Notify me about agent work",
+      enabledDescription: "When an agent needs your approval or an answer, or finishes while OhMyGame is in the background.",
+      sound: "Play a sound",
     },
     account: {
       signedInAs: "Signed in as",

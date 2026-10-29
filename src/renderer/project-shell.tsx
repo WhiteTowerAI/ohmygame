@@ -77,6 +77,7 @@ import { Composer, type ComposerDraft } from "./composer.js";
 import { composerDrafts } from "./composer-drafts.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { ApprovalCard } from "./approval-card.js";
+import { useNotificationView } from "./agent-notifications.js";
 import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
@@ -419,6 +420,8 @@ export function ProjectShell({
     const pending = takePendingPublish(sessionStorage, project.id);
     if (pending) void publish(pending).catch(() => undefined);
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
+
+  useNotificationView(state.project?.id, state.conversation?.id);
 
   if (state.phase === "fatal") {
     return <FatalState message={state.notice ?? t("projectShell.runtimeUnreachable")} onHome={onHome} homeLabel={homeLabel} />;
