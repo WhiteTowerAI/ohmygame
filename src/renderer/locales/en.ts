@@ -1103,6 +1103,13 @@ const en = {
     loadingFile: "Loading file",
     binaryUnavailable: "Binary file preview is unavailable",
     selectFile: "Select a file from the workspace tree",
+    previewStatus: {
+      ready: "Preview running",
+      starting: "Preview starting",
+      waiting: "Preview not started",
+      stopped: "Preview stopped",
+      error: "Preview failed",
+    },
     renameEntry: "Rename {{name}}",
     newFile: "New file",
     newFolder: "New folder",

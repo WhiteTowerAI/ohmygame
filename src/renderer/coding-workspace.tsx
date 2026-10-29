@@ -315,6 +315,7 @@ export function CodingWorkspace({
         <PreviewControls
           path={actualPreviewPath}
           paths={knownPaths}
+          status={preview?.status}
           previewUrl={currentPreviewUrl}
           refreshDisabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
           refreshLabel={preview?.status === "ready" ? t("workspace.reloadPreview") : t("workspace.restartPreview")}
@@ -444,6 +445,7 @@ export function CodingWorkspace({
 function PreviewControls({
   path,
   paths,
+  status,
   previewUrl,
   refreshDisabled,
   refreshLabel,
@@ -458,6 +460,7 @@ function PreviewControls({
 }: {
   path: string;
   paths: string[];
+  status?: ProjectState["preview"]["status"];
   previewUrl?: string;
   refreshDisabled: boolean;
   refreshLabel: string;
@@ -472,29 +475,30 @@ function PreviewControls({
 }) {
   return (
     <div className="preview-controls">
-      <ViewportMenu value={viewport} onChange={onViewportChange} />
       <PreviewLocation
         disabled={!previewUrl}
         path={path}
         paths={paths}
+        status={status}
         refreshDisabled={refreshDisabled}
         refreshLabel={refreshLabel}
         onNavigate={onNavigate}
         onRefresh={onRefresh}
       />
+      <ViewportMenu value={viewport} onChange={onViewportChange} />
       {agentPlaytestWatch ? (
         <button className={`icon-button pane-header-action preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`} type="button" aria-label={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")} aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending} data-tooltip={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")} onClick={onToggleAgentPlaytestWatch}>
-          <Video size={15} />
+          <Video size={14} />
         </button>
       ) : null}
       <button
-        className="icon-button quiet-button preview-settings-button"
+        className="icon-button pane-header-action preview-settings-button"
         type="button"
         onClick={onOpenSettings}
         title={t("projectSettings.title")}
         aria-label={t("projectSettings.title")}
       >
-        <Wrench size={15} />
+        <Wrench size={14} />
       </button>
     </div>
   );
@@ -504,6 +508,7 @@ function PreviewLocation({
   disabled,
   path,
   paths,
+  status,
   refreshDisabled,
   refreshLabel,
   onNavigate,
@@ -512,6 +517,7 @@ function PreviewLocation({
   disabled: boolean;
   path: string;
   paths: string[];
+  status?: ProjectState["preview"]["status"];
   refreshDisabled: boolean;
   refreshLabel: string;
   onNavigate: (path: string) => void;
@@ -562,16 +568,7 @@ function PreviewLocation({
 
   return (
     <div className="preview-location" ref={root}>
-      <button
-        className="preview-location-refresh"
-        type="button"
-        onClick={onRefresh}
-        disabled={refreshDisabled}
-        title={refreshLabel}
-        aria-label={refreshLabel}
-      >
-        <RefreshCw size={15} />
-      </button>
+      <span className={`preview-location-status is-${status ?? "waiting"}`} role="img" aria-label={t(`workspace.previewStatus.${status ?? "waiting"}`)} title={t(`workspace.previewStatus.${status ?? "waiting"}`)} />
       <button
         ref={trigger}
         className="preview-location-trigger"
@@ -588,6 +585,16 @@ function PreviewLocation({
       >
         <span className="preview-location-path">{path}</span>
         <ChevronDown className={open ? "preview-location-chevron-open" : undefined} size={13} />
+      </button>
+      <button
+        className="preview-location-refresh"
+        type="button"
+        onClick={onRefresh}
+        disabled={refreshDisabled}
+        title={refreshLabel}
+        aria-label={refreshLabel}
+      >
+        <RefreshCw size={13} />
       </button>
       {open ? (
         <div className="preview-location-popover" id={popoverId} role="dialog" aria-label={t("workspace.previewPages")}>
