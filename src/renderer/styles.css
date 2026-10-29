@@ -4952,7 +4952,7 @@ button {
 
 .viewer-pane.interactive-story-workspace {
   --interactive-story-grid: var(--color-grid-dot);
-  --story-edge-color: var(--color-border-strong);
+  --story-edge-color: var(--color-text-tertiary);
   --story-editor-surface: var(--surface);
   --story-editor-stage: var(--color-surface-raised);
   --story-player-empty-background: #1a1a1a;
@@ -4970,7 +4970,7 @@ button {
 
 :root[data-appearance="light"] .viewer-pane.interactive-story-workspace {
   --interactive-story-grid: var(--color-grid-dot);
-  --story-edge-color: var(--color-border-strong);
+  --story-edge-color: var(--color-text-tertiary);
   --story-editor-surface: var(--surface);
   --story-editor-stage: var(--color-surface-raised);
 }
@@ -5703,7 +5703,7 @@ button {
 .story-media-node-label small {
   margin-left: auto;
   flex: 0 0 auto;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 400;
@@ -6786,6 +6786,12 @@ button {
 .story-canvas-toolbar button.is-active {
   background: var(--color-selected, var(--color-hover));
   color: var(--color-text);
+}
+
+.story-canvas-zoom button:focus-visible,
+.story-canvas-toolbar button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
 }
 
 .story-canvas-toolbar button:disabled {

@@ -23,6 +23,7 @@
 /* The board's name floats over the board, as a raised chip that picks another. */
 .design-board-switcher .canvas-chip { max-width: 360px; height: 28px; padding: 0 var(--space-2) 0 10px; border-radius: var(--radius-md); background: var(--color-surface-raised); color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-medium); box-shadow: var(--shadow-float); }
 .design-board-switcher .canvas-chip:hover { background: var(--color-hover); }
+.design-board-switcher .canvas-chip:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .design-board-switcher .canvas-chip svg { color: var(--color-text-tertiary); }
 .design-document-node-footer button, .design-expanded-toolbar button, .design-expanded-close, .design-ai-result button, .design-modal header button { display: inline-grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0; padding: 0; background: transparent; border: 0; border-radius: 4px; color: var(--text-muted); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
 :is(.design-document-node-footer, .design-expanded-toolbar, .design-ai-result) button:hover, .design-expanded-close:hover { background: var(--surface-hover); color: var(--text); }
@@ -143,7 +144,6 @@
 .canvas-node-resize-handle:not(.top.left, .top.right, .bottom.left, .bottom.right) { opacity: 0; }
 .canvas-node-resize-handle:hover { border-color: var(--theme-accent) !important; }
 .canvas-node-resize-line { border-color: color-mix(in srgb, var(--theme-accent) 35%, transparent) !important; }
-.story-text-node.is-selected .story-text-output { border-color: color-mix(in srgb, var(--theme-accent) 45%, var(--border)); }
 .story-node > .story-text-output-handle { top: 50%; }
 
 .canvas-table-node .design-document-node-body { display: flex; flex-direction: column; }
