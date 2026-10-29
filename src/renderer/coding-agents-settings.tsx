@@ -24,8 +24,8 @@ import {
 } from "./api.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { openModelAuthExternal } from "./use-model-provider-auth.js";
-import { Button, Field, IconButton, Input, RadioGroup, Switch } from "./ui/index.js";
-import { SettingsBadge, SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
+import { Badge, Button, Field, IconButton, Input, RadioGroup, Switch } from "./ui/index.js";
+import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { AgentUsageDetails, AgentUsageInline } from "./agent-usage.js";
 import { t } from "./i18n.js";
 import { AgentAccountProfiles } from "./agent-account-profiles.js";
@@ -127,7 +127,7 @@ export function CodingAgentsGroup({
               <>
                 {agent.name}
                 {agent.id === defaultAgent ? (
-                  <SettingsBadge>{t("agents.default")}</SettingsBadge>
+                  <Badge tone="outline">{t("agents.default")}</Badge>
                 ) : null}
               </>
             }

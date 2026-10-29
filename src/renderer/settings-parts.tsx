@@ -122,17 +122,6 @@ export function SettingsDetailHead({
   );
 }
 
-/** A small label beside a name: 默认, 推荐, a plan. */
-export function SettingsBadge({
-  tone = "outline",
-  children,
-}: {
-  tone?: "outline" | "ink" | "success" | "danger";
-  children: ReactNode;
-}) {
-  return <span className={`settings-badge is-${tone}`}>{children}</span>;
-}
-
 /** A line that needs attention: an error, a result, or a waiting state. */
 export function SettingsNote({
   tone = "neutral",

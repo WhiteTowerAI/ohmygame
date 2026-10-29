@@ -19,8 +19,8 @@ import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
 import { ChangelogPanel } from "./changelog-panel.js";
 import { exportDiagnostics } from "./api.js";
-import { Button, SegmentedControl, Select } from "./ui/index.js";
-import { SettingsBadge, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
+import { Badge, Button, Progress, SegmentedControl, Select, Spinner } from "./ui/index.js";
+import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import "./settings.css";
 
@@ -355,31 +355,31 @@ function UpdateControl({ status, onRetry }: { status?: NonNullable<ReturnType<ty
   switch (status?.type) {
     case "available":
       return <div className="settings-actions">
-        <SettingsBadge tone="ink">{t("settings.about.available", { version: status.version })}</SettingsBadge>
+        <Badge tone="ink">{t("settings.about.available", { version: status.version })}</Badge>
         <span className="settings-about-actions"><Button variant="primary" onClick={() => void updates.download()}>{t("settings.about.download")}</Button></span>
       </div>;
     case "downloading":
       return <div className="settings-progress" role="status">
-        <span className="settings-progress-track" role="progressbar" aria-label={t("settings.about.downloading", { percent: status.percent })} aria-valuemin={0} aria-valuemax={100} aria-valuenow={status.percent}><span style={{ width: `${status.percent}%` }} /></span>
+        <Progress value={status.percent / 100} label={t("settings.about.downloading", { percent: status.percent })} />
         <span>{t("settings.about.downloading", { percent: status.percent })}</span>
       </div>;
     case "ready":
       return <div className="settings-actions">
-        <SettingsBadge tone="success">{t("settings.about.ready", { version: status.version })}</SettingsBadge>
+        <Badge tone="success">{t("settings.about.ready", { version: status.version })}</Badge>
         <span className="settings-about-actions"><Button variant="primary" onClick={() => void updates.install()}>{t("settings.about.restart")}</Button></span>
       </div>;
     case "installing":
       return <span className="settings-muted" role="status">{t("settings.about.installing")}</span>;
     case "error":
       return <div className="settings-actions">
-        <SettingsBadge tone="danger">{status.title}</SettingsBadge>
+        <Badge tone="danger">{status.title}</Badge>
         <span className="settings-about-actions"><Button onClick={onRetry}>{t("common.tryAgain")}</Button></span>
       </div>;
     default:
       return <div className="settings-actions">
-        {status?.type === "up-to-date" ? <SettingsBadge tone="success">{t("settings.about.upToDate")}</SettingsBadge> : null}
-        {status?.type === "checking" ? <span className="settings-muted" role="status">{t("settings.about.checking")}</span> : null}
-        <span className="settings-about-actions"><Button icon={<RefreshCw size={14} className={status?.type === "checking" ? "spin" : undefined} />} disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</Button></span>
+        {status?.type === "up-to-date" ? <Badge tone="success">{t("settings.about.upToDate")}</Badge> : null}
+        {status?.type === "checking" ? <Spinner label={t("settings.about.checking")} /> : null}
+        <span className="settings-about-actions"><Button icon={<RefreshCw size={14} />} disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</Button></span>
       </div>;
   }
 }

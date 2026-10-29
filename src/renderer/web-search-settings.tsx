@@ -7,8 +7,8 @@ import type {
 } from "../shared/web-search.js";
 import { getWebSearchSettings, updateWebSearchSettings } from "./api.js";
 import { t } from "./i18n.js";
-import { Button, Checkbox, Field, Input, RadioGroup, Switch } from "./ui/index.js";
-import { SettingsBadge, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
+import { Badge, Button, Checkbox, Field, Input, RadioGroup, Switch } from "./ui/index.js";
+import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 
 interface FormState {
   enabled: boolean;
@@ -194,7 +194,7 @@ function SearchCredential({
 }) {
   return (
     <div className="settings-search-credential">
-      <Field label={<>{label}{configured && !clear ? <SettingsBadge tone="success">{t("common.saved")}</SettingsBadge> : null}</>}>
+      <Field label={<>{label}{configured && !clear ? <Badge tone="success">{t("common.saved")}</Badge> : null}</>}>
         {(props) => (
           <Input
             {...props}

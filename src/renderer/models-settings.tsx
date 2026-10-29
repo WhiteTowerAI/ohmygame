@@ -47,8 +47,8 @@ import { Provider3DBalance } from "./provider-3d-balance.js";
 import { MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
 import { openModelAuthExternal as openExternal, useModelProviderAuth } from "./use-model-provider-auth.js";
-import { Button, IconButton, SearchInput, SegmentedControl, Switch } from "./ui/index.js";
-import { SettingsBadge, SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
+import { Badge, Button, IconButton, SearchInput, SegmentedControl, Switch } from "./ui/index.js";
+import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, cloudQuotaSummary, CloudQuotaDetails } from "./cloud-quota.js";
 import { getCloudQuotas, MODELS_CHANGED_EVENT } from "./api.js";
@@ -218,7 +218,7 @@ function ProviderRow({ detail, featured = false, onProvider, provider, onToggle,
     <SettingsRow
       className="settings-provider-row"
       icon={<ProviderMark provider={provider} />}
-      title={<><span className="settings-provider-name">{provider.name}</span>{featured && !provider.configured ? <SettingsBadge>{t("providers.recommended")}</SettingsBadge> : null}</>}
+      title={<><span className="settings-provider-name">{provider.name}</span>{featured && !provider.configured ? <Badge tone="outline">{t("providers.recommended")}</Badge> : null}</>}
       description={
         <span className="settings-meta settings-provider-details">
           <span className="settings-provider-description">{provider.managed ? cloudQuotaSummary(provider.cloud) : providerDescription(provider)}{detail ? <> · {detail}</> : null}</span>

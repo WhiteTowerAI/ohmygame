@@ -5,8 +5,8 @@ import { listAgentRuntimes, notifyAgentModelsChanged } from "./api.js";
 import { CodingAgentDetail, CodingAgentsGroup } from "./coding-agents-settings.js";
 import { useAgentModels } from "./model-selector.js";
 import type { SettingsSection } from "./routes.js";
-import { Button, IconButton } from "./ui/index.js";
-import { SettingsBadge, SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
+import { Badge, Button, IconButton } from "./ui/index.js";
+import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { t } from "./i18n.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 
@@ -84,7 +84,7 @@ function AgentList({ onOpen }: { onOpen: (id: string) => void }) {
         <SettingsRow
           className="settings-agent-row"
           icon={<BrandMark />}
-          title={<>OhMyGame{settled && !defaultAgent ? <SettingsBadge>{t("agents.default")}</SettingsBadge> : null}</>}
+          title={<>OhMyGame{settled && !defaultAgent ? <Badge tone="outline">{t("agents.default")}</Badge> : null}</>}
           description={noModels ? t("agents.ohmygameNoModels") : startsOn ? t("settings.agents.ohmygameModel", { model: startsOn.name }) : t("settings.agents.ohmygameSummary")}
           onClick={() => onOpen(OHMYGAME_AGENT)}
         >
