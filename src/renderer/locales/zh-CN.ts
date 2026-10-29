@@ -907,7 +907,8 @@ const zhCN: typeof en = {
   },
   effectLibrary: {
     title: "特效",
-    canvasGuide: "创建和整理像素风特效序列图。",
+    canvasGuide: "先看右侧固定示例：它保留了一张 4 × 3、共 12 帧的序列图和由其合成的 GIF。点击“序列图示例”可查看完整 Prompt 写法。\n\n方式一 · 使用图片模型生成：在下方节点补充 Prompt 描述，也可以点击节点内的“＋”添加参考图。\n\n方式二 · 使用已有图片素材：已有 N × M 帧图时，直接用画布底部“＋”上传素材，无需写 Prompt 或调用图片模型。\n\n两种方式都从整张帧图开始：选中它后执行“宫格切分”，选择与帧图一致的 N × M；多选切出的所有帧图，再执行“帧动画 → 合并 GIF”。",
+    cardDescription: "创建和整理像素风特效序列图。",
     framePlan: "帧规划",
     howToTitle: "特效模板使用说明",
     templateExample: "示例",
@@ -915,6 +916,9 @@ const zhCN: typeof en = {
     gifPreview: "预览",
     gifPreviewHint: "参考预览",
     myEffects: "我的特效",
+    examplePrompt: "Prompt 具体样例",
+    examplePromptHint: "此示例用于说明帧数、网格与逐帧变化应如何写入 Prompt。",
+    nodeHint: "点击这张卡片，选择图片模型，然后点击下方生成按钮",
   },
   workspace: {
     navigation: "工作区导航",

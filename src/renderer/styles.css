@@ -3323,7 +3323,7 @@ button.home-nav-item-active:hover {
 .asset-template-guide-option { min-width: 0; padding: 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); font-size: 11px; text-align: center; }
 .asset-template-guide-option > span { display: block; padding: 4px 2px; font-weight: 600; }
 .asset-template-guide-option p { margin: 0; padding: 0 4px 4px; color: var(--text-secondary); font-size: 10px; line-height: 1.4; }
-.asset-template-guide-instruction { margin: 0; padding: 9px 15px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+.asset-template-guide-instruction { margin: 0; padding: 9px 15px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; white-space: pre-line; }
 .asset-template-guide-description { color: var(--text); }
 .pixel-template-guide-uses { display: grid; gap: 10px; margin: 12px 15px 4px; font-size: 12px; line-height: 1.5; }
 .pixel-template-guide-uses > div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; }
@@ -17742,3 +17742,9 @@ button {
   font-size: 11px;
   line-height: 1.5;
 }
+.effect-prompt-editor { display: grid; gap: 8px; }
+.effect-example-prompt-panel { display: grid; width: min(500px, calc(100vw - 48px)); gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--border); background: var(--surface-raised); }
+.effect-example-prompt-heading { display: grid; gap: 3px; }
+.effect-example-prompt-heading strong { color: var(--text); font-size: 12px; }
+.effect-example-prompt-heading span { color: var(--text-muted); font-size: 10px; line-height: 1.4; }
+.effect-example-prompt-panel textarea { width: 100%; min-height: 210px; box-sizing: border-box; resize: vertical; padding: 8px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; line-height: 1.45; }

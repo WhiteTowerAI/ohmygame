@@ -185,7 +185,7 @@ const nodes = [
     type: "object",
     additionalProperties: false,
     required: ["assetId", "mediaType"],
-    properties: { assetId: id, mediaType: { enum: ["image", "video", "audio", "model"] } },
+    properties: { assetId: id, mediaType: { enum: ["image", "video", "audio", "model"] }, examplePrompt: { type: "string" } },
   }),
 ];
 

@@ -925,7 +925,8 @@ const en = {
   },
   effectLibrary: {
     title: "Effects",
-    canvasGuide: "Create and organize pixel-art effect sprite sheets.",
+    canvasGuide: "First look at the fixed example: it preserves a 4 × 3, 12-frame sheet and the GIF composed from it. Click “Sprite sheet example” to see a complete Prompt.\n\nOption one · Generate with an image model: add a prompt direction below, or use the + inside the node to add a reference image.\n\nOption two · Use an existing image asset: if you already have an N × M frame sheet, upload it with the canvas + button—no Prompt or image model is needed.\n\nBoth paths begin with one frame sheet: select it, use Grid split with the matching N × M, then select every frame and use Frame animation → Compose GIF.",
+    cardDescription: "Create and organize pixel-art effect sprite sheets.",
     framePlan: "Frame plan",
     howToTitle: "How to use the Effects template",
     templateExample: "Example",
@@ -933,6 +934,9 @@ const en = {
     gifPreview: "Preview",
     gifPreviewHint: "Reference preview",
     myEffects: "My effects",
+    examplePrompt: "Prompt example",
+    examplePromptHint: "This example shows how to describe the grid, frame count, and frame-by-frame changes.",
+    nodeHint: "Click this card, choose an image model, then use the generate button below",
   },
   workspace: {
     navigation: "Workspace navigation",

@@ -221,7 +221,7 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
               </span>
               <span className="home-whats-new-copy">
                 <strong>{t("effectLibrary.title")}</strong>
-                <small>{t("effectLibrary.canvasGuide")}</small>
+                <small>{t("effectLibrary.cardDescription")}</small>
               </span>
             </button>
           </div>

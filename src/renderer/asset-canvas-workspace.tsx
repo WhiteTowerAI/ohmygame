@@ -565,7 +565,15 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const loadedVideoModels = videoCatalog.models;
       if (disposed) return;
       setViewport(story.viewport);
-      const loadedNodes = orderedCanvasNodes(story.nodes).map((node) => toFlowNode(node, models, loadedVideoModels));
+      // Older Effect Library boards stored the complete prompt directly on the
+      // image node. Keep that prompt as the protected base and expose the new
+      // editable form when opening those boards.
+      const effectLibrary = story.nodes.some((node) => node.type === "text" && node.data.instruction === "effect-library");
+      const storedNodes = effectLibrary ? story.nodes.map((node) => {
+        if (node.type !== "image" || !node.data.promptExpanded || node.data.effectBasePrompt) return node;
+        return { ...node, data: { ...node.data, effectBasePrompt: node.data.prompt, effectColor: "original" as const, effectRhythm: "sample" as const, prompt: "" } };
+      }) : story.nodes;
+      const loadedNodes = orderedCanvasNodes(storedNodes).map((node) => toFlowNode(node, models, loadedVideoModels));
       const request = initialNodeRequest.current;
       initialNodeRequest.current = { nodeId: undefined, onHandled: undefined };
       const initialNode = request.nodeId ? loadedNodes.find((node) => node.id === request.nodeId) : undefined;
@@ -1676,6 +1684,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   async function executeMediaTool(operation: CanvasMediaOperation, assetIds: string[], toolOptions: Record<string, unknown>): Promise<void> {
     if (mediaToolBusy) return;
+    // Effect Library workflows operate on a fixed canvas layout. Keep the
+    // user's current viewport after splitting its sprite sheet; other canvas
+    // workflows retain the usual focus-on-new-output behavior.
+    const keepEffectLibraryViewport = operation === "split-image-grid" && nodesRef.current.some((node) => node.type === "text" && node.data.instruction === "effect-library");
     const expectedNodes = operation === "split-image-grid"
       ? Array.isArray(toolOptions.selectedFrames)
         ? toolOptions.selectedFrames.length
@@ -1715,10 +1727,12 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           ...current.map((node) => ({ ...node, selected: false })),
           ...createdNodes,
         ]));
-        const first = createdNodes[0]!;
-        const flow = flowInstance.current;
-        // New nodes have not been measured yet, so fitView would ignore them.
-        void flow?.setCenter(first.position.x + 220, first.position.y + 220, { zoom: Math.min(flow.getViewport().zoom, 1), duration: 300 });
+        if (!keepEffectLibraryViewport) {
+          const first = createdNodes[0]!;
+          const flow = flowInstance.current;
+          // New nodes have not been measured yet, so fitView would ignore them.
+          void flow?.setCenter(first.position.x + 220, first.position.y + 220, { zoom: Math.min(flow.getViewport().zoom, 1), duration: 300 });
+        }
         setMediaToolDialog(undefined);
         setCropNodeId(undefined);
         setNotice({ kind: "action", message: t("assetCanvas.mediaTools.created", { name: created.length === 1 ? created[0]!.name : `${created.length} assets` }) });
@@ -2735,6 +2749,14 @@ function MediaToolFrame({ assetId, index, count, busy, onMove }: { assetId: stri
 
 function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.textRuntime;
+  if (data.instruction === "effect-library") return <div className="story-node story-text-node asset-template-guide-node">
+    <div data-alignment-frame className="story-text-output">
+      <CanvasNodeLabel icon={FileText} label={t("effectLibrary.howToTitle")} details={data.nodeDetails} />
+      <div className="asset-template-guide-content nodrag nowheel">
+        <p className="asset-template-guide-instruction">{data.text ?? t("effectLibrary.canvasGuide")}</p>
+      </div>
+    </div>
+  </div>;
   const category = pixelAssetTemplateGuideCategory(data.instruction);
   if (category) return <div className="story-node story-text-node asset-template-guide-node">
     <div data-alignment-frame className="story-text-output">
@@ -2842,17 +2864,22 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   </MediaNodeShell>;
 
   return (
-    <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails}>
+    <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails} emptyHint={data.promptExpanded ? t("effectLibrary.nodeHint") : undefined}>
       <MediaReferenceStrip runtime={runtime} />
-      <MediaPrompt
-        kind="image"
-        value={data.presetId === "continuous-sequence" && data.actionDescription?.trim() ? resolveContinuousActionPrompt(data.prompt ?? "", data.actionDescription) : data.prompt ?? ""}
-        runtime={runtime}
-        label={sequence ? t("assetCanvasTemplates.free-sequence.promptLabel") : undefined}
-        placeholder={sequence ? t(`assetCanvasTemplates.free-sequence.${sequenceMode}.placeholder`) : data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinPlaceholder") : undefined}
+      {data.effectBasePrompt ? <EffectPromptEditor
+        data={data}
+        disabled={runtime?.busy}
         onSubmit={canGenerate ? runtime?.onGenerate : undefined}
-        onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, actionDescription: undefined, prompt })}
-      />
+        onChange={(next) => runtime?.onChange({ ...data, imageRuntime: undefined, ...next })}
+      /> : <MediaPrompt
+          kind="image"
+          value={data.presetId === "continuous-sequence" && data.actionDescription?.trim() ? resolveContinuousActionPrompt(data.prompt ?? "", data.actionDescription) : data.prompt ?? ""}
+          runtime={runtime}
+          label={sequence ? t("assetCanvasTemplates.free-sequence.promptLabel") : undefined}
+          placeholder={sequence ? t(`assetCanvasTemplates.free-sequence.${sequenceMode}.placeholder`) : data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinPlaceholder") : undefined}
+          onSubmit={canGenerate ? runtime?.onGenerate : undefined}
+          onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, actionDescription: undefined, prompt })}
+        />}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
         <CanvasChipSelect
@@ -3275,6 +3302,10 @@ function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
         {preview.url && kind === "audio" ? <CanvasAudio src={preview.url} /> : null}
         {!preview.url ? <div className="story-media-empty"><Icon size={34} /><strong>{data.assetError || preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset")}</strong>{data.assetError ? <span>{data.assetError}</span> : <CanvasAssetRecovery preview={preview} />}</div> : null}
       </div>
+      {selected && data.examplePrompt ? <div className="effect-example-prompt-panel nodrag nowheel">
+        <div className="effect-example-prompt-heading"><strong>{t("effectLibrary.examplePrompt")}</strong><span>{t("effectLibrary.examplePromptHint")}</span></div>
+        <textarea aria-label={t("effectLibrary.examplePrompt")} value={data.examplePrompt} readOnly rows={10} />
+      </div> : null}
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
   );
@@ -3496,6 +3527,16 @@ function MediaPrompt({ kind, label, placeholder, value, runtime, onChange, onSub
       onSubmit={onSubmit}
     />
   );
+}
+
+function EffectPromptEditor({ data, disabled, onChange, onSubmit }: {
+  data: Pick<AssetCanvasFlowData, "effectColor" | "effectRhythm" | "prompt">;
+  disabled?: boolean;
+  onChange: (next: Pick<AssetCanvasFlowData, "effectColor" | "effectRhythm" | "prompt">) => void;
+  onSubmit?: () => void;
+}) {
+  const value = data.prompt || "Requested action: {USER_ACTION}\n\nMain color: {EFFECT_COLOR}\n\nMotion rhythm: {MOTION_RHYTHM}\n\nAdditional direction:\n{ADDITIONAL_PROMPT}";
+  return <div className="effect-prompt-editor nodrag"><CanvasTextarea aria-label="Effect prompt" rows={8} value={value} disabled={disabled} onChange={(prompt) => onChange({ ...data, prompt })} onSubmit={onSubmit} /></div>;
 }
 
 function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceStripRuntime; large?: boolean }) {

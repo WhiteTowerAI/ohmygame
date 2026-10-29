@@ -498,6 +498,7 @@ export type AssetCanvasNode = (
   | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
     assetId: string;
     mediaType: "image" | "video" | "audio" | "model";
+    examplePrompt?: string;
   } }
   | { id: string; type: "text"; position: AssetCanvasPosition; data: {
     text: string;

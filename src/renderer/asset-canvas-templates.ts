@@ -113,22 +113,7 @@ Main color: original orange, yellow, red, and dark-brown fire palette
 Motion rhythm: balanced buildup, brightest peak, then a clean fade-out
 
 Additional direction:
-Create exactly one square sheet with exactly 12 equal-sized cells, read left to right and top to bottom. Every cell must have the same transparent background, identical camera framing, identical scale, and one fixed ground-impact point at the bottom center. Do not add borders, grid lines, labels, text, UI, characters, weapons, scenery, or extra effects. Do not leave any cell empty.
-
-Frame 1: a tiny orange ignition spark on the ground.
-Frame 2: a small flame emerges.
-Frame 3: the flame grows with a few glowing debris pixels.
-Frame 4: a taller flame expands outward.
-Frame 5: the first compact fiery burst.
-Frame 6: the brightest and largest explosion peak, white-yellow core and orange-red flame.
-Frame 7: the burst recedes, with debris moving outward.
-Frame 8: a smaller collapsing fire burst with a glowing hot core.
-Frame 9: fading flame and scattered ember chunks.
-Frame 10: a small diminishing ground flame.
-Frame 11: sparse floating embers above a faint glow.
-Frame 12: only a few tiny fading embers over the fixed ground point.
-
-Style: crisp 2D fantasy game pixel art, limited orange, yellow, red, and dark-brown palette, hard pixel edges, no blur. Each cell must show one clearly distinct consecutive moment of the same animation. Transparent background.`;
+Create exactly one square sheet with exactly 12 equal-sized cells. Keep every frame fully inside its cell, with a fixed ground-impact point and transparent background. Show ignition, expanding burst, brightest peak, scattered embers, and a clean fade-out in sequence.`;
 
 const EFFECT_LIBRARY_CATEGORIES = ["fire", "water", "ice", "lightning", "general"] as const;
 
