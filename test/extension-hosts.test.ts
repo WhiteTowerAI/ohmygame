@@ -1001,7 +1001,8 @@ describe("plugin tools", () => {
       const bridge = new ToolBridge(tools);
       expect(bridge.names).toContain("acme__tiles__where");
       const bridged = await bridge.call("acme__tiles__where", {}, "call-3");
-      expect(JSON.stringify(bridged)).toContain(key.replaceAll("\\", "\\\\"));
+      const [bridgedText] = (bridged.result as { content: { text: string }[] }).content;
+      expect(JSON.parse(bridgedText!.text)).toMatchObject({ folder: key });
       expect(
         bridge.list("all").find((tool) => tool.name === "acme__tiles__count"),
       ).toMatchObject({ outputSchema: { required: ["n"] } });
