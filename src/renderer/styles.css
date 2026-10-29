@@ -7823,18 +7823,19 @@ button {
 .change-count-added { color: var(--diff-added); }
 .change-count-removed { color: var(--diff-removed); }
 
-.turn-change-chevron { flex: 0 0 auto; color: var(--text-faint); }
+.turn-change-chevron { flex: 0 0 auto; color: var(--color-text-tertiary); }
 .turn-change-chevron.is-open { transform: rotate(90deg); }
 .turn-change-line-added .turn-change-line-sign { color: var(--diff-added); }
 .turn-change-line-removed .turn-change-line-sign { color: var(--diff-removed); }
 
+/* What a turn changed, under its answer */
 .turn-changes {
   margin: 12px 0 6px;
-  padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-  border-radius: 8px;
-  color: var(--text-muted);
-  font-size: 11px;
+  padding: 2px var(--space-1) var(--space-1);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 
@@ -7856,25 +7857,36 @@ button {
 .turn-changes-summary {
   display: flex;
   width: 100%;
-  min-height: 28px;
+  min-height: 32px;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-2);
 }
 
 .turn-changes-toggle {
   min-width: 0;
-  padding: 0;
-  border-radius: 3px;
-  color: var(--text-secondary);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font: inherit;
   text-align: left;
+}
+
+.turn-changes-toggle > span:first-child {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
 }
 
 .turn-changes-toggle > .turn-change-chevron {
   margin-left: auto;
 }
 
-.turn-changes-toggle:hover {
-  color: var(--text);
+.turn-changes .turn-changes-toggle:hover {
+  background: var(--color-hover);
+}
+
+.turn-changes button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
 }
 
 .turn-changes-controls {
@@ -7887,47 +7899,47 @@ button {
 }
 
 .turn-changes-undo {
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 5px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font: inherit;
 }
 
-.turn-changes-undo:hover:not(:disabled),
-.turn-changes-undo:focus-visible {
-  background: var(--surface-hover);
-  color: var(--text);
+.turn-changes-undo:hover:not(:disabled) {
+  background: var(--color-hover);
 }
 
 .turn-changes-undone {
   margin-right: auto;
-  padding: 0 8px;
-  color: var(--text-faint);
+  padding: 0 var(--space-2);
+  color: var(--color-text-secondary);
 }
 
 .turn-changes-result,
 .turn-changes-note,
 .turn-changes-error {
-  padding: 4px 0 4px 21px;
+  padding: 4px var(--space-2);
 }
 
 .turn-changes-note {
-  color: var(--text-faint);
+  color: var(--color-text-secondary);
 }
 
 .turn-changes-error {
-  color: var(--danger);
+  color: var(--color-danger);
   overflow-wrap: anywhere;
 }
 
 .turn-changes-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 4px 0 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-secondary);
+  gap: var(--space-2);
+  margin: var(--space-1) 0 var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
 }
 
 .turn-changes-conflicts {
@@ -7935,38 +7947,34 @@ button {
   margin: 0;
   padding: 0 0 0 16px;
   overflow: auto;
-  color: var(--text);
+  color: var(--color-text);
   overflow-wrap: anywhere;
-  font:
-    10px / 1.6 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Monaco,
-    Consolas,
-    monospace;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
 }
 
 .turn-changes-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .turn-changes-actions button {
   height: 28px;
-  padding: 0 10px;
-  border-radius: 6px;
-  color: var(--text-muted);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font: inherit;
 }
 
 .turn-changes-actions button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text);
+  background: var(--color-hover);
 }
 
-.turn-changes-actions button.primary {
-  background: var(--accent);
-  color: var(--accent-ink);
+.turn-changes .turn-changes-actions button.primary {
+  background: var(--color-ink);
+  color: var(--color-on-ink);
 }
 
 .turn-changes-list {
@@ -7987,24 +7995,25 @@ button {
 .turn-change-row {
   display: flex;
   width: 100%;
-  min-height: 26px;
+  min-height: 28px;
   align-items: center;
-  gap: 8px;
-  padding: 0 3px;
-  border-radius: 4px;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font: inherit;
   text-align: left;
 }
 
-.turn-changes .turn-change-row:hover,
-.turn-changes .turn-change-row:focus-visible {
-  background: var(--surface-hover);
-  color: var(--text);
+.turn-changes .turn-change-row:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 
 .turn-change-kind {
   flex: 0 0 auto;
-  color: var(--text-faint);
-  font-size: 10px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
 }
 
 .turn-change-path {
@@ -8023,7 +8032,12 @@ button {
 
 .turn-change-path > svg {
   flex: 0 0 auto;
-  color: var(--text-faint);
+  color: var(--color-text-tertiary);
+}
+
+.turn-change-path > span {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
 }
 
 .turn-change-path > span {
@@ -8033,7 +8047,7 @@ button {
 }
 
 .turn-change-row[aria-expanded="true"] .turn-change-path {
-  color: var(--text);
+  color: var(--color-text);
 }
 
 .turn-change-badge {
@@ -8047,13 +8061,12 @@ button {
 
 .turn-change-diff {
   max-height: 260px;
-  margin: 2px 0 6px;
+  margin: 2px var(--space-2) 6px;
   padding: 4px 0;
   overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--canvas);
-  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  background: var(--color-stage);
+  color: var(--color-text-secondary);
   font:
     10px / 1.5 ui-monospace,
     SFMono-Regular,
