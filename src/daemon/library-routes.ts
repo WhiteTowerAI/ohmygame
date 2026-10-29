@@ -2,7 +2,6 @@ import { isUtf8 } from "node:buffer";
 import { createReadStream } from "node:fs";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { audioCompanionFiles } from "../shared/audio.js";
 import type { CreateLibraryImageRequest, LibraryUploadMediaType } from "../shared/contracts.js";
 import { MEDIA_CONTENT_TYPES } from "../shared/media-files.js";
 import { AssetLibraryError, isLibraryAssetDerivation, type AssetLibrary } from "./asset-library.js";
@@ -157,14 +156,6 @@ export function registerLibraryRoutes(app: FastifyInstance, { projects, library 
       }
     },
   );
-
-  app.get<{ Params: { assetId: string; file: string } }>("/library/assets/:assetId/audio/:file", async (request, reply) => {
-    const asset = library.get(request.params.assetId);
-    if (!asset?.audio) return reply.code(404).send({ error: "Audio metadata is unavailable" });
-    const file = audioCompanionFiles("audio", asset.audio).find((file) => file.name === request.params.file);
-    if (!file) return reply.code(404).send({ error: "Audio companion file not found" });
-    reply.header("content-type", file.mediaType); return reply.send(file.text);
-  });
 
   app.get<{ Params: { assetId: string } }>("/library/assets/:assetId/references", async (request, reply) => {
     if (!library.get(request.params.assetId)) return reply.code(404).send({ error: "Library asset not found" });

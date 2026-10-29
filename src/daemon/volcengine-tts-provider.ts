@@ -9,8 +9,6 @@ import {
   type AudioModel,
   type GeneratedAudio,
   type SpeechAudioRequest,
-  type AudioSentence,
-  type AudioReferenceData,
 } from "../shared/audio.js";
 import {
   AudioGenerationError,
@@ -22,7 +20,6 @@ import {
   doubaoErrorStatus,
   inspectAudio,
   MAX_AUDIO_BYTES,
-  subtitleWord,
   audioHttpError,
   validateControl,
 } from "./audio-media.js";
@@ -86,10 +83,8 @@ export const VOLCENGINE_TTS_MODELS: readonly AudioModel[] = [
       supportsStyle: true,
       supportsSSML: true,
       supportsSpeechOptions: true,
-      subtitleLanguages: ["zh-cn", "en"],
       maxTextCharacters: 10_000,
       supportsVoiceClone: false,
-      supportsAlignment: true,
     },
   },
 ];
@@ -123,7 +118,6 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
   async generate(
     input: AudioGenerationRequest,
     signal?: AbortSignal,
-    references: readonly AudioReferenceData[] = [],
   ): Promise<GeneratedAudio> {
     if (input.operation !== "speech")
       throw new AudioGenerationError(
@@ -146,11 +140,6 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
       );
     const voiceId = input.voiceId?.trim() || this.configuredVoiceId()?.trim();
     validateSpeech(input, model, voiceId);
-    if (references.length || input.references?.length)
-      throw new AudioGenerationError(
-        "Choose Seed Audio to use image or audio references",
-        400,
-      );
     const requestId = randomUUID();
     const format = input.output?.format ?? "mp3";
     const sampleRate =
@@ -202,9 +191,6 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
               ...(input.volume !== undefined
                 ? { loudness_rate: input.volume }
                 : {}),
-              ...(input.subtitles !== undefined
-                ? { enable_subtitle: input.subtitles }
-                : {}),
               ...(input.output?.bitRate !== undefined
                 ? { bit_rate: input.output.bitRate }
                 : {}),
@@ -235,14 +221,6 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
       );
     const info = await inspectAudio(result.bytes, format, 502);
     return {
-      ...(input.subtitles && result.sentences.length
-        ? {
-            subtitles: {
-              text: result.sentences.map((sentence) => sentence.text).join(""),
-              sentences: result.sentences,
-            },
-          }
-        : {}),
       bytes: result.bytes,
       mediaType: format === "ogg_opus" ? "audio/ogg" : "audio/mpeg",
       model: { provider: PROVIDER_ID, id: model.id },
@@ -312,15 +290,6 @@ function validateSpeech(
     throw new AudioGenerationError("Unsupported audio bit rate", 400);
   if (input.language && !caps.languages!.includes(input.language))
     throw new AudioGenerationError("Unsupported speech language", 400);
-  if (
-    input.subtitles &&
-    input.language &&
-    !caps.subtitleLanguages!.includes(input.language)
-  )
-    throw new AudioGenerationError(
-      "TTS subtitles support Chinese and English only",
-      400,
-    );
   // Custom and cloned Speaker IDs are not in the catalog, so only known presets are checked.
   const preset =
     input.voiceKind === "cloned" ? undefined : findVolcengineTtsVoice(voiceId);
@@ -386,11 +355,8 @@ function validateSpeech(
 async function parseChunkedResponse(response: Response): Promise<{
   bytes: Uint8Array;
   usageCharacters?: number;
-  sentences: AudioSentence[];
 }> {
   const chunks: Uint8Array[] = [];
-  const sentences: AudioSentence[] = [];
-  const seenSentences = new Set<string>();
   let totalBytes = 0;
   let usageCharacters: number | undefined;
   const parseLine = (raw: string) => {
@@ -401,7 +367,6 @@ async function parseChunkedResponse(response: Response): Promise<{
       message?: unknown;
       data?: unknown;
       usage?: { text_words?: unknown };
-      sentence?: { text?: string; words?: unknown[] };
     };
     try {
       value = JSON.parse(line) as typeof value;
@@ -429,22 +394,6 @@ async function parseChunkedResponse(response: Response): Promise<{
       if (totalBytes > MAX_AUDIO_BYTES)
         throw new AudioGenerationError("Speech audio is too large", 502);
       chunks.push(bytes);
-    }
-    if (value.sentence?.words?.length) {
-      const words = value.sentence.words.map((word) =>
-        subtitleWord(word, false),
-      );
-      const sentence = {
-        text: value.sentence.text ?? words.map((word) => word.text).join(""),
-        startMs: words[0]!.startMs,
-        endMs: words.at(-1)!.endMs,
-        words,
-      };
-      const key = JSON.stringify(sentence);
-      if (!seenSentences.has(key)) {
-        sentences.push(sentence);
-        seenSentences.add(key);
-      }
     }
     if (
       typeof value.usage?.text_words === "number" &&
@@ -484,7 +433,6 @@ async function parseChunkedResponse(response: Response): Promise<{
   }
   return {
     bytes: Buffer.concat(chunks),
-    sentences,
     ...(usageCharacters !== undefined ? { usageCharacters } : {}),
   };
 }

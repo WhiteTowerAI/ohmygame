@@ -530,6 +530,7 @@ try {
     allowedOrigins: [rendererOrigin],
     piAgentDirectory: process.env.PI_CODING_AGENT_DIR ?? path.join(app.getPath("userData"), "pi-agent"),
     bundledPluginsDirectory: app.isPackaged ? path.join(process.resourcesPath, "plugins") : undefined,
+    pluginUiDirectory: app.isPackaged ? path.join(process.resourcesPath, "plugin-ui") : undefined,
     preinstalledPluginsDirectory: app.isPackaged
       ? path.join(process.resourcesPath, "preinstalled-plugins")
       : path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),

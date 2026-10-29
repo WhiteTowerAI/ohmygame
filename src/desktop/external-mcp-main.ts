@@ -1,7 +1,11 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { EXTERNAL_MCP_DISABLED_ENV } from "../shared/external-mcp.js";
-import { ExternalMcpLauncher, type Message } from "./external-mcp-launcher.js";
+import {
+  appStartCommand,
+  ExternalMcpLauncher,
+  type Message,
+} from "./external-mcp-launcher.js";
 
 /**
  * The `ohmygame-mcp` command: the app's executable runs this as Node
@@ -34,7 +38,8 @@ async function main(): Promise<void> {
       const environment = { ...process.env };
       delete environment.ELECTRON_RUN_AS_NODE;
       // The app's executable is the one running this script as Node.
-      spawn(process.execPath, appPath ? [appPath] : [], {
+      const { command, args } = appStartCommand(process.execPath, appPath);
+      spawn(command, args, {
         detached: true,
         stdio: "ignore",
         env: environment,

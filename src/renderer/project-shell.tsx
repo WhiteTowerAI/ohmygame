@@ -23,7 +23,7 @@ import {
 } from "react";
 import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
-import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
   ApiError,
   acquirePreview,
@@ -50,7 +50,6 @@ import {
   publishProject,
   removePendingPrompt,
   renameConversation,
-  restoreCheckpoint,
   reapplyCheckpoint,
   restoreUnfinished,
   reviseLastPrompt,
@@ -585,22 +584,6 @@ export function ProjectShell({
     }
   }, [project, conversation, agentBusy, state.pendingPrompts.length, state.connection]);
 
-  const restoreToMessage = useCallback((checkpointId: string) => {
-    if (!project || !conversation || agentBusy || restoring || unfinishedRestore || publishing || state.pendingPrompts.length > 0 || state.connection !== "open") return;
-    if (!window.confirm(t("checkpoints.restoreConfirm"))) return;
-    dispatch({ type: "notice", message: undefined });
-    setRestoring(true);
-    void (async () => {
-      try {
-        await saveDesign.current?.();
-        await restoreCheckpoint(project.id, conversation.id, checkpointId);
-      } catch (error) {
-        if (leftUnfinished(error)) setUnfinishedRestore(true);
-        dispatch({ type: "notice", message: errorMessage(error) });
-      } finally { setRestoring(false); }
-    })();
-  }, [project, conversation, agentBusy, restoring, unfinishedRestore, publishing, state.pendingPrompts.length, state.connection]);
-
   const loadedConversationId = conversation?.id;
   const turnChangesDisabled = agentBusy || restoring || unfinishedRestore || publishing || state.connection !== "open";
   const turnChanges = useMemo((): TurnChangesControls | undefined => {
@@ -807,7 +790,8 @@ export function ProjectShell({
     localStorage.setItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY, String(open));
   }, []);
 
-  const isGodotProject = project?.type === "godot-game";
+  // A Godot project whose plugin builds a web version plays in the game panel like a web game.
+  const isGodotProject = project?.type === "godot-game" && !buildsWebPreview(project);
 
   const openWorkspaceFile = useCallback((path: string): void => {
     changeWorkspaceView(false);
@@ -897,7 +881,6 @@ export function ProjectShell({
                 revisionDisabled={agentBusy || restoring || unfinishedRestore || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
                 waitingForInput={Boolean(questionnaire || approval)}
                 onRevise={revisePrompt}
-                onRestore={restoreToMessage}
                 changeControls={turnChanges}
                 workspaceRevision={workspaceRevision}
                 onAddToChat={addToChat}

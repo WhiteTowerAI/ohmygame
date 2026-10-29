@@ -1170,11 +1170,6 @@ export async function reviseLastPrompt(
   });
 }
 
-/** Puts the workspace and the conversation back to just before the message the checkpoint was taken for. */
-export async function restoreCheckpoint(projectId: string, conversationId: string, checkpointId: string): Promise<void> {
-  return request(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/restore`, { method: "POST" });
-}
-
 /** Lists the files the turn of the checkpoint's message changed. */
 export async function getCheckpointChanges(projectId: string, conversationId: string, checkpointId: string): Promise<CheckpointChangeItem[]> {
   const { changes } = await request<{ changes: CheckpointChangeItem[] }>(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/changes`);
@@ -1602,14 +1597,39 @@ export function setProjectIntegration(projectId: string, pluginId: string): Prom
   return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "PUT", body: JSON.stringify({ pluginId }) });
 }
 
-export interface DoubaoVoiceConnection { ttsConfigured: boolean; seedConfigured: boolean; distinctKeys: boolean; defaultVoiceId?: string }
-export function getDoubaoVoiceSettings(): Promise<DoubaoVoiceConnection> { return request("/settings/models/providers/doubao-voice"); }
-export async function updateDoubaoVoiceApiKey(apiKey: string): Promise<DoubaoVoiceConnection> {
-  const result = await request<DoubaoVoiceConnection>("/settings/models/providers/doubao-voice", { method: "PUT", body: JSON.stringify({ apiKey }) });
-  notifyAgentModelsChanged(); return result;
-}
+export function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
 export async function previewSeedAudio(prompt: string): Promise<Blob> {
   const response = await fetch(apiUrl("/settings/models/providers/volcengine-seed-audio/preview"), { method: "POST", headers: { ...runtimeHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ prompt, durationSeconds: 2 }) });
   if (!response.ok) throw await responseError(response);
   return response.blob();
+}
+
+/** A format 2 plugin panel a project's plugins offer, with its page's address. */
+export interface PluginPanel {
+  id: string;
+  plugin: string;
+  version: string;
+  title: string;
+  area: "left" | "center" | "right" | "bottom";
+  when?: string;
+  capabilities: import("../shared/plugin-ui-protocol.js").PluginUiCapabilities;
+  commands: string[];
+  url?: string;
+}
+
+export async function getPluginPanels(projectId: string, locale: "en" | "zh-CN"): Promise<PluginPanel[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-panels?locale=${locale}`);
+}
+
+export async function getPluginPageValue(projectId: string, plugin: string, key: string): Promise<unknown> {
+  return (await request<{ value: unknown }>(`/projects/${encodeURIComponent(projectId)}/plugin-storage/${plugin}/${encodeURIComponent(key)}`)).value;
+}
+
+export async function setPluginPageValue(projectId: string, plugin: string, key: string, value: unknown): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-storage/${plugin}/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value }) });
+}
+
+/** Runs a format 2 plugin command, `publisher/name:command`, whose code runs in its plugin. */
+export async function runPluginCommand(projectId: string, command: string): Promise<{ result: unknown; change?: { id: string; changed: string[] } }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands`, { method: "POST", body: JSON.stringify({ command }) });
 }

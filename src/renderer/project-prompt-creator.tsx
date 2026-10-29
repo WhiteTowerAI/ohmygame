@@ -1,13 +1,14 @@
 import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
 import { pluginProjectType } from "../shared/project-runtime.js";
 import { Check, ChevronDown, Folder, FolderOpen, FolderPlus, LoaderCircle, SendArrow } from "./icons.js";
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectState, ProjectType, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import { isAgentRuntimeId, nativeEffort } from "../shared/agent-runtimes.js";
 import { createConversation, createProject, getHomeComposerCapabilities, listProjects, updateAgentDefaults, waitForRuntime } from "./api.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
+import { composerDrafts, homeDraftScope, type SavedComposerDraft } from "./composer-drafts.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { matchesPlanCommand, PlanModeIndicator } from "./plan-mode-control.js";
 import { PromptBox, type DroppedFile } from "./prompt-box.js";
@@ -20,7 +21,9 @@ import { t } from "./i18n.js";
 
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
-export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES, placeholder, onProjectTypeChange, onOpenProject, onCreate }: {
+export function ProjectPromptCreator({ draftKey, projectType, projectTypes = PROJECT_TYPES, placeholder, onProjectTypeChange, onOpenProject, onCreate }: {
+  /** Each start page keeps its own unsent prompt while the user visits projects. */
+  draftKey: string;
   projectType: ProjectType;
   projectTypes?: readonly ProjectTypeOption[];
   placeholder: string;
@@ -28,16 +31,29 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
   onOpenProject?: (projectId: string) => void;
   onCreate: (project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
 }) {
-  const [prompt, setPrompt] = useState("");
-  const [selectedSkill, setSelectedSkill] = useState<string>();
-  const [selectedPlugin, setSelectedPlugin] = useState<PluginMention>();
-  const [pluginMentions, setPluginMentions] = useState<PluginMention[]>([]);
+  const draftSession = composerDrafts.get(homeDraftScope(draftKey));
+  const draft = useSyncExternalStore(draftSession.subscribe, draftSession.getSnapshot, draftSession.getSnapshot);
+  const { prompt, selectedSkill, selectedPlugin, mentions: pluginMentions, planning, attachments } = draft;
+  function draftSetter<K extends keyof SavedComposerDraft>(field: K) {
+    return (value: SavedComposerDraft[K] | ((current: SavedComposerDraft[K]) => SavedComposerDraft[K])) => draftSession.update((current) => ({
+      [field]: typeof value === "function" ? (value as (current: SavedComposerDraft[K]) => SavedComposerDraft[K])(current[field]) : value,
+    }));
+  }
+  const setPrompt = draftSetter("prompt");
+  const setSelectedSkill = draftSetter("selectedSkill");
+  const setSelectedPlugin = draftSetter("selectedPlugin");
+  const setPluginMentions = draftSetter("mentions");
+  const setPlanning = draftSetter("planning");
+  const setAttachments = draftSetter("attachments");
   const [capabilities, setCapabilities] = useState(EMPTY_CAPABILITIES);
   const [mentionCursor, setMentionCursor] = useState(0);
-  const [planning, setPlanning] = useState(false);
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const created = useRef<{ project: ProjectState; conversationId?: string; workspacePath?: string } | undefined>(undefined);
-  const [creating, setCreating] = useState(false);
+  const [creatingLocally, setCreatingLocally] = useState(false);
+  const creating = creatingLocally || draft.submitting;
+  const setCreating = (value: boolean) => {
+    setCreatingLocally(value);
+    if (!value) draftSession.update({ submitting: false });
+  };
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [error, setError] = useState<string>();
   const [model, setModel] = useState<AgentModelRef>();
@@ -98,6 +114,8 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
     }
     const submittedPrompt = formatComposerInvocation(selectedSkill, selectedPlugin, prompt.trim());
     if ((!submittedPrompt && attachments.length === 0) || creating) return;
+    const submittedDraft = draft;
+    draftSession.update({ submitting: true });
     setCreating(true);
     setError(undefined);
     try {
@@ -128,6 +146,8 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
         planning ? "planning" : "normal",
         uploaded,
       );
+      draftSession.clearSubmitted(submittedDraft);
+      setCreating(false);
     } catch (cause) {
       setError(errorMessage(cause));
       setCreating(false);

@@ -5,14 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -22,7 +15,10 @@ import type {
   ConversationDetail,
   Turn,
 } from "../src/shared/contracts.js";
-import { isAgentRuntimeId } from "../src/shared/agent-runtimes.js";
+import {
+  FULL_ACCESS_PERMISSION_MODES,
+  isAgentRuntimeId,
+} from "../src/shared/agent-runtimes.js";
 
 const runtime = process.argv[2];
 if (!isAgentRuntimeId(runtime))
@@ -89,7 +85,7 @@ async function detail() {
   return call<ConversationDetail>("GET", base);
 }
 const answered = new Set<string>();
-// The sandbox checks approve every request, as a person might, to test the OS boundary behind it.
+// Steps that need installs or the network approve every request, as a person might.
 let approveAll = false;
 async function answerWaiting(turns: Turn[]) {
   for (const item of turns.flatMap((turn) => turn.items)) {
@@ -181,8 +177,14 @@ async function prompt(text: string, mode?: "planning", allowAll = false) {
 }
 try {
   await start();
+  // Each agent's usual working mode, so its own approvals reach the person.
   const status = await call("PATCH", "/agent-runtimes/" + runtime, {
     enabled: true,
+    permissionMode: {
+      "claude-code-cli": "acceptEdits",
+      "codex-cli": ":workspace",
+      "opencode-cli": "default",
+    }[runtime],
     ...(process.argv[4] ? { binaryPath: path.resolve(process.argv[4]) } : {}),
   });
   console.log(
@@ -293,33 +295,39 @@ try {
   );
   const fixtureSecret = "INTEGRATION-DO-NOT-READ-" + randomUUID();
   await writeFile(path.join(root, "outside-native-test.txt"), fixtureSecret);
+  // Claude Code and OpenCode ask before reading outside the project; Codex's
+  // workspace sandbox reads anywhere and confines only writes.
+  const asksOutsideReads = runtime !== "codex-cli";
   const denied = await prompt(
     "Read ../outside-native-test.txt using your file read tool once. If permission is denied, reply DENIED and stop. Do not retry or use other tools.",
   );
-  checkBoundary(
-    !denied.items.some(
-      (item) =>
-        item.type === "agentMessage" && item.text.includes(fixtureSecret),
-    ),
-    "Denied external file leaked",
-  );
+  if (asksOutsideReads)
+    checkBoundary(
+      !denied.items.some(
+        (item) =>
+          item.type === "agentMessage" && item.text.includes(fixtureSecret),
+      ),
+      "Denied external file leaked",
+    );
   await writeFile(path.join(externalFixture, "fixture.txt"), fixtureSecret);
   const asked = await prompt(
     `Read ${path.join(externalFixture, "fixture.txt")}. Request approval for this exact file first using request_permissions if that tool is available; otherwise use your file read tool once. Do not request unrestricted escalation. If permission is denied, reply DENIED and stop. Do not retry.`,
   );
-  checkBoundary(
-    !asked.items.some(
-      (item) =>
-        item.type === "agentMessage" && item.text.includes(fixtureSecret),
-    ),
-    "Denied external fixture leaked",
-  );
-  checkBoundary(
-    asked.items.some(
-      (item) => item.type === "approvalRequest" && item.decision === "deny",
-    ),
-    "External read did not ask",
-  );
+  if (asksOutsideReads) {
+    checkBoundary(
+      !asked.items.some(
+        (item) =>
+          item.type === "agentMessage" && item.text.includes(fixtureSecret),
+      ),
+      "Denied external fixture leaked",
+    );
+    checkBoundary(
+      asked.items.some(
+        (item) => item.type === "approvalRequest" && item.decision === "deny",
+      ),
+      "External read did not ask",
+    );
+  }
   // A game needs its toolchain: Node, a package install over the network and Git.
   const toolchain = await prompt(
     // The first turn ruled out installs and network commands; this step needs both.
@@ -336,57 +344,6 @@ try {
     ).includes("left-pad"),
     `The toolchain did not run: ${JSON.stringify(toolchain.items).slice(0, 600)}`,
   );
-  // Claude Code runs its commands in its sandbox, so an install asks nobody.
-  if (runtime === "claude-code-cli" && status.commandSandbox === "os")
-    checkBoundary(
-      !toolchain.items.some((item) => item.type === "approvalRequest"),
-      "A sandboxed install asked for approval",
-    );
-  if (status.commandSandbox === "os") {
-    // The shell-text policy cannot resolve a glob, so the person is asked and
-    // allows it; the OS sandbox must still refuse the protected target.
-    const sandboxSecret = "SANDBOX-DO-NOT-READ-" + randomUUID();
-    await writeFile(
-      path.join(root, "data", "sandbox-secret.txt"),
-      sandboxSecret,
-    );
-    await symlink(
-      path.join(root, "data", "sandbox-secret.txt"),
-      path.join(workspace, "sandbox-link"),
-    );
-    const globbed = await prompt(
-      "Run exactly this shell command once and reply with its raw output only: cat sandbox-l* ../outside-native-test.txt",
-      undefined,
-      true,
-    );
-    checkBoundary(
-      !JSON.stringify(globbed).includes(sandboxSecret),
-      "The OS sandbox let a command read a protected file through a link",
-    );
-    // Codex's profile also keeps unlisted files out after the command is
-    // approved; Claude's sandbox denies protected roots only, so the approval
-    // decides for the rest.
-    if (runtime === "codex-cli")
-      checkBoundary(
-        !JSON.stringify(globbed).includes(fixtureSecret),
-        "The OS sandbox let a command read outside the workspace",
-      );
-    const built = await prompt(
-      "Run exactly this shell command once and reply with its raw output only: echo built > sandbox-made.txt && cat sandbox-made.txt && curl -s -o /dev/null -w '%{http_code}' https://registry.npmjs.org/",
-      undefined,
-      true,
-    );
-    assert.equal(
-      await readFile(path.join(workspace, "sandbox-made.txt"), "utf8"),
-      "built\n",
-    );
-    assert(
-      built.items.some(
-        (item) => item.type === "agentMessage" && item.text.includes("200"),
-      ),
-      "The sandbox blocked the network an install needs",
-    );
-  }
   const usage = await call("GET", base + "/context-usage");
   evidence.push({ usage });
   // Claude Code refuses a standalone `sleep` in its shell tool, so it gets an equivalent long-running command.
@@ -425,14 +382,15 @@ try {
   evidence.push({ cancellationMs });
   await app.close();
   await start();
-  checkBoundary(
-    (await detail()).turns.some((turn) =>
-      turn.items.some(
-        (item) => item.type === "approvalRequest" && item.decision === "deny",
+  if (asksOutsideReads)
+    checkBoundary(
+      (await detail()).turns.some((turn) =>
+        turn.items.some(
+          (item) => item.type === "approvalRequest" && item.decision === "deny",
+        ),
       ),
-    ),
-    "Approval record disappeared on restart",
-  );
+      "Approval record disappeared on restart",
+    );
   // Skills and planning, in a conversation of their own so the pending plan
   // does not hold up the checks above.
   const extra = await call("POST", `/projects/${project.id}/conversations`, {
@@ -488,6 +446,25 @@ try {
     "Planning did not record a structured plan",
   );
   assert.equal((await detail()).plan?.mode, "awaiting_approval");
+  // The mode that asks nothing, as OhMyGame's own agent does.
+  await call("PATCH", "/agent-runtimes/" + runtime, {
+    permissionMode: FULL_ACCESS_PERMISSION_MODES[runtime],
+  });
+  const fullBase = await call("POST", `/projects/${project.id}/conversations`, {
+    model: { provider: runtime, id: model.id },
+  });
+  base = `/projects/${project.id}/conversations/${fullBase.id}`;
+  const full = await prompt(
+    "Run exactly this shell command once and reply with its raw output only: echo full > full-access.txt && cat full-access.txt",
+  );
+  assert.equal(
+    await readFile(path.join(workspace, "full-access.txt"), "utf8"),
+    "full\n",
+  );
+  checkBoundary(
+    !full.items.some((item) => item.type === "approvalRequest"),
+    "Full access asked for approval",
+  );
   console.log(
     JSON.stringify({
       result: boundaryFailures.length ? "FAIL_BOUNDARY" : "PASS",

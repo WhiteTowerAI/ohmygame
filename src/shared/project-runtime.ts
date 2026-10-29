@@ -15,16 +15,24 @@ export function isWebRuntimeProjectType(type: ProjectType): boolean {
 
 /** Capability is independent of the preview process's readiness or errors. */
 export function supportsWebPreview(
-  project?: Pick<ProjectState, "type" | "webPreviewEnabled" | "integration">,
+  project?: Pick<ProjectState, "type" | "webPreviewEnabled" | "integration" | "pluginType">,
 ): boolean {
   return (
-    project?.integration?.preview !== "external" &&
-    (project?.type === "web-game" ||
-      (project?.type === "general" && project.webPreviewEnabled === true))
+    buildsWebPreview(project) ||
+    (project?.integration?.preview !== "external" &&
+      (project?.type === "web-game" ||
+        (project?.type === "general" && project.webPreviewEnabled === true)))
   );
 }
 
-export function supportsProjectPreview(project?: Pick<ProjectState, "type" | "webPreviewEnabled" | "integration">): boolean {
+/** A plugin builds the game's web version, which the panel serves; its startup settings don't apply. */
+export function buildsWebPreview(
+  project?: Pick<ProjectState, "pluginType">,
+): boolean {
+  return project?.pluginType?.preview === "web-build";
+}
+
+export function supportsProjectPreview(project?: Pick<ProjectState, "type" | "webPreviewEnabled" | "integration" | "pluginType">): boolean {
   return supportsWebPreview(project) || project?.integration?.preview === "external";
 }
 
