@@ -1,0 +1,215 @@
+/*
+ * Design tokens for the "quiet workbench" direction. Three tiers:
+ * primitives (gray ramp, category hues) → semantic roles → component values.
+ * Components read semantic tokens only. Dark is the default appearance, as in
+ * the current app; data-appearance="light" switches every semantic role, and
+ * data-palette (neutral by default, warm, contrast) swaps the grey ramp.
+ * The selectors match any element, so a theme preview can carry its own.
+ *
+ * These load next to styles.css and share no names with it. Only the
+ * components in this folder read them; appearance.ts already sets
+ * data-appearance on the root.
+ */
+
+:root,
+[data-appearance="dark"] {
+  /* primitives · dark, neutral: plain greys with no blue cast, as in the
+     current app and Codex. Steps are close together; surfaces are told apart
+     by fill, not by outlines. */
+  --gray-0: #141414;
+  --gray-1: #181818;
+  --gray-2: #1c1c1c;
+  --gray-3: #242424;
+  --gray-4: #2a2a2a;
+  --gray-5: #303030;
+  --gray-6: #3b3b3b;
+  --gray-8: #737373;
+  --gray-9: #a3a3a3;
+  --gray-12: #ececec;
+
+  /* Category hues, desaturated so they mark a type without competing with the work. */
+  --hue-doc: #8fa3d6;
+  --hue-image: #d6a07a;
+  --hue-video: #cf8aa5;
+  --hue-audio: #7fb79a;
+  --hue-model: #a897d4;
+  --hue-code: #7fb0c2;
+  --hue-data: #c8ac6a;
+  --hue-success: #6fb68f;
+  --hue-danger: #e57b72;
+  --hue-warning: #d6ad66;
+
+  /* semantic */
+  --color-app: var(--gray-0);
+  --color-stage: var(--gray-1);
+  --color-surface: var(--gray-2);
+  --color-surface-raised: var(--gray-3);
+  --color-hover: var(--gray-4);
+  --color-selected: var(--gray-5);
+  --color-border: var(--gray-5);
+  --color-border-strong: var(--gray-6);
+  --color-text: var(--gray-12);
+  --color-text-secondary: var(--gray-9);
+  --color-text-tertiary: var(--gray-8);
+  --color-ink: var(--gray-12);
+  --color-on-ink: var(--gray-0);
+  --color-grid-dot: #333333;
+  /* the keyboard focus ring: neutral, so it reads as "here", not as a state */
+  --color-focus: color-mix(in srgb, var(--gray-12) 70%, transparent);
+  --color-control-thumb: var(--gray-12);
+  /* OhMyGame blue: only for controls that are on (switch, checkbox, radio, slider) */
+  --color-accent: #2563eb;
+  --color-on-accent: #ffffff;
+  --color-success: var(--hue-success);
+  --color-danger: var(--hue-danger);
+  --color-warning: var(--hue-warning);
+
+  --category-document: var(--hue-doc);
+  --category-text: var(--gray-9);
+  --category-image: var(--hue-image);
+  --category-video: var(--hue-video);
+  --category-audio: var(--hue-audio);
+  --category-model: var(--hue-model);
+  --category-code: var(--hue-code);
+  --category-data: var(--hue-data);
+
+  --syntax-comment: var(--color-text-tertiary);
+  --syntax-string: var(--hue-audio);
+  --syntax-number: var(--hue-data);
+  --syntax-keyword: var(--hue-model);
+
+  /* Outlines are for things you type into or press (inputs, search, secondary
+     buttons). Cards and panels have none: a step in fill separates them.
+     Only things that float above the page (menus, dialogs, the command bar) cast a shadow. */
+  --shadow-hairline: 0 0 0 1px var(--color-border);
+  --shadow-card: none;
+  --shadow-float: 0 12px 32px rgb(0 0 0 / 40%), 0 0 0 1px rgb(255 255 255 / 6%);
+
+  /* type */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Microsoft YaHei", "Segoe UI", sans-serif;
+  --font-serif:
+    "Iowan Old Style", "Songti SC", "Source Han Serif SC", Georgia, serif;
+  --font-chat: var(--font-sans);
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 20px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* shape and space (4px grid) */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
+  /* motion */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+
+  color-scheme: dark;
+}
+
+[data-appearance="light"] {
+  --gray-0: #f3f3f3;
+  --gray-1: #f8f8f8;
+  --gray-2: #ffffff;
+  --gray-3: #f6f6f6;
+  --gray-4: #efefef;
+  --gray-5: #e5e5e5;
+  --gray-6: #d4d4d4;
+  --gray-8: #8c8c8c;
+  --gray-9: #5c5c5c;
+  --gray-12: #1a1a1a;
+
+  --hue-doc: #5b74b8;
+  --hue-image: #c0784a;
+  --hue-video: #b8577f;
+  --hue-audio: #3f8e68;
+  --hue-model: #7a62b8;
+  --hue-code: #3f879f;
+  --hue-data: #9c7c2c;
+  --hue-success: #3a8f63;
+  --hue-danger: #c4473f;
+  --hue-warning: #a8771f;
+
+  --color-grid-dot: #dedede;
+  --color-focus: color-mix(in srgb, var(--gray-12) 70%, transparent);
+  --color-control-thumb: #ffffff;
+  --shadow-float: 0 8px 28px rgb(0 0 0 / 9%), 0 0 0 1px rgb(0 0 0 / 7%);
+
+  color-scheme: light;
+}
+
+/* The chat's reading font, set in Settings › Appearance. */
+:root[data-chat-font="serif"] {
+  --font-chat: var(--font-serif);
+}
+
+/* Warm: a paper-and-ink grey with a slight brown cast, like Claude's apps. */
+[data-palette="warm"] {
+  --gray-0: #1a1918;
+  --gray-1: #1f1e1c;
+  --gray-2: #242320;
+  --gray-3: #2b2a27;
+  --gray-4: #32312d;
+  --gray-5: #393834;
+  --gray-6: #46443f;
+  --gray-8: #7d7a72;
+  --gray-9: #b0ada4;
+  --gray-12: #f0eee8;
+  --color-grid-dot: #34332f;
+}
+
+[data-palette="warm"][data-appearance="light"] {
+  --gray-0: #f2f0ea;
+  --gray-1: #f7f6f1;
+  --gray-2: #fdfcf9;
+  --gray-3: #f5f3ed;
+  --gray-4: #eeebe3;
+  --gray-5: #e4e1d7;
+  --gray-6: #d3cfc3;
+  --gray-8: #8e8a80;
+  --gray-9: #5f5c55;
+  --gray-12: #1f1e1b;
+  --color-grid-dot: #dcd8cd;
+}
+
+/* Contrast: the neutral greys pushed further apart, for low-contrast screens. */
+[data-palette="contrast"] {
+  --gray-0: #0c0c0c;
+  --gray-1: #111111;
+  --gray-2: #161616;
+  --gray-3: #202020;
+  --gray-4: #2a2a2a;
+  --gray-5: #363636;
+  --gray-6: #4a4a4a;
+  --gray-8: #8c8c8c;
+  --gray-9: #c2c2c2;
+  --gray-12: #fafafa;
+}
+
+[data-palette="contrast"][data-appearance="light"] {
+  --gray-0: #ededed;
+  --gray-1: #f5f5f5;
+  --gray-2: #ffffff;
+  --gray-3: #f2f2f2;
+  --gray-4: #e8e8e8;
+  --gray-5: #d6d6d6;
+  --gray-6: #b8b8b8;
+  --gray-8: #6b6b6b;
+  --gray-9: #404040;
+  --gray-12: #0a0a0a;
+}

@@ -126,6 +126,12 @@ const zhCN: typeof en = {
     removeName: "移除 {{name}}",
     deleteName: "删除 {{name}}",
   },
+  ui: {
+    search: "搜索",
+    searchPlaceholder: "搜索…",
+    selectPlaceholder: "选择…",
+    noMatchingOptions: "没有匹配的选项",
+  },
   onboarding: {
     changeAgent: "切换",
     agentsHint: "可连接多个智能体，随时切换使用。",

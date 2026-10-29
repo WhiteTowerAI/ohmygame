@@ -1,0 +1,319 @@
+.ui-popover {
+  position: fixed;
+  z-index: 100;
+  max-height: min(420px, calc(100vh - 16px));
+  overflow: auto;
+  padding: var(--space-1);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-float);
+  animation: ui-pop-in var(--duration-fast) var(--ease-out);
+}
+
+@keyframes ui-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+.ui-tooltip {
+  position: fixed;
+  z-index: 110;
+  max-width: 260px;
+  padding: 5px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+/* menu */
+.ui-popover-menu {
+  min-width: 200px;
+}
+
+.ui-menu {
+  display: flex;
+  flex-direction: column;
+}
+
+.ui-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-menu-item:hover,
+.ui-menu-item:focus-visible {
+  outline: none;
+  background: var(--color-hover);
+}
+
+.ui-menu-item:disabled {
+  color: var(--color-text-tertiary);
+  cursor: default;
+}
+
+.ui-menu-item:disabled:hover {
+  background: transparent;
+}
+
+.ui-menu-item.is-danger {
+  color: var(--color-danger);
+}
+
+.ui-menu-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  color: var(--color-text-secondary);
+}
+
+.ui-menu-item.is-danger .ui-menu-icon {
+  color: inherit;
+}
+
+.ui-menu-label {
+  flex: 1;
+}
+
+.ui-menu-item.has-description {
+  align-items: flex-start;
+  height: auto;
+  min-height: 30px;
+  padding-block: 6px;
+}
+
+.ui-menu-item.has-description .ui-menu-icon {
+  height: 20px;
+}
+
+.ui-menu-item.has-description .ui-menu-label {
+  display: flex;
+  flex-direction: column;
+  line-height: 20px;
+}
+
+.ui-menu-description {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.ui-menu-shortcut {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.ui-menu-check {
+  flex: none;
+  color: var(--color-text-secondary);
+}
+
+.ui-menu-separator {
+  height: 1px;
+  margin: var(--space-1) calc(var(--space-1) * -1);
+  background: var(--color-border);
+}
+
+.ui-menu-heading {
+  padding: 6px var(--space-2) 2px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.ui-context-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
+}
+
+/* dialog and sheet */
+.ui-backdrop {
+  position: fixed;
+  z-index: 90;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: rgb(0 0 0 / 45%);
+  animation: ui-fade-in var(--duration-base) var(--ease-out);
+}
+
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.ui-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: calc(100vh - 32px);
+  border-radius: 14px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-float);
+  animation: ui-dialog-in var(--duration-base) var(--ease-out);
+}
+
+@keyframes ui-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+.ui-dialog-sm {
+  max-width: 400px;
+}
+.ui-dialog-md {
+  max-width: 520px;
+}
+.ui-dialog-lg {
+  max-width: 760px;
+}
+
+.ui-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-2);
+}
+
+.ui-dialog-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.ui-dialog-description {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-md);
+  line-height: 1.55;
+}
+
+.ui-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  padding: var(--space-2) var(--space-4) var(--space-4);
+  overflow: auto;
+}
+
+.ui-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.ui-backdrop-sheet {
+  place-items: stretch end;
+  padding: var(--space-2);
+}
+
+.ui-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 100%);
+  border-radius: 14px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-float);
+  animation: ui-sheet-in var(--duration-base) var(--ease-out);
+}
+
+@keyframes ui-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+.ui-sheet-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  padding: var(--space-2) var(--space-4) var(--space-4);
+  overflow: auto;
+}
+
+/* toast */
+.ui-toasts {
+  position: fixed;
+  z-index: 120;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 280px;
+  max-width: 380px;
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-float);
+  animation: ui-sheet-in var(--duration-base) var(--ease-out);
+}
+
+.ui-toast-success {
+  box-shadow:
+    var(--shadow-float),
+    inset 3px 0 0 var(--color-success);
+}
+.ui-toast-danger {
+  box-shadow:
+    var(--shadow-float),
+    inset 3px 0 0 var(--color-danger);
+}
+
+.ui-toast-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-md);
+}
+
+.ui-toast-text span {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.ui-toast-action {
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}

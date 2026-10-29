@@ -183,6 +183,46 @@ describe("plugin catalog browsing", () => {
     await search("missing tool");
     expect(cards()).toEqual([]);
     expect(container.textContent).toContain("No plugins in this collection.");
+    await click("Clear");
+    expect(
+      container.querySelector<HTMLInputElement>('[aria-label="Search plugins"]')
+        ?.value,
+    ).toBe("");
+    expect(cards()).toContain("Game Studio");
+  });
+
+  it("adds plugins from a menu that closes on Escape", async () => {
+    await renderCatalog();
+    const add = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Add plugin",
+    )!;
+    await act(async () => add.click());
+    expect(add.getAttribute("aria-expanded")).toBe("true");
+    const items = [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ];
+    expect(
+      items.map((item) => item.querySelector("small")?.textContent),
+    ).toContain("Clone a public HTTPS repository");
+    expect(document.activeElement).toBe(items[0]);
+    await act(async () =>
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(add.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => add.click());
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+        .find((item) => item.textContent?.startsWith("Install from Git"))!
+        .click(),
+    );
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(container.querySelector("#plugin-install-title")?.textContent).toBe(
+      "Install from Git",
+    );
   });
 
   it("switches source tabs with keyboard support and sorts personal plugins by name", async () => {

@@ -125,6 +125,12 @@ const en = {
     removeName: "Remove {{name}}",
     deleteName: "Delete {{name}}",
   },
+  ui: {
+    search: "Search",
+    searchPlaceholder: "Search…",
+    selectPlaceholder: "Select…",
+    noMatchingOptions: "No matching options",
+  },
   onboarding: {
     changeAgent: "Switch",
     agentsHint: "Connect multiple agents and switch anytime.",
