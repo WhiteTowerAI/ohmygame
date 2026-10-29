@@ -1115,8 +1115,7 @@ body {
 :is(
   .settings-provider-search,
   .projects-search,
-  .library-search,
-  .plugins-search
+  .library-search
 ) {
   border: 1px solid var(--search-border);
   border-radius: 999px;
@@ -5921,23 +5920,8 @@ button.home-nav-item-active:hover {
   gap: 16px;
 }
 
-.plugins-search {
-  display: flex;
+.plugins-toolbar > .ui-input {
   width: min(360px, 100%);
-  height: 36px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-}
-
-.plugins-search input {
-  width: 100%;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
 }
 
 .settings-add-button {
@@ -5964,57 +5948,6 @@ button.home-nav-item-active:hover {
 .settings-add-button:disabled {
   cursor: default;
   opacity: 0.6;
-}
-
-.plugins-add {
-  position: relative;
-}
-
-.plugins-add-menu {
-  position: absolute;
-  z-index: 20;
-  top: 38px;
-  right: 0;
-  display: grid;
-  width: 230px;
-  padding: 4px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--menu-surface);
-}
-
-.plugins-add-menu button {
-  display: grid;
-  min-height: 48px;
-  grid-template-columns: 20px minmax(0, 1fr);
-  align-items: center;
-  gap: 7px;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #fff;
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-}
-
-.plugins-add-menu button:is(:hover, :focus-visible) {
-  background: var(--menu-hover);
-}
-.plugins-add-menu button > span {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-.plugins-add-menu strong {
-  color: inherit;
-  font-size: 11px;
-  font-weight: 500;
-}
-.plugins-add-menu small {
-  color: rgb(255 255 255 / 68%);
-  font-size: 9px;
 }
 
 .plugin-install-backdrop {
@@ -6361,11 +6294,11 @@ button.home-nav-item-active:hover {
     flex-direction: column;
   }
 
-  .plugins-search {
+  .plugins-toolbar > .ui-input {
     width: 100%;
   }
 
-  .plugins-toolbar .settings-add-button {
+  .plugins-toolbar > .ui-button {
     align-self: flex-end;
   }
 }
@@ -15227,14 +15160,6 @@ button {
   background: var(--surface-hover);
 }
 
-:root[data-appearance="light"] .plugins-add-menu button {
-  color: var(--text);
-}
-
-:root[data-appearance="light"] .plugins-add-menu small {
-  color: var(--text-secondary);
-}
-
 :root[data-appearance="light"] .plugin-catalog-card {
   background: transparent;
 }
@@ -15410,7 +15335,6 @@ button {
   .projects-sort-menu,
   .library-asset-actions-menu,
   .library-dialog-actions-menu,
-  .plugins-add-menu,
   .plugin-install-dialog,
   .story-add-node-menu,
   .story-add-node-submenu,

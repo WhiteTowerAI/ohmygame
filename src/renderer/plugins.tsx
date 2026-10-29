@@ -36,6 +36,7 @@ import { PluginIcon, PluginGlyph } from "./plugin-icons.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { t } from "./i18n.js";
 import { PluginDependencyPanel, PluginExportButton, PluginImportDialog } from "./plugin-portability.js";
+import { Button, DropdownMenu, SearchInput, type MenuEntry } from "./ui/index.js";
 
 const PLUGIN_CATEGORIES = [
   { id: "creation", plugins: ["ohmygame:game-studio", "ohmygame:web-game-studio", "ohmygame:threejs-world"] },
@@ -76,13 +77,11 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   const catalogId = useId();
   const [updating, setUpdating] = useState<string>();
   const [adding, setAdding] = useState<"install">();
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [gitDialogOpen, setGitDialogOpen] = useState(false);
   const [gitUrl, setGitUrl] = useState("");
   const [installSource, setInstallSource] = useState<InstallPluginRequest>();
   const [installCandidates, setInstallCandidates] = useState<PluginInstallCandidate[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<string>();
-  const addMenu = useRef<HTMLDivElement>(null);
   const [catalogWarning, setCatalogWarning] = useState<string>();
   const [error, setError] = useState<string>();
 
@@ -128,22 +127,6 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
     return () => { disposed = true; };
   }, [pluginId, detailRetry, serviceGeneration]);
 
-  useEffect(() => {
-    if (!addMenuOpen) return;
-    const close = (event: MouseEvent) => {
-      if (!addMenu.current?.contains(event.target as Node)) setAddMenuOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setAddMenuOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [addMenuOpen]);
-
   async function updatePlugin(plugin: Pick<PluginDetail, "id">, settings: PluginSettings): Promise<void> {
     if (updating) return;
     setUpdating(plugin.id);
@@ -178,7 +161,6 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   function capabilitiesChanged(): void { setCatalogRetry(v => v + 1); setDetailRetry(v => v + 1); }
 
   async function installFromFolder(): Promise<void> {
-    setAddMenuOpen(false);
     setError(undefined);
     try {
       const selected = await window.ohMyGameDesktop?.selectPluginDirectory();
@@ -190,7 +172,6 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   }
 
   function openGitInstallDialog(): void {
-    setAddMenuOpen(false);
     setGitDialogOpen(true);
     setGitUrl("");
     setInstallSource(undefined);
@@ -259,6 +240,13 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   const groups = collection === "public" && !normalizedQuery
     ? PLUGIN_CATEGORIES.map(category => ({ id: category.id, title: t(`plugins.categories.${category.id}`), plugins: visible.filter(plugin => pluginCategory(plugin) === category.id) }))
     : [{ id: "all", title: undefined, plugins: visible }];
+  const addMenuItems: MenuEntry[] = [
+    { label: t("plugins.createWithAi"), description: t("plugins.createWithAiHint"), icon: <Package size={14} />, onSelect: () => void openPluginBuilder().catch(cause => setError(errorMessage(cause))) },
+    { label: t("plugins.addMcp"), description: t("plugins.addMcpHint"), icon: <Plug size={14} />, onSelect: () => setMcpOpen(true) },
+    ...(typeof window !== "undefined" && window.ohMyGameDesktop ? [{ label: t("plugins.fromFolder"), description: t("plugins.fromFolderHint"), icon: <FolderOpen size={14} />, onSelect: () => void installFromFolder() }] : []),
+    { label: t("plugins.fromGit"), description: t("plugins.fromGitHint"), icon: <GitBranch size={14} />, onSelect: openGitInstallDialog },
+    { label: t("pluginPortability.import"), description: t("pluginPortability.importMenuHint"), icon: <Package size={14} />, onSelect: () => setImportOpen(true) },
+  ];
   const currentDetail = detailResult?.pluginId === pluginId ? detailResult : undefined;
   const detail = currentDetail?.plugin;
   const detailTitle = pluginId
@@ -272,20 +260,10 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
     >
       {!pluginId ? (
         <div className="plugins-toolbar">
-          <label className="plugins-search">
-            <Search size={15} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("plugins.search")} aria-label={t("plugins.searchLabel")} />
-          </label>
-          <div className="plugins-add" ref={addMenu}>
-            <button className="settings-add-button" type="button" disabled={Boolean(adding)} aria-haspopup="menu" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((current) => !current)}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding ? t("plugins.installing") : t("plugins.add")}</button>
-            {addMenuOpen ? <div className="plugins-add-menu" role="menu">
-              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); void openPluginBuilder().catch(cause => setError(errorMessage(cause))); }}><Package size={14} /><span><strong>{t("plugins.createWithAi")}</strong><small>{t("plugins.createWithAiHint")}</small></span></button>
-              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); setMcpOpen(true); }}><Plug size={14} /><span><strong>{t("plugins.addMcp")}</strong><small>{t("plugins.addMcpHint")}</small></span></button>
-              {window.ohMyGameDesktop ? <button type="button" role="menuitem" onClick={() => void installFromFolder()}><FolderOpen size={14} /><span><strong>{t("plugins.fromFolder")}</strong><small>{t("plugins.fromFolderHint")}</small></span></button> : null}
-              <button type="button" role="menuitem" onClick={openGitInstallDialog}><GitBranch size={14} /><span><strong>{t("plugins.fromGit")}</strong><small>{t("plugins.fromGitHint")}</small></span></button>
-              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); setImportOpen(true); }}><Package size={14} /><span><strong>{t("pluginPortability.import")}</strong><small>{t("pluginPortability.importMenuHint")}</small></span></button>
-            </div> : null}
-          </div>
+          <SearchInput value={query} onChange={setQuery} placeholder={t("plugins.search")} label={t("plugins.searchLabel")} />
+          <DropdownMenu placement="bottom-end" items={addMenuItems} trigger={(props) => (
+            <Button {...props} disabled={Boolean(adding)} icon={adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}>{adding ? t("plugins.installing") : t("plugins.add")}</Button>
+          )} />
         </div>
       ) : null}
     </SidebarPageHeader>
