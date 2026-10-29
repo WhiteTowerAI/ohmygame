@@ -40,6 +40,8 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const activity = useProjectActivity(phase === "ready" && projects.length > 0, setProjects);
+  // Renames, removals and automatic names reach the sidebar too.
+  useEffect(() => { if (phase === "ready") publishRecentProjects(projects); }, [phase, projects]);
   const [loadError, setLoadError] = useState<string>();
   const [importError, setImportError] = useState<string>();
   const [creating, setCreating] = useState<CreateRequest>();
@@ -55,7 +57,6 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
       await waitForRuntime();
       const loaded = await listProjects();
       setProjects(loaded);
-      publishRecentProjects(loaded);
       setPhase("ready");
     } catch (error) {
       setLoadError(errorMessage(error));
