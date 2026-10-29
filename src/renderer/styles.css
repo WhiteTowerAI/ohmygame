@@ -11644,6 +11644,24 @@ summary.work-summary:hover {
   user-select: none;
 }
 
+/* Plain text: the same numbers, from one gutter beside the code. */
+.workspace-code-plain {
+  display: grid;
+  grid-template-columns: 66px max-content;
+  align-content: start;
+}
+
+.workspace-code-gutter {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  padding-right: 26px;
+  background: var(--canvas);
+  color: var(--color-text-tertiary);
+  text-align: right;
+  user-select: none;
+}
+
 .workspace-code-highlighted {
   overflow: auto;
   white-space: pre;

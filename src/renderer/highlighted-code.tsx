@@ -62,6 +62,12 @@ export async function highlightWorkspaceCode(content: string, language: string, 
   return highlighter.codeToHtml(content, { lang: language, theme });
 }
 
+function lineNumbers(content: string): string {
+  let count = 1;
+  for (let index = content.indexOf("\n"); index !== -1; index = content.indexOf("\n", index + 1)) count++;
+  return Array.from({ length: count }, (_, index) => index + 1).join("\n");
+}
+
 export function HighlightedCode({ path, content: text }: { path: string; content: string }) {
   // A file's final newline would show as an empty, numbered line.
   const content = text.endsWith("\n") ? text.slice(0, -1) : text;
@@ -97,7 +103,12 @@ export function HighlightedCode({ path, content: text }: { path: string; content
     };
   }, [content, language, theme]);
 
-  // Shiki writes each line as a span.line; the plain text does the same, so both get line numbers.
-  if (!html) return <pre className="workspace-code"><code>{content.split("\n").map((line, index) => <span key={index}>{index ? "\n" : ""}<span className="line">{line}</span></span>)}</code></pre>;
+  // Shiki writes each line as a span.line, numbered by a CSS counter. Plain
+  // text keeps to two text nodes, its numbers in a gutter beside the code, so
+  // a long file doesn't become an element per line.
+  if (!html) return <pre className="workspace-code workspace-code-plain">
+    <span className="workspace-code-gutter" aria-hidden="true">{lineNumbers(content)}</span>
+    <code>{content}</code>
+  </pre>;
   return <div className="workspace-code workspace-code-highlighted" dangerouslySetInnerHTML={{ __html: html }} />;
 }

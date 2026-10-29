@@ -1503,7 +1503,12 @@ function useElementSize(element: HTMLElement | null): { width: number; height: n
   const [size, setSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
     if (!element) return;
-    const update = () => setSize({ width: element.clientWidth, height: element.clientHeight });
+    // Hidden, it measures 0. Keeping the last size keeps what it holds mounted,
+    // such as the file tree's open folders.
+    const update = () => {
+      if (!element.clientWidth && !element.clientHeight) return;
+      setSize({ width: element.clientWidth, height: element.clientHeight });
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(element);
