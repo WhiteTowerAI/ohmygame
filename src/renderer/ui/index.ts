@@ -6,6 +6,7 @@ import "./base.css";
 
 export { Button, IconButton } from "./button.js";
 export type { ButtonProps, IconButtonProps } from "./button.js";
+export { CategoryMark, Chip } from "./chip.js";
 export {
   Checkbox,
   Combobox,
@@ -20,6 +21,7 @@ export {
   Textarea,
 } from "./form.js";
 export type { InputProps, SelectOption } from "./form.js";
+export { MediaTile } from "./media.js";
 export {
   ContextMenu,
   Dialog,

@@ -126,6 +126,7 @@ const en = {
     deleteName: "Delete {{name}}",
   },
   ui: {
+    remove: "Remove",
     search: "Search",
     searchPlaceholder: "Search…",
     selectPlaceholder: "Select…",
@@ -1214,7 +1215,8 @@ const en = {
   library: {
     usedByProject: "{{name}} is used by this project.",
     usedByProjects: "{{name}} is used by {{count}} projects.",
-    confirmDelete: "Delete “{{name}}” from Library? This cannot be undone.",
+    deleteTitle: "Delete “{{name}}”?",
+    deleteDescription: "It is removed from Library. This cannot be undone.",
     title: "Library",
     loading: "Loading assets",
     noMatch: "No assets match these filters",
@@ -1225,6 +1227,15 @@ const en = {
     deletingEllipsis: "Deleting...",
     deleteEverywhere: "Delete everywhere",
     rename: "Rename asset",
+    searchPlaceholder: "Search assets or prompts",
+    loadFailed: "Could not load assets",
+    projectCount_one: "{{count}} project",
+    projectCount_other: "{{count}} projects",
+    dimensions: "Dimensions",
+    length: "Length",
+    prompt: "Prompt",
+    trim: "Trim",
+    trimTitle: "Trim {{name}}",
   },
   libraryFilters: {
     source: "Source",

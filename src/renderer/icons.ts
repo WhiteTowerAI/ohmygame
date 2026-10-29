@@ -25,6 +25,7 @@ import {
   CursorIcon,
   DangerCircleIcon,
   DangerTriangleIcon,
+  DatabaseIcon,
   DisketteIcon,
   DocumentAddIcon,
   DownloadIcon,
@@ -81,6 +82,7 @@ import {
   StarsIcon,
   StopCircleIcon,
   TabletIcon,
+  TextFieldIcon,
   TextSquareIcon,
   TrashBinTrashIcon,
   Tuning2Icon,
@@ -261,4 +263,6 @@ export {
   DangerTriangleIcon as TriangleAlert,
   RefreshCircleIcon as RefreshCircle,
   WalletIcon as Wallet,
+  DatabaseIcon as Database,
+  TextFieldIcon as TextField,
 };

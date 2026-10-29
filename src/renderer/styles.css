@@ -3904,99 +3904,6 @@ select.settings-search-input {
   padding: 0 11px 10px;
   font-size: 10px;
 }
-.library-state {
-  display: flex;
-  min-height: 240px;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-.library-state-error {
-  color: var(--danger);
-}
-.library-action-error {
-  margin: 16px 0 0;
-  color: var(--danger);
-  font-size: 11px;
-}
-.library-delete-backdrop {
-  position: fixed;
-  z-index: 120;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgb(0 0 0 / 68%);
-}
-.library-delete-dialog {
-  width: min(400px, 100%);
-  padding: 20px;
-  border-radius: 8px;
-  background: var(--surface-raised);
-  color: var(--text);
-}
-.library-delete-dialog h2 {
-  margin: 0 0 13px;
-  font-size: 15px;
-  font-weight: 600;
-}
-.library-delete-dialog p {
-  margin: 8px 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-.library-delete-dialog .library-delete-warning {
-  color: var(--danger);
-}
-.library-delete-dialog .library-delete-error {
-  color: var(--danger);
-}
-.library-delete-dialog ul {
-  max-height: 140px;
-  margin: 13px 0;
-  padding-left: 18px;
-  color: var(--text);
-  font-size: 11px;
-}
-.library-delete-dialog footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 18px;
-}
-.library-delete-dialog footer button {
-  height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 11px;
-  cursor: pointer;
-}
-.library-delete-dialog footer button:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-.library-delete-dialog footer .library-action-delete {
-  background: var(--danger);
-  color: #fff;
-}
-.library-state button {
-  display: inline-flex;
-  height: 28px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--surface-raised);
-  color: var(--text);
-  cursor: pointer;
-}
 
 .library-dialog-backdrop {
   position: fixed;
@@ -11929,10 +11836,6 @@ button {
   justify-content: flex-end;
 }
 
-.assets-view .library-action-error {
-  margin: 4px 0 0;
-}
-
 .assets-grid {
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 18px 16px;
@@ -12295,7 +12198,6 @@ button {
 :root[data-appearance="light"]
   :is(
     .project-create-backdrop,
-    .library-delete-backdrop,
     .library-dialog-backdrop
   ) {
   background: rgb(0 0 0 / 38%);
