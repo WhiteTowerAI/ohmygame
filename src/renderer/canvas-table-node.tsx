@@ -87,7 +87,7 @@ export function CanvasTableNode({
             icon={Columns2}
             label={runtime?.table?.title || t("tableNode.table")}
             details={data.nodeDetails}
-            className="design-document-node-header"
+            className="design-document-node-header is-data"
           />
           {runtime?.issue ? (
             <p className="design-document-issue" role="status">

@@ -8,9 +8,16 @@ import {
   Code2,
   ExternalLink,
   FileCode2,
+  FileConfig,
+  FileDocument,
+  FilePlain,
+  FileStyle,
   FileText,
   Folder,
   FolderOpen,
+  Columns2,
+  Globe2,
+  Music2,
   FolderPlus,
   Image as ImageIcon,
   LaptopMinimalistic,
@@ -56,6 +63,7 @@ import { t } from "./i18n.js";
 import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./workspace-git-changes.js";
 import type { PanelNodes } from "./panel-layout.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
+import { IconButton } from "./ui/index.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -332,6 +340,7 @@ export function CodingWorkspace({
     data-tooltip={t("projectSettings.title")}
     onClick={() => setProjectSettingsOpen(true)}
   ><Wrench size={14} /></button> : null;
+  const [codeToolbar, setCodeToolbar] = useState<HTMLDivElement | null>(null);
   const openCode = (path: string) => {
     setSelectedCodePath(path);
     show("code");
@@ -343,6 +352,7 @@ export function CodingWorkspace({
         <PreviewControls
           path={actualPreviewPath}
           paths={knownPaths}
+          status={preview?.status}
           previewUrl={currentPreviewUrl}
           refreshDisabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
           refreshLabel={preview?.status === "ready" ? t("workspace.reloadPreview") : t("workspace.restartPreview")}
@@ -395,8 +405,9 @@ export function CodingWorkspace({
       /></Suspense>,
     } : undefined,
     code: {
-      toolbar: settingsButton,
+      toolbar: <><div className="code-toolbar" ref={setCodeToolbar} />{settingsButton}</>,
       body: <WorkspaceFileBrowser
+        toolbarTarget={codeToolbar}
         files={files}
         selectedPath={selectedCodePath}
         selectedFile={selectedFile}
@@ -479,6 +490,7 @@ export function CodingWorkspace({
 function PreviewControls({
   path,
   paths,
+  status,
   previewUrl,
   refreshDisabled,
   refreshLabel,
@@ -493,6 +505,7 @@ function PreviewControls({
 }: {
   path: string;
   paths: string[];
+  status?: ProjectState["preview"]["status"];
   previewUrl?: string;
   refreshDisabled: boolean;
   refreshLabel: string;
@@ -507,29 +520,30 @@ function PreviewControls({
 }) {
   return (
     <div className="preview-controls">
-      <ViewportMenu value={viewport} onChange={onViewportChange} />
       <PreviewLocation
         disabled={!previewUrl}
         path={path}
         paths={paths}
+        status={status}
         refreshDisabled={refreshDisabled}
         refreshLabel={refreshLabel}
         onNavigate={onNavigate}
         onRefresh={onRefresh}
       />
+      <ViewportMenu value={viewport} onChange={onViewportChange} />
       {agentPlaytestWatch ? (
         <button className={`icon-button pane-header-action preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`} type="button" aria-label={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")} aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending} data-tooltip={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")} onClick={onToggleAgentPlaytestWatch}>
-          <Video size={15} />
+          <Video size={14} />
         </button>
       ) : null}
       <button
-        className="icon-button quiet-button preview-settings-button"
+        className="icon-button pane-header-action preview-settings-button"
         type="button"
         onClick={onOpenSettings}
         title={t("projectSettings.title")}
         aria-label={t("projectSettings.title")}
       >
-        <Wrench size={15} />
+        <Wrench size={14} />
       </button>
     </div>
   );
@@ -539,6 +553,7 @@ function PreviewLocation({
   disabled,
   path,
   paths,
+  status,
   refreshDisabled,
   refreshLabel,
   onNavigate,
@@ -547,6 +562,7 @@ function PreviewLocation({
   disabled: boolean;
   path: string;
   paths: string[];
+  status?: ProjectState["preview"]["status"];
   refreshDisabled: boolean;
   refreshLabel: string;
   onNavigate: (path: string) => void;
@@ -597,16 +613,7 @@ function PreviewLocation({
 
   return (
     <div className="preview-location" ref={root}>
-      <button
-        className="preview-location-refresh"
-        type="button"
-        onClick={onRefresh}
-        disabled={refreshDisabled}
-        title={refreshLabel}
-        aria-label={refreshLabel}
-      >
-        <RefreshCw size={15} />
-      </button>
+      <span className={`preview-location-status is-${status ?? "waiting"}`} role="img" aria-label={t(`workspace.previewStatus.${status ?? "waiting"}`)} title={t(`workspace.previewStatus.${status ?? "waiting"}`)} />
       <button
         ref={trigger}
         className="preview-location-trigger"
@@ -623,6 +630,16 @@ function PreviewLocation({
       >
         <span className="preview-location-path">{path}</span>
         <ChevronDown className={open ? "preview-location-chevron-open" : undefined} size={13} />
+      </button>
+      <button
+        className="preview-location-refresh"
+        type="button"
+        onClick={onRefresh}
+        disabled={refreshDisabled}
+        title={refreshLabel}
+        aria-label={refreshLabel}
+      >
+        <RefreshCw size={13} />
       </button>
       {open ? (
         <div className="preview-location-popover" id={popoverId} role="dialog" aria-label={t("workspace.previewPages")}>
@@ -894,6 +911,7 @@ export function WorkspaceFileBrowser({
   onFilesChanged = () => {},
   fileActions,
   renderFile,
+  toolbarTarget,
 }: {
   files: WorkspaceFile[];
   selectedPath?: string;
@@ -909,8 +927,11 @@ export function WorkspaceFileBrowser({
   onFilesChanged?: (change: WorkspaceFileChange) => void;
   fileActions?: ReactNode;
   renderFile?: (file: WorkspaceFileContent) => ReactNode;
+  /** The panel toolbar, where the open file's path and actions go. Without it they get a header. */
+  toolbarTarget?: HTMLElement | null;
 }) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [treeOpen, setTreeOpen] = useState(true);
   const [browserView, setBrowserView] = useState<"files" | "changes">("files");
   const [selectedGitPath, setSelectedGitPath] = useState<string>();
   const git = useWorkspaceGitChanges(projectId, revision, filesRevision);
@@ -977,11 +998,26 @@ export function WorkspaceFileBrowser({
     if (!window.confirm(entry.directory ? t("workspace.confirmDeleteFolder", { path: entry.path }) : t("workspace.confirmDelete", { path: entry.path }))) return;
     void mutate(async () => { await deleteWorkspaceEntry(projectId, entry.path); return { from: entry.path }; });
   }
+  const fileHeader = selectedFile && !showChanges ? <>
+    <span className="file-content-path" title={selectedFile.path}>
+      {selectedFile.path.split("/").map((part, index, parts) => index === parts.length - 1
+        ? <span key={index} className="file-content-name">{part}</span>
+        : <span key={index}>{part}<span className="file-content-separator">/</span></span>)}
+      {selectedFile.truncated ? ` ${t("workspace.truncated")}` : ""}
+    </span>
+    {fileActions}
+    {onOpenExternal ? <FileOpenActions path={selectedFile.path} onOpen={onOpenExternal} /> : null}
+  </> : null;
+  const toolbar = toolbarTarget ? createPortal(<>
+    <IconButton size="sm" label={treeOpen ? t("workspace.hideFiles") : t("workspace.showFiles")} active={treeOpen} onClick={() => setTreeOpen((value) => !value)}><Columns2 size={14} /></IconButton>
+    {fileHeader ?? <span className="file-content-path" />}
+  </>, toolbarTarget) : null;
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingCode")} />;
   if (error && !selectedPath) return <WorkspaceState error={error} />;
   return <>
-    <div className="code-view" ref={codeElement} style={{ "--file-explorer-width": `${explorerWidth}px` } as CSSProperties}>
-      <div className="file-explorer">
+    {toolbar}
+    <div className={`code-view${treeOpen ? "" : " is-tree-hidden"}`} ref={codeElement} style={{ "--file-explorer-width": `${explorerWidth}px` } as CSSProperties}>
+      <div className="file-explorer" hidden={!treeOpen}>
         {git.data?.available || git.error ? <div className="file-explorer-views">
           {git.data?.available ? <nav aria-label={t("workspace.gitViews")}>
             <button type="button" aria-pressed={!showChanges} onClick={() => setBrowserView("files")}>{t("workspace.gitFiles")}</button>
@@ -1016,8 +1052,8 @@ export function WorkspaceFileBrowser({
               data={tree}
               width={treeSize.width}
               height={treeSize.height}
-              rowHeight={26}
-              indent={15}
+              rowHeight={24}
+              indent={12}
               openByDefault={false}
               selection={selectedPath}
               searchTerm={searchTerm}
@@ -1049,6 +1085,7 @@ export function WorkspaceFileBrowser({
         </div>}
       </div>
       <div
+        hidden={!treeOpen}
         className="file-explorer-resizer"
         role="separator"
         aria-label={t("workspace.resizeExplorer")}
@@ -1077,11 +1114,7 @@ export function WorkspaceFileBrowser({
         {showChanges && projectId ? <WorkspaceGitDiff key={`${projectId}:${selectedGitPath}`} projectId={projectId} path={selectedGitPath} changes={git.data} />
           : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : selectedFile ? (
           <>
-            <div className="file-content-header">
-              <span className="file-content-path" title={selectedFile.path}>{selectedFile.path}{selectedFile.truncated ? " (truncated)" : ""}</span>
-              {fileActions}
-              {onOpenExternal ? <FileOpenActions path={selectedFile.path} onOpen={onOpenExternal} /> : null}
-            </div>
+            {toolbarTarget ? null : <div className="file-content-header">{fileHeader}</div>}
             {selectedMedia && projectId
               ? <WorkspaceMediaPreview projectId={projectId} file={selectedMedia} revision={revision} />
               : selectedFile.binary
@@ -1463,6 +1496,19 @@ function finalizeWorkspaceNodes(nodes: Map<string, MutableWorkspaceFileNode>): W
     }));
 }
 
+/** A file's icon from its extension, tinted with the kind of file it is. */
+function fileIcon(name: string): { icon: IconComponent; tone: string } {
+  const extension = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
+  if (["ts", "tsx", "js", "jsx", "mjs", "cjs", "gd", "cs", "py"].includes(extension)) return { icon: FileCode2, tone: "code" };
+  if (["css", "scss"].includes(extension)) return { icon: FileStyle, tone: "video" };
+  if (["html", "htm"].includes(extension)) return { icon: Globe2, tone: "data" };
+  if (["json", "toml", "yaml", "yml"].includes(extension)) return { icon: FileConfig, tone: "audio" };
+  if (["md", "txt"].includes(extension)) return { icon: FileDocument, tone: "document" };
+  if (["png", "jpg", "jpeg", "webp", "svg", "gif"].includes(extension)) return { icon: ImageIcon, tone: "image" };
+  if (["mp3", "ogg", "wav"].includes(extension)) return { icon: Music2, tone: "audio" };
+  return { icon: FilePlain, tone: "text" };
+}
+
 function WorkspaceTreeNode({ node, style, onContextMenu }: NodeRendererProps<WorkspaceFileNode> & {
   onContextMenu?: (node: NodeRendererProps<WorkspaceFileNode>["node"], event: React.MouseEvent<HTMLDivElement>) => void;
 }) {
@@ -1486,11 +1532,10 @@ function WorkspaceTreeNode({ node, style, onContextMenu }: NodeRendererProps<Wor
         node.isOpen
           ? <FolderOpen className="file-tree-folder-icon" size={14} aria-hidden="true" />
           : <Folder className="file-tree-folder-icon" size={14} aria-hidden="true" />
-      ) : (
-        <>
-          <FileCode2 className="file-tree-file-icon" size={13} aria-hidden="true" />
-        </>
-      )}
+      ) : (() => {
+        const { icon: Icon, tone } = fileIcon(node.data.name);
+        return <Icon className={`file-tree-file-icon tone-${tone}`} size={14} aria-hidden="true" />;
+      })()}
       <span>{node.data.name}</span>
     </div>
   );
@@ -1500,7 +1545,12 @@ function useElementSize(element: HTMLElement | null): { width: number; height: n
   const [size, setSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
     if (!element) return;
-    const update = () => setSize({ width: element.clientWidth, height: element.clientHeight });
+    // Hidden, it measures 0. Keeping the last size keeps what it holds mounted,
+    // such as the file tree's open folders.
+    const update = () => {
+      if (!element.clientWidth && !element.clientHeight) return;
+      setSize({ width: element.clientWidth, height: element.clientHeight });
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(element);
