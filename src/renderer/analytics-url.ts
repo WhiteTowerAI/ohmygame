@@ -2,9 +2,13 @@ import { parseAppRoute, type AppRoute } from "./routes.js";
 
 // The renderer is loaded from a file:// URL, so every URL PostHog records
 // would carry the install path, including the user's account name. Events
-// report the in-app route instead, with ids replaced by placeholders.
+// report the in-app route instead, with ids replaced by placeholders. Files of
+// the renderer build, such as stack frames of a captured exception, keep their
+// path inside the build.
 const APP_ORIGIN = "app://ohmygame";
-const FILE_URL = /file:\/\/[^\s"'<>]*/g;
+const FILE_URL = /file:\/\/[^\s"'<>()]*/g;
+// An error message can name a file in the user's home folder.
+const HOME_FOLDER = /(?:(?<![\w.-])\/?[A-Za-z]:[\\/]+Users|(?<![\w./-])\/(?:Users|home))[\\/]+[^\\/\s"'<>:]+/g;
 
 export function analyticsPath(route: AppRoute): string {
   switch (route.page) {
@@ -40,10 +44,12 @@ export type AnalyticsEvent = {
 /** Rewrites PostHog event properties so no local file path leaves the machine. */
 export class AnalyticsUrlScrubber {
   readonly #localPathnames: Set<string>;
+  readonly #buildDirectories: string[];
   #previousPageviewPath: string | undefined;
 
   constructor(localPathname: string) {
     this.#localPathnames = new Set([localPathname, safeDecode(localPathname)]);
+    this.#buildDirectories = [...this.#localPathnames].map((pathname) => pathname.slice(0, pathname.lastIndexOf("/") + 1));
   }
 
   scrub(event: AnalyticsEvent, currentUrl: string): void {
@@ -63,11 +69,20 @@ export class AnalyticsUrlScrubber {
     for (const [key, value] of Object.entries(original)) {
       if (typeof value === "string") {
         const path = this.#localPathnames.has(value) ? (pathnameSource(original, key) ?? currentPath) : undefined;
-        record[key] = path ?? value.replace(FILE_URL, (url) => APP_ORIGIN + pathOfUrl(url));
+        record[key] = path ?? value
+          .replace(FILE_URL, (url) => APP_ORIGIN + (this.#buildPath(url) ?? pathOfUrl(url)))
+          .replace(HOME_FOLDER, "~");
       } else if (value && typeof value === "object") {
         this.#scrubRecord(value as EventRecord, currentPath);
       }
     }
+  }
+
+  #buildPath(url: string): string | undefined {
+    const pathname = url.slice("file://".length).split("#")[0];
+    if (this.#localPathnames.has(pathname)) return undefined;
+    const directory = this.#buildDirectories.find((candidate) => pathname.startsWith(candidate));
+    return directory === undefined ? undefined : `/${pathname.slice(directory.length)}`;
   }
 }
 
