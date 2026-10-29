@@ -95,7 +95,7 @@ export function App() {
   if (route.page === "projects") return <Suspense fallback={sidebarFallback("projects")}><ProjectsPage projectType={route.projectType} query={route.query} sort={route.sort} onFiltersChange={(filters, replace) => navigate(projectsHash(filters), { replace })} onNavigate={navigateToSidebarPage} onOpenProject={openProject} /></Suspense>;
   if (route.page === "general" || route.page === "web-game" || route.page === "interactive-story" || route.page === "godot") return <Suspense fallback={sidebarFallback(route.page)}><GameStudioHome key={route.page} projectType={route.page === "godot" ? "godot-game" : route.page} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} /></Suspense>;
   if (route.page === "asset-canvas") return <Suspense fallback={sidebarFallback("asset-canvas")}><AssetCanvasHome onNavigate={navigateToSidebarPage} onOpenProject={openAssetCanvasProject} /></Suspense>;
-  if (route.page === "library") return <Suspense fallback={sidebarFallback("library")}><LibraryPage onNavigate={navigateToSidebarPage} /></Suspense>;
+  if (route.page === "library") return <Suspense fallback={sidebarFallback("library")}><LibraryPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} /></Suspense>;
   if (route.page === "playtest") return null;
   if (route.page !== "project") return null;
   return (
