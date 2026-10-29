@@ -4,14 +4,28 @@ Plugins is the single place to install Skills and MCP services, change configura
 
 ## Browse plugins
 
-The library separates **Public** and **Personal** tabs. Public packages are
-grouped into **Game creation**, **Engines & platforms**, and **Art & assets**,
-with **Other plugins** for packages not yet in the curated grouping. Each group
-shows its count and up to six cards; **View all** expands that group. Personal
-plugins use a flat alphabetical list. Search shows all matching plugins in the
-selected tab without group expansion, including disabled plugins.
-Enabling or disabling a plugin does not change its position in the catalog.
-Beta remains a status badge, and saved enablement choices are preserved.
+Plugins has three tabs. **Installed** groups OhMyGame's plugins into **Game
+creation**, **Engines & platforms**, and **Art & assets**, with **Other
+plugins** for packages not yet in the curated grouping. Each group shows its
+count and up to six cards; **View all** expands that group. **Personal**
+follows in alphabetical order, ending with **Create a plugin with AI**, then the
+AI workspaces. Search shows every matching plugin in one list without groups,
+including disabled plugins. Enabling or disabling a plugin does not change its
+position in the catalog. Beta and Needs configuration remain status badges, and
+saved enablement choices are preserved.
+
+**Browse** lists the whole catalog with its source, the project types each
+plugin works with, and whether it includes MCP services. It filters by source
+(OhMyGame or other sources) and by project type; a plugin without project types
+works with every type. **Skills** lists the Skills of every plugin, grouped by
+whether the plugin is OhMyGame's or Personal. A Skill's switch is its
+component switch and stays off while its plugin is disabled.
+
+A plugin's page has **About** (the long description and Try it prompts),
+**Skills**, and **Settings** (configuration, integration, MCP services, and
+dependencies) tabs, beside a **Management** card with the plugin's switch,
+version, source, and actions. It opens on Settings while required
+configuration is missing.
 
 ## Package format
 
@@ -177,7 +191,7 @@ The legacy `connections` manifest field is a provider reference. It neither owns
 
 The Add plugin menu supports folder/Git installation, manual MCP configuration, and a dedicated AI assistant. Existing MCP configuration JSON can be pasted into the manual dialog. Credentials in environment/header fields are extracted into private configuration rather than copied into the generated package. The detail page offers configuration forms, definition editing, tests, and HTTP authorization controls.
 
-The library groups plugins into **Public** and **Personal**. Public contains plugins provided by OhMyGame, including bundled and preinstalled packages, plus catalog entries whose trusted adapter marks the marketplace as official. Personal contains user-created plugins and user imports from folders, Git repositories, and third-party marketplaces. These are display groups: plugin IDs, original marketplace identities, and configuration keys are preserved. Imported archives always enter Personal, even when their source metadata came from a public catalog. Both groups expose plugin switches, including for bundled plugins. Bundled packages cannot be uninstalled.
+The library groups plugins into OhMyGame's (public) and **Personal**. OhMyGame's contains plugins provided by OhMyGame, including bundled and preinstalled packages, plus catalog entries whose trusted adapter marks the marketplace as official. Personal contains user-created plugins and user imports from folders, Git repositories, and third-party marketplaces. These are display groups: plugin IDs, original marketplace identities, and configuration keys are preserved. Imported archives always enter Personal, even when their source metadata came from a public catalog. Installed plugins in both groups have switches, including bundled plugins. Bundled packages cannot be uninstalled.
 
 Create with AI opens a dedicated Plugin Builder page with a conversation and four preview views: Overview, Files, Setup, and Checks. Each new plugin gets its own persisted workspace. The Plugins page lists AI workspaces that can be resumed or deleted; unsent input and the selected model are saved per workspace on the current device.
 

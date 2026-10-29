@@ -247,6 +247,7 @@ export {
   UndoLeftIcon as Undo2,
   UndoRightIcon as Redo2,
   UserRoundedIcon as UserRound,
+  VerifiedCheckIcon as BadgeCheck,
   VideocameraIcon as Video,
   MagicWandIcon as WandSparkles,
   WiFiIcon as Wifi,
