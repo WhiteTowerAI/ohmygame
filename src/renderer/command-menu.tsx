@@ -55,6 +55,17 @@ export function useLeaveGuard(guard: (go: () => void) => void): void {
   }, []);
 }
 
+// Escape while the menu is open is the menu's alone. This listens on the window
+// in the capture phase from the moment the app loads, ahead of any dialog's
+// own Escape listener, even one that captures too.
+let closeOpenMenu: (() => void) | undefined;
+window.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || event.isComposing || !closeOpenMenu) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  closeOpenMenu();
+}, true);
+
 function leave(go: () => void): void {
   if (leaveGuard) leaveGuard(go);
   else go();
@@ -120,6 +131,13 @@ export function CommandMenuHost({ navigate }: { navigate: (hash: string) => void
       window.removeEventListener("keydown", onKey);
     };
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    closeOpenMenu = close;
+    return () => { if (closeOpenMenu === close) closeOpenMenu = undefined; };
+  }, [open]);
 
   // The projects are read each time the menu opens, most recently edited first.
   useEffect(() => {

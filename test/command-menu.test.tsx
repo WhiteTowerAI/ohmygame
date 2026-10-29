@@ -75,6 +75,18 @@ it("uses Ctrl elsewhere", async () => {
   expect(document.querySelector('[role="dialog"]')).not.toBeNull();
 });
 
+it("keeps Escape from a dialog beneath that captures it too", async () => {
+  const dialogEscape = vi.fn((event: KeyboardEvent) => event.key === "Escape");
+  window.addEventListener("keydown", dialogEscape, true);
+  await act(async () => root.render(<CommandMenuHost navigate={navigate} />));
+  await press("k");
+  const input = document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+  window.removeEventListener("keydown", dialogEscape, true);
+  expect(dialogEscape.mock.results.some((result) => result.value)).toBe(false);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
+
 it("drops a page's commands from the open menu when the page goes", async () => {
   const render = (page: boolean) => act(async () => root.render(<>{page ? <Page /> : null}<CommandMenuHost navigate={navigate} /></>));
   await render(true);
