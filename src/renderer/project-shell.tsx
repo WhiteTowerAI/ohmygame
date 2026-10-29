@@ -903,10 +903,10 @@ export function ProjectShell({
   useEffect(() => {
     setReferencedDocument(undefined);
     if (!conversation) return;
-    const session = composerDrafts.get({ projectId, conversationId: conversation.id });
-    const read = () => setReferencedDocument(session.getSnapshot().designReference?.references[0]?.path);
+    const scope = { projectId, conversationId: conversation.id };
+    const read = () => setReferencedDocument(composerDrafts.peek(scope)?.designReference?.references[0]?.path);
     read();
-    return session.subscribe(read);
+    return composerDrafts.watch(scope, read);
   }, [projectId, conversation?.id]);
   const referenceDocument = useCallback((document: { id: string; title: string } | undefined) => {
     revealPanel("chat");

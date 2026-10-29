@@ -13,6 +13,8 @@ import "./design-document-panel.css";
 type View = "read" | "edit" | "split";
 type Document = NonNullable<CanvasDocumentsState["workspace"]>["documents"][number];
 interface Heading { level: 2 | 3; text: string; element: HTMLElement }
+/** The height the Add to chat button takes beside a selection. */
+const PICK_ROOM = 40;
 
 /**
  * Design: the project's game design document, the Markdown the agent reads as
@@ -36,7 +38,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
   const storageKey = `design-document:${project.id}`;
   const [activeId, setActiveId] = useState<string | undefined>(() => { try { return localStorage.getItem(storageKey) ?? undefined; } catch { return undefined; } });
   const [view, setView] = useState<View>("read");
-  const [pick, setPick] = useState<{ text: string; x: number; y: number }>();
+  const [pick, setPick] = useState<{ text: string; x: number; y: number; below: boolean }>();
   const [outline, setOutline] = useState<Heading[]>([]);
   const [current, setCurrent] = useState<HTMLElement>();
   const [actionError, setActionError] = useState<string>();
@@ -67,7 +69,11 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
     if (!text || !selection?.rangeCount || !page.current) { setPick(undefined); return; }
     const rect = selection.getRangeAt(0).getBoundingClientRect();
     const frame = page.current.getBoundingClientRect();
-    setPick({ text, x: rect.left - frame.left + rect.width / 2, y: rect.top - frame.top + page.current.scrollTop });
+    // Above the selection, or below it when that would leave the page; always in view.
+    const below = rect.top - frame.top < PICK_ROOM;
+    const y = Math.min(Math.max(below ? rect.bottom - frame.top : rect.top - frame.top, below ? 0 : PICK_ROOM), frame.height - (below ? PICK_ROOM : 0));
+    const x = Math.min(Math.max(rect.left - frame.left + rect.width / 2, PICK_ROOM * 2), frame.width - PICK_ROOM * 2);
+    setPick({ text, x, y: y + page.current.scrollTop, below });
     event.stopPropagation();
   };
   const download = (item: Document) => {
@@ -111,8 +117,13 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
 
   const notices = <>
     {actionError ? <CanvasNotice className="design-notice" message={t("canvas.actionFailed")} detail={actionError} onDismiss={() => setActionError(undefined)} /> : null}
-    {documents.error && !documents.conflict ? <CanvasNotice className="design-notice" tone="error" message={t("canvas.documentsSaveFailed")} detail={documents.error} actionLabel={t("canvas.retrySave")} onAction={() => documents.flush()} /> : null}
-    {documents.conflict ? <CanvasNotice className="design-notice" tone="warning" message={t("canvas.documentConflict", { title: documents.conflict.local.title })}>
+    {workspace?.documentIssues?.map((issue) => (
+      <CanvasNotice key={issue.id} className="design-notice" tone="warning" dismissible={false} detail={issue.message}
+        message={`${issue.title}: ${t(docs.some((item) => item.id === issue.id) ? "canvasDoc.unavailableDraftKept" : "canvasDoc.unavailableRestore", { source: issue.source })}`}
+        actionLabel={t("canvas.reloadWorkspace")} onAction={() => documents.refresh()} />
+    ))}
+    {documents.error && !documents.conflict ? <CanvasNotice className="design-notice" tone="error" dismissible={false} message={t("canvas.documentsSaveFailed")} detail={documents.error} actionLabel={t("canvas.retrySave")} onAction={() => documents.flush()} /> : null}
+    {documents.conflict ? <CanvasNotice className="design-notice" tone="warning" dismissible={false} message={t("canvas.documentConflict", { title: documents.conflict.local.title })}>
       <button type="button" onClick={() => documents.resolve("remote")}>{t("canvas.useDisk")}</button>
       <button type="button" onClick={() => documents.resolve("local")}>{t("canvas.keepMine")}</button>
     </CanvasNotice> : null}
@@ -123,6 +134,8 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
     body = documents.loadError
       ? <CanvasNotice className="design-notice" tone="error" message={t("canvas.loadFailed")} detail={documents.loadError} actionLabel={t("canvas.reloadWorkspace")} onAction={() => documents.refresh()} />
       : <div className="design-loading" role="status" aria-label={t("designDoc.loading")}><LoaderCircle className="spin" size={18} /></div>;
+  } else if (!doc && workspace.documentIssues?.length) {
+    body = null;
   } else if (!doc) {
     body = <Empty icon={<FileText size={20} />} title={t("designDoc.empty")} description={t("designDoc.emptyDetail")} action={<>
       {onAskAgent ? <Button variant="primary" onClick={askAgent}>{t("designDoc.askAgent")}</Button> : null}
@@ -133,7 +146,7 @@ export function DesignDocumentPanel({ project, documents, toolbarTarget, referen
       <div ref={page} className="design-doc-page" onMouseUp={onPick} onScroll={follow}>
         <div className="design-doc-text"><CanvasMarkdown projectId={project.id} document={doc} /></div>
         {pick ? (
-          <button type="button" className="design-doc-pick" style={{ left: pick.x, top: pick.y }}
+          <button type="button" className={`design-doc-pick${pick.below ? " is-below" : ""}`} style={{ left: pick.x, top: pick.y }}
             onMouseUp={(event) => event.stopPropagation()}
             onClick={() => { onQuote(pick.text); setPick(undefined); getSelection()?.removeAllRanges(); }}>
             <MessageCircle size={13} />{t("designDoc.addToChat")}

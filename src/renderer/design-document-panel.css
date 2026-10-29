@@ -152,6 +152,10 @@
   cursor: pointer;
 }
 
+.design-doc-pick.is-below {
+  transform: translate(-50%, 8px);
+}
+
 /* the document's text */
 .design-doc-text {
   max-width: 720px;

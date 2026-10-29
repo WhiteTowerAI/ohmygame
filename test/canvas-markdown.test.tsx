@@ -293,6 +293,22 @@ describe("the design document panel", () => {
     expect(documents.create).toHaveBeenCalledOnce();
   });
 
+  it("names a document it can't read instead of offering a new one, and keeps a conflict's choices", async () => {
+    const documents = documentsState([]);
+    documents.workspace!.documentIssues = [{ id: "rules", title: "Rules", source: "canvas/documents/rules.md", message: "ENOENT" }];
+    await renderPanel(documents);
+    expect(container.textContent).toContain("Rules: ");
+    expect(container.textContent).toContain("canvas/documents/rules.md");
+    expect(container.querySelector(".ui-empty")).toBeNull();
+    expect(container.querySelector(".canvas-notice-close")).toBeNull();
+
+    const conflicted = { ...documentsState([rules]), conflict: { local: rules } } as unknown as CanvasDocumentsState;
+    await renderPanel(conflicted);
+    expect(container.querySelector(".canvas-notice-close")).toBeNull();
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".canvas-notice button")].find((button) => button.textContent === "Keep my version")!.click());
+    expect(conflicted.resolve).toHaveBeenCalledWith("local");
+  });
+
   it("doesn't load the documents, and so create the canvas, until a panel wants them", async () => {
     const load = vi.spyOn(canvasApi, "getCanvasWorkspace").mockResolvedValue({ version: 1, boards: [{ id: "main", name: "Main" }], documents: [], assets: [] });
     function Host({ enabled }: { enabled: boolean }) {
