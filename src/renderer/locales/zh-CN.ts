@@ -905,6 +905,17 @@ const zhCN: typeof en = {
       down: "倒地",
     },
   },
+  effectLibrary: {
+    title: "特效",
+    canvasGuide: "创建和整理像素风特效序列图。",
+    framePlan: "帧规划",
+    howToTitle: "特效模板使用说明",
+    templateExample: "示例",
+    spriteSheetExample: "序列图示例",
+    gifPreview: "预览",
+    gifPreviewHint: "参考预览",
+    myEffects: "我的特效",
+  },
   workspace: {
     navigation: "工作区导航",
     showAgent: "显示 Agent",

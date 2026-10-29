@@ -923,6 +923,17 @@ const en = {
       down: "Down",
     },
   },
+  effectLibrary: {
+    title: "Effects",
+    canvasGuide: "Create and organize pixel-art effect sprite sheets.",
+    framePlan: "Frame plan",
+    howToTitle: "How to use the Effects template",
+    templateExample: "Example",
+    spriteSheetExample: "Sprite sheet example",
+    gifPreview: "Preview",
+    gifPreviewHint: "Reference preview",
+    myEffects: "My effects",
+  },
   workspace: {
     navigation: "Workspace navigation",
     showAgent: "Show agent",
