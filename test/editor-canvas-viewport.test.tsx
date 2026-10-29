@@ -141,9 +141,11 @@ it("deletes only in the canvas used last while it is in sight, when canvases sha
   flow.deleted = [];
   const page = (assetsHidden: boolean) => (
     <>
-      <EditorCanvas id="story" nodes={nodes} addControl={null} onOpenMenu={vi.fn()} deleteKeyCode={["Delete"]} />
+      <div className="story-panel">
+        <EditorCanvas id="story" nodes={nodes} addControl={null} onOpenMenu={vi.fn()} deleteKeyCode={["Delete"]} />
+      </div>
       <div hidden={assetsHidden}>
-        <div className="asset-wrapper" tabIndex={0}>
+        <div className="interactive-story-canvas" tabIndex={0}>
           <EditorCanvas id="assets" nodes={nodes} addControl={null} onOpenMenu={vi.fn()} deleteKeyCode={["Delete"]} />
         </div>
       </div>
@@ -172,12 +174,15 @@ it("deletes only in the canvas used last while it is in sight, when canvases sha
   await act(async () => root.render(page(false)));
   flow.deleted = [];
   await press(canvasOf("story"));
-  await act(async () => container.querySelector<HTMLElement>(".asset-wrapper")!.focus());
+  await act(async () => container.querySelector<HTMLElement>(".interactive-story-canvas")!.focus());
   await key(canvasOf("story"));
   expect(flow.deleted).toEqual(["story", "assets"]);
+  // Any other element around one canvas, such as its panel, is not that canvas.
+  await press(container.querySelector(".story-panel")!);
+  expect(flow.deleted).toEqual(["story", "assets", "assets"]);
   // Typing in a field deletes nothing.
   const field = document.createElement("input");
   container.append(field);
   await press(field);
-  expect(flow.deleted).toEqual(["story", "assets"]);
+  expect(flow.deleted).toEqual(["story", "assets", "assets"]);
 });

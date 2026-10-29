@@ -322,9 +322,8 @@ let lastCanvas: Element | undefined;
 if (typeof document !== "undefined") {
   const track = (event: Event) => {
     if (!(event.target instanceof Element)) return;
-    // Within a canvas, or on an element around just one, such as a focusable wrapper.
-    const around = event.target.querySelectorAll(".react-flow");
-    const canvas = event.target.closest(".react-flow") ?? (around.length === 1 ? around[0] : null);
+    // Within a canvas, or within the area both editors put around it, which the asset canvas focuses.
+    const canvas = event.target.closest(".react-flow") ?? event.target.closest(".interactive-story-canvas")?.querySelector(".react-flow");
     if (canvas) lastCanvas = canvas;
   };
   document.addEventListener("pointerdown", track, true);
