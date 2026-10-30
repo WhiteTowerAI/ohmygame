@@ -108,7 +108,8 @@ import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
-import { Button, DropdownMenu, Empty, IconButton, type MenuEntry } from "./ui/index.js";
+import { Button, DropdownMenu, Empty, IconButton, type Command, type MenuEntry } from "./ui/index.js";
+import { useCommands, useLeaveGuard } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { t } from "./i18n.js";
@@ -836,6 +837,7 @@ export function ProjectShell({
     });
   }
   const requestHome = () => leave(onHome);
+  useLeaveGuard(leave);
 
   const [renaming, setRenaming] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -935,6 +937,17 @@ export function ProjectShell({
       return { label: PANELS[id].title(), icon: <Icon size={14} />, checked: open, onSelect: () => layout && changeLayout(open ? closePanel(layout, id) : showPanel(layout, id, homeOf(id))) };
     }),
   ] : [];
+  // The command menu shows this project's panels and applies its layouts.
+  useCommands(() => offered.length ? [
+    ...offered.map((id): Command => {
+      const Icon = PANELS[id].icon;
+      return { id: `panel-${id}`, group: t("commandMenu.panels"), label: t("commandMenu.showPanel", { panel: PANELS[id].title() }), keywords: id, icon: <Icon size={16} />, run: () => revealPanel(id) };
+    }),
+    ...presetsFor(offered).map((preset): Command => ({
+      id: `layout-${preset}`, group: t("commandMenu.panels"), label: t("commandMenu.layout", { preset: t(`panels.preset.${preset}`) }), keywords: `layout ${preset}`, icon: <LayoutGrid size={16} />,
+      run: () => changeLayout(presetLayout(preset, offered)),
+    })),
+  ] : []);
   const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "canvas" || id === "code" || id === "assets" ? [id] : []));
   const storyVisible = new Set(visible.filter((id): id is StoryView => id === "story" || id === "design" || id === "canvas" || id === "code" || id === "assets"));
 

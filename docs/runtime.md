@@ -497,11 +497,20 @@ project link opened without an entry page returns to Projects. The Projects URL
 preserves its type filter, search (`q`), and name sorting (`sort=name`) when
 returning or refreshing.
 
-Pages outside a project share one sidebar: Search (the Projects search field
-until the command menu arrives), Home, Projects, Library, Community, Plugins,
-the eight most recently edited projects, and the account. Its menu opens
-Settings (also **⌘,** or **Ctrl+,**), Account, Billing and About; signed out, it
-leads with **Sign in…**. A pending desktop update shows above the account until
+Pages outside a project share one sidebar: Search, Home, Projects, Library,
+Community, Plugins, the eight most recently edited projects, and the account.
+Its menu opens Settings (also **⌘,** or **Ctrl+,**), Account, Billing and About;
+signed out, it leads with **Sign in…**.
+
+Search, in the sidebar and the project rail, opens the command menu (also
+**⌘K** or **Ctrl+K** anywhere; `src/renderer/command-menu.tsx`). Typing filters
+it; the arrows move and Enter runs. It lists, under headings: what the page in
+view adds (a project's panels and layout presets), the app's pages and **New
+project** (also **⌘N** or **Ctrl+N**, which focuses Home's prompt), every
+project, most recently edited first, the Settings sections, and switching
+between dark and light. Leaving an open project from the menu or a shortcut
+saves its design first, as the rail does. While a dialog is open, the menu and
+these shortcuts wait for it to close. A pending desktop update shows above the account until
 it needs a restart. The sidebar collapses to icons and its edge drags between
 200 and 360px (double-click restores 232px); both stay across pages and
 restarts. Settings is a page in this frame, with its sections beside the

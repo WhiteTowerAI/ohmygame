@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
-import { act, useState } from "react";
+import { act, StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   Button,
   Combobox,
+  CommandMenu,
   Dialog,
   SegmentedControl,
   Select,
@@ -181,4 +182,89 @@ it("shows a toast and removes it after a few seconds", async () => {
   );
   await act(async () => vi.advanceTimersByTime(4000));
   expect(document.querySelector(".ui-toast")).toBeNull();
+});
+
+it("filters commands under their headings and runs the one picked from the keyboard", async () => {
+  const run = vi.fn();
+  const onClose = vi.fn();
+  const commands = [
+    { id: "home", group: "Go to", label: "Home", run: () => run("home") },
+    { id: "moon", group: "Projects", label: "Moon Garden", keywords: "web-game", run: () => run("moon") },
+    { id: "night", group: "Projects", label: "Night Train", run: () => run("night") },
+    { id: "theme", group: "Actions", label: "Switch theme", run: () => run("theme") },
+  ];
+  await act(async () => root.render(<CommandMenu open onClose={onClose} commands={commands} />));
+  const input = document.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  expect(document.activeElement).toBe(input);
+  const headings = () => [...document.querySelectorAll(".ui-command-heading")].map((heading) => heading.textContent);
+  const options = () => [...document.querySelectorAll('[role="option"]')].map((option) => option.textContent);
+  expect(headings()).toEqual(["Go to", "Projects", "Actions"]);
+  const type = (value: string) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  // Keywords match too; the group's name does as well.
+  await type("web");
+  expect(options()).toEqual(["Moon Garden"]);
+  await type("projects");
+  expect(options()).toEqual(["Moon Garden", "Night Train"]);
+  await key(input, "ArrowDown");
+  expect(input.getAttribute("aria-activedescendant")).toBe(document.querySelectorAll('[role="option"]')[1]!.id);
+  await key(input, "Enter", { isComposing: true });
+  expect(run).not.toHaveBeenCalled();
+  await key(input, "Enter");
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(run).toHaveBeenCalledExactlyOnceWith("night");
+  await type("nothing here");
+  expect(document.querySelector(".ui-command-empty")?.textContent).toContain("nothing here");
+  // Escape mid-composition cancels the composition, not the menu.
+  await key(input, "Escape", { isComposing: true });
+  expect(onClose).toHaveBeenCalledOnce();
+  await key(input, "Escape");
+  expect(onClose).toHaveBeenCalledTimes(2);
+});
+
+it("closes the command menu alone over a dialog, and gives focus back", async () => {
+  const closeDialog = vi.fn();
+  function Screen({ menu }: { menu: boolean }) {
+    return (
+      <Dialog open onClose={closeDialog} title="Provider">
+        <input aria-label="Key" />
+        <CommandMenu open={menu} onClose={() => {}} commands={[]} />
+      </Dialog>
+    );
+  }
+  // A dialog of the page's own that listens on the window, as the rename dialog does.
+  const pageEscape = vi.fn((event: KeyboardEvent) => { if (event.key === "Escape") closeDialog(); });
+  window.addEventListener("keydown", pageEscape);
+  await act(async () => root.render(<Screen menu={false} />));
+  const field = document.querySelector<HTMLInputElement>('[aria-label="Key"]')!;
+  field.focus();
+  await act(async () => root.render(<Screen menu />));
+  expect(document.activeElement).toBe(document.querySelector('[role="combobox"]'));
+  await key(document.activeElement!, "Escape");
+  window.removeEventListener("keydown", pageEscape);
+  expect(closeDialog).not.toHaveBeenCalled();
+  await act(async () => root.render(<Screen menu={false} />));
+  expect(document.activeElement).toBe(field);
+  await key(field, "Escape");
+  expect(closeDialog).toHaveBeenCalledOnce();
+});
+
+it("gives Escape to the dialog that holds focus, whichever opened last", async () => {
+  const closed: string[] = [];
+  const Pair = ({ outer, inner }: { outer: boolean; inner: boolean }) => (
+    <StrictMode>
+      {outer ? <Dialog open onClose={() => closed.push("outer")} title="Outer"><input aria-label="Outer field" /></Dialog> : null}
+      <Dialog open={inner} onClose={() => closed.push("inner")} title="Inner"><input aria-label="Inner field" /></Dialog>
+    </StrictMode>
+  );
+  await act(async () => root.render(<Pair outer={false} inner={false} />));
+  // The outer dialog mounts as the inner one opens; StrictMode replays the new
+  // one's effects, so the order they registered in says nothing about which is on top.
+  await act(async () => root.render(<Pair outer inner />));
+  const inner = document.querySelector<HTMLInputElement>('[aria-label="Inner field"]')!;
+  inner.focus();
+  await key(inner, "Escape");
+  expect(closed).toEqual(["inner"]);
 });

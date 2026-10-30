@@ -819,6 +819,19 @@ const zhCN: typeof en = {
   navigation: {
     backTo: "返回{{page}}",
   },
+  commandMenu: {
+    label: "命令",
+    placeholder: "搜索命令、项目和设置…",
+    empty: "没有找到“{{query}}”",
+    goTo: "前往",
+    projects: "项目",
+    settings: "设置",
+    actions: "操作",
+    panels: "面板",
+    toggleAppearance: "切换深色 / 浅色",
+    showPanel: "显示{{panel}}",
+    layout: "布局：{{preset}}",
+  },
   sidebar: {
     mainNavigation: "主导航",
     projectNavigation: "项目导航",

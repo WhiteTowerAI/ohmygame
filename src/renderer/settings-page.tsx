@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Bot, ExternalLink, Globe2, InfoCircle, Key, Palette as PaletteIcon, RefreshCw, Server, Settings, UserRound, Wallet, Wifi } from "./icons.js";
+import { ExternalLink, RefreshCw } from "./icons.js";
 import { useAuth } from "./auth.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
 import { AgentsSettings } from "./agents-settings.js";
@@ -8,6 +8,7 @@ import type { AppNavigationTarget, SettingsSection } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { useDesktopUpdate } from "./use-desktop-update.js";
+import { SETTINGS_NAV as NAV } from "./settings-sections.js";
 import {
   readAppearance, readChatFont, readPalette, setAppearance as persistAppearance, setChatFont, setPalette,
   type Appearance, type ChatFont, type Palette,
@@ -29,29 +30,6 @@ const LANGUAGE_OPTIONS: readonly { value: LanguagePreference; label: string }[] 
   // Language names stay in their own language so people can find theirs.
   { value: "en", label: "English" },
   { value: "zh-CN", label: "简体中文" },
-];
-
-// Sections in groups, as in the lab: the app itself, AI, what other tools
-// connect through, then the account.
-const NAV: Array<{ heading?: string; items: Array<{ section: SettingsSection; label: string; icon: typeof Settings }> }> = [
-  { items: [
-    { section: "general", label: t("settings.nav.general"), icon: Settings },
-    { section: "appearance", label: t("settings.nav.appearance"), icon: PaletteIcon },
-  ] },
-  { heading: t("settings.nav.ai"), items: [
-    { section: "agents", label: t("settings.nav.agents"), icon: Bot },
-    { section: "providers", label: t("settings.nav.providers"), icon: Key },
-    { section: "web-search", label: t("settings.nav.webSearch"), icon: Globe2 },
-  ] },
-  { heading: t("settings.nav.connections"), items: [
-    { section: "mcp-server", label: t("settings.nav.mcpServer"), icon: Server },
-    { section: "network", label: t("settings.nav.network"), icon: Wifi },
-  ] },
-  { heading: t("settings.nav.accountGroup"), items: [
-    { section: "account", label: t("settings.nav.account"), icon: UserRound },
-    { section: "billing", label: t("settings.nav.billing"), icon: Wallet },
-    { section: "about", label: t("settings.nav.about"), icon: InfoCircle },
-  ] },
 ];
 
 export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOpenOnboarding }: {
