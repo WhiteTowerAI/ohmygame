@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, Notification, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, shell } from "electron";
 import { clipboardFilePaths, loadClipboardFiles } from "./file-clipboard.js";
 import { installExternalMcpLauncher, markExternalMcpApp } from "./external-mcp-install.js";
 import { DaemonSupervisor } from "./daemon-supervisor.js";
@@ -26,7 +26,7 @@ import { ElectronPlaytestDriver } from "./playtest-driver.js";
 import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
 import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
-import { AgentNotifications } from "./agent-notifications.js";
+import { AgentNotifications, waitingDotBitmap } from "./agent-notifications.js";
 import { NotificationPermission } from "./notification-permission.js";
 import type { AgentNoticesResponse } from "../shared/agent-notices.js";
 import { parseAgentNotificationPreferences, parseAgentNotificationTarget, type AgentNotificationTarget } from "../shared/agent-notifications.js";
@@ -121,7 +121,11 @@ const agentNotifications = new AgentNotifications({
     notification.show();
     return notification;
   },
-  setBadgeCount: (count) => { app.setBadgeCount(count); },
+  showWaiting: (count, description) => {
+    waiting = { count, description };
+    if (process.platform === "win32") showWaitingOverlay();
+    else app.setBadgeCount(count);
+  },
   requestAttention: () => {
     if (process.platform === "darwin") app.dock?.bounce("informational");
     else if (mainWindow && !mainWindow.isDestroyed()) mainWindow.flashFrame(true);
@@ -140,6 +144,17 @@ const agentNotifications = new AgentNotifications({
     mainWindow.focus();
   },
 });
+
+/** What waits for the user, kept so a new main window gets its taskbar overlay too. */
+let waiting = { count: 0, description: "" };
+let waitingOverlay: Electron.NativeImage | undefined;
+
+/** Windows has no count on taskbar buttons, so a dot on the main window's button marks that something waits. */
+function showWaitingOverlay(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  waitingOverlay ??= nativeImage.createFromBitmap(waitingDotBitmap(), { width: 16, height: 16 });
+  mainWindow.setOverlayIcon(waiting.count ? waitingOverlay : null, waiting.count ? waiting.description : "");
+}
 
 /** Removes the record that tells `ohmygame-mcp` the app is already running. */
 let clearExternalMcpApp: (() => Promise<void>) | undefined;
@@ -696,6 +711,7 @@ async function openMainWindow(): Promise<void> {
     integratedMenuBar: true,
     beforeLoad: (window) => {
       mainWindow = window;
+      if (process.platform === "win32") showWaitingOverlay();
       window.webContents.on("console-message", (details) => {
         for (const line of rendererConsoleLines(details)) mainLog.line(line);
       });

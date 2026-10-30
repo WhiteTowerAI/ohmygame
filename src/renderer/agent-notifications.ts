@@ -36,6 +36,7 @@ export function sendNotificationPreferences(settings = readNotificationSettings(
       plan: t("notifications.plan"),
       completed: t("notifications.completed"),
       failed: t("notifications.failed"),
+      waiting: t("notifications.waiting"),
     },
   }).catch(() => undefined);
 }

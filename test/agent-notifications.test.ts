@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AgentNotifications } from "../src/desktop/agent-notifications.js";
+import { AgentNotifications, waitingDotBitmap } from "../src/desktop/agent-notifications.js";
 import type { AgentNotice, AgentNoticesResponse, AgentWaiting } from "../src/shared/agent-notices.js";
 import { NotificationPermission, permissionFromSettings, type MacNotificationCenter } from "../src/desktop/notification-permission.js";
 import { DEFAULT_AGENT_NOTIFICATION_PREFERENCES, parseAgentNotificationPreferences, parseAgentNotificationTarget, type AgentNotificationPermission, type AgentNotificationTarget } from "../src/shared/agent-notifications.js";
@@ -14,6 +14,7 @@ function setup() {
   let permission: AgentNotificationPermission = "allowed";
   const shown: { title: string; body: string; closed: boolean; click: () => void }[] = [];
   const badges: number[] = [];
+  const descriptions: string[] = [];
   const opened: AgentNotificationTarget[] = [];
   let attention = 0;
   const notifications = new AgentNotifications({
@@ -25,7 +26,10 @@ function setup() {
       shown.push(entry);
       return { close: () => { entry.closed = true; } };
     },
-    setBadgeCount: (count) => badges.push(count),
+    showWaiting: (count, description) => {
+      badges.push(count);
+      descriptions.push(description);
+    },
     requestAttention: () => { attention += 1; },
     open: (target) => opened.push(target),
   });
@@ -33,6 +37,7 @@ function setup() {
     notifications,
     shown,
     badges,
+    descriptions,
     opened,
     attention: () => attention,
     focus: (value: boolean) => { focused = value; },
@@ -107,6 +112,15 @@ describe("agent notifications", () => {
     await test.notifications.poll();
     expect(test.attention()).toBe(1);
     expect(test.badges).toEqual([2]);
+    expect(test.descriptions).toEqual(["Waiting for you"]);
+  });
+
+  it("draws a dot for the Windows taskbar", () => {
+    const dot = waitingDotBitmap(16);
+    const pixel = (x: number, y: number) => [...dot.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 4)];
+    expect(dot).toHaveLength(16 * 16 * 4);
+    expect(pixel(8, 8)).toEqual([0x4d, 0x48, 0xe5, 0xff]);
+    expect(pixel(0, 0)).toEqual([0, 0, 0, 0]);
   });
 
   it("withdraws a request answered elsewhere and the conversation's notification once it is in front", async () => {

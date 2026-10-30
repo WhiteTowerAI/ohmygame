@@ -11,7 +11,11 @@ export interface AgentNotificationHost {
   /** The system permission, read before showing new notices. */
   permission(): Promise<AgentNotificationPermission>;
   show(notification: { title: string; body: string }, onClick: () => void): { close(): void } | undefined;
-  setBadgeCount(count: number): void;
+  /**
+   * How many conversations wait for the user, as the Dock badge on macOS or a
+   * taskbar overlay on Windows; `description` names it for screen readers.
+   */
+  showWaiting(count: number, description: string): void;
   /** Asks for attention once, such as one bounce of the Dock icon. */
   requestAttention(): void;
   open(target: AgentNotificationTarget): void;
@@ -166,7 +170,7 @@ export class AgentNotifications {
   #setBadge(count: number): void {
     if (count === this.#badge) return;
     this.#badge = count;
-    this.host.setBadgeCount(count);
+    this.host.showWaiting(count, this.#preferences.text.waiting);
   }
 
   #close(key: string): void {
@@ -179,6 +183,27 @@ export class AgentNotifications {
   #closeAll(): void {
     for (const key of [...this.#shown.keys()]) this.#close(key);
   }
+}
+
+/**
+ * A red dot as a premultiplied BGRA bitmap, the taskbar overlay that stands in
+ * for the Dock badge on Windows, which has no count on its taskbar buttons.
+ */
+export function waitingDotBitmap(size = 16): Buffer {
+  const pixels = Buffer.alloc(size * size * 4);
+  const center = size / 2;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      // One pixel of soft edge keeps the circle from looking jagged.
+      const coverage = Math.min(1, Math.max(0, center - Math.hypot(x + 0.5 - center, y + 0.5 - center)));
+      const offset = (y * size + x) * 4;
+      pixels[offset] = Math.round(0x4d * coverage);
+      pixels[offset + 1] = Math.round(0x48 * coverage);
+      pixels[offset + 2] = Math.round(0xe5 * coverage);
+      pixels[offset + 3] = Math.round(0xff * coverage);
+    }
+  }
+  return pixels;
 }
 
 function isWaiting(kind: AgentNoticeKind): boolean {

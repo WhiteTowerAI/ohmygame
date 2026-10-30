@@ -176,6 +176,7 @@ const en = {
     plan: "A plan is ready for your review",
     completed: "Finished",
     failed: "Stopped with an error",
+    waiting: "Waiting for you",
   },
   settings: {
     nav: {
