@@ -28,6 +28,8 @@ it("shows the turns that arrive after it opens, the latest three at most, and fo
     </FloatingChat>,
   ));
   await render(5);
+  // At rest it tells the area it floats over how much room it takes.
+  expect(container.style.getPropertyValue("--floating-chat-clearance")).toMatch(/^\d+px$/);
   // The turns from before it opened stay in the chat panel.
   expect(container.querySelector(".since")).toBeNull();
   expect(container.querySelector('[aria-label="Prompt"]')).not.toBeNull();

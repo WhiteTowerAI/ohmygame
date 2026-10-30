@@ -145,3 +145,9 @@
     animation: none;
   }
 }
+
+/* A board's bottom toolbar sits above the bar while the bar rests there. */
+.has-float .story-canvas-toolbar {
+  /* the bar rests var(--space-4) from the bottom; keep var(--space-3) above it */
+  margin-bottom: calc(var(--space-4) + var(--floating-chat-clearance, 0px) + var(--space-3));
+}

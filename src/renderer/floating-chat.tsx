@@ -33,6 +33,22 @@ export function FloatingChat({ turnCount, thread, running, attention, onExpand, 
   const shown = turnCount > since;
 
   useEffect(() => { if (attention) setFolded(false); }, [attention]);
+  // At rest at the bottom it tells the area how much room it takes there, so
+  // a board's bottom toolbar moves up above it; dragged away, it takes none.
+  const resting = offset.x === 0 && offset.y === 0;
+  useEffect(() => {
+    const element = root.current;
+    const area = element?.parentElement;
+    if (!element || !area) return;
+    const clear = () => area.style.removeProperty("--floating-chat-clearance");
+    if (!resting) return clear;
+    const measure = () => area.style.setProperty("--floating-chat-clearance", `${Math.round(element.getBoundingClientRect().height)}px`);
+    measure();
+    if (typeof ResizeObserver === "undefined") return clear;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => { observer.disconnect(); clear(); };
+  }, [resting, folded]);
   // The latest turn stays in view as it grows.
   useEffect(() => {
     const element = threadRef.current;
