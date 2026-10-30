@@ -7,7 +7,7 @@ import { LoaderCircle } from "./icons.js";
 import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
 import { saveHomePrompt } from "./prompt-history.js";
 import { defaultProjectName, PROJECT_TYPES } from "./project-types.js";
-import { isAppProjectType, MORE_TYPES, openMoreProjectTypes, projectTypeId, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
+import { isAppProjectType, MORE_TYPES, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes, useProjectPluginChoices } from "./project-type-choices.js";
 import { Button, Dialog, Field, Input, Select, Textarea } from "./ui/index.js";
 import type {
   ConversationCapabilities,
@@ -92,7 +92,7 @@ export function ProjectCreateDialog({
   const types = PROJECT_TYPES.filter(({ value }) => pluginProjectType(value, referenced) === value);
   // Plugins' own types, unless a mentioned plugin works only in some of the app's.
   const installedPluginTypes = usePluginProjectTypes();
-  const pluginTypes = referenced.every((plugin) => !plugin.projectTypes?.length) ? installedPluginTypes : [];
+  const pluginTypes = referenced.every((plugin) => !plugin.projectTypes?.length) ? installedPluginTypes ?? [] : [];
   const offered = (value: string | undefined): value is string =>
     Boolean(value) && (types.some((option) => option.value === value) || pluginTypes.some((option) => option.id === value));
   const [chosenType, setChosenType] = useState<string>();
@@ -102,6 +102,15 @@ export function ProjectCreateDialog({
     : pluginProjectType(isAppProjectType(preferred) ? preferred : initialType, referenced) ?? referenced.find((plugin) => plugin.projectTypes?.length)?.projectTypes?.[0] ?? types[0]?.value ?? initialType;
   // A plugin's type is recorded as a general project that its plugin runs.
   const kind: ProjectType = isAppProjectType(type) ? type : "general";
+  // The plugin that adds the type turns on with the project, so creating allows what it asks for.
+  const pluginChoices = useProjectPluginChoices();
+  const typePluginId = pluginTypes.find((option) => option.id === type)?.plugin?.id;
+  const typePlugin = pluginChoices?.find((plugin) => plugin.id === typePluginId);
+  const typePluginConsent = typePlugin && !typePlugin.consented && typePlugin.capabilities.length ? typePlugin : undefined;
+  // Home's plugin type and that type's plugin load apart from the plugins.
+  const ready = pluginsPhase === "ready"
+    && (isAppProjectType(preferred) || installedPluginTypes !== undefined)
+    && (isAppProjectType(type) || pluginChoices !== undefined);
   const [workspacePath, setWorkspacePath] = useState(initialWorkspacePath);
   // Settings → General → Project location, where a project without a chosen folder goes.
   const [defaultLocation, setDefaultLocation] = useState<string>();
@@ -140,7 +149,7 @@ export function ProjectCreateDialog({
   // State updates too late to stop a second click in the same tick.
   const submitting = useRef(false);
   async function submit(): Promise<void> {
-    if (submitting.current || creating || pluginsPhase !== "ready") return;
+    if (submitting.current || creating || !ready) return;
     submitting.current = true;
     try { await create(); }
     finally { submitting.current = false; }
@@ -159,6 +168,7 @@ export function ProjectCreateDialog({
         ...(isAppProjectType(type) ? { type, ...(pluginId ? { pluginId } : {}) } : { projectType: type }),
         ...(workspacePath ? { workspacePath } : {}),
       };
+      if (typePluginConsent) await consentToPlugin(typePluginConsent.id, typePluginConsent.capabilities);
       // Retrying after a failure reuses the project, unless the choices changed.
       const key = JSON.stringify(input);
       if (created.current?.key !== key) created.current = { key, project: await createProject(input) };
@@ -176,7 +186,8 @@ export function ProjectCreateDialog({
       created.current.project = project;
       // Plugins chosen on Home for this project alone; the person allowed what they ask for there.
       for (const plugin of firstMessage?.projectPlugins ?? []) {
-        if (plugin.providesTypes.includes(projectTypeId(type))) continue;
+        // A plugin's own type turns it on; the app's Godot type does not.
+        if (plugin.providesTypes.includes(type)) continue;
         if (!plugin.consented) await consentToPlugin(plugin.id, plugin.capabilities);
         await setProjectPluginVersion(project.id, plugin.id, plugin.version);
       }
@@ -219,7 +230,7 @@ export function ProjectCreateDialog({
     <Dialog open onClose={close} title={t("createDialog.newProject")} size="md"
       footer={<>
         <Button disabled={creating} onClick={close}>{t("common.cancel")}</Button>
-        <Button variant="primary" disabled={creating || pluginsPhase !== "ready"} icon={creating || pluginsPhase === "loading" ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => void submit()}>
+        <Button variant="primary" disabled={creating || !ready} icon={creating || (!ready && pluginsPhase !== "error") ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => void submit()}>
           {firstMessage ? t("createDialog.createAndStart") : t("common.create")}
         </Button>
       </>}>
@@ -248,6 +259,14 @@ export function ProjectCreateDialog({
             }}
             options={projectTypeOptions(types.map((option) => option.value), pluginTypes)} />}
         </Field>
+        {typePluginConsent ? (
+          <div className="new-project-consent">
+            <p>{t("createDialog.typePluginConsent", { name: typePluginConsent.displayName })}</p>
+            <ul className="project-plugins-capabilities">
+              {typePluginConsent.capabilities.map((capability) => <li key={capability}><code>{capability}</code></li>)}
+            </ul>
+          </div>
+        ) : null}
         {integrations.length ? (
           <Field label={t("integration.plugin")}>
             {(props) => <Select id={props.id} label={t("integration.plugin")} value={integrationId} onChange={setIntegrationId}

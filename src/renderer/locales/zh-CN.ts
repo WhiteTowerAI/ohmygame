@@ -947,6 +947,7 @@ const zhCN: typeof en = {
     type: "类型",
     firstMessage: "第一条消息",
     namedFromPrompt: "根据第一条消息命名",
+    typePluginConsent: "创建这个项目即允许添加此类型的 {{name}} 使用：",
     managedFolder: "在 OhMyGame 中新建文件夹",
     inLocation: "在 {{path}} 中新建文件夹",
     createAndStart: "创建并开始",

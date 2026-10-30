@@ -28,8 +28,8 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listModels: async () => ({ models: [] }),
   listProjectPluginChoices: async () => projectPlugins,
   listProjectTypes: async () => [
-    { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: "ohmygame/godot" },
-    { id: "acme/tiles:tile-map", title: "Tile Map", plugin: "acme/tiles" },
+    { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: { id: "ohmygame/godot", version: "1.0.0" } },
+    { id: "acme/tiles:tile-map", title: "Tile Map", plugin: { id: "acme/tiles", version: "2.1.0" } },
   ],
 }));
 const { ProjectPromptCreator } =
@@ -138,9 +138,26 @@ describe("Home prompt box", () => {
       .toEqual(["Godot", "No plugin"]);
     await act(async () => pluginButton().click());
 
-    // A type no starter names starts with no plugin.
+    // A type no starter names starts with no plugin, and sends none.
     await chooseType("Tile Map");
     expect(pluginButton().getAttribute("aria-label")).toBe("Plugins");
+    await type("Make a map");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: "Make a map", mentions: [], type: "acme/tiles:tile-map" }),
+      expect.any(Function),
+    );
+  });
+
+  it("keeps a starting plugin the person chose when Home mounts again", async () => {
+    capabilities.plugins.push(plugin("threejs-world", "Three.js World", ["web-game"]));
+    await render();
+    await act(async () => pluginButton().click());
+    await act(async () => menuItem("Three.js World")!.click());
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: starts with Three.js World");
   });
 
   it("hands the prompt with its type and starting plugin to the dialog instead of creating a project", async () => {
@@ -194,11 +211,10 @@ describe("Home prompt box", () => {
     expect(onSubmit.mock.calls[0]![0].projectPlugins.map((plugin: ProjectPluginChoice) => plugin.id)).toEqual(["acme/tiles"]);
 
     // A plugin that adds the chosen type is on in that project already.
-    await chooseType("Godot");
+    await chooseType("Tile Map");
     await act(async () => pluginButton().click());
-    expect(menuItem("Tiles")).toBeDefined();
     expect([...document.querySelectorAll('[role="menuitemcheckbox"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
-      .toEqual(["Tiles"]);
+      .toEqual(["Godot"]);
   });
 
   it("offers only No plugin when no starting plugin is enabled, and links to plugins when none can be turned on", async () => {

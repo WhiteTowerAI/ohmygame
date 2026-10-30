@@ -7,6 +7,7 @@ import type {
   ConversationCapabilities,
   ProjectState,
 } from "../src/shared/contracts.js";
+import type { ProjectPluginChoice } from "../src/shared/plugins.js";
 
 const created: ProjectState = {
   id: "maze",
@@ -26,12 +27,16 @@ const listProjectTypes = vi.fn(async () => [
   { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: { id: "ohmygame/godot", version: "1.0.0" } },
   { id: "acme/tiles:map", title: "Tile Map", description: "A Tiled map game", plugin: { id: "acme/tiles", version: "2.1.0" } },
 ]);
+let pluginChoices: ProjectPluginChoice[] = [];
+const listProjectPluginChoices = vi.fn(async () => pluginChoices);
 const consentToPlugin = vi.fn(async () => {});
 const setProjectPluginVersion = vi.fn(async () => {});
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   getHomeComposerCapabilities,
   listProjectTypes,
+  listProjectPluginChoices,
+  waitForRuntime: async () => undefined,
   consentToPlugin,
   setProjectPluginVersion,
   createProject,
@@ -58,6 +63,7 @@ let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   capabilities = { plugins: [], skills: [] };
+  pluginChoices = [];
   createProject.mockClear();
   createConversation.mockClear();
   consentToPlugin.mockClear();
@@ -185,6 +191,37 @@ describe("new project dialog", () => {
     expect(consentToPlugin).toHaveBeenCalledWith("acme/tools", ["network:tools.example.com"]);
     expect(setProjectPluginVersion.mock.calls).toEqual([["maze", "acme/tools", "1.2.0"]]);
     expect(onCreated).toHaveBeenCalled();
+  });
+
+  it("allows what a type's plugin asks for when creating the type, once its types have loaded", async () => {
+    let types!: (value: Awaited<ReturnType<typeof listProjectTypes>>) => void;
+    listProjectTypes.mockImplementationOnce(() => new Promise((resolve) => { types = resolve; }));
+    pluginChoices = [{ id: "acme/tiles", displayName: "Tiles", description: "", version: "2.1.0", capabilities: ["processes:tiled"], consented: false, providesTypes: ["acme/tiles:map"] }];
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    // Home's plugin type is not in the menu yet, so creating would make another type.
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => types([{ id: "acme/tiles:map", title: "Tile Map", plugin: { id: "acme/tiles", version: "2.1.0" } }]));
+    expect(typeSelect().textContent).toBe("Tile Map");
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:tiled");
+    await act(async () => button("Create and start").click());
+    expect(consentToPlugin).toHaveBeenCalledWith("acme/tiles", ["processes:tiled"]);
+    expect(consentToPlugin.mock.invocationCallOrder[0]!).toBeLessThan(createProject.mock.invocationCallOrder[0]!);
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+  });
+
+  it("turns on the Godot plugin chosen on Home in the app's Godot type, which does not turn it on", async () => {
+    capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] };
+    const godotV2 = { id: "ohmygame/godot", displayName: "Godot", description: "", version: "1.0.0", capabilities: [], consented: true, providesTypes: ["ohmygame/godot:godot-game"] };
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a maze", mentions: [], attachments: [], mode: "normal", type: "godot-game", projectPlugins: [godotV2] }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalledWith({ type: "godot-game" });
+    expect(setProjectPluginVersion).toHaveBeenCalledWith("maze", "ohmygame/godot", "1.0.0");
   });
 
   it("leaves for the plugins that add project types from More types…", async () => {

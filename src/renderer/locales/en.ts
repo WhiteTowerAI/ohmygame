@@ -963,6 +963,7 @@ const en = {
     type: "Type",
     firstMessage: "First message",
     namedFromPrompt: "Named from the first message",
+    typePluginConsent: "Creating this project allows {{name}}, which adds this type, to use:",
     managedFolder: "New folder in OhMyGame",
     inLocation: "New folder in {{path}}",
     createAndStart: "Create and start",
