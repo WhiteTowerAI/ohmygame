@@ -65,6 +65,16 @@ describe("daemon", () => {
       expect(response.statusCode).toBe(202);
       await vi.waitFor(() => expect(prompt).toHaveBeenCalled());
       expect(await activity()).toEqual([{ projectId: project.id, status: "running" }]);
+      // A running conversation stays in the list; an idle one leaves it.
+      const conversations = `/projects/${project.id}/conversations`;
+      expect((await app.inject({ method: "POST", url: `${conversations}/${conversation.id}/archive` })).statusCode).toBe(409);
+      const idle = (await app.inject({ method: "POST", url: conversations })).json();
+      expect((await app.inject({ method: "POST", url: `${conversations}/${idle.id}/archive` })).statusCode).toBe(204);
+      expect((await app.inject({ method: "GET", url: conversations })).json()).toEqual([expect.objectContaining({ id: conversation.id })]);
+      expect((await app.inject({ method: "GET", url: `${conversations}/archived` })).json()).toEqual([]);
+      expect((await app.inject({ method: "POST", url: `${conversations}/missing/archive` })).statusCode).toBe(404);
+      expect((await app.inject({ method: "POST", url: `${conversations}/missing/unarchive` })).statusCode).toBe(404);
+      expect((await app.inject({ method: "DELETE", url: `${conversations}/archived/missing` })).statusCode).toBe(404);
       expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([expect.objectContaining({ id: project.id })]);
       await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns/${response.json().turnId}/cancel` });
       expect(await activity()).toEqual([{ projectId: project.id, status: "cancelling" }]);

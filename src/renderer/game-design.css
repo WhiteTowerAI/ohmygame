@@ -53,7 +53,6 @@
 .design-mode-control button[aria-pressed="true"], .design-document-node button[aria-pressed="true"] { color: var(--color-text); background: var(--color-hover); }
 .design-image-placeholder { color: var(--color-text-secondary); font-size: var(--text-xs); }
 .design-expanded-document { position: absolute; inset: 0; display: flex; flex-direction: column; z-index: 12; background: var(--color-surface); }
-.design-workspace[data-active-tab] > .design-expanded-document { top: 50px; }
 .design-expanded-toolbar { display: flex; gap: 6px; height: 40px; flex-shrink: 0; align-items: center; padding: 0 42px 0 12px; border-bottom: 1px solid var(--color-border); color: var(--color-text-secondary); }
 .design-expanded-toolbar input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--color-text); font-size: var(--text-sm); }
 .design-expanded-close { position: absolute; top: 8px; right: 10px; }

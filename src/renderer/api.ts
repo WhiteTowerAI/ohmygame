@@ -1128,6 +1128,22 @@ export async function renameConversation(
   });
 }
 
+export async function archiveConversation(projectId: string, conversationId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/archive`, { method: "POST" });
+}
+
+export async function listArchivedConversations(projectId: string): Promise<ConversationSummary[]> {
+  return request(`/projects/${projectId}/conversations/archived`);
+}
+
+export async function unarchiveConversation(projectId: string, conversationId: string): Promise<ConversationSummary> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/unarchive`, { method: "POST" });
+}
+
+export async function deleteArchivedConversation(projectId: string, conversationId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/archived/${conversationId}`, { method: "DELETE" });
+}
+
 export async function setConversationModel(
   projectId: string,
   conversationId: string,
@@ -1194,8 +1210,9 @@ export async function compactConversation(projectId: string, conversationId: str
   });
 }
 
-export async function getConversationContextUsage(projectId: string, conversationId: string): Promise<AgentContextUsage | undefined> {
-  const result = await request<{ contextUsage?: AgentContextUsage }>(`/projects/${projectId}/conversations/${conversationId}/context-usage`);
+/** `passive` reads what is known without loading the conversation's agent session. */
+export async function getConversationContextUsage(projectId: string, conversationId: string, passive = false): Promise<AgentContextUsage | undefined> {
+  const result = await request<{ contextUsage?: AgentContextUsage }>(`/projects/${projectId}/conversations/${conversationId}/context-usage${passive ? "?passive=1" : ""}`);
   return result.contextUsage;
 }
 

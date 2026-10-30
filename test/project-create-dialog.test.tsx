@@ -66,7 +66,8 @@ const typeSelect = () =>
   )!;
 async function typeOptions(): Promise<string[]> {
   await act(async () => typeSelect().click());
-  const options = [...document.querySelectorAll('[role="option"]')].map(
+  // Each option's name, without the line on what the type is for.
+  const options = [...document.querySelectorAll('[role="option"] .ui-option-text > span')].map(
     (option) => option.textContent ?? "",
   );
   await act(async () => typeSelect().click());

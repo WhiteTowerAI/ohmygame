@@ -76,19 +76,23 @@ function useAnchoredPosition(
     update();
     addEventListener("resize", update);
     addEventListener("scroll", update, true);
+    // A panel whose content changes size, as a list switching views, is placed again.
+    const resized = new ResizeObserver(update);
+    if (floating.current) resized.observe(floating.current);
     return () => {
       removeEventListener("resize", update);
       removeEventListener("scroll", update, true);
+      resized.disconnect();
     };
   }, [open, update]);
   return style;
 }
 
-/** Closes on Escape and on a pointer press outside both refs. */
+/** Closes on a press outside `refs` or on Escape; `refs[0]` is the anchor, which gets focus back from inside. */
 function useDismiss(
   open: boolean,
   onClose: () => void,
-  refs: RefObject<Element | null>[],
+  refs: RefObject<HTMLElement | null>[],
 ) {
   useEffect(() => {
     if (!open) return;
@@ -100,7 +104,9 @@ function useDismiss(
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.stopPropagation();
+        const focused = refs.some((ref) => ref.current?.contains(document.activeElement));
         onClose();
+        if (focused) refs[0]?.current?.focus();
       }
     };
     document.addEventListener("pointerdown", onPointer, true);

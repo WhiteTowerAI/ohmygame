@@ -130,6 +130,18 @@ describe("composer publish command", () => {
   });
 });
 
+describe("composer status line", () => {
+  it("shows the latest response's speed and cache hits and how full the context is, without loading a session", async () => {
+    const onContextUsage = vi.fn(async () => ({ tokens: 11220, contextWindow: 128000, percent: 8.77, lastResponse: { outputTokens: 420, tokensPerSecond: 81, cacheHitPercent: 86 } }));
+    await render({ initialDraft: undefined, onContextUsage });
+    expect(onContextUsage).toHaveBeenCalledWith(true);
+    const status = container.querySelector(".composer-status")!;
+    expect(status.textContent).toBe("81 tok/sCache hit 86%9%");
+    await act(async () => status.querySelector<HTMLButtonElement>(".composer-status-context")!.click());
+    expect(document.querySelector(".composer-status-popover")?.textContent).toContain("~11.2K / 128K");
+  });
+});
+
 describe("composer usage limit resume", () => {
   const now = Date.UTC(2026, 9, 26, 12, 0, 0);
   const usage = (resetsAt: number) => vi.fn(async () => ({

@@ -519,10 +519,10 @@ describe("pane and preview boundaries", () => {
     expect(container.querySelector("iframe")).toBe(frame);
     expect(new URL(frame.src).pathname).toBe("/");
     expect(container.querySelector(".preview-location-path")?.textContent).toBe("/scene-2?level=2#boss");
-    // Like a browser's address: the preview's state, the page, then reload.
-    const location = container.querySelector(".preview-location")!;
-    expect(location.querySelector(".preview-location-status.is-ready")?.getAttribute("aria-label")).toBe("Preview running");
-    expect([...location.children].map((child) => child.className)).toEqual(["preview-location-status is-ready", "preview-location-trigger", "preview-location-refresh"]);
+    // The page picker leads the toolbar; reload sits with the actions on the right.
+    const controls = [...container.querySelector(".preview-controls")!.children];
+    expect(controls[0]!.className).toBe("preview-location");
+    expect(controls.findIndex((child) => child.getAttribute("aria-label") === "Reload preview")).toBe(controls.length - 2);
     await act(async () => (container.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Project settings"))!.click());
     const browser = [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Open preview in browser")!;

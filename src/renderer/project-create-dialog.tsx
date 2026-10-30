@@ -6,7 +6,7 @@ import { activePluginMentions } from "./composer-mentions.js";
 import { LoaderCircle } from "./icons.js";
 import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
 import { saveHomePrompt } from "./prompt-history.js";
-import { defaultProjectName, PROJECT_TYPES, ProjectTypeIcon } from "./project-types.js";
+import { defaultProjectName, PROJECT_TYPES, projectTypeDescription, ProjectTypeMark } from "./project-types.js";
 import { Button, Dialog, Field, Input, Select, Textarea } from "./ui/index.js";
 import type {
   ConversationCapabilities,
@@ -219,7 +219,7 @@ export function ProjectCreateDialog({
         <Field label={t("createDialog.type")}>
           {(props) => <Select<ProjectType> id={props.id} label={t("createDialog.type")} value={type}
             onChange={(value) => { setChosenType(value); setIntegrationId(""); }}
-            options={types.map((option) => ({ value: option.value, label: option.label, icon: <ProjectTypeIcon type={option.value} size={16} /> }))} />}
+            options={types.map((option) => ({ value: option.value, label: option.label, description: projectTypeDescription(option.value), icon: <ProjectTypeMark type={option.value} /> }))} />}
         </Field>
         {integrations.length ? (
           <Field label={t("integration.plugin")}>

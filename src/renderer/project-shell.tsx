@@ -72,6 +72,10 @@ import {
   publishProject,
   removePendingPrompt,
   renameConversation,
+  archiveConversation,
+  listArchivedConversations,
+  unarchiveConversation,
+  deleteArchivedConversation,
   reapplyCheckpoint,
   restoreUnfinished,
   reviseLastPrompt,
@@ -94,7 +98,7 @@ import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { ProjectAppearanceDialog } from "./project-appearance-settings.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
-import { CodingWorkspace } from "./coding-workspace.js";
+import { CodingWorkspace, WorkspaceCodeView } from "./coding-workspace.js";
 import { PlayableEditorWorkspace, type StoryView } from "./playable-editor-workspace.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
@@ -178,9 +182,14 @@ export function ProjectShell({
   const auth = useAuth();
   const runtime = useRuntimeConnection();
   const openedGeneration = useRef(runtime.generation);
+  // The conversation the route opens now, for answers that arrive after the person moved on.
+  const routeConversation = useRef(conversationId);
+  routeConversation.current = conversationId;
   const previewPaused = runtime.generation !== openedGeneration.current || runtime.status !== "ready";
   const [state, dispatch] = useReducer(rendererReducer, initialRendererState);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const latestConversations = useRef(conversations);
+  latestConversations.current = conversations;
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
   const [initialPromptDeferred, setInitialPromptDeferred] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
@@ -275,8 +284,21 @@ export function ProjectShell({
   // route's design view is the canvas, which it brings forward, and the route
   // follows it.
   const story = offered.includes("story");
-  const coding = offered.includes("code") && !story;
-  const panelled = offered.includes("code");
+  // An asset canvas is the canvas, with its files in a Code panel beside it.
+  const canvasOnly = state.project?.type === "asset-canvas";
+  // The canvas saves its edits after a pause, so showing an asset canvas's
+  // Code saves them first and then reads the files again.
+  const canvasCode = canvasOnly && visible.includes("code");
+  const [canvasCodeRevision, setCanvasCodeRevision] = useState(0);
+  useEffect(() => {
+    if (!canvasCode) return;
+    let disposed = false;
+    void (saveDesign.current?.() ?? Promise.resolve()).catch(() => {})
+      .then(() => { if (!disposed) setCanvasCodeRevision((value) => value + 1); });
+    return () => { disposed = true; };
+  }, [canvasCode]);
+  const coding = offered.includes("code") && !story && !canvasOnly;
+  const panelled = offered.includes("code") && !canvasOnly;
   const designShown = visible.includes("canvas");
   useEffect(() => { if (view === "design" && panelled) revealPanel("canvas"); }, [view, panelled]);
   useEffect(() => {
@@ -517,10 +539,6 @@ export function ProjectShell({
     if (pending) void publish(pending).catch(() => undefined);
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
 
-  if (state.phase === "fatal") {
-    return <FatalState message={state.notice ?? t("projectShell.runtimeUnreachable")} onHome={onHome} homeLabel={homeLabel} />;
-  }
-
   const project = state.project;
   const conversation = state.conversation;
   const publishDialogStatus = publishDialog?.projectId === project?.id ? publishDialog?.status : undefined;
@@ -609,9 +627,9 @@ export function ProjectShell({
     }
   }
 
-  async function currentContextUsage(): Promise<AgentContextUsage | undefined> {
+  async function currentContextUsage(passive = false): Promise<AgentContextUsage | undefined> {
     if (!project || !conversation) return undefined;
-    return getConversationContextUsage(project.id, conversation.id);
+    return getConversationContextUsage(project.id, conversation.id, passive);
   }
 
   async function executePlan(): Promise<boolean> {
@@ -879,6 +897,24 @@ export function ProjectShell({
     setConversations((items) => items.map((item) => item.id === renamed.id ? renamed : item));
   }
 
+  // An archived conversation leaves the list; the one open moves to the next.
+  async function archive(conversationId: string): Promise<void> {
+    if (!project) return;
+    await archiveConversation(project.id, conversationId);
+    setConversations((items) => items.filter((item) => item.id !== conversationId));
+    // Another conversation opened while this one was archived stays open.
+    if (conversationId !== routeConversation.current) return;
+    const next = latestConversations.current.find((item) => item.id !== conversationId);
+    if (next) onOpenConversation(next.id, true);
+    else await newConversation();
+  }
+
+  async function unarchive(conversationId: string): Promise<void> {
+    if (!project) return;
+    const restored = await unarchiveConversation(project.id, conversationId);
+    setConversations((items) => [restored, ...items.filter((item) => item.id !== restored.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+  }
+
   // Leaving the project saves the open design first.
   function leave(go: () => void): void {
     const save = saveDesign.current;
@@ -942,12 +978,11 @@ export function ProjectShell({
   const publishButton = project ? publishAction(project, { publishing, agentBusy }) : undefined;
 
   // The code panel opens the file, and comes back if it was closed. A game's
-  // workspace brings it forward itself; the canvas shows its code view first.
+  // workspace brings it forward itself.
   const openWorkspaceFile = useCallback((path: string): void => {
-    if (story) revealPanel("code");
-    else if (!panelled && offered.includes("canvas")) revealPanel("canvas");
+    if (story || canvasOnly) revealPanel("code");
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
-  }, [story, panelled, offered.includes("canvas")]);
+  }, [story, canvasOnly]);
   const addToChat = useCallback((text: string) => {
     if (!conversation) return;
     composerDrafts.get({ projectId, conversationId: conversation.id }).update({ reference: { text } });
@@ -1104,6 +1139,11 @@ export function ProjectShell({
   const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "canvas" || id === "code" || id === "assets" ? [id] : []));
   const storyVisible = new Set(visible.filter((id): id is StoryView => id === "story" || id === "design" || id === "canvas" || id === "code" || id === "assets"));
 
+  // After every hook, so a project that fails to load renders the same hooks.
+  if (state.phase === "fatal") {
+    return <FatalState message={state.notice ?? t("projectShell.runtimeUnreachable")} onHome={onHome} homeLabel={homeLabel} />;
+  }
+
   return (
     <>
     {integrationGate.dialog}
@@ -1168,6 +1208,12 @@ export function ProjectShell({
               disabled={!conversation}
               onRename={rename}
               onSelect={onOpenConversation}
+              onArchive={archive}
+              archive={project ? {
+                list: () => listArchivedConversations(project.id),
+                restore: unarchive,
+                remove: (conversationId) => deleteArchivedConversation(project.id, conversationId),
+              } : undefined}
             />
             <span className="chat-header-spacer" />
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
@@ -1277,12 +1323,13 @@ export function ProjectShell({
       /> : createPortal(<Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
-        workspaceRevision={workspaceRevision}
-        openFileRequest={openFileRequest}
         onSaveReady={registerDesignSave}
         onContextChange={setDesignContext}
         headerActionsTarget={nodes.canvas.toolbar}
       /></Suspense>, nodes.canvas.body)}
+      {project && canvasOnly && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={t("workspace.tab.code")}>
+        <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />
+      </main>, nodes.code.body) : null}
       </ErrorBoundary>
     </ProjectFrame>
     </>
