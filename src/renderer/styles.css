@@ -6849,11 +6849,6 @@ button {
   min-width: 0;
 }
 
-.chat-header-actions .conversation-popover {
-  right: auto;
-  left: 0;
-}
-
 .viewer-title {
   overflow: hidden;
   color: var(--text);
@@ -7106,7 +7101,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  max-width: 180px;
+  max-width: 100%;
   height: 24px;
   padding: 0 6px;
   border: 0;
@@ -7135,10 +7130,6 @@ button {
 }
 
 .conversation-popover {
-  position: absolute;
-  z-index: 10;
-  top: 34px;
-  right: 0;
   width: 260px;
   overflow: hidden;
   padding: var(--space-1);
@@ -7244,22 +7235,114 @@ button {
   color: var(--text);
 }
 
-.conversation-rename-button {
+/* A row's actions cover its time and check mark while it is hovered. */
+.conversation-row-actions {
   position: absolute;
   top: 2px;
   right: 4px;
+  display: flex;
+  gap: 2px;
+  padding-left: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-hover);
   opacity: 0;
 }
 
-.conversation-row:hover .conversation-rename-button,
-.conversation-rename-button:focus-visible {
+.conversation-row:hover .conversation-row-actions,
+.conversation-row-actions:focus-within,
+.conversation-row-actions.is-visible {
   opacity: 1;
 }
 
+.conversation-row-actions.is-visible {
+  background: none;
+}
+
 .conversation-row:hover .conversation-option-mark,
-.conversation-row:has(.conversation-rename-button:focus-visible)
-  .conversation-option-mark {
+.conversation-row:hover .conversation-option-meta,
+.conversation-row:focus-within .conversation-option-mark,
+.conversation-row:focus-within .conversation-option-meta {
   opacity: 0;
+}
+
+.conversation-row.is-archived .conversation-option {
+  padding-left: var(--space-2);
+  padding-right: 64px;
+  cursor: default;
+}
+
+.conversation-row.is-archived .conversation-option-meta {
+  opacity: 1;
+}
+
+.conversation-rename-button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.conversation-rename-button.is-danger:hover:not(:disabled),
+.conversation-rename-button.is-confirming {
+  color: var(--color-danger);
+}
+
+.conversation-rename-button.is-confirming {
+  width: auto;
+  padding: 0 var(--space-2);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.conversation-archive-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-1) var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.conversation-archive-back,
+.conversation-archive-link {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.conversation-archive-back {
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.conversation-archive-link {
+  gap: var(--space-2);
+  width: 100%;
+  height: 30px;
+  margin-top: var(--space-1);
+  padding: 0 var(--space-2);
+  box-shadow: inset 0 1px 0 var(--color-border);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.conversation-archive-back:hover,
+.conversation-archive-link:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.conversation-archive-hint {
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  line-height: 1.4;
 }
 
 .conversation-rename {
@@ -11780,12 +11863,6 @@ summary.work-summary:hover {
 
   .workspace-resizer {
     display: none;
-  }
-
-  .conversation-popover {
-    position: fixed;
-    top: 50px;
-    right: 16px;
   }
 
   .agent-pane {

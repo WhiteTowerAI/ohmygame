@@ -635,6 +635,16 @@ export class AgentManager {
     persist();
   }
 
+  /** Lets go of an idle conversation's session, as when it is archived. */
+  async release(projectId: string, conversationId: string): Promise<void> {
+    const key = conversationKey(projectId, conversationId);
+    if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
+    if (this.#activeTurns.has(key) || this.#revisions.has(key) || this.#sessionLoads.has(key) || this.pendingPrompts(projectId, conversationId).length) {
+      throw new Error("Wait for the agent to finish before archiving this conversation");
+    }
+    this.#forgetConversation(key);
+  }
+
   async setReasoningLevel(
     projectId: string,
     conversationId: string,

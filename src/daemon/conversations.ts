@@ -1,6 +1,6 @@
 import { isAccountRuntimeId, type AccountRuntimeId, type AccountProfileIds } from "../shared/agent-runtimes.js";
 import path from "node:path";
-import { readdir } from "node:fs/promises";
+import { mkdir, readdir, rename, rm } from "node:fs/promises";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AgentModelRef, AgentReasoningLevel, ConversationSummary, PlanSessionState, ProjectState } from "../shared/contracts.js";
 import { parseReasoningLevel } from "../shared/reasoning.js";
@@ -91,6 +91,41 @@ export class ConversationManager {
       return { summary: summary(project.id, session), sessionPath: session.path };
     }
     return this.#pending.get(key(project.id, conversationId))?.stored;
+  }
+
+  /**
+   * Archiving moves a conversation's session file aside, out of the list; it
+   * can come back, or be deleted from the archive for good.
+   */
+  async archive(project: ProjectState, conversationId: string): Promise<boolean> {
+    const stored = await this.get(project, conversationId);
+    if (!stored) return false;
+    // A conversation without messages has no file yet; archiving drops it.
+    if (this.#pending.delete(key(project.id, conversationId))) return true;
+    await mkdir(archiveDirectory(project), { recursive: true });
+    await rename(stored.sessionPath, path.join(archiveDirectory(project), path.basename(stored.sessionPath)));
+    return true;
+  }
+
+  async archived(project: ProjectState): Promise<ConversationSummary[]> {
+    return (await this.#sessions(project, archiveDirectory(project)))
+      .map((session) => summary(project.id, session))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async unarchive(project: ProjectState, conversationId: string): Promise<ConversationSummary | undefined> {
+    const session = (await this.#sessions(project, archiveDirectory(project))).find((candidate) => candidate.id === conversationId);
+    if (!session) return undefined;
+    await rename(session.path, path.join(sessionDirectory(project), path.basename(session.path)));
+    return (await this.get(project, conversationId))?.summary;
+  }
+
+  /** Deletes an archived conversation; one still in the list must be archived first. */
+  async deleteArchived(project: ProjectState, conversationId: string): Promise<boolean> {
+    const session = (await this.#sessions(project, archiveDirectory(project))).find((candidate) => candidate.id === conversationId);
+    if (!session) return false;
+    await rm(session.path, { force: true });
+    return true;
   }
 
   async rename(project: ProjectState, conversationId: string, title: string): Promise<ConversationSummary | undefined> {
@@ -211,8 +246,7 @@ export class ConversationManager {
     return { mode: state.mode, ...(state.plan ? { plan: state.plan } : {}) };
   }
 
-  async #sessions(project: ProjectState): Promise<ConversationInfo[]> {
-    const directory = sessionDirectory(project);
+  async #sessions(project: ProjectState, directory = sessionDirectory(project)): Promise<ConversationInfo[]> {
     const files = await readdir(directory).catch((cause: NodeJS.ErrnoException) => {
       if (cause.code === "ENOENT") return [];
       throw cause;
@@ -246,6 +280,11 @@ function summary(projectId: string, session: ConversationInfo): ConversationSumm
     updatedAt: session.modified.toISOString(),
     messageCount: session.messageCount,
   };
+}
+
+/** Where archived conversations' session files wait, inside the session folder. */
+function archiveDirectory(project: ProjectState): string {
+  return path.join(sessionDirectory(project), "archived");
 }
 
 /** The folder that holds the session files of a project's conversations. */

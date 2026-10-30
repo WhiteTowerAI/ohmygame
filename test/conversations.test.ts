@@ -162,6 +162,31 @@ describe("ConversationManager", () => {
     await expect(conversations.branch(project, created, failed)).rejects.toThrow("completed agent response");
   });
 
+  it("archives a conversation out of the list, restores it and deletes it from the archive", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const session = SessionManager.create(project.workspacePath, sessionDirectory(project));
+    appendCompletedTurn(session, "Make a platformer", "Sure");
+    const id = session.getSessionId();
+    const empty = await conversations.create(project);
+
+    expect(await conversations.archive(project, id)).toBe(true);
+    // An empty conversation has no file to keep; archiving drops it.
+    expect(await conversations.archive(project, empty.summary.id)).toBe(true);
+    expect(await conversations.list(project)).toEqual([]);
+    expect((await conversations.archived(project)).map((item) => item.id)).toEqual([id]);
+    expect(await conversations.get(project, id)).toBeUndefined();
+
+    expect((await conversations.unarchive(project, id))?.title).toBe("Make a platformer");
+    expect((await conversations.list(project)).map((item) => item.id)).toEqual([id]);
+    // Only an archived conversation can be deleted.
+    expect(await conversations.deleteArchived(project, id)).toBe(false);
+    await conversations.archive(project, id);
+    expect(await conversations.deleteArchived(project, id)).toBe(true);
+    expect(await conversations.archived(project)).toEqual([]);
+    expect(await conversations.unarchive(project, id)).toBeUndefined();
+  });
+
   it("returns undefined for an unknown session", async () => {
     const project = await createProject();
     await expect(new ConversationManager().get(project, "missing")).resolves.toBeUndefined();

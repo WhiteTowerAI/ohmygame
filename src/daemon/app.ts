@@ -2972,6 +2972,45 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/conversations/archived", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return conversations.archived(project);
+  });
+
+  app.post<{ Params: { projectId: string; conversationId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/archive",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const { conversationId } = request.params;
+      if (!await conversations.get(project, conversationId)) return reply.code(404).send({ error: "Conversation not found" });
+      try { await agents.release(project.id, conversationId); }
+      catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+      await conversations.archive(project, conversationId);
+      return reply.code(204).send();
+    },
+  );
+
+  app.post<{ Params: { projectId: string; conversationId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/unarchive",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      return await conversations.unarchive(project, request.params.conversationId) ?? reply.code(404).send({ error: "Conversation not found" });
+    },
+  );
+
+  app.delete<{ Params: { projectId: string; conversationId: string } }>(
+    "/projects/:projectId/conversations/archived/:conversationId",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      if (!await conversations.deleteArchived(project, request.params.conversationId)) return reply.code(404).send({ error: "Conversation not found" });
+      return reply.code(204).send();
+    },
+  );
+
   app.put<{ Params: { projectId: string; conversationId: string }; Body: SetConversationModelRequest }>(
     "/projects/:projectId/conversations/:conversationId/model",
     { schema: setConversationModelSchema },

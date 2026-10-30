@@ -72,6 +72,10 @@ import {
   publishProject,
   removePendingPrompt,
   renameConversation,
+  archiveConversation,
+  listArchivedConversations,
+  unarchiveConversation,
+  deleteArchivedConversation,
   reapplyCheckpoint,
   restoreUnfinished,
   reviseLastPrompt,
@@ -877,6 +881,23 @@ export function ProjectShell({
     setConversations((items) => items.map((item) => item.id === renamed.id ? renamed : item));
   }
 
+  // An archived conversation leaves the list; the one open moves to the next.
+  async function archive(conversationId: string): Promise<void> {
+    if (!project) return;
+    await archiveConversation(project.id, conversationId);
+    const rest = conversations.filter((item) => item.id !== conversationId);
+    setConversations(rest);
+    if (conversationId !== conversation?.id) return;
+    if (rest[0]) onOpenConversation(rest[0].id, true);
+    else await newConversation();
+  }
+
+  async function unarchive(conversationId: string): Promise<void> {
+    if (!project) return;
+    const restored = await unarchiveConversation(project.id, conversationId);
+    setConversations((items) => [restored, ...items.filter((item) => item.id !== restored.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+  }
+
   // Leaving the project saves the open design first.
   function leave(go: () => void): void {
     const save = saveDesign.current;
@@ -1166,6 +1187,12 @@ export function ProjectShell({
               disabled={!conversation}
               onRename={rename}
               onSelect={onOpenConversation}
+              onArchive={archive}
+              archive={project ? {
+                list: () => listArchivedConversations(project.id),
+                restore: unarchive,
+                remove: (conversationId) => deleteArchivedConversation(project.id, conversationId),
+              } : undefined}
             />
             <span className="chat-header-spacer" />
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">

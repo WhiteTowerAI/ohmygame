@@ -1128,6 +1128,22 @@ export async function renameConversation(
   });
 }
 
+export async function archiveConversation(projectId: string, conversationId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/archive`, { method: "POST" });
+}
+
+export async function listArchivedConversations(projectId: string): Promise<ConversationSummary[]> {
+  return request(`/projects/${projectId}/conversations/archived`);
+}
+
+export async function unarchiveConversation(projectId: string, conversationId: string): Promise<ConversationSummary> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/unarchive`, { method: "POST" });
+}
+
+export async function deleteArchivedConversation(projectId: string, conversationId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/archived/${conversationId}`, { method: "DELETE" });
+}
+
 export async function setConversationModel(
   projectId: string,
   conversationId: string,
