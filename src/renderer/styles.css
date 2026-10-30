@@ -1,44 +1,46 @@
 :root {
-  color: #f1f3f5;
+  color: var(--color-text);
   background: var(--canvas);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --canvas: #171717;
-  --surface: #1b1b1b;
-  --surface-raised: #282828;
-  --surface-hover: #303030;
-  --border: #303030;
-  --border-strong: #3a3a3a;
+  /* The old names, kept for the styles not yet on the tokens; they follow the
+     appearance and palette through ui/tokens.css. */
+  --canvas: var(--color-stage);
+  --surface: var(--color-surface);
+  --surface-raised: var(--color-surface-raised);
+  --surface-hover: var(--color-hover);
+  --border: var(--color-border);
+  --border-strong: var(--color-border-strong);
   --scrollbar-thumb: rgb(255 255 255 / 8%);
   --scrollbar-thumb-hover: rgb(255 255 255 / 14%);
   --search-border: rgb(255 255 255 / 8%);
-  --text: #f1f3f5;
-  --text-secondary: #969aa3;
-  --text-muted: #8c919c;
-  --text-faint: #676c76;
-  --accent: #ededeb;
-  --accent-ink: #1b1b1b;
-  --success: #69b88d;
+  --text: var(--color-text);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-secondary);
+  --text-faint: var(--color-text-tertiary);
+  --accent: var(--color-ink);
+  --accent-ink: var(--color-on-ink);
+  --success: var(--color-success);
   --diff-added: #65c690;
   --diff-removed: #ef817d;
-  --danger: #f17a73;
-  --warning: #d9af63;
+  --danger: var(--color-danger);
+  --warning: var(--color-warning);
   --radius: 6px;
   --radius-panel: 8px;
-  --theme-accent: #ededeb;
+  --theme-accent: var(--color-ink);
   --theme-accent-hover: #ffffff;
   --composer-accent: var(--theme-accent);
   --composer-accent-hover: var(--theme-accent-hover);
-  --composer-border: #343434;
-  --composer-surface: #282828;
+  --composer-border: var(--color-border);
+  --composer-surface: var(--color-surface-raised);
   --menu-border: var(--composer-border);
   --menu-hover: rgb(255 255 255 / 5%);
   --menu-shadow: 0 2px 5px rgb(0 0 0 / 5%);
   --menu-surface: var(--surface-raised);
   --settings-row-surface: rgb(255 255 255 / 2%);
   --settings-row-surface-emphasis: rgb(255 255 255 / 4%);
-  --settings-switch-accent: #2563eb;
+  --settings-switch-accent: var(--color-accent);
   --control-surface: color-mix(in srgb, var(--text) 4%, var(--surface));
   --control-selected: color-mix(in srgb, var(--text) 8%, var(--surface));
   --content-column-width: 820px;
@@ -51,34 +53,14 @@
 }
 
 :root[data-appearance="light"] {
-  color: #202020;
   color-scheme: light;
-  --canvas: #f7f7f7;
-  --surface: #ffffff;
-  --surface-raised: #ffffff;
-  --surface-hover: #f4f4f4;
-  --border: #e1e1e1;
-  --border-strong: #c9c9c9;
   --scrollbar-thumb: rgb(0 0 0 / 10%);
   --scrollbar-thumb-hover: rgb(0 0 0 / 16%);
   --search-border: rgb(0 0 0 / 7%);
-  --text: #202020;
-  --text-secondary: #626262;
-  --text-muted: #767676;
-  --text-faint: #969696;
-  --accent: #252525;
-  --accent-ink: #ffffff;
-  --success: #2f7d57;
   --diff-added: #20834b;
   --diff-removed: #cb4444;
-  --danger: #c9413d;
-  --warning: #9b6a20;
-  --theme-accent: #252525;
   --theme-accent-hover: #111111;
-  --composer-border: #dadada;
-  --composer-surface: #ffffff;
   --menu-hover: rgb(0 0 0 / 6%);
-  --menu-surface: #ffffff;
   --settings-row-surface: rgb(0 0 0 / 3%);
   --settings-row-surface-emphasis: rgb(0 0 0 / 5%);
 }
@@ -9724,10 +9706,10 @@ summary.work-summary:hover {
   align-items: center;
   gap: 5px;
   padding: 3px 4px 3px 8px;
-  border: 0.5px solid var(--border);
+  border: 0.5px solid var(--color-border);
   border-radius: 999px;
-  background: var(--control-surface);
-  color: var(--text-muted);
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
   font-size: 11px;
 }
 
@@ -9740,7 +9722,7 @@ summary.work-summary:hover {
 }
 
 .composer-context small {
-  color: var(--text-faint);
+  color: var(--color-text-tertiary);
   font-size: 10px;
 }
 
@@ -9753,13 +9735,13 @@ summary.work-summary:hover {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--text-faint);
+  color: var(--color-text-tertiary);
   cursor: pointer;
 }
 
 .composer-context button:hover {
   background: var(--control-hover, rgba(255, 255, 255, 0.08));
-  color: var(--text);
+  color: var(--color-text);
 }
 
 .composer-reference {
@@ -9816,7 +9798,7 @@ summary.work-summary:hover {
   padding: 5px;
   border: 0;
   border-radius: 8px;
-  background: var(--menu-surface);
+  background: var(--color-surface-raised);
 }
 
 .composer-command-menu.is-below {
@@ -9839,7 +9821,7 @@ summary.work-summary:hover {
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -9848,13 +9830,13 @@ summary.work-summary:hover {
 
 .composer-command-menu button.is-selected,
 .composer-command-menu button:hover {
-  background: var(--menu-hover);
-  color: var(--text);
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 
 .composer-command-menu small {
   overflow: hidden;
-  color: var(--text-faint);
+  color: var(--color-text-tertiary);
   font-size: 11px;
   text-align: right;
   text-overflow: ellipsis;
@@ -9866,16 +9848,16 @@ summary.work-summary:hover {
   max-height: 400px;
   overflow-y: auto;
   padding: 6px;
-  border: 1px solid var(--menu-border);
+  border: 1px solid var(--color-border);
   border-radius: 16px;
-  background: var(--menu-surface);
+  background: var(--color-surface-raised);
   scrollbar-color: var(--scrollbar-thumb) transparent;
   scrollbar-width: thin;
 }
 
 .composer-context-menu-section {
   padding: 9px 10px 6px;
-  color: var(--text-faint);
+  color: var(--color-text-tertiary);
   font-size: 12px;
   line-height: 18px;
 }
@@ -9891,13 +9873,13 @@ summary.work-summary:hover {
 .composer-context-menu button > svg,
 .composer-context-menu button > .plugin-icon-image {
   flex: none;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
 }
 
 .composer-context-menu button > span {
   overflow: hidden;
   flex: 0 1 auto;
-  color: var(--text);
+  color: var(--color-text);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -9905,13 +9887,13 @@ summary.work-summary:hover {
 .composer-context-menu small {
   flex: 1;
   min-width: 0;
-  color: var(--text-faint);
+  color: var(--color-text-tertiary);
   text-align: left;
 }
 
 .composer-context-menu-empty {
   padding: 16px 10px;
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
   font-size: 12px;
 }
 
@@ -9921,8 +9903,8 @@ summary.work-summary:hover {
   bottom: -6px;
   margin: 4px -6px -6px;
   padding: 8px 16px 9px;
-  border-top: 1px solid var(--menu-border);
-  background: var(--menu-surface);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
 }
 
 /* One line under the commands; the menu's own item text rules do not apply.
@@ -9938,7 +9920,7 @@ summary.work-summary:hover {
 
 .composer-context-menu-usage small {
   flex: none;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-size: 12px;
 }
 
