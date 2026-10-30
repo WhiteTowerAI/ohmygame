@@ -3096,8 +3096,7 @@ select.settings-search-input {
   font-weight: var(--weight-medium);
 }
 
-.project-settings-preview-actions,
-.project-settings-export-actions {
+.project-settings-preview-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);

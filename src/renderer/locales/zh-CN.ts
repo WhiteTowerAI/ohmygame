@@ -1037,6 +1037,10 @@ const zhCN: typeof en = {
     godotPublishing: "暂不支持发布 Godot 项目",
     publishing: "正在发布",
     publish: "发布",
+    publishToCommunity: "发布到 OhMyGame 社区…",
+    exportWebBuild: "导出网页包",
+    exportingWebBuild: "正在导出网页包…",
+    webBuildSuffix: "网页",
     tab: {
       preview: "预览",
       code: "代码",
@@ -1232,11 +1236,6 @@ const zhCN: typeof en = {
   storySettings: {
     screenSize: "屏幕尺寸",
     reviewScenes: "修改屏幕尺寸后，请逐个检查场景。",
-    export: "导出",
-    saveBeforeExport: "导出前请先保存屏幕尺寸的修改。",
-    exporting: "正在导出…",
-    exportGame: "导出游戏",
-    exportProject: "导出项目",
     projectFileSuffix: "项目",
     canvasFormat: "画布格式",
   },

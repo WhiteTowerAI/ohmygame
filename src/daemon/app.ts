@@ -3467,14 +3467,13 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/build", async (request, reply) => {
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/build", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Build requires an Interactive Story project" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before building" });
     if (publishing.has(project.id)) return reply.code(409).send({ error: "Project is already being published" });
     try {
-      const artifact = await artifacts.buildInteractiveStory(project);
+      const artifact = await artifacts.build(project);
       return reply
         .header("content-type", "application/zip")
         .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)

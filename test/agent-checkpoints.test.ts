@@ -2378,7 +2378,7 @@ describe("The end of a turn", () => {
     });
   });
 
-  it.each(["publish", "interactive-story/build"] as const)(
+  it.each(["publish", "build"] as const)(
     "waits for turn closure before tracking a %s request as an active workspace write",
     async (route) => {
       const { app, project, send, ended } = await studio(
@@ -2405,7 +2405,7 @@ describe("The end of a turn", () => {
       const artifact = vi
         .spyOn(
           ArtifactBuilder.prototype,
-          route === "publish" ? "create" : "buildInteractiveStory",
+          route === "publish" ? "create" : "build",
         )
         .mockRejectedValue(new PublishError("Fixture build stopped", 422));
       await send("Write the notes");

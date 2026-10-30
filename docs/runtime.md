@@ -487,9 +487,11 @@ conversations, newest first, and the open project's list ends with **New
 conversation**. On macOS the rail's Back and Forward sit beside the window
 controls. The top bar holds the project's name as its menu (**Rename
 project…**, **Open in folder** in the desktop app, **Export project**, and a
-return to the entry page) and **Publish**, which an asset canvas does not have
-and Godot and plugin projects show disabled. Leaving through the rail or the
-menu saves the open design first.
+return to the entry page) and the **Publish** menu, which an asset canvas does
+not have and Godot and plugin projects show disabled. It publishes to the
+OhMyGame community or exports the web build: the publish artifact as a ZIP
+without the upload size limit, to host elsewhere. Leaving through the rail or
+the menu, and either export, saves the open design first.
 
 The return item goes back to the page the project was opened from. The
 destination survives conversation/view changes and refreshes in the same tab; a
@@ -687,6 +689,9 @@ produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 and symbolic links are skipped. Binary assets retain their original bytes except
 for the Interactive Story publish-copy optimizations described above.
 The workspace, Pi sessions, conversations, and credentials are never sent.
+`POST /projects/:projectId/build` returns the same static output as a ZIP for
+web games, General projects, and Interactive Stories, without the upload size
+limit or the story publish-copy optimizations.
 
 Each publish creates an immutable Deployment of the same Game, so the play link
 stays the same. The project stores only the publication identity: Game ID,

@@ -16,7 +16,9 @@ import {
   Palette,
   Pencil,
   RefreshCw,
+  Globe2,
   Share2,
+  Upload,
   UserRound,
   X,
 } from "./icons.js";
@@ -40,6 +42,7 @@ import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-r
 import {
   ApiError,
   acquirePreview,
+  buildWebGame,
   exportProject,
   renameProject,
   releasePreview,
@@ -856,26 +859,27 @@ export function ProjectShell({
   useLeaveGuard(leave);
 
   const [renaming, setRenaming] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<"project" | "web">();
   const openProjectFile = window.ohMyGameDesktop?.openProjectFile;
-  async function exportArchive(): Promise<void> {
+  // The project file from the project menu, or the web build from Publish.
+  async function exportFile(kind: "project" | "web"): Promise<void> {
     if (!project || exporting) return;
-    setExporting(true);
+    setExporting(kind);
     try {
-      // The archive is read from disk, so pending edits are saved first.
+      // Both are read from disk, so pending edits are saved first.
       await saveDesign.current?.();
       await desktopSave.flush();
-      const archive = await exportProject(project.id);
-      const url = URL.createObjectURL(archive);
+      const file = kind === "web" ? await buildWebGame(project.id) : await exportProject(project.id);
+      const url = URL.createObjectURL(file);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${project.name}.zip`;
+      link.download = kind === "web" ? `${project.name} (${t("workspace.webBuildSuffix")}).zip` : `${project.name}.zip`;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (cause) {
       dispatch({ type: "notice", message: errorMessage(cause) });
     } finally {
-      setExporting(false);
+      setExporting(undefined);
     }
   }
   async function renameTo(input: string): Promise<void> {
@@ -895,7 +899,7 @@ export function ProjectShell({
     ...(openProjectFile && project ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => {
       void openProjectFile(project.id, ".", "default").catch((cause: unknown) => dispatch({ type: "notice", message: errorMessage(cause) }));
     } }] : []),
-    { label: exporting ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: !project || exporting, onSelect: () => void exportArchive() },
+    { label: exporting === "project" ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: !project || !!exporting, onSelect: () => void exportFile("project") },
     "separator",
     { label: homeLabel, icon: <ArrowLeft size={14} />, onSelect: requestHome },
   ];
@@ -1079,9 +1083,14 @@ export function ProjectShell({
         {toggleMenu.length ? <DropdownMenu placement="bottom-end" items={toggleMenu} trigger={(props) => (
           <IconButton {...props} size="sm" label={t("panels.menu")}><LayoutGrid size={16} /></IconButton>
         )} /> : null}
-        {project && publishButton ? <Button size="sm" variant="primary" icon={publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
-          disabled={publishButton.disabled} title={publishButton.label}
-          onClick={() => setPublishDialog({ projectId: project.id, status: "open" })}>{t("workspace.publish")}</Button> : null}
+        {project && publishButton ? <DropdownMenu placement="bottom-end" items={[
+          { label: t("workspace.publishToCommunity"), icon: <Globe2 size={14} />, onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
+          "separator",
+          { label: exporting === "web" ? t("workspace.exportingWebBuild") : t("workspace.exportWebBuild"), icon: <Upload size={14} />, disabled: !!exporting, onSelect: () => void exportFile("web") },
+        ]} trigger={(props) => (
+          <Button {...props} size="sm" variant="primary" icon={publishing || exporting === "web" ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
+            disabled={publishButton.disabled} title={publishButton.label}>{t("workspace.publish")}</Button>
+        )} /> : null}
       </ProjectTop>}>
     {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayout}
       panels={(project ? offered : ["chat" as const]).map((id) => {

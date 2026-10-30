@@ -2191,7 +2191,7 @@ describe("Playable Nodes projects", () => {
     const status = () => app.inject({ method: "GET", url: `/projects/${project.id}/interactive-story/upgrade` }).then((response) => response.json());
     expect(await status()).toEqual({ web: false });
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBeUndefined();
-    const refused = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/build` });
+    const refused = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
     expect(refused.statusCode).toBe(409);
     expect(refused.json().error).toContain("Open it in the Story editor, which upgrades it");
 

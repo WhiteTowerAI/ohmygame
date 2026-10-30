@@ -1055,6 +1055,10 @@ const en = {
     godotPublishing: "Godot publishing is not available yet",
     publishing: "Publishing",
     publish: "Publish",
+    publishToCommunity: "Publish to the OhMyGame community…",
+    exportWebBuild: "Export web build",
+    exportingWebBuild: "Exporting web build…",
+    webBuildSuffix: "web",
     tab: {
       preview: "Preview",
       code: "Code",
@@ -1251,11 +1255,6 @@ const en = {
   storySettings: {
     screenSize: "Screen size",
     reviewScenes: "Review each Scene after changing screen size.",
-    export: "Export",
-    saveBeforeExport: "Save screen size changes before exporting.",
-    exporting: "Exporting...",
-    exportGame: "Export game",
-    exportProject: "Export project",
     projectFileSuffix: "project",
     canvasFormat: "Canvas format",
   },
