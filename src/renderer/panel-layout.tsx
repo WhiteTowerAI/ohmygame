@@ -1,4 +1,4 @@
-import { createContext, useContext, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type HTMLAttributes, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Plus, X } from "./icons.js";
 import { ContextMenu, DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
@@ -278,7 +278,8 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
             onPointerDownCapture={(event) => {
               if (active && !(event.target as Element).closest(".dock-resizer")) onActivate?.(active);
             }}>
-            <div className="dock-tabs" onDragOver={(event) => over(event, area)} onDrop={(event) => drop(event, area)}>
+            <DockTabStrip single={ids.length === 1} resetKey={`${ids.join()}:${active}`}
+              onDragOver={(event) => over(event, area)} onDrop={(event) => drop(event, area)}>
               {/* The tabs scroll when crowded; the toolbar beside them doesn't, so its menus can open below. */}
               <div className="dock-tab-list" role="tablist" aria-label={t("panels.areaPanels", { area: areaLabel(area) })}>
               {ids.map((id) => {
@@ -315,7 +316,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
               ) : null}
               </div>
               {ids.map((id) => <div key={id} ref={slotRef(id)} className="dock-toolbar" hidden={id !== active} />)}
-            </div>
+            </DockTabStrip>
             <div className={`dock-body${area === "center" && overlay ? " has-float" : ""}`}
               onDragOver={(event) => over(event, area)} onDrop={(event) => drop(event, area)}>
               {ids.map((id) => {
@@ -361,4 +362,40 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
       )) : null}
     </div>
   );
+}
+
+/**
+ * An area's tab strip. When the labels no longer fit beside the active panel's
+ * toolbar, the tabs you aren't on keep only their icons; they get their labels
+ * back once the strip is wider than when it compacted, or the tabs change. A
+ * single tab reads as the area's title, without a selected fill or close button.
+ */
+function DockTabStrip({ single, resetKey, children, ...props }: { single: boolean; resetKey: string; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+  const strip = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  const compactWidth = useRef(0);
+  useLayoutEffect(() => setCompact(false), [resetKey]);
+  useLayoutEffect(() => {
+    const element = strip.current;
+    const list = element?.querySelector(".dock-tab-list");
+    if (!element || !list) return;
+    const check = () => {
+      if (compact) {
+        if (element.clientWidth > compactWidth.current + 24) setCompact(false);
+        return;
+      }
+      const labels = element.querySelectorAll<HTMLElement>(".dock-tab:not(.is-active) .dock-tab-label");
+      if ([...labels].some((label) => label.scrollWidth > label.clientWidth + 1)) {
+        compactWidth.current = element.clientWidth;
+        setCompact(true);
+      }
+    };
+    check();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(check);
+    observer.observe(element);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [compact, resetKey]);
+  return <div ref={strip} className={`dock-tabs${compact ? " is-compact" : ""}${single ? " is-single" : ""}`} {...props}>{children}</div>;
 }

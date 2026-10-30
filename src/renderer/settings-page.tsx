@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Cloud, ExternalLink } from "./icons.js";
+import { Cloud, ExternalLink, Globe2, MessageCircle } from "./icons.js";
+import githubMark from "@lobehub/icons-static-svg/icons/github.svg";
 import { useAuth } from "./auth.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
 import { AgentsSettings, OHMYGAME_AGENT } from "./agents-settings.js";
@@ -327,9 +328,9 @@ function BillingSettings() {
 // ---------- about ----------
 
 const PROJECT_LINKS = [
-  { href: "https://github.com/WhiteTowerAI/ohmygame", title: "GitHub", description: "github.com/WhiteTowerAI/ohmygame" },
-  { href: "https://ohmygame.ai", title: t("settings.about.website"), description: "ohmygame.ai" },
-  { href: "https://github.com/WhiteTowerAI/ohmygame/issues", title: t("settings.about.reportIssue"), description: "GitHub Issues" },
+  { href: "https://github.com/WhiteTowerAI/ohmygame", title: () => "GitHub", icon: <span className="settings-about-github" aria-hidden="true" style={{ maskImage: `url("${githubMark}")` }} /> },
+  { href: "https://ohmygame.ai", title: () => t("settings.about.website"), icon: <Globe2 size={16} aria-hidden="true" /> },
+  { href: "https://github.com/WhiteTowerAI/ohmygame/issues", title: () => t("settings.about.reportIssue"), icon: <MessageCircle size={16} aria-hidden="true" /> },
 ];
 
 function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () => void; onOpenOnboarding?: () => void }) {
@@ -363,6 +364,12 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
             <strong>OhMyGame</strong>
             <span className="settings-mono">v{version}</span>
           </div>
+          <nav className="settings-about-links" aria-label={t("settings.about.projectLinks")}>
+            {PROJECT_LINKS.map((link) => (
+              <a key={link.href} className="ui-icon-button ui-icon-button-md" href={link.href} target="_blank" rel="noreferrer"
+                aria-label={link.title()} data-tooltip={link.title()}>{link.icon}</a>
+            ))}
+          </nav>
           {updates ? <UpdateControl status={status} onRetry={retry} /> : null}
         </div>
         {status?.type === "error" ? (
@@ -382,20 +389,13 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
           </div>
         ) : null}
       </SettingsGroup>
-      <SettingsGroup title={t("settings.about.links")} label={t("settings.about.projectLinks")}>
-        {PROJECT_LINKS.map((link) => (
-          <SettingsRow key={link.href} title={link.title} description={link.description}>
-            <a className="ui-button ui-button-ghost ui-button-sm" href={link.href} target="_blank" rel="noreferrer" aria-label={link.title}>
-              {t("settings.about.open")}<ExternalLink size={12} aria-hidden="true" />
-            </a>
-          </SettingsRow>
-        ))}
-        {onOpenOnboarding ? (
+      {onOpenOnboarding ? (
+        <SettingsGroup label={t("settings.about.gettingStarted")}>
           <SettingsRow title={t("settings.about.gettingStarted")} description={t("settings.about.gettingStartedHint")}>
             <Button size="sm" variant="ghost" onClick={onOpenOnboarding}>{t("onboarding.reopen")}</Button>
           </SettingsRow>
-        ) : null}
-      </SettingsGroup>
+        </SettingsGroup>
+      ) : null}
       <ChangelogPanel currentVersion={version} availableRelease={update?.availableRelease} />
       <DiagnosticsSettings />
     </>

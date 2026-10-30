@@ -470,7 +470,7 @@ export function appStartCommand(
 }
 
 const TURNED_OFF =
-  "OhMyGame is not accepting other agents. Open OhMyGame and turn on Settings → MCP Server → Allow other agents to use OhMyGame.";
+  "OhMyGame is not accepting other agents. Open OhMyGame and turn on the MCP Server switch in Settings → MCP Server.";
 const NOT_RUNNING = "Open the OhMyGame app and try again.";
 
 /** OhMyGame is off or closed; retrying the request would not help. */

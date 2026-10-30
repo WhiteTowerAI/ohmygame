@@ -51,7 +51,7 @@ it("lets other agents use OhMyGame and shows how to add it to each client", asyn
   await act(async () =>
     host
       .querySelector<HTMLButtonElement>(
-        'button[role="switch"][aria-label="Allow other agents to use OhMyGame"]',
+        'button[role="switch"][aria-label="MCP Server"]',
       )!
       .click(),
   );

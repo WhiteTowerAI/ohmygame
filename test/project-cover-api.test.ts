@@ -75,6 +75,19 @@ describe("project cover API", () => {
     expect((await app.inject({ method: "PUT", url: "/projects/missing/appearance", payload: {} })).statusCode).toBe(404);
   });
 
+  it("keeps a logo uploaded while the appearance changes", async () => {
+    const { app, project } = await fixture();
+    const [, logo] = await Promise.all([
+      app.inject({ method: "PUT", url: `/projects/${project.id}/appearance`, payload: { icon: "moon" } }),
+      app.inject({ method: "PUT", url: `/projects/${project.id}/logo`, headers: { "content-type": "image/webp" }, payload: webp("logo") }),
+      app.inject({ method: "PUT", url: `/projects/${project.id}/appearance`, payload: { icon: "star" } }),
+    ]);
+    expect(logo.statusCode).toBe(200);
+    const saved = (await app.inject({ method: "GET", url: `/projects/${project.id}` })).json();
+    expect(saved.appearance).toEqual({ icon: "star", logo: true });
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/logo` })).rawPayload).toEqual(webp("logo"));
+  });
+
   it.each([false, true])("freezes the Interactive Story cover with an existing thumbnail: %s", async (existing) => {
     const { app, project, url } = await fixture("interactive-story");
     await writePlayableFixtureWorkspace(project.workspacePath);

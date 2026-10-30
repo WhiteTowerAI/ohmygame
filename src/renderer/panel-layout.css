@@ -196,6 +196,36 @@
   flex: none;
 }
 
+/* A strip whose labels don't fit keeps only icons for the tabs you aren't on. */
+.dock-tabs.is-compact .dock-tab:not(.is-active) {
+  min-width: 0;
+}
+
+.dock-tabs.is-compact .dock-tab:not(.is-active) :is(.dock-tab-label, .dock-tab-close) {
+  display: none;
+}
+
+.dock-tabs.is-compact .dock-tab:not(.is-active) .dock-tab-button {
+  padding: 0 var(--space-2);
+}
+
+/* A lone tab is the area's title: no selected fill, and it closes from its menu. */
+.dock-tabs.is-single .dock-tab.is-active {
+  background: transparent;
+}
+
+.dock-tabs.is-single .dock-tab.is-active:hover {
+  background: var(--color-hover);
+}
+
+.dock-tabs.is-single .dock-tab-close {
+  display: none;
+}
+
+.dock-tabs.is-single .dock-tab-button {
+  padding-right: var(--space-2);
+}
+
 /* A narrow area keeps only icons for the tabs you aren't on, and toolbar
    buttons marked collapsible drop their text. */
 @container dock-area (max-width: 520px) {

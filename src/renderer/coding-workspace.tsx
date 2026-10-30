@@ -68,7 +68,7 @@ import { t } from "./i18n.js";
 import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./workspace-git-changes.js";
 import type { PanelNodes } from "./panel-layout.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
-import { Button, CategoryMark, DropdownMenu, Empty, IconButton, MediaTile, SearchInput, SegmentedControl, Tabs } from "./ui/index.js";
+import { Button, CategoryMark, DropdownMenu, Empty, IconButton, MediaTile, SearchInput, Tabs } from "./ui/index.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -578,7 +578,8 @@ function PreviewControls({
       <ViewportMenu value={viewport} onChange={onViewportChange} />
       <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
         active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size={14} /></IconButton>
-      {agentPlaytestWatch ? (
+      {/* Only while the agent plays the game, or the window was asked for, does the toggle do anything. */}
+      {agentPlaytestWatch && (agentPlaytestWatch.activeSessions > 0 || agentPlaytestWatch.visible) ? (
         <Button size="sm" variant="ghost" className={`preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`}
           aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending}
           title={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")}
@@ -666,10 +667,12 @@ function PreviewLocation({
     trigger.current?.focus();
   }
 
+  // A game with one page at the root needs no address, only its status and a refresh.
+  const compact = path === "/" && paths.every((knownPath) => knownPath === "/");
   return (
-    <div className="preview-location" ref={root}>
+    <div className={`preview-location${compact ? " is-compact" : ""}`} ref={root}>
       <span className={`preview-location-status is-${status ?? "waiting"}`} role="img" aria-label={t(`workspace.previewStatus.${status ?? "waiting"}`)} title={t(`workspace.previewStatus.${status ?? "waiting"}`)} />
-      <button
+      {compact ? null : <button
         ref={trigger}
         className="preview-location-trigger"
         type="button"
@@ -685,7 +688,7 @@ function PreviewLocation({
       >
         <span className="preview-location-path">{path}</span>
         <ChevronDown className={open ? "preview-location-chevron-open" : undefined} size={13} />
-      </button>
+      </button>}
       <button
         className="preview-location-refresh"
         type="button"
@@ -1072,16 +1075,16 @@ export function WorkspaceFileBrowser({
     <div className="code-view" ref={codeElement} style={{ "--file-explorer-width": `${explorerWidth}px` } as CSSProperties}>
       <div className="file-explorer">
         {git.data?.available || git.error ? <div className="file-explorer-views">
-          {git.data?.available ? <SegmentedControl size="sm" label={t("workspace.gitViews")} value={showChanges ? "changes" : "files"}
-            options={[
-              { value: "files", label: t("workspace.gitFiles") },
-              { value: "changes", label: <>{t("workspace.gitChanges")}<span className="git-change-count">{git.data.changes.length}</span></> },
-            ]}
-            onChange={(view) => { setBrowserView(view); if (view === "changes") git.refresh(); }} />
-            : <span className="git-changes-note" role="alert">{t("workspace.gitFailed")}</span>}
-          <IconButton size="sm" label={t("workspace.gitRefresh")} disabled={git.loading} onClick={git.refresh}>
-            <RefreshCw size={14} className={git.loading ? "spin" : undefined} />
-          </IconButton>
+          {git.data?.available ? <nav aria-label={t("workspace.gitViews")}>
+            <button type="button" aria-pressed={!showChanges} onClick={() => setBrowserView("files")}>{t("workspace.gitFiles")}</button>
+            <button type="button" aria-pressed={Boolean(showChanges)} onClick={() => { setBrowserView("changes"); git.refresh(); }}>
+              {t("workspace.gitChanges")}<span className="git-change-count">{git.data.changes.length}</span>
+            </button>
+          </nav> : <span className="git-changes-note" role="alert">{t("workspace.gitFailed")}</span>}
+          <button type="button" className="icon-button" disabled={git.loading} onClick={git.refresh}
+            title={t("workspace.gitRefresh")} aria-label={t("workspace.gitRefresh")}>
+            <RefreshCw size={12} className={git.loading ? "spin" : undefined} />
+          </button>
         </div> : null}
         <label className="file-filter">
           <Search size={13} aria-hidden="true" />

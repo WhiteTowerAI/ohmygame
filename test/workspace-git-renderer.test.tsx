@@ -135,18 +135,18 @@ describe("Code Git changes view", () => {
       "project",
       "removed.ts",
     );
-    expect(button("Changes2").getAttribute("aria-checked")).toBe("true");
+    expect(button("Changes2").getAttribute("aria-pressed")).toBe("true");
     const count = vi.mocked(api.getWorkspaceGitChanges).mock.calls.length;
     await render("project", 1, 1, undefined, "renamed.ts");
     expect(api.getWorkspaceGitChanges).toHaveBeenCalledTimes(count + 1);
-    expect(button("Changes2").getAttribute("aria-checked")).toBe("true");
+    expect(button("Changes2").getAttribute("aria-pressed")).toBe("true");
     vi.mocked(api.getWorkspaceGitChanges).mockResolvedValue({
       available: true,
       head: "new",
       changes: [],
     });
     await click("Refresh Git changes");
-    expect(button("Changes0").getAttribute("aria-checked")).toBe("true");
+    expect(button("Changes0").getAttribute("aria-pressed")).toBe("true");
     expect(container.querySelector(".git-diff-content")).toBeNull();
     expect(container.querySelector(".git-changes-list")?.textContent).toContain(
       "No uncommitted changes",
@@ -177,7 +177,7 @@ describe("Code Git changes view", () => {
     await render();
     await click("Changes2");
     await render("project", 0, 0, 1);
-    expect(button("Files").getAttribute("aria-checked")).toBe("true");
+    expect(button("Files").getAttribute("aria-pressed")).toBe("true");
     expect(container.querySelector(".file-content-path")?.textContent).toBe(
       "saved.ts",
     );

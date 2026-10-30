@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { LoaderCircle, Terminal } from "./icons.js";
+import { LoaderCircle } from "./icons.js";
 import {
-  EXTERNAL_MCP_SERVER_NAME,
   externalClientAddArguments,
   type ExternalAgentClientId,
   type ExternalAgentSettings,
@@ -52,13 +51,9 @@ export function ExternalAgentsSettings() {
       ) : null}
       {settings ? (
         <SettingsGroup>
-          <SettingsRow
-            icon={<span className="settings-mark" aria-hidden="true"><Terminal size={18} /></span>}
-            title={t("externalAgents.enable")}
-            description={t("externalAgents.description")}
-          >
+          <SettingsRow title={t("externalAgents.title")} description={t("externalAgents.description")}>
             <Switch
-              label={t("externalAgents.enable")}
+              label={t("externalAgents.title")}
               checked={settings.enabled}
               disabled={saving}
               onChange={(enabled) => void setEnabled(enabled)}
@@ -84,7 +79,7 @@ function Connect({ launcher, skillDirectory }: { launcher: ExternalMcpLauncher; 
   const command = (id: ExternalAgentClientId, cli: string) => [cli, ...externalClientAddArguments(id, launcher)].map(quote).join(" ");
   const environment = Object.entries(launcher.env).map(([name, value]) => `${name}=${quote(value)}`);
   return (
-    <SettingsGroup title={t("externalAgents.manual")} description={t("externalAgents.otherClientsHint", { name: EXTERNAL_MCP_SERVER_NAME })}>
+    <SettingsGroup title={t("externalAgents.manual")}>
       <div className="settings-pad settings-form">
         <CodeBlock title="Claude Code" code={command("claude-code", "claude")} />
         <CodeBlock title="Codex" code={command("codex", "codex")} />

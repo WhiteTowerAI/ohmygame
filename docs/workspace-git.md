@@ -11,8 +11,7 @@ stays beside the file, and files in it carry an icon for their kind.
 ![Markdown file preview and the publish slash command](assets/workspace-markdown-publish-command.png)
 
 When the project directory is a Git repository, Code offers **Files** and
-**Changes** as a segmented control at the top of the explorer, with the number
-of changed files on **Changes** and a refresh button beside it. Changes shows the current workspace
+**Changes** in the existing explorer. Changes shows the current workspace
 against the last commit, including staged edits, unstaged edits and untracked
 files. Before the first commit, current files are compared with an empty tree.
 Files that have been staged and then changed back to their committed contents

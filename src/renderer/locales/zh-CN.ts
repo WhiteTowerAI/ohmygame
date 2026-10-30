@@ -254,8 +254,6 @@ const zhCN: typeof en = {
       allReleases: "全部版本",
       notesUnavailable: "此版本暂无发布说明。",
       viewRelease: "在 GitHub 查看此版本",
-      links: "链接",
-      open: "打开",
       gettingStarted: "入门引导",
       gettingStartedHint: "重新连接模型，再走一遍开始的几步。",
     },
@@ -1545,7 +1543,7 @@ const zhCN: typeof en = {
   externalAgents: {
     manual: "连接",
     off: "MCP 服务已关闭",
-    offHint: "外部 agent 现在无法使用 OhMyGame。",
+    offHint: "外部 agent 现在无法访问 OhMyGame。",
     recent: "最近连接",
     recentDetail_one: "{{time}} · 调用 {{count}} 次",
     recentDetail_other: "{{time}} · 调用 {{count}} 次",
@@ -1553,11 +1551,9 @@ const zhCN: typeof en = {
     offline: "离线",
     title: "MCP 服务",
     loading: "正在读取 MCP 设置…",
-    enable: "允许其他 Agent 使用 OhMyGame",
-    description: "让 Claude Code、Codex 等外部 agent 通过 MCP 使用 OhMyGame 的项目、画布、素材生成和试玩。",
+    description: "让 Claude Code、Codex 等外部 agent 通过 MCP 读写 OhMyGame 的项目、画布和素材。",
     desktopOnly: "请在 OhMyGame 桌面版中连接 Agent。",
     otherClients: "DeepSeek Harness 和其他 MCP 客户端",
-    otherClientsHint: "在终端运行对应 agent 的命令，用 `mcp remove {{name}}` 移除。其他 MCP 客户端添加一个名为 {{name}} 的 stdio 服务器，运行启动命令。",
     skill: "Skill（可选）· 复制到 ~/.claude/skills 或 ~/.agents/skills",
   },
   agentUsage: {
@@ -3237,6 +3233,7 @@ const zhCN: typeof en = {
   },
   editorCanvas: {
     select: "选择",
+    selectHint: "选择 · 拖动空白处平移，Shift+拖动框选",
     pan: "平移画布",
     fit: "适应视图",
     zoomOut: "缩小",

@@ -53,6 +53,8 @@ interface ProjectMetadata extends ProjectPreviewSettings {
   appearance?: ProjectAppearance;
 }
 
+type MetadataChanges = Partial<Pick<ProjectMetadata, "integration" | "pluginType" | "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | "appearance" | keyof ProjectPreviewSettings>>;
+
 export class ProjectLibraryReferenceError extends Error {}
 
 export class ProjectWorkspaceError extends Error {}
@@ -484,8 +486,14 @@ export class ProjectManager {
       } else {
         const target = path.join(this.#removedDirectory, id, folderName(project.name));
         await mkdir(path.dirname(target), { recursive: true });
-        await rename(project.workspacePath, target);
-        movedTo = target;
+        try {
+          await rename(project.workspacePath, target);
+          movedTo = target;
+        } catch (error) {
+          // A workspace already gone from disk leaves nothing to move to the Trash.
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          await rm(path.dirname(target), { recursive: true, force: true });
+        }
       }
       await rm(this.#projectDirectory(id), { recursive: true, force: false });
       this.#projects.delete(id);
@@ -543,9 +551,9 @@ export class ProjectManager {
   async setAppearance(id: string, appearance: Omit<ProjectAppearance, "logo">): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    const next = parseProjectAppearance({ ...appearance, ...(project.appearance?.logo ? { logo: true } : {}) });
-    if (!next) throw new Error("Invalid project appearance");
-    await this.#save(project, { appearance: Object.keys(next).length ? next : undefined, updatedAt: new Date().toISOString() });
+    if (!parseProjectAppearance(appearance)) throw new Error("Invalid project appearance");
+    // The logo flag is read in the write queue, so an upload saved meanwhile is kept.
+    await this.#save(project, (current) => withAppearance({ ...parseProjectAppearance(appearance), ...(current.appearance?.logo ? { logo: true } : {}) }));
     return project;
   }
 
@@ -558,9 +566,10 @@ export class ProjectManager {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     await this.#covers.setLogo(this.#projectDirectory(id), contents);
-    const { logo: _logo, ...rest } = project.appearance ?? {};
-    const appearance = contents ? { ...rest, logo: true as const } : rest;
-    await this.#save(project, { appearance: Object.keys(appearance).length ? appearance : undefined, updatedAt: new Date().toISOString() });
+    await this.#save(project, (current) => {
+      const { logo: _logo, ...rest } = current.appearance ?? {};
+      return withAppearance(contents ? { ...rest, logo: true } : rest);
+    });
     return project;
   }
 
@@ -936,10 +945,13 @@ export class ProjectManager {
 
   async #save(
     project: ProjectState,
-    changes: Partial<Pick<ProjectMetadata, "integration" | "pluginType" | "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | "appearance" | keyof ProjectPreviewSettings>>,
+    // A function computes the changes once earlier writes finish, for changes that merge with saved fields.
+    update: MetadataChanges | ((project: ProjectState) => MetadataChanges),
   ): Promise<boolean> {
     const operation = (this.#metadataWrites.get(project.id) ?? Promise.resolve()).catch(() => {}).then(async () => {
-      if (this.#projects.get(project.id) !== project || changes.nameSource === "ai" && project.nameSource !== "default") return false;
+      if (this.#projects.get(project.id) !== project) return false;
+      const changes = typeof update === "function" ? update(project) : update;
+      if (changes.nameSource === "ai" && project.nameSource !== "default") return false;
       const metadata = { ...metadataFor(project), ...changes };
       await writeMetadata(this.#projectDirectory(project.id), metadata);
       for (const key of PREVIEW_SETTING_KEYS) { delete project[key]; }
@@ -1210,6 +1222,10 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return { metadata: { version: 1, id, name: "Untitled project", type: "web-game", updatedAt: fallbackUpdatedAt }, missing: true };
   }
+}
+
+function withAppearance(appearance: ProjectAppearance): MetadataChanges {
+  return { appearance: Object.keys(appearance).length ? appearance : undefined, updatedAt: new Date().toISOString() };
 }
 
 /** Validates and normalizes persisted or imported metadata without disk I/O. */

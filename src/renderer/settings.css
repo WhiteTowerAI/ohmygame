@@ -302,6 +302,7 @@
 .settings-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
 }
@@ -412,6 +413,12 @@
   width: 22px;
   height: 22px;
   object-fit: contain;
+}
+
+.settings-mark.is-initial {
+  background: var(--color-selected);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
 }
 
 /* OhMyGame's own agent sits on a tile, as in the lab. */
@@ -1433,11 +1440,6 @@
 
 .settings-body a.ui-button {
   text-decoration: none;
-}
-
-/* The OhMyGame mark is white; the light appearance draws it in ink. */
-[data-appearance="light"] .settings-about-logo {
-  filter: brightness(0) saturate(100%);
 }
 
 .settings-select-busy {

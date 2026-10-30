@@ -254,8 +254,6 @@ const en = {
       allReleases: "All releases",
       notesUnavailable: "Release notes are unavailable for this version.",
       viewRelease: "View this release on GitHub",
-      links: "Links",
-      open: "Open",
       gettingStarted: "Getting started",
       gettingStartedHint: "Connect a model and try the first steps again.",
     },
@@ -1566,7 +1564,7 @@ const en = {
   externalAgents: {
     manual: "Connect",
     off: "MCP server is off",
-    offHint: "Agents outside OhMyGame cannot use it now.",
+    offHint: "External agents can't reach OhMyGame now.",
     recent: "Recent connections",
     recentDetail_one: "{{time}} · {{count}} tool call",
     recentDetail_other: "{{time}} · {{count}} tool calls",
@@ -1574,11 +1572,9 @@ const en = {
     offline: "Offline",
     title: "MCP Server",
     loading: "Loading MCP settings…",
-    enable: "Allow other agents to use OhMyGame",
-    description: "Lets Claude Code, Codex and other agents use OhMyGame's projects, canvas, media generation and playtesting over MCP.",
+    description: "Lets Claude Code, Codex and other external agents read and write OhMyGame's projects, canvases and assets over MCP.",
     desktopOnly: "Connect agents from the OhMyGame desktop app.",
     otherClients: "DeepSeek Harness and other MCP clients",
-    otherClientsHint: "Run your agent's command in a terminal, and remove it with `mcp remove {{name}}`. Other MCP clients add a stdio server named {{name}} that runs the launcher.",
     skill: "Skill (optional) · copy into ~/.claude/skills or ~/.agents/skills",
   },
   agentUsage: {
@@ -3313,6 +3309,7 @@ const en = {
   },
   editorCanvas: {
     select: "Select",
+    selectHint: "Select · drag empty space to pan, Shift-drag to select an area",
     pan: "Pan canvas",
     fit: "Fit view",
     zoomOut: "Zoom out",

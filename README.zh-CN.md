@@ -113,8 +113,8 @@ https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 
 ### 🔌 在 Claude Code、Codex 等 Agent 中使用 OhMyGame
 
-已经在用别的编程 Agent？打开 **设置 → MCP 服务 → 允许其他 Agent 使用 OhMyGame**，
-一键连接 Claude Code 或 Codex。它们会获得 OhMyGame 的媒体生成（使用你配置的服务商）、
+已经在用别的编程 Agent？打开 **设置 → MCP 服务**，
+用那里显示的命令把 OhMyGame 添加到 Claude Code 或 Codex。它们会获得 OhMyGame 的媒体生成（使用你配置的服务商）、
 画布和试玩能力，以及一个讲解工作流程的 Skill。DeepSeek Harness 和其他 MCP 客户端可以添加
 那里显示的 `ohmygame-studio` 命令。详见 [External agents](docs/external-agents.md)。
 

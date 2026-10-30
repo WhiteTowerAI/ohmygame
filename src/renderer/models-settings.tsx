@@ -284,11 +284,13 @@ function ProviderRow({ detail, featured = false, onProvider, provider, onToggle,
   );
 }
 
-function ProviderMark({ provider }: { provider: Pick<ProviderSummary, "id" | "preset"> }) {
+// A provider without a logo shows its initial, as the model picker does.
+function ProviderMark({ provider }: { provider: Pick<ProviderSummary, "id" | "preset" | "name"> }) {
   const icon = PROVIDER_ICONS[isLocalModelProvider(provider) ? provider.preset : provider.id];
+  const initial = provider.name.trim().charAt(0).toUpperCase();
   return (
-    <span className={`settings-mark${icon ? ` is-${icon.tone}` : ""}`} aria-hidden="true">
-      {icon ? <img src={icon.src} alt="" /> : <Server size={18} />}
+    <span className={`settings-mark${icon ? ` is-${icon.tone}` : initial ? " is-initial" : ""}`} aria-hidden="true">
+      {icon ? <img src={icon.src} alt="" /> : initial || <Server size={18} />}
     </span>
   );
 }

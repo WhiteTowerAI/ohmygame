@@ -1762,17 +1762,6 @@ select.settings-search-input {
   gap: 12px;
 }
 
-.settings-about-logo {
-  width: 32px;
-  height: 24px;
-  flex-shrink: 0;
-  object-fit: contain;
-}
-
-:root[data-appearance="light"] .settings-about-logo {
-  filter: brightness(0) saturate(100%);
-}
-
 .settings-about-copy {
   display: grid;
   min-width: 0;
@@ -1798,21 +1787,25 @@ select.settings-search-input {
   font-size: 12px;
 }
 
+/* GitHub, the website and feedback, as icons on the app's card. */
 .settings-about-links {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px 24px;
+  gap: var(--space-1);
 }
 
 .settings-about-links a {
-  color: var(--text-secondary);
-  font-size: 12px;
+  color: var(--color-text-secondary);
   text-decoration: none;
-  transition: color 140ms ease;
 }
 
-.settings-about-links a:is(:hover, :focus-visible) {
-  color: var(--text);
+.settings-about-github {
+  display: block;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
 }
 
 .settings-changelog-panel {
@@ -6521,7 +6514,7 @@ button {
   cursor: grab;
 }
 
-.story-canvas-pan .react-flow__pane.dragging {
+.story-canvas .react-flow__pane.dragging {
   cursor: grabbing;
 }
 
@@ -10504,6 +10497,12 @@ summary.work-summary:hover {
 }
 
 /* The preview's address, like a browser's: its state, the page, and reload. */
+.preview-location.is-compact {
+  width: auto;
+  flex: none;
+  padding-right: 0;
+}
+
 .preview-location {
   position: relative;
   display: flex;
@@ -10940,6 +10939,20 @@ summary.work-summary:hover {
   background: var(--canvas);
 }
 
+/* The desktop game's last frame, shown while a menu or dialog hides the game. */
+.preview-frame[data-native-game-preview] {
+  position: relative;
+}
+
+.preview-frame-still {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+
 .preview-player-state {
   position: absolute;
   inset: 0;
@@ -11162,21 +11175,29 @@ summary.work-summary:hover {
   gap: 3px;
 }
 
-/* Files or Changes, as a segmented control, with a refresh beside it. */
 .file-explorer-views {
   justify-content: space-between;
-  padding: var(--space-2) var(--space-2) 0;
+  padding: 6px 8px 0;
 }
 
-.file-explorer-views .ui-segmented {
-  flex: 1;
-  min-width: 0;
-}
-
-.file-explorer-views .ui-segmented button {
-  flex: 1;
-  justify-content: center;
+.file-explorer-views nav button {
+  display: inline-flex;
+  align-items: center;
   gap: 5px;
+  min-height: 26px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.file-explorer-views nav button:hover,
+.file-explorer-views nav button[aria-pressed="true"] {
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 
 .git-change-count {
@@ -11633,7 +11654,7 @@ summary.work-summary:hover {
   flex-direction: column;
   padding: var(--space-4);
   overflow: auto;
-  background: var(--canvas);
+  background: var(--color-surface);
 }
 
 /* As on the Library page, without its title: the search above, then the

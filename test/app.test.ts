@@ -459,6 +459,20 @@ describe("daemon", () => {
     await rm(folder, { recursive: true, force: true });
   });
 
+  it("removes a project whose own workspace is already gone from disk", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-remove-missing-"));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    const managed = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Gone" } })).json();
+    await rm(managed.workspacePath, { recursive: true });
+
+    const removed = await app.inject({ method: "DELETE", url: `/projects/${managed.id}?keep=1` });
+    expect(removed.statusCode, removed.body).toBe(200);
+    expect(removed.json()).toEqual({});
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
+    await expect(readdir(path.join(dataDirectory, "removed-projects"))).resolves.toEqual([]);
+  });
+
   it("exposes workspace code and media with project provenance", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-api-")) });
     apps.push(app);

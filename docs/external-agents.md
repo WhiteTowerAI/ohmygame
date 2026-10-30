@@ -94,8 +94,7 @@ Daemon: ExternalMcpService
 ### Settings and files
 
 Settings → **MCP Server** has its own page, apart from Agents, which sets up
-the agents OhMyGame runs. **Allow other agents to use OhMyGame** turns the
-feature on; **Connect** then shows the `mcp add` commands for Claude Code and
+the agents OhMyGame runs. Its **MCP Server** switch turns the feature on; **Connect** then shows the `mcp add` commands for Claude Code and
 Codex, the launcher command for every other client, and the folder of the
 Skill to copy, each with a copy button. **Recent connections** lists the
 clients that used the server since OhMyGame started, by the name each gives in

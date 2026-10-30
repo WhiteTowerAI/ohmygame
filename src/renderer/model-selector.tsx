@@ -136,7 +136,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
       </button>
 
       {open ? createPortal(
-        <div className={`model-picker nodrag nowheel${canvas ? " is-canvas" : ""}`} ref={popover} id={menuId} style={position ?? { top: 0, left: 0, visibility: "hidden" }} onKeyDown={(event) => {
+        <div className={`model-picker nodrag nowheel${canvas ? " is-canvas" : ""}`} ref={popover} id={menuId} data-native-preview-overlay style={position ?? { top: 0, left: 0, visibility: "hidden" }} onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Escape") {
             event.preventDefault();

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DesktopWebGamePreviewBridge, WebGamePlayerBridge, WebGamePreviewLayout } from "../shared/web-game-player.js";
 
 /** Native views sit above DOM content, so clip them and hide them beneath overlays. */
@@ -14,7 +14,7 @@ export function desktopPreviewLayout(element: HTMLElement, visible: boolean): We
   }
   visible = visible && element.isConnected && right > left && bottom > top;
   if (visible) {
-    for (const overlay of document.querySelectorAll<HTMLElement>('[aria-modal="true"], [role="dialog"], [role="menu"], [role="alert"], [data-native-preview-overlay]')) {
+    for (const overlay of document.querySelectorAll<HTMLElement>('[aria-modal="true"], [role="dialog"], [role="menu"], [role="listbox"], [role="alert"], [data-native-preview-overlay]')) {
       const bounds = overlay.getBoundingClientRect();
       if (bounds.width <= 0 || bounds.height <= 0 || getComputedStyle(overlay).visibility === "hidden") continue;
       if (overlay.getAttribute("aria-modal") === "true" || (bounds.left < right && bounds.right > left && bounds.top < bottom && bounds.bottom > top)) {
@@ -34,6 +34,7 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
   const element = useRef<HTMLDivElement>(null);
   const [attachment] = useState(() => crypto.randomUUID());
   const [error, setError] = useState<string>();
+  const [still, setStill] = useState<string>();
   const state = useRef({ visible, error, onReady });
   state.current = { visible, error, onReady };
   const synchronize = useRef<() => void>(() => {});
@@ -42,13 +43,24 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
   useLayoutEffect(() => {
     let animation = 0;
     let last = "";
+    let shown = false;
     const update = () => {
       if (!element.current) return;
       const layout = desktopPreviewLayout(element.current, state.current.visible && !state.current.error);
       const serialized = JSON.stringify(layout);
       if (serialized === last) return;
       last = serialized;
-      void bridge.layout(projectId, attachment, layout).catch(() => {});
+      const send = () => { if (last === serialized) void bridge.layout(projectId, attachment, layout).catch(() => {}); };
+      // The native view can only hide whole, so when a menu or dialog covers
+      // it, a still of the game stands in instead of an empty panel.
+      const covered = shown && !layout.visible && state.current.visible && !state.current.error;
+      shown = layout.visible;
+      if (layout.visible) setStill(undefined);
+      if (!covered) return send();
+      void Promise.race([bridge.capture(projectId), new Promise<undefined>((resolve) => setTimeout(resolve, 200))])
+        .then((png) => { if (png && last === serialized) setStill(URL.createObjectURL(new Blob([png as BlobPart], { type: "image/png" }))); })
+        .catch(() => {})
+        .finally(send);
     };
     const schedule = () => {
       if (animation) return;
@@ -94,8 +106,10 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
   }, [bridge, refresh, projectId, attachment, url, reload]);
 
   useLayoutEffect(() => { synchronize.current(); }, [visible, error]);
+  useEffect(() => () => { if (still) URL.revokeObjectURL(still); }, [still]);
 
   return <div ref={element} className="preview-frame" data-native-game-preview={projectId}>
+    {still && !error ? <img className="preview-frame-still" src={still} alt="" /> : null}
     {error ? <div className="preview-status-panel" role="alert">{error}</div> : null}
   </div>;
 }

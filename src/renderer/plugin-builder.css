@@ -38,7 +38,7 @@
 .plugin-builder-check strong { font-size: 12px; font-weight: 500; }
 .plugin-builder-check small { color: var(--color-text-secondary); font-size: 10px; line-height: 1.7; }
 .plugin-builder-check > small { white-space: nowrap; }
-@media (max-width: 760px) { @container workspace-header (min-width: 521px) {
+@container workspace-header (min-width: 521px) {
   .plugin-builder-preview[data-active-tab="overview"] .workspace-tabs { --workspace-active-tab-width: 88px; }
 }
 @media (max-width: 1000px) {
