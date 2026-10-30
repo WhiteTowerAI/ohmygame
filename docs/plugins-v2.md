@@ -80,6 +80,13 @@ project type hooks the manifest declares can be registered.
   the version the project uses, its status, what it asks for, and whether the
   person allowed that. Turning on one never allowed asks first, then posts
   the consent. The type's plugin stays on.
+- Home: the composer's type menu lists the app's types, then plugins' types
+  from `GET /project-types`, then a link to the plugins that add types
+  (`#/plugins?adds=projectType`). The type picks the starting plugin. Its
+  plugin menu also lists `GET /project-plugins`, the enabled format 2
+  plugins a new project can turn on for itself; the type's own plugin is left
+  out. The new-project dialog posts each one's consent, if still needed, and
+  turns it on once the project exists.
 
 Releases install only when they are signed by a key the app trusts for
 their publisher (`AppOptions.pluginReleaseKeys`). The app ships with none

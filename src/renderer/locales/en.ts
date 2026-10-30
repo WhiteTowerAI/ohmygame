@@ -815,8 +815,16 @@ const en = {
     importFolder: "Import folder",
     allProjects: "All projects",
     toCommunity: "Go to Community",
+    projectType: "Project type",
+    plugins: "Plugins",
+    pluginsWith: "Plugins: starts with {{name}}",
     starter: "Start with plugin",
     noStarter: "No plugin",
+    noStarterHint: "Start from the prompt alone",
+    projectPlugins: "On in this project only",
+    noProjectPlugins: "No plugins can be turned on for one project yet.",
+    projectPluginsFailed: "Couldn't load the plugins a project can turn on.",
+    browsePlugins: "Browse plugins",
     ideas: {
       web: {
         dungeon: "Make a pixel-art dungeon roguelike with turn-based combat",
@@ -855,6 +863,10 @@ const en = {
     "interactive-story": "Interactive Story",
     "asset-canvas": "Asset Canvas",
     "godot-game": "Godot",
+  },
+  projectTypeChoice: {
+    more: "More types…",
+    moreHint: "Find plugins that add a project type",
   },
   projectTypeDescription: {
     general: "Any engine; the agent suggests one",
@@ -953,6 +965,7 @@ const en = {
     type: "Type",
     firstMessage: "First message",
     namedFromPrompt: "Named from the first message",
+    typePluginConsent: "Creating this project allows {{name}}, which adds this type, to use:",
     managedFolder: "New folder in OhMyGame",
     inLocation: "New folder in {{path}}",
     createAndStart: "Create and start",

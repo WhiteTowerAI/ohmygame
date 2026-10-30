@@ -77,7 +77,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
     return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} agent={route.agent} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
   }
   if (route.page === "plugins") return <>{creationGate.dialog}<SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
-    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
+    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} adds={route.adds} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
   </SidebarPageLayout></>;
   if (route.page === "home") {
     return <><Home inert={welcoming} start={start} onStartHandled={() => setStart(undefined)} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;

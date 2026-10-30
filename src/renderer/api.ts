@@ -729,6 +729,23 @@ export async function getProjectPlugins(projectId: string): Promise<import("../s
   return request(`/projects/${encodeURIComponent(projectId)}/plugins?locale=${encodeURIComponent(language)}`);
 }
 
+/** Plugins a project about to be created can turn on for itself. */
+export async function listProjectPluginChoices(): Promise<import("../shared/plugins.js").ProjectPluginChoice[]> {
+  return request(`/project-plugins?locale=${encodeURIComponent(language)}`);
+}
+
+/** A project type from GET /project-types: a core one, or `publisher/name:type` from a plugin. */
+export interface AvailableProjectType {
+  id: string;
+  title: string;
+  description?: string;
+  plugin?: { id: string; version: string };
+}
+
+export async function listProjectTypes(): Promise<AvailableProjectType[]> {
+  return request(`/project-types?locale=${encodeURIComponent(language)}`);
+}
+
 /** Turns a plugin on in a project at a version, or off with `null`. `id` is `publisher/name`. */
 export async function setProjectPluginVersion(projectId: string, id: string, version: string | null): Promise<void> {
   await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}`, { method: "PUT", body: JSON.stringify({ version }) });

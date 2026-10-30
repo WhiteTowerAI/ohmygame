@@ -2150,6 +2150,16 @@ select.settings-search-input {
 .project-type-mark.is-asset-canvas { background: var(--hue-image); }
 .project-type-mark.is-godot-game { background: #478cbf; }
 .project-type-mark.is-general { background: var(--hue-model); }
+.project-type-mark.is-plugin { background: var(--color-text-secondary); }
+
+/* 更多类型… leads elsewhere, so its tile is an outline, not a type's colour. */
+.project-type-mark.is-more {
+  width: 20px;
+  height: 20px;
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+  background: none;
+  color: var(--color-text-secondary);
+}
 
 .project-type-godot-icon {
   width: 14px;

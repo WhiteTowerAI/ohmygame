@@ -800,8 +800,16 @@ const zhCN: typeof en = {
     importFolder: "导入文件夹",
     allProjects: "全部项目",
     toCommunity: "去社区",
+    projectType: "项目类型",
+    plugins: "插件",
+    pluginsWith: "插件：用 {{name}} 开始",
     starter: "用哪个插件开始",
     noStarter: "不用插件",
+    noStarterHint: "只按提示词开始",
+    projectPlugins: "只在这个项目开启",
+    noProjectPlugins: "还没有可以只在一个项目里开启的插件。",
+    projectPluginsFailed: "无法加载可在项目里开启的插件。",
+    browsePlugins: "浏览插件",
     ideas: {
       web: {
         dungeon: "做一个像素风地牢 Roguelike，回合制战斗",
@@ -840,6 +848,10 @@ const zhCN: typeof en = {
     "interactive-story": "互动故事",
     "asset-canvas": "素材画布",
     "godot-game": "Godot",
+  },
+  projectTypeChoice: {
+    more: "更多类型…",
+    moreHint: "查找添加项目类型的插件",
   },
   projectTypeDescription: {
     general: "先不定引擎，让 agent 建议",
@@ -937,6 +949,7 @@ const zhCN: typeof en = {
     type: "类型",
     firstMessage: "第一条消息",
     namedFromPrompt: "根据第一条消息命名",
+    typePluginConsent: "创建这个项目即允许添加此类型的 {{name}} 使用：",
     managedFolder: "在 OhMyGame 中新建文件夹",
     inLocation: "在 {{path}} 中新建文件夹",
     createAndStart: "创建并开始",

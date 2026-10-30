@@ -124,7 +124,7 @@ import { PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectKind, projectKindAt } from "./project-types.js";
 import { LegacyMcpConfiguration } from "./legacy-mcp.js";
-import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail, type ProjectPluginItem, type ProjectPluginsView } from "../shared/plugins.js";
+import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail, type ProjectPluginChoice, type ProjectPluginItem, type ProjectPluginsView } from "../shared/plugins.js";
 import { CORE_PROJECT_TYPES } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
@@ -1229,6 +1229,27 @@ export function createApp(options: AppOptions = {}) {
       };
     });
     return { global, plugins: items };
+  });
+  // What Home offers to turn on for the project it is about to create.
+  app.get<{ Querystring: { locale?: string } }>("/project-plugins", async (request): Promise<ProjectPluginChoice[]> => {
+    await pluginServices.ready();
+    await bundledPluginsV2Indexed;
+    const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
+    return [...new Set(pluginServices.index.entries().map((entry) => entry.id))].flatMap((id): ProjectPluginChoice[] => {
+      const entry = pluginServices.index.get(id);
+      const grant = pluginServices.grants.plugin(id);
+      if (!entry || grant?.enabled === false) return [];
+      const requested = capabilityGrants(entry.manifest);
+      return [{
+        id,
+        displayName: localizePluginString(entry, entry.manifest.displayName, locale),
+        description: localizePluginString(entry, entry.manifest.description, locale),
+        version: entry.version,
+        capabilities: requested,
+        consented: Boolean(grant && missingGrants(requested, grant.allowed).length === 0),
+        providesTypes: (entry.manifest.contributes?.projectTypes ?? []).map((type) => `${id}:${type.id}`),
+      }];
+    });
   });
   // Moving a project to another installed version is how an update reaches it, and how it rolls back.
   app.put<{ Params: { projectId: string; publisher: string; name: string }; Body: { version: string | null } }>("/projects/:projectId/plugins/:publisher/:name", {

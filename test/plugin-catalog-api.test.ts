@@ -76,6 +76,11 @@ describe("plugin catalog API", () => {
     const after = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json();
     expect(after.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/godot")).toMatchObject({ used: "1.0.0" });
     expect((await app.inject({ method: "GET", url: "/projects/missing/plugins" })).statusCode).toBe(404);
+    // Home offers the same plugins before a project exists, with the types each adds.
+    const choices = (await app.inject({ method: "GET", url: "/project-plugins?locale=en" })).json();
+    expect(choices.find((plugin: { id: string }) => plugin.id === "ohmygame/godot")).toMatchObject({
+      displayName: "Godot", version: "1.0.0", providesTypes: ["ohmygame/godot:godot-game"], consented: expect.any(Boolean),
+    });
   });
 
   it("offers a project only the plugin mentions its prompts accept", async () => {
