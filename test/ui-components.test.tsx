@@ -67,6 +67,33 @@ it("opens a dialog, closes it on Escape and returns focus", async () => {
   expect(document.activeElement).toBe(open);
 });
 
+it("places a popover again when its content grows", async () => {
+  const observed: Array<() => void> = [];
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(private readonly callback: () => void) {}
+    observe() { observed.push(this.callback); }
+    disconnect() {}
+  });
+  vi.stubGlobal("innerHeight", 600);
+  function Example() {
+    const anchor = useRef<HTMLButtonElement>(null);
+    return <>
+      <button ref={anchor} type="button">History</button>
+      <Popover open onClose={() => {}} anchor={anchor} label="Conversations"><span>Rows</span></Popover>
+    </>;
+  }
+  const rect = (top: number, height: number) => ({ x: 20, y: top, left: 20, top, right: 220, bottom: top + height, width: 200, height, toJSON: () => ({}) });
+  vi.spyOn(HTMLButtonElement.prototype, "getBoundingClientRect").mockReturnValue(rect(400, 28));
+  const panelHeight = vi.spyOn(HTMLDivElement.prototype, "getBoundingClientRect").mockReturnValue(rect(0, 100));
+  await act(async () => root.render(<Example />));
+  const panel = document.querySelector<HTMLElement>(".ui-popover")!;
+  expect(panel.style.top).toBe("434px");
+  // The archived view is taller than the room below the anchor, so the panel opens above it.
+  panelHeight.mockReturnValue(rect(0, 300));
+  await act(async () => observed.forEach((callback) => callback()));
+  expect(panel.style.top).toBe("94px");
+});
+
 it("closes a popover on Escape and gives focus back to its anchor only from inside it", async () => {
   function Example() {
     const [open, setOpen] = useState(false);
