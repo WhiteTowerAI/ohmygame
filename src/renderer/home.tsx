@@ -27,6 +27,7 @@ import sceneTemplateCover from "./assets/templates/examples/scenes-cover.webp";
 import terrainTemplateCover from "./assets/templates/examples/terrain-cover.webp";
 import objectTemplateCover from "./assets/templates/examples/objects-cover.webp";
 import skinTemplateCover from "./assets/templates/examples/skins-cover.webp";
+import effectLibraryCover from "./assets/templates/examples/effect-library-cover.webp";
 
 const PIXEL_TEMPLATE_COVERS: Record<PixelAssetTemplateCategory, string> = {
   characters: characterTemplateCover,
@@ -55,7 +56,7 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
   const [projectActionError, setProjectActionError] = useState<string>();
   const [projectType, setProjectType] = useState<ProjectType>("web-game");
   const [createOpen, setCreateOpen] = useState(false);
-  const [templateCreating, setTemplateCreating] = useState<PixelAssetTemplateCategory>();
+  const [templateCreating, setTemplateCreating] = useState<PixelAssetTemplateCategory | "effect-library">();
   const [templateDensityCategory, setTemplateDensityCategory] = useState<PixelAssetTemplateCategory>();
   const templateTrigger = useRef<HTMLElement | null>(null);
   const [renameTarget, setRenameTarget] = useState<ProjectState>();
@@ -108,6 +109,20 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
     try {
       const { createPixelAssetTemplateProject } = await import("./asset-canvas-template-project.js");
       const created = await createPixelAssetTemplateProject(category, level);
+      onOpenAssetCanvas(created.projectId, created.nodeId);
+    } catch (error) {
+      setProjectActionError(errorMessage(error));
+    } finally {
+      setTemplateCreating(undefined);
+    }
+  }
+
+  async function createEffectTemplate(): Promise<void> {
+    setTemplateCreating("effect-library");
+    setProjectActionError(undefined);
+    try {
+      const { createEffectLibraryProject } = await import("./asset-canvas-templates.js");
+      const created = await createEffectLibraryProject();
       onOpenAssetCanvas(created.projectId, created.nodeId);
     } catch (error) {
       setProjectActionError(errorMessage(error));
@@ -204,6 +219,22 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
                 </span>
               </button>
             ))}
+            <button
+              className="home-whats-new-item home-template-card"
+              type="button"
+              disabled={templateCreating !== undefined}
+              aria-busy={templateCreating === "effect-library"}
+              onClick={() => void createEffectTemplate()}
+            >
+              <span className="home-whats-new-icon home-explore-cover">
+                <img src={effectLibraryCover} alt="" />
+                {templateCreating === "effect-library" ? <span className="home-template-loading"><LoaderCircle className="spin" size={16} /></span> : null}
+              </span>
+              <span className="home-whats-new-copy">
+                <strong>{t("effectLibrary.title")}</strong>
+                <small>{t("effectLibrary.cardDescription")}</small>
+              </span>
+            </button>
           </div>
         </section>
         {visibleExamples.length > 0 ? <section className="home-discover home-explore studio-examples" aria-labelledby="home-examples-heading">
