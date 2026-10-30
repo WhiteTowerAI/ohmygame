@@ -774,12 +774,26 @@ describe("AgentManager", () => {
     moved.resolve();
     await archiving;
     await expect(manager.prompt(project, conversation, "Build").result).resolves.toBe("completed");
-    // Compaction that was loading its session as archiving began stops there.
-    session.compact.mockClear();
+    // A change to the idle session that has begun keeps archiving out until it is done, however long it waits.
+    const switched = deferred<void>();
+    session.setModel.mockImplementation(() => switched.promise);
+    const switching = manager.setModel(project.id, conversation.summary.id, { provider: "sandbox", id: "other" } as never, () => {});
+    await Promise.resolve();
+    await expect(manager.release(project.id, conversation.summary.id, async () => {})).rejects.toThrow("Wait for the agent to finish");
+    switched.resolve();
+    await switching;
     const compacting = manager.compact(project, conversation);
-    await manager.release(project.id, conversation.summary.id, async () => {});
-    await expect(compacting).rejects.toThrow("This conversation is being archived");
-    expect(session.compact).not.toHaveBeenCalled();
+    await Promise.resolve();
+    await expect(manager.release(project.id, conversation.summary.id, async () => {})).rejects.toThrow("Wait for the agent to finish");
+    await (await compacting).result;
+    expect(session.compact).toHaveBeenCalledOnce();
+    // Once archiving has begun, a change is refused.
+    const moving = deferred<void>();
+    const archivingAgain = manager.release(project.id, conversation.summary.id, () => moving.promise);
+    await expect(manager.compact(project, conversation)).rejects.toThrow("This conversation is being archived");
+    await expect(manager.setReasoningLevel(project.id, conversation.summary.id, "high", () => {})).rejects.toThrow("This conversation is being archived");
+    moving.resolve();
+    await archivingAgain;
     await manager.close();
   });
 
