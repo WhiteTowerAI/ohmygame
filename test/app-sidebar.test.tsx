@@ -351,4 +351,16 @@ describe("in a project", () => {
     expect(back).toHaveBeenCalledOnce();
     back.mockRestore();
   });
+
+  it("leads with back and forward where the system draws the title bar, and leaves them to the Windows one", async () => {
+    const rail = () => root.render(<ProjectRail projectId="p" onNavigate={onNavigate} onLeave={onLeave} conversations={{ items: [], onOpen, onNew }} />);
+    vi.stubGlobal("ohMyGameDesktop", { platform: "linux" });
+    await act(async () => rail());
+    expect(sidebar().querySelector(".sidebar-titlebar [aria-label='Back']")).not.toBeNull();
+    vi.stubGlobal("ohMyGameDesktop", { platform: "win32", windowMenu: { popup: vi.fn() } });
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => rail());
+    expect(sidebar().querySelector(".sidebar-titlebar")).toBeNull();
+  });
 });
