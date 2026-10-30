@@ -702,23 +702,6 @@ body {
   margin-top: 18px;
 }
 
-.settings-provider-row {
-  display: grid;
-  min-height: 64px;
-  grid-template-columns: 34px minmax(0, 1fr) auto 32px;
-  align-items: center;
-  gap: 12px;
-  padding: 7px 8px;
-  border-radius: 6px;
-  background: var(--settings-row-surface);
-  transition: background-color 120ms ease;
-}
-
-.settings-provider-row.is-featured {
-  min-height: 70px;
-  background: var(--settings-row-surface-emphasis);
-}
-
 .settings-provider-mark,
 .settings-provider-mark-slot {
   display: grid;
@@ -847,36 +830,6 @@ body {
 
 .settings-provider-status.is-error {
   color: var(--danger);
-}
-
-.settings-provider-row > button {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  grid-column: 4;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.settings-provider-row > button:hover:not(:disabled),
-.settings-provider-row > button:focus-visible {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.settings-provider-row > button:disabled {
-  cursor: default;
-  opacity: 0.55;
 }
 
 .settings-provider-more {
@@ -2045,12 +1998,6 @@ select.settings-search-input {
     overflow-x: auto;
   }
 
-  .settings-provider-row {
-    grid-template-columns: 34px minmax(0, 1fr) 32px;
-    grid-template-rows: auto auto;
-    row-gap: 3px;
-  }
-
   .settings-provider-mark,
   .settings-provider-mark-slot {
     grid-column: 1;
@@ -2073,10 +2020,6 @@ select.settings-search-input {
     grid-row: 2;
   }
 
-  .settings-provider-row > button {
-    grid-column: 3;
-    grid-row: 1 / span 2;
-  }
 }
 
 /* Keep the creation area near the upper middle as project shelves grow below it. */
@@ -11931,12 +11874,6 @@ summary.work-summary:hover {
   background: #2d2d2d;
 }
 
-:root[data-appearance="light"]
-  .settings-provider-row
-  > button:not(.is-primary):hover:not(:disabled),
-:root[data-appearance="light"] .settings-provider-row > button:not(.is-primary):focus-visible {
-  background: var(--surface-hover);
-}
 
 :root[data-appearance="light"] .settings-account-avatar {
   background: var(--surface-hover);
