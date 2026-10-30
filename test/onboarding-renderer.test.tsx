@@ -1345,6 +1345,14 @@ describe("three-step setup with coding agents", () => {
     expect(
       agentButton("Codex").querySelector(".onboarding-agent-status")?.textContent,
     ).toBe("Ready");
+    // Screen readers hear the status along with the name.
+    expect(
+      agentButton("Codex")
+        .getAttribute("aria-describedby")!
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent)
+        .join(" "),
+    ).toContain("Ready");
     expect(container.querySelector(".onboarding-picker")).toBeNull();
     await chooseAgent("Codex");
     expect(api.updateAgentDefaults).not.toHaveBeenCalled();

@@ -95,20 +95,15 @@ requiring another selection. Failed sign-in can be retried in place.
 can return a browser URL or a terminal command,
 with a recheck after sign-in. Advanced CLI configuration stays in Settings → Agents.
 
-OhMyGame (Pi) appears first with a **Default** subtitle alongside the CLIs in a
-single horizontally scrolling row. Initially only agent choices are shown.
-Selecting one replaces those cards with a compact name and a **Switch**
-action, then shows its configuration. A short hint on the agent choices explains
-that multiple agents can stay connected and users can switch between them.
-The hint is hidden in an agent's configuration. Reopening the choices preserves model
-selections and hides configuration until an agent is selected again. It cannot be disabled. Selecting it
-does not disable any CLI. Sign-in, API key, and configuration actions use icons
-with accessible labels and tooltips. Connected
+OhMyGame (Pi) is the first card, marked **Recommended**. The CLIs follow under
+a heading with a rescan action, as cards in the same vertical list. Each card
+shows its status (ready, installed, signed out, or not detected), which
+screen readers hear with the name. Selecting a card opens its configuration
+below it; selecting it again keeps its model selection. OhMyGame cannot be
+disabled, and selecting it does not disable any CLI. Sign-in, API key, and
+configuration actions use icons with accessible labels and tooltips. Connected
 providers show a check; disabled connections offer an enable icon without
 changing their credentials.
-Wide windows show all four agents; narrower windows hide the scrollbar and
-allow wheel, touch, keyboard, and arrow navigation. Vertical wheel events only
-move the row while there is horizontal space in that direction.
 The connection screen also selects the default conversation model. It uses
 `/models?runtimes=1`, including enabled coding agents, and retries catalogs with
 `loadingRuntimes` without hiding models already available. Native defaults use

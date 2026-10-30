@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { AgentModel } from "../shared/contracts.js";
 import type {
   AgentRuntimeId,
@@ -41,6 +41,7 @@ export function OnboardingAgents({
   children: ReactNode;
 }) {
   const generation = useReadyRuntimeGeneration();
+  const describedBy = useId();
   const [agents, setAgents] = useState<AgentRuntimeStatus[]>();
   const [error, setError] = useState<string>();
   const [loadError, setLoadError] = useState<string>();
@@ -283,6 +284,9 @@ export function OnboardingAgents({
     onClick: () => void;
   }) => {
     const chosen = selectedAgent === id;
+    // The name alone labels the card; the hint and status describe it.
+    const hintId = `${describedBy}-${id}-hint`;
+    const statusId = `${describedBy}-${id}-status`;
     return (
       <div
         key={id}
@@ -292,6 +296,7 @@ export function OnboardingAgents({
           type="button"
           className="onboarding-agent-option"
           aria-label={name}
+          aria-describedby={status ? `${hintId} ${statusId}` : hintId}
           aria-pressed={chosen}
           disabled={disabled}
           onClick={onClick}
@@ -311,10 +316,11 @@ export function OnboardingAgents({
                 <span className="onboarding-agent-badge">{badge}</span>
               ) : null}
             </span>
-            <small>{hint}</small>
+            <small id={hintId}>{hint}</small>
           </span>
           {status ? (
             <span
+              id={statusId}
               className={`onboarding-agent-status${tone ? ` is-${tone}` : ""}`}
             >
               {status}
