@@ -189,6 +189,13 @@ temporary data and verifies its authenticated API on native platform builds.
 An incomplete or unpatched dependency therefore fails packaging before an
 installer is created.
 
+The startup check copies `app.asar` and its unpacked files to a temporary
+directory outside the checkout, so a missing packaged dependency cannot resolve
+from the build machine's `node_modules`. Both the daemon and the external MCP
+launcher load their modules from that isolated copy. Dependencies imported by
+the daemon, including Mediabunny for audio validation, belong in `dependencies`
+even when the renderer also bundles them.
+
 `build:host` also generates `dist/story-web/resources.json`: the readable story
 runtime modules, with comments retained, and the bundled editor bridge. The
 desktop package includes this resource file. The built daemon reads it directly

@@ -15,6 +15,16 @@ const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("tool runner", () => {
+  it("rejects removed audio reference and subtitle options before generation", async () => {
+    const generate = vi.fn();
+    const runner = new ToolRunner(await temporaryData(), fakeGenerator(), undefined, undefined, undefined, undefined, { catalog: () => ({ models: [], providers: [] }), generate });
+    await runner.load();
+    for (const removed of [{ references: [{ type: "audio" as const, assetId: "rain" }] }, { referenceAssetId: "rain" }, { subtitles: true }]) {
+      await expect(runner.run("generate-music", { prompt: "quiet music", instrumental: true, ...removed })).rejects.toMatchObject({ statusCode: 400 });
+    }
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it("runs Image to 3D and persists its GLB output", async () => {
     const dataDirectory = await temporaryData();
     const library = new AssetLibrary(dataDirectory);
@@ -190,7 +200,7 @@ describe("tool runner", () => {
     expect(run).toMatchObject({
       toolId: "generate-speech",
       model,
-      files: [{ name: "output.mp3", mediaType: "audio/mpeg", assetId: expect.any(String) }],
+      files: [{ name: "output.mp3", mediaType: "audio/mpeg", role: "audio", assetId: expect.any(String) }, { name: "output.mp3.audio.json", mediaType: "application/json", role: "metadata" }],
     });
     const asset = library.get(run.files[0]!.assetId!);
     expect(asset).toMatchObject({ mediaType: "audio", contentType: "audio/mpeg", origin: "generated", prompt: "Welcome, traveler", duration: 1.25 });

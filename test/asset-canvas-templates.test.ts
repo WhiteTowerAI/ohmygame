@@ -26,7 +26,7 @@ const reference: ImageModel = {
 describe("pixel asset workflows", () => {
   it("keeps legacy guide markers readable without creating new template boards", () => {
     expect(ASSET_CANVAS_TEMPLATES).toEqual(["pixel-art", "character-sheet", "quick-reskin", "free-sequence", "action-set"]);
-    expect(templateImagePresets("pixel-art")).toHaveLength(11);
+    expect(templateImagePresets("pixel-art")).toHaveLength(12);
     expect(templateImagePresets("free-sequence")).toEqual(["continuous-sequence", "consistent-sequence"]);
     expect(templateImagePresets("action-set")).toEqual([]);
     expect(templateGuideInfo("asset-canvas-template:pixel-art")).toEqual({ template: "pixel-art" });
@@ -39,16 +39,16 @@ describe("pixel asset workflows", () => {
   it("organizes the pixel catalog by function and provides translated card details", () => {
     const catalog = pixelAssetPresetCatalog();
     expect(catalog.map((category) => category.id)).toEqual([
-      "characters", "creatures", "animation", "scenes", "terrain", "objects", "skins",
+      "characters", "animation", "terrain", "objects", "creatures", "scenes", "skins",
     ]);
     expect(catalog.flatMap((category) => category.presets)).toHaveLength(21);
     expect(catalog.flatMap((category) => category.presets).every((preset) =>
       preset.label.length > 0 && preset.description.length > 0 && !preset.label.startsWith("assetCanvas."),
     )).toBe(true);
-    expect(pixelAssetWorkflowLabel("quick-reskin", "classic")).toContain("Skins");
+    expect(pixelAssetWorkflowLabel("quick-reskin", "classic")).toContain("Outfits");
     expect(pixelAssetWorkflowLabel("quick-reskin", "classic")).toContain("Classic Pixels");
     expect(pixelAssetTemplateCategories().map((category) => category.id)).toEqual([
-      "characters", "creatures", "animation", "scenes", "objects", "skins",
+      "characters", "animation", "terrain", "objects", "creatures", "scenes", "skins",
     ]);
     expect(pixelAssetTemplateCategories().every((category) => category.label && category.description)).toBe(true);
   });
@@ -126,7 +126,7 @@ describe("pixel asset workflows", () => {
     const description = "snow biome, side view, $& $` $'";
     const terrain = canvasImagePresetPrompt("terrain", description);
     const tileset = canvasImagePresetPrompt("tileset", description);
-    expect(terrain).toContain("MANDATORY ASSET TYPE: CONTINUOUS TERRAIN");
+    expect(terrain).toContain("MANDATORY ASSET TYPE: CONTINUOUS MAP TERRAIN");
     expect(tileset).toContain("MANDATORY ASSET TYPE: TERRAIN TILESET");
     expect(tileset).toContain("Default logical size per tile: 32×32 pixels");
     expect(tileset).toContain("With 4 columns and 4 rows, the complete sheet is 128×128 logical pixels");
@@ -264,7 +264,7 @@ describe("pixel asset workflows", () => {
     const prop = canvasImagePresetPrompt("prop", "sword", "pixel", 1, level);
     expect(prop).toContain(`per view: ${sprite}×${sprite} pixels`);
     expect(prop).toContain(`complete sheet is ${sprite * 4}×${sprite * 3} logical pixels`);
-    for (const [preset, ratio] of [["consistent-sequence", "1:1"], ["prop", "4:3"]] as const) {
+    for (const [preset, ratio] of [["consistent-sequence", "1:1"], ["prop", "4:3"], ["multi-angle", "1:1"]] as const) {
       const workflow = createPixelAssetWorkflowNodes(preset, level, [reference]);
       expect(workflow.nodes[0]).toMatchObject({ data: { aspectRatio: ratio } });
     }
@@ -280,9 +280,26 @@ describe("pixel asset workflows", () => {
     }
     for (const preset of ["scene", "terrain", "tileset", "building"] as const) {
       expect(prompt(preset)).toContain("Omit individual leaves, dense grass blades, tiny bricks");
+    }
+    for (const preset of ["scene", "building"] as const) {
       expect(prompt(preset)).toContain("Preserve composition, perspective");
     }
+    for (const preset of ["terrain", "tileset"] as const) {
+      expect(prompt(preset)).not.toContain("Preserve composition");
+      expect(prompt(preset)).toContain("TERRAIN DETAIL BUDGET:");
+      expect(prompt(preset)).toContain("not a base image to restyle");
+      expect(canvasImagePresetPrompt(preset, "", "pixel", 1, "classic")).toContain("USER REQUEST: Derive the terrain biome");
+    }
     expect(prompt("tileset")).toContain("All cells must have identical square dimensions");
+    expect(prompt("multi-angle")).toContain("3-column by 3-row grid");
+    expect(prompt("multi-angle")).toContain("top-down overhead view looking straight down");
+    expect(prompt("multi-angle")).toContain("front-left three-quarter view, front view facing the viewer, front-right three-quarter view");
+    expect(prompt("multi-angle")).toContain("complete sheet is 192×192 logical pixels");
+    expect(prompt("multi-angle")).toContain("SUBJECT DETAIL BUDGET:");
+    for (const section of ["MAP LAYOUT", "MATERIAL DISTRIBUTION", "ROADS AND PATHS", "WATER", "TERRAIN BOUNDARIES"]) {
+      expect(prompt("terrain")).toContain(section);
+    }
+    expect(prompt("terrain")).toContain("not a scene illustration, story moment");
     for (const preset of ["prop", "icon"] as const) {
       expect(prompt(preset)).toContain("Preserve functional silhouette");
       expect(prompt(preset)).toContain("Merge engraving, gems, reflections");

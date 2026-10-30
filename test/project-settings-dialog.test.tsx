@@ -221,11 +221,11 @@ describe("preview settings drafts", () => {
     );
   });
 
-  it("does not reinspect startup configuration when route and device change", async () => {
+  it.each(["tablet", "mobile-landscape"])("does not reinspect startup configuration when route and device change to %s", async (previewViewport) => {
     await act(async () => vi.advanceTimersByTimeAsync(300));
     expect(inspectProjectPreview).toHaveBeenCalledTimes(1);
     await change("Default route", "/new-route");
-    await change("Device", "tablet");
+    await change("Device", previewViewport);
     await act(async () => vi.advanceTimersByTimeAsync(300));
     expect(inspectProjectPreview).toHaveBeenCalledTimes(1);
     await save();
@@ -233,7 +233,7 @@ describe("preview settings drafts", () => {
       project.id,
       expect.objectContaining({
         previewPath: "/new-route",
-        previewViewport: "tablet",
+        previewViewport,
       }),
     );
   });

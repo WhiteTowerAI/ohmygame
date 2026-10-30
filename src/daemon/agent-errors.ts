@@ -89,7 +89,7 @@ function classifyAgentError(message: string, diagnostics: AgentErrorDiagnostics)
   if (/AGENT_RUNTIME_INCOMPATIBLE/.test(codes) || /^Local CLI compatibility: /.test(message)) return "runtime_incompatible";
   if (/AGENT_RUNTIME_PROBE_FAILED/.test(codes) || /^Local CLI check failed: /.test(message)) return "runtime_probe_failed";
   if (/^No API key\b/i.test(message) || /select an available model|selected model .* is not available|provider .* is disabled/i.test(message)) return "model_not_configured";
-  const quota = /insufficient[_ ](?:quota|balance)|quota[_ ]exceeded|out of budget|billing[_ ](?:hard[_ ]|soft[_ ])?limit|usage limit|subscription_sharing_usage_limit_exceeded|GoUsageLimitError|FreeUsageLimitError/i;
+  const quota = /insufficient[_ ](?:quota|balance)|quota[_ ]exceeded|out of budget|billing[_ ](?:hard[_ ]|soft[_ ])?limit|usage limit|hit your (?:[a-z-]+ )?limit|subscription_sharing_usage_limit_exceeded|GoUsageLimitError|FreeUsageLimitError/i;
   if (status === 402 || quota.test(diagnostics.errorCode ?? "") || ((!Number.isFinite(status) || status < 400 || status === 429) && quota.test(message))) return "quota_exceeded";
   if (status === 401) return "authentication_failed";
   if (status === 403) return "access_denied";

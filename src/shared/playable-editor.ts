@@ -3,12 +3,12 @@ import type {
   NodeGraph,
   PlayableAssetDefinition,
   PlayableAssetType,
-  JsonValue,
 } from "./playable-nodes.js";
 import type { NodePlayerDefinition } from "./playable-player-protocol.js";
 
 export interface PlayableProjectValidationIssue {
-  phase: "graph" | "compiler";
+  /** `source` is about one Scene's files, which keep that Scene from playing. */
+  phase: "graph" | "source";
   code: NodeGraphValidationIssue["code"] | "invalid-json" | "missing-graph" | string;
   path: string;
   message: string;
@@ -38,17 +38,6 @@ export interface PlayableAddedNode {
   files: string[];
   signals: string[];
   brief: string;
-}
-
-/** A Variable's value in author words: Yes/No, "empty", "3 items". */
-export function describePlayableValue(value: JsonValue): string {
-  if (value === null) return "nothing";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") return String(value);
-  if (typeof value === "string") return value === "" ? "empty" : `"${value}"`;
-  if (Array.isArray(value)) return value.length === 0 ? "empty" : value.length === 1 ? "1 item" : `${value.length} items`;
-  const size = Object.keys(value).length;
-  return size === 0 ? "empty" : size === 1 ? "1 field" : `${size} fields`;
 }
 
 export function renamePlayableSignal(
@@ -158,50 +147,14 @@ export function removePlayableNodeAsset(graph: NodeGraph, nodeId: string, assetI
   return next;
 }
 
-/**
- * Identifies what a preview session runs. Node titles, Signal labels, and the
- * graph title are editor text the Runtime never reads, so renaming them keeps
- * the running preview.
- */
-export function playableRuntimeKey(definition: NodePlayerDefinition): string {
-  const { title: _title, nodes, ...graph } = definition.graph;
-  return JSON.stringify({
-    graph: { ...graph, nodes: nodes.map(({ title: _nodeTitle, signals, ...node }) => ({ ...node, signals: signals.map((signal) => signal.id) })) },
-    compiled: definition.compiled,
-  });
-}
-
 /** Node ID to the thumbnail cached for it in `.ohmygame/thumbnails/`. */
 export type PlayableThumbnailManifest = Record<string, { hash: string; capturedAt: string }>;
 
 /**
- * Identifies what a Node thumbnail shows: the Node's compiled output, the
- * Assets it declares, and the viewport. A cached thumbnail with another hash
- * is stale.
+ * Identifies what a Node thumbnail shows: the Node's files and what they
+ * import, the Assets it declares, and the viewport, as checked when the
+ * project was built. A cached thumbnail with another hash is stale.
  */
 export function playableThumbnailHash(definition: NodePlayerDefinition, nodeId: string): string | undefined {
-  const { graph, compiled } = definition;
-  const node = graph.nodes.find((candidate) => candidate.id === nodeId);
-  const surface = compiled.nodes[nodeId];
-  if (!node || !surface) return undefined;
-  const assetIds = [...node.assets].sort();
-  return hashText(JSON.stringify({
-    node: [surface.html, surface.css, surface.javascript],
-    assets: assetIds.map((id) => [id, graph.assets[id] ?? null]),
-    viewport: graph.viewport,
-  }));
-}
-
-/** cyrb53: a fast 53-bit string hash, enough to tell cache entries apart. */
-function hashText(text: string): string {
-  let first = 0xdeadbeef;
-  let second = 0x41c6ce57;
-  for (let index = 0; index < text.length; index += 1) {
-    const code = text.charCodeAt(index);
-    first = Math.imul(first ^ code, 2654435761);
-    second = Math.imul(second ^ code, 1597334677);
-  }
-  first = Math.imul(first ^ (first >>> 16), 2246822507) ^ Math.imul(second ^ (second >>> 13), 3266489909);
-  second = Math.imul(second ^ (second >>> 16), 2246822507) ^ Math.imul(first ^ (first >>> 13), 3266489909);
-  return (4294967296 * (2097151 & second) + (first >>> 0)).toString(16).padStart(14, "0");
+  return definition.hashes[nodeId];
 }

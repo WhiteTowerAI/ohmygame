@@ -16,7 +16,6 @@ import type {
 import { AgentProcess, processFailure } from "./process.js";
 import { BRIDGE_SERVER_NAME, ToolBridge } from "./tool-bridge.js";
 import {
-  decideApproval,
   number,
   piToolCall,
   PLANNING_DENIAL,
@@ -25,7 +24,7 @@ import {
   type DriverContext,
 } from "./driver-context.js";
 import { stageSkills, stagedSkillsRoot } from "./skills.js";
-import { canonicalPath, judgeApproval, planningPolicy } from "./policy.js";
+import { canonicalPath } from "./paths.js";
 import { NativeSessionExpiredError } from "./native-session.js";
 import {
   AgentRuntimeCompatibilityError,
@@ -35,10 +34,11 @@ import {
 } from "./compatibility.js";
 
 const START_TIMEOUT_MS = 30_000;
-const CALLBACK_PERMISSIONS = [{ action: "*", resource: "*", effect: "ask" }];
+/** The "allow" mode: a session rule after OpenCode's own that allows everything. */
+const ALLOW_ALL = { action: "*", resource: "*", effect: "allow" };
 const SESSION_PREFIX = "opencode-v2:";
 const PERMISSION_DENIAL =
-  "OhMyGame denied this request. Do not retry it through another tool or command. Explain the denial and continue only with permitted work.";
+  "The person denied this request. Do not retry it through another tool or command. Explain the denial and continue only with permitted work.";
 
 interface OpenCodeServer {
   process: AgentProcess;
@@ -66,7 +66,9 @@ interface OpenCodeTurn {
  * OpenCode through `opencode serve`, one server per conversation on a
  * loopback port with a password of its own. Messages go to the session's
  * prompt endpoint, everything that happens comes back on its event stream,
- * and permission requests are answered on the server. OhMyGame's tools are
+ * and permission requests are answered on the server. OpenCode's own
+ * permission rules decide what it asks; OhMyGame shows the question and
+ * returns the person's answer. OhMyGame's tools are
  * a remote MCP server on the daemon whose token only works while a turn of
  * this conversation runs.
  */
@@ -81,7 +83,7 @@ export class OpenCodeDriver implements NativeDriver {
     const driver = new OpenCodeDriver({
       ...context,
       workspacePath: context.privateDirectory,
-      policy: { workspacePath: context.privateDirectory, neverTouch: [] },
+      permissionMode: "default",
       bridge: new ToolBridge([]),
       instructions: "",
       model: "",
@@ -106,7 +108,8 @@ export class OpenCodeDriver implements NativeDriver {
   #launching?: AgentProcess;
   #starting?: Promise<OpenCodeServer>;
   #sessionId?: string;
-  #projectId?: string;
+  /** The session rules last applied, so a turn changes them only when its mode differs. */
+  #sessionRules?: string;
   #legacyResume = false;
   #turn?: OpenCodeTurn;
   #bridge?: { url: string; token: string; revoke: () => void };
@@ -241,7 +244,7 @@ export class OpenCodeDriver implements NativeDriver {
     signal: AbortSignal,
   ): Promise<void> {
     signal.throwIfAborted();
-    await this.#checkSavedPermissions();
+    await this.#applySessionRules(sessionId, input.readOnly);
     signal.throwIfAborted();
     const [providerID, id] = splitModel(this.context.model);
     await this.#api("POST", `/session/${sessionId}/model`, {
@@ -285,17 +288,12 @@ export class OpenCodeDriver implements NativeDriver {
         await this.#api("POST", "/session", {
           title: "OhMyGame",
           location: { directory: this.context.workspacePath },
-          permissions: CALLBACK_PERMISSIONS,
         }),
       );
       if (typeof created?.id !== "string")
         throw new Error("OpenCode did not start a session");
       this.#sessionId = created.id;
     }
-    // Reapply and verify on resume too; never inherit a previous native permission grant.
-    await this.#api("PATCH", `/session/${this.#sessionId}`, {
-      permissions: CALLBACK_PERMISSIONS,
-    });
     const info = record(await this.#api("GET", `/session/${this.#sessionId}`));
     const directory = record(info?.location)?.directory;
     if (
@@ -305,30 +303,33 @@ export class OpenCodeDriver implements NativeDriver {
       throw new NativeSessionExpiredError(
         "OpenCode session no longer belongs to this workspace",
       );
-    if (!hasCallbackPermissions(info?.permissions))
-      throw new AgentRuntimeCompatibilityError(
-        "OpenCode did not enable OhMyGame's permission callbacks for this session.",
-        "session.permissions=ask",
-      );
     sink.nativeSession(SESSION_PREFIX + this.#sessionId);
     return this.#sessionId;
   }
 
-  async #checkSavedPermissions(): Promise<void> {
-    const result = await this.#api(
-      "GET",
-      "/permission/saved",
-      undefined,
-      false,
-      { projectID: this.#projectId! },
-    );
-    if (!Array.isArray(result))
-      throw new Error("OpenCode did not report its saved permissions");
-    if (result.length)
-      throw new AgentRuntimeCompatibilityError(
-        "OpenCode has saved permissions for this project that can bypass OhMyGame's approvals. Remove those grants in OpenCode and check again. OhMyGame does not delete your CLI permissions.",
-        "no saved OpenCode permissions for this project",
-      );
+  /**
+   * OpenCode's rules for its agents stay as the person configured them. The
+   * session adds that this session's staged Skills are readable, and with
+   * full access, outside planning, that everything is allowed. Sessions made
+   * before carry OhMyGame's former ask-everything rule, which this replaces.
+   */
+  async #applySessionRules(sessionId: string, readOnly: boolean): Promise<void> {
+    const skills = stagedSkillsRoot("opencode-cli", this.context.privateDirectory);
+    const rules = [
+      { action: "external_directory", resource: skills, effect: "allow" },
+      {
+        action: "external_directory",
+        resource: `${skills}/*`,
+        effect: "allow",
+      },
+      ...(this.context.permissionMode === "allow" && !readOnly
+        ? [ALLOW_ALL]
+        : []),
+    ];
+    const key = JSON.stringify(rules);
+    if (this.#sessionRules === key) return;
+    await this.#api("PATCH", `/session/${sessionId}`, { permissions: rules });
+    this.#sessionRules = key;
   }
 
   async #start(): Promise<OpenCodeServer> {
@@ -430,7 +431,6 @@ export class OpenCodeDriver implements NativeDriver {
         checkRuntimeVersionRequirement(
           "opencode-cli",
           typeof info?.version === "string" ? info.version : undefined,
-          "standard",
         );
         const location = record(await this.#api("GET", "/location"));
         if (
@@ -442,10 +442,8 @@ export class OpenCodeDriver implements NativeDriver {
             "OpenCode did not report its location and project identity.",
             "location.directory / project.id",
           );
-        this.#projectId = String(record(location.project)!.id);
-        await this.#checkSavedPermissions();
         // V2 can return the built-in catalog before configuration transforms finish.
-        // Do not send a prompt until every agent has the callback policy applied.
+        // Do not send a prompt until the build and plan agents are there.
         const deadline = Date.now() + 5_000;
         for (;;) {
           const agents = await this.#api("GET", "/agent");
@@ -453,16 +451,13 @@ export class OpenCodeDriver implements NativeDriver {
             Array.isArray(agents) &&
             ["build", "plan"].every((id) =>
               agents.some((a) => record(a)?.id === id),
-            ) &&
-            agents.every((agent) =>
-              hasCallbackPermissions(record(agent)?.permissions),
             )
           )
             break;
           if (Date.now() >= deadline)
             throw new AgentRuntimeCompatibilityError(
-              "OpenCode did not enable OhMyGame's permission callbacks for its agents. Check its configuration and plugins, then check again.",
-              "build/plan permissions=ask",
+              "OpenCode did not list its build and plan agents. Check its configuration and plugins, then check again.",
+              "build/plan agents",
             );
           await delay(50, undefined, { signal: events.signal });
         }
@@ -480,7 +475,7 @@ export class OpenCodeDriver implements NativeDriver {
     })());
   }
 
-  /** V2 uses the person's CLI configuration, with app instructions and callback rules added. */
+  /** V2 uses the person's CLI configuration, with app instructions and staged Skills added. */
   async #environment(): Promise<Record<string, string>> {
     const { context } = this;
     const skills = stagedSkillsRoot("opencode-cli", context.privateDirectory);
@@ -493,11 +488,6 @@ export class OpenCodeDriver implements NativeDriver {
       OPENCODE_CONFIG_CONTENT: JSON.stringify({
         share: "disabled",
         snapshots: false,
-        permissions: CALLBACK_PERMISSIONS,
-        agents: {
-          build: { permissions: CALLBACK_PERMISSIONS },
-          plan: { permissions: CALLBACK_PERMISSIONS },
-        },
         instructions: [instructions],
         ...(staged.length ? { skills: [skills] } : {}),
       }),
@@ -782,7 +772,7 @@ export class OpenCodeDriver implements NativeDriver {
 
   async #reply(
     request: Record<string, unknown>,
-    decision: "once" | "reject",
+    decision: "once" | "always" | "reject",
     message?: string,
   ): Promise<void> {
     if (typeof request.sessionID !== "string" || typeof request.id !== "string")
@@ -826,6 +816,7 @@ export class OpenCodeDriver implements NativeDriver {
       ? request.resources.map(String)
       : [];
     const metadata = record(request.metadata) ?? {};
+    const saved = Array.isArray(request.save) ? request.save.map(String) : [];
     // V2 file resources are relative to the session location, even inside a Git worktree.
     // Search patterns are not file paths.
     const filePermission = [
@@ -871,10 +862,8 @@ export class OpenCodeDriver implements NativeDriver {
             })),
           }
         : {}),
-      canAllowSession:
-        Array.isArray(request.save) &&
-        request.save.length > 0 &&
-        (file !== undefined || command !== undefined),
+      // OpenCode's "always" saves these patterns, so they are not asked about again.
+      ...(saved.length ? { always: { scope: "saved", rules: saved } } : {}),
     };
     const callId =
       typeof record(request.source)?.id === "string"
@@ -884,23 +873,19 @@ export class OpenCodeDriver implements NativeDriver {
     // A rejection with feedback lets OpenCode adjust and continue; a bare one stops its loop.
     let feedback: string | undefined;
     try {
+      // OhMyGame's own tools need no permission; the daemon runs them.
       if (
-        OPENCODE_OWN_PERMISSIONS.has(permission) ||
         this.context.bridge
           .list()
           .some((tool) => `${BRIDGE_SERVER_NAME}_${tool.name}` === permission)
       )
         decision = "allow";
-      else if (turn.readOnly && !OPENCODE_READ_PERMISSIONS.has(permission)) {
-        decision =
-          permission === "shell" &&
-          judgeApproval(details, planningPolicy(this.context.policy)) ===
-            "allow"
-            ? "allow"
-            : "deny";
-        if (decision === "deny") feedback = PLANNING_DENIAL;
+      else if (turn.readOnly) {
+        // Planning never stops to ask: what OpenCode would ask about is not reading.
+        decision = "deny";
+        feedback = PLANNING_DENIAL;
       } else
-        decision = await decideApproval(details, this.context, turn.sink, {
+        decision = await turn.sink.requestApproval(details, {
           ...(callId ? { callId } : {}),
           signal: turn.signal,
         });
@@ -911,10 +896,13 @@ export class OpenCodeDriver implements NativeDriver {
       decision = "deny";
       feedback = undefined;
     }
-    // Conversation grants stay in OhMyGame, never in OpenCode's persisted patterns.
     await this.#reply(
       request,
-      decision === "deny" ? "reject" : "once",
+      decision === "deny"
+        ? "reject"
+        : decision === "allow-always" && details.always
+          ? "always"
+          : "once",
       decision === "deny" && !turn.signal.aborted && this.#turn === turn
         ? (feedback ?? PERMISSION_DENIAL)
         : undefined,
@@ -959,30 +947,6 @@ export class OpenCodeDriver implements NativeDriver {
   }
 }
 
-/**
- * OpenCode requests that touch no file and run no command: subagents (whose
- * own requests arrive here with their session's ancestry checked), its todo
- * list, Skill loading and web research. Asking would interrupt the person for
- * the agent's bookkeeping, and planning may use them too.
- */
-const OPENCODE_OWN_PERMISSIONS = new Set([
-  "subagent",
-  "todowrite",
-  "todoread",
-  "skill",
-  "webfetch",
-  "websearch",
-]);
-
-/** What a planning turn may request; bash only for the read commands the policy allows. */
-const OPENCODE_READ_PERMISSIONS = new Set([
-  "read",
-  "glob",
-  "grep",
-  "list",
-  "external_directory",
-]);
-
 class OpenCodeHttpError extends Error {
   constructor(
     readonly status: number,
@@ -1026,23 +990,6 @@ function stableJson(value: unknown): string {
       )
       .join(",")}}`;
   return JSON.stringify(value);
-}
-
-/** Later deny/ask exceptions are safe; a later allow could bypass callbacks. */
-function hasCallbackPermissions(value: unknown): boolean {
-  if (!Array.isArray(value)) return false;
-  const index = value.findLastIndex(
-    (v) =>
-      record(v)?.action === "*" &&
-      record(v)?.resource === "*" &&
-      record(v)?.effect === "ask",
-  );
-  return (
-    index >= 0 &&
-    value
-      .slice(index + 1)
-      .every((v) => ["ask", "deny"].includes(String(record(v)?.effect)))
-  );
 }
 
 function openCodeError(value: unknown): string {

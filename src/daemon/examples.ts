@@ -1,5 +1,4 @@
-import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { cp, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, ProjectType, ToolJob } from "../shared/contracts.js";
 import { isPreparedExampleCatalog, type ExampleSummary, type PreparedExample } from "../shared/examples.js";
@@ -14,9 +13,6 @@ export class ExampleError extends Error {
   }
 }
 
-/** Compiles an interactive story workspace into a Published Player directory. */
-export type PreparePlayableExample = (workspacePath: string, exampleId: string) => Promise<string>;
-
 // Files a desktop OS leaves in folders; a folder holding only these counts as empty.
 const IGNORABLE_WORKSPACE_FILES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
 
@@ -28,13 +24,10 @@ export class ExampleStore {
   readonly #directory: string | undefined;
   readonly #playServer = new LoopbackFileServer();
   readonly #playUrls = new Map<string, Promise<string>>();
-  readonly #temporaryDirectories: string[] = [];
-  readonly #preparePlayable: PreparePlayableExample | undefined;
   #examples: PreparedExample[] = [];
 
-  constructor(directory: string | undefined, preparePlayable?: PreparePlayableExample) {
+  constructor(directory: string | undefined) {
     this.#directory = directory;
-    this.#preparePlayable = preparePlayable;
   }
 
   async load(): Promise<string | undefined> {
@@ -78,19 +71,11 @@ export class ExampleStore {
   async close(): Promise<void> {
     this.#playUrls.clear();
     await this.#playServer.close();
-    await Promise.all(this.#temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
   }
 
+  /** A prepared build, or else the example's own files: a web story plays as its page. */
   async #playableDirectory(example: PreparedExample): Promise<string> {
-    if (example.play) return path.join(this.#directory!, example.play);
-    if (!this.#preparePlayable) throw new Error(`${example.name} cannot be played in this build`);
-    // Compile from a scratch copy: packaged examples live in read-only app resources.
-    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-example-"));
-    this.#temporaryDirectories.push(workspace);
-    await cp(path.join(this.#directory!, example.directory), workspace, { recursive: true });
-    const player = await this.#preparePlayable(workspace, example.id);
-    this.#temporaryDirectories.push(player);
-    return player;
+    return path.join(this.#directory!, example.play ?? example.directory);
   }
 
   /** Creates a project whose workspace starts as a copy of the example. */

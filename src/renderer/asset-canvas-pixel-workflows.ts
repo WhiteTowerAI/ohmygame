@@ -1,4 +1,5 @@
 import type { AssetCanvasNode, ImageModel } from "../shared/contracts.js";
+import { PIXEL_RESKIN_CLOTHING_EXAMPLE, pixelPresetExampleId } from "./asset-canvas-pixel-examples.js";
 import {
   actionSheetPrompt,
   continuousActionsPrompt,
@@ -33,10 +34,11 @@ export type PixelAssetCategory =
   | "skins";
 export const PIXEL_ASSET_TEMPLATE_CATEGORIES = [
   "characters",
-  "creatures",
   "animation",
-  "scenes",
+  "terrain",
   "objects",
+  "creatures",
+  "scenes",
   "skins",
 ] as const;
 export type PixelAssetTemplateCategory =
@@ -64,12 +66,11 @@ const PRESET_CATEGORIES: {
     id: "characters",
     presets: [
       "character-sheet",
-      "side-view-character",
       "rpg-character",
+      "multi-angle",
       "portrait",
     ],
   },
-  { id: "creatures", presets: ["monster", "animal"] },
   {
     id: "animation",
     presets: [
@@ -83,9 +84,10 @@ const PRESET_CATEGORIES: {
       "consistent-sequence",
     ],
   },
-  { id: "scenes", presets: ["scene"] },
   { id: "terrain", presets: ["terrain", "tileset", "building"] },
   { id: "objects", presets: ["prop", "icon"] },
+  { id: "creatures", presets: ["monster", "animal"] },
+  { id: "scenes", presets: ["scene"] },
   { id: "skins", presets: ["quick-reskin"] },
 ];
 
@@ -141,6 +143,9 @@ export function pixelAssetTemplateGuideCategory(
   );
 }
 
+/** Marks a template's read-only step note, which shows its text instead of a text generator. */
+export const PIXEL_ASSET_TEMPLATE_NOTE = "pixel-asset-template-note";
+
 export function pixelAssetPresetUsage(id: PixelAssetPresetId): string {
   const preset = pixelAssetPreset(id);
   return preset.action
@@ -165,6 +170,19 @@ export function pixelAssetPreset(id: PixelAssetPresetId): PixelAssetPreset {
       };
 }
 
+export function pixelAssetPresetAspectRatio(
+  id: PixelAssetPresetId,
+): "4:3" | "16:9" | "1:1" {
+  const preset = pixelAssetPreset(id);
+  return preset.action ||
+    preset.imagePreset === "continuous-sequence" ||
+    preset.imagePreset === "prop"
+    ? "4:3"
+    : preset.imagePreset === "character-sheet"
+      ? "16:9"
+      : "1:1";
+}
+
 export function pixelAssetPresetLabel(id: PixelAssetPresetId): string {
   const preset = pixelAssetPreset(id);
   return preset.action
@@ -186,8 +204,9 @@ export function pixelAssetWorkflowLabel(
 
 export function pixelAssetCategoryTemplateLabel(
   category: PixelAssetTemplateCategory,
+  level: PixelArtLevel,
 ): string {
-  return `${t(`assetCanvas.pixelPresets.categories.${category}`)} · ${t("assetCanvas.pixelPresets.allLevels")}`;
+  return `${t(`assetCanvas.pixelPresets.categories.${category}`)} · ${pixelArtLevelLabel(level)}`;
 }
 
 export function pixelAssetReferenceNode(
@@ -338,14 +357,7 @@ export function createPixelAssetWorkflowNodes(
     preset.imagePreset === "quick-reskin"
       ? reskinModel
       : (referenceModel ?? imageModels[0]);
-  const aspectRatio =
-    preset.action ||
-    preset.imagePreset === "continuous-sequence" ||
-    preset.imagePreset === "prop"
-      ? "4:3"
-      : preset.imagePreset === "character-sheet"
-        ? "16:9"
-        : "1:1";
+  const aspectRatio = pixelAssetPresetAspectRatio(presetId);
   const option = preferredImageOption(model, aspectRatio);
   const makeImage = (
     title: string,
@@ -377,6 +389,8 @@ export function createPixelAssetWorkflowNodes(
       node.data.images = [{ type: "node", nodeId: referenceNodeId }];
     if (preset.imagePreset && preset.imagePreset !== "quick-reskin")
       node.data.presetId = preset.imagePreset;
+    const exampleImage = pixelPresetExampleId(presetId, level);
+    if (exampleImage) node.data.exampleImage = exampleImage;
     if (preset.imagePreset === "quick-reskin") {
       node.data.presetId = "quick-reskin";
       node.data.quickReskinMode = "person-clothing";
@@ -398,6 +412,7 @@ export function createPixelAssetWorkflowNodes(
     person.title = t("assetCanvasTemplates.quickReskinPerson");
     person.data.sourceInput = true;
     person.data.sourceInputLabel = person.title;
+    person.data.exampleImage = `${level}/character-sheet`;
     const clothing = createAssetGenerationNode(
       "image",
       { x: 484, y: 72 },
@@ -407,6 +422,7 @@ export function createPixelAssetWorkflowNodes(
     clothing.title = t("assetCanvasTemplates.quickReskinClothing");
     clothing.data.sourceInput = true;
     clothing.data.sourceInputLabel = clothing.title;
+    clothing.data.exampleImage = PIXEL_RESKIN_CLOTHING_EXAMPLE;
     const output = makeImage(
       `${pixelAssetPresetLabel(presetId)} · ${pixelArtLevelLabel(level)}`,
       944,

@@ -17,7 +17,6 @@ import { CHECKPOINT_ENTRY, recordCheckpoint } from "../checkpoint-extension.js";
 import type { CodingSession, SkillCatalogItem } from "../agent.js";
 import { handoffSummary } from "./handoff.js";
 import { NATIVE_API } from "./replay.js";
-import { inside } from "./policy.js";
 
 /** The custom entry that records which native session a conversation's branch continues. */
 export const NATIVE_SESSION_ENTRY = "ohmygame-native-session";
@@ -27,6 +26,7 @@ export interface StoredNativeSession {
   runtime: AgentRuntimeId;
   state: "active" | "ready" | "invalid";
   sessionId?: string;
+  profileId?: string;
 }
 
 /** A native context was removed; the shared session must rebuild it from the current branch. */
@@ -121,6 +121,7 @@ export interface NativeDriver {
 }
 
 export interface NativeSessionOptions {
+  profileId?: string;
   runtime: AgentRuntimeId;
   /** The model as the conversation names it: the runtime's own model ID. */
   model: string;
@@ -166,6 +167,7 @@ const IDLE_PROCESS_MS = 10 * 60_000;
  */
 export class NativeCodingSession implements CodingSession {
   readonly runtime: AgentRuntimeId;
+  get profileId(): string | undefined { return this.options.profileId; }
   readonly sessionManager: SessionManager;
   readonly emitsInitialUserMessage = true;
   readonly messages: unknown[] = [];
@@ -178,8 +180,6 @@ export class NativeCodingSession implements CodingSession {
   #handoff: boolean;
   #nativeSessionId?: string;
   #usage?: AgentContextUsage;
-  #allowed = new Set<string>();
-  #readFolders: string[] = [];
   #checkpointFailure?: { cause: unknown };
   #disposed = false;
   #idleTimer?: ReturnType<typeof setTimeout>;
@@ -197,6 +197,7 @@ export class NativeCodingSession implements CodingSession {
     const stored = latestNativeSession(
       this.sessionManager.getBranch(),
       options.runtime,
+      options.profileId,
     );
     this.#nativeSessionId = stored?.sessionId;
     // A branch with messages and no native session of this agent was held by another agent, or by this one before
@@ -298,6 +299,12 @@ export class NativeCodingSession implements CodingSession {
     if (this.#running)
       throw new Error(
         "Wait for the agent to finish before compacting the session",
+      );
+    // A context that has not received this chat yet (another agent or account
+    // held it) would compact to nothing and then be resumed as if it had.
+    if (this.#handoff)
+      throw new Error(
+        "Send a message first so this agent has the conversation, then compact it",
       );
     const controller = new AbortController();
     let settle!: () => void;
@@ -406,16 +413,16 @@ export class NativeCodingSession implements CodingSession {
     return this.options.skills?.() ?? [];
   }
 
-  dispose(): void {
+  dispose(): void | Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
     clearTimeout(this.#idleTimer);
     this.#running?.controller.abort();
-    // Keep generated config/Skills until the process has actually stopped.
-    void Promise.resolve(this.#driver.dispose())
-      .finally(() => this.options.dispose?.())
-      .catch(() => {});
     this.#listeners.clear();
+    // Keep generated config/Skills until the process has actually stopped.
+    return Promise.all([this.#idleStop, this.#driver.dispose()])
+      .finally(() => this.options.dispose?.())
+      .then(() => {}, () => {});
   }
 
   /** Records the usage the agent reported for its context. */
@@ -456,40 +463,7 @@ export class NativeCodingSession implements CodingSession {
     signal?: AbortSignal,
   ): Promise<ApprovalDecision> {
     if (signal?.aborted || this.#disposed) return "deny";
-    if (this.#covered(details)) return "allow";
-    const decision = await this.options.requestApproval(
-      details,
-      toolCallId,
-      signal,
-    );
-    if (decision === "allow-session" && details.canAllowSession)
-      this.#remember(details);
-    return decision;
-  }
-
-  /** Whether the person already allowed this, or all it covers, for the conversation. */
-  #covered(details: ApprovalRequestDetails): boolean {
-    const scope = details.sessionScope;
-    if (!scope) return this.#allowed.has(approvalKey(details));
-    return (
-      (scope.commands ?? []).every((command) =>
-        this.#allowed.has(`command:${command}`),
-      ) &&
-      (scope.readFolders ?? []).every((folder) =>
-        this.#readFolders.some((root) => inside(folder, root)),
-      )
-    );
-  }
-
-  #remember(details: ApprovalRequestDetails): void {
-    const scope = details.sessionScope;
-    if (!scope) {
-      this.#allowed.add(approvalKey(details));
-      return;
-    }
-    for (const command of scope.commands ?? [])
-      this.#allowed.add(`command:${command}`);
-    this.#readFolders.push(...(scope.readFolders ?? []));
+    return this.options.requestApproval(details, toolCallId, signal);
   }
 
   emit(event: AgentSessionEvent): void {
@@ -602,6 +576,7 @@ export class NativeCodingSession implements CodingSession {
     this.sessionManager.appendCustomEntry(NATIVE_SESSION_ENTRY, {
       version: 2,
       runtime: this.runtime,
+      ...(this.options.profileId ? { profileId: this.options.profileId } : {}),
       state,
       ...(state !== "invalid" && this.#nativeSessionId
         ? { sessionId: this.#nativeSessionId }
@@ -619,8 +594,6 @@ export class NativeCodingSession implements CodingSession {
     });
     this.#handoff = hasMessages(this.sessionManager.getBranch());
     this.#usage = undefined;
-    this.#allowed.clear();
-    this.#readFolders = [];
   }
 
   /** Stores a user message after the checkpoint taken for it, as Pi does. False when the snapshot failed. */
@@ -1050,6 +1023,7 @@ function usageRecord(usage: NativeUsage) {
 export function latestNativeSession(
   entries: readonly SessionEntry[],
   runtime: AgentRuntimeId,
+  profileId?: string,
 ): StoredNativeSession | undefined {
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index];
@@ -1072,7 +1046,7 @@ export function latestNativeSession(
       !data.sessionId
     )
       return undefined;
-    return data.runtime === runtime
+    return data.runtime === runtime && (data.profileId ?? "system") === (profileId ?? "system")
       ? { version: 2, runtime, state: "ready", sessionId: data.sessionId }
       : undefined;
   }
@@ -1112,15 +1086,4 @@ function contentText(content: unknown): string {
         : [],
     )
     .join("");
-}
-
-function approvalKey(details: ApprovalRequestDetails): string {
-  return JSON.stringify([
-    details.kind,
-    details.tool,
-    details.command ?? "",
-    details.path ?? "",
-    details.paths ?? [],
-    details.network ?? false,
-  ]);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffPlayableState, formatStateValue, playableDebugRecord, PlayableStateHistory } from "../src/shared/playable-debug.js";
+import { diffPlayableState, playableDebugRecord, PlayableStateHistory } from "../src/shared/playable-debug.js";
 import type { NodeRuntimeSnapshot } from "../src/shared/playable-runtime.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
@@ -65,10 +65,5 @@ describe("Playable debug record", () => {
     expect(record.currentNode).toEqual({ id: "archive", title: "Archive" });
     expect(record.backStack).toEqual([{ id: "menu", title: "Main menu" }]);
     expect(record.recentSignals.map((signal) => signal.followed)).toEqual([true, false]);
-  });
-
-  it("formats absent values as a dash", () => {
-    expect(formatStateValue(undefined)).toBe("—");
-    expect(formatStateValue({ a: [1] })).toBe('{"a":[1]}');
   });
 });

@@ -4,8 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { Window } from "happy-dom";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { playablePreset } from "../src/daemon/playable-presets.js";
-import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-style.js";
+import { PLAYABLE_PROJECT_STYLE_FILES, playablePreset } from "../src/daemon/playable-presets.js";
 import type {
   NodeGraph,
   PlayableNode,
@@ -18,7 +17,7 @@ import {
 } from "../src/shared/playable-runtime.js";
 
 const preset = playablePreset("main-menu")!;
-const source = preset.source("Ash Club");
+const source = preset.source("Ash Club", "ash-club");
 
 it("names the menu's right-hand placement without changing left-aligned stages", () => {
   expect(source.html).toContain('class="stage is-right has-backdrop"');
@@ -98,15 +97,6 @@ async function startGame() {
   let chapter: Omit<PlayableNodeContext, "root"> | undefined;
   const runtime = new NodeRuntime({
     graph,
-    compiled: {
-      version: 1,
-      nodes: Object.fromEntries(
-        graph.nodes.map(({ id }) => [
-          id,
-          { id, html: "", css: "", javascript: "", inputs: [] },
-        ]),
-      ),
-    },
     graphSignature: "menu-v1",
     surfaceHost: {
       async mountNode(surface, context) {

@@ -1,18 +1,10 @@
-import type {
-  ApprovalDecision,
-  ApprovalRequestDetails,
-} from "../../shared/agent-runtimes.js";
-import type { NativeToolResult, NativeTurnSink } from "./native-session.js";
-import {
-  approvalScope,
-  judgeApproval,
-  type AgentPolicyContext,
-} from "./policy.js";
+import type { AgentPermissionMode } from "../../shared/agent-runtimes.js";
+import type { NativeToolResult } from "./native-session.js";
 import type { ToolBridge } from "./tool-bridge.js";
 
 /** Why a planning turn refused a request, so the agent can adjust instead of stopping. */
 export const PLANNING_DENIAL =
-  "This is a planning turn: do not change anything. Use Read, or one simple read command at a time (ls, cat, head, tail, wc, grep, rg) without pipes, &&, redirection or globs.";
+  "This is a planning turn: do not change anything. Read files and run only commands that need no approval.";
 
 /** Imports a native image through the project's existing generated-asset and Library pipeline. */
 export type SaveGeneratedImage = (
@@ -33,7 +25,8 @@ export interface DriverContext {
   instructions: string;
   bridge: ToolBridge;
   saveGeneratedImage?: SaveGeneratedImage;
-  policy: AgentPolicyContext;
+  /** The person's choice: the CLI's usual permission mode, or no asking at all. */
+  permissionMode: AgentPermissionMode;
   /** Folders that each hold a SKILL.md: plugin Skills and OhMyGame's own. */
   skillDirectories: readonly string[];
   /**
@@ -60,30 +53,6 @@ export interface HttpBridgeHandlers {
     call: { name: string; args: unknown; callId: string },
     outcome: { result: NativeToolResult; isError: boolean },
   ): void;
-}
-
-/**
- * Asks OhMyGame's policy, then the person when the policy leaves it to them.
- * Allowed, the decision is final for this request; asked, the person's
- * answer is.
- */
-export async function decideApproval(
-  details: ApprovalRequestDetails,
-  context: DriverContext,
-  sink: NativeTurnSink,
-  options?: { callId?: string; signal?: AbortSignal },
-): Promise<ApprovalDecision> {
-  if (options?.signal?.aborted) return "deny";
-  const verdict = judgeApproval(details, context.policy);
-  if (verdict === "allow") return "allow";
-  if (verdict === "deny") return "deny";
-  const sessionScope = details.canAllowSession
-    ? approvalScope(details, context.policy)
-    : undefined;
-  return sink.requestApproval(
-    sessionScope ? { ...details, sessionScope } : details,
-    options,
-  );
 }
 
 /** Stores what a bridged OhMyGame tool returned, so its record keeps the artifact and not just MCP's text. */

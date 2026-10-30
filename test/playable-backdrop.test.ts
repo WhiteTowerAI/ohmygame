@@ -5,7 +5,7 @@ import { clearPlayableBackdrop, playableBackdrop, setPlayableBackdrop } from "..
 describe("setPlayableBackdrop", () => {
   it("sets the background of every Template", () => {
     for (const { id } of PLAYABLE_PRESETS) {
-      const { html } = PLAYABLE_PRESETS.find((preset) => preset.id === id)!.source("Opening");
+      const { html } = PLAYABLE_PRESETS.find((preset) => preset.id === id)!.source("Opening", "opening");
       expect(playableBackdrop(html)).toBe("missing");
       const edited = setPlayableBackdrop(html, "opening", "video")!;
       expect(edited).toMatch(/<div class="backdrop[^"]*" data-media="backdrop" data-asset="opening" data-type="video">/);
@@ -89,7 +89,7 @@ describe("setPlayableBackdrop", () => {
 describe("clearPlayableBackdrop", () => {
   it("takes the Asset off every Template's background", () => {
     for (const { source } of PLAYABLE_PRESETS) {
-      const { html } = source("Opening");
+      const { html } = source("Opening", "opening");
       const cleared = clearPlayableBackdrop(setPlayableBackdrop(html, "opening", "video")!)!;
       expect(cleared).toBe(html);
       expect(playableBackdrop(cleared)).toBe("missing");

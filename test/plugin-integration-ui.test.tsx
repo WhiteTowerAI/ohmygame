@@ -279,7 +279,7 @@ describe("plugin connection UI", () => {
     const opened = vi.fn();
     await act(async () =>
       root.render(
-        <ProjectPromptCreator
+        <ProjectPromptCreator draftKey="test"
           projectType="general"
           placeholder="Describe your game"
           onCreate={opened}

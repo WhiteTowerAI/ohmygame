@@ -11,11 +11,16 @@ let snapshot: DesktopRuntimeState = WEB_RUNTIME;
 let readyGeneration = 0;
 let initialization: Promise<void> | undefined;
 
-export function initializeRuntimeConnection(): Promise<void> {
-  return initialization ??= initialize();
+/**
+ * Connects to the service the desktop app started. With `followService`
+ * false, the page keeps the address it was given and does not follow the
+ * service's restarts.
+ */
+export function initializeRuntimeConnection({ followService = true }: { followService?: boolean } = {}): Promise<void> {
+  return initialization ??= initialize(followService);
 }
 
-async function initialize(): Promise<void> {
+async function initialize(followService: boolean): Promise<void> {
   const desktop = window.ohMyGameDesktop;
   if (!desktop) return;
   snapshot = {
@@ -24,7 +29,7 @@ async function initialize(): Promise<void> {
     recovered: false,
     runtime: { url: desktop.runtime.daemonUrl, token: desktop.runtime.token },
   };
-  if (!desktop.runtimeService) return;
+  if (!followService || !desktop.runtimeService) return;
   let events = 0;
   desktop.runtimeService.onState((state) => {
     events++;

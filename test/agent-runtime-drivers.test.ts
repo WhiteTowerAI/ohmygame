@@ -20,10 +20,7 @@ import type {
   NativeTurnSink,
 } from "../src/daemon/agent-runtimes/native-session.js";
 import { setAgentProcessSpawner } from "../src/daemon/agent-runtimes/process.js";
-import {
-  canonicalPath,
-  neverTouchPaths,
-} from "../src/daemon/agent-runtimes/policy.js";
+import { stagedSkillsRoot } from "../src/daemon/agent-runtimes/skills.js";
 import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { conversationItems } from "../src/daemon/agent.js";
 import {
@@ -105,7 +102,7 @@ function fakeCli(
 function recordingSink(
   decide: (
     details: ApprovalRequestDetails,
-  ) => "allow" | "allow-session" | "deny" = () => "deny",
+  ) => "allow" | "allow-always" | "deny" = () => "deny",
 ) {
   const calls: string[] = [];
   const results = new Map<
@@ -172,7 +169,8 @@ async function context(
     privateDirectory,
     instructions: "Project instructions",
     bridge: new ToolBridge([echo] as never),
-    policy: { workspacePath: "/tmp/workspace", neverTouch: ["/tmp/secrets"] },
+    // Codex's usual mode; Claude Code and OpenCode tests choose theirs where it matters.
+    permissionMode: ":workspace",
     skillDirectories: [],
     model: "sonnet",
     reasoningLevel: "high",
@@ -210,9 +208,14 @@ describe("Claude Code adapter", () => {
     ).rejects.toBeInstanceOf(NativeSessionExpiredError);
   });
 
-  it("checks every tool through the policy hook, including reads that need no native approval", async () => {
-    let decision: unknown;
-    const clis = fakeCli((message, cli) => {
+  /** One Claude Code control request of a turn, and what OhMyGame answered it. */
+  async function claudeRequest(
+    request: Record<string, unknown>,
+    readOnly: boolean,
+    decide?: Parameters<typeof recordingSink>[0],
+  ) {
+    let answer: Record<string, unknown> | undefined;
+    fakeCli((message, cli) => {
       if (message.type === "control_request")
         cli.send({
           type: "control_response",
@@ -223,148 +226,136 @@ describe("Claude Code adapter", () => {
           },
         });
       if (message.type === "user")
-        cli.send({
-          type: "control_request",
-          request_id: "hook",
-          request: {
-            subtype: "hook_callback",
-            callback_id: "ohmygame-policy",
-            tool_use_id: "read-1",
-            input: {
-              hook_event_name: "PreToolUse",
-              tool_name: "Read",
-              tool_input: { file_path: "/tmp/secrets/auth.json" },
-            },
-          },
-        });
+        cli.send({ type: "control_request", request_id: "ask", request });
       if (
         message.type === "control_response" &&
-        (message.response as Record<string, unknown>).request_id === "hook"
+        (message.response as Record<string, unknown>).request_id === "ask"
       ) {
-        decision = (
-          (message.response as Record<string, unknown>).response as Record<
-            string,
-            unknown
-          >
-        ).hookSpecificOutput;
+        answer = (message.response as Record<string, unknown>)
+          .response as Record<string, unknown>;
         cli.send({ type: "result", subtype: "success" });
       }
     });
     const driver = new ClaudeCodeDriver(await context());
     cleanup.push(() => driver.dispose());
-    const recorded = recordingSink(() => "allow");
+    const recorded = recordingSink(decide);
     await driver.runTurn(
-      { text: "read protected file", images: [], readOnly: false },
+      { text: "work", images: [], readOnly },
       recorded.sink,
       new AbortController().signal,
     );
-    expect(clis).toHaveLength(1);
-    expect(decision).toMatchObject({ permissionDecision: "deny" });
-    expect(recorded.asked).toEqual([]);
+    return { answer, asked: recorded.asked, calls: recorded.calls };
+  }
+
+  const hook = (tool: string, toolInput: Record<string, unknown> = {}) => ({
+    subtype: "hook_callback",
+    callback_id: "ohmygame-pre-tool",
+    tool_use_id: `${tool}-1`,
+    input: {
+      hook_event_name: "PreToolUse",
+      tool_name: tool,
+      tool_input: toolInput,
+    },
   });
 
-  it("lets Claude Code's own bookkeeping tools run without asking and points planning at update_plan", async () => {
-    const hook = async (
-      tool: string,
-      readOnly: boolean,
-      toolInput: Record<string, unknown> = tool === "Write"
-        ? { file_path: "/tmp/workspace/a.txt" }
-        : {},
-    ) => {
-      let output: Record<string, unknown> | undefined;
-      fakeCli((message, cli) => {
-        if (message.type === "control_request")
-          cli.send({
-            type: "control_response",
-            response: {
-              subtype: "success",
-              request_id: message.request_id,
-              response: {},
-            },
-          });
-        if (message.type === "user")
-          cli.send({
-            type: "control_request",
-            request_id: "hook",
-            request: {
-              subtype: "hook_callback",
-              callback_id: "ohmygame-policy",
-              tool_use_id: `${tool}-1`,
-              input: {
-                hook_event_name: "PreToolUse",
-                tool_name: tool,
-                tool_input: toolInput,
-              },
-            },
-          });
-        if (
-          message.type === "control_response" &&
-          (message.response as Record<string, unknown>).request_id === "hook"
-        ) {
-          output = (
-            (message.response as Record<string, unknown>).response as Record<
-              string,
-              Record<string, unknown>
-            >
-          ).hookSpecificOutput;
-          cli.send({ type: "result", subtype: "success" });
-        }
-      });
-      const driverContext = await context();
-      // Claude Code runs commands in its sandbox; planning still may not change anything.
-      driverContext.policy = {
-        ...driverContext.policy,
-        sandboxedCommands: true,
-      };
-      const driver = new ClaudeCodeDriver(driverContext);
-      cleanup.push(() => driver.dispose());
-      const recorded = recordingSink(() => "allow");
-      await driver.runTurn(
-        { text: "work", images: [], readOnly },
-        recorded.sink,
-        new AbortController().signal,
-      );
-      return { output, asked: recorded.asked.length };
-    };
-    for (const tool of ["TodoWrite", "Skill", "Task", "WebSearch"])
-      for (const readOnly of [false, true])
-        expect(await hook(tool, readOnly)).toEqual({
-          output: expect.objectContaining({ permissionDecision: "allow" }),
-          asked: 0,
-        });
-    expect(await hook("ExitPlanMode", true)).toEqual({
-      output: expect.objectContaining({
+  it("leaves each tool to Claude Code's own permission rules, showing it as running", async () => {
+    for (const [tool, input] of [
+      ["Read", { file_path: "/Users/me/.ssh/config" }],
+      ["Bash", { command: "npm install" }],
+      ["Write", { file_path: "/tmp/workspace/a.txt" }],
+      ["TodoWrite", {}],
+    ] as const) {
+      const turn = await claudeRequest(hook(tool, input), false, () => "allow");
+      expect(turn.answer).toEqual({});
+      expect(turn.asked).toEqual([]);
+      expect(turn.calls).toContain(`toolStarted:${tool}-1`);
+    }
+  });
+
+  it("keeps planning from changing files and points it at update_plan", async () => {
+    const refused = (reason: string) => ({
+      hookSpecificOutput: expect.objectContaining({
         permissionDecision: "deny",
-        permissionDecisionReason: expect.stringContaining("update_plan"),
+        permissionDecisionReason: expect.stringContaining(reason),
       }),
-      asked: 0,
     });
-    expect(await hook("Write", true)).toEqual({
-      output: expect.objectContaining({ permissionDecision: "deny" }),
-      asked: 0,
+    for (const readOnly of [false, true])
+      expect((await claudeRequest(hook("ExitPlanMode"), readOnly)).answer).toEqual(
+        refused("update_plan"),
+      );
+    for (const tool of ["Write", "Edit", "MultiEdit", "NotebookEdit"]) {
+      expect((await claudeRequest(hook(tool), true)).answer).toEqual(
+        refused("planning turn"),
+      );
+      expect((await claudeRequest(hook(tool), false)).answer).toEqual({});
+    }
+    // Claude Code judges commands itself; reads it allows run, and what it would ask about is refused.
+    expect(
+      (await claudeRequest(hook("Bash", { command: "ls -la" }), true)).answer,
+    ).toEqual({});
+    const asked = await claudeRequest(
+      {
+        subtype: "can_use_tool",
+        tool_name: "Bash",
+        tool_use_id: "bash-1",
+        input: { command: "npm install" },
+      },
+      true,
+      () => "allow",
+    );
+    expect(asked.answer).toEqual({
+      behavior: "deny",
+      message: expect.stringContaining("planning turn"),
     });
-    // Current CLIs have no Glob/Grep: planning may run read commands the policy allows, and nothing else.
-    for (const [command, decision] of [
-      ["grep -rn player src", "allow"],
-      ["ls -la", "allow"],
-      ["touch a.txt", "deny"],
-      ["cat a.txt > b.txt", "deny"],
-    ] as const)
-      expect(await hook("Bash", true, { command })).toEqual({
-        output: expect.objectContaining({ permissionDecision: decision }),
-        asked: 0,
-      });
-    expect(await hook("Bash", true, { command: "npm install" })).toEqual({
-      output: expect.objectContaining({ permissionDecision: "deny" }),
-      asked: 0,
+    expect(asked.asked).toEqual([]);
+  });
+
+  it("asks the person what Claude Code asks and applies its suggestions when always allowed", async () => {
+    const suggestions = [
+      {
+        type: "addRules",
+        rules: [{ toolName: "Bash", ruleContent: "npm install:*" }],
+        behavior: "allow",
+        destination: "localSettings",
+      },
+    ];
+    const request = {
+      subtype: "can_use_tool",
+      tool_name: "Bash",
+      tool_use_id: "bash-1",
+      input: { command: "npm install three" },
+      permission_suggestions: suggestions,
+      decision_reason: "\u001b[1mThis command requires approval\u001b[0m",
+    };
+    const always = await claudeRequest(request, false, () => "allow-always");
+    expect(always.asked).toEqual([
+      {
+        kind: "command",
+        tool: "Bash",
+        command: "npm install three",
+        reason: "This command requires approval",
+        always: { scope: "saved", rules: ["Bash(npm install:*)"] },
+      },
+    ]);
+    expect(always.answer).toEqual({
+      behavior: "allow",
+      updatedInput: { command: "npm install three" },
+      updatedPermissions: suggestions,
+      decisionClassification: "user_permanent",
     });
-    expect(await hook("Bash", false, { command: "npm install" })).toEqual({
-      output: expect.objectContaining({ permissionDecision: "allow" }),
-      asked: 0,
-    });
-    expect(await hook("Write", false)).toEqual({
-      output: expect.objectContaining({ permissionDecision: "allow" }),
-      asked: 0,
+    const denied = await claudeRequest(request, false, () => "deny");
+    expect(denied.answer).toMatchObject({ behavior: "deny" });
+    // When Claude Code withholds always allowing, the person can only allow once.
+    const once = await claudeRequest(
+      { ...request, suppress_always_allow_rule: true },
+      false,
+      () => "allow",
+    );
+    expect(once.asked[0]).not.toHaveProperty("always");
+    expect(once.answer).toEqual({
+      behavior: "allow",
+      updatedInput: { command: "npm install three" },
+      decisionClassification: "user_temporary",
     });
   });
 
@@ -429,8 +420,14 @@ describe("Claude Code adapter", () => {
     ]);
   });
 
-  it("runs without its sandbox or session caches in full access", async () => {
+  it("works in the Claude Code mode the person chose and plans in default mode", async () => {
+    const skill = await mkdtemp(path.join(tmpdir(), "ohmygame-skill-"));
+    cleanup.push(() => rm(skill, { recursive: true, force: true }));
+    await writeFile(path.join(skill, "SKILL.md"), "---\nname: fixture\n---\n");
+    const modes: unknown[] = [];
     const clis = fakeCli((message, cli) => {
+      const request = message.request as Record<string, unknown> | undefined;
+      if (request?.subtype === "set_permission_mode") modes.push(request.mode);
       if (message.type === "control_request")
         cli.send({
           type: "control_response",
@@ -443,17 +440,89 @@ describe("Claude Code adapter", () => {
       if (message.type === "user")
         cli.send({ type: "result", subtype: "success" });
     });
-    const full = await context();
-    full.policy = { ...full.policy, fullAccess: true };
-    const driver = new ClaudeCodeDriver(full);
-    cleanup.push(() => driver.dispose());
-    await driver.runTurn(
-      { text: "work", images: [], readOnly: false },
-      recordingSink().sink,
-      new AbortController().signal,
-    );
-    expect(clis[0]!.args).not.toContain("--settings");
+    const chosen = [
+      "default",
+      "acceptEdits",
+      "auto",
+      "bypassPermissions",
+    ] as const;
+    for (const permissionMode of chosen) {
+      const driver = new ClaudeCodeDriver(
+        await context({ permissionMode, skillDirectories: [skill] }),
+      );
+      cleanup.push(() => driver.dispose());
+      for (const readOnly of [false, true, false])
+        await driver.runTurn(
+          { text: "work", images: [], readOnly },
+          recordingSink().sink,
+          new AbortController().signal,
+        );
+    }
+    clis.forEach((cli, index) => {
+      const args = cli.args;
+      expect(args[args.indexOf("--permission-mode") + 1]).toBe(chosen[index]);
+      // Planning leaves bypassPermissions and returns, which Claude Code allows only when enabled at launch.
+      expect(args.includes("--allow-dangerously-skip-permissions")).toBe(
+        chosen[index] === "bypassPermissions",
+      );
+      // OhMyGame adds no sandbox or permission settings of its own.
+      expect(args).not.toContain("--settings");
+      // The staged Skills are a working directory, so reading them is not a request outside the project.
+      const plugin = args[args.indexOf("--plugin-dir") + 1];
+      expect(args[args.indexOf("--add-dir") + 1]).toBe(plugin);
+    });
+    // Each session plans in default mode and returns to its own; default mode stays.
+    expect(modes).toEqual([
+      "default",
+      "acceptEdits",
+      "default",
+      "auto",
+      "default",
+      "bypassPermissions",
+    ]);
     expect(clis[0]!.env).not.toHaveProperty("npm_config_cache");
+  });
+
+  it("follows Claude Code into default mode when the model has no auto mode", async () => {
+    const modes: unknown[] = [];
+    fakeCli((message, cli) => {
+      const request = message.request as Record<string, unknown> | undefined;
+      if (request?.subtype === "set_permission_mode") modes.push(request.mode);
+      if (message.type === "control_request")
+        cli.send({
+          type: "control_response",
+          response:
+            request?.subtype === "set_permission_mode" && request.mode === "auto"
+              ? {
+                  subtype: "error",
+                  request_id: message.request_id,
+                  error:
+                    "Cannot set permission mode to auto: auto mode unavailable for this model",
+                }
+              : {
+                  subtype: "success",
+                  request_id: message.request_id,
+                  response: {},
+                },
+        });
+      if (message.type === "user")
+        cli.send({ type: "result", subtype: "success" });
+    });
+    const driver = new ClaudeCodeDriver(
+      await context({ permissionMode: "auto" }),
+    );
+    cleanup.push(() => driver.dispose());
+    for (const readOnly of [true, false, false])
+      expect(
+        await driver.runTurn(
+          { text: "work", images: [], readOnly },
+          recordingSink().sink,
+          new AbortController().signal,
+        ),
+      ).toEqual({ status: "completed" });
+    // Started for planning in default mode; Claude Code refuses auto for each
+    // work turn and stays in default mode, and the turns go on.
+    expect(modes).toEqual(["auto", "auto"]);
   });
 
   it("shows an allowed Claude tool as running until its result, whichever is reported first", async () => {
@@ -490,7 +559,7 @@ describe("Claude Code adapter", () => {
             request_id: "hook",
             request: {
               subtype: "hook_callback",
-              callback_id: "ohmygame-policy",
+              callback_id: "ohmygame-pre-tool",
               tool_use_id: "t1",
               input: {
                 hook_event_name: "PreToolUse",
@@ -643,7 +712,7 @@ describe("Claude Code adapter", () => {
     }
     expect(clis).toEqual([]);
   });
-  it("streams a turn, answers OhMyGame's tools over its pipe and asks before risky commands", async () => {
+  it("streams a turn, answers OhMyGame's tools over its pipe and asks what Claude Code asks", async () => {
     const pending = new Map<
       string,
       (response: Record<string, unknown>) => void
@@ -859,31 +928,12 @@ describe("Claude Code adapter", () => {
     expect(args).not.toContain("--setting-sources");
     expect(args).not.toContain("--strict-mcp-config");
     expect(args).toContain("--session-id");
-    // Commands run in Claude's OS sandbox: protected roots unreadable, no opting out.
-    const settings = JSON.parse(args[args.indexOf("--settings") + 1]!);
-    const commandTemporary = canonicalPath(
-      path.join(driverContext.privateDirectory, "tmp"),
-    );
-    expect(settings.sandbox).toMatchObject({
-      enabled: true,
-      allowUnsandboxedCommands: false,
-      autoAllowBashIfSandboxed: false,
-      filesystem: {
-        denyRead: [canonicalPath("/tmp/secrets")],
-        allowRead: [canonicalPath("/tmp/workspace"), commandTemporary],
-        allowWrite: [commandTemporary],
-      },
-    });
+    // Claude Code's own permission rules and sandbox settings apply, not OhMyGame's.
+    expect(args).not.toContain("--settings");
     // Work that reports after the turn's result would have no turn to land in.
-    // Installs fill session caches, the home folder's being unwritable there.
     expect(clis[0]!.env).toMatchObject({
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
       CLAUDE_CODE_DISABLE_CRON: "1",
-      npm_config_cache: path.join(
-        driverContext.privateDirectory,
-        "tmp",
-        "npm-cache",
-      ),
     });
     expect(recorded.sessionId()).toBe("claude-session-1");
     expect(recorded.calls).toEqual([
@@ -952,49 +1002,6 @@ describe("Claude Code adapter", () => {
 });
 
 /** The filesystem of each permission profile Codex is started with. */
-async function codexProfiles(
-  overrides: Partial<DriverContext> = {},
-): Promise<Array<Record<string, unknown>>> {
-  let config: Record<string, unknown> = {};
-  fakeCli((message, cli) => {
-    if (typeof message.method !== "string" || message.id === undefined)
-      return;
-    const params = message.params as Record<string, unknown>;
-    if (message.method === "thread/start")
-      config = params.config as Record<string, unknown>;
-    cli.send({
-      id: message.id,
-      result:
-        message.method === "thread/start"
-          ? {
-              thread: { id: "thread-1" },
-              activePermissionProfile: { id: params.permissions },
-            }
-          : {},
-    });
-    if (message.method === "turn/start")
-      setTimeout(() =>
-        cli.send({
-          method: "turn/completed",
-          params: { turn: { status: "completed" } },
-        }),
-      );
-  });
-  const driver = new CodexDriver(await context(overrides));
-  cleanup.push(() => driver.dispose());
-  await driver.runTurn(
-    { text: "hi", images: [], readOnly: false },
-    recordingSink().sink,
-    new AbortController().signal,
-  );
-  const profiles = config.permissions as Record<
-    string,
-    { filesystem: Record<string, unknown> }
-  >;
-  expect(Object.keys(profiles)).toHaveLength(2);
-  return Object.values(profiles).map(({ filesystem }) => filesystem);
-}
-
 describe("Codex adapter", () => {
   const generatedPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
 
@@ -1100,7 +1107,7 @@ describe("Codex adapter", () => {
   });
 
   it.each([false, true])(
-    "checks the probe permission profile before offering models (sandbox error=%s)",
+    "checks the probe permission profile before offering models (ignored=%s)",
     async (failure) => {
       const messages: Array<Record<string, any>> = [];
       fakeCli((message, cli) => {
@@ -1108,23 +1115,16 @@ describe("Codex adapter", () => {
           return;
         messages.push(message);
         const params = message.params as Record<string, any>;
-        if (failure && message.method === "thread/start") {
-          cli.send({
-            id: message.id,
-            error: {
-              message:
-                "elevated Windows sandbox requires effective :root read access",
-            },
-          });
-          return;
-        }
         cli.send({
           id: message.id,
           result:
             message.method === "thread/start"
               ? {
                   thread: { id: "probe" },
-                  activePermissionProfile: { id: params.permissions },
+                  // An older CLI starts the thread without the named profile.
+                  ...(failure
+                    ? {}
+                    : { activePermissionProfile: { id: params.permissions } }),
                 }
               : message.method === "model/list"
                 ? { data: [{ id: "fixture-model" }] }
@@ -1153,23 +1153,14 @@ describe("Codex adapter", () => {
       )!;
       expect(start.params).toMatchObject({
         ephemeral: true,
-        config: {
-          permissions: {
-            [start.params.permissions]: {
-              filesystem: {
-                [process.platform === "win32" ? ":root" : ":minimal"]: "read",
-                ":workspace_roots": { ".": "read" },
-              },
-            },
-          },
-        },
+        approvalPolicy: "never",
+        permissions: ":read-only",
       });
       if (failure) {
         expect(status.diagnostics).toEqual([
           expect.objectContaining({
             code: "runtime-incompatible",
-            capability: "Windows sandbox filesystem read restrictions",
-            message: expect.stringContaining("effective :root read access"),
+            capability: "permissions / activePermissionProfile",
           }),
         ]);
         expect((await service.models()).models).toEqual([]);
@@ -1189,42 +1180,7 @@ describe("Codex adapter", () => {
     },
   );
 
-  it("reports the exact elevated Windows sandbox error before sending conversation input", async () => {
-    const methods: string[] = [];
-    fakeCli((message, cli) => {
-      if (typeof message.method !== "string" || message.id === undefined)
-        return;
-      methods.push(message.method);
-      cli.send(
-        message.method === "thread/start"
-          ? {
-              id: message.id,
-              error: {
-                message:
-                  "elevated Windows sandbox requires effective :root read access",
-              },
-            }
-          : { id: message.id, result: {} },
-      );
-    });
-    const driver = new CodexDriver(await context());
-    cleanup.push(() => driver.dispose());
-    expect(
-      await driver.runTurn(
-        { text: "must not send", images: [], readOnly: false },
-        recordingSink().sink,
-        new AbortController().signal,
-      ),
-    ).toMatchObject({
-      status: "failed",
-      error: expect.stringContaining(
-        "Local CLI compatibility: Codex's elevated Windows sandbox requires effective :root read access",
-      ),
-    });
-    expect(methods).not.toContain("turn/start");
-  });
-
-  it("fails before sending input when the CLI ignores named filesystem permissions", async () => {
+  it("fails before sending input when the CLI ignores named permission profiles", async () => {
     const methods: string[] = [];
     fakeCli((message, cli) => {
       if (typeof message.method !== "string" || message.id === undefined)
@@ -1248,7 +1204,7 @@ describe("Codex adapter", () => {
       ),
     ).toMatchObject({
       status: "failed",
-      error: expect.stringContaining("filesystem permissions"),
+      error: expect.stringContaining(":workspace permission profile"),
     });
     expect(methods).not.toContain("turn/start");
   });
@@ -1298,53 +1254,64 @@ describe("Codex adapter", () => {
     ]);
   });
 
-  it("uses Codex's own full-access profile for work and keeps planning read-only", async () => {
-    const profiles: unknown[] = [];
-    fakeCli((message, cli) => {
-      if (typeof message.method !== "string" || message.id === undefined)
-        return;
-      const params = message.params as Record<string, unknown>;
-      if (
-        ["thread/start", "thread/resume", "turn/start"].includes(message.method)
-      )
-        profiles.push(params.permissions);
-      cli.send({
-        id: message.id,
-        result:
-          message.method === "thread/start" ||
-          message.method === "thread/resume"
-            ? {
-                thread: { id: "thread-1" },
-                activePermissionProfile: { id: params.permissions },
-              }
-            : {},
+  it("uses Codex's own profiles and approvals for each mode and keeps planning read-only", async () => {
+    for (const [permissionMode, approvalPolicy] of [
+      [":workspace", "on-request"],
+      [":danger-full-access", "never"],
+    ] as const) {
+      const profile = permissionMode;
+      const profiles: unknown[] = [];
+      const policies: unknown[] = [];
+      let config: unknown;
+      fakeCli((message, cli) => {
+        if (typeof message.method !== "string" || message.id === undefined)
+          return;
+        const params = message.params as Record<string, unknown>;
+        if (
+          ["thread/start", "thread/resume", "turn/start"].includes(
+            message.method,
+          )
+        )
+          profiles.push(params.permissions);
+        if (message.method === "thread/start") {
+          policies.push(params.approvalPolicy);
+          config = params.config;
+        }
+        cli.send({
+          id: message.id,
+          result:
+            message.method === "thread/start" ||
+            message.method === "thread/resume"
+              ? {
+                  thread: { id: "thread-1" },
+                  activePermissionProfile: { id: params.permissions },
+                }
+              : {},
+        });
+        if (message.method === "turn/start")
+          setTimeout(() =>
+            cli.send({
+              method: "turn/completed",
+              params: { turn: { status: "completed" } },
+            }),
+          );
       });
-      if (message.method === "turn/start")
-        setTimeout(() =>
-          cli.send({
-            method: "turn/completed",
-            params: { turn: { status: "completed" } },
-          }),
-        );
-    });
-    const full = await context();
-    full.policy = { ...full.policy, fullAccess: true };
-    const driver = new CodexDriver(full);
-    cleanup.push(() => driver.dispose());
-    for (const readOnly of [false, true])
-      expect(
-        await driver.runTurn(
-          { text: "go", images: [], readOnly },
-          recordingSink().sink,
-          new AbortController().signal,
-        ),
-      ).toEqual({ status: "completed" });
-    // Work runs unsandboxed; the planning turn names the read-only profile.
-    expect(profiles.slice(0, 2)).toEqual([
-      ":danger-full-access",
-      ":danger-full-access",
-    ]);
-    expect(profiles.at(-1)).toMatch(/^ohmygame-.*-read$/);
+      const driver = new CodexDriver(await context({ permissionMode }));
+      cleanup.push(() => driver.dispose());
+      for (const readOnly of [false, true])
+        expect(
+          await driver.runTurn(
+            { text: "go", images: [], readOnly },
+            recordingSink().sink,
+            new AbortController().signal,
+          ),
+        ).toEqual({ status: "completed" });
+      // Start, first turn, resume, then the planning turn's read-only profile.
+      expect(profiles).toEqual([profile, profile, profile, ":read-only"]);
+      expect(policies).toEqual([approvalPolicy]);
+      // The person's Codex configuration stays theirs: no permission profiles or shell policy of OhMyGame's.
+      expect(config).toEqual({});
+    }
   });
 
   it("leaves out an external OhMyGame connection from the person's own configuration", async () => {
@@ -1392,27 +1359,6 @@ describe("Codex adapter", () => {
     expect(config["mcp_servers.ohmygame-studio.enabled"]).toBe(false);
     expect(config).not.toHaveProperty("mcp_servers.personal.enabled");
     expect(config).not.toHaveProperty("notify");
-  });
-
-  it("denies the shared temporary folders Codex's minimal access would read", async () => {
-    for (const filesystem of await codexProfiles())
-      for (const shared of ["/tmp", "/var/tmp"])
-        expect(filesystem[canonicalPath(shared)]).toBe(
-          process.platform === "win32" ? undefined : "deny",
-        );
-  });
-
-  it("denies Pi's agent folder in every Codex permission profile", async () => {
-    // The desktop app keeps Pi's agent folder beside the data folder.
-    const piAgentDirectory = "/tmp/ohmygame/pi-agent";
-    const profiles = await codexProfiles({
-      policy: {
-        workspacePath: "/tmp/workspace",
-        neverTouch: neverTouchPaths("/tmp/ohmygame/data", piAgentDirectory),
-      },
-    });
-    for (const filesystem of profiles)
-      expect(filesystem[canonicalPath(piAgentDirectory)]).toBe("deny");
   });
 
   it("shares one app server between conversations and keeps their threads apart", async () => {
@@ -1599,39 +1545,26 @@ describe("Codex adapter", () => {
     expect(methods).not.toContain("thread/start");
   });
 
-  it("denies protected permission roots and shows all allowed roots before granting", async () => {
+  it("shows what Codex asks for and grants exactly that, for the turn or its session", async () => {
     const answers: Array<Record<string, unknown>> = [];
+    const reference = {
+      fileSystem: {
+        read: ["/tmp/reference"],
+        write: null,
+        entries: [
+          { path: { type: "path", path: "/tmp/reference" }, access: "read" },
+        ],
+      },
+      network: { enabled: true },
+    };
     fakeCli((message, cli) => {
       if (typeof message.id === "string" && message.id.startsWith("grant-")) {
         answers.push(message.result as Record<string, unknown>);
-        if (message.id === "grant-denied")
+        if (message.id === "grant-secrets")
           cli.send({
-            id: "grant-glob",
+            id: "grant-reference",
             method: "item/permissions/requestApproval",
-            params: {
-              permissions: { fileSystem: { read: ["/tmp/**"], write: null } },
-            },
-          });
-        else if (message.id === "grant-glob")
-          cli.send({
-            id: "grant-visible",
-            method: "item/permissions/requestApproval",
-            params: {
-              permissions: {
-                fileSystem: {
-                  read: ["/tmp/reference"],
-                  write: null,
-                  entries: [
-                    {
-                      path: { type: "path", path: "/tmp/reference" },
-                      access: "read",
-                    },
-                  ],
-                },
-                network: { enabled: true },
-              },
-              reason: "Read reference files",
-            },
+            params: { permissions: reference, reason: "Read reference files" },
           });
         else
           cli.send({
@@ -1659,7 +1592,7 @@ describe("Codex adapter", () => {
         setTimeout(
           () =>
             cli.send({
-              id: "grant-denied",
+              id: "grant-secrets",
               method: "item/permissions/requestApproval",
               params: {
                 permissions: {
@@ -1672,29 +1605,33 @@ describe("Codex adapter", () => {
     });
     const driver = new CodexDriver(await context());
     cleanup.push(() => driver.dispose());
-    const recorded = recordingSink(() => "allow");
+    const recorded = recordingSink((details) =>
+      details.paths?.some((entry) => entry.path.startsWith("/tmp/secrets"))
+        ? "deny"
+        : "allow-always",
+    );
     await driver.runTurn(
       { text: "permissions", images: [], readOnly: false },
       recorded.sink,
       new AbortController().signal,
     );
-    expect(answers[0]).toEqual({ permissions: {}, scope: "turn" });
-    expect(answers[1]).toEqual({ permissions: {}, scope: "turn" });
     expect(recorded.asked).toEqual([
+      expect.objectContaining({
+        paths: [{ path: "/tmp/secrets/auth.json", access: "read" }],
+      }),
       expect.objectContaining({
         paths: [{ path: "/tmp/reference", access: "read" }],
         network: true,
-        canAllowSession: false,
+        reason: "Read reference files",
+        always: { scope: "session", rules: [] },
       }),
     ]);
-    expect(answers[2]).toMatchObject({
-      permissions: {
-        fileSystem: { read: ["/tmp/reference"] },
-        network: { enabled: true },
-      },
-      scope: "turn",
-    });
+    expect(answers).toEqual([
+      { permissions: {}, scope: "turn" },
+      { permissions: reference, scope: "session" },
+    ]);
   });
+
   it("rejects write permission grants during a planning turn", async () => {
     let answer: unknown;
     fakeCli((message, cli) => {
@@ -1720,7 +1657,7 @@ describe("Codex adapter", () => {
             : {},
       });
       if (message.method === "turn/start") {
-        expect(params.permissions).toMatch(/-read$/);
+        expect(params.permissions).toBe(":read-only");
         setTimeout(
           () =>
             cli.send({
@@ -1750,7 +1687,7 @@ describe("Codex adapter", () => {
     { toolName: "echo_tool", enabled: true },
     { toolName: "mcp", enabled: true },
     { toolName: "mcp", enabled: false },
-  ])("runs $toolName (enabled: $enabled) with sandbox approvals", async ({ toolName, enabled }) => {
+  ])("runs $toolName (enabled: $enabled) with Codex's own approvals", async ({ toolName, enabled }) => {
     const toolResult = {
       contentItems: [
         {
@@ -1857,7 +1794,7 @@ describe("Codex adapter", () => {
           command: "/bin/zsh -lc 'touch /tmp/workspace/a'",
         },
       });
-      // Inside the workspace, but Codex only asks when its sandbox would stop the command, so the person decides.
+      // Codex asks when its sandbox would stop the command; the person decides.
       expect(
         await fromServer(cli, "item/commandExecution/requestApproval", {
           ...turn,
@@ -1909,20 +1846,12 @@ describe("Codex adapter", () => {
     )!.params;
     expect(thread).toMatchObject({
       cwd: "/tmp/workspace",
-      approvalPolicy: {
-        granular: { sandbox_approval: false, request_permissions: true },
-      },
-      permissions: expect.stringMatching(/^ohmygame-/),
+      approvalPolicy: "on-request",
+      permissions: ":workspace",
       developerInstructions: "Project instructions",
-      // Only the workspace's own AGENTS.md counts, as for OhMyGame's own agent.
-      config: {
-        project_root_markers: [],
-        // Commands keep the given PATH rather than a login shell's.
-        allow_login_shell: false,
-      },
+      // The person's own Codex configuration applies unchanged.
+      config: {},
     });
-    expect(thread.config).not.toHaveProperty("mcp_servers.personal.enabled");
-    expect(thread.config).not.toHaveProperty("notify");
     expect(thread.dynamicTools).toEqual([
       expect.objectContaining({ type: "function", name: `ohmygame_${toolName}` }),
     ]);
@@ -1954,23 +1883,16 @@ describe("Codex adapter", () => {
         artifact: { type: "image", path: "art.png", mediaType: "image/png" },
       } : undefined,
     );
-    expect(recorded.asked).toEqual([]);
+    expect(recorded.asked).toEqual([
+      {
+        kind: "command",
+        tool: "shell",
+        command: "touch /tmp/workspace/a",
+        always: { scope: "session", rules: [] },
+      },
+    ]);
     expect(turn).not.toHaveProperty("sandboxPolicy");
-    expect(turn.permissions).toBe(thread.permissions);
-    expect(
-      (thread.config as Record<string, unknown>).permissions,
-    ).toMatchObject({
-      [String(thread.permissions)]: {
-        filesystem: {
-          [process.platform === "win32" ? ":root" : ":minimal"]: "read",
-          [canonicalPath("/tmp/secrets")]: "deny",
-          ":workspace_roots": { ".": "write" },
-        },
-      },
-      [`${thread.permissions}-read`]: {
-        filesystem: { ":workspace_roots": { ".": "read" } },
-      },
-    });
+    expect(turn.permissions).toBe(":workspace");
   });
 });
 
@@ -2005,14 +1927,15 @@ describe("OpenCode adapter", () => {
     const ctx = await context({
       model: "anthropic/claude-sonnet-5",
       reasoningLevel: "high",
+      permissionMode: "default",
       ...overrides,
     });
     const sent: Array<{ method: string; route: string; body: unknown }> = [];
     let events: ServerResponse | undefined;
+    // A session made before keeps OhMyGame's former ask-everything rule until a turn replaces it.
     let sessionPermissions: unknown = [
       { action: "*", resource: "*", effect: "ask" },
     ];
-    let saved: unknown[] = [];
     let sessionMissing = false;
     let sessionMoved = false;
     let pendingConfiguration = 0;
@@ -2051,26 +1974,10 @@ describe("OpenCode adapter", () => {
           project: { id: "project", directory: ctx.workspacePath },
         });
       }
-      if (route === "/api/permission/saved") return reply({ data: saved });
       if (route === "/api/agent" && pendingConfiguration-- > 0)
-        return reply({
-          data: [
-            {
-              id: "build",
-              permissions: [{ action: "*", resource: "*", effect: "allow" }],
-            },
-          ],
-        });
+        return reply({ data: [{ id: "build" }] });
       if (route === "/api/agent")
-        return reply({
-          data: ["build", "plan"].map((id) => ({
-            id,
-            permissions: [
-              { action: "*", resource: "*", effect: "ask" },
-              { action: "browser", resource: "*", effect: "deny" },
-            ],
-          })),
-        });
+        return reply({ data: ["build", "plan"].map((id) => ({ id })) });
       if (route === "/api/session" && request.method === "POST")
         return reply({ data: { id: "ses_1" } });
       if (route === "/api/session/ses_1") {
@@ -2146,9 +2053,7 @@ describe("OpenCode adapter", () => {
       onPrompt: (callback: () => void) => {
         prompt = callback;
       },
-      saveGrant: () => {
-        saved = [{ id: "grant", projectID: "project" }];
-      },
+      sessionPermissions: () => sessionPermissions,
       missing: () => {
         sessionMissing = true;
       },
@@ -2326,10 +2231,14 @@ describe("OpenCode adapter", () => {
         message: expect.stringContaining("planning turn"),
       },
     });
+    // Planning never stops to ask; OpenCode's plan agent decides what runs without asking.
     expect(f.sent).toContainEqual({
       method: "POST",
       route: "/api/session/ses_1/permission/per_2/reply",
-      body: { decision: "once" },
+      body: {
+        decision: "reject",
+        message: expect.stringContaining("planning turn"),
+      },
     });
     expect(recorded.asked).toEqual([]);
     expect(recorded.sessionId()).toBe("opencode-v2:ses_1");
@@ -2351,19 +2260,18 @@ describe("OpenCode adapter", () => {
       "--port",
       "0",
     ]);
-    expect(JSON.parse(f.clis[0]!.env.OPENCODE_CONFIG_CONTENT!)).toMatchObject({
-      snapshots: false,
-      share: "disabled",
-      permissions: [{ action: "*", resource: "*", effect: "ask" }],
-    });
     const config = JSON.parse(f.clis[0]!.env.OPENCODE_CONFIG_CONTENT!);
+    expect(config).toMatchObject({ snapshots: false, share: "disabled" });
+    // The person's own OpenCode permission rules stay in charge.
+    expect(config).not.toHaveProperty("permissions");
+    expect(config).not.toHaveProperty("agents");
     expect(await readFile(config.instructions[0], "utf8")).toBe(
       "Project instructions",
     );
     expect(f.clis[0]!.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBeUndefined();
   });
 
-  it("resumes a v2 session, reapplies permissions, compacts it and reports terminal failures", async () => {
+  it("resumes a v2 session, replaces OhMyGame's former rules, compacts it and reports terminal failures", async () => {
     const f = await openCodeFixture({ resume: "opencode-v2:ses_1" });
     const recorded = recordingSink();
     f.onPrompt(() =>
@@ -2381,28 +2289,78 @@ describe("OpenCode adapter", () => {
     expect(
       f.sent.some((r) => r.route === "/api/session" && r.method === "POST"),
     ).toBe(false);
-    expect(f.sent).toContainEqual({
-      method: "PATCH",
-      route: "/api/session/ses_1",
-      body: { permissions: [{ action: "*", resource: "*", effect: "ask" }] },
-    });
+    // Only this session's staged Skills are added to OpenCode's own rules.
+    const skills = stagedSkillsRoot("opencode-cli", f.ctx.privateDirectory);
+    expect(f.sessionPermissions()).toEqual([
+      { action: "external_directory", resource: skills, effect: "allow" },
+      { action: "external_directory", resource: `${skills}/*`, effect: "allow" },
+    ]);
     await f.driver.compact(recorded.sink, new AbortController().signal);
     expect(recorded.calls.filter((c) => c.startsWith("compaction:"))).toEqual([
       "compaction:start",
       "compaction:end",
     ]);
-    f.saveGrant();
-    expect(
-      await f.driver.runTurn(
-        { text: "again", images: [], readOnly: false },
-        recorded.sink,
-        new AbortController().signal,
-      ),
-    ).toMatchObject({
-      status: "failed",
-      error: expect.stringContaining("saved permissions"),
+  });
+
+  it("allows everything in its Allow all mode, except while planning", async () => {
+    const f = await openCodeFixture({ permissionMode: "allow" });
+    f.onPrompt(() => f.emit("session.execution.succeeded"));
+    const allowAll = { action: "*", resource: "*", effect: "allow" };
+    for (const [readOnly, allowed] of [
+      [false, true],
+      [true, false],
+      [false, true],
+    ] as const) {
+      expect(
+        await f.driver.runTurn(
+          { text: "go", images: [], readOnly },
+          recordingSink().sink,
+          new AbortController().signal,
+        ),
+      ).toEqual({ status: "completed" });
+      expect(f.sessionPermissions()).toEqual(
+        allowed ? expect.arrayContaining([allowAll]) : expect.not.arrayContaining([allowAll]),
+      );
+    }
+    // A turn changes the session's rules only when its mode needs different ones.
+    expect(f.sent.filter((r) => r.method === "PATCH")).toHaveLength(3);
+  });
+
+  it("asks the person what OpenCode asks and saves its patterns when always allowed", async () => {
+    const f = await openCodeFixture();
+    const recorded = recordingSink(() => "allow-always");
+    f.onPrompt(() =>
+      f.emit("permission.asked", {
+        id: "per_1",
+        action: "shell",
+        resources: ["npm install three"],
+        metadata: { command: "npm install three" },
+        save: ["npm install *"],
+      }),
+    );
+    const run = f.driver.runTurn(
+      { text: "go", images: [], readOnly: false },
+      recorded.sink,
+      new AbortController().signal,
+    );
+    await expect
+      .poll(() => f.sent.some((r) => r.route.endsWith("/per_1/reply")))
+      .toBe(true);
+    f.emit("session.execution.succeeded");
+    expect(await run).toEqual({ status: "completed" });
+    expect(recorded.asked).toEqual([
+      {
+        kind: "command",
+        tool: "shell",
+        command: "npm install three",
+        always: { scope: "saved", rules: ["npm install *"] },
+      },
+    ]);
+    expect(f.sent).toContainEqual({
+      method: "POST",
+      route: "/api/session/ses_1/permission/per_1/reply",
+      body: { decision: "always" },
     });
-    expect(f.sent.filter((r) => r.route.endsWith("/prompt"))).toHaveLength(1);
   });
 
   it("rebuilds a native session moved out of the app workspace", async () => {

@@ -165,7 +165,7 @@ MANDATORY ASSET TYPE: TERRAIN TILESET
 Generate a collection of grid-aligned, square terrain tiles for map construction, not a continuous landscape illustration, decorative collage, or complete gameplay scene.
 
 REFERENCE INTERPRETATION
-Use the reference to understand the requested terrain materials, environmental identity, perspective, color relationships, and important shapes. Preserve the user's intended biome and palette; never impose fixed grass, dirt, stone, dark-fantasy, or other colors. Simplify intricate textures into readable low-resolution pixel patterns.
+The reference is a source of terrain content, not a base image to restyle. Identify its biome, ground and surface materials, characteristic features, and color relationships, then author new tiles from them. Do not keep the reference's camera angle, framing, layout, or object placement, and do not slice the reference into cells. Preserve the user's intended biome and palette; never impose fixed grass, dirt, stone, dark-fantasy, or other colors. Simplify intricate textures into readable low-resolution pixel patterns. A pixelated or cropped copy of the reference is a failed result.
 
 TILE DIMENSIONS AND GRID
 Use the default logical tile size and atlas dimensions from the density instructions unless the user specifies another tile size or layout. All cells must have identical square dimensions and aligned boundaries. No gaps, labels, decorative borders, overlapping cells, or irregular margins.
@@ -174,37 +174,49 @@ TILE FUNCTION AND CONNECTIVITY
 Create meaningful base tiles, edge tiles, corners, and transitions as appropriate to the requested terrain and layout. Keep related tiles compatible in palette, lighting, texture rhythm, and edge geometry. Repeating tiles should have compatible opposite edges. Transition tiles should connect logically to intended neighbors. Do not invent arbitrary fragments merely to fill the atlas.
 
 PERSPECTIVE AND OUTPUT
-Follow the user's requested perspective; otherwise use orthographic top-down. Never mix perspectives. Output only the organized terrain tileset, without characters, buildings, text, UI, or unrelated scenery.
+Follow the user's requested perspective; otherwise use orthographic top-down, even when the reference is a side view, landscape photo, or illustration. Never mix perspectives. Output only the organized terrain tileset, without characters, buildings, text, UI, or unrelated scenery.
 
 STRICTLY AVOID
 A single continuous map instead of tiles, decorative sprite-sheet mockups, mismatched tile sizes, inconsistent boundaries, high-detail pixel illustration, dark or monochrome palettes unless requested, smooth painting, and tiny noisy textures.
 
 FINAL TARGET
 A coherent, grid-aligned terrain tile atlas with pixel size and detail matched to the selected density. Exact tile size and seamless connectivity must be checked programmatically after generation.`,
-  terrain: `Create authentic low-resolution pixel art TERRAIN for a 2D video game, using the provided reference image and user description.
+  terrain: `Create authentic low-resolution pixel art MAP TERRAIN for a 2D video game: one continuous ground surface that a level designer can use directly as a game map area, based on the provided reference image and user description.
 
 USER REQUEST: {user_prompt}
 
-MANDATORY ASSET TYPE: CONTINUOUS TERRAIN
-Generate one cohesive terrain area or ground surface, not a tile atlas, sprite sheet, inventory grid, or isolated character/object.
+MANDATORY ASSET TYPE: CONTINUOUS MAP TERRAIN
+Generate one cohesive ground area seen from the game camera. It is a playable map surface, not a scene illustration, story moment, landscape painting, tile atlas, sprite sheet, or isolated object.
 
 REFERENCE INTERPRETATION
-Use the reference to understand the environment, terrain structure, material identity, perspective, composition, and key visual characteristics. Preserve the user's requested terrain and color relationships without imposing any predetermined biome, palette, or lighting mood. Treat the reference as a design concept, not a detailed texture to copy.
+The reference is a source of terrain content, not a base image to restyle. Identify its biome, ground and surface materials, water, routes, elevation changes, and color relationships, then lay out a new map area from them. Do not keep the reference's camera angle, framing, horizon, sky, layout, or feature placement. Preserve the user's requested terrain and color relationships without imposing any predetermined biome, palette, or lighting mood. A pixelated copy of the reference is a failed result.
 
-TERRAIN COMPOSITION
-Create a continuous, visually coherent area with clear material relationships and natural transitions where appropriate. Add rocks, vegetation, debris, water, structures, or other features only if they belong to the requested environment. Avoid clutter and keep the terrain readable at game scale. Follow the user's specified perspective; otherwise use consistent orthographic top-down.
+MAP LAYOUT
+Fill the whole frame with ground; no sky, horizon, vanishing point, or empty backdrop. Follow the user's specified perspective; otherwise use consistent orthographic top-down, even when the reference is a side view, landscape photo, or illustration. Plan the area as level layout: a few large material regions, open walkable ground, and readable routes through the space. Let terrain continue past the frame edges so the area reads as part of a larger map.
 
-GAME READABILITY
-Prioritize strong terrain shapes, clear material boundaries, and low-resolution visual clarity. Keep pixel density consistent. Do not try to preserve every small detail from the reference.
+MATERIAL DISTRIBUTION
+Use a small set of ground materials suited to the biome, such as grass, dirt, sand, rock, snow, or mud. Give each material a distinct color family and arrange them in large readable zones with deliberate, natural-looking distribution rather than uniform noise or random patches.
+
+ROADS AND PATHS
+When the terrain calls for them, include roads, trails, or paths with consistent width, clear edges, and plausible connections between areas and to the frame edges. Paths must read as traversable at game scale.
+
+WATER
+When the terrain calls for it, include rivers, streams, lakes, ponds, or coastline as clear water bodies with a defined shoreline or bank. Rivers keep a continuous course. Keep water visually distinct from walkable ground.
+
+TERRAIN BOUNDARIES
+Make every material change, cliff edge, elevation step, shoreline, and path edge a clear, consistent boundary that implies how the player can move. Use simple stepped edge treatments repeated consistently across the map. Separate walkable and blocked areas readably.
+
+FEATURES
+Add rocks, vegetation, debris, or bridges only as sparse map features that support the layout. No characters, creatures, vehicles, buildings, interiors, narrative props, focal events, or dramatic lighting.
 
 OUTPUT
-Fill the requested terrain area without visible atlas grid lines, tile borders, labels, UI, or decorative presentation elements. Do not introduce unrelated characters or buildings.
+Fill the requested terrain area without visible atlas grid lines, tile borders, labels, UI, or decorative presentation elements.
 
 STRICTLY AVOID
-Tileset atlases when not requested, predetermined green/brown/gray palettes, black-dominated or monochrome palettes unless requested, high-resolution pixel illustration, realistic micro-textures, noisy detail, gradients, anti-aliasing, mixed pixel scales, and blurry edges.
+Story-driven scene composition, sky or horizon, perspective landscapes, tileset atlases when not requested, predetermined green/brown/gray palettes, black-dominated or monochrome palettes unless requested, high-resolution pixel illustration, realistic micro-textures, noisy detail, gradients, anti-aliasing, mixed pixel scales, and blurry edges.
 
 FINAL TARGET
-A continuous, expressive retro pixel-art terrain area with visibly discrete square pixels at the selected density and a palette determined by the user's actual request.`,
+A continuous retro pixel-art map terrain area with a clear layout, readable material zones, roads, water, and terrain boundaries, visibly discrete square pixels at the selected density, and a palette determined by the user's actual request.`,
   building: `Create a complete pixel art game building based on the provided reference image and user description.
 
 USER REQUEST: {user_prompt}
@@ -438,6 +450,30 @@ Focus on readable expression, facial structure, hairstyle, personality, and main
 Use deliberate pixel clusters, stepped curves, a cohesive limited palette, and clean hard-edged shading. Add highlights only when the selected density permits them. Avoid smooth anime rendering, airbrushed skin, gradients, anti-aliasing, photorealism, and painterly textures.
 
 Keep the subject clearly framed, with a simple or transparent background as appropriate.`,
+  "multi-angle": `Create an authentic pixel art MULTI-ANGLE VIEW SHEET of one game subject, based on the provided reference image and user description.
+
+USER REQUEST: {user_prompt}
+
+MANDATORY LAYOUT: 3 × 3 VIEW GRID
+Arrange exactly nine views of the same subject in an invisible 3-column by 3-row grid of equal square cells, laid out like a compass seen from above:
+- Top row: back-left three-quarter view, back view, back-right three-quarter view.
+- Middle row: left side view (facing screen-left), top-down overhead view looking straight down from above the head, right side view (facing screen-right).
+- Bottom row: front-left three-quarter view, front view facing the viewer, front-right three-quarter view.
+
+VIEW CONSISTENCY
+Every view shows the same subject with identical design, proportions, colors, equipment, and markings, rotated in place. Use the same neutral standing or resting pose in every view; do not change pose, expression, or held items between views. Side and three-quarter views must turn the whole body consistently, not only the head. The overhead view shows the top of the head or body, shoulders, and anything visible from above, at the same scale.
+
+SCALE AND ALIGNMENT
+Use the same scale in every cell. Center each view in its cell with comparable margins, and keep feet or base on one shared baseline within each row. The complete subject must be visible in every cell without cropping.
+
+REFERENCE INTERPRETATION
+Use the reference to identify the subject's identity, silhouette, costume or markings, and main colors. Infer unseen sides plausibly and consistently from the visible design; do not invent new accessories or color changes on hidden sides.
+
+OUTPUT
+A plain flat background or transparency shared by all cells. No grid lines, borders, labels, arrows, text, numbers, shadows that cross cells, scenery, or additional characters.
+
+STRICTLY AVOID
+Fewer or more than nine views, repeated identical angles, mirrored views passed off as different angles when the subject is asymmetric, different poses between views, inconsistent scale, perspective drift, smooth illustration, anti-aliasing, gradients, and blurry edges.`,
   "rpg-character": `Create an authentic pixel art RPG character sprite using the provided reference image.
 
 USER REQUEST: {user_prompt}

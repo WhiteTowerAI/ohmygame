@@ -1,8 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type {
-  CompiledNodeGraph,
-  CompiledPlayableSurface,
-} from "../src/shared/playable-compiled.js";
 import type { NodeGraph, PlayableNodeContext } from "../src/shared/playable-nodes.js";
 import {
   MemoryPlayablePreferencesStore,
@@ -18,9 +14,10 @@ import {
   type PlayableSaveStore,
   type PlayableSeenStore,
   type PlayableSlotStore,
+  type PlayableSurface,
   type PlayableSurfaceHost,
 } from "../src/shared/playable-runtime.js";
-import type { PlayableSeen } from "../src/shared/playable-story-map.js";
+import type { PlayableSeen } from "../src/shared/playable-seen.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
 type NodeContext = Omit<PlayableNodeContext, "root">;
@@ -29,14 +26,14 @@ class FakeSurfaceHost implements PlayableSurfaceHost {
   readonly events: string[] = [];
   readonly nodeContexts: Array<{ id: string; context: NodeContext }> = [];
   onMountNode?: (
-    surface: CompiledPlayableSurface,
+    surface: PlayableSurface,
     context: NodeContext,
   ) => void | Promise<void>;
   nodeCleanup?: (id: string, context: NodeContext) => void | Promise<void>;
   nodeDestroy?: (id: string) => void | Promise<void>;
 
   async mountNode(
-    surface: CompiledPlayableSurface,
+    surface: PlayableSurface,
     context: NodeContext,
   ): Promise<PlayableMountedSurface> {
     this.events.push(`mount:${surface.id}`);
@@ -580,23 +577,18 @@ describe("Node Runtime connected Signals", () => {
   });
 });
 
-describe("Node Runtime Story Map", () => {
-  it("remembers the Nodes entered and edges taken, and maps them", async () => {
+describe("Node Runtime seen record", () => {
+  it("remembers the Nodes entered and edges taken, and gives them to Scenes", async () => {
     const seenStore = new MemoryPlayableSeenStore();
     const { runtime, host } = createRuntime({ seenStore });
     await runtime.start();
     await nodeContext(host, "menu").navigation.emit("start");
+    expect(nodeContext(host, "menu").story.seenBefore).toBe(false);
+    expect(nodeContext(host, "lobby").story.seenBefore).toBe(false);
 
-    const map = nodeContext(host, "lobby").story.map();
-    expect(map.nodes.map((node) => [node.id, node.row, node.seen, node.ending])).toEqual([
-      ["menu", 0, true, false],
-      ["lobby", 1, true, false],
-      ["archive", 2, false, true],
-    ]);
-    expect(map.edges).toEqual([
-      { from: "menu", to: "lobby", seen: true },
-      { from: "lobby", to: "archive", seen: false },
-    ]);
+    const seen = nodeContext(host, "lobby").story.seen();
+    expect(Object.keys(seen.nodes)).toEqual(["menu", "lobby"]);
+    expect(Object.keys(seen.edges)).toEqual(["start-game"]);
     await runtime.dispose();
     expect(await seenStore.load()).toEqual({
       version: 1,
@@ -611,10 +603,21 @@ describe("Node Runtime Story Map", () => {
     await runtime.start();
     await nodeContext(host, "menu").session.restart();
 
-    expect(nodeContext(host, "menu").story.map().nodes.every((node) => node.seen)).toBe(true);
+    expect(Object.keys(nodeContext(host, "menu").story.seen().nodes)).toEqual(["menu", "lobby", "archive"]);
+    // A Scene can offer to skip what the player saw in an earlier game.
+    expect(nodeContext(host, "menu").story.seenBefore).toBe(true);
   });
 
-  it("shows the whole map in a preview without adding to what was seen", async () => {
+  it("tells a Node it was seen before only on a later visit in the same game", async () => {
+    const { runtime, host } = createRuntime({ seenStore: new MemoryPlayableSeenStore() });
+    await runtime.start();
+    await nodeContext(host, "menu").navigation.emit("start");
+    await nodeContext(host, "lobby").navigation.emit("home");
+    expect(host.nodeContexts.filter((entry) => entry.id === "menu").map((entry) => entry.context.story.seenBefore))
+      .toEqual([false, true]);
+  });
+
+  it("shows a preview everything without adding to what was seen", async () => {
     const saved: PlayableSeen[] = [];
     const seenStore: PlayableSeenStore = {
       load: async () => seenRecord(["menu"]),
@@ -624,10 +627,16 @@ describe("Node Runtime Story Map", () => {
     await runtime.start();
     await nodeContext(host, "lobby").navigation.emit("archive");
 
-    const map = nodeContext(host, "lobby").story.map();
-    expect(map.nodes.every((node) => node.seen) && map.edges.every((edge) => edge.seen)).toBe(true);
+    const seen = nodeContext(host, "lobby").story.seen();
+    expect(Object.keys(seen.nodes)).toEqual(["menu", "lobby", "archive"]);
+    expect(Object.keys(seen.edges).length).toBeGreaterThan(0);
     await runtime.dispose();
     expect(saved).toEqual([]);
+
+    // A preview plays a Scene as it first appears, without Skip.
+    const preview = createRuntime({ seenStore, policy: "report", startNodeId: "menu" });
+    await preview.runtime.start();
+    expect(nodeContext(preview.host, "menu").story.seenBefore).toBe(false);
   });
 
   it("plays on when what was seen cannot be read or kept", async () => {
@@ -923,22 +932,11 @@ describe("NodeRuntime preview tooling", () => {
     ]);
   });
 
-  it("starts at a chosen Node with validated preview State", async () => {
-    const { runtime, host } = createRuntime({
-      startNodeId: "archive",
-      previewState: { hasKey: true },
-    });
+  it("starts at a chosen Node", async () => {
+    const { runtime, host } = createRuntime({ startNodeId: "archive" });
     await runtime.start();
 
     expect(host.events).toEqual(["mount:archive"]);
-    expect(runtime.snapshot().state).toEqual({
-      hasKey: true,
-      clues: [],
-      profile: { name: "" },
-    });
-    expect(() => createRuntime({ previewState: { unknown: 1 } })).toThrowError(
-      expect.objectContaining({ code: "unknown-state-key" }),
-    );
     expect(() => createRuntime({ startNodeId: "nowhere" })).toThrowError(
       expect.objectContaining({ code: "unknown-node" }),
     );
@@ -975,7 +973,6 @@ function createRuntime(
     onError?: (error: unknown) => void;
     policy?: NodeRuntimeOptions["policy"];
     startNodeId?: string;
-    previewState?: NodeRuntimeOptions["previewState"];
   } = {},
 ): {
   runtime: NodeRuntime;
@@ -987,7 +984,6 @@ function createRuntime(
     host,
     runtime: new NodeRuntime({
       graph,
-      compiled: createCompiledGraph(),
       graphSignature: "fixture-v1",
       surfaceHost: host,
       saveStore: options.saveStore ?? new MemoryPlayableSaveStore(),
@@ -1003,26 +999,7 @@ function createRuntime(
       onError: options.onError,
       policy: options.policy,
       startNodeId: options.startNodeId,
-      previewState: options.previewState,
     }),
-  };
-}
-
-function createCompiledGraph(): CompiledNodeGraph {
-  const surface = (id: string): CompiledPlayableSurface => ({
-    id,
-    html: "",
-    css: "",
-    javascript: "export function mount() {}",
-    inputs: [],
-  });
-  return {
-    version: 1,
-    nodes: {
-      menu: surface("menu"),
-      lobby: surface("lobby"),
-      archive: surface("archive"),
-    },
   };
 }
 

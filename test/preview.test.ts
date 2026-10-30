@@ -102,11 +102,13 @@ describe("PreviewManager", () => {
       vi.stubEnv("PATH", `${bin}${path.delimiter}${process.env.PATH}`);
       const project = createProject(workspacePath);
       const events = new RuntimeEventBus();
-      const manager = new PreviewManager(events, { readinessTimeoutMs: 2_000 });
+      // A readiness timeout well beyond process startup under parallel load
+      // shows that the failure, not the timeout, ended the start.
+      const manager = new PreviewManager(events, { readinessTimeoutMs: 10_000 });
       managers.push(manager);
       const before = Date.now();
       await expect(manager.start(project)).rejects.toThrow("ENOENT");
-      expect(Date.now() - before).toBeLessThan(1_500);
+      expect(Date.now() - before).toBeLessThan(5_000);
       expect(project.preview.status).toBe("error");
       expect(
         events

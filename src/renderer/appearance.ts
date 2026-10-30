@@ -15,12 +15,16 @@ export function setAppearance(appearance: Appearance): void {
   applyAppearance(appearance);
 }
 
-export function applyAppearance(appearance: Appearance): void {
+/**
+ * Applies the appearance to this page and, unless `desktop` is false, tells the
+ * desktop app, which themes its windows to match.
+ */
+export function applyAppearance(appearance: Appearance, { desktop = true }: { desktop?: boolean } = {}): void {
   stopWatchingSystemAppearance?.();
   stopWatchingSystemAppearance = undefined;
 
   const root = document.documentElement;
-  void window.ohMyGameDesktop?.setAppearance(appearance).catch(() => undefined);
+  if (desktop) void window.ohMyGameDesktop?.setAppearance(appearance).catch(() => undefined);
   const apply = () => { root.dataset.appearance = resolveAppearance(appearance); };
   apply();
 

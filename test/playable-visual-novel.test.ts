@@ -7,8 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addPlayableNode } from "../src/daemon/playable-add-node.js";
 import { createNodeCodebase, readNodeCodebase } from "../src/daemon/playable-codebase.js";
 import { validatePlayableProject } from "../src/daemon/playable-project.js";
-import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-style.js";
-import { VISUAL_NOVEL_SHARED_FILES } from "../src/daemon/playable-visual-novel.js";
+import { PLAYABLE_PROJECT_STYLE_FILES, VISUAL_NOVEL_SHARED_FILES } from "../src/daemon/playable-presets.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 
 interface Step {

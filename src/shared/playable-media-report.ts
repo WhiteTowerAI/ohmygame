@@ -1,5 +1,5 @@
 import type { PlayableMediaCommand, PlayableMediaState } from "./playable-player-protocol.js";
-import type { DocumentPlayableSurfaceHost } from "./playable-sandbox.js";
+import type { DocumentPlayableSurfaceHost } from "./playable-page-host.js";
 
 export interface BackdropMediaReport {
   control: (command: PlayableMediaCommand) => void;

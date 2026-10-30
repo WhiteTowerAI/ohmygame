@@ -151,6 +151,34 @@ describe("static preview directory URLs", () => {
   );
 });
 
+describe("static preview file types", () => {
+  it.each([
+    ["main.JS", "text/javascript", "export const ready = true;"],
+    ["helper.mJs", "text/javascript", "export const value = 42;"],
+    ["game.WASM", "application/wasm", "wasm fixture"],
+    ["style.CsS", "text/css", "body { margin: 0; }"],
+    ["lower.js", "text/javascript", "export const lower = true;"],
+    ["data.UNKNOWN", "application/octet-stream", "unknown fixture"],
+  ])(
+    "serves %s with its media type on GET and HEAD",
+    async (filename, type, contents) => {
+      const root = await directory();
+      await writeFile(path.join(root, filename), contents);
+      const url = `${await preview(root)}/${filename}`;
+
+      for (const method of ["GET", "HEAD"]) {
+        const response = await fetch(url, { method });
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toBe(type);
+        expect(response.headers.get("content-length")).toBe(
+          String(Buffer.byteLength(contents)),
+        );
+        expect(await response.text()).toBe(method === "HEAD" ? "" : contents);
+      }
+    },
+  );
+});
+
 describe("static preview byte ranges", () => {
   it.each([
     ["0123456789", "bytes=2-5"],

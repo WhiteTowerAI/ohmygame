@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, ensureProjectPreview, getNodeRuntime, playableSandboxUrl } from "./api.js";
-import { createMemoryStorage, NodePlayer } from "./playable-player.js";
-import { askToFixPlaytest, askToFixPlaytestStart, PlaytestOverlay, PlaytestProblem, playtestSaveKey, playtestSeenKey, requestAskAgent, takePlaytestRequest, usePlaytestRequests, type PlaytestProblemState, type PlaytestRequest, type PlaytestStart } from "./playable-playtest.js";
+import { ApiError, ensureProjectPreview, getNodeRuntime } from "./api.js";
+import { NodePlayer } from "./playable-player.js";
+import { askToFixPlaytest, askToFixPlaytestStart, PlaytestOverlay, PlaytestProblem, requestAskAgent, takePlaytestRequest, usePlaytestRequests, type PlaytestProblemState, type PlaytestRequest, type PlaytestStart } from "./playable-playtest.js";
 import { PlayableStateHistory, playableDebugRecord } from "../shared/playable-debug.js";
 import { playableNodeById } from "../shared/playable-graph.js";
-import { loadPlayableAssets } from "./playable-assets.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
@@ -15,8 +14,7 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const [session, setSession] = useState(0);
   const [start, setStart] = useState<PlaytestStart>();
-  const [storage, setStorage] = useState(createMemoryStorage);
-  /** What a web story's page should do first this session, as its query parameters. */
+  /** What the story's page should do first this session, as its query parameters. */
   const [pageStart, setPageStart] = useState<Record<string, string>>({});
   const history = useRef(new PlayableStateHistory());
   /** Counts how often the story was loaded, so a request can load it again. */
@@ -27,10 +25,9 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   const [played, setPlayed] = useState(false);
   const [playable, setPlayable] = useState<
     | { status: "loading" }
-    | { status: "ready"; definition: NodePlayerDefinition; assets: Record<string, Blob>; page?: string }
+    | { status: "ready"; definition: NodePlayerDefinition; page: string }
     | { status: "error"; problem: PlaytestProblemState }
   >({ status: "loading" });
-  const saveKey = playtestSaveKey(projectId);
 
   useEffect(() => {
     let disposed = false;
@@ -43,16 +40,15 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
         return;
       }
       loadingStory = false;
-      if (result.web) {
-        // A web story plays its own page, which keeps its saves on the preview's origin.
-        const { url } = await ensureProjectPreview(projectId);
-        if (disposed) return;
-        setPlayable({ status: "ready", definition: result.definition, assets: {}, page: url });
+      // A story from before web stories plays once the editor has upgraded it.
+      if (!result.web) {
+        if (!disposed) setPlayable({ status: "error", problem: { kind: "needs-upgrade" } });
         return;
       }
-      const assets = await loadPlayableAssets(projectId, result.definition.graph);
+      // The story plays its own page, which keeps its saves on the preview's origin.
+      const { url } = await ensureProjectPreview(projectId);
       if (disposed) return;
-      setPlayable({ status: "ready", definition: result.definition, assets });
+      setPlayable({ status: "ready", definition: result.definition, page: url });
     }).catch((cause) => {
       if (!disposed) setPlayable({ status: "error", problem: loadingStory ? storyProblem(cause) : { kind: "unavailable", detail: errorMessage(cause) } });
     });
@@ -93,9 +89,7 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   /** Applies an editor request and starts a fresh Runtime session. */
   function restart(request?: PlaytestRequest, currentStart?: PlaytestStart): void {
     const nextStart = request?.action === "start" ? request.start : currentStart;
-    if (request?.action === "replay" && !nextStart) window.localStorage.removeItem(saveKey);
-    if (request?.action === "forget-seen") window.localStorage.removeItem(playtestSeenKey(projectId));
-    // A web story's page keeps its own storage, so it is asked to do the same.
+    // The page keeps its own storage, so it is asked to start over.
     setPageStart({
       ...(request?.action === "replay" && !nextStart ? { "ohmygame-new-game": "1" } : {}),
       ...(request?.action === "forget-seen" ? { "ohmygame-forget-seen": "1" } : {}),
@@ -108,7 +102,6 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     setFailed(undefined);
     setPlayed(false);
     setStart(nextStart);
-    setStorage(createMemoryStorage());
     setSession((current) => current + 1);
   }
 
@@ -149,14 +142,8 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
         <NodePlayer
           key={session}
           definition={playable.definition}
-          frameUrl={playableSandboxUrl()}
-          assets={playable.assets}
-          {...(playable.page ? { page: withParameters(playable.page, pageStart) } : {})}
-          saveKey={saveKey}
-          {...(start ? {
-            storage,
-            preview: { policy: "follow" as const, startNodeId: start.nodeId },
-          } : {})}
+          page={withParameters(playable.page, pageStart)}
+          {...(start ? { preview: { policy: "follow" as const, startNodeId: start.nodeId } } : {})}
           loadingLabel={t("playtest.loading")}
           onSnapshot={onSnapshot}
           onDiagnostic={onDiagnostic}

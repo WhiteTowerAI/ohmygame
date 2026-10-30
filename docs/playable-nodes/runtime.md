@@ -12,7 +12,7 @@ The Runtime owns everything that must survive a node:
 - the save, save slots, and each Node's position;
 - music and sounds;
 - the player's preferences;
-- what the player has seen, for the Story Map;
+- what the player has seen, for a story map or anything else that shows progress;
 - node lifecycle and loading each node's files.
 
 Nodes own presentation and input. The Runtime never renders node content, and
@@ -26,8 +26,9 @@ project preview or as static files. Editor tooling (preview policy, element
 picking, capture, diagnostics) is injected by the preview and never changes
 what node code sees, and never ships with the game.
 
-Stories made before web stories play the same Runtime in OhMyGame's sandbox
-until the author upgrades them; see [Sandboxed stories](#sandboxed-stories).
+Stories made before web stories played in a sandbox that OhMyGame no longer
+has. They cannot play, build, or publish until the Story editor upgrades them;
+see [Stories made before web stories](#stories-made-before-web-stories).
 
 ## Project files
 
@@ -139,19 +140,13 @@ graph and nodes; if they need repair, the editor reports it.
 
 A Signal may have `"role": "navigation"` when it is a way around the game,
 such as Home, rather than a step in the story. The editor names its target
-instead of drawing a line. Routing and the compiler ignore it; the Runtime
-reads it only for the [save](#save-and-session) and the
-[Story Map](#story-map).
+instead of drawing a line. Routing ignores it; the Runtime
+reads it only for the [save](#save-and-session).
 
 A Signal may also have a `when`, one sentence saying when the node emits it,
 such as `"if trust is 3 or more"`, and the graph may have `variables`, a map
 from `initialState` keys to one-line descriptions. The Agent writes both and
 the editor displays them. They are never executed: the node's code decides.
-
-A node may have `story`, which says how it shows on the
-[Story Map](#story-map): `hidden` keeps it off the map, `ending` overrides
-the guess of whether it is an ending, and `label` is the name players see
-instead of its title. The Runtime reads it only to build the map.
 
 `viewport` is the fixed stage every node is laid out in, in
 CSS pixels. Players scale the whole stage to fit, keeping its ratio, so a node
@@ -223,7 +218,7 @@ interface RuntimeContext {
     loadSlot(id: string): Promise<void>;
     deleteSlot(id: string): Promise<void>;
   };
-  story: { map(): StoryMap };
+  story: { map(): StoryMap; seenBefore: boolean };
   lifecycle: { signal: AbortSignal };
 }
 
@@ -318,19 +313,19 @@ State.
 
 ## Background video clips
 
-A Scene may put `data-clip-start="3.2"` and `data-clip-end="8.75"` on its
+A node may put `data-clip-start="3.2"` and `data-clip-end="8.75"` on its
 single `[data-media="backdrop"][data-type="video"][data-asset]` element.
 These are finite, non-negative seconds in the original Asset, not offsets
 in the edited clip. Start defaults to zero; absent End means the file's
 natural end. End must exceed Start. The editor writes millisecond precision
 and requires at least 0.1 seconds (or the entire file if it is shorter).
 Malformed attributes, image clips and multiple backgrounds with a clip
-are compile errors in both draft and publish builds.
+are source issues in both draft and publish validation.
 
 The shared surface host observes videos created inside this background, before
 calling authored `mount()`. It seeks to Start after metadata loads and
 pauses at End, displaying a frame just inside the selected range. It sends
-one ordinary `ended` event for an early end; Scene code still decides which
+one ordinary `ended` event for an early end; node code still decides which
 Signal to emit, if any. A video with `loop` loops inside the range instead.
 The controller is removed on lifecycle abort, destroy, or failed mount.
 Videos without these attributes retain their existing playback behavior.
@@ -340,10 +335,10 @@ reports a diagnostic once and falls back to playing the complete file.
 Paused authoring seeks can inspect the entire original video; the next play
 respects the clip. Clips do not add State, alter graph signatures, modify
 Assets or require migration of user-authored shared helpers. Published
-packages still contain the original video bytes. The same controller runs in
-web stories and legacy sandboxed stories. Web stories receive it through the
-normal manifest-aware runtime update; customized runtime files remain pending
-for the author to merge, rather than being overwritten.
+packages still contain the original video bytes. Web stories receive the
+controller through the normal manifest-aware runtime update; customized
+runtime files remain pending for the author to merge, rather than being
+overwritten.
 
 ## Page and lifecycle
 
@@ -411,17 +406,17 @@ files the author or Agent changed stay: the newer file goes under
 `.ohmygame/story-runtime/<version>/` and the manifest lists it as `pending`
 for the Agent to merge.
 
-### Sandboxed stories
+### Stories made before web stories
 
-A story without `index.html` and `story/` plays in OhMyGame's sandbox: an
-iframe with exactly `sandbox="allow-scripts"`, an opaque origin, and a CSP
-that denies network. The Runtime there talks to its host by messages, and the
-compiler bundles each node into one module. The Story editor offers
-**Upgrade**, which takes a checkpoint, copies the Library assets the story
-uses into `assets/library/`, rewrites imports a browser cannot load,
-adds `index.html` and `story/`, and replaces `AGENTS.md` and `README.md` if
-they are still as OhMyGame wrote them. **Undo upgrade** takes back the files
-changed between the two checkpoints.
+A story without `index.html` and `story/` was made for a sandbox OhMyGame no
+longer has, so Playtest, the Workbench preview, thumbnails, the Agent's
+playtest, building, and publishing all refuse it. The Story editor upgrades
+it as soon as the canvas has loaded: the upgrade takes a checkpoint, copies
+the Library assets the story uses into `assets/library/`, rewrites imports a
+browser cannot load, adds `index.html` and `story/`, and replaces `AGENTS.md`
+and `README.md` if they are still as OhMyGame wrote them. The Agent is told
+OhMyGame made the change. There is no way back to the sandbox; if the
+upgrade fails, the canvas says why and offers to try again.
 
 ## Save and session
 
@@ -498,8 +493,8 @@ kept with the save, so Continue and a loaded slot bring it back, and
 `restart()` stops it. `sound(assetId)` plays an Asset once.
 
 While a Node's own `<video>` or `<audio>` plays with sound, such as a
-cinematic Scene's background, the music turns down to a quarter and comes
-back when it stops. The sandbox listens for that on each Node's ShadowRoot,
+cinematic node's background, the music turns down to a quarter and comes
+back when it stops. The page listens for that on each Node's ShadowRoot,
 so it needs nothing from Node code. Node media plays at the sound volume.
 
 Where the browser will not start sound before the player touches the page,
@@ -517,7 +512,7 @@ other key, such as a text speed, belongs to the project. Settings are at most
 64 KiB of JSON, and settings that cannot be read start over. Hosts keep them
 beside what the player has seen (`<saveKey>:preferences`).
 
-## Story Map
+## What the player has seen
 
 Besides the save, the Runtime keeps what the player has **seen**: when
 each node was first entered and each edge first taken. It lasts across new
@@ -526,36 +521,29 @@ from the save; IDs no longer in the graph are ignored. Only play adds to it,
 not the `report` preview policy. Losing it never stops the game: a record
 that cannot be read starts over, and a failed write is reported once.
 
-`context.story.map()` returns the story laid out for a player to see, with
-what they have seen:
+`context.story.seen()` returns that record as it is:
 
 ```ts
-interface StoryMap {
-  nodes: { id: string; label: string; row: number; column: number; rowSize: number; ending: boolean; seen: boolean }[];
-  edges: { from: string; to: string; seen: boolean }[];
+interface Seen {
+  version: 1;
+  /** When each node was first entered, by node ID. */
+  nodes: Record<string, string>;
+  /** When each edge was first taken, by edge ID. */
+  edges: Record<string, string>;
 }
 ```
 
-The layout comes from the graph alone, never from editor positions, so it
-holds at any screen size and arranging the canvas does not change it:
+The Runtime does not lay the story out. A story map is an ordinary node:
+the Story map Template reads `graph.json`, lays the story out in its own
+`layout.js`, and marks what `seen()` says the player reached. Which nodes
+are off the map, their names, and which count as endings are constants in
+its `node.js`; see [authoring.md](authoring.md#story-map).
 
-- A step in the story is a `replace` edge from a Signal that is not
-  navigation. A `push` target is on the map only when the story reaches it
-  some other way.
-- Nodes with `story.hidden` are left out, and the steps through them joined.
-  When the Entry Node is hidden, the map starts at the nodes it leads to.
-- Steps back to a node already above, such as a retry, are left out, so the
-  map reads downwards.
-- Each node sits one row below the lowest node that leads to it, and each
-  row is ordered by where those nodes sit. `column` counts from the left of
-  its row of `rowSize` nodes.
-- A node is an ending when `story.ending` says so, or else when every Signal
-  it declares is navigation.
-- An edge is seen when the first graph edge of its step was taken and its
-  target was seen.
-
-The Story map Template draws the map. Which Scenes it shows, locked or not,
-is its own code.
+`context.story.seenBefore` is `true` when the player entered the node before
+this visit, earlier in the same game or in another one. A node is marked seen
+only once it has mounted, so on a first visit it is `false`. Nodes use it to
+offer skipping what the player has already watched. The `report` preview
+policy always gives `false`.
 
 ## Host tooling
 
@@ -567,13 +555,14 @@ Player exposes the playtest bridge only for a draft built for `game_use`.
 
 The Runtime accepts a navigation policy:
 
-- `follow` (Playtest and Published Player): Signals navigate.
+- `follow` (Playtest and the published game): Signals navigate.
 - `report` (Workbench preview): a Signal is validated and reported to the host
   with the edge it would follow, and the node stays mounted. `back()`,
   `restart()`, and `continue()` are reported the same way. Report kinds are
   `signal`, `back`, `restart`, and `continue`. Nothing it previews adds to
-  what the player has seen, and `story.map()` shows every node and edge as
-  seen, so the author previews the whole map.
+  what the player has seen, `story.seen()` gives every node and edge, so
+  the author previews a whole story map, and `story.seenBefore` is
+  `false`, so a node previews as it first appears.
 
 The Workbench preview may also start with a **preview state**: `initialState`
 with author-chosen overrides, validated against the declared keys.
@@ -619,7 +608,7 @@ Workbench's "State used" section; calling `get()` without a key records
 For an Interactive Story, the preview proxy injects an editor bridge into
 every page it serves and annotates node HTML the page fetches with an inert
 `data-ohmygame-source` attribute on each element. In a page the editor opened,
-the bridge speaks the same messages as the sandbox: snapshots, reports,
+the bridge reports to the editor: snapshots, reports,
 diagnostics, element picking and text editing as defined in
 [authoring.md](authoring.md#element-picking-text-editing-and-moving), and the
 background video's timeline. None of it is in the project or a published
@@ -628,25 +617,27 @@ pointing at where the text starts on its line, as the Visual Novel player does
 for script lines. Capture uses the desktop host's page capture of the preview
 frame, for thumbnails too.
 
-## Compiler
+## Node sources
 
-A web story's page loads node files as they are; the compiler still builds
-each node to check it and to report issues in the editor. For sandboxed
-stories it turns the validated graph and workspace into one self-contained
-JavaScript module and stylesheet per node.
+The story's page loads each node's files as they are, so nothing is built.
+OhMyGame checks every node's files the way the page will load them and
+reports one issue per node that has a problem (`phase: "source"`):
 
-- HTML stays authored markup.
-- JavaScript and CSS are bundled, so `shared/` modules and the project's own
-  `node_modules` work without a per-node build.
-- Every entry and import must resolve inside the workspace after following
-  symbolic links. Dependencies found in OhMyGame's installation or a parent
-  directory are rejected.
-- Imported images, fonts, shaders, and binary modules are embedded in the
-  surface bundle. Project Assets used through `context.assets` stay governed
-  by the graph.
-- The result records the input files used by each surface for error reporting
-  and incremental rebuilds.
-- Preview builds add source-location attributes; publish builds do not.
+- the node's HTML, CSS, and JavaScript exist inside the workspace after
+  following symbolic links, and are at most 5 MiB each;
+- its JavaScript parses and exports `mount`;
+- every import resolves inside the workspace the way a browser resolves it:
+  a relative or root-relative path to a `.js` or `.mjs` module, JSON with
+  `with { type: "json" }`, CSS with `with { type: "css" }`, or a URL.
+  Packages and other files imported as modules are refused, with the
+  `fetch` or import attribute to use instead;
+- stylesheet `@import`s exist; images and fonts a stylesheet names are not
+  required;
+- a background video's clip attributes are valid.
+
+The check also gives each node a content hash of its files and everything
+they import, its declared Assets, and the viewport. The editor keys node
+thumbnails to it.
 
 Codebase updates from the editor are applied under one workspace lock and
 rolled back as a whole if any write fails.
@@ -671,8 +662,7 @@ actionable `message`. It checks that:
 - in `publish` mode, every declared Signal other than navigation ones has an
   edge.
 
-Limits: 500 nodes, 2,000 edges, 1,000 assets, 100 Signals per node, 500 asset dependencies per surface, 5 MiB per source file, and
-16 MiB per compiled surface.
+Limits: 500 nodes, 2,000 edges, 1,000 assets, 100 Signals per node, 500 asset dependencies per surface, and 5 MiB per source file.
 
 ## Publishing
 
@@ -682,22 +672,8 @@ mode, then packages `index.html`, `story/` (without its manifest),
 other files under `assets/` that the story's code names by path. Editor
 files, schemas, the editor cache, and unused assets stay out. An asset still
 in the Library is refused; upgrading copies Library assets into the project.
-The same static directory is the HTML zip for itch.io and the like.
-
-A sandboxed story publishes as before: publishing validates in `publish`
-mode, compiles the same definition used by Playtest, and writes a static
-directory with the Player, sandbox, `playable.json`, `manifest.json`, and the
-declared assets.
-
-- Assets are stored by SHA-256 content hash; identical bytes share one file
-  while keeping separate Asset IDs.
-- The manifest records the definition's integrity and each asset's path,
-  type, content type, size, and integrity.
-- The Daemon reads the directory back and verifies it before archiving. The
-  Published Player repeats the checks before starting and fails explicitly on
-  any mismatch.
-- Editor layout, source files, thumbnails, Library paths, and workspace
-  metadata are never published.
+The same static directory is the HTML zip for itch.io and the like.A story made before web stories is refused until the Story editor has
+upgraded it.
 
 ## Deferred
 

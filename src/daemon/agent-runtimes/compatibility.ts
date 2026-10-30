@@ -1,8 +1,5 @@
-import type {
-  AgentPermissionMode,
-  AgentRuntimeId,
-} from "../../shared/agent-runtimes.js";
-import { commandSandbox, versionAtLeast } from "./definitions.js";
+import type { AgentRuntimeId } from "../../shared/agent-runtimes.js";
+import { versionAtLeast } from "./definitions.js";
 
 /** The prefix survives native turn records and session replay, which store error text. */
 export class AgentRuntimeCompatibilityError extends Error {
@@ -44,67 +41,28 @@ export function runtimeStartupError(cause: unknown): Error {
 
 /**
  * Only use a version rule when a required behavior cannot be read back from
- * the CLI. Keep its source and the mode that needs it beside the rule.
+ * the CLI. Keep its source beside the rule.
  */
 export function checkRuntimeVersionRequirement(
   id: AgentRuntimeId,
   version: string | undefined,
-  permissionMode: AgentPermissionMode,
-  sandbox = commandSandbox(id),
 ): void {
-  if (id === "opencode-cli") {
-    // V2 deliberately replaced the server contract; V1 is no longer supported.
-    // https://opencode.ai/v2/docs/migrate-v1/
-    if (!version)
-      throw new AgentRuntimeProbeError(
-        "OpenCode did not report its v2 API version. Check the CLI and retry.",
-      );
-    if (!versionAtLeast(version, "2.1.0") || versionAtLeast(version, "3.0.0-0"))
-      throw new AgentRuntimeCompatibilityError(
-        `OpenCode ${version} is unsupported. Install OpenCode 2.1.0 or a newer 2.x version and check again.`,
-        "OpenCode HTTP API v2 (>=2.1.0 <3)",
-      );
-    return;
-  }
-  if (
-    id !== "claude-code-cli" ||
-    permissionMode !== "standard" ||
-    sandbox !== "os"
-  )
-    return;
-  // Introduced in 2.1.83; older versions can silently ignore this setting.
-  // https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#2183
+  if (id !== "opencode-cli") return;
+  // V2 deliberately replaced the server contract; V1 is no longer supported.
+  // https://opencode.ai/v2/docs/migrate-v1/
   if (!version)
     throw new AgentRuntimeProbeError(
-      "Claude Code did not report its version. OhMyGame could not verify sandbox.failIfUnavailable, required for Standard permissions on this platform. Check the CLI and retry.",
+      "OpenCode did not report its v2 API version. Check the CLI and retry.",
     );
-  if (!versionAtLeast(version, "2.1.83"))
+  if (!versionAtLeast(version, "2.1.0") || versionAtLeast(version, "3.0.0-0"))
     throw new AgentRuntimeCompatibilityError(
-      `Claude Code ${version} does not support sandbox.failIfUnavailable, required for Standard permissions on this platform. This feature requires Claude Code 2.1.83 or newer. Update Claude Code and check again in Settings.`,
-      "sandbox.failIfUnavailable (>= 2.1.83)",
+      `OpenCode ${version} is unsupported. Install OpenCode 2.1.0 or a newer 2.x version and check again.`,
+      "OpenCode HTTP API v2 (>=2.1.0 <3)",
     );
 }
 
 /** A failed launch is not evidence of incompatibility unless the CLI rejects the command. */
 export function cliProbeError(name: string, detail: string): Error {
-  if (
-    name === "Codex" &&
-    /elevated windows sandbox requires effective :root read access/i.test(detail)
-  )
-    return new AgentRuntimeCompatibilityError(
-      "Codex's elevated Windows sandbox requires effective :root read access. Update Codex and check its sandbox configuration, then check again in Settings. See https://learn.chatgpt.com/docs/windows/windows-sandbox",
-      "Windows sandbox filesystem read restrictions",
-    );
-  if (
-    name === "Codex" &&
-    /windows (?:unelevated restricted-token|elevated) sandbox cannot enforce (?:split )?filesystem read restrictions/i.test(
-      detail,
-    )
-  )
-    return new AgentRuntimeCompatibilityError(
-      "Codex's Windows sandbox cannot enforce OhMyGame's filesystem read restrictions. Configure Codex's elevated sandbox, or MXC on a supported device and CLI, then check again in Settings. See https://learn.chatgpt.com/docs/windows/windows-sandbox",
-      "Windows sandbox filesystem read restrictions",
-    );
   return /unknown (?:argument|option|command)|unrecognized (?:argument|option|command)|unexpected argument|method not found|unsupported (?:method|control request)/i.test(
     detail,
   )

@@ -8,7 +8,7 @@ import {
 } from "../shared/playable-graph-validation.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
-import { compileNodeGraph, NodeCompilerError } from "./playable-compiler.js";
+import { checkPlayableSources } from "./playable-sources.js";
 import type {
   PlayableProjectValidationIssue,
   PlayableProjectValidationResult,
@@ -66,27 +66,18 @@ export async function validatePlayableProject(
     ok: false,
     issues: graphValidation.issues.map((issue) => ({ ...issue, phase: "graph" })),
   };
-  let compiled;
-  try {
-    compiled = await compileNodeGraph(workspacePath, graph, {
-      minify: mode === "publish",
-      sourcemap: mode === "draft",
-      sourceLocations: mode === "draft",
-    });
-  } catch (cause) {
-    if (!(cause instanceof NodeCompilerError)) throw cause;
-    return {
-      ok: false,
-      issues: [{
-        phase: "compiler",
-        code: cause.code,
-        path: cause.surfaceId ? `/surfaces/${escapePointer(cause.surfaceId)}` : "/",
-        message: cause.message,
-        ...(cause.surfaceId ? { surfaceId: cause.surfaceId } : {}),
-      }],
-    };
-  }
-  return { ok: true, issues: [], definition: { version: 1, graph, compiled, graphSignature: nodeGraphSignature(graph) } };
+  const sources = await checkPlayableSources(workspacePath, graph);
+  if (sources.issues.length) return {
+    ok: false,
+    issues: sources.issues.map((issue) => ({
+      phase: "source",
+      code: issue.code,
+      path: `/surfaces/${escapePointer(issue.surfaceId)}`,
+      message: issue.message,
+      surfaceId: issue.surfaceId,
+    })),
+  };
+  return { ok: true, issues: [], definition: { version: 1, graph, graphSignature: nodeGraphSignature(graph), hashes: sources.hashes } };
 }
 
 // Saves are keyed to the graph, so a code-only edit keeps the playtest save.

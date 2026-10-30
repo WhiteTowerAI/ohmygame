@@ -1647,14 +1647,20 @@ describe("AgentManager", () => {
   it("reads context usage from the native Pi session", async () => {
     const session = new FakeSession();
     session.getContextUsage.mockReturnValue({ tokens: 74_000, contextWindow: 100_000, percent: 74 });
-    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const createSession = vi.fn(async () => session);
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession });
     const project = createProject();
 
-    await expect(manager.contextUsage(project, createConversation(project))).resolves.toEqual({
+    const conversation = createConversation(project);
+    await expect(manager.contextUsage(project, conversation, { loadSession: false })).resolves.toBeUndefined();
+    expect(createSession).not.toHaveBeenCalled();
+    await expect(manager.contextUsage(project, conversation)).resolves.toEqual({
       tokens: 74_000,
       contextWindow: 100_000,
       percent: 74,
     });
+    await expect(manager.contextUsage(project, conversation, { loadSession: false })).resolves.toEqual(session.getContextUsage.mock.results.at(-1)?.value);
+    expect(createSession).toHaveBeenCalledTimes(1);
     await manager.close();
   });
 

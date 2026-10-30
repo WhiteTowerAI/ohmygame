@@ -6,23 +6,13 @@ import {
   cliProbeError,
 } from "./compatibility.js";
 
-export const CODEX_APPROVAL_POLICY = {
-  granular: {
-    sandbox_approval: false,
-    rules: false,
-    mcp_elicitations: false,
-    request_permissions: true,
-    skill_approval: false,
-  },
-};
-
 export function requireCodexPermissionProfile(
   response: { activePermissionProfile?: { id?: string } },
   profile: string,
 ): void {
   if (response.activePermissionProfile?.id !== profile)
     throw new AgentRuntimeCompatibilityError(
-      "Codex did not activate OhMyGame's filesystem permissions. A CLI supporting named permission profiles is required. Update Codex and check again in Settings.",
+      `Codex did not activate its ${profile} permission profile. A CLI supporting named permission profiles is required. Update Codex and check again in Settings.`,
       "permissions / activePermissionProfile",
     );
 }
@@ -33,31 +23,13 @@ export async function checkCodexCompatibility(
   directory: string,
   timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<void> {
-  const profile = "ohmygame-compatibility-probe";
+  const profile = ":read-only";
   const read = await server.request<{ config?: Record<string, unknown> }>(
     "config/read",
     { cwd: directory },
     timeoutMs,
   );
-  // Windows' sandbox requires `:root` read access; `:minimal` is rejected.
-  // The regular conversation applies the same Windows adjustment.
-  const filesystemPermissions: Record<string, unknown> =
-    process.platform === "win32"
-      ? { ":root": "read", ":workspace_roots": { ".": "read" } }
-      : { ":minimal": "read", ":workspace_roots": { ".": "read" } };
-  const config: Record<string, unknown> = {
-    default_permissions: profile,
-    project_root_markers: [],
-    notify: [],
-    "features.request_permissions_tool": true,
-    "features.shell_snapshot": false,
-    permissions: {
-      [profile]: {
-        filesystem: filesystemPermissions,
-        network: { enabled: true },
-      },
-    },
-  };
+  const config: Record<string, unknown> = { notify: [] };
   // A compatibility probe never starts the person's external MCP servers.
   for (const name of Object.keys(record(read.config?.mcp_servers) ?? {}))
     config[`mcp_servers.${name}.enabled`] = false;
@@ -69,7 +41,7 @@ export async function checkCodexCompatibility(
     {
       cwd: directory,
       ephemeral: true,
-      approvalPolicy: CODEX_APPROVAL_POLICY,
+      approvalPolicy: "never",
       permissions: profile,
       config,
       dynamicTools: [

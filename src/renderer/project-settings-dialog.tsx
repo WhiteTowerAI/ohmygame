@@ -12,6 +12,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type {
   PreviewViewport,
   ProjectPackageManager,
@@ -21,6 +22,13 @@ import type {
 import { inspectProjectPreview, updateProjectRunSettings } from "./api.js";
 import { supportsWebPreview } from "../shared/project-runtime.js";
 import { t } from "./i18n.js";
+
+const PREVIEW_VIEWPORT_LABEL_KEYS = {
+  fit: "projectSettings.device.fit",
+  tablet: "projectSettings.device.tablet",
+  mobile: "projectSettings.device.mobile",
+  "mobile-landscape": "projectSettings.device.mobileLandscape",
+} as const satisfies Record<PreviewViewport, string>;
 
 export function ProjectSettingsDialogFrame({
   children,
@@ -493,9 +501,11 @@ export function ProjectSettingsDialog({
                     setPreviewViewport(event.target.value as PreviewViewport)
                   }
                 >
-                  <option value="fit">{t("projectSettings.device.fit")}</option>
-                  <option value="tablet">{t("projectSettings.device.tablet")}</option>
-                  <option value="mobile">{t("projectSettings.device.mobile")}</option>
+                  {PREVIEW_VIEWPORTS.map((viewport) => (
+                    <option key={viewport} value={viewport}>
+                      {t(PREVIEW_VIEWPORT_LABEL_KEYS[viewport])}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>

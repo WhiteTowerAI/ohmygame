@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ImageModel, VideoModel, Model3DModel } from "../src/shared/contracts.js";
 import type { AudioModel } from "../src/shared/audio.js";
-import { applyRememberedSettings, canvasNodeTypeAvailable, nodeGenerationSettings } from "../src/renderer/asset-canvas-workspace.js";
+import { applyRememberedSettings, nodeGenerationSettings } from "../src/renderer/asset-canvas-workspace.js";
 
 type FlowNode = Parameters<typeof applyRememberedSettings>[0];
 
@@ -21,16 +21,6 @@ function imageNode(data: FlowNode["data"] = {}): FlowNode {
 }
 
 describe("Asset Canvas remembered settings", () => {
-  it("offers audio node types only when a catalog model supports their operation", () => {
-    const none = new Set<"speech" | "sound-effect" | "music">();
-    const speech = new Set(["speech"] as const);
-    expect(canvasNodeTypeAvailable("image", none)).toBe(true);
-    expect(canvasNodeTypeAvailable("speech", none)).toBe(false);
-    expect(canvasNodeTypeAvailable("speech", speech)).toBe(true);
-    expect(canvasNodeTypeAvailable("sound-effect", speech)).toBe(false);
-    expect(canvasNodeTypeAvailable("music", speech)).toBe(false);
-  });
-
   it("remembers text reasoning and adjusts it when the model's supported levels change", () => {
     const model = { provider: "openai", id: "gpt-test", name: "GPT Test", providerName: "OpenAI", reasoningLevels: ["off", "high"] as const };
     const base: FlowNode = { id: "text-1", type: "text", position: { x: 0, y: 0 }, data: { text: "", instruction: "" } };
@@ -120,10 +110,14 @@ describe("Asset Canvas remembered settings", () => {
     const speechModel = { provider: "volcengine-tts", id: "seed-tts-2.0", name: "Seed TTS", providerName: "Doubao Speech", protocol: "volcengine-tts-v3", capabilities: { operations: ["speech"], executionModes: ["streaming"], formats: ["mp3"] } } satisfies AudioModel;
     const model = { provider: "audio-lab", id: type, name: type, providerName: "Audio Lab", protocol: "test", capabilities: { operations: [type], executionModes: ["async-task"], formats: ["mp3"], supportsLoop: true, supportsInstrumental: true } } satisfies AudioModel;
     const base: FlowNode = { id: type, type, position: { x: 0, y: 0 }, data: type === "music" ? { prompt: "", instrumental: true } : { prompt: "" } };
-    const settings = nodeGenerationSettings({ type, data: { audioModel: model, durationSeconds: 30, loop: true, ...(type === "music" ? { instrumental: false } : {}) } });
+    const settings = nodeGenerationSettings({ type, data: { audioModel: model, durationSeconds: 30, loop: true, pitch: -2, output: { format: "mp3" }, ...(type === "music" ? { instrumental: false } : {}) } });
     expect(applyRememberedSettings(base, settings, { ...catalogs, audioModels: [speechModel, model] }).data).toMatchObject({
       audioModel: { provider: "audio-lab", id: type }, durationSeconds: 30, loop: true, ...(type === "music" ? { instrumental: false } : {}),
     });
+    // Music has no audio settings, so it neither remembers nor applies them.
+    if (type === "music") expect(settings).not.toHaveProperty("pitch");
+    else expect(settings).toMatchObject({ pitch: -2, output: { format: "mp3" } });
+    expect(applyRememberedSettings(base, { ...settings, pitch: -2 }, { ...catalogs, audioModels: [speechModel, model] }).data.pitch).toBe(type === "music" ? undefined : -2);
     expect(applyRememberedSettings(base, undefined, { ...catalogs, audioModels: [speechModel, model] }).data.audioModel).toEqual({ provider: "audio-lab", id: type });
   });
 });

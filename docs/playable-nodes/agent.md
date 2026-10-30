@@ -15,8 +15,8 @@ and the tools it uses to verify results.
   content. The OhMyGame Runtime source is open for understanding edge cases,
   but projects never copy or modify it.
 - **Verify, don't assume.** A change is finished when validation passes,
-  every surface compiles, and the affected route has been exercised in the
-  Runtime.
+  including every node's source check, and the affected route has been
+  exercised in the Runtime.
 - **Stay in scope.** A request about one node changes that node, plus the
   graph entries and shared files it genuinely needs.
 
@@ -63,10 +63,6 @@ The rules for every story:
   routing is the same.
 - Use `replace` for forward progress and `push` only when the player should
   return with `back()`.
-- A node that is not a step in the story, such as a menu or settings, gets
-  `"story": { "hidden": true }` so the Story Map leaves it out. Set
-  `story.ending` only where the guess from Signals is wrong, and
-  `story.label` when players should see another name than the title.
 - Files a Preset added under `shared/`, such as the Project Style and the
   Visual Novel player in `shared/vn/`, are the project's source: change them
   freely. OhMyGame writes them only when they are missing and never updates
@@ -144,7 +140,7 @@ Tell the author what was generated.
 the Scene's single `data-media="backdrop"` element with `data-type="video"`.
 Use non-negative seconds in the original file, End greater than Start;
 omit Start for zero and End for the natural end. Do not transcode the Asset
-or rewrite shared helpers. The sandbox emits the video's normal `ended`
+or rewrite shared helpers. The runtime emits the video's normal `ended`
 event at the out point, preserving the Scene's navigation logic. Remove both
 attributes when replacing or removing the background. Run `playable_check`
 and playtest the edited route, including the intended Exit.
@@ -160,11 +156,11 @@ only where they override the style.
 
 **Show the story map.** Create a node from the `story-map` Preset and
 connect to it with a `push` edge from where the player opens it, such as a
-Main menu's `story-map` Exit, a pause button, or an ending. Check that menus
-and other screens
-outside the story are `story.hidden`, and that the endings are right. Change
-how the map looks in that node's code; `context.story.map()` already gives
-the layout and what the player has seen.
+Main menu's `story-map` Exit, a pause button, or an ending. In its
+`node.js`, list menus and other screens outside the story in `OFF_MAP`,
+check that `isEnding` picks the right endings, and name nodes for players
+in `LABELS`. The map is that node's own code: `layout.js` lays the story out
+from `graph.json`, and `context.story.seen()` gives what the player has seen.
 
 **Change the title screen.** The `main-menu` Preset has Start, Continue,
 Load, Story map, and Settings. Load and Settings are the node's own code,
@@ -214,38 +210,39 @@ the Preset brief. Blank is available as `"blank"`.
 
 ### `playable_check`
 
-Validates the graph and compiles every node and the shared modules it imports.
+Validates the graph and checks every node's files and what they import, the way the story's page loads them.
 
 ```json
 { "mode": "draft" }
 ```
 
 It returns the same issues as the validation endpoint, each with `phase`,
-`code`, `path`, `message`, and the surface when known, including compiler
-errors. The Agent fixes every issue before finishing. `publish` mode
+`code`, `path`, `message`, and the surface when known, including node
+source issues. The Agent fixes every issue before finishing. `publish` mode
 additionally requires every Signal other than navigation ones to be
 connected and every source file to exist.
 
 ### `game_use` for Playable Nodes
 
-The existing `game_use` tool plays Playable Nodes projects. `open` builds the
-current sources into a draft of the Published Player, served on loopback
-under an unguessable path, and opens it in the Playtest window.
+The existing `game_use` tool plays Playable Nodes projects. `open` opens the
+story's own page through the project preview in the Playtest window. A story
+made before web stories is refused until the user opens it in the Story
+editor, which upgrades it.
 
-Snapshots read text and interactive elements inside the Player's frames and
+Snapshots read text and interactive elements inside the page's frames and
 node ShadowRoots, so the snapshot's text is what the screen shows.
 Its `gameState` is the Playtest debug record: current node,
 back stack, recent Signals and whether an edge followed them, State, State
 changes, errors, and save status. The bridge `reset` action starts a new game
-without the save. Only drafts expose the bridge; a published game does not. `act` drives real input; `capture` returns a screenshot.
+without the save. Only the page opened for playtesting exposes the bridge; a published game does not. `act` drives real input; `capture` returns a screenshot.
 
-A typical verification: open the draft, reset, play to the changed node,
+A typical verification: open the story, reset, play to the changed node,
 perform the interaction, confirm the expected Signal and target in
 `gameState`, and capture a screenshot for visual changes.
 
 ## Turn review
 
-Turn review is not built yet ([design](authoring.md#multi-node-agent-changes)). Until
+Turn review is not built yet ([design](authoring.md#multi-scene-agent-changes)). Until
 then the Agent makes the complete change in one turn and summarizes it at the
 end: nodes created or changed, Signals and edges added, Variables added,
 assets generated or declared, and what was verified.

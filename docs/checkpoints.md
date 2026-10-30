@@ -65,9 +65,10 @@ for a later attempt; paths already at their target are cleared without writes.
 
 ![Undo conflicts after a later edit](assets/turn-undo-conflict.webp)
 
-**Restore to before this message** independently restores the whole workspace and
-rewinds only the selected conversation to before that message. This action
-requires confirmation. Editing a message always preserves the workspace.
+Chat has no action that rewinds the conversation and the workspace together.
+Editing a message always preserves the workspace, and Undo is the only way to
+take files back. The daemon keeps the conversation restore route below, and still
+reads conversations that an earlier version rewound with it.
 
 Undo and Reapply are unavailable while agents, generation jobs, or publishing
 are running in the project. Agent turns in different conversations of one project run one at a
@@ -189,7 +190,7 @@ marker. The project shows **Recover files** and refuses creative writes and
 initializing canvas/playable/preview reads until recovery completes. Recovery
 restores only the recorded pre-operation state and keeps the conversation.
 
-For **Restore to before this message**, the marker remains until the conversation
+For a conversation restore, the marker remains until the conversation
 rewind is persisted. If that fails, the original conversation branch is selected
 again and the files roll back inside the same store operation. A failed file
 rollback keeps the original recovery target and is reported instead of hidden.

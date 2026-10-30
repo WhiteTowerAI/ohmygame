@@ -8,7 +8,6 @@ import {
   type RefObject,
 } from "react";
 import type {
-  PlayableAssetTransfer,
   PlayableMediaCommand,
   PlayableMediaState,
   PlayableMove,
@@ -20,32 +19,18 @@ import type {
 import { isPlayableFrameMessage } from "../shared/playable-player-protocol.js";
 import type { PlayablePickResult } from "../shared/playable-picker.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
-import { PLAYABLE_IFRAME_SANDBOX } from "../shared/playable-sandbox.js";
 import "./playable-player.css";
 
 export interface NodePlayerProps {
   definition: NodePlayerDefinition;
-  assets: Readonly<Record<string, Blob>>;
-  saveKey: string;
+  /**
+   * The story's own page in the project preview. It keeps its saves on the
+   * preview's origin, and the preview's editor bridge reports to the player.
+   */
+  page: string;
   title?: string;
-  frameUrl?: string;
-  storage?: Storage;
-  /**
-   * Where what the player has seen is kept, for the Story Map. It outlasts
-   * the save: by default `${saveKey}:seen` in localStorage, even when saves
-   * use other storage.
-   */
-  seenKey?: string;
-  seenStorage?: Storage;
-  /** Where the player's settings are kept, in `seenStorage`, since they outlast saves too. */
-  preferencesKey?: string;
-  /** Authoring preview options; omit in the Published Player. */
+  /** Authoring preview options; omit to play the story as a game. */
   preview?: PlayablePreviewOptions;
-  /**
-   * A web story's own page in the project preview, played instead of the
-   * sandbox. The preview's editor bridge answers in the sandbox's messages.
-   */
-  page?: string;
   /** Hands the preview's input to an authoring tool; requires `preview`. */
   tool?: PlayablePreviewTool;
   /** `additive` asks to add the element to the selection instead of replacing it. */
@@ -71,14 +56,7 @@ export interface NodePlayerProps {
 
 export function NodePlayer({
   definition,
-  assets,
-  saveKey,
   title = definition.graph.title,
-  frameUrl = "./playable-sandbox.html",
-  storage = window.localStorage,
-  seenKey = `${saveKey}:seen`,
-  seenStorage = window.localStorage,
-  preferencesKey = `${saveKey}:preferences`,
   preview,
   page,
   tool,
@@ -95,7 +73,6 @@ export function NodePlayer({
 }: NodePlayerProps) {
   const iframe = useRef<HTMLIFrameElement>(null);
   const player = useRef<HTMLElement>(null);
-  const frameLoaded = useRef(false);
   const [scale, setScale] = useState<number>();
   // Keyed on content so callers need not memoize the preview object.
   const previewKey = JSON.stringify(preview ?? null);
@@ -115,23 +92,7 @@ export function NodePlayer({
         return;
       const message = event.data;
       if (message.instanceId !== instanceId) return;
-      if (message.kind === "ohmygame:playable:save") {
-        respondToSave(iframe.current, storage, saveKey, message.instanceId, message.requestId, message.save);
-      } else if (message.kind === "ohmygame:playable:slots") {
-        respondToSave(iframe.current, storage, slotsKey(saveKey), message.instanceId, message.requestId, message.slots);
-      } else if (message.kind === "ohmygame:playable:preferences") {
-        try {
-          seenStorage.setItem(preferencesKey, JSON.stringify(message.preferences));
-        } catch (cause) {
-          onDiagnostic(`Could not keep the player's settings: ${errorMessage(cause)}`);
-        }
-      } else if (message.kind === "ohmygame:playable:seen") {
-        try {
-          seenStorage.setItem(seenKey, JSON.stringify(message.seen));
-        } catch (cause) {
-          onDiagnostic(`Could not keep which Scenes were seen: ${errorMessage(cause)}`);
-        }
-      } else if (message.kind === "ohmygame:playable:snapshot") {
+      if (message.kind === "ohmygame:playable:snapshot") {
         setReady(true);
         onSnapshot?.(message.snapshot);
       } else if (message.kind === "ohmygame:playable:error") {
@@ -146,13 +107,13 @@ export function NodePlayer({
         onPickCancel?.();
       } else if (message.kind === "ohmygame:playable:media") {
         onMedia?.(message.media);
-      } else {
+      } else if (message.kind === "ohmygame:playable:diagnostic") {
         onDiagnostic(message.error);
       }
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [instanceId, onDiagnostic, onPick, onTextEdit, onMove, onPickCancel, onSnapshot, onMedia, saveKey, storage, seenKey, seenStorage, preferencesKey]);
+  }, [instanceId, onDiagnostic, onPick, onTextEdit, onMove, onPickCancel, onSnapshot, onMedia]);
 
   useEffect(() => {
     if (error !== undefined) onError?.(error);
@@ -184,59 +145,8 @@ export function NodePlayer({
     );
   }, [instanceId, activeTool, ready]);
 
-  const initialize = async () => {
-    const target = iframe.current?.contentWindow;
-    if (!target) return;
-    setError(undefined);
-    setReady(false);
-    try {
-      const transferredAssets: Record<string, PlayableAssetTransfer> = {};
-      const transfer: Transferable[] = [];
-      for (const [id, blob] of Object.entries(assets)) {
-        const bytes = await blob.arrayBuffer();
-        transferredAssets[id] = {
-          contentType: blob.type || "application/octet-stream",
-          bytes,
-        };
-        transfer.push(bytes);
-      }
-      let save: unknown;
-      const saved = storage.getItem(saveKey);
-      if (saved !== null) {
-        try {
-          save = JSON.parse(saved) as unknown;
-        } catch {
-          storage.removeItem(saveKey);
-        }
-      }
-      target.postMessage(
-        {
-          kind: "ohmygame:playable:init",
-          instanceId,
-          definition,
-          assets: transferredAssets,
-          save,
-          slots: readStored(storage, slotsKey(saveKey)),
-          seen: readStored(seenStorage, seenKey),
-          preferences: readStored(seenStorage, preferencesKey),
-          ...(preview ? { preview } : {}),
-        },
-        "*",
-        transfer,
-      );
-    } catch (cause) {
-      setError(errorMessage(cause));
-    }
-  };
-
-  // A new instance (changed definition or preview options) restarts the
-  // session in the already-loaded frame. A page starts itself.
-  useEffect(() => {
-    if (frameLoaded.current && !page) void initialize();
-  }, [instanceId]);
-
+  // Each instance (changed definition or preview options) loads the page afresh.
   const pageUrl = useMemo(() => {
-    if (!page) return undefined;
     const url = new URL(page);
     url.searchParams.set("ohmygame-instance", instanceId);
     if (preview?.startNodeId) url.searchParams.set("scene", preview.startNodeId);
@@ -269,14 +179,10 @@ export function NodePlayer({
           <iframe
             ref={iframe}
             className="playable-player-frame"
-            src={pageUrl ?? frameUrl}
-            // A web story's page has its own preview origin and keeps its saves there.
-            sandbox={pageUrl ? "allow-scripts allow-same-origin allow-pointer-lock" : PLAYABLE_IFRAME_SANDBOX}
+            src={pageUrl}
+            // The page has its own preview origin and keeps its saves there.
+            sandbox="allow-scripts allow-same-origin allow-pointer-lock"
             title={title}
-            onLoad={() => {
-              frameLoaded.current = true;
-              if (!pageUrl) void initialize();
-            }}
           />
         </div>
         {!ready && !error ? (
@@ -292,63 +198,10 @@ export function NodePlayer({
   );
 }
 
-/** Save slots are kept beside the save, in the same storage. */
-export function slotsKey(saveKey: string): string {
-  return `${saveKey}:slots`;
-}
-
-function respondToSave(
-  iframe: HTMLIFrameElement | null,
-  storage: Storage,
-  key: string,
-  instanceId: string,
-  requestId: string,
-  value: unknown,
-): void {
-  let error: string | undefined;
-  try {
-    storage.setItem(key, JSON.stringify(value));
-  } catch (cause) {
-    error = errorMessage(cause);
-  }
-  iframe?.contentWindow?.postMessage(
-    {
-      kind: "ohmygame:playable:save-result",
-      instanceId,
-      requestId,
-      error,
-    },
-    "*",
-  );
-}
-
-/** A record kept beside the save, such as what the player has seen; one that cannot be read starts over. */
-function readStored(storage: Storage, key: string): unknown {
-  try {
-    const stored = storage.getItem(key);
-    return stored === null ? undefined : JSON.parse(stored) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
 function errorMessage(value: unknown): string {
   return value instanceof Error ? value.message : String(value);
 }
 
 function reportDiagnostic(error: string): void {
   console.error(`[Node Runtime] ${error}`);
-}
-
-/** Preview saves live in memory so a preview never touches the Playtest save. */
-export function createMemoryStorage(): Storage {
-  const values = new Map<string, string>();
-  return {
-    get length() { return values.size; },
-    clear: () => values.clear(),
-    getItem: (key) => values.get(key) ?? null,
-    key: (index) => [...values.keys()][index] ?? null,
-    removeItem: (key) => { values.delete(key); },
-    setItem: (key, value) => { values.set(key, String(value)); },
-  };
 }

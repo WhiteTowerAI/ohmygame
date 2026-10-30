@@ -25,7 +25,7 @@ const SEARCH_THRESHOLD = 10;
  * The pill-shaped picker used in canvas node composers, matching the Home
  * composer's chips. The menu renders in body so the canvas cannot clip it.
  */
-export function CanvasChipSelect<Value extends string>({ label, value, options, placeholder, disabled = false, wide = false, notes = [], action, optionAction, menuContainer, onChange }: {
+export function CanvasChipSelect<Value extends string>({ label, value, options, placeholder, disabled = false, wide = false, icon: Icon, notes = [], action, optionAction, menuContainer, onChange }: {
   label: string;
   value: Value | undefined;
   options: readonly CanvasChipOption<Value>[];
@@ -33,6 +33,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
   disabled?: boolean;
   /** Lets the chip take the spare width, as the model picker does. */
   wide?: boolean;
+  icon?: IconComponent;
   notes?: readonly CanvasChipNote[];
   /** A footer entry, such as opening provider settings. */
   action?: { label: string; icon?: IconComponent; onSelect: () => void };
@@ -127,6 +128,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
       disabled={disabled || (options.length === 0 && notes.length === 0 && !action)}
       onClick={() => setOpen((next) => !next)}
     >
+      {Icon ? <Icon size={13} aria-hidden="true" /> : null}
       <span>{text}</span>
       <ChevronDown size={12} />
     </button>

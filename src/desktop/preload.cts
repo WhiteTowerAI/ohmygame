@@ -5,7 +5,7 @@ import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
 import type { DaemonRuntime, DesktopRuntimeState } from "../shared/desktop-runtime.js";
-import type { PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
+import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 
 function desktopRuntime(): { daemonUrl: string; token: string } {
   const runtime = ipcRenderer.sendSync("ohmygame:desktop-runtime") as Partial<DaemonRuntime> | null;
@@ -66,13 +66,13 @@ if (process.isMainFrame) {
     capturePage: (bounds: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:capture-page", bounds) as Promise<Uint8Array>,
     captureNodeThumbnail: (projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string) =>
-      ipcRenderer.invoke("ohmygame:capture-node-thumbnail", projectId, nodeId, viewport, batchId) as Promise<boolean>,
+      ipcRenderer.invoke("ohmygame:capture-node-thumbnail", projectId, nodeId, viewport, batchId) as Promise<NodeThumbnailResult>,
     prepareNodeThumbnails: (projectId: string, batchId: string, snapshot: PlayableThumbnailSnapshot) =>
       ipcRenderer.invoke("ohmygame:prepare-node-thumbnails", projectId, batchId, snapshot) as Promise<void>,
     nodeThumbnailSnapshot: () => ipcRenderer.invoke("ohmygame:node-thumbnail-snapshot") as Promise<PlayableThumbnailSnapshot | undefined>,
     cancelNodeThumbnails: (batchId: string) =>
       ipcRenderer.invoke("ohmygame:cancel-node-thumbnails", batchId) as Promise<void>,
-    finishNodeThumbnail: (captured: boolean) => ipcRenderer.invoke("ohmygame:finish-node-thumbnail", captured) as Promise<void>,
+    finishNodeThumbnail: (captured: boolean, error?: string) => ipcRenderer.invoke("ohmygame:finish-node-thumbnail", captured, error) as Promise<void>,
     openPlaytest: (projectId: string, viewport: { width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:open-playtest", projectId, viewport) as Promise<void>,
     webGamePlayer: Object.freeze({

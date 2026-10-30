@@ -33,7 +33,7 @@ describe("bundled plugins", () => {
     });
     expect(store.read("ohmygame:taptap-maker")).toMatchObject({
       enabled: false,
-      skills: [{ id: "skills/taptap-maker/SKILL.md" }],
+      skills: [{ id: "skills/taptap-maker/SKILL.md" }, { id: "skills/taptap-release/SKILL.md" }],
       mcpServers: [{ id: "taptap-maker" }],
       projectTypes: ["general"],
     });

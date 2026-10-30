@@ -4,7 +4,10 @@ import path from "node:path";
 import type { AgentContextUsage } from "../../shared/contracts.js";
 import { CodexAppServer } from "./codex-app-server.js";
 import { record } from "./driver-context.js";
-import { leaseAgentDirectory } from "./process-recovery.js";
+import {
+  leaseAgentDirectory,
+  type AgentDirectoryLease,
+} from "./process-recovery.js";
 import { stageSkills, stagedSkillsRoot } from "./skills.js";
 
 type Limits = NonNullable<AgentContextUsage["limits"]>;
@@ -51,6 +54,8 @@ interface Pooled {
   leases: Set<Lease>;
   threads: Map<string, Lease>;
   limits: Limits;
+  /** The shared folder's ownership record, written in the background. */
+  lease?: AgentDirectoryLease;
 }
 
 const pool = new Map<string, Pooled>();
@@ -119,8 +124,10 @@ export async function acquireCodexServer(
       pool.delete(options.key);
       const stop = (async () => {
         await ready.server.stop();
-        if (options.shared)
+        if (options.shared) {
+          await entry.lease?.release();
           await rm(options.directory, { recursive: true, force: true });
+        }
       })().finally(() => stopping.delete(options.key));
       stopping.set(options.key, stop);
       await stop;
@@ -134,7 +141,7 @@ async function start(
   limitsFrom: (value: unknown) => Limits,
 ): Promise<{ server: CodexAppServer; skillsRoot?: string }> {
   await mkdir(options.directory, { recursive: true, mode: 0o700 });
-  if (options.shared) await leaseAgentDirectory(options.directory);
+  if (options.shared) pooled.lease = leaseAgentDirectory(options.directory);
   const server = new CodexAppServer(
     options.binaryPath,
     options.directory,

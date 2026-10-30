@@ -14,8 +14,7 @@ import {
   type NodeEditorLayout,
 } from "../shared/playable-codebase.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
-import { blankSource } from "./playable-presets.js";
-import { PLAYABLE_PROJECT_STYLE_FILES } from "./playable-style.js";
+import { blankSource, PLAYABLE_PROJECT_STYLE_FILES } from "./playable-presets.js";
 import { installStoryRuntime, isWebStory, storyWebIndexHtml } from "./story-web-project.js";
 import { listWorkspaceFiles } from "./workspace.js";
 
@@ -46,11 +45,17 @@ export const PROJECT_GUIDE_UPGRADES: Record<"AGENTS.md" | "README.md", readonly 
     "2466f982c14b84abb66f1521664644b687eb21c10f27f72bc6eedd807d9171d1",
     "78bab6b86ae039e0b63d14da74e6f5f3fb3eca4ffbd2399de845a643d7ed699e",
     "bad327183e1b955b2b1f24a5fc0dbd9b691f0b5fc006773fef2a86e8ced475d5",
+    "8619c00f6a6ec09d6dfdaf99a2f84bc79fbd1214da156776701306fe9ba585ed",
+    "6756f06173ada0f8dbd0f805df7be19c754468ce33b9834d1f1caa130c09181c",
+    "1f2de44de2cc69a1d740b1152bad62060f3d8c8b511016dbb64f42e36c73e436",
   ],
   "README.md": [
     "311594a64abc80d5b1c8270e064375268f8bb3eff44e58f634c3d275208c65e2",
     "781d2b099d3acc5d87555668f8d935acbbbbccbddb39e052471367224275dc6f",
     "547ed93bccfae4980075bfb76e8586971acb71de10ce4896def59d0a0ead4a6c",
+    "0e99e5862388f7a8e3e3139f7d948f801b0fd843a8568a95e5635cffa4c0bbd4",
+    "a9054d6e699cf6741d3056a2a121049363e17bf4ad9fa47df6954e8246086774",
+    "cb267e6e75e349a899668e9b03ce37a9936e68f401f6bd8764223c3634d64b13",
   ],
 };
 
@@ -72,14 +77,13 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - Build every screen with the Project Style in \`shared/style/\`: import \`shared/style/components.css\` from a Node's CSS and use its tokens and classes. Add a token or component there instead of hard-coding values in a Node, and restyle the game by changing \`shared/style/\` first.
 - A Node's background is one \`<div class="backdrop" data-media="backdrop" data-asset="ID" data-type="video|image">\` inside a \`.has-backdrop\` container. The author sets \`data-asset\` and \`data-type\` from the editor, so keep exactly one such element in the Node's HTML and never replace it; to change the background, change those two attributes. \`showBackdrop(context)\` from \`shared/style/components.js\` shows it: a video plays once with sound and stops on its last frame, an image stays still. It returns \`{ video, cleanup }\`.
 - Music that should carry on across Scenes, such as a chapter's theme, goes through \`context.audio.music(assetId)\`, not an \`<audio>\` element in a Node: it keeps playing into the next Scene, is kept with the save, and turns down while a Scene's own video plays with sound. A Node that reads a long sequence one step at a time, such as a script, keeps its place with \`context.position\`, so Continue returns there.
-- \`playScene(context, { signal })\` from the same file shows the background and emits the Signal when its video ends or the player clicks. The Blank Template uses it; change or replace it freely.
+- \`playScene(context, { signal })\` from the same file shows the background and emits the Signal when its video ends; a click does not cut a video short. A still, no background, or a video that cannot play moves on with a click and shows the Node's \`.continue-hint\`. A \`[data-skip]\` button shows over a video the player has seen before. The Blank Template uses it; change or replace it freely.
 - Use normal modules under \`shared/\` for code shared by Nodes. Imports must remain inside this workspace; project dependencies resolve from this project's own \`node_modules\`.
 - Files a Template added, such as the Project Style in \`shared/style/\` and the Visual Novel player in \`shared/vn/\`, are this project's source like any other: change them freely. OhMyGame writes them only when they are missing and never updates them.
 - UI that appears on more than one Node, such as a top bar or a Home button, is a shared component under \`shared/components/\`. Each Node that shows it imports it, and declares and routes the Signals it emits like its own. There is no layer drawn over every Node; State carries whatever must continue across Nodes.
 - A Signal that is a way around the game rather than a step in the story, such as Home, Menu, or Settings, has \`"role": "navigation"\`. The editor names its target on the Exit instead of drawing a line; routing is the same.
 - Use \`replace\` for forward progression and \`push\` only when the player should be able to return with \`navigation.back()\`.
-- A Node that is not a step in the story, such as a menu or settings, has \`"story": { "hidden": true }\`, so the Story Map leaves it out and joins the Nodes before and after it. A Node counts as an ending when it has no Signals other than navigation ones; set \`story.ending\` only where that guess is wrong, and \`story.label\` when players should see another name than the title.
-- A Story Map Scene (the \`story-map\` Preset) shows the story with \`context.story.map()\`. Reach it with a \`push\` edge from a menu, a pause button, or an ending; it returns with \`navigation.back()\`. A Main menu's \`story-map\` navigation Exit is the usual way in; connect it to the Story Map Scene.
+- A Story Map Scene (the \`story-map\` Preset) lays the story out from graph.json in its own \`layout.js\` and shows what the player has seen with \`context.story.seen()\`. Its \`node.js\` lists the IDs of Scenes that are not steps in the story, such as menus and settings, in \`OFF_MAP\`, so the map leaves them out and joins the Scenes on either side; names players see instead of titles in \`LABELS\`; and which Scenes count as endings in \`isEnding\` (by default, those with no Exits other than navigation ones). Change them there when the author asks what the map shows. Reach it with a \`push\` edge from a menu, a pause button, or an ending; it returns with \`navigation.back()\`. A Main menu's \`story-map\` navigation Exit is the usual way in; connect it to the Story Map Scene.
 - An entry, button, or link whose Signal may go nowhere checks \`context.navigation.connected(signalId)\` and shows disabled instead of emitting. Publishing requires every Signal other than navigation ones to be connected.
 - A new project has no Nodes. \`playable_add_node\` makes the first Node the Entry Node; when you add the first Node to graph.json yourself, set \`entryNodeId\` to it.
 - Keep IDs and source paths stable when editing existing objects. You do not need to edit \`editor/layout.json\`; the editor places new Nodes.
@@ -87,7 +91,7 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 
 ## Web stories
 
-A project with \`index.html\` and \`story/\` is a web story: it plays as its own page, and \`story/\` holds the story runtime that reads \`graph.json\` and loads each Scene's files as they are. A project without them plays in OhMyGame's sandbox; there, never copy or modify the Runtime.
+A project with \`index.html\` and \`story/\` is a web story: it plays as its own page, and \`story/\` holds the story runtime that reads \`graph.json\` and loads each Scene's files as they are. A project without them was made before web stories and cannot play, build, or publish until the Story editor upgrades it, which it does when the user opens the story there; ask the user to open it.
 
 - The runtime under \`story/\` is project code. Change it when the game needs something it does not do, and keep what the editor relies on: \`graph.json\` as the story's flow, the \`context\` every Scene's \`mount\` receives, the \`scene\` query parameter, and the one \`data-media="backdrop"\` background per Scene.
 - \`story/manifest.json\` records the runtime OhMyGame wrote. When it lists \`pending\` files, a newer runtime changed files you or the author changed; the newer ones are under \`.ohmygame/story-runtime/<version>/\`. Merge them into the project's files, keeping the project's changes, then remove \`pending\` from the manifest.
@@ -116,7 +120,6 @@ The user sees the editor, not this contract. Talk to them in its words: say "the
 | Exit condition | Signal \`when\` |
 | Allow Back | edge \`mode: "push"\` |
 | Template | Preset |
-| On Story map, Ending | \`story.hidden\`, \`story.ending\` |
 `;
 
 export const PROJECT_DOCUMENTATION = `# Playable Nodes Project
@@ -153,7 +156,8 @@ Each Node module exports \`mount(context)\`. The Runtime supplies:
 - \`context.position.get()\` and \`set(value)\`: where the player is inside this Node, as JSON the Node chooses. It is kept with the save and on the back stack; a Node entered by a Signal starts with \`null\`.
 - \`context.audio.music(assetId | null, { fade })\` and \`sound(assetId)\`: music plays on across Nodes until a Node changes it, and turns down while a Node's video or audio plays with sound.
 - \`context.preferences.get()\` and \`set(values)\`: the player's settings, kept across games. \`musicVolume\` and \`soundVolume\` (0 to 1) set the volumes; other keys are the project's.
-- \`context.story.map()\`: the story laid out from the graph in rows from the Start, with what the player has seen across every game. Nodes have \`id\`, \`label\`, \`row\`, \`column\` (from the left of its row of \`rowSize\`), \`ending\`, and \`seen\`; edges have \`from\`, \`to\`, and \`seen\`. It leaves out \`push\` side screens, navigation Signals, steps back up the story, and Nodes with \`story.hidden\`.
+- \`context.story.seen()\`: what the player has seen across every game, as \`{ nodes, edges }\` mapping each Node ID first entered and edge ID first taken to when. A preview gives every Node and edge.
+- \`context.story.seenBefore\`: true when the player entered this Node before, earlier in this game or in another one, so a Scene can offer to skip it. Always false in a preview.
 - \`context.lifecycle.signal\`: aborted before cleanup when the Node exits.
 
 A shared component receives the Node's context from the Node that mounts it, so it emits that Node's Signals: every Node that shows it declares them in \`graph.json\`.
@@ -161,8 +165,6 @@ A shared component receives the Node's context from the Node that mounts it, so 
 The mount function may return a synchronous or asynchronous cleanup function.
 
 In a web story (with \`index.html\` and \`story/\`), the page loads each Scene's files as they are: modules import local files by relative path, text files are fetched, and JSON imports use \`with { type: "json" }\`. The runtime under \`story/\` is the project's own and can be changed; \`story/manifest.json\` records the version OhMyGame wrote. Publishing packages the page, \`story/\`, \`graph.json\`, \`nodes/\`, \`shared/\`, and the assets the story uses.
-
-In a story that plays in OhMyGame's sandbox, Source may import local Shared Modules and dependencies declared by this project, and network access is unavailable at runtime.
 `;
 
 export function createPlayableStarterCodebase(
@@ -238,10 +240,11 @@ export async function openNodeCodebaseDetail(
   workspacePath: string,
 ): Promise<NodeCodebaseDetail> {
   return withCodebaseLock(workspacePath, async () => {
+    // A web story gets the runtime this OhMyGame ships, keeping files the author
+    // changed; the update may drop graph fields this OhMyGame no longer reads.
+    if (await isWebStory(workspacePath)) await installStoryRuntime(workspacePath);
     const codebase = await readCodebase(workspacePath);
     await migratePlayableProjectStyle(workspacePath);
-    // A web story gets the runtime this OhMyGame ships, keeping files the author changed.
-    if (await isWebStory(workspacePath)) await installStoryRuntime(workspacePath);
     return codebase;
   });
 }

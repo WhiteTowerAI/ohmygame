@@ -19,6 +19,7 @@ import { composerDrafts, type ComposerDraft } from "./composer-drafts.js";
 import { t } from "./i18n.js";
 import type { AgentContextUsage } from "../shared/contracts.js";
 import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
+import { LIMIT_RESUME_PROMPT, limitResumeAt } from "./limit-resume.js";
 
 export type { ComposerDraft } from "./composer-drafts.js";
 
@@ -33,11 +34,14 @@ interface ComposerProps {
   plan?: PlanState;
   planMode: PlanMode;
   notice?: string;
+  /** The last turn stopped at a usage limit; offer to continue once it resets. */
+  limitReached?: boolean;
   models: AgentModel[];
   modelStatus: AgentModelCatalogStatus;
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
   nativeReasoningLevel?: string;
+  accountProfileId?: string;
   modelChanging: boolean;
   promptHistory: Array<{ prompt: string; mentions: PluginMention[] }>;
   capabilities: ConversationCapabilities;
@@ -72,11 +76,13 @@ export function Composer({
   plan,
   planMode,
   notice,
+  limitReached = false,
   models,
   modelStatus,
   model,
   reasoningLevel,
   nativeReasoningLevel,
+  accountProfileId,
   modelChanging,
   promptHistory,
   capabilities,
@@ -113,6 +119,9 @@ export function Composer({
   const [runtimeUsage, setRuntimeUsage] = useState<AgentContextUsage>();
   const contextPercent = runtimeUsage?.percent == null ? undefined : Math.round(Math.max(0, Math.min(100, runtimeUsage.percent)));
   const [mentionCursor, setMentionCursor] = useState(0);
+  // Opting in pins the time, so later renders (a reset passing, a usage refresh) cannot drop the schedule.
+  const [resumeArmedAt, setResumeArmedAt] = useState<number>();
+  const resumeAt = resumeArmedAt ?? (limitReached && isAgentRuntimeId(model?.provider) ? limitResumeAt(runtimeUsage?.limits) : undefined);
   const textarea = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (!initialDraft) return;
@@ -129,6 +138,7 @@ export function Composer({
     const value = formatComposerPrompt(selectedSkill, selectedPlugin, prompt.trim());
     if (!conversationReady || (!value && attachments.length === 0) || stopping || draftSession.getSnapshot().submitting || !projectId) return;
     setAttachmentError(undefined);
+    setResumeArmedAt(undefined);
     updateDraft({ submitting: true });
     try {
       const batchId = crypto.randomUUID();
@@ -319,7 +329,19 @@ export function Composer({
       if (!disposed) setRuntimeUsage(undefined);
     });
     return () => { disposed = true; };
-  }, [showCompactCommand, running, model?.provider, model?.id, conversationId, contextMenu.open]);
+  }, [showCompactCommand, running, modelStatus, model?.provider, model?.id, conversationId, accountProfileId, contextMenu.open]);
+
+  useEffect(() => {
+    if (resumeArmedAt === undefined) return;
+    // The conversation moved on (a new turn started or the failure is no longer last), so the offer no longer applies.
+    if (!limitReached) { setResumeArmedAt(undefined); return; }
+    const timer = window.setTimeout(() => {
+      setResumeArmedAt(undefined);
+      if (!conversationReady || running || stopping) return;
+      void onSubmit(LIMIT_RESUME_PROMPT, [], [], "normal", [], [], []);
+    }, Math.max(0, resumeArmedAt - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [resumeArmedAt, limitReached, conversationReady, running, stopping]);
 
   useEffect(() => {
     if (planMode === "planning") updateDraft({ planning: true });
@@ -416,6 +438,10 @@ export function Composer({
         onEdit={(item) => { void editPending(item); }}
       />
       {notice || attachmentError ? <p className="composer-error" role="alert">{attachmentError ?? notice}</p> : null}
+      {resumeAt !== undefined && !running ? <div className="composer-resume" role="status">
+        <span>{t(resumeArmedAt !== undefined ? "composer.resume.armed" : "composer.resume.available", { time: new Date(resumeAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) })}</span>
+        <button type="button" disabled={resumeArmedAt === undefined && !conversationReady} onClick={() => setResumeArmedAt(resumeArmedAt === undefined ? resumeAt : undefined)}>{t(resumeArmedAt !== undefined ? "composer.resume.cancel" : "composer.resume.arm")}</button>
+      </div> : null}
       <PromptBox
         actions={<ComposerActions
           models={models} status={modelStatus} value={model} reasoningLevel={reasoningLevel}

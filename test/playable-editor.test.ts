@@ -2,10 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   addPlayableNodeAsset,
   deletePlayableSignal,
-  describePlayableValue,
   playableAssetId,
   playableAssetType,
-  playableRuntimeKey,
   playableThumbnailHash,
   removePlayableNodeAsset,
   renamePlayableSignal,
@@ -92,39 +90,16 @@ describe("Playable editor graph changes", () => {
     expect(removePlayableNodeAsset(graph, "lobby", "theme").assets.theme).toBeUndefined();
   });
 
-  it("keeps the preview running across title and label edits", () => {
-    const graph = createNodeGraphFixture();
-    const definition = { version: 1, graph, compiled: {}, graphSignature: "a" } as unknown as NodePlayerDefinition;
-    const renamed = setPlayableSignalLabel({ ...graph, title: "Renamed", nodes: graph.nodes.map((node) => ({ ...node, title: `${node.title}!` })) }, "menu", "start", "Go");
-
-    expect(playableRuntimeKey({ ...definition, graph: renamed, graphSignature: "b" })).toBe(playableRuntimeKey(definition));
-    const retargeted = { ...graph, edges: graph.edges.map((edge) => edge.source.signal === "start" ? { ...edge, targetNodeId: "archive" } : edge) };
-    expect(playableRuntimeKey({ ...definition, graph: retargeted })).not.toBe(playableRuntimeKey(definition));
-  });
-
-  it("hashes what a Node thumbnail shows", () => {
-    const graph = createNodeGraphFixture();
-    const surface = (id: string) => ({ id, html: `<main>${id}</main>`, css: "main {}", javascript: "export function mount() {}", inputs: [] });
+  it("takes a Node thumbnail's hash from the build", () => {
     const definition = {
       version: 1,
-      graph,
-      compiled: { nodes: { menu: surface("menu"), lobby: surface("lobby") } },
+      graph: createNodeGraphFixture(),
       graphSignature: "a",
-    } as unknown as NodePlayerDefinition;
-    const hash = playableThumbnailHash(definition, "menu")!;
-
-    expect(hash).toMatch(/^[0-9a-f]{14}$/);
+      hashes: { menu: "0123456789abcdef", lobby: "fedcba9876543210" },
+    } satisfies NodePlayerDefinition;
+    expect(playableThumbnailHash(definition, "menu")).toBe("0123456789abcdef");
+    // A Scene whose files have a problem has no hash, so it is not captured.
     expect(playableThumbnailHash(definition, "archive")).toBeUndefined();
-    expect(playableThumbnailHash(definition, "lobby")).not.toBe(hash);
-    const renamed = { ...graph, title: "Renamed", nodes: graph.nodes.map((node) => ({ ...node, title: `${node.title}!` })) };
-    expect(playableThumbnailHash({ ...definition, graph: renamed, graphSignature: "b" }, "menu")).toBe(hash);
-    const edited = { ...definition, compiled: { ...definition.compiled, nodes: { ...definition.compiled.nodes, menu: { ...surface("menu"), css: "main { color: red; }" } } } };
-    expect(playableThumbnailHash(edited, "menu")).not.toBe(hash);
-    const otherNode = { ...definition, compiled: { ...definition.compiled, nodes: { ...definition.compiled.nodes, lobby: { ...surface("lobby"), html: "<nav>New</nav>" } } } };
-    expect(playableThumbnailHash(otherNode, "menu")).toBe(hash);
-    const background = { ...graph, assets: { ...graph.assets, background: { type: "image" as const, source: { kind: "workspace" as const, path: "assets/other.webp" } } } };
-    expect(playableThumbnailHash({ ...definition, graph: background }, "menu")).not.toBe(hash);
-    expect(playableThumbnailHash({ ...definition, graph: { ...graph, viewport: { width: 720, height: 1280 } } }, "menu")).not.toBe(hash);
   });
 });
 
@@ -235,19 +210,3 @@ function flattenKeys(value: unknown, keys: Record<string, true> = {}): Record<st
   }
   return keys;
 }
-
-describe("describePlayableValue", () => {
-  it("shows starting values in author words", () => {
-    expect(describePlayableValue(true)).toBe("Yes");
-    expect(describePlayableValue(false)).toBe("No");
-    expect(describePlayableValue(3)).toBe("3");
-    expect(describePlayableValue("")).toBe("empty");
-    expect(describePlayableValue("Ada")).toBe('"Ada"');
-    expect(describePlayableValue([])).toBe("empty");
-    expect(describePlayableValue(["key"])).toBe("1 item");
-    expect(describePlayableValue(["key", "map", "coin"])).toBe("3 items");
-    expect(describePlayableValue({})).toBe("empty");
-    expect(describePlayableValue({ name: "" })).toBe("1 field");
-    expect(describePlayableValue(null)).toBe("nothing");
-  });
-});

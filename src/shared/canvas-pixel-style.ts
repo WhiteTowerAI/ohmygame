@@ -17,7 +17,13 @@ Strictly avoid smooth illustration, photorealism, 3D rendering, anti-aliasing, g
 export const PIXEL_ART_LEVELS = ["coarse", "classic", "detailed"] as const;
 export type PixelArtLevel = (typeof PIXEL_ART_LEVELS)[number];
 type PixelArtAssetType =
-  "character" | "creature" | "environment" | "object" | "animation" | "subject";
+  | "character"
+  | "creature"
+  | "environment"
+  | "terrain"
+  | "object"
+  | "animation"
+  | "subject";
 type PixelArtGrid = {
   columns: number;
   rows: number;
@@ -90,6 +96,14 @@ const ASSET_DETAILS: Record<
       "Preserve composition, perspective, major terrain boundaries, architecture, paths, and entrances. Merge foliage, masonry, and terrain texture into sparse clusters. Omit individual leaves, dense grass blades, tiny bricks, and repeated surface noise. Keep tile edges, corners, and transitions readable and compatible.",
     detailed:
       "Preserve composition, perspective, architecture, paths, and entrances. Add selected masonry divisions, foliage groups, terrain texture, and material highlights within the logical grid. Keep tile edges, corners, and transitions compatible; do not add photographic micro-texture.",
+  },
+  terrain: {
+    coarse:
+      "Take biome, materials, and primary colors from any reference; do not copy its composition, camera angle, framing, or feature placement. Use broad terrain masses with almost no surface pattern. Keep material boundaries, tile edges, corners, and transitions readable.",
+    classic:
+      "Take biome, materials, and primary colors from any reference; do not copy its composition, camera angle, framing, or feature placement. Merge foliage, rock, and ground texture into sparse clusters. Omit individual leaves, dense grass blades, tiny bricks, and repeated surface noise. Keep tile edges, corners, and transitions readable and compatible.",
+    detailed:
+      "Take biome, materials, and primary colors from any reference; do not copy its composition, camera angle, framing, or feature placement. Add selected rock divisions, foliage groups, ground texture, and material highlights within the logical grid. Keep tile edges, corners, and transitions compatible; do not add photographic micro-texture.",
   },
   object: {
     coarse:

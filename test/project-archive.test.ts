@@ -380,7 +380,7 @@ describe("project archive export", () => {
 });
 
 describe("project archive import", () => {
-  it("imports an exported project as a new project", async () => {
+  it.each(["fit", "mobile", "mobile-landscape"])("imports an exported project as a new project with the %s preset", async (previewViewport) => {
     const source = createApp({ dataDirectory: await temporaryDirectory() });
     const target = createApp({ dataDirectory: await temporaryDirectory() });
     apps.push(source, target);
@@ -391,6 +391,18 @@ describe("project archive import", () => {
         payload: { type: "general", name: "Engine game" },
       })
     ).json();
+    const settings = await source.inject({
+      method: "PUT",
+      url: `/projects/${original.id}/settings/run`,
+      payload: {
+        startupDirectory: ".",
+        startupScript: "dev",
+        previewPath: "/",
+        previewViewport,
+        webPreviewEnabled: true,
+      },
+    });
+    expect(settings.statusCode).toBe(200);
     await mkdir(path.join(original.workspacePath, "scenes"));
     await writeFile(
       path.join(original.workspacePath, "scenes/main.tscn"),
@@ -425,6 +437,7 @@ describe("project archive import", () => {
       webPreviewEnabled: true,
       workspaceLocation: "managed",
     });
+    expect(imported.previewViewport ?? "fit").toBe(previewViewport);
     expect(imported.id).not.toBe(original.id);
     expect(
       await readFile(

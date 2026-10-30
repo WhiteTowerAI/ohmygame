@@ -176,7 +176,10 @@ describe("Web Game project codebase", () => {
     expect(JSON.parse(await readFile(path.join(directory, "projects", project.id, "project.json"), "utf8"))).not.toHaveProperty("mediaModelDefaults");
   });
 
-  it.each(["web-game", "general"] as const)("persists a runnable startup directory for %s below the workspace root", async (type) => {
+  it.each([
+    ["web-game", "mobile"], ["general", "mobile"],
+    ["web-game", "mobile-landscape"], ["general", "mobile-landscape"],
+  ] as const)("persists a runnable startup directory for %s with %s below the workspace root", async (type, previewViewport) => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-projects-"));
     const manager = new ProjectManager(dataDirectory);
     const project = await manager.create("Game", type);
@@ -189,7 +192,7 @@ describe("Web Game project codebase", () => {
       startupScript: "start",
       packageManager: "pnpm",
       previewPath: "/play",
-      previewViewport: "mobile",
+      previewViewport,
       ...(type === "general" ? { webPreviewEnabled: true } : {}),
     });
     expect(updated).toMatchObject({
@@ -197,7 +200,7 @@ describe("Web Game project codebase", () => {
       startupScript: "start",
       packageManager: "pnpm",
       previewPath: "/play",
-      previewViewport: "mobile",
+      previewViewport,
     });
     expect(updated.preview).toEqual({ status: type === "general" ? "stopped" : "waiting" });
     expect(JSON.parse(await readFile(path.join(dataDirectory, "projects", project.id, "project.json"), "utf8"))).toMatchObject({
@@ -205,7 +208,7 @@ describe("Web Game project codebase", () => {
       startupScript: "start",
       packageManager: "pnpm",
       previewPath: "/play",
-      previewViewport: "mobile",
+      previewViewport,
     });
 
     const restored = new ProjectManager(dataDirectory);
@@ -215,9 +218,10 @@ describe("Web Game project codebase", () => {
       startupScript: "start",
       packageManager: "pnpm",
       previewPath: "/play",
-      previewViewport: "mobile",
+      previewViewport,
       preview: { status: "stopped" },
     });
+    expect(await restored.duplicate(project.id)).toMatchObject({ previewViewport });
     await expect(manager.setStartupDirectory(project.id, "../outside")).rejects.toThrow("Startup directory must be a relative path");
     await expect(manager.setStartupDirectory(project.id, "missing")).rejects.toThrow("Startup directory does not exist");
   });

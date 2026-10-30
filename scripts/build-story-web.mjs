@@ -19,12 +19,14 @@ if (!modules[STORY_WEB_ENTRY] || !bridge.trim()) {
   throw new Error("The web story build produced incomplete resources.");
 }
 await writeFile(destination, JSON.stringify({ modules, bridge }));
-// Presets read these illustrations in both source development and the built daemon.
-await cp(
-  new URL("../src/daemon/assets/scene-templates/", import.meta.url),
-  new URL("../dist/daemon/assets/scene-templates/", import.meta.url),
-  { recursive: true },
-);
+// Presets read their files and illustrations in both source development and the built daemon.
+for (const folder of ["story-templates", "scene-templates"]) {
+  await cp(
+    new URL(`../src/daemon/assets/${folder}/`, import.meta.url),
+    new URL(`../dist/daemon/assets/${folder}/`, import.meta.url),
+    { recursive: true },
+  );
+}
 console.log(
   `Prepared ${Object.keys(modules).length} story runtime modules and the editor bridge.`,
 );

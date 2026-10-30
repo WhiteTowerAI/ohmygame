@@ -32,6 +32,7 @@ export const EXTERNAL_PROJECT_TOOLS = [
   "generate_speech",
   "generate_sound_effect",
   "generate_music",
+  "generate_audio",
   "canvas_check",
   "canvas_initialize",
   "generate_canvas_media",
@@ -49,6 +50,7 @@ const JOB_TOOLS = new Set<string>([
   "generate_speech",
   "generate_sound_effect",
   "generate_music",
+  "generate_audio",
   "generate_canvas_media",
 ]);
 

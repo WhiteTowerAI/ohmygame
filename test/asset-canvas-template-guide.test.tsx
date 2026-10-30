@@ -39,12 +39,12 @@ it.each(["en", "zh-CN"])("explains every output in all six template canvases in 
   }
 });
 
-it("shows the new pixel overview and keeps guidance for all twelve asset types", async () => {
+it("shows the new pixel overview and keeps guidance for all thirteen asset types", async () => {
   await act(async () =>
     root.render(<AssetCanvasTemplateGuide template="pixel-art" />),
   );
   const choices = container.querySelectorAll(".asset-template-guide-option");
-  expect(choices).toHaveLength(12);
+  expect(choices).toHaveLength(13);
   expect(container.querySelectorAll("img")).toHaveLength(1);
   expect(
     container

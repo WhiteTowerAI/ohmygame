@@ -195,6 +195,22 @@ it("saves through the desktop handshake before the debounce and pauses Canvas po
   expect(api.getBoard.mock.calls.length).toBeGreaterThan(reads);
 });
 
+it("pauses Canvas polling while the window is hidden and syncs as soon as it returns", async () => {
+  await act(async () => root.render(<CanvasWorkspace project={{ id: "p", type: "asset-canvas" } as ProjectState} />));
+  await advance(400);
+  const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+  const reads = api.getBoard.mock.calls.length, workspaces = api.getWorkspace.mock.calls.length;
+  await advance(9000);
+  expect(api.getBoard).toHaveBeenCalledTimes(reads);
+  expect(api.getWorkspace).toHaveBeenCalledTimes(workspaces);
+  hidden.mockReturnValue(false);
+  await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+  await advance(0);
+  expect(api.getBoard.mock.calls.length).toBeGreaterThan(reads);
+  expect(api.getWorkspace.mock.calls.length).toBeGreaterThan(workspaces);
+  hidden.mockRestore();
+});
+
 it("does not claim a successful flush when a document draft has lost its workspace file", async () => {
   await act(async () => root.render(<DocumentHarness />));
   await act(async () => currentDocs.update("rules", { markdown: "Unsaved rules" }));

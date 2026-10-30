@@ -1,0 +1,26 @@
+<main class="stage is-right has-backdrop">
+  <div class="backdrop is-warm" data-media="backdrop"></div>
+  <p class="eyebrow rise">Last service</p>
+  <h1 class="title is-display rise" style="--delay: 0.15s">{{title}}</h1>
+  <p class="tagline rise" style="--delay: 0.3s">One more ride home</p>
+  <ul class="menu">
+    <li class="rise" style="--delay: 0.5s"><button type="button" class="action" data-signal="start" data-new-game>Start</button></li>
+    <li class="rise" style="--delay: 0.6s"><button type="button" class="action" data-continue>Continue <small>No save yet</small></button></li>
+    <li class="rise" style="--delay: 0.7s"><button type="button" class="action" data-open="load">Load <small>No saves yet</small></button></li>
+    <li class="rise" style="--delay: 0.8s"><button type="button" class="action" data-signal="story-map">Story map</button></li>
+    <li class="rise" style="--delay: 0.9s"><button type="button" class="action" data-open="settings">Settings</button></li>
+  </ul>
+  <section class="menu-panel" data-panel="load" hidden>
+    <h2 class="eyebrow">Load</h2>
+    <div class="menu-slots" data-slots></div>
+    <button type="button" class="action is-quiet" data-close>Back</button>
+  </section>
+  <section class="menu-panel" data-panel="settings" hidden>
+    <h2 class="eyebrow">Settings</h2>
+    <div class="menu-settings">
+      <label><span>Music</span><input type="range" name="musicVolume" min="0" max="1" step="0.05" /><output></output></label>
+      <label><span>Sound</span><input type="range" name="soundVolume" min="0" max="1" step="0.05" /><output></output></label>
+    </div>
+    <button type="button" class="action is-quiet" data-close>Back</button>
+  </section>
+</main>

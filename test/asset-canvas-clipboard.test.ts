@@ -112,3 +112,13 @@ describe("Asset Canvas clipboard", () => {
     expect(parseCanvasClipboard(JSON.stringify({ ...value, nodes: [{ ...node, position: { x: null, y: 0 } }] }))).toBeUndefined();
   });
 });
+
+it("remaps audio reference sources while keeping stable aliases and reserved serials", () => {
+  const nodes: AssetCanvasNode[] = [
+    { id: "voice", type: "speech", position: { x: 0, y: 0 }, data: { text: "Hello", assetId: "voice-output" } },
+    { id: "scene", type: "audio-scene", position: { x: 300, y: 0 }, data: { prompt: "Use @Audio7", audioReferenceSerial: 9, audioReferences: [{ id: "Audio7", type: "audio", source: { type: "node", nodeId: "voice" } }] } },
+  ];
+  let index = 0;
+  const copied = duplicateCanvasSelection(nodes, [], { x: 0, y: 300 }, () => `copy${++index}`);
+  expect(copied.nodes[1]!.data).toMatchObject({ audioReferenceSerial: 9, audioReferences: [{ id: "Audio7", source: { type: "node", nodeId: "copy1" } }] });
+});

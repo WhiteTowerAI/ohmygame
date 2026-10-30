@@ -13,7 +13,6 @@ import {
   Image,
   LoaderCircle,
   Pencil,
-  Undo2,
   Plug,
   Search,
   Terminal,
@@ -52,8 +51,6 @@ interface AgentTimelineProps {
   onOpenWorkspaceFile?: (path: string) => void;
   revisionDisabled?: boolean;
   onRevise?: (prompt: string) => Promise<boolean>;
-  /** Puts the project back to before the message the checkpoint was taken for. */
-  onRestore?: (checkpointId: string) => void;
   /** Shows under each finished turn what it changed in the workspace, with a way to undo it. */
   changeControls?: TurnChangesControls;
   /** Changes whenever the files of the workspace may have changed, so that what the turns show of them is read again. */
@@ -74,7 +71,7 @@ function turnDisplay(turn: ThreadTurn): TurnDisplay {
   return display;
 }
 
-export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, onRestore, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false }: AgentTimelineProps) {
+export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -159,7 +156,6 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
                 copied: displays[index].user?.id === copiedItemId,
                 canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
                 disabled: Boolean(revisionDisabled || submitting),
-                onRestore,
                 onCopy: copy,
                 onEdit: edit,
                 onDraftChange: setDraft,
@@ -181,7 +177,6 @@ interface UserControls {
   canEdit: boolean;
   disabled: boolean;
   draft: string;
-  onRestore?: (checkpointId: string) => void;
   onCopy: (item: Extract<ThreadItem, { type: "userMessage" }>) => void;
   onEdit: (item: Extract<ThreadItem, { type: "userMessage" }>) => void;
   onDraftChange: (value: string) => void;
@@ -334,11 +329,6 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
             {controls.canEdit ? (
               <button type="button" aria-label={t("timeline.editMessage")} title={t("common.edit")} onClick={() => controls.onEdit(item)} disabled={controls.disabled}>
                 <Pencil size={13} />
-              </button>
-            ) : null}
-            {controls.onRestore && item.checkpointId ? (
-              <button type="button" aria-label={t("checkpoints.restoreToMessage")} title={t("checkpoints.restoreToMessage")} onClick={() => controls.onRestore!(item.checkpointId!)} disabled={controls.disabled}>
-                <Undo2 size={13} />
               </button>
             ) : null}
           </div>

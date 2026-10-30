@@ -32,7 +32,7 @@ const request: Extract<ThreadItem, { type: "approvalRequest" }> = {
     tool: "Bash",
     command: "git push origin main",
     reason: "Publishes the branch",
-    canAllowSession: true,
+    always: { scope: "saved", rules: ["Bash(git push:*)"] },
   },
   status: "inProgress",
 };
@@ -53,15 +53,19 @@ it("shows what the agent wants to run and sends one answer", async () => {
   expect(container.textContent).toContain("git push origin main");
   expect(container.textContent).toContain("Publishes the branch");
   expect(container.textContent).toContain("1 more waiting");
-  const allow = [...container.querySelectorAll("button")].find(
-    (button) => button.textContent === "Allow for this conversation",
+  // The agent's own description of what always allowing covers.
+  expect(container.textContent).toContain(
+    "Allowing beyond this request covers: Bash(git push:*)",
+  );
+  const always = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Always allow",
   )!;
   await act(async () => {
-    allow.click();
-    allow.click();
+    always.click();
+    always.click();
   });
   expect(decide).toHaveBeenCalledOnce();
-  expect(decide).toHaveBeenCalledWith("allow-session");
+  expect(decide).toHaveBeenCalledWith("allow-always");
 });
 
 it("shows every read/write root and network scope before a permission grant", async () => {
@@ -78,7 +82,6 @@ it("shows every read/write root and network scope before a permission grant", as
               { path: "/export", access: "write" },
             ],
             network: true,
-            canAllowSession: false,
           },
         }}
         waiting={0}
@@ -89,7 +92,8 @@ it("shows every read/write root and network scope before a permission grant", as
   expect(container.textContent).toContain("/reference");
   expect(container.textContent).toContain("/export");
   expect(container.querySelectorAll("li")).toHaveLength(2);
-  expect(container.textContent).toContain("Allow network access for this turn");
+  expect(container.textContent).toContain("Network access");
+  expect(container.textContent).not.toContain("Always allow");
   expect(container.textContent).not.toContain("Allow for this conversation");
 });
 
@@ -103,7 +107,6 @@ it("offers only a single answer when the agent cannot remember one", async () =>
             kind: "file",
             tool: "Write",
             path: "/etc/hosts",
-            canAllowSession: false,
           },
         }}
         waiting={0}
@@ -111,9 +114,7 @@ it("offers only a single answer when the agent cannot remember one", async () =>
       />,
     ),
   );
-  expect(container.textContent).toContain(
-    "The agent wants to access files outside the project",
-  );
+  expect(container.textContent).toContain("The agent wants to access files");
   expect(
     [...container.querySelectorAll("button")].map(
       (button) => button.textContent,
@@ -171,7 +172,6 @@ it("keeps a failed approval request answerable and identifies granted paths in h
         kind: "other",
         tool: "permissions",
         paths: [{ path: "/reference", access: "read" }],
-        canAllowSession: false,
       },
       status: "completed",
       decision: "allow",
@@ -179,17 +179,12 @@ it("keeps a failed approval request answerable and identifies granted paths in h
   ).toContain("/reference");
 });
 
-it("names what allowing for the conversation covers", async () => {
-  const render = (
-    sessionScope: NonNullable<(typeof request)["request"]["sessionScope"]>,
-  ) =>
+it("names how long allowing beyond this request lasts, as the agent offers it", async () => {
+  const render = (always: NonNullable<(typeof request)["request"]["always"]>) =>
     act(async () =>
       root.render(
         <ApprovalCard
-          request={{
-            ...request,
-            request: { ...request.request, sessionScope },
-          }}
+          request={{ ...request, request: { ...request.request, always } }}
           waiting={0}
           onDecide={vi.fn(async () => true)}
         />,
@@ -199,8 +194,29 @@ it("names what allowing for the conversation covers", async () => {
     [...container.querySelectorAll("button")].map(
       (button) => button.textContent,
     );
-  await render({ commands: ["git push"] });
-  expect(labels()).toContain("Allow git push for this conversation");
-  await render({ readFolders: ["/Users/me/notes"] });
-  expect(labels()).toContain("Allow reading notes/ for this conversation");
+  await render({ scope: "saved", rules: [] });
+  expect(labels()).toEqual(["Deny", "Always allow", "Allow"]);
+  await render({ scope: "session", rules: [] });
+  expect(labels()).toEqual(["Deny", "Allow for this conversation", "Allow"]);
+  expect(container.textContent).not.toContain("covers");
+});
+
+it("labels answered requests, including conversation grants stored before", () => {
+  const answered = (
+    decision: NonNullable<(typeof request)["decision"]>,
+    scope: "saved" | "session" = "saved",
+  ) =>
+    approvalOutcomeLabel({
+      ...request,
+      request: { ...request.request, always: { scope, rules: [] } },
+      status: "completed",
+      decision,
+    });
+  expect(answered("allow-always")).toBe("Always allowed: git push origin main");
+  expect(answered("allow-always", "session")).toBe(
+    "Allowed for this conversation: git push origin main",
+  );
+  expect(answered("allow-session")).toBe(
+    "Allowed for this conversation: git push origin main",
+  );
 });

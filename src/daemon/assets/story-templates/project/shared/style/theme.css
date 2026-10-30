@@ -1,0 +1,37 @@
+/* Project Style tokens. Every Node imports this file, so changing a value
+   here restyles the whole game. Sizes are in cqw (hundredths of the screen
+   width), so a screen looks the same at any size. */
+:host {
+  container-type: size;
+  --color-ink: #efe9dc;
+  --color-muted: #b3ada3;
+  --color-page: #0b0b0d;
+  --color-panel: #17171a;
+  --color-accent: #b8322a;
+  --color-accent-ink: #e0483b;
+  --color-shade: rgb(8 8 10 / 0.72);
+  --color-line: #ffffff2e;
+  --font-body: "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --text-eyebrow: 1.05cqw;
+  --text-body: 1.6cqw;
+  --text-line: 2cqw;
+  --text-action: 1.7cqw;
+  --text-title: 4.5cqw;
+  --text-display: 9cqw;
+  --space-1: 0.6cqw;
+  --space-2: 1.2cqw;
+  --space-3: 2cqw;
+  --space-4: 3.2cqw;
+  --edge: 8cqw;
+  /* Black bars above and below the picture; 0 turns them off. */
+  --letterbox: 4.2cqw;
+  --radius: 0.3cqw;
+
+  display: block;
+  width: 100%;
+  height: 100%;
+  color: var(--color-ink);
+  font-family: var(--font-body);
+}

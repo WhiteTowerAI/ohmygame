@@ -383,7 +383,6 @@ if (options.resume) {
           "src",
           "test",
           "vite.config.ts",
-          "playable-sandbox.html",
         ],
         { cwd: root },
       ).status,

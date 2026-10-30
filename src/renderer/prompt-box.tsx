@@ -73,7 +73,17 @@ export function PromptBox({
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
-    const observer = new ResizeObserver(syncListMirror);
+    let width = input.clientWidth;
+    const observer = new ResizeObserver(() => {
+      // Collapsed panes still mount the input at a narrow width. Remeasure
+      // wrapping when it expands, without reacting to our own height changes.
+      const nextWidth = input.clientWidth;
+      if (nextWidth !== width) {
+        width = nextWidth;
+        resizeTextarea(input);
+      }
+      syncListMirror();
+    });
     observer.observe(input);
     return () => observer.disconnect();
   }, [inputRef]);

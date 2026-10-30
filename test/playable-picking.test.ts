@@ -192,12 +192,6 @@ describe("pick protocol messages", () => {
       isPlayableHostMessage({ kind: "ohmygame:playable:pick-start", instanceId: "a", tool: "move" }),
     ).toBe(true);
     expect(
-      isPlayableFrameMessage({ kind: "ohmygame:playable:seen", instanceId: "a", seen: { version: 1, nodes: {}, edges: {} } }),
-    ).toBe(true);
-    expect(
-      isPlayableFrameMessage({ kind: "ohmygame:playable:seen", instanceId: "a", seen: [] }),
-    ).toBe(false);
-    expect(
       isPlayableFrameMessage({
         kind: "ohmygame:playable:moved",
         instanceId: "a",
@@ -222,17 +216,10 @@ describe("pick protocol messages", () => {
     ).toBe(false);
   });
 
-  it("rejects an init message with a non-object preview", () => {
-    const init = {
-      kind: "ohmygame:playable:init",
-      instanceId: "a",
-      definition: {},
-      assets: {},
-    };
-
-    expect(isPlayableHostMessage(init)).toBe(true);
-    expect(isPlayableHostMessage({ ...init, preview: { policy: "report" } })).toBe(true);
-    expect(isPlayableHostMessage({ ...init, preview: "report" })).toBe(false);
+  it("no longer accepts the sandbox's messages, now that every story plays as its own page", () => {
+    expect(isPlayableHostMessage({ kind: "ohmygame:playable:init", instanceId: "a", definition: {}, assets: {} })).toBe(false);
+    expect(isPlayableFrameMessage({ kind: "ohmygame:playable:seen", instanceId: "a", seen: { version: 1, nodes: {}, edges: {} } })).toBe(false);
+    expect(isPlayableFrameMessage({ kind: "ohmygame:playable:save", instanceId: "a", requestId: "r", save: {} })).toBe(false);
   });
 });
 

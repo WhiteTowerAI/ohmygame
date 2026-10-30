@@ -8,6 +8,8 @@ import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
+import { PixelTemplateDensityDialog } from "./pixel-template-density-dialog.js";
+import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import { GAME_PROJECT_TYPES } from "./project-types.js";
@@ -18,19 +20,20 @@ import { useProjectActivity } from "./use-project-activity.js";
 import "./studios.css";
 import { t } from "./i18n.js";
 import { pixelAssetTemplateCategories, type PixelAssetTemplateCategory } from "./asset-canvas-pixel-workflows.js";
-import characterTemplateCover from "./assets/templates/examples/role-reference-cover.webp";
-import creatureTemplateCover from "./assets/templates/examples/monster.webp";
-import animationTemplateCover from "./assets/templates/examples/role-action-cover.webp";
-import sceneTemplateCover from "./assets/templates/examples/scene.webp";
-import objectTemplateCover from "./assets/templates/examples/prop.webp";
-import skinTemplateCover from "./assets/templates/examples/quick-reskin.webp";
-import effectLibraryCover from "./assets/templates/examples/effect-library-cover.webp";
+import characterTemplateCover from "./assets/templates/examples/characters-cover.webp";
+import creatureTemplateCover from "./assets/templates/examples/creatures-cover.webp";
+import animationTemplateCover from "./assets/templates/examples/animation-cover.webp";
+import sceneTemplateCover from "./assets/templates/examples/scenes-cover.webp";
+import terrainTemplateCover from "./assets/templates/examples/terrain-cover.webp";
+import objectTemplateCover from "./assets/templates/examples/objects-cover.webp";
+import skinTemplateCover from "./assets/templates/examples/skins-cover.webp";
 
 const PIXEL_TEMPLATE_COVERS: Record<PixelAssetTemplateCategory, string> = {
   characters: characterTemplateCover,
   creatures: creatureTemplateCover,
   animation: animationTemplateCover,
   scenes: sceneTemplateCover,
+  terrain: terrainTemplateCover,
   objects: objectTemplateCover,
   skins: skinTemplateCover,
 };
@@ -52,7 +55,9 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
   const [projectActionError, setProjectActionError] = useState<string>();
   const [projectType, setProjectType] = useState<ProjectType>("web-game");
   const [createOpen, setCreateOpen] = useState(false);
-  const [templateCreating, setTemplateCreating] = useState<PixelAssetTemplateCategory | "effect-library">();
+  const [templateCreating, setTemplateCreating] = useState<PixelAssetTemplateCategory>();
+  const [templateDensityCategory, setTemplateDensityCategory] = useState<PixelAssetTemplateCategory>();
+  const templateTrigger = useRef<HTMLElement | null>(null);
   const [renameTarget, setRenameTarget] = useState<ProjectState>();
   const renameTrigger = useRef<HTMLElement | null>(null);
   const { examples, covers: exampleCovers } = useExamples();
@@ -97,26 +102,12 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
     }
   }
 
-  async function createTemplate(category: PixelAssetTemplateCategory): Promise<void> {
+  async function createTemplate(category: PixelAssetTemplateCategory, level: PixelArtLevel): Promise<void> {
     setTemplateCreating(category);
     setProjectActionError(undefined);
     try {
       const { createPixelAssetTemplateProject } = await import("./asset-canvas-template-project.js");
-      const created = await createPixelAssetTemplateProject(category);
-      onOpenAssetCanvas(created.projectId, created.nodeId);
-    } catch (error) {
-      setProjectActionError(errorMessage(error));
-    } finally {
-      setTemplateCreating(undefined);
-    }
-  }
-
-  async function createEffectLibrary(): Promise<void> {
-    setTemplateCreating("effect-library");
-    setProjectActionError(undefined);
-    try {
-      const { createEffectLibraryProject } = await import("./asset-canvas-templates.js");
-      const created = await createEffectLibraryProject();
+      const created = await createPixelAssetTemplateProject(category, level);
       onOpenAssetCanvas(created.projectId, created.nodeId);
     } catch (error) {
       setProjectActionError(errorMessage(error));
@@ -126,7 +117,8 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
   }
 
   const visibleProjects = projects.slice(0, recentProjectLimit);
-  const visibleExamples = examples.slice(0, columns);
+  // Two rows, so every example type has room; Home scrolls when the window is short.
+  const visibleExamples = examples.slice(0, columns * 2);
 
   return (
     <main className="home-shell" inert={inert}>
@@ -137,6 +129,7 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
         <div className="home-start">
           <h1>{t("home.title")}</h1>
           <ProjectPromptCreator
+            draftKey="home"
             projectType={projectType}
             projectTypes={GAME_PROJECT_TYPES}
             placeholder={t("home.placeholder")}
@@ -196,7 +189,10 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
                 key={category.id}
                 disabled={templateCreating !== undefined}
                 aria-busy={templateCreating === category.id}
-                onClick={() => void createTemplate(category.id)}
+                onClick={(event) => {
+                  templateTrigger.current = event.currentTarget;
+                  setTemplateDensityCategory(category.id);
+                }}
               >
                 <span className="home-whats-new-icon home-explore-cover">
                   <img src={PIXEL_TEMPLATE_COVERS[category.id]} alt="" />
@@ -208,22 +204,6 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
                 </span>
               </button>
             ))}
-            <button
-              className="home-whats-new-item home-template-card"
-              type="button"
-              disabled={templateCreating !== undefined}
-              aria-busy={templateCreating === "effect-library"}
-              onClick={() => void createEffectLibrary()}
-            >
-              <span className="home-whats-new-icon home-explore-cover asset-effect-library-cover">
-                <img src={effectLibraryCover} alt="" draggable={false} />
-                {templateCreating === "effect-library" ? <span className="home-template-loading"><LoaderCircle className="spin" size={16} /></span> : null}
-              </span>
-              <span className="home-whats-new-copy">
-                <strong>{t("effectLibrary.title")}</strong>
-                <small>{t("effectLibrary.cardDescription")}</small>
-              </span>
-            </button>
           </div>
         </section>
         {visibleExamples.length > 0 ? <section className="home-discover home-explore studio-examples" aria-labelledby="home-examples-heading">
@@ -231,6 +211,15 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
           <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen} />
         </section> : null}
       </section>
+      {templateDensityCategory ? <PixelTemplateDensityDialog
+        category={templateDensityCategory}
+        returnFocus={templateTrigger.current}
+        onClose={() => setTemplateDensityCategory(undefined)}
+        onConfirm={(level) => {
+          setTemplateDensityCategory(undefined);
+          void createTemplate(templateDensityCategory, level);
+        }}
+      /> : null}
       {renameTarget ? <ProjectRenameDialog name={renameTarget.name} returnFocus={renameTrigger.current} onClose={() => setRenameTarget(undefined)} onConfirm={(name) => {
         const project = renameTarget;
         setRenameTarget(undefined);

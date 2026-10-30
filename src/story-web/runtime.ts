@@ -27,8 +27,7 @@ import {
   type PlayableSlotStore,
 } from "../shared/playable-runtime.js";
 import { DocumentPlayableAudio } from "../shared/playable-audio.js";
-import { DocumentPlayableSurfaceHost } from "../shared/playable-sandbox.js";
-import type { CompiledNodeGraph } from "../shared/playable-compiled.js";
+import { DocumentPlayableSurfaceHost } from "../shared/playable-page-host.js";
 import type { JsonObject, NodeGraph } from "../shared/playable-nodes.js";
 
 export interface StoryWebHandle {
@@ -67,17 +66,6 @@ async function start(): Promise<void> {
   const transient = preview || params.get("ohmygame-save") === "none";
   const scene = params.get("scene") ?? undefined;
 
-  // Each Scene plays from its own files; the page loads them as they are.
-  const compiled: CompiledNodeGraph = {
-    version: 1,
-    nodes: Object.fromEntries(graph.nodes.map((node) => [node.id, {
-      id: node.id,
-      html: node.source.html,
-      css: node.source.css,
-      javascript: node.source.javascript,
-      inputs: [],
-    }])),
-  };
   const assetUrls = Object.fromEntries(Object.entries(graph.assets)
     .filter(([, asset]) => asset.source.kind === "workspace")
     .map(([id, asset]) => [id, new URL((asset.source as { path: string }).path, base).href]));
@@ -88,12 +76,12 @@ async function start(): Promise<void> {
   if (params.get("ohmygame-new-game") === "1") forget(key);
   if (params.get("ohmygame-forget-seen") === "1") forget(`${key}:seen`);
   const audio = params.get("ohmygame-silent") === "1" ? undefined : new DocumentPlayableAudio(document);
-  const host = new DocumentPlayableSurfaceHost(document, undefined, audio && ((root) => audio.watchNode(root)), { base },
+  // Each Scene plays from its own files; the page loads them as they are.
+  const host = new DocumentPlayableSurfaceHost(document, { base }, audio && ((root) => audio.watchNode(root)),
     (message) => window.dispatchEvent(new CustomEvent(STORY_ERROR_EVENT, { detail: { message } })));
   fitStage(graph.viewport);
   const runtime = new NodeRuntime({
     graph,
-    compiled,
     graphSignature: signature(graphText),
     surfaceHost: host,
     saveStore: transient ? new MemoryPlayableSaveStore() : stored<PlayableSaveStore>(key),

@@ -54,105 +54,35 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", li
   console.log(JSON.stringify({id:m.id,result}));
 });`;
 
-it("identifies Windows sandbox read restrictions without misclassifying transient failures", () => {
-  const cause = cliProbeError(
-    "Codex",
-    "error creating thread: windows unelevated restricted-token sandbox cannot enforce split filesystem read restrictions directly; refusing to run unsandboxed",
-  );
-  expect(cause).toBeInstanceOf(AgentRuntimeCompatibilityError);
-  expect(cause).toMatchObject({
-    capability: "Windows sandbox filesystem read restrictions",
-  });
-  expect(cause.message).toContain("elevated");
-  expect(cause.message).toContain("MXC");
+it("treats only a rejected command as incompatible, not a transient failure", () => {
+  expect(
+    cliProbeError("Codex", "error: unexpected argument '--fixture'"),
+  ).toBeInstanceOf(AgentRuntimeCompatibilityError);
   expect(cliProbeError("Codex", "Connection timed out")).not.toBeInstanceOf(
     AgentRuntimeCompatibilityError,
   );
-  expect(cliProbeError("Claude Code", cause.message)).not.toBeInstanceOf(
-    AgentRuntimeCompatibilityError,
+});
+
+it("checks a version only for OpenCode's API generation", () => {
+  expect(() =>
+    checkRuntimeVersionRequirement("claude-code-cli", undefined),
+  ).not.toThrow();
+  expect(() =>
+    checkRuntimeVersionRequirement("codex-cli", "0.162.0-alpha.17.2"),
+  ).not.toThrow();
+  expect(() =>
+    checkRuntimeVersionRequirement("opencode-cli", "2.1.0"),
+  ).not.toThrow();
+  expect(() => checkRuntimeVersionRequirement("opencode-cli", undefined)).toThrow(
+    "did not report",
   );
-});
-
-it.each([
-  "error creating thread: windows elevated sandbox cannot enforce filesystem read restrictions; root read permission required",
-  "error creating thread: elevated Windows sandbox requires effective :root read access",
-])("identifies elevated Windows sandbox read restrictions: %s", (detail) => {
-  const cause = cliProbeError("Codex", detail);
-  expect(cause).toBeInstanceOf(AgentRuntimeCompatibilityError);
-  expect(cause).toMatchObject({
-    capability: "Windows sandbox filesystem read restrictions",
-  });
-  if (detail.includes("effective :root")) {
-    expect(cause.message).toContain("effective :root read access");
-    expect(cause.message).not.toContain("Configure Codex's elevated sandbox");
-  }
-});
-
-it("uses Claude's documented sandbox requirement only for modes that rely on it", () => {
-  expect(() =>
-    checkRuntimeVersionRequirement(
-      "claude-code-cli",
-      "2.1.82",
-      "standard",
-      "os",
-    ),
-  ).toThrow("sandbox.failIfUnavailable");
-  expect(() =>
-    checkRuntimeVersionRequirement(
-      "claude-code-cli",
-      "2.1.83",
-      "standard",
-      "os",
-    ),
-  ).not.toThrow();
-  expect(() =>
-    checkRuntimeVersionRequirement("claude-code-cli", "2.1.76", "full", "os"),
-  ).not.toThrow();
-  expect(() =>
-    checkRuntimeVersionRequirement(
-      "claude-code-cli",
-      "2.1.76",
-      "standard",
-      "none",
-    ),
-  ).not.toThrow();
-  expect(() =>
-    checkRuntimeVersionRequirement(
-      "codex-cli",
-      "0.162.0-alpha.17.2",
-      "standard",
-      "os",
-    ),
-  ).not.toThrow();
-  expect(() =>
-    checkRuntimeVersionRequirement(
-      "opencode-cli",
-      "2.1.0",
-      "standard",
-      "none",
-    ),
-  ).not.toThrow();
-  try {
-    checkRuntimeVersionRequirement(
-      "claude-code-cli",
-      undefined,
-      "standard",
-      "os",
-    );
-    expect.fail(
-      "An unknown version cannot establish the required sandbox behavior",
-    );
-  } catch (cause) {
-    expect(cause).not.toBeInstanceOf(AgentRuntimeCompatibilityError);
-    expect(String(cause)).toContain("could not verify");
-  }
 });
 
 it.each(["1.18.33", "2.0.29", "3.0.0-beta.1", "3.0.0"])(
   "rejects unsupported OpenCode API generation %s",
   (version) => {
     expect(() =>
-      checkRuntimeVersionRequirement("opencode-cli", version, "full", "none"),
+      checkRuntimeVersionRequirement("opencode-cli", version),
     ).toThrow("unsupported");
   },
 );
@@ -229,21 +159,20 @@ it.skipIf(process.platform === "win32")("keeps a temporary Codex probe failure d
   expect(await service.model("codex-cli", "fixture-model")).toBeDefined();
 });
 
-const opencode = (callbacks = true, version = "2.1.0", saved = false) => `
+const opencode = (version = "2.1.0", agents = ["build", "plan"]) => `
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(calls, JSON.stringify(args) + "\\n");
 if (args[0] === "--version") { console.log("opencode v${version}"); process.exit(); }
 if (args[0] === "serve") {
   const config = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT);
-  const permissions = [...config.permissions, ...(${callbacks} ? [] : [{action:"read",resource:"*",effect:"allow"}])];
+  fs.appendFileSync(calls, JSON.stringify({ config: Object.keys(config) }) + "\\n");
   const server = require("node:http").createServer((request,response) => {
     const url = new URL(request.url, "http://localhost");
     fs.appendFileSync(calls, JSON.stringify(url.pathname) + "\\n");
     if (url.pathname === "/api/info") return response.end(JSON.stringify({version:"${version}"}));
     if (url.pathname === "/api/location") return response.end(JSON.stringify({directory:process.cwd(),project:{id:"project",directory:process.cwd()}}));
-    if (url.pathname === "/api/agent") return response.end(JSON.stringify({data:[{id:"build",permissions},{id:"plan",permissions}]}));
-    if (url.pathname === "/api/permission/saved") return response.end(JSON.stringify({data:${saved} ? [{id:"saved",projectID:"project"}] : []}));
+    if (url.pathname === "/api/agent") return response.end(JSON.stringify({data:${JSON.stringify(agents)}.map((id) => ({id}))}));
     if (url.pathname === "/api/model") return response.end(JSON.stringify({data:[{providerID:"fixture",id:"model",name:"Fixture",enabled:true,capabilities:{tools:true},variants:[{id:"low"}]}]}));
     if (url.pathname === "/api/event") {
       response.writeHead(200, {"content-type":"text/event-stream"});
@@ -286,6 +215,11 @@ it.skipIf(process.platform === "win32")(
           typeof message === "string" && message.startsWith("/api/session"),
       ),
     ).toBe(false);
+    // OpenCode keeps the person's own permission rules and saved grants.
+    expect(sent).toContainEqual({
+      config: ["share", "snapshots", "instructions"],
+    });
+    expect(sent).not.toContain("/api/permission/saved");
   },
 );
 
@@ -293,7 +227,7 @@ it.skipIf(process.platform === "win32")(
   "rejects v1 explicitly",
   async () => {
     const { service, binary, messages } = await fixture(
-      opencode(true, "1.18.33"),
+      opencode("1.18.33"),
     );
     const status = await service.update("opencode-cli", {
       enabled: true,
@@ -313,10 +247,10 @@ it.skipIf(process.platform === "win32")(
 );
 
 it.skipIf(process.platform === "win32")(
-  "rejects a newer v2 that would bypass permission callbacks",
+  "waits for OpenCode's build and plan agents before using it",
   async () => {
     const { service, binary, messages } = await fixture(
-      opencode(false, "2.99.0"),
+      opencode("2.1.0", ["build"]),
     );
     const status = await service.update("opencode-cli", {
       enabled: true,
@@ -325,30 +259,10 @@ it.skipIf(process.platform === "win32")(
     expect(status.diagnostics).toEqual([
       expect.objectContaining({
         code: "runtime-incompatible",
-        capability: "build/plan permissions=ask",
+        capability: "build/plan agents",
       }),
     ]);
     expect((await service.models()).models).toEqual([]);
     expect(await messages()).toContain("/api/agent");
-  },
-);
-
-it.skipIf(process.platform === "win32")(
-  "does not accept saved CLI grants that override the app's approvals",
-  async () => {
-    const { service, binary, messages } = await fixture(
-      opencode(true, "2.1.0", true),
-    );
-    const status = await service.update("opencode-cli", {
-      enabled: true,
-      binaryPath: binary,
-    });
-    expect(status.diagnostics).toEqual([
-      expect.objectContaining({
-        code: "runtime-incompatible",
-        capability: "no saved OpenCode permissions for this project",
-      }),
-    ]);
-    expect((await messages()).includes("/api/model")).toBe(false);
   },
 );

@@ -33,6 +33,11 @@ export interface ComposerDraftSession {
   insertPrompt: (text: string) => void;
 }
 
+/** Project ids are UUIDs, so Home drafts can never share a project's keys. */
+export function homeDraftScope(surface: string): ComposerDraftScope {
+  return { projectId: "home", conversationId: surface };
+}
+
 type DraftStorage = Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length">;
 const STORAGE_PREFIX = "ohmygame:composer-draft:v1:";
 

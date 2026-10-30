@@ -435,7 +435,7 @@ it("serves the public contract from the daemon without the app token", async () 
   const names = (
     listed.json() as { result: { tools: Array<{ name: string }> } }
   ).result.tools.map((tool) => tool.name);
-  // The public contract: changing it needs a new contract version or a deprecation, see docs/external-agents.md.
+  // Additive tools are compatible; retain every existing tool, see docs/external-agents.md.
   expect(names).toEqual([
     "list_projects",
     "open_project",
@@ -450,6 +450,7 @@ it("serves the public contract from the daemon without the app token", async () 
     "generate_speech",
     "generate_sound_effect",
     "generate_music",
+    "generate_audio",
     "playable_add_node",
     "playable_check",
     "canvas_check",

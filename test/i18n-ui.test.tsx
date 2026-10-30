@@ -193,9 +193,9 @@ it("localizes all Scene templates in the dialog and canvas menu without changing
   await act(async () => root!.render(<PlayableCanvasContextMenu
     menu={{ kind: "pane", screenPosition: { x: 0, y: 0 }, flowPosition: { x: 0, y: 0 } }}
     presets={presets} canUndo={false} canRedo={false} canPaste={false} busy={false} isEntry={false}
-    story={{ onMap: true, ending: false }} onClose={() => {}} onUndo={() => {}} onRedo={() => {}}
+    onClose={() => {}} onUndo={() => {}} onRedo={() => {}}
     onPaste={() => {}} onAdd={onChoose} onOpen={() => {}} onCopy={() => {}} onDuplicate={() => {}}
-    onSetEntry={() => {}} onStoryOption={() => {}} onDelete={() => {}}
+    onSetEntry={() => {}} onDelete={() => {}}
   />));
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click());
   const entries = [...document.querySelectorAll<HTMLButtonElement>(".story-canvas-context-submenu button")];

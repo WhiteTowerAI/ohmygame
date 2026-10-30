@@ -89,7 +89,7 @@ export async function startStaticPreview(
       }
       outgoing.writeHead(range ? 206 : 200, {
         "content-type":
-          MIME[path.extname(filename)] ?? "application/octet-stream",
+          MIME[path.extname(filename).toLowerCase()] ?? "application/octet-stream",
         "cache-control": "no-store",
         "accept-ranges": "bytes",
         "content-length": String(range ? range.end - range.start + 1 : size),
