@@ -92,7 +92,8 @@ export function ProjectCreateDialog({
   const types = PROJECT_TYPES.filter(({ value }) => pluginProjectType(value, referenced) === value);
   // Plugins' own types, unless a mentioned plugin works only in some of the app's.
   const installedPluginTypes = usePluginProjectTypes();
-  const pluginTypes = referenced.every((plugin) => !plugin.projectTypes?.length) ? installedPluginTypes.types ?? [] : [];
+  const offersPluginTypes = referenced.every((plugin) => !plugin.projectTypes?.length);
+  const pluginTypes = offersPluginTypes ? installedPluginTypes.types ?? [] : [];
   const offered = (value: string | undefined): value is string =>
     Boolean(value) && (types.some((option) => option.value === value) || pluginTypes.some((option) => option.id === value));
   const [chosenType, setChosenType] = useState<string>();
@@ -293,7 +294,7 @@ export function ProjectCreateDialog({
             {onOpenProject ? <Button size="sm" onClick={() => onOpenProject(existingProject.id)}>{t("creator.openProject")}</Button> : null}
           </p>
         ) : null}
-        {(installedPluginTypes.failed && !isAppProjectType(wanted)) || (pluginChoicesFailed && !isAppProjectType(type)) ? (
+        {(installedPluginTypes.failed && offersPluginTypes) || (pluginChoicesFailed && !isAppProjectType(type)) ? (
           <p className="new-project-error" role="alert">
             {t("createDialog.pluginsFailed")}
             <Button size="sm" onClick={() => {

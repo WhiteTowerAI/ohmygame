@@ -252,6 +252,8 @@ describe("new project dialog", () => {
     const web = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.startsWith("Web Game"))!;
     await act(async () => web.click());
     expect(button("Create and start").disabled).toBe(false);
+    // Plugins' types stay one retry away while an app type is chosen.
+    expect(button("Retry")).toBeDefined();
     await act(async () => button("Create and start").click());
     expect(createProject).toHaveBeenCalledWith({ type: "web-game" });
   });
