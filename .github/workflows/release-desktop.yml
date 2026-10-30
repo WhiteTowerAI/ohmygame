@@ -94,7 +94,7 @@ jobs:
 
   macos:
     needs: release-notes
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       DESKTOP_UPDATE_URL: ${{ vars.DESKTOP_UPDATE_URL }}
     steps:
