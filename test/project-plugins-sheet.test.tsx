@@ -44,7 +44,8 @@ afterEach(async () => {
 const toggle = (name: string) => document.querySelector<HTMLButtonElement>(`button[role="switch"][aria-label="${name}"]`)!;
 
 it("locks global plugins and the type's plugin, and asks before turning one on here", async () => {
-  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} />));
+  const onChanged = vi.fn();
+  await act(async () => root.render(<ProjectPluginsSheet projectId="p1" open busy={false} onClose={() => {}} onChanged={onChanged} />));
   expect(toggle("Web Game Studio").disabled).toBe(true);
   expect(toggle("Web Game Studio").getAttribute("aria-checked")).toBe("true");
   expect(toggle("Godot").disabled).toBe(true);
@@ -52,6 +53,7 @@ it("locks global plugins and the type's plugin, and asks before turning one on h
   await act(async () => toggle("Tiles").click());
   expect(document.body.textContent).toContain("network:tiles.example.com");
   expect(api.setProjectPluginVersion).not.toHaveBeenCalled();
+  expect(onChanged).not.toHaveBeenCalled();
   const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow and turn on")!;
   await act(async () => allow.click());
   expect(api.consentToPlugin).toHaveBeenCalledWith("acme/tiles", ["network:tiles.example.com"]);
@@ -60,6 +62,8 @@ it("locks global plugins and the type's plugin, and asks before turning one on h
 
   await act(async () => toggle("Tiles").click());
   expect(api.setProjectPluginVersion).toHaveBeenLastCalledWith("p1", "acme/tiles", null);
+  // Each change tells the chat to read its skills and commands again.
+  expect(onChanged).toHaveBeenCalledTimes(2);
 });
 
 it("allows the type's plugin in a copied project without turning it off", async () => {

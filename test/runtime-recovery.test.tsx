@@ -531,6 +531,13 @@ describe("pane and preview boundaries", () => {
     expect(`${url.pathname}?level=${url.searchParams.get("level")}${url.hash}`).toBe("/scene-2?level=2#boss");
     expect(container.querySelector(".preview-run-menu")).toBeNull();
     await act(async () => (container.querySelector('.project-settings [aria-label="Close"]') as HTMLButtonElement).click());
+    // The toolbar's browser page is a client of its own, so the editor keeps its reload stream.
+    await act(async () => (container.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open in browser"))!.click());
+    const page = new URL(String(open.mock.calls[1][0]));
+    expect(page.searchParams.get("__ohmygame_view")).toBe("external");
+    expect(page.searchParams.get("__ohmygame_client")).toMatch(/.+/);
+    expect(page.searchParams.get("__ohmygame_client")).not.toBe(client);
     await act(async () => (container.querySelector('[aria-label="Reload preview"]') as HTMLButtonElement).click());
     expect(container.querySelector("iframe")).not.toBe(frame);
     const reloaded = new URL(container.querySelector("iframe")!.src);

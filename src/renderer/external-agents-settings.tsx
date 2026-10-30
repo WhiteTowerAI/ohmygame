@@ -77,13 +77,15 @@ export function ExternalAgentsSettings() {
 /** Each client's `mcp add` command, the launcher for every other client, and the Skill to copy. */
 function Connect({ launcher, skillDirectory }: { launcher: ExternalMcpLauncher; skillDirectory?: string }) {
   const command = (id: ExternalAgentClientId, cli: string) => [cli, ...externalClientAddArguments(id, launcher)].map(quote).join(" ");
-  const environment = Object.entries(launcher.env).map(([name, value]) => `${name}=${quote(value)}`);
+  // Set apart from the command: `NAME=value command` only works in a POSIX shell, and Windows needs one.
+  const environment = Object.entries(launcher.env).map(([name, value]) => `${name}=${value}`);
   return (
     <SettingsGroup title={t("externalAgents.manual")}>
       <div className="settings-pad settings-form">
         <CodeBlock title="Claude Code" code={command("claude-code", "claude")} />
         <CodeBlock title="Codex" code={command("codex", "codex")} />
-        <CodeBlock title={t("externalAgents.otherClients")} code={[...environment, [launcher.command, ...launcher.args].map(quote).join(" ")].join(" ")} />
+        <CodeBlock title={t("externalAgents.otherClients")} code={[launcher.command, ...launcher.args].map(quote).join(" ")} />
+        {environment.length ? <CodeBlock title={t("externalAgents.otherClientsEnvironment")} code={environment.join("\n")} /> : null}
         {skillDirectory ? <CodeBlock title={t("externalAgents.skill")} code={skillDirectory} /> : null}
       </div>
     </SettingsGroup>

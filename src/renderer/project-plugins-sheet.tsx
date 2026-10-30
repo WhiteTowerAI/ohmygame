@@ -8,12 +8,14 @@ import { Alert, Badge, Button, Dialog, Sheet, Skeleton, Switch } from "./ui/inde
 // A project's plugins. Plugins from the Plugins page are on for every project
 // they work with, so they show here locked; those a project turns on itself
 // are recorded in its `ohmygame.json` and switch here.
-export function ProjectPluginsSheet({ projectId, open, busy, onClose, onOpenPlugins }: {
+export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged, onOpenPlugins }: {
   projectId: string;
   open: boolean;
   /** An agent is working in the project; its plugins wait until it is done. */
   busy: boolean;
   onClose: () => void;
+  /** A plugin was turned on or off here, so the skills and commands the chat offers may have changed. */
+  onChanged?: () => void;
   onOpenPlugins?: () => void;
 }) {
   const [view, setView] = useState<ProjectPluginsView>();
@@ -39,6 +41,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onOpenPlug
       if (on && !plugin.consented) await consentToPlugin(plugin.id, plugin.capabilities);
       // Turning on again at the version in use is how a project allows a plugin it asks for.
       await setProjectPluginVersion(projectId, plugin.id, on ? plugin.used ?? plugin.version : null);
+      onChanged?.();
       await load();
     } catch (cause) {
       setError(message(cause));
