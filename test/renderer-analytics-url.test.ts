@@ -69,43 +69,4 @@ describe("AnalyticsUrlScrubber", () => {
     expect(event.properties.$elements).toEqual([{ attr__href: "app://ohmygame/community/games/:id" }]);
     expect(event.$set_once).toEqual({ $initial_person_info: { u: "app://ohmygame/", r: "$direct" } });
   });
-
-  it("keeps the build path of exception stack frames", () => {
-    const asset = `${PAGE.slice(0, PAGE.lastIndexOf("/"))}/assets/index-abc.js`;
-    const event: AnalyticsEvent = {
-      event: "$exception",
-      properties: {
-        $exception_list: [{
-          value: "boom",
-          stacktrace: { frames: [{ filename: `${asset}:12:345` }] },
-        }],
-        $exception_stack: `Error: boom\n    at run (${asset}:12:345)`,
-      },
-    };
-    new AnalyticsUrlScrubber(PATHNAME).scrub(event, `${PAGE}#/`);
-    expect(event.properties.$exception_list).toEqual([{
-      value: "boom",
-      stacktrace: { frames: [{ filename: "app://ohmygame/assets/index-abc.js:12:345" }] },
-    }]);
-    expect(event.properties.$exception_stack).toBe("Error: boom\n    at run (app://ohmygame/assets/index-abc.js:12:345)");
-  });
-
-  it("hides home folders named in error messages", () => {
-    const event: AnalyticsEvent = {
-      event: "$exception",
-      properties: {
-        mac: "ENOENT: no such file, open '/Users/alice/Games/demo/project.json'",
-        windows: "Cannot read C:\\Users\\30956\\Documents\\demo and /C:/Users/30956/Desktop",
-        linux: "EACCES: /home/bob/demo",
-        url: "https://example.com/home/feed and https://example.com/Users/1",
-      },
-    };
-    new AnalyticsUrlScrubber(PATHNAME).scrub(event, `${PAGE}#/`);
-    expect(event.properties).toEqual({
-      mac: "ENOENT: no such file, open '~/Games/demo/project.json'",
-      windows: "Cannot read ~\\Documents\\demo and ~/Desktop",
-      linux: "EACCES: ~/demo",
-      url: "https://example.com/home/feed and https://example.com/Users/1",
-    });
-  });
 });

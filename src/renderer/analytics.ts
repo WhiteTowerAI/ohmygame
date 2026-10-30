@@ -7,24 +7,23 @@ export function initializeAnalytics(): void {
 
   const scrubber = new AnalyticsUrlScrubber(window.location.pathname);
   // posthog-js is large; keep it out of the startup bundle. The CSP allows no
-  // remote scripts, so use the build that loads none and bundle exception
-  // capture, which PostHog would otherwise fetch as a script. Remote config
-  // still arrives as JSON, and autocapture waits for it.
-  void import("posthog-js/dist/exception-autocapture.js")
-    .then(() => import("posthog-js/dist/module.no-external.js"))
-    .then(({ posthog }) => posthog.init(key, {
-      api_host: host,
-      autocapture: true,
-      // Routes live in the hash; the pathname is the install path and never changes.
-      capture_pageview: { hash: true },
-      capture_pageleave: true,
-      disable_session_recording: true,
-      person_profiles: "identified_only",
-      before_send: (event) => {
-        if (!event) return event;
-        scrubber.scrub(event, window.location.href);
-        event.properties.app_version = __APP_VERSION__;
-        return event;
-      },
-    }));
+  // remote scripts, so use the build that loads none. Remote config still
+  // arrives as JSON, and autocapture waits for it.
+  void import("posthog-js/dist/module.no-external.js").then(({ posthog }) => posthog.init(key, {
+    api_host: host,
+    autocapture: true,
+    // Routes live in the hash; the pathname is the install path and never changes.
+    capture_pageview: { hash: true },
+    capture_pageleave: true,
+    disable_session_recording: true,
+    person_profiles: "identified_only",
+    // Sentry reports errors; remote config must not turn this on as well.
+    capture_exceptions: false,
+    before_send: (event) => {
+      if (!event) return event;
+      scrubber.scrub(event, window.location.href);
+      event.properties.app_version = __APP_VERSION__;
+      return event;
+    },
+  }));
 }
