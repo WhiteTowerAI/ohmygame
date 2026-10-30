@@ -65,17 +65,21 @@ it("lets other agents use OhMyGame and shows how to add it to each client", asyn
   expect(snippets).toEqual([
     ["Claude Code", 'claude mcp add --scope user ohmygame-studio -- "/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp"'],
     ["Codex", 'codex mcp add ohmygame-studio -- "/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp"'],
-    ["DeepSeek Harness and other MCP clients", '"/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp"'],
+    ["DeepSeek Harness and other MCP clients · Command", "/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp"],
     ["Skill (optional) · copy into ~/.claude/skills or ~/.agents/skills", "/Applications/OhMyGame.app/Contents/Resources/skills/ohmygame-studio"],
   ]);
 });
 
-it("shows the launcher's environment apart from its command, which a Windows shell could not run inline", async () => {
-  external = { ...external, enabled: true, launcher: { command: "C:\\Program Files\\OhMyGame\\OhMyGame.exe", args: ["mcp.js"], env: { ELECTRON_RUN_AS_NODE: "1" } } };
+it("gives other clients the launcher's command, arguments and environment as fields, with no shell quoting", async () => {
+  external = { ...external, enabled: true, launcher: { command: "C:\\Program Files\\OhMyGame\\OhMyGame.exe", args: ["C:\\Program Files\\OhMyGame\\resources\\app.asar", "mcp"], env: { ELECTRON_RUN_AS_NODE: "1" } } };
   await act(async () => root.render(<ExternalAgentsSettings />));
-  const blocks = [...host.querySelectorAll(".ui-code-block")].map((block) => block.querySelector("code")?.textContent);
-  expect(blocks).toContain('"C:\\Program Files\\OhMyGame\\OhMyGame.exe" mcp.js');
-  expect(blocks).toContain("ELECTRON_RUN_AS_NODE=1");
+  const blocks = Object.fromEntries([...host.querySelectorAll(".ui-code-block")].map((block) => [
+    block.querySelector(".ui-code-block-head span")?.textContent,
+    block.querySelector("code")?.textContent,
+  ]));
+  expect(blocks["DeepSeek Harness and other MCP clients · Command"]).toBe("C:\\Program Files\\OhMyGame\\OhMyGame.exe");
+  expect(blocks["DeepSeek Harness and other MCP clients · Arguments, one per line"]).toBe("C:\\Program Files\\OhMyGame\\resources\\app.asar\nmcp");
+  expect(blocks["DeepSeek Harness and other MCP clients · Environment variables"]).toBe("ELECTRON_RUN_AS_NODE=1");
 });
 
 it("lists the clients that used the server since OhMyGame started", async () => {

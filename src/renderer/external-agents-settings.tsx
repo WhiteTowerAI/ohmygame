@@ -77,15 +77,20 @@ export function ExternalAgentsSettings() {
 /** Each client's `mcp add` command, the launcher for every other client, and the Skill to copy. */
 function Connect({ launcher, skillDirectory }: { launcher: ExternalMcpLauncher; skillDirectory?: string }) {
   const command = (id: ExternalAgentClientId, cli: string) => [cli, ...externalClientAddArguments(id, launcher)].map(quote).join(" ");
-  // Set apart from the command: `NAME=value command` only works in a POSIX shell, and Windows needs one.
+  // Other clients ask for the command, its arguments and its environment in
+  // fields of their own, so each is shown as is: one shell line would need
+  // quoting that differs between shells (`NAME=value command` and a quoted
+  // path both fail in PowerShell).
   const environment = Object.entries(launcher.env).map(([name, value]) => `${name}=${value}`);
+  const other = (part: string) => `${t("externalAgents.otherClients")} · ${part}`;
   return (
     <SettingsGroup title={t("externalAgents.manual")}>
       <div className="settings-pad settings-form">
         <CodeBlock title="Claude Code" code={command("claude-code", "claude")} />
         <CodeBlock title="Codex" code={command("codex", "codex")} />
-        <CodeBlock title={t("externalAgents.otherClients")} code={[launcher.command, ...launcher.args].map(quote).join(" ")} />
-        {environment.length ? <CodeBlock title={t("externalAgents.otherClientsEnvironment")} code={environment.join("\n")} /> : null}
+        <CodeBlock title={other(t("externalAgents.otherClientsCommand"))} code={launcher.command} />
+        {launcher.args.length ? <CodeBlock title={other(t("externalAgents.otherClientsArguments"))} code={launcher.args.join("\n")} /> : null}
+        {environment.length ? <CodeBlock title={other(t("externalAgents.otherClientsEnvironment"))} code={environment.join("\n")} /> : null}
         {skillDirectory ? <CodeBlock title={t("externalAgents.skill")} code={skillDirectory} /> : null}
       </div>
     </SettingsGroup>
