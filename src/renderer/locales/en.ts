@@ -868,6 +868,7 @@ const en = {
     back: "Back",
     forward: "Forward",
     applicationMenu: "Application menu",
+    history: "Back and forward",
     loadingAccount: "Loading account",
     signInEllipsis: "Sign in…",
     account: "Account",

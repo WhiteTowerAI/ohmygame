@@ -853,6 +853,7 @@ const zhCN: typeof en = {
     back: "后退",
     forward: "前进",
     applicationMenu: "应用菜单",
+    history: "后退和前进",
     loadingAccount: "正在加载账户",
     signInEllipsis: "登录…",
     account: "账户",

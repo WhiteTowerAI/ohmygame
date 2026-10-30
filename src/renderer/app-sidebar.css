@@ -516,7 +516,9 @@
   font-weight: var(--weight-medium);
 }
 
-/* The Windows menu bar sits above the frame; match it to the app background. */
-.desktop-window-frame:has(.page-frame) {
+/* The Windows title bar sits above the frame; match it to the app around it. */
+.desktop-window-frame:has(:is(.page-frame, .project-frame)) {
   --window-chrome-background: var(--color-app);
+  --window-chrome-text: var(--color-text-secondary);
+  --window-chrome-hover: var(--color-hover);
 }

@@ -209,10 +209,33 @@ body {
   cursor: default;
 }
 
-.desktop-window-menu-bar button:hover,
+.desktop-window-menu-bar button:hover:not(:disabled),
 .desktop-window-menu-bar button:focus-visible {
   background: var(--window-chrome-hover);
   outline: 0;
+}
+
+.desktop-window-menu-bar > [role="menubar"],
+.desktop-window-history {
+  display: flex;
+  align-items: center;
+}
+
+/* back and forward, after the menus */
+.desktop-window-history {
+  gap: 2px;
+  margin-left: 6px;
+}
+
+.desktop-window-history button {
+  display: grid;
+  width: 26px;
+  padding: 0;
+  place-items: center;
+}
+
+.desktop-window-history button:disabled {
+  opacity: 0.4;
 }
 
 .desktop-window-content {
