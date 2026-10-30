@@ -127,13 +127,17 @@ export interface PluginSummary {
   skillCount?: number;
 }
 
-/** What a plugin adds, for its card's tags and the browse filter. */
-export type PluginContribution = "skills" | "mcp" | "service";
-export const PLUGIN_CONTRIBUTIONS: readonly PluginContribution[] = ["skills", "mcp", "service"];
+/** What a plugin adds, for its card's tags and the browse page's category filter. */
+export type PluginContribution = "projectType" | "skills" | "mcp" | "service";
+export const PLUGIN_CONTRIBUTIONS: readonly PluginContribution[] = ["projectType", "skills", "mcp", "service"];
 
+/** An integration that creates projects adds a project type; any other connects to a service. */
 export function pluginContributions(plugin: Pick<PluginSummary, "skillCount" | "mcpServerCount" | "integration">): PluginContribution[] {
   return PLUGIN_CONTRIBUTIONS.filter((kind) =>
-    kind === "skills" ? Boolean(plugin.skillCount) : kind === "mcp" ? Boolean(plugin.mcpServerCount) : Boolean(plugin.integration));
+    kind === "projectType" ? Boolean(plugin.integration?.createProject)
+      : kind === "skills" ? Boolean(plugin.skillCount)
+        : kind === "mcp" ? Boolean(plugin.mcpServerCount)
+          : Boolean(plugin.integration && !plugin.integration.createProject));
 }
 
 export function pluginCollection(plugin: Pick<PluginSummary, "source" | "marketplace">): "public" | "personal" {
@@ -354,7 +358,7 @@ export interface ProjectPluginItem {
 
 export interface ProjectPluginsView {
   /** Plugins on for every project they work with; switched in Plugins. */
-  global: Array<Pick<PluginSummary, "id" | "displayName" | "description">>;
+  global: Array<Pick<PluginSummary, "id" | "displayName" | "description" | "icon" | "iconRevision">>;
   /** Plugins each project turns on for itself, recorded in its `ohmygame.json`. */
   plugins: ProjectPluginItem[];
 }

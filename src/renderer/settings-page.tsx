@@ -1,11 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ExternalLink, RefreshCw } from "./icons.js";
+import { Cloud, ExternalLink, Globe2, MessageCircle } from "./icons.js";
+import githubMark from "@lobehub/icons-static-svg/icons/github.svg";
 import { useAuth } from "./auth.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
 import { AgentsSettings, OHMYGAME_AGENT } from "./agents-settings.js";
 import { PageFrame } from "./page-frame.js";
 import type { AppNavigationTarget, SettingsSection } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
+import { BrandLogo } from "./brand-logo.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { useDesktopUpdate } from "./use-desktop-update.js";
 import { SETTINGS_NAV as NAV } from "./settings-sections.js";
@@ -22,7 +24,6 @@ import { exportDiagnostics, getProjectLocation, setProjectLocation } from "./api
 import { readGeneralPreferences, setGeneralPreference, type GeneralPreferences } from "./general-preferences.js";
 import { Badge, Button, Progress, SegmentedControl, Select, Spinner, Switch } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
-import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import "./settings.css";
 
 const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
@@ -51,8 +52,8 @@ export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOp
   // Billing is hidden from the list but still answers its link.
   const current = NAV.flatMap((group) => group.items).find((item) => item.section === section)
     ?? (section === "billing" ? { label: t("settings.nav.billing") } : undefined);
-  // A page one step into a section (an agent, a provider) draws its own head.
-  const inDetail = (section === "agents" && Boolean(agent)) || (section === "providers" && modelsView.page === "provider");
+  // An agent's own page draws its own head.
+  const inDetail = section === "agents" && Boolean(agent);
   return (
     <PageFrame active="settings" onNavigate={onNavigate} aside={
       <nav className="settings-nav" aria-label={t("settings.nav.label")}>
@@ -157,6 +158,7 @@ function GeneralSettings() {
 /** Where new projects go when no folder is chosen for them. */
 function ProjectLocationRow() {
   const [location, setLocation] = useState<string>();
+  const [storage, setStorage] = useState<string>();
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -164,7 +166,7 @@ function ProjectLocationRow() {
   useEffect(() => {
     let active = true;
     void getProjectLocation()
-      .then((value) => { if (active) { setLocation(value.location); setLoaded(true); } })
+      .then((value) => { if (active) { setLocation(value.location); setStorage(value.storage); setLoaded(true); } })
       .catch((cause) => { if (active) setError(errorMessage(cause)); });
     return () => { active = false; };
   }, []);
@@ -172,7 +174,9 @@ function ProjectLocationRow() {
     setBusy(true);
     setError(undefined);
     try {
-      setLocation((await setProjectLocation(next)).location);
+      const saved = await setProjectLocation(next);
+      setLocation(saved.location);
+      setStorage(saved.storage);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -186,7 +190,7 @@ function ProjectLocationRow() {
   return (
     <>
       <SettingsRow title={t("settings.general.projectLocation")} description={t("settings.general.projectLocationHint")}>
-        {loaded ? <span className="settings-mono settings-muted settings-location" title={location}>{location ?? t("settings.general.projectLocationDefault")}</span> : null}
+        {loaded ? <span className="settings-mono settings-muted settings-location" title={location ?? storage}><bdi>{location ?? storage ?? t("settings.general.projectLocationDefault")}</bdi></span> : null}
         {location ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save(undefined)}>{t("settings.general.projectLocationReset")}</Button> : null}
         {choose ? <Button size="sm" disabled={busy || !loaded} onClick={() => void pick()}>{t("settings.general.projectLocationChange")}</Button> : null}
       </SettingsRow>
@@ -324,9 +328,9 @@ function BillingSettings() {
 // ---------- about ----------
 
 const PROJECT_LINKS = [
-  { href: "https://github.com/WhiteTowerAI/ohmygame", title: "GitHub", description: "github.com/WhiteTowerAI/ohmygame" },
-  { href: "https://ohmygame.ai", title: t("settings.about.website"), description: "ohmygame.ai" },
-  { href: "https://github.com/WhiteTowerAI/ohmygame/issues", title: t("settings.about.reportIssue"), description: "GitHub Issues" },
+  { href: "https://github.com/WhiteTowerAI/ohmygame", title: () => "GitHub", icon: <span className="settings-about-github" aria-hidden="true" style={{ maskImage: `url("${githubMark}")` }} /> },
+  { href: "https://ohmygame.ai", title: () => t("settings.about.website"), icon: <Globe2 size={16} aria-hidden="true" /> },
+  { href: "https://github.com/WhiteTowerAI/ohmygame/issues", title: () => t("settings.about.reportIssue"), icon: <MessageCircle size={16} aria-hidden="true" /> },
 ];
 
 function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () => void; onOpenOnboarding?: () => void }) {
@@ -355,11 +359,17 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
     <>
       <SettingsGroup label={t("settings.nav.about")}>
         <div className="settings-identity">
-          <img className="settings-about-logo" src={brandMark} alt="" />
+          <span className="settings-about-logo"><BrandLogo size={44} /></span>
           <div className="settings-identity-text">
             <strong>OhMyGame</strong>
             <span className="settings-mono">v{version}</span>
           </div>
+          <nav className="settings-about-links" aria-label={t("settings.about.projectLinks")}>
+            {PROJECT_LINKS.map((link) => (
+              <a key={link.href} className="ui-icon-button ui-icon-button-md" href={link.href} target="_blank" rel="noreferrer"
+                aria-label={link.title()} data-tooltip={link.title()}>{link.icon}</a>
+            ))}
+          </nav>
           {updates ? <UpdateControl status={status} onRetry={retry} /> : null}
         </div>
         {status?.type === "error" ? (
@@ -379,20 +389,13 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
           </div>
         ) : null}
       </SettingsGroup>
-      <SettingsGroup title={t("settings.about.links")} label={t("settings.about.projectLinks")}>
-        {PROJECT_LINKS.map((link) => (
-          <SettingsRow key={link.href} title={link.title} description={link.description}>
-            <a className="ui-button ui-button-ghost ui-button-sm" href={link.href} target="_blank" rel="noreferrer" aria-label={link.title}>
-              {t("settings.about.open")}<ExternalLink size={12} aria-hidden="true" />
-            </a>
-          </SettingsRow>
-        ))}
-        {onOpenOnboarding ? (
+      {onOpenOnboarding ? (
+        <SettingsGroup label={t("settings.about.gettingStarted")}>
           <SettingsRow title={t("settings.about.gettingStarted")} description={t("settings.about.gettingStartedHint")}>
             <Button size="sm" variant="ghost" onClick={onOpenOnboarding}>{t("onboarding.reopen")}</Button>
           </SettingsRow>
-        ) : null}
-      </SettingsGroup>
+        </SettingsGroup>
+      ) : null}
       <ChangelogPanel currentVersion={version} availableRelease={update?.availableRelease} />
       <DiagnosticsSettings />
     </>
@@ -430,7 +433,7 @@ function UpdateControl({ status, onRetry }: { status?: NonNullable<ReturnType<ty
       return <div className="settings-actions">
         {status?.type === "up-to-date" ? <Badge tone="success">{t("settings.about.upToDate")}</Badge> : null}
         {status?.type === "checking" ? <Spinner label={t("settings.about.checking")} /> : null}
-        <span className="settings-about-actions"><Button icon={<RefreshCw size={14} />} disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</Button></span>
+        <span className="settings-about-actions"><Button icon={<Cloud size={14} />} disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</Button></span>
       </div>;
   }
 }

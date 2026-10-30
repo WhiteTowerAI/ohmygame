@@ -113,23 +113,19 @@ The connection screen also selects the default conversation model. It uses
 `/models?runtimes=1`, including enabled coding agents, and retries catalogs with
 `loadingRuntimes` without hiding models already available. Native defaults use
 `nativeReasoningLevel`; provider defaults use `reasoningLevel`. **Next** saves
-the default and opens optional creative tools. Completing setup requires an
+the default and opens the last step. Completing setup requires an
 enabled, visible provider model or an enabled CLI model, without sending inference.
-**Skip and start** on the connection screen records `skipped` when no model is ready.
+**Skip this step** on the connection screen, shown when no model is ready, moves
+to the last step without saving a model.
 
-The final `media` step offers image, video, 3D, and audio category filters and
-reuses Settings' provider connection forms. All providers in the selected category
-are shown directly, without a More section. The **+** button opens the shared
-custom-provider form inline, without changing the conversation model. The footer
-offers **Start creating**; step indicators handle navigation. The description points
-to **Settings → Providers** for later configuration.
-Media default models stay in Settings; this step does not load their catalogs.
-Media setup never changes the chat model or reloads the conversation catalog
-when media connections change. **Start creating** enters the studio without
-requiring media credentials or waiting for media catalogs; completion records
-`completed` when a conversation model is available, otherwise `skipped`.
-Actions remain outside the media form's scrolling area and above three step
-indicators.
+The final `start` step asks where to begin: **Describe a game** (Home's prompt
+box gets focus), **Blank project** (Home opens the new-project dialog), or
+**Import folder** (Home opens the folder picker; desktop only). Choosing one, or
+**Not now**, finishes setup and records `completed` when a conversation model is
+available, otherwise `skipped`. Home acts on the choice once, after the
+greeting. Image, video, 3D, and audio providers are connected in **Settings →
+Providers**; setup does not ask for them. A saved `media` step from an earlier
+version resumes at `start`.
 
 Settings → Providers and the setup list share one grouping. Every working
 connection, including free cloud and local services, is under **Connected
@@ -156,7 +152,7 @@ language model within the form. The recommendation mirrors Pi's per-provider
 defaults for popular providers and falls back to the provider's first visible
 model. The ready line names the selected model and its provider; its menu lists
 only the current agent's models. Switching agents retains each model choice
-without saving or reloading catalogs. **Next**, or navigating to the media step,
+without saving or reloading catalogs. **Next**, or navigating to the start step,
 saves the selected model once. Navigation stays disabled during that save;
 **Retry** retries a failed save without repeating authorization or enabling the
 agent again. Provider listing and conversation models load independently, so a
@@ -171,24 +167,18 @@ renderers do not pass through the home gate.
 
 **Settings → About → View getting started** reopens the welcome. Moving to the
 connection step with **Next** saves a pending preference again. The three bottom
-step indicators switch between welcome, AI connection, and optional creative
-tools. Selecting the provider step also returns from its inline forms to
-the provider list. Step navigation is disabled while saving. The welcome's
-illustration plays once per setup session in 5.2 seconds. Returning from a later
-step shows the final logo, title, and controls immediately, including when setup
-resumes at a later step. Only the forming game world
-is visible at first: terrain rises, paths unfold, and trees
-grow in sequence. Its outline then morphs into a small OhMyGame logo beside
-the wordmark, followed by **Your own game studio.** and **Next**. Hidden
-controls stay out of keyboard navigation. Reduced-motion preferences show the
-final logo, title, and controls immediately. The connection screen reuses
+step indicators switch between language and appearance, AI connection, and
+where to start. Selecting the provider step also returns from its inline forms to
+the provider list. Step navigation is disabled while saving. The first step
+sets the interface language and the appearance (System, Light, or Dark). The
+appearance applies at once; changing the language saves the pending `welcome`
+step first, because the window reloads to apply it. The connection screen reuses
 the daemon's provider authentication flow and custom-provider form; it does
 not require an OhMyGame cloud account. The add button beside provider search
 opens that form inline. Settings uses the same form in its existing dialog.
 Saving or cancelling returns to the provider list without adding a persisted
-setup step. Image, video, 3D, and audio connections can be configured in optional
-creative tools or in Settings, and never change the language-model completion
-requirement.
+setup step. Image, video, 3D, and audio connections are configured in Settings
+and never change the language-model completion requirement.
 
 After the completion or skip preference is saved, a 1.9-second localized
 **Welcome, Gamer!** greeting appears on one centered line in the app's system font
@@ -452,6 +442,7 @@ projects/<project-id>/
 ├── cover-auto.webp last automatic cover, retained when a custom cover is applied
 ├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
 ├── cover-state.json explicit cover mode, including when no cover exists
+├── logo.webp      uploaded logo, shown in the sidebar instead of the icon
 ├── preview-origin.json stable local preview port
 ├── checkpoints/   snapshots of the workspace, one bare Git repository
 ├── workspace/     the project files (or an existing folder in the desktop app)
@@ -663,6 +654,26 @@ saved as images or used for publishing. Both themes share the palette centralize
 in the `--project-cover-*` variables in `src/renderer/styles.css`.
 
 ![Stable default project covers](assets/project-placeholders.webp)
+
+**Appearance…** in the project menu, also at the top of project settings,
+changes how a project looks. Changes apply at once and are kept in
+`appearance` in `project.json`:
+
+- `icon` and `tone` replace the icon and background the ID picks. The icons are
+  the 24 in `PROJECT_ICONS` (`src/shared/project-appearance.ts`), whose order
+  must stay stable, and the tones are `--project-cover-bg-0` to `-3`.
+- `cover: "template"` shows the icon on its background instead of the cover.
+  The captured and uploaded covers are kept, so choosing **Captured** or
+  **Image** again brings them back; `GET /projects/:id/cover` answers 404 and an
+  export packs no cover while the template is chosen.
+- `logo: true` marks an uploaded logo, a square WebP of up to 256 pixels in
+  `logo.webp`. `PUT`/`DELETE /projects/:id/logo` set and remove it;
+  `PUT /projects/:id/appearance` replaces the rest and keeps the logo.
+
+The sidebar shows the logo, else the chosen icon, else the cover, else the
+template, with the icon centred at the sidebar's size. Cards show the cover or
+the template. Duplicating, exporting and importing keep the appearance and the
+logo.
 
 Project covers are saved independently of publishing. Selecting an image in the
 publish dialog previews it; **Apply cover** saves it and stops automatic cover

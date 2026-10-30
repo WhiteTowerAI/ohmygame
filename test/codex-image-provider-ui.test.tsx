@@ -39,7 +39,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
 }));
-const { ModelsSettings } = await import("../src/renderer/models-settings.js");
+const { ProviderDetailDialog } = await import("../src/renderer/models-settings.js");
 let root: ReturnType<typeof createRoot> | undefined;
 let host: HTMLDivElement | undefined;
 beforeEach(() => vi.clearAllMocks());
@@ -57,33 +57,33 @@ it("offers an independent image switch and recheck without an API key form", asy
   const openAgents = vi.fn();
   await act(async () =>
     root!.render(
-      <ModelsSettings
-        view={{ page: "provider", provider }}
-        onViewChange={() => {}}
+      <ProviderDetailDialog
+        provider={provider}
+        onClose={() => {}}
         onOpenAgents={openAgents}
       />,
     ),
   );
-  expect(host.textContent).toContain("Codex Image");
-  expect(host.textContent).not.toContain("Uses your saved Codex login");
-  expect(host.querySelector(".settings-generation-defaults")).toBeNull();
+  expect(document.body.textContent).toContain("Codex Image");
+  expect(document.body.textContent).not.toContain("Uses your saved Codex login");
+  expect(document.body.querySelector(".settings-generation-defaults")).toBeNull();
   expect(
-    [...host.querySelectorAll("button")].some(
+    [...document.body.querySelectorAll("button")].some(
       (button) => button.textContent === "Sign in",
     ),
   ).toBe(false);
-  expect(host.querySelector('input[type="password"]')).toBeNull();
-  const toggle = host.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  expect(document.body.querySelector('input[type="password"]')).toBeNull();
+  const toggle = document.body.querySelector<HTMLButtonElement>('[role="switch"]')!;
   await act(async () => toggle.click());
   expect(api.setProviderEnabled).toHaveBeenCalledWith("codex-cli", false);
-  const refresh = [...host.querySelectorAll("button")].find((button) =>
+  const refresh = [...document.body.querySelectorAll("button")].find((button) =>
     /Check again|重新检测/.test(button.textContent ?? ""),
   )!;
   await act(async () => refresh.click());
   expect(api.recheckCodexImages).toHaveBeenCalledOnce();
-  expect(host.textContent).toContain("Sign in to Codex CLI");
+  expect(document.body.textContent).toContain("Sign in to Codex CLI");
   expect(
-    host.querySelector('[role="switch"]')!.getAttribute("aria-checked"),
+    document.body.querySelector('[role="switch"]')!.getAttribute("aria-checked"),
   ).toBe("false");
   expect(openAgents).not.toHaveBeenCalled();
 });
@@ -101,41 +101,38 @@ it.each([
     root = createRoot(host);
     await act(async () =>
       root!.render(
-        <ModelsSettings
-          view={{
-            page: "provider",
-            provider: {
+        <ProviderDetailDialog
+          provider={{
               ...provider,
               configured: authStatus === "signed-in",
               status:
                 authStatus === "signed-in" ? "connected" : "not_configured",
               authStatus,
-            },
-          }}
-          onViewChange={() => {}}
+            }}
+          onClose={() => {}}
           onOpenAgents={() => {}}
         />,
       ),
     );
-    const signIn = [...host.querySelectorAll("button")].find(
+    const signIn = [...document.body.querySelectorAll("button")].find(
       (button) => button.textContent === "Sign in",
     );
     expect(Boolean(signIn)).toBe(offersSignIn);
     if (!signIn) return;
     await act(async () => signIn.click());
     expect(api.loginAgentRuntime).toHaveBeenCalledExactlyOnceWith("codex-cli");
-    expect(host.textContent).toContain("codex login");
+    expect(document.body.textContent).toContain("codex login");
     api.recheckCodexImages.mockResolvedValueOnce(provider);
-    const refresh = [...host.querySelectorAll("button")].find(
+    const refresh = [...document.body.querySelectorAll("button")].find(
       (button) => button.textContent === "Check again",
     )!;
     await act(async () => refresh.click());
     expect(
-      [...host.querySelectorAll("button")].some(
+      [...document.body.querySelectorAll("button")].some(
         (button) => button.textContent === "Sign in",
       ),
     ).toBe(false);
-    expect(host.textContent).not.toContain("codex login");
+    expect(document.body.textContent).not.toContain("codex login");
   },
 );
 
@@ -146,23 +143,20 @@ it("keeps the image switch available before a disabled provider has been checked
   root = createRoot(host);
   await act(async () =>
     root!.render(
-      <ModelsSettings
-        view={{
-          page: "provider",
-          provider: {
+      <ProviderDetailDialog
+        provider={{
             ...provider,
             configured: false,
             authStatus: "unknown",
             enabled: false,
             status: "not_configured",
-          },
-        }}
-        onViewChange={() => {}}
+          }}
+        onClose={() => {}}
         onOpenAgents={() => {}}
       />,
     ),
   );
-  const toggle = host.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  const toggle = document.body.querySelector<HTMLButtonElement>('[role="switch"]')!;
   expect(toggle.getAttribute("aria-checked")).toBe("false");
   await act(async () => toggle.click());
   expect(api.setProviderEnabled).toHaveBeenLastCalledWith("codex-cli", true);

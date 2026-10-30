@@ -26,12 +26,6 @@
 .desktop-window-content > .onboarding {
   height: 100%;
 }
-.onboarding-welcome {
-  --onboarding-intro-duration: 5.2s;
-}
-.onboarding-welcome-static {
-  --onboarding-intro-duration: 0s;
-}
 .onboarding button {
   display: inline-flex;
   align-items: center;
@@ -71,8 +65,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   padding: 68px 0;
   text-align: center;
 }
-.onboarding:not(.onboarding-welcome)
-  > :is(.onboarding-content, .onboarding-footer) {
+.onboarding > :is(.onboarding-content, .onboarding-footer) {
   animation: onboarding-step-enter 240ms cubic-bezier(0.2, 0.7, 0.3, 1)
     backwards;
 }
@@ -102,284 +95,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   font-size: 14px;
   line-height: 1.5;
   text-wrap: balance;
-}
-.onboarding-demo {
-  position: relative;
-  width: min(100%, 400px);
-  height: 64px;
-  pointer-events: none;
-  animation: onboarding-demo-position var(--onboarding-intro-duration) ease both;
-  --demo-duration: var(--onboarding-intro-duration, 5.2s);
-  --demo-ground: color-mix(in srgb, #82937a 44%, var(--onboarding-backdrop));
-  --demo-tree: color-mix(in srgb, var(--color-text) 22%, var(--demo-ground));
-}
-.onboarding-demo > svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: auto;
-  overflow: visible;
-}
-.onboarding-demo-play {
-  animation: onboarding-demo-play var(--demo-duration) ease both;
-}
-.onboarding-demo-world {
-  transform-origin: 140px 86px;
-  transform: translate(-68px, -54px) scale(0.333333);
-  animation: onboarding-demo-brand var(--demo-duration) ease both;
-}
-.onboarding-demo-play :is(.onboarding-demo-base, .onboarding-demo-scenery) {
-  opacity: 0;
-  transform-origin: 140px 86px;
-  animation: onboarding-demo-gather var(--demo-duration) ease both;
-}
-.onboarding-demo-play .onboarding-demo-morph {
-  fill: var(--color-text);
-  animation: onboarding-demo-morph var(--demo-duration) ease both;
-}
-.onboarding-demo-logo-details {
-  fill: var(--onboarding-backdrop);
-  animation: onboarding-demo-logo-details var(--demo-duration) ease both;
-}
-.onboarding-demo-wordmark {
-  fill: var(--color-text);
-  font-size: 24px;
-  font-weight: 500;
-  animation: onboarding-demo-wordmark var(--demo-duration) ease both;
-}
-.onboarding-demo-shadow {
-  fill: var(--color-text);
-  opacity: 0.035;
-}
-.onboarding-demo-earth {
-  fill: color-mix(in srgb, #8c8173 40%, var(--onboarding-backdrop));
-}
-.onboarding-demo-terrain {
-  transform-origin: 164px 70px;
-  animation: onboarding-demo-terrain var(--demo-duration) ease both;
-}
-.onboarding-demo-hill {
-  fill: color-mix(in srgb, #a4b294 48%, var(--onboarding-backdrop));
-}
-.onboarding-demo-path {
-  fill: none;
-  stroke: color-mix(in srgb, #e0d6bc 70%, var(--onboarding-backdrop));
-  stroke-width: 13;
-  stroke-linecap: round;
-  stroke-dasharray: 180;
-  animation: onboarding-demo-path var(--demo-duration) ease both;
-}
-.onboarding-demo-trunk {
-  stroke: var(--demo-tree);
-  stroke-width: 3;
-  stroke-linecap: round;
-}
-.onboarding-demo-tree {
-  fill: var(--demo-tree);
-}
-.onboarding-demo-tree-top {
-  fill: color-mix(in srgb, var(--demo-tree) 85%, var(--onboarding-backdrop));
-}
-.onboarding-demo-tree-piece {
-  transform-box: fill-box;
-  transform-origin: center bottom;
-  animation: onboarding-demo-grow 0.65s var(--tree-delay) ease both;
-}
-.onboarding-demo-stones {
-  fill: color-mix(in srgb, var(--color-text-secondary) 40%, var(--onboarding-backdrop));
-  transform-origin: 140px 86px;
-  animation: onboarding-demo-stones var(--demo-duration) ease both;
-}
-@keyframes onboarding-demo-position {
-  0%,
-  54% {
-    height: 180px;
-    transform: translateY(52px);
-  }
-  78%,
-  100% {
-    height: 64px;
-    transform: translateY(0);
-  }
-}
-@keyframes onboarding-demo-brand {
-  0% {
-    transform: translate(0, 6px) rotate(-4deg) scale(0.92);
-  }
-  24% {
-    transform: translate(0, -2px) rotate(2deg) scale(1.02);
-  }
-  48%,
-  56% {
-    transform: translate(0, 0) scale(1);
-  }
-  78%,
-  100% {
-    transform: translate(-68px, -54px) scale(0.333333);
-  }
-}
-@keyframes onboarding-demo-play {
-  0% {
-    opacity: 0;
-    transform: translateY(8px) scale(0.96);
-  }
-  18%,
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-@keyframes onboarding-demo-gather {
-  0%,
-  54% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  66%,
-  100% {
-    opacity: 0;
-    transform: scale(0.65);
-  }
-}
-@keyframes onboarding-demo-morph {
-  0%,
-  56% {
-    d: var(--demo-island-outline);
-    fill: var(--demo-ground);
-  }
-  74%,
-  100% {
-    d: var(--demo-logo-outline);
-    fill: var(--color-text);
-  }
-}
-@keyframes onboarding-demo-logo-details {
-  0%,
-  67% {
-    opacity: 0;
-  }
-  78%,
-  100% {
-    opacity: 1;
-  }
-}
-@keyframes onboarding-demo-wordmark {
-  0%,
-  72% {
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(4px);
-  }
-  73% {
-    opacity: 0;
-    visibility: visible;
-    transform: translateY(4px);
-  }
-  82%,
-  100% {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-  }
-}
-@keyframes onboarding-demo-grow {
-  from {
-    opacity: 0;
-    transform: scale(0.6);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-@keyframes onboarding-demo-terrain {
-  0%,
-  10% {
-    opacity: 0;
-    transform: translateY(10px) scale(0.85);
-  }
-  28% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-  46%,
-  100% {
-    opacity: 1;
-    transform: translateY(-4px) scale(1);
-  }
-}
-@keyframes onboarding-demo-path {
-  0%,
-  14% {
-    opacity: 0;
-    stroke-dashoffset: 180;
-  }
-  18% {
-    opacity: 1;
-    stroke-dashoffset: 180;
-  }
-  42%,
-  100% {
-    opacity: 1;
-    stroke-dashoffset: 0;
-  }
-}
-@keyframes onboarding-demo-stones {
-  0%,
-  22% {
-    opacity: 0;
-    transform: translateY(4px) scale(0.8);
-  }
-  40%,
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-.onboarding h1.onboarding-welcome-title {
-  margin-top: 24px;
-  animation: onboarding-welcome-title var(--onboarding-intro-duration) ease both;
-}
-.onboarding-welcome :is(.onboarding-footer, .onboarding-progress) {
-  animation: onboarding-welcome-actions var(--onboarding-intro-duration) ease
-    both;
-}
-@keyframes onboarding-welcome-title {
-  0%,
-  83% {
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(8px);
-  }
-  84% {
-    opacity: 0;
-    visibility: visible;
-    transform: translateY(8px);
-  }
-  92%,
-  100% {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-  }
-}
-@keyframes onboarding-welcome-actions {
-  0%,
-  93% {
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(4px);
-  }
-  94% {
-    opacity: 0;
-    visibility: visible;
-    transform: translateY(4px);
-  }
-  100% {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-  }
 }
 .onboarding .settings-provider-mark {
   width: 20px;
@@ -462,11 +177,81 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   flex-direction: row;
   gap: 16px;
 }
-:is(.onboarding-connect, .onboarding-media) > .onboarding-content {
+.onboarding-connect > .onboarding-content {
   flex: 1 1 auto;
   min-height: 0;
   justify-content: flex-start;
   padding: clamp(40px, 10dvh, 72px) 0 24px;
+}
+/* Step 1: the language and appearance, each a labelled row. */
+.onboarding-preferences {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(100%, 400px);
+  margin-top: 32px;
+  padding: var(--space-2);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  text-align: left;
+}
+:root[data-appearance="light"] .onboarding-preferences {
+  background: var(--color-app);
+}
+.onboarding-preference {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: 44px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-md);
+}
+.onboarding-preference .ui-select {
+  min-width: 160px;
+}
+/* Step 3: where to start, as cards that finish setup. */
+.onboarding-start-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+  width: min(100%, 560px);
+  margin-top: 32px;
+}
+.onboarding .onboarding-start-choice {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-height: 132px;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+}
+.onboarding .onboarding-start-choice:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  background: var(--color-hover);
+}
+.onboarding-start-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  place-items: center;
+}
+.onboarding-start-choice strong {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+.onboarding-start-choice small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
 }
 .onboarding-agents {
   display: flex;
@@ -638,64 +423,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   flex-wrap: wrap;
   justify-content: center;
   max-width: 100%;
-}
-section.onboarding-media {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-  width: min(100%, 400px);
-  margin-top: 24px;
-  text-align: left;
-}
-.onboarding-media-toolbar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.onboarding-media-filters {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  gap: 8px;
-}
-.onboarding-media-filters button {
-  flex: 1;
-}
-.onboarding-media-filters [aria-pressed="true"] {
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-}
-section.onboarding-media .onboarding-provider-list {
-  flex: 1 1 auto;
-  min-height: 0;
-  max-height: none;
-}
-.onboarding-media-detail {
-  width: min(100%, 460px);
-  max-height: 48dvh;
-  margin-top: 24px;
-  overflow-y: auto;
-  text-align: left;
-}
-.onboarding-media-detail .settings-panel {
-  min-height: 0;
-  padding: 8px;
-  border: 0;
-  background: transparent;
-}
-.onboarding-media-custom h2 {
-  margin: 0 4px 16px;
-  font-size: 16px;
-  font-weight: 500;
-}
-.onboarding-media-custom .custom-provider-form {
-  width: 100%;
-  max-height: none;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
 }
 .onboarding-icon-button {
   width: 32px;
@@ -1024,12 +751,7 @@ section.onboarding-media .onboarding-provider-list {
 @media (prefers-reduced-motion: reduce) {
   .onboarding-arrival,
   .onboarding-arrival h1,
-  .onboarding:not(.onboarding-welcome)
-    > :is(.onboarding-content, .onboarding-footer),
-  .onboarding .onboarding-demo,
-  .onboarding .onboarding-demo *,
-  .onboarding h1.onboarding-welcome-title,
-  .onboarding-welcome :is(.onboarding-footer, .onboarding-progress) {
+  .onboarding > :is(.onboarding-content, .onboarding-footer) {
     animation: none;
   }
 }

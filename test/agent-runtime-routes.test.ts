@@ -580,16 +580,16 @@ describe("coding agent routes", () => {
     },
   );
 
-  it.skipIf(process.platform === "win32")("persists the optional media step and completes setup using only a CLI", async () => {
+  it.skipIf(process.platform === "win32")("persists the start step and completes setup using only a CLI", async () => {
     const { call, claude } = await start();
-    expect((await call("PUT", "/settings/onboarding", { status: "pending", step: "media" })).status).toBe(200);
-    expect((await call<{ step: string }>("GET", "/settings/onboarding")).body.step).toBe("media");
-    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "media" })).status).toBe(409);
+    expect((await call("PUT", "/settings/onboarding", { status: "pending", step: "start" })).status).toBe(200);
+    expect((await call<{ step: string }>("GET", "/settings/onboarding")).body.step).toBe("start");
+    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "start" })).status).toBe(409);
     await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
     await call("PUT", "/models/default", { model: { provider: "claude-code-cli", id: "sonnet" }, nativeReasoningLevel: "high" });
-    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "media" })).status).toBe(200);
+    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "start" })).status).toBe(200);
     await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: false });
-    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "media" })).status).toBe(409);
+    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "start" })).status).toBe(409);
   });
 
   it("branches a completed stored response through the API and rejects invalid targets", async () => {

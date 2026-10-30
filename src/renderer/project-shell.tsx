@@ -3,19 +3,20 @@ import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type Agent
 import {
   Play,
   Plug,
+  Palette,
   ArrowLeft,
   Download,
   FolderOpen,
   LoaderCircle,
   MessageSquarePlus,
-  Clapperboard,
-  Code2,
-  FileText,
+  Book,
+  ChatSquare,
+  Code,
+  FileDocument,
+  GalleryWide,
   Gamepad2,
   Layers3,
   LayoutGrid,
-  MessageCircle,
-  Palette,
   Pencil,
   RefreshCw,
   Globe2,
@@ -90,6 +91,7 @@ import {
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { ConversationMenu } from "./conversation-menu.js";
 import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
+import { ProjectAppearanceDialog } from "./project-appearance-settings.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
 import { CodingWorkspace } from "./coding-workspace.js";
@@ -143,13 +145,13 @@ interface ProjectShellProps {
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 const PANELS: Record<WorkspacePanel, { title: () => string; icon: IconComponent }> = {
-  chat: { title: () => t("panels.chat"), icon: MessageCircle },
+  chat: { title: () => t("panels.chat"), icon: ChatSquare },
   game: { title: () => t("panels.game"), icon: Gamepad2 },
-  design: { title: () => t("panels.design"), icon: FileText },
-  code: { title: () => t("workspace.tab.code"), icon: Code2 },
+  design: { title: () => t("panels.design"), icon: FileDocument },
+  code: { title: () => t("workspace.tab.code"), icon: Code },
   assets: { title: () => t("workspace.tab.assets"), icon: Layers3 },
-  story: { title: () => t("panels.story"), icon: Clapperboard },
-  canvas: { title: () => t("panels.canvas"), icon: Palette },
+  story: { title: () => t("panels.story"), icon: Book },
+  canvas: { title: () => t("panels.canvas"), icon: GalleryWide },
 };
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
@@ -232,6 +234,7 @@ export function ProjectShell({
   const pickingRef = useRef(pickingClient);
   pickingRef.current = pickingClient;
   const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
   // The chat takes the request once its conversation is open.
   usePlaytestAskRequests(state.conversation ? state.project?.id : undefined, requestPrompt);
@@ -930,6 +933,7 @@ export function ProjectShell({
     } }] : []),
     { label: exporting === "project" ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: !project || !!exporting, onSelect: () => void exportFile("project") },
     { label: t("projectPlugins.menu"), icon: <Plug size={14} />, disabled: !project, onSelect: () => setPluginsOpen(true) },
+    { label: t("projectAppearance.menu"), icon: <Palette size={14} />, disabled: !project, onSelect: () => setAppearanceOpen(true) },
     "separator",
     { label: homeLabel, icon: <ArrowLeft size={14} />, onSelect: requestHome },
   ];
@@ -1102,7 +1106,8 @@ export function ProjectShell({
     <>
     {integrationGate.dialog}
     {chatInput}
-    {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} /> : null}
+    {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
+    {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} /> : null}
     {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
     <ProjectFrame
       rail={<ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={{
@@ -1153,7 +1158,7 @@ export function ProjectShell({
         input={chatInputNode}
       /> : undefined}
       empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered))}>{t("panels.reset")}</Button>} /> : null} /> : null}
-    {createPortal(<div className="pane-header-actions">
+    {createPortal(<div className="pane-header-actions chat-header-actions">
             <ConversationMenu
               conversations={conversations}
               currentConversationId={conversation?.id}
@@ -1162,6 +1167,7 @@ export function ProjectShell({
               onRename={rename}
               onSelect={onOpenConversation}
             />
+            <span className="chat-header-spacer" />
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
               <CanvasChipSelect icon={UserRound} label={t("codingAgents.chatProfile", { name: accountRuntime === "codex-cli" ? "Codex" : "Claude Code" })} value={selectedProfileId}
                 options={accountProfiles.map((profile) => {

@@ -1,4 +1,5 @@
-export type OnboardingStep = "welcome" | "connect" | "media";
+/** Language and appearance, connecting a model, then where to start. */
+export type OnboardingStep = "welcome" | "connect" | "start";
 export type OnboardingStatus = "pending" | "completed" | "skipped";
 
 export interface OnboardingState {

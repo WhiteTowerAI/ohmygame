@@ -22,6 +22,7 @@ import type {
 } from "../shared/contracts.js";
 import { inspectProjectPreview, updateProjectRunSettings } from "./api.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
+import { ProjectAppearanceSettings } from "./project-appearance-settings.js";
 import { t } from "./i18n.js";
 
 const PREVIEW_VIEWPORT_LABEL_KEYS = {
@@ -319,6 +320,7 @@ export function ProjectSettingsDialog({
           <span>{t("projectSettings.project")}</span>
           <strong title={project.name}>{project.name}</strong>
         </section>
+        <ProjectAppearanceSettings project={project} disabled={saving} />
         <section
           className="project-settings-switches"
           aria-label={t("projectSettings.previewAccess")}

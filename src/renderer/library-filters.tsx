@@ -45,6 +45,28 @@ export function LibraryFilterRow({ assets, filters, onChange }: {
   </>;
 }
 
+/** A project's Assets panel source and use filters, in the row beside the kind tabs, as on the Library page. */
+export function ProjectAssetFilterRow({ assets, filters, onChange }: {
+  assets: readonly BrowsableAsset[];
+  filters: ProjectAssetFilters;
+  onChange: (filters: ProjectAssetFilters) => void;
+}) {
+  return <>
+    <Select size="sm" label={t("libraryFilters.source")} value={filters.origin ?? "all"} onChange={(origin) => onChange({ ...filters, origin })} options={[
+      { value: "all", label: t("libraryFilters.allSources") },
+      { value: "generated", label: t("libraryFilters.generated") },
+      { value: "uploaded", label: t("libraryFilters.uploaded") },
+      { value: "workspace", label: t("libraryFilters.projectFiles") },
+      ...(assets.some((asset) => asset.origin === "builtin") ? [{ value: "builtin" as const, label: t("libraryFilters.builtIn") }] : []),
+    ]} />
+    <Select size="sm" label={t("libraryFilters.use")} value={filters.purpose ?? "all"} onChange={(purpose) => onChange({ ...filters, purpose })} options={[
+      { value: "all", label: t("libraryFilters.allUses") },
+      { value: "asset", label: t("libraryFilters.assets") },
+      { value: "reference", label: t("libraryFilters.references") },
+    ]} />
+  </>;
+}
+
 /** Whether `filters` narrow the Library page past its default (saved assets from every project). */
 export function libraryFiltersActive(filters: LibraryAssetFilters): boolean {
   return (filters.origin ?? "saved") !== "saved" || Boolean(filters.projectId) || Boolean(filters.includeReferences);
@@ -70,28 +92,6 @@ function libraryProjectOptions(projects: readonly LibraryAssetProject[], allProj
     { value: "unassigned", label: t("libraryFilters.noProject") },
     ...projects.map((project) => ({ value: project.id, label: project.name })),
   ];
-}
-
-export function ProjectAssetCollectionFilters({ assets, filters, onChange }: {
-  assets: readonly BrowsableAsset[];
-  filters: ProjectAssetFilters;
-  onChange: (filters: ProjectAssetFilters) => void;
-}) {
-  const active = (filters.origin ?? "all") !== "all" || (filters.purpose ?? "all") !== "all";
-  return <AssetFilterPopover active={active} onReset={() => onChange({})}>
-    <label>{t("libraryFilters.source")}<select value={filters.origin ?? "all"} onChange={(event) => onChange({ ...filters, origin: event.target.value as ProjectAssetFilters["origin"] })}>
-      <option value="all">{t("libraryFilters.allSources")}</option>
-      <option value="generated">{t("libraryFilters.generated")}</option>
-      <option value="uploaded">{t("libraryFilters.uploaded")}</option>
-      <option value="workspace">{t("libraryFilters.projectFiles")}</option>
-      {assets.some((asset) => asset.origin === "builtin") ? <option value="builtin">{t("libraryFilters.builtIn")}</option> : null}
-    </select></label>
-    <label>{t("libraryFilters.use")}<select value={filters.purpose ?? "all"} onChange={(event) => onChange({ ...filters, purpose: event.target.value as ProjectAssetFilters["purpose"] })}>
-      <option value="all">{t("libraryFilters.allUses")}</option>
-      <option value="asset">{t("libraryFilters.assets")}</option>
-      <option value="reference">{t("libraryFilters.references")}</option>
-    </select></label>
-  </AssetFilterPopover>;
 }
 
 function AssetFilterPopover({ active, onReset, children }: { active: boolean; onReset: () => void; children: ReactNode }) {

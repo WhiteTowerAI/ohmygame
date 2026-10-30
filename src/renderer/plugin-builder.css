@@ -9,7 +9,7 @@
 .plugin-builder-preview { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .plugin-builder-preview-content { flex: 1; min-height: 0; overflow-y: auto; padding: 28px; }
 .plugin-builder-preview-content.is-files { display: flex; overflow: hidden; padding: 0; }
-.plugin-builder-preview-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; min-width: 0; width: 100%; min-height: 100%; color: var(--color-text-secondary); font-size: 11px; }
+.plugin-builder-preview-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; min-width: 0; width: 100%; min-height: 100%; }
 .plugin-builder-overview { max-width: 740px; margin: 0 auto; }
 .plugin-builder-overview-heading { display: flex; align-items: center; gap: 10px; }
 .plugin-builder-icon-button { padding: 0; border: 0; border-radius: 9px; background: transparent; cursor: pointer; }
@@ -38,24 +38,6 @@
 .plugin-builder-check strong { font-size: 12px; font-weight: 500; }
 .plugin-builder-check small { color: var(--color-text-secondary); font-size: 10px; line-height: 1.7; }
 .plugin-builder-check > small { white-space: nowrap; }
-.plugin-builder-sessions-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-top: 10px; }
-.plugin-builder-session-card { position: relative; display: flex; min-width: 0; min-height: 60px; align-items: center; border-radius: 7px; background: var(--color-surface); }
-.plugin-builder-session-card:hover { background: var(--color-hover); }
-.plugin-builder-session-link { display: flex; min-width: 0; flex: 1; align-items: center; gap: 10px; padding: 10px 12px; border-radius: inherit; color: var(--color-text); text-decoration: none; }
-.plugin-builder-session-icon { display: grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; border-radius: 7px; background: var(--color-hover); color: var(--color-text-secondary); }
-.plugin-builder-session-copy { display: grid; min-width: 0; gap: 3px; }
-.plugin-builder-session-copy strong { overflow: hidden; color: var(--color-text); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.plugin-builder-session-copy small { overflow: hidden; color: var(--color-text-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.plugin-builder-session-actions { position: relative; flex: 0 0 auto; margin-right: 7px; }
-.plugin-builder-session-menu-button { display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 0; border-radius: 5px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
-.plugin-builder-session-menu-button:hover, .plugin-builder-session-menu-button:focus-visible, .plugin-builder-session-menu-button[aria-expanded="true"] { outline: 0; background: var(--color-hover); color: var(--color-text); }
-.plugin-builder-session-menu-button:disabled { cursor: default; opacity: 0.55; }
-.plugin-builder-session-menu { position: absolute; z-index: 10; top: calc(100% + 4px); right: 0; display: grid; min-width: 136px; padding: 4px; border: 1px solid var(--color-border); border-radius: 7px; background: var(--color-surface-raised); box-shadow: var(--shadow-float); }
-.plugin-builder-session-menu button { display: flex; width: 100%; height: 32px; align-items: center; gap: 7px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--color-text-secondary); cursor: pointer; font: inherit; font-size: 11px; font-weight: 500; text-align: left; }
-.plugin-builder-session-menu button:hover:not(:disabled), .plugin-builder-session-menu button:focus-visible:not(:disabled) { outline: 0; background: var(--color-hover); color: var(--color-text); }
-.plugin-builder-session-menu button:disabled { cursor: default; opacity: 0.5; }
-.plugin-builder-session-menu .plugin-builder-session-delete { color: var(--color-danger); }
-@media (max-width: 760px) { .plugin-builder-sessions-grid { grid-template-columns: 1fr; } }
 @container workspace-header (min-width: 521px) {
   .plugin-builder-preview[data-active-tab="overview"] .workspace-tabs { --workspace-active-tab-width: 88px; }
 }
@@ -86,3 +68,6 @@
 .plugin-icon-picker footer { display: flex; gap: 8px; margin-top: 22px; }
 .plugin-icon-picker footer > button:first-child { margin-right: auto; }
 @media (max-width: 480px) { .plugin-icon-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+/* An AI workspace is a link styled as a plugin card. */
+.plugin-builder-session-card .plugin-card-link { color: inherit; text-decoration: none; }

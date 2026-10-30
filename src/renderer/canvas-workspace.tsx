@@ -167,6 +167,7 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
     void retrySync().catch((cause) => setSyncRetryError(cause instanceof Error ? cause.message : String(cause))).finally(() => setSyncRetrying(false));
   }}>{syncRetrying ? <><LoaderCircle size={12} className="spin" />{t("notice.retrying")}</> : t("canvas.syncPausedRetry")}</button> : <span className={`design-save-status is-${status}`} role="status">{status === "saving" ? <LoaderCircle size={12} className="spin" /> : status === "saved" ? <Check size={12} /> : null}{status === "saved" ? t("common.saved") : status === "saving" ? t("canvas.status.saving") : status === "error" ? t("canvas.status.error") : status === "load-error" ? t("canvas.status.loadError") : status === "conflict" ? t("canvas.reviewChanges") : status === "draft" ? t("canvas.status.draft") : t("canvas.status.loading")}</span>;
   const floating = <div className="design-board-switcher">
+    <Layers3 size={13} aria-hidden="true" />
     <CanvasChipSelect label={t("canvas.board")} value={activeId} options={(workspace?.boards ?? []).map((board) => ({ value: board.id, label: board.name }))} disabled={busy}
       action={{ label: t("canvas.newBoard"), icon: Plus, onSelect: () => { setName(""); setDialog({ type: "create" }); } }}
       optionAction={{ label: (option) => t("canvas.boardOptions", { name: option.label }), icon: MoreHorizontal, onSelect: (id, anchor) => setBoardOptions({ id, x: anchor.left, y: anchor.bottom + 5 }) }}

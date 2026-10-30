@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, exportProject, getProjectCover, renameProject } from "./api.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
-import { projectDeletionConfirmation } from "./project-deletion.js";
+import { projectRemoval } from "./project-deletion.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { Button, ContextMenu, Dialog, DropdownMenu, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import { language, t } from "./i18n.js";
@@ -70,7 +70,7 @@ function useProjectMenu(project: ProjectState, onOpen: () => void, actions?: Pro
     { label: exporting ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: exporting, onSelect: () => void exportArchive() },
     "separator",
     {
-      label: project.workspaceLocation === "external" ? t("projectCard.remove") : t("common.delete"),
+      label: t("projectCard.remove"),
       icon: <Trash2 size={14} />,
       danger: true,
       onSelect: actions.onDelete,
@@ -108,7 +108,7 @@ export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCa
     <article className="project-card">
       <div className="project-card-body">
       <button className="project-card-open" type="button" onClick={onOpen} aria-label={t("projectCard.open", { name: project.name })}>
-        <ProjectCover projectId={project.id} />
+        <ProjectCover project={project} />
         <span className="project-card-meta">
           <ProjectTypeMark type={project.type} />
           <span className="project-card-copy">
@@ -133,7 +133,7 @@ export function ProjectRow({ project, onOpen, actions, agentStatus }: ProjectCar
   const row = (
     <div className="project-row">
       <button className="project-row-open" type="button" onClick={onOpen} aria-label={t("projectCard.open", { name: project.name })}>
-        <ProjectCover projectId={project.id} />
+        <ProjectCover project={project} />
         <span className="project-card-name" title={project.name}>{project.name}</span>
         <span className="project-row-type">
           <ProjectTypeIcon type={project.type} size={14} />
@@ -191,7 +191,7 @@ export function useProjectActions(reload: () => Promise<unknown>): {
     onDelete: () => setRemoving(project),
   });
 
-  const external = removing?.workspaceLocation === "external";
+  const removal = removing ? projectRemoval(removing) : undefined;
   const dialogs = (
     <>
       {renaming ? <ProjectRenameDialog name={renaming.name} returnFocus={null} onClose={() => setRenaming(undefined)} onConfirm={(input) => {
@@ -201,28 +201,31 @@ export function useProjectActions(reload: () => Promise<unknown>): {
         if (name && name !== project.name) void run(() => renameProject(project.id, name));
       }} /> : null}
       <Dialog open={!!removing} onClose={() => setRemoving(undefined)} size="sm"
-        title={removing ? projectDeletionConfirmation(removing) : ""}
+        title={removal?.title ?? ""} description={removal?.description}
         footer={<>
           <Button onClick={() => setRemoving(undefined)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={() => {
             const project = removing!;
             setRemoving(undefined);
             void run(() => deleteProject(project.id));
-          }}>{external ? t("projectCard.removeConfirm") : t("common.delete")}</Button>
+          }}>{removal?.deletes ? t("common.delete") : t("projectCard.removeConfirm")}</Button>
         </>} />
     </>
   );
   return { actionsFor, dialogs, error };
 }
 
-export function ProjectCover({ projectId }: { projectId: string }) {
+/** A project's cover, or the default template when it has none or chose the template. */
+export function ProjectCover({ project }: { project: ProjectState }) {
   const [url, setUrl] = useState<string>();
+  const template = project.appearance?.cover === "template";
 
   useEffect(() => {
     setUrl(undefined);
+    if (template) return;
     let objectUrl: string | undefined;
     let disposed = false;
-    void getProjectCover(projectId).then((cover) => {
+    void getProjectCover(project.id).then((cover) => {
       if (!cover || disposed) return;
       objectUrl = URL.createObjectURL(cover);
       setUrl(objectUrl);
@@ -231,11 +234,11 @@ export function ProjectCover({ projectId }: { projectId: string }) {
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [projectId]);
+  }, [project.id, project.updatedAt, template]);
 
   return (
     <span className="project-card-preview" aria-hidden="true">
-      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={projectId} />}
+      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={project.id} appearance={project.appearance} />}
     </span>
   );
 }

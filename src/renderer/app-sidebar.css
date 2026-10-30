@@ -208,16 +208,6 @@
   object-fit: cover;
 }
 
-.sidebar-cover .project-cover-placeholder svg {
-  width: 12px;
-  height: 12px;
-}
-
-.sidebar-app-cover .project-cover-placeholder svg {
-  width: 18px;
-  height: 18px;
-}
-
 .sidebar-spacer {
   flex: 1;
 }

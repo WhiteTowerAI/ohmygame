@@ -10,18 +10,16 @@ const options = {
   },
   planning: false,
   canTogglePlanning: true,
-  supportsDesign: true,
 };
 
 describe("unified composer context menu", () => {
-  it("offers the same actions and capabilities from + and an empty @ query", () => {
-    const fromButton = composerContextItems(options);
-    expect(composerContextItems({ ...options, query: mentionQuery("@", 1) })).toEqual(fromButton);
-    expect(fromButton.map((item) => item.id)).toEqual(["files", "design", "plan", "plugin:images", "skill:game-design"]);
+  it("offers plugins and skills from @, and the / list when the + menu opens it", () => {
+    expect(composerContextItems({ ...options, query: mentionQuery("@", 1) }).map((item) => item.id)).toEqual(["plugin:images", "skill:game-design"]);
+    expect(composerContextItems(options)).toEqual(composerContextItems({ ...options, query: mentionQuery("/", 1) }));
   });
 
-  it("searches actions and skills alongside plugins", () => {
-    expect(composerContextItems({ ...options, query: mentionQuery("@design", 7) }).map((item) => item.id)).toEqual(["design", "skill:game-design"]);
+  it("searches skills alongside plugins", () => {
+    expect(composerContextItems({ ...options, query: mentionQuery("@design", 7) }).map((item) => item.id)).toEqual(["skill:game-design"]);
     expect(composerContextItems({ ...options, query: mentionQuery("@unknown", 8) })).toEqual([]);
   });
 
@@ -47,7 +45,7 @@ describe("unified composer context menu", () => {
     const query = mentionQuery("/", 1);
     expect(composerContextItems({ ...options, query, canPublish: true }).map((item) => item.id)).toContain("publish");
     expect(composerContextItems({ ...options, query }).map((item) => item.id)).not.toContain("publish");
-    expect(composerContextItems({ ...options, canPublish: true }).map((item) => item.id)).not.toContain("publish");
+    expect(composerContextItems({ ...options, query: mentionQuery("@", 1), canPublish: true }).map((item) => item.id)).not.toContain("publish");
   });
 
   it("keeps compact instructions in a slash query", () => {
@@ -61,8 +59,8 @@ describe("unified composer context menu", () => {
     expect(composerContextItems({ ...options, planning: true }).map((item) => item.id)).not.toContain("skill:game-design");
   });
 
-  it("only offers design and plan actions when the composer supports them", () => {
-    expect(composerContextItems({ ...options, canTogglePlanning: false, supportsDesign: false }).map((item) => item.id)).toEqual(["files", "plugin:images", "skill:game-design"]);
+  it("only offers plan mode when the composer supports it", () => {
+    expect(composerContextItems({ ...options, canTogglePlanning: false }).map((item) => item.id)).toEqual(["skill:game-design"]);
     expect(composerContextItems({ ...options, planning: true }).find((item) => item.id === "plan")?.description).toBe("Turn plan mode off");
   });
 });

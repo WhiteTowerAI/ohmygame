@@ -9,7 +9,6 @@ OhMyGame's tools for one conversation.
 | Part               | Code                                                                                      | Tests                                       |
 | ------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------- |
 | Daemon MCP server  | `src/daemon/external-mcp.ts`                                                              | `test/external-mcp.test.ts`                 |
-| Client connections | `src/daemon/external-agent-clients.ts`                                                    | `test/external-agent-clients.test.ts`       |
 | Launcher           | `src/desktop/external-mcp-launcher.ts`, `external-mcp-main.ts`, `external-mcp-install.ts` | `test/external-mcp-launcher.test.ts`        |
 | Settings           | `src/renderer/external-agents-settings.tsx`                                               | `test/external-agents-settings-ui.test.tsx` |
 | Skill              | `integrations/skills/ohmygame-studio/SKILL.md`                                            | Manual                                      |
@@ -31,8 +30,13 @@ Not in scope, and why:
 - **A record of external calls in the app.** Generated files already appear in
   the workspace, the Asset Library and the canvas; a conversation record would
   change the conversation model for little gain.
-- **Claude Code and Codex plugin packages.** Connecting from Settings installs
-  the server and the Skill; packages would be a second format to maintain.
+- **Claude Code and Codex plugin packages.** Settings shows the command that
+  adds the server and the Skill folder to copy; packages would be a second
+  format to maintain.
+- **Connecting clients from Settings.** Running each CLI's `mcp add` for the
+  person, and copying and refreshing the Skill, was removed: one command per
+  client is shorter to follow than a connection state to trust, and it is the
+  same for every client.
 - **Progress notifications.** Generation jobs (below) already keep every call
   under client timeouts.
 - **A user-configured HTTP entry.** It would need a fixed port that can
@@ -43,8 +47,8 @@ Not in scope, and why:
 ## Decisions
 
 1. **Three layers, one contract.** The MCP server is the only way to run
-   OhMyGame capabilities and is versioned. A Skill teaches the workflow.
-   Connecting a client installs both. A Skill alone cannot replace the
+   OhMyGame capabilities and is versioned. A Skill teaches the workflow, and
+   the person adds both to a client. A Skill alone cannot replace the
    server: the daemon's port and token change with every launch and its HTTP
    API is private.
 
@@ -58,13 +62,13 @@ Not in scope, and why:
    HTTP to the daemon.
 
 4. **Off by default, no extra approvals.** Turning the feature on and
-   connecting a client is the person's consent. Each client already asks before
+   adding the server to a client is the person's consent. Each client already asks before
    running MCP tools under its own permission settings, and OhMyGame's own
    agent runs these tools without a prompt, so OhMyGame adds no approval step.
 
-5. **Clients are configured with their own commands.** OhMyGame runs
-   `claude mcp add` and `codex mcp add` rather than editing their
-   configuration files, whose formats change between releases.
+5. **Clients are configured with their own commands.** Settings shows
+   `claude mcp add` and `codex mcp add` rather than a configuration file
+   snippet, whose formats change between releases.
 
 6. **A name of its own.** Clients register the server as `ohmygame-studio`,
    not `ohmygame`, which is the name of the server OhMyGame gives the coding
@@ -90,11 +94,9 @@ Daemon: ExternalMcpService
 ### Settings and files
 
 Settings → **MCP Server** has its own page, apart from Agents, which sets up
-the agents OhMyGame runs. **Allow other agents to use OhMyGame** turns the
-feature on; **Connect agents** then lists Claude Code and Codex with
-**Connect** and **Disconnect**. **Connect by hand** shows the same `mcp add`
-commands Connect runs, for Claude Code and Codex, and the launcher command for
-every other client, each with a copy button. **Recent connections** lists the
+the agents OhMyGame runs. Its **MCP Server** switch turns the feature on; **Connect** then shows the `mcp add` commands for Claude Code and
+Codex, the launcher command for every other client, and the folder of the
+Skill to copy, each with a copy button. **Recent connections** lists the
 clients that used the server since OhMyGame started, by the name each gives in
 `initialize`, with when it last called, how many tools it called, and whether
 its session is still open. The daemon keeps these in memory only, at most
@@ -103,9 +105,7 @@ The renderer uses:
 
 | Route                                              | Purpose                                        |
 | -------------------------------------------------- | ---------------------------------------------- |
-| `GET`, `PUT /settings/external-agents`             | `{ enabled }`, the launcher, client states, and recent connections |
-| `PUT /settings/external-agents/clients/:client`    | Connect `claude-code` or `codex`               |
-| `DELETE /settings/external-agents/clients/:client` | Disconnect it                                  |
+| `GET`, `PUT /settings/external-agents`             | `{ enabled }`, the launcher, the Skill folder, and recent connections |
 
 Files in `<dataDirectory>/external-mcp/`:
 
@@ -114,7 +114,6 @@ Files in `<dataDirectory>/external-mcp/`:
 | `settings.json` | Whether the feature is on.                                                                    |
 | `endpoint.json` | URL, token, contract version and daemon `pid`, POSIX mode `0600`; only while the daemon runs. |
 | `tools.json`    | The public tool list and instructions, kept so the launcher works while OhMyGame is closed.   |
-| `clients.json`  | Connected clients and the launcher each was connected with.                                   |
 | `app.json`      | The desktop app's `pid` while it runs, written before its daemon starts.                      |
 
 - The token is random for each daemon launch and is never stored elsewhere.
@@ -135,14 +134,9 @@ Files in `<dataDirectory>/external-mcp/`:
   needed, and keeps a stable path when the app moves. Windows clients start
   the executable directly with that variable, because Node no longer runs
   `.cmd` files without a shell; the installer keeps the executable's path
-  across updates. At startup, clients connected with a different launcher are
-  connected again and their Skill is updated.
-- The CLI commands run as System default, so they write the CLI's default
-  directory (`~/.claude.json`, `~/.codex`) even when OhMyGame was launched with
-  `CLAUDE_CONFIG_DIR` or `CODEX_HOME`. `clients.json` lists the clients connected
-  there in `systemDefault`; a client connected by an earlier version, which used
-  the inherited directory, is connected again at startup until that succeeds.
-  The earlier entry in the inherited directory is left in place.
+  across updates, so a client keeps working after an update without being
+  added again. Earlier versions connected clients from Settings and left a
+  `clients.json`; it is no longer read, and those entries keep working.
 - It answers `initialize` and `tools/list` from `tools.json`. Clients start
   every configured MCP server when a session opens, in any folder, so the app
   must not start just because a client did.
@@ -254,15 +248,15 @@ is 60 seconds.
 
 ## Clients
 
-| Client      | Connected by                                  | Skill folder                                 |
-| ----------- | --------------------------------------------- | -------------------------------------------- |
-| Claude Code | `claude mcp add --scope user ohmygame-studio` | `~/.claude/skills`                           |
-| Codex       | `codex mcp add ohmygame-studio`               | `~/.agents/skills`                           |
-| dsh, others | Hand configuration with the command shown     | `~/.agents/skills` for `dsh`, copied by hand |
+| Client      | Added with                                    | Skill folder        |
+| ----------- | --------------------------------------------- | ------------------- |
+| Claude Code | `claude mcp add --scope user ohmygame-studio` | `~/.claude/skills`  |
+| Codex       | `codex mcp add ohmygame-studio`               | `~/.agents/skills`  |
+| dsh, others | Hand configuration with the launcher shown    | `~/.agents/skills` for `dsh` |
 
-OhMyGame copies the Skill only into a missing folder or one it wrote, and
-removes it on disconnect unless another connected client reads the same
-folder. Existing folders without `SKILL.md` and symlinked folders are left alone.
+The Skill is optional: `initialize` returns short instructions for clients
+without it. People copy the folder Settings shows; `mcp remove
+ohmygame-studio` removes the server again.
 
 For `dsh`, add a `@deepseek-ai/dsh-mcp-client` entry to the profile's
 `cordis.patch.yml`, where `<launcher>` is the command shown in Settings:
@@ -280,13 +274,12 @@ For `dsh`, add a `@deepseek-ai/dsh-mcp-client` entry to the profile's
 ## Validation
 
 Automated tests cover the contract, sessions, project binding, jobs, token
-revocation, the launcher against the service, the launcher script, client
-commands and Skill installation, the Settings flow, and the guards inside
+revocation, the launcher against the service, the launcher script, the
+Settings commands, and the guards inside
 OhMyGame. The packaged app check (`scripts/check-packaged-desktop.mjs`) runs
 the launcher from the app archive with the app's executable and checks the
 Skill is shipped.
 
-Manual acceptance for each client: connect from Settings, open a project
-folder in the client, generate an image and a 3D model through `wait_job`,
-playtest with `game_use`, then disconnect and confirm the entry and Skill are
-gone.
+Manual acceptance for each client: run the command from Settings, open a
+project folder in the client, generate an image and a 3D model through
+`wait_job`, playtest with `game_use`, then run `mcp remove ohmygame-studio`.

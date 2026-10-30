@@ -12,16 +12,6 @@ const api = {
     async ({ enabled }: { enabled: boolean }) =>
       (external = { ...external, enabled }),
   ),
-  connectExternalAgent: vi.fn(
-    async (id: string) =>
-      (external = {
-        ...external,
-        clients: external.clients.map((client) =>
-          client.id === id ? { ...client, connected: true } : client,
-        ),
-      }),
-  ),
-  disconnectExternalAgent: vi.fn(async () => external),
 };
 vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
@@ -46,10 +36,7 @@ beforeEach(() => {
       args: [],
       env: {},
     },
-    clients: [
-      { id: "claude-code", available: true, connected: false },
-      { id: "codex", available: false, connected: false },
-    ],
+    skillDirectory: "/Applications/OhMyGame.app/Contents/Resources/skills/ohmygame-studio",
   };
 });
 afterEach(async () => {
@@ -58,38 +45,19 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it("lets other agents use OhMyGame and connects a CLI found on this computer", async () => {
+it("lets other agents use OhMyGame and shows how to add it to each client", async () => {
   await act(async () => root.render(<ExternalAgentsSettings />));
-  expect(host.querySelector(".external-agents-clients")).toBeNull();
+  expect(host.querySelector(".ui-code-block")).toBeNull();
   await act(async () =>
     host
       .querySelector<HTMLButtonElement>(
-        'button[role="switch"][aria-label="Allow other agents to use OhMyGame"]',
+        'button[role="switch"][aria-label="MCP Server"]',
       )!
       .click(),
   );
   expect(api.updateExternalAgentSettings).toHaveBeenCalledWith({
     enabled: true,
   });
-  const clients = () => host.querySelector(".external-agents-clients")!;
-  const rows = [...clients().querySelectorAll(".settings-row")];
-  expect(
-    rows.map(
-      (item) =>
-        item.querySelector(".settings-row-text > span")?.textContent,
-    ),
-  ).toEqual(["Not connected", "CLI not detected on this computer"]);
-  // Codex is not installed, so it has nothing to connect.
-  expect(rows[1]!.querySelector("button")).toBeNull();
-  const connect = rows[0]!.querySelector<HTMLButtonElement>(
-    'button[aria-label="Connect Claude Code"]',
-  )!;
-  expect(connect.textContent).toBe("Connect");
-  await act(async () => connect.click());
-  expect(api.connectExternalAgent).toHaveBeenCalledWith("claude-code");
-  expect(
-    clients().querySelector(".settings-row")!.textContent,
-  ).toContain("Connected");
   const snippets = [...host.querySelectorAll(".ui-code-block")].map((block) => [
     block.querySelector(".ui-code-block-head span")?.textContent,
     block.querySelector("code")?.textContent,
@@ -98,6 +66,7 @@ it("lets other agents use OhMyGame and connects a CLI found on this computer", a
     ["Claude Code", 'claude mcp add --scope user ohmygame-studio -- "/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp"'],
     ["Codex", 'codex mcp add ohmygame-studio -- "/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp"'],
     ["DeepSeek Harness and other MCP clients", '"/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp"'],
+    ["Skill (optional) · copy into ~/.claude/skills or ~/.agents/skills", "/Applications/OhMyGame.app/Contents/Resources/skills/ohmygame-studio"],
   ]);
 });
 
@@ -130,5 +99,5 @@ it("explains that connecting needs the desktop app", async () => {
   expect(host.textContent).toContain(
     "Connect agents from the OhMyGame desktop app.",
   );
-  expect(host.querySelector(".external-agents-clients")).toBeNull();
+  expect(host.querySelector(".ui-code-block")).toBeNull();
 });

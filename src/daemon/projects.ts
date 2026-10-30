@@ -4,7 +4,8 @@ import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
-import type { LibraryAssetProject, MediaModelDefaults, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
+import { parseProjectAppearance } from "../shared/project-appearance.js";
+import type { LibraryAssetProject, MediaModelDefaults, ProjectAppearance, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { buildsWebPreview, isProjectType, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
@@ -49,7 +50,10 @@ interface ProjectMetadata extends ProjectPreviewSettings {
   workspacePath?: string;
   publication?: PublicationState;
   mediaModelDefaults?: MediaModelDefaults;
+  appearance?: ProjectAppearance;
 }
+
+type MetadataChanges = Partial<Pick<ProjectMetadata, "integration" | "pluginType" | "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | "appearance" | keyof ProjectPreviewSettings>>;
 
 export class ProjectLibraryReferenceError extends Error {}
 
@@ -94,11 +98,13 @@ export class ProjectManager {
   readonly #workspaceWrites = new Map<string, Promise<unknown>>();
   readonly #projectsDirectory: string;
   readonly #locationFile: string;
+  readonly #removedDirectory: string;
   #location?: string;
 
   constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary) {
     this.#projectsDirectory = path.join(dataDirectory, "projects");
     this.#locationFile = path.join(dataDirectory, "project-location.json");
+    this.#removedDirectory = path.join(dataDirectory, "removed-projects");
   }
 
   /**
@@ -108,6 +114,11 @@ export class ProjectManager {
    */
   get location(): string | undefined {
     return this.#location;
+  }
+
+  /** Where new projects go while no location is set. */
+  get storage(): string {
+    return this.#projectsDirectory;
   }
 
   async setLocation(location: string | undefined): Promise<void> {
@@ -144,7 +155,7 @@ export class ProjectManager {
 
   /** A new, empty folder named after the project in the project location. */
   async #newFolderIn(location: string, name: string): Promise<string> {
-    const base = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").replace(/^[\s.]+|[\s.]+$/g, "").slice(0, 80) || "Untitled";
+    const base = folderName(name);
     for (let attempt = 1; attempt <= 100; attempt += 1) {
       const folder = path.join(location, attempt === 1 ? base : `${base} ${attempt}`);
       try {
@@ -392,6 +403,7 @@ export class ProjectManager {
       ...(source.previewPath ? { previewPath: source.previewPath } : {}),
       ...(source.previewViewport ? { previewViewport: source.previewViewport } : {}),
       ...(source.mediaModelDefaults ? { mediaModelDefaults: structuredClone(source.mediaModelDefaults) } : {}),
+      ...(source.appearance ? { appearance: structuredClone(source.appearance) } : {}),
     };
     try {
       await cp(source.workspacePath, path.join(duplicateDirectory, "workspace"), {
@@ -459,6 +471,40 @@ export class ProjectManager {
   }
 
   /**
+   * Takes a project out of OhMyGame without deleting what the person made. A
+   * folder they chose stays where it is. A project kept in OhMyGame's storage
+   * has its files moved aside into a folder named after it, which is returned
+   * so the desktop app can put it in the Trash.
+   */
+  async remove(id: string): Promise<string | undefined> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    let movedTo: string | undefined;
+    const operation = (this.#metadataWrites.get(id) ?? Promise.resolve()).catch(() => {}).then(async () => {
+      if (project.workspaceLocation === "external") {
+        await rm(path.join(project.workspacePath, ".data", "agent-attachments"), { recursive: true, force: true });
+      } else {
+        const target = path.join(this.#removedDirectory, id, folderName(project.name));
+        await mkdir(path.dirname(target), { recursive: true });
+        try {
+          await rename(project.workspacePath, target);
+          movedTo = target;
+        } catch (error) {
+          // A workspace already gone from disk leaves nothing to move to the Trash.
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          await rm(path.dirname(target), { recursive: true, force: true });
+        }
+      }
+      await rm(this.#projectDirectory(id), { recursive: true, force: false });
+      this.#projects.delete(id);
+    });
+    this.#metadataWrites.set(id, operation);
+    try { await operation; }
+    finally { if (this.#metadataWrites.get(id) === operation) this.#metadataWrites.delete(id); }
+    return movedTo;
+  }
+
+  /**
    * `registrationOnly` takes back a project whose creation failed: its own
    * storage goes, and a folder the person chose is left exactly as it is.
    */
@@ -494,9 +540,37 @@ export class ProjectManager {
     await this.#save(project, { updatedAt: new Date().toISOString() });
   }
 
+  /** The cover to show; none while the project shows the default template. */
   async cover(id: string): Promise<Buffer | undefined> {
-    if (!this.#projects.has(id)) return undefined;
+    const project = this.#projects.get(id);
+    if (!project || project.appearance?.cover === "template") return undefined;
     return this.#covers.read(this.#projectDirectory(id));
+  }
+
+  /** Replaces the icon, tone and template choice; the logo follows its own upload. */
+  async setAppearance(id: string, appearance: Omit<ProjectAppearance, "logo">): Promise<ProjectState> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    if (!parseProjectAppearance(appearance)) throw new Error("Invalid project appearance");
+    // The logo flag is read in the write queue, so an upload saved meanwhile is kept.
+    await this.#save(project, (current) => withAppearance({ ...parseProjectAppearance(appearance), ...(current.appearance?.logo ? { logo: true } : {}) }));
+    return project;
+  }
+
+  async logo(id: string): Promise<Buffer | undefined> {
+    if (!this.#projects.get(id)?.appearance?.logo) return undefined;
+    return this.#covers.readLogo(this.#projectDirectory(id));
+  }
+
+  async setLogo(id: string, contents: Uint8Array | undefined): Promise<ProjectState> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    await this.#covers.setLogo(this.#projectDirectory(id), contents);
+    await this.#save(project, (current) => {
+      const { logo: _logo, ...rest } = current.appearance ?? {};
+      return withAppearance(contents ? { ...rest, logo: true } : rest);
+    });
+    return project;
   }
 
   async coverState(id: string): Promise<ProjectCoverState> {
@@ -871,10 +945,13 @@ export class ProjectManager {
 
   async #save(
     project: ProjectState,
-    changes: Partial<Pick<ProjectMetadata, "integration" | "pluginType" | "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | keyof ProjectPreviewSettings>>,
+    // A function computes the changes once earlier writes finish, for changes that merge with saved fields.
+    update: MetadataChanges | ((project: ProjectState) => MetadataChanges),
   ): Promise<boolean> {
     const operation = (this.#metadataWrites.get(project.id) ?? Promise.resolve()).catch(() => {}).then(async () => {
-      if (this.#projects.get(project.id) !== project || changes.nameSource === "ai" && project.nameSource !== "default") return false;
+      if (this.#projects.get(project.id) !== project) return false;
+      const changes = typeof update === "function" ? update(project) : update;
+      if (changes.nameSource === "ai" && project.nameSource !== "default") return false;
       const metadata = { ...metadataFor(project), ...changes };
       await writeMetadata(this.#projectDirectory(project.id), metadata);
       for (const key of PREVIEW_SETTING_KEYS) { delete project[key]; }
@@ -899,6 +976,8 @@ export class ProjectManager {
       else delete project.mediaModelDefaults;
       if (metadata.publication) project.publication = metadata.publication;
       else delete project.publication;
+      if (metadata.appearance) project.appearance = metadata.appearance;
+      else delete project.appearance;
       return true;
     });
     this.#metadataWrites.set(project.id, operation);
@@ -981,6 +1060,7 @@ function projectState(
     workspaceAvailable,
     preview: { status: runnable ? "stopped" : "waiting" },
     ...(metadata.publication ? { publication: metadata.publication } : {}),
+    ...(metadata.appearance ? { appearance: metadata.appearance } : {}),
   };
 }
 
@@ -1144,6 +1224,10 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
   }
 }
 
+function withAppearance(appearance: ProjectAppearance): MetadataChanges {
+  return { appearance: Object.keys(appearance).length ? appearance : undefined, updatedAt: new Date().toISOString() };
+}
+
 /** Validates and normalizes persisted or imported metadata without disk I/O. */
 function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): LoadedMetadata {
   const parsed = value as Partial<ProjectMetadata>;
@@ -1161,7 +1245,8 @@ function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): L
     (parsed.previewViewport === undefined || isPreviewViewport(parsed.previewViewport)) &&
     (parsed.workspacePath === undefined || (typeof parsed.workspacePath === "string" && path.isAbsolute(parsed.workspacePath))) &&
     (parsed.mediaModelDefaults === undefined || validMediaModelDefaults(parsed.mediaModelDefaults)) &&
-    (parsed.publication === undefined || validPublication(parsed.publication))
+    (parsed.publication === undefined || validPublication(parsed.publication)) &&
+    (parsed.appearance === undefined || parseProjectAppearance(parsed.appearance) !== undefined)
   ) {
     const updatedAt = typeof parsed.updatedAt === "string" && Number.isFinite(Date.parse(parsed.updatedAt))
       ? parsed.updatedAt
@@ -1173,6 +1258,7 @@ function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): L
     const previewPath = normalizePreviewPath(parsed.previewPath);
     const previewViewport = parsed.previewViewport;
     const workspacePath = parsed.workspacePath;
+    const appearance = parseProjectAppearance(parsed.appearance);
     return {
       metadata: {
         ...previewSettings(parsed),
@@ -1193,6 +1279,7 @@ function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): L
         ...(workspacePath ? { workspacePath } : {}),
         ...(parsed.publication ? { publication: parsed.publication } : {}),
         ...(parsed.mediaModelDefaults ? { mediaModelDefaults: parsed.mediaModelDefaults } : {}),
+        ...(appearance && Object.keys(appearance).length ? { appearance } : {}),
       },
       missing: parsed.updatedAt !== updatedAt || parsed.type !== type || parsed.startupDirectory !== startupDirectory ||
         parsed.startupScript !== startupScript || parsed.packageManager !== packageManager ||
@@ -1222,6 +1309,7 @@ function metadataFor(project: ProjectState): ProjectMetadata {
     ...(project.mediaModelDefaults ? { mediaModelDefaults: project.mediaModelDefaults } : {}),
     ...(project.workspaceLocation === "external" ? { workspacePath: project.workspacePath } : {}),
     ...(project.publication ? { publication: project.publication } : {}),
+    ...(project.appearance ? { appearance: project.appearance } : {}),
   };
 }
 
@@ -1368,4 +1456,9 @@ function validMediaModelDefaults(value: unknown): value is MediaModelDefaults {
     && Object.keys(ref).every((key) => key === "provider" || key === "id")
     && typeof ref.provider === "string" && ref.provider.trim().length > 0 && ref.provider.length <= 100
     && typeof ref.id === "string" && ref.id.trim().length > 0 && ref.id.length <= 200);
+}
+
+/** A project's name as a folder name on any system. */
+function folderName(name: string): string {
+  return name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").replace(/^[\s.]+|[\s.]+$/g, "").slice(0, 80) || "Untitled";
 }

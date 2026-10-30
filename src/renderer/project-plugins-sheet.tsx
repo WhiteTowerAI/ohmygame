@@ -2,18 +2,19 @@ import { useEffect, useState } from "react";
 import type { ProjectPluginItem, ProjectPluginsView } from "../shared/plugins.js";
 import { consentToPlugin, getProjectPlugins, setProjectPluginVersion } from "./api.js";
 import { t } from "./i18n.js";
-import { SettingsGroup, SettingsRow } from "./settings-parts.js";
+import { PluginIcon } from "./plugin-icons.js";
 import { Alert, Badge, Button, Dialog, Sheet, Skeleton, Switch } from "./ui/index.js";
 
 // A project's plugins. Plugins from the Plugins page are on for every project
 // they work with, so they show here locked; those a project turns on itself
 // are recorded in its `ohmygame.json` and switch here.
-export function ProjectPluginsSheet({ projectId, open, busy, onClose }: {
+export function ProjectPluginsSheet({ projectId, open, busy, onClose, onOpenPlugins }: {
   projectId: string;
   open: boolean;
   /** An agent is working in the project; its plugins wait until it is done. */
   busy: boolean;
   onClose: () => void;
+  onOpenPlugins?: () => void;
 }) {
   const [view, setView] = useState<ProjectPluginsView>();
   const [error, setError] = useState<string>();
@@ -47,33 +48,47 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose }: {
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title={t("projectPlugins.title")}>
+    <Sheet open={open} onClose={onClose} title={t("projectPlugins.title")}
+      footer={onOpenPlugins ? <Button onClick={() => { onClose(); onOpenPlugins(); }}>{t("projectPlugins.manageAll")}</Button> : undefined}>
+      {/* A flat list as in the lab: this project's plugins, then those every project uses. */}
       <div className="project-plugins">
+        <p className="project-plugins-intro">{t("projectPlugins.thisProjectHint")}</p>
         {error ? <Alert tone="danger" title={error} /> : null}
         {busy ? <Alert title={t("projectPlugins.busy")} /> : null}
         {!view && !error ? <Skeleton height={120} /> : null}
         {view ? <>
-          <SettingsGroup title={t("projectPlugins.thisProject")} description={t("projectPlugins.thisProjectHint")}>
+          <section className="project-plugins-section" aria-label={t("projectPlugins.thisProject")}>
+            <div className="project-plugins-count">{t("projectPlugins.onCount", { count: view.plugins.filter((plugin) => plugin.used !== undefined).length })}</div>
             {view.plugins.length ? view.plugins.map((plugin) => (
-              <SettingsRow key={plugin.id} title={plugin.displayName} description={pluginDescription(plugin)}>
-                {plugin.providesType ? <Badge tone="outline">{t("projectPlugins.providesType")}</Badge> : null}
+              <div className="project-plugin" key={plugin.id}>
+                <PluginIcon plugin={plugin} />
+                <span className="project-plugin-text">
+                  <strong>{plugin.displayName}{plugin.providesType ? <Badge tone="outline">{t("projectPlugins.providesType")}</Badge> : null}</strong>
+                  {pluginDescription(plugin) ? <small>{pluginDescription(plugin)}</small> : null}
+                </span>
                 {plugin.used && (plugin.status === "needs-approval" || plugin.status === "needs-consent") ? (
                   <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true)}>{t("projectPlugins.allowHere")}</Button>
                 ) : null}
                 <Switch size="sm" checked={plugin.used !== undefined} label={plugin.displayName}
                   disabled={busy || plugin.providesType || pending !== undefined || (!plugin.used && !plugin.version)}
                   onChange={(on) => void change(plugin, on)} />
-              </SettingsRow>
-            )) : <SettingsRow title={t("projectPlugins.noneInstalled")} description={t("projectPlugins.noneInstalledHint")} />}
-          </SettingsGroup>
-          <SettingsGroup title={t("projectPlugins.everyProject")} description={t("projectPlugins.everyProjectHint")}>
+              </div>
+            )) : <p className="project-plugins-empty"><strong>{t("projectPlugins.noneInstalled")}</strong>{t("projectPlugins.noneInstalledHint")}</p>}
+          </section>
+          {view.global.length ? <section className="project-plugins-section" aria-label={t("projectPlugins.everyProject")}>
+            <div className="project-plugins-count">{t("projectPlugins.everyProject")}</div>
+            <p className="project-plugins-intro">{t("projectPlugins.everyProjectHint")}</p>
             {view.global.map((plugin) => (
-              <SettingsRow key={plugin.id} title={plugin.displayName} description={plugin.description}>
-                <Badge tone="outline">{t("projectPlugins.global")}</Badge>
+              <div className="project-plugin" key={plugin.id}>
+                <PluginIcon plugin={plugin} />
+                <span className="project-plugin-text">
+                  <strong>{plugin.displayName}</strong>
+                  {plugin.description ? <small>{plugin.description}</small> : null}
+                </span>
                 <Switch size="sm" checked label={plugin.displayName} disabled onChange={() => {}} />
-              </SettingsRow>
+              </div>
             ))}
-          </SettingsGroup>
+          </section> : null}
         </> : null}
       </div>
       {consent ? <Dialog open title={t("projectPlugins.consentTitle", { name: consent.displayName })} onClose={() => setConsent(undefined)}

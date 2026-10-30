@@ -196,6 +196,36 @@
   flex: none;
 }
 
+/* A strip whose labels don't fit keeps only icons for the tabs you aren't on. */
+.dock-tabs.is-compact .dock-tab:not(.is-active) {
+  min-width: 0;
+}
+
+.dock-tabs.is-compact .dock-tab:not(.is-active) :is(.dock-tab-label, .dock-tab-close) {
+  display: none;
+}
+
+.dock-tabs.is-compact .dock-tab:not(.is-active) .dock-tab-button {
+  padding: 0 var(--space-2);
+}
+
+/* A lone tab is the area's title: no selected fill, and it closes from its menu. */
+.dock-tabs.is-single .dock-tab.is-active {
+  background: transparent;
+}
+
+.dock-tabs.is-single .dock-tab.is-active:hover {
+  background: var(--color-hover);
+}
+
+.dock-tabs.is-single .dock-tab-close {
+  display: none;
+}
+
+.dock-tabs.is-single .dock-tab-button {
+  padding-right: var(--space-2);
+}
+
 /* A narrow area keeps only icons for the tabs you aren't on, and toolbar
    buttons marked collapsible drop their text. */
 @container dock-area (max-width: 520px) {
@@ -302,28 +332,31 @@
   cursor: row-resize;
 }
 
+/* The same light line as the home sidebar's resizer. */
 .dock-resizer::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: var(--space-2) 0;
   margin: auto;
-  border-radius: 1px;
+  border-radius: 2px;
   background: transparent;
   transition: background var(--duration-fast);
 }
 
 .dock-resizer-left::after,
 .dock-resizer-right::after {
-  width: 2px;
+  width: 3px;
 }
 
 .dock-resizer-bottom::after {
-  height: 2px;
+  inset: 0 var(--space-2);
+  height: 3px;
 }
 
 .dock-resizer:hover::after,
-.dock-resizer:focus-visible::after {
-  background: var(--color-focus);
+.dock-resizer:focus-visible::after,
+.dock-resizer:active::after {
+  background: var(--color-border-strong);
 }
 
 /* drop zones for the sides that have no panels yet */

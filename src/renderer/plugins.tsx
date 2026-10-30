@@ -7,6 +7,7 @@ import {
   BadgeCheck,
   ChevronLeft,
   ChevronRight,
+  CirclePlus,
   ExternalLink,
   FolderPlus,
   FolderOpen,
@@ -17,7 +18,9 @@ import {
   Play,
   Plug,
   Search,
+  Server,
   Sparkles,
+  Store,
   WandSparkles,
 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -34,7 +37,7 @@ import {
   type PluginSettings,
   type PluginSummary,
 } from "../shared/plugins.js";
-import { PROJECT_TYPE_IDS, type ProjectState, type ProjectType } from "../shared/contracts.js";
+import type { ProjectState } from "../shared/contracts.js";
 import { inspectPluginSource, installPlugin, listPlugins, listProjects, readPlugin, readPluginSkill, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
@@ -88,7 +91,6 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   const [tab, setTab] = useState<CatalogTab>("installed");
   const [query, setQuery] = useState("");
   const [source, setSource] = useState<BrowseSource>("all");
-  const [worksWith, setWorksWith] = useState<ProjectType | "all">("all");
   const [adds, setAdds] = useState<PluginContribution | "all">("all");
   const [updating, setUpdating] = useState<string>();
   const [adding, setAdding] = useState<"install">();
@@ -274,19 +276,21 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   const publicPlugins = matching.filter(plugin => pluginCollection(plugin) === "public");
   const personalPlugins = matching.filter(plugin => pluginCollection(plugin) === "personal");
   const browsed = matching.filter(plugin => (source === "all" || pluginCollection(plugin) === source)
-    && (worksWith === "all" || !plugin.projectTypes?.length || plugin.projectTypes.includes(worksWith))
     && (adds === "all" || pluginContributions(plugin).includes(adds)));
+  // Only categories some plugin falls in, so no choice leads to an empty page.
+  const categories = PLUGIN_CONTRIBUTIONS.filter(kind => kind === adds || plugins.some(plugin => pluginContributions(plugin).includes(kind)));
   const skills: SkillEntry[] = skillCatalog
     ? [...skillCatalog.plugins].sort(compareCatalogPlugins).flatMap(plugin => plugin.skills.map(skill => ({ plugin, skill })))
     : [];
   const visibleSkills = skills.filter(({ plugin, skill }) => `${skill.name} ${skill.description ?? ""} ${plugin.displayName}`.toLowerCase().includes(normalizedQuery));
   const addMenuItems: MenuEntry[] = [
-    { label: t("plugins.createWithAi"), description: t("plugins.createWithAiHint"), icon: <Sparkles size={14} />, onSelect: createWithAi },
-    { label: t("plugins.addMcp"), description: t("plugins.addMcpHint"), icon: <Plug size={14} />, onSelect: () => setMcpOpen(true) },
+    { label: t("plugins.browseMarket"), icon: <Store size={14} />, onSelect: () => setTab("browse") },
+    { label: t("plugins.createWithAiMenu"), icon: <Sparkles size={14} />, onSelect: createWithAi },
+    { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => setMcpOpen(true) },
     "separator",
-    ...(typeof window !== "undefined" && window.ohMyGameDesktop ? [{ label: t("plugins.fromFolder"), description: t("plugins.fromFolderHint"), icon: <FolderOpen size={14} />, onSelect: () => void installFromFolder() }] : []),
-    { label: t("plugins.fromGit"), description: t("plugins.fromGitHint"), icon: <GitBranch size={14} />, onSelect: openGitInstallDialog },
-    { label: t("pluginPortability.import"), description: t("pluginPortability.importMenuHint"), icon: <Package size={14} />, onSelect: () => setImportOpen(true) },
+    ...(typeof window !== "undefined" && window.ohMyGameDesktop ? [{ label: t("plugins.fromFolder"), icon: <FolderOpen size={14} />, onSelect: () => void installFromFolder() }] : []),
+    { label: t("plugins.fromGit"), icon: <GitBranch size={14} />, onSelect: openGitInstallDialog },
+    { label: t("pluginPortability.importMenu"), icon: <Package size={14} />, onSelect: () => setImportOpen(true) },
   ];
   const currentDetail = detailResult?.pluginId === pluginId ? detailResult : undefined;
   const detail = currentDetail?.plugin;
@@ -328,13 +332,9 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
         { value: "public", label: t("plugins.officialSource") },
         { value: "personal", label: t("plugins.otherSources") },
       ]} />
-      <Select<ProjectType | "all"> size="sm" label={t("plugins.worksWith")} value={worksWith} onChange={setWorksWith} options={[
-        { value: "all", label: t("plugins.allProjectTypes") },
-        ...PROJECT_TYPE_IDS.map(type => ({ value: type, label: projectTypeLabel(type) })),
-      ]} />
       <Select<PluginContribution | "all"> size="sm" label={t("plugins.addsFilter")} value={adds} onChange={setAdds} options={[
         { value: "all", label: t("plugins.allContributions") },
-        ...PLUGIN_CONTRIBUTIONS.map(kind => ({ value: kind, label: t(`plugins.contributions.${kind}`) })),
+        ...categories.map(kind => ({ value: kind, label: t(`plugins.contributions.${kind}`) })),
       ]} />
     </div>
     {browsed.length ? <div className="plugins-grid">
@@ -412,7 +412,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
       <SidebarPageHeader title={t("plugins.title")} actions={<div className="plugins-toolbar">
         <SearchInput value={query} onChange={setQuery} placeholder={searchCopy.placeholder} label={searchCopy.label} />
         <DropdownMenu placement="bottom-end" items={addMenuItems} trigger={(props) => (
-          <Button {...props} variant="primary" disabled={Boolean(adding)} icon={adding ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />}>{adding ? t("plugins.installing") : t("plugins.add")}</Button>
+          <Button {...props} variant="primary" disabled={Boolean(adding)} icon={adding ? <LoaderCircle className="spin" size={14} /> : <CirclePlus size={14} />}>{adding ? t("plugins.installing") : t("plugins.add")}</Button>
         )} />
       </div>} />
       <Tabs<CatalogTab> variant="pills" label={t("plugins.title")} value={tab} onChange={setTab} tabs={[

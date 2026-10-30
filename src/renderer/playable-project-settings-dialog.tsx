@@ -12,6 +12,7 @@ import { CanvasFormatOptions } from "./canvas-format-options.js";
 import { LoaderCircle } from "./icons.js";
 import { ProjectSettingsDialogFrame } from "./project-settings-dialog.js";
 import { Button } from "./ui/index.js";
+import { ProjectAppearanceSettings } from "./project-appearance-settings.js";
 import { t } from "./i18n.js";
 
 export function PlayableProjectSettingsDialog({
@@ -59,6 +60,7 @@ export function PlayableProjectSettingsDialog({
           <span>{t("projectSettings.project")}</span>
           <strong title={project.name}>{project.name}</strong>
         </section>
+        <ProjectAppearanceSettings project={project} disabled={saving} />
         <fieldset
           className="project-settings-section"
           disabled={saving}

@@ -95,12 +95,12 @@ describe("ModelSelector interaction", () => {
     expect(fetchModels).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps CLI brand icons in group headings and updates the model button when switching agents", async () => {
+  it("shows each provider's logo in its heading and on the model button", async () => {
     const available: AgentModel[] = [
       model,
       { ...model, provider: "codex-cli", providerName: "Codex" },
       { ...model, provider: "claude-code-cli", providerName: "Claude Code" },
-      { ...model, provider: "opencode-cli", providerName: "OpenCode" },
+      { ...model, provider: "custom-1234", providerName: "My Gateway" },
     ];
     function Selector() {
       const [selected, setSelected] = useState(model);
@@ -108,18 +108,18 @@ describe("ModelSelector interaction", () => {
     }
     await act(async () => root.render(<Selector />));
     const trigger = container.querySelector<HTMLButtonElement>(".model-selector-trigger")!;
-    expect(trigger.querySelector("img")).toBeNull();
+    expect(trigger.querySelector("img")?.getAttribute("src")).toBe(PROVIDER_ICONS.openai?.src);
     for (const selected of [...available.slice(1), model]) {
       await act(async () => trigger.click());
-      const headings = [...document.querySelectorAll(".model-selector-provider-name")];
-      expect(headings.map((heading) => heading.textContent)).toEqual(available.map((item) => item.providerName));
-      expect(headings[0].querySelector("img")).toBeNull();
-      expect(headings.slice(1).map((heading) => heading.querySelector("img")?.getAttribute("src")))
-        .toEqual(available.slice(1).map((item) => PROVIDER_ICONS[item.provider]?.src));
+      const headings = [...document.querySelectorAll(".model-picker-heading")];
+      expect(headings.map((heading) => heading.textContent)).toEqual(available.map((item) => item.provider.startsWith("custom") ? `M${item.providerName}` : item.providerName));
+      expect(headings.slice(0, 3).map((heading) => heading.querySelector("img")?.getAttribute("src")))
+        .toEqual(available.slice(0, 3).map((item) => PROVIDER_ICONS[item.provider]?.src));
       await act(async () => document.querySelector<HTMLButtonElement>(`[title="${selected.provider}/${selected.id}"]`)!.click());
       const icon = trigger.querySelector("img");
-      if (selected === model) {
+      if (selected.provider.startsWith("custom")) {
         expect(icon).toBeNull();
+        expect(trigger.querySelector(".provider-mark.is-initial")?.textContent).toBe("M");
       } else {
         expect(icon?.getAttribute("src")).toBe(PROVIDER_ICONS[selected.provider]?.src);
         expect(icon?.getAttribute("width")).toBe("14");
@@ -135,15 +135,14 @@ describe("ModelSelector interaction", () => {
     const onNativeReasoningChange = vi.fn(), onReasoningChange = vi.fn();
     await act(async () => root.render(<ModelSelector models={[native]} value={native} nativeReasoningLevel="low" onChange={() => {}} onReasoningChange={onReasoningChange} onNativeReasoningChange={onNativeReasoningChange} />));
     await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
-    await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
-    const custom = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find((option) => option.textContent === "balanced-custom")!;
+    const custom = [...document.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((option) => option.textContent === "balanced-custom")!;
     expect(custom).toBeDefined();
     await act(async () => custom.click());
     expect(onNativeReasoningChange).toHaveBeenCalledExactlyOnceWith("balanced-custom");
     expect(onReasoningChange).not.toHaveBeenCalled();
   });
 
-  it.each(["chat", "canvas"] as const)("shows the model and reasoning in one button and changes depth through its menu in the %s variant", async (variant) => {
+  it.each(["chat", "canvas"] as const)("shows the model and reasoning in one button and changes depth at the bottom of the picker in the %s variant", async (variant) => {
     const onChange = vi.fn(), onReasoningChange = vi.fn();
     function Selector() {
       const [level, setLevel] = useState<AgentReasoningLevel>("high");
@@ -156,42 +155,29 @@ describe("ModelSelector interaction", () => {
     expect(button.querySelector(".model-selector-reasoning-value")?.textContent).toBe("High");
     await act(async () => button.click());
     expect(document.querySelector('[role="menu"]')?.getAttribute("aria-label")).toBe("Models");
+    expect(document.querySelector('[role="menu"]')?.parentElement?.id).toBe(button.getAttribute("aria-controls"));
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Search models");
-    await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
-    const menu = document.querySelector('[role="menu"]')!;
-    expect(menu.getAttribute("aria-label")).toBe("Reasoning levels");
-    expect(menu.parentElement?.id).toBe(button.getAttribute("aria-controls"));
-    const options = menu.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]');
+    const group = document.querySelector('[role="radiogroup"]')!;
+    expect(group.getAttribute("aria-label")).toBe("Thinking depth");
+    const options = group.querySelectorAll<HTMLButtonElement>('[role="radio"]');
     expect(options).toHaveLength(reasoningModel.reasoningLevels.length);
-    expect(button.getAttribute("aria-expanded")).toBe("true");
-    expect(document.activeElement).toBe(options[2]);
-    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-    expect(document.activeElement).toBe(options[3]);
+    expect(options[2]!.getAttribute("aria-checked")).toBe("true");
     const nextLabel = options[3]!.textContent;
-    await act(async () => (document.activeElement as HTMLButtonElement).click());
+    await act(async () => options[3]!.click());
     expect(onReasoningChange).toHaveBeenCalledExactlyOnceWith("xhigh");
     expect(onChange).not.toHaveBeenCalled();
-    expect(document.querySelector('[role="menu"]')).toBeNull();
-    expect(document.activeElement).toBe(button);
+    // Depth changes keep the picker open, like the lab.
+    expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(button.querySelector(".model-selector-reasoning-value")?.textContent).toBe(nextLabel);
     expect(button.getAttribute("aria-description")).toBe(`Reasoning: ${nextLabel}`);
   });
 
-  it("returns from reasoning with Escape, arrow keys or Back, and restores focus when closing", async () => {
+  it("closes with Escape or a click outside and restores focus", async () => {
     await act(async () => root.render(<ModelSelector models={[reasoningModel]} value={reasoningModel} onChange={() => {}} onReasoningChange={() => {}} />));
     const button = container.querySelector<HTMLButtonElement>("button")!;
     await act(async () => button.click());
-    await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
-    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(document.querySelector('[role="menu"]')?.getAttribute("aria-label")).toBe("Models");
-    expect(document.activeElement).toBe(document.querySelector(".model-selector-reasoning"));
-    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
-    expect(document.querySelector('[role="menu"]')?.getAttribute("aria-label")).toBe("Reasoning levels");
-    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })));
-    expect(document.activeElement).toBe(document.querySelector(".model-selector-reasoning"));
-    await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Back to models"]')!.click());
-    expect(document.activeElement).toBe(document.querySelector(".model-selector-reasoning"));
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(document.activeElement?.getAttribute("role")).toBe("menuitemradio");
     await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(button);
@@ -224,14 +210,13 @@ describe("ModelSelector interaction", () => {
     expect(container.querySelectorAll("button")).toHaveLength(1);
     expect(modelButton.querySelector(".model-selector-reasoning-value")).toBeNull();
     await act(async () => modelButton.click());
-    expect(document.querySelector(".model-selector-reasoning")).toBeNull();
+    expect([...document.querySelectorAll<HTMLButtonElement>('[role="radio"]')].every((option) => option.disabled)).toBe(true);
   });
 
-  it("disables the button and closes an open reasoning menu while the composer is busy", async () => {
+  it("disables the button and closes an open picker while the composer is busy", async () => {
     const props = { models: [reasoningModel], value: reasoningModel, onChange: () => {}, onReasoningChange: () => {} };
     await act(async () => root.render(<ModelSelector {...props} />));
     await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
-    await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
     await act(async () => root.render(<ModelSelector {...props} disabled />));
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect([...container.querySelectorAll<HTMLButtonElement>("button")].every((button) => button.disabled)).toBe(true);

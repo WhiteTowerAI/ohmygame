@@ -204,6 +204,14 @@ export function CodingAgentsGroup({
           </SettingsRow>
         );
       })}
+      {agents ? (
+        <SettingsRow
+          className="settings-agent-row is-coming-soon"
+          icon={<AgentMark id="gemini-cli" />}
+          title={<>Gemini CLI<Badge tone="outline">{t("codingAgents.comingSoon")}</Badge></>}
+          description={t("codingAgents.geminiHint")}
+        />
+      ) : null}
       {error ? (
         <div className="settings-pad">
           <SettingsNote tone="danger">{error}</SettingsNote>
@@ -507,7 +515,7 @@ export function CommandText({ command }: { command: string }) {
   );
 }
 
-export function AgentMark({ id }: { id: AgentRuntimeId }) {
+export function AgentMark({ id }: { id: AgentRuntimeId | "gemini-cli" }) {
   const icon = PROVIDER_ICONS[id];
   return (
     <span className={`settings-mark${icon ? ` is-${icon.tone}` : ""}`} aria-hidden="true">
