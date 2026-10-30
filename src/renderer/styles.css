@@ -5179,22 +5179,7 @@ button {
   z-index: 6;
   width: min(640px, calc(100% - 24px));
   transform: translateX(-50%);
-  box-shadow: var(--shadow-sm, 0 2px 8px rgb(0 0 0 / 0.08));
-}
-
-.story-upgrade-notice .canvas-notice-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.story-upgrade-notice button {
-  flex-shrink: 0;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 5px;
-  background: var(--surface-hover);
-  color: var(--text-secondary);
-  font-size: 11px;
+  box-shadow: var(--shadow-float);
 }
 
 .interactive-story-body {
@@ -5250,12 +5235,7 @@ button {
   left: 50%;
   width: max-content;
   max-width: min(420px, calc(100% - 32px));
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-raised);
-  color: var(--text-secondary);
-  font-size: 11px;
+  box-shadow: var(--shadow-float);
   transform: translateX(-50%);
 }
 
@@ -5346,7 +5326,6 @@ button {
 .canvas-file-import-status { position: absolute; top: 14px; right: 16px; z-index: 6; display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; }
 .canvas-transfer-error { top: 50px; display: flex; align-items: flex-start; gap: 8px; max-height: 160px; overflow: auto; }
 .canvas-transfer-error span { white-space: pre-wrap; overflow-wrap: anywhere; }
-.canvas-transfer-error button { display: grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; padding: 0; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; }
 
 .react-flow__node {
   transition:
