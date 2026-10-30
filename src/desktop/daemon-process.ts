@@ -34,6 +34,8 @@ export interface StartDaemonOptions {
   environment?: NodeJS.ProcessEnv;
   development?: boolean;
   healthTimeoutMs?: number;
+  /** How long `stop` waits for a graceful exit before killing the process tree. */
+  gracefulShutdownTimeoutMs?: number;
   handlePlaytestRequest?: (request: PlaytestRequest, signal: AbortSignal) => Promise<PlaytestResult>;
   resolveSystemProxy?: () => Promise<string>;
   onUnexpectedExit?: (error: Error) => void;
@@ -151,7 +153,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
     ready = true;
   } catch (error) {
     stopped = true;
-    await stopChild(child);
+    await stopChild(child, options.gracefulShutdownTimeoutMs);
     await cleanup();
     throw error;
   }
@@ -164,7 +166,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       stopped = true;
       return stopping = (async () => {
         playtestRequests?.close();
-        await stopChild(child);
+        await stopChild(child, options.gracefulShutdownTimeoutMs);
         await closed;
       })();
     },
@@ -257,14 +259,14 @@ function startupError(message: string, output: string): Error {
   return new Error(detail ? `${message}\n\nDaemon output:\n${detail}` : message);
 }
 
-async function stopChild(child: ChildProcess): Promise<void> {
+async function stopChild(child: ChildProcess, gracefulTimeoutMs = GRACEFUL_SHUTDOWN_TIMEOUT_MS): Promise<void> {
   if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
   // IPC lets Windows close the daemon's services before taskkill. POSIX also
   // supports older daemons through SIGTERM; both paths share the shutdown gate.
   if (child.connected) child.send({ channel: "ohmygame:shutdown" }, () => {});
   if (process.platform !== "win32") child.kill("SIGTERM");
-  if (await exitsWithin(exited, GRACEFUL_SHUTDOWN_TIMEOUT_MS)) return;
+  if (await exitsWithin(exited, gracefulTimeoutMs)) return;
   if (process.platform === "win32") await signalProcessTree(child.pid, true);
   else child.kill("SIGKILL");
   if (!(await exitsWithin(exited, 5_000))) {
