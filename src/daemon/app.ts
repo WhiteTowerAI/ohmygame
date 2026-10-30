@@ -3639,6 +3639,8 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    // Indexing writes to the plugin store and restarts sessions; it finishes before they close.
+    await bundledPluginsV2Indexed;
     catalogRefresh.close();
     await pluginIntegrations.close();
     await externalMcp.close();

@@ -1,11 +1,15 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
+import { PluginServices } from "../src/daemon/plugin-services.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
-afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await Promise.all(apps.splice(0).map((app) => app.close()));
+});
 
 describe("plugin catalog API", () => {
   it("installs a directory plugin enabled by default", async () => {
@@ -25,6 +29,21 @@ describe("plugin catalog API", () => {
     expect(installed.statusCode).toBe(201);
     expect(installed.json()).toMatchObject({ id: "personal:test-plugin", source: { type: "directory" }, enabled: true });
     expect(detail.json()).toMatchObject({ id: "personal:test-plugin", enabled: true });
+  });
+
+  it("finishes indexing the bundled plugins before it closes", async () => {
+    let finishIndexing!: () => void;
+    vi.spyOn(PluginServices.prototype, "addBundled").mockReturnValue(new Promise((resolve) => { finishIndexing = () => resolve([]); }));
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-close-")) });
+    await app.ready();
+
+    let closed = false;
+    const closing = app.close().then(() => { closed = true; });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(closed).toBe(false);
+    finishIndexing();
+    await closing;
+    expect(closed).toBe(true);
   });
 
   it("lists a project's plugins and turns one on there, starting its ohmygame.json", async () => {
