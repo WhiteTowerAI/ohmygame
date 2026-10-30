@@ -83,6 +83,7 @@ const electron = vi.hoisted(() => {
         };
       }),
       capturePage: vi.fn(async () => new FakeImage()),
+      setAudioMuted: vi.fn(),
       isDestroyed: vi.fn(() => this.destroyed),
       mainFrame: {
         frames: this.childFrames,
@@ -133,6 +134,7 @@ describe("electron playtest driver", () => {
     expect(electron.windows[0]?.loadedUrl).toBe("http://127.0.0.1:43123/game?ohmygamePlaytest=1");
     expect(electron.windows[0]?.debugger.attach).toHaveBeenCalledWith("1.3");
     expect(electron.windows[0]?.options.resizable).toBe(true);
+    expect(electron.windows[0]?.webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
     driver.close();
   });
 
@@ -156,7 +158,7 @@ describe("electron playtest driver", () => {
     driver.close();
   });
 
-  it("reveals loaded sessions without focusing and hides them without closing", async () => {
+  it("reveals loaded sessions without focusing and hides and mutes them without closing", async () => {
     const states: Array<{ visible: boolean; activeSessions: number }> = [];
     const driver = new ElectronPlaytestDriver((state) => states.push(state));
     driver.setVisible(true);
@@ -169,12 +171,14 @@ describe("electron playtest driver", () => {
     const window = electron.windows[0]!;
 
     expect(window.showInactive).toHaveBeenCalledOnce();
+    expect(window.webContents.setAudioMuted).toHaveBeenLastCalledWith(false);
     expect(driver.watchState()).toEqual({ visible: true, activeSessions: 1 });
 
     const closeEvent = { preventDefault: vi.fn() };
     window.closeHandler?.(closeEvent);
     expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
     expect(window.hide).toHaveBeenCalledOnce();
+    expect(window.webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
     expect(window.destroyed).toBe(false);
     expect(driver.watchState()).toEqual({ visible: false, activeSessions: 1 });
 
