@@ -59,10 +59,11 @@
   overflow-x: clip;
 }
 
-/* The tabs keep their size; the toolbar beside them gives way first. */
+/* The toolbar beside the tabs starts at no width and takes what they leave, so
+   it gives way first; the tabs shrink and scroll only once it has none left. */
 .dock-tab-list {
   display: flex;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   align-items: center;
   gap: 2px;
   min-width: 0;

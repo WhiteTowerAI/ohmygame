@@ -538,7 +538,7 @@ export class AgentManager {
     // in between waits for that instead of being refused; with no such turn nothing is awaited.
     if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
     if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before cancelling the plan");
-    await this.#getSession(project, conversation);
+    await this.#sessionToChange(project, conversation);
     if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before cancelling the plan");
     this.#setPlanState(project, conversation, { mode: "normal" });
   }
@@ -547,7 +547,7 @@ export class AgentManager {
     const key = conversationKey(project.id, conversation.summary.id);
     if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
     if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before refining the plan");
-    await this.#getSession(project, conversation);
+    await this.#sessionToChange(project, conversation);
     if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before refining the plan");
     const state = this.planState(conversation);
     if (state.mode !== "awaiting_approval" || !state.plan) throw new Error("There is no plan waiting for refinement");
@@ -558,7 +558,7 @@ export class AgentManager {
     const key = conversationKey(project.id, conversation.summary.id);
     if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
     if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before approving the plan");
-    await this.#getSession(project, conversation);
+    await this.#sessionToChange(project, conversation);
     if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before approving the plan");
     if (this.#puttingBack.has(project.id)) throw new Error(PUTTING_BACK);
     if (this.options.checkpoints && this.isProjectBusy(project.id)) throw new Error("Wait for the project agent to finish");
@@ -688,7 +688,7 @@ export class AgentManager {
     if (this.#activeTurns.has(key) || this.#revisions.has(key)) {
       throw new Error("Wait for the agent to finish before compacting the session");
     }
-    const managed = await this.#getSession(project, conversation);
+    const managed = await this.#sessionToChange(project, conversation);
     if (this.#activeTurns.has(key) || this.#revisions.has(key)) {
       throw new Error("Wait for the agent to finish before compacting the session");
     }
@@ -1747,6 +1747,13 @@ export class AgentManager {
     this.#planStates.set(key, state);
     if (persist) appendPlanState(this.#sessions.get(key)?.session.sessionManager, state);
     this.events.publish(project.id, "plan.mode.changed", state, { conversationId: conversation.summary.id });
+  }
+
+  /** A session to change outside a turn. Archiving may have released it while it loaded. */
+  async #sessionToChange(project: ProjectState, conversation: StoredConversation): Promise<ManagedSession> {
+    const managed = await this.#getSession(project, conversation);
+    if (this.#archiving.has(conversationKey(project.id, conversation.summary.id))) throw new Error(ARCHIVING);
+    return managed;
   }
 
   async #getSession(project: ProjectState, conversation: StoredConversation): Promise<ManagedSession> {

@@ -774,6 +774,12 @@ describe("AgentManager", () => {
     moved.resolve();
     await archiving;
     await expect(manager.prompt(project, conversation, "Build").result).resolves.toBe("completed");
+    // Compaction that was loading its session as archiving began stops there.
+    session.compact.mockClear();
+    const compacting = manager.compact(project, conversation);
+    await manager.release(project.id, conversation.summary.id, async () => {});
+    await expect(compacting).rejects.toThrow("This conversation is being archived");
+    expect(session.compact).not.toHaveBeenCalled();
     await manager.close();
   });
 

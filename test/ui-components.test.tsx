@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, StrictMode, useState } from "react";
+import { act, StrictMode, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -7,6 +7,7 @@ import {
   Combobox,
   CommandMenu,
   Dialog,
+  Popover,
   SegmentedControl,
   Select,
   ToastProvider,
@@ -64,6 +65,35 @@ it("opens a dialog, closes it on Escape and returns focus", async () => {
   await key(document, "Escape");
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(document.activeElement).toBe(open);
+});
+
+it("closes a popover on Escape and gives focus back to its anchor only from inside it", async () => {
+  function Example() {
+    const [open, setOpen] = useState(false);
+    const anchor = useRef<HTMLButtonElement>(null);
+    return (
+      <>
+        <button ref={anchor} type="button" onClick={() => setOpen(true)}>History</button>
+        <input aria-label="Elsewhere" />
+        <Popover open={open} onClose={() => setOpen(false)} anchor={anchor} label="Conversations">
+          <input aria-label="Search" />
+        </Popover>
+      </>
+    );
+  }
+  await act(async () => root.render(<Example />));
+  const open = () => act(async () => container.querySelector("button")!.click());
+  await open();
+  const search = document.querySelector<HTMLInputElement>('[aria-label="Search"]')!;
+  search.focus();
+  await key(search, "Escape");
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.activeElement).toBe(container.querySelector("button"));
+  await open();
+  const elsewhere = container.querySelector<HTMLInputElement>('[aria-label="Elsewhere"]')!;
+  elsewhere.focus();
+  await key(elsewhere, "Escape");
+  expect(document.activeElement).toBe(elsewhere);
 });
 
 it("keeps focus in the field being typed in when an inline onClose changes", async () => {

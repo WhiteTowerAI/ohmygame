@@ -85,10 +85,11 @@ function useAnchoredPosition(
 }
 
 /** Closes on Escape and on a pointer press outside both refs. */
+/** Closes on a press outside `refs` or on Escape; `refs[0]` is the anchor, which gets focus back from inside. */
 function useDismiss(
   open: boolean,
   onClose: () => void,
-  refs: RefObject<Element | null>[],
+  refs: RefObject<HTMLElement | null>[],
 ) {
   useEffect(() => {
     if (!open) return;
@@ -100,7 +101,9 @@ function useDismiss(
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.stopPropagation();
+        const focused = refs.some((ref) => ref.current?.contains(document.activeElement));
         onClose();
+        if (focused) refs[0]?.current?.focus();
       }
     };
     document.addEventListener("pointerdown", onPointer, true);
