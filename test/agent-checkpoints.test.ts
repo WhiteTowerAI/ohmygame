@@ -244,6 +244,9 @@ async function studio(steps: Step[], type = "web-game") {
       payload: { name: "Checkpoints", type },
     })
   ).json();
+  // Indexing the bundled plugins ends by dropping the project's idle agent sessions.
+  // This route waits for the indexing, so the drop can't land between a test's turns.
+  await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` });
   const converse = async () =>
     (
       await app.inject({
