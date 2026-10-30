@@ -10,6 +10,7 @@ import type { Model3DOptions, ModelRef, ProjectState } from "../src/shared/contr
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import type { CanvasBoardDetail, CanvasWorkspaceDetail } from "../src/shared/canvas-workspace.js";
 import type { CanvasDocumentDetail } from "../src/shared/canvas-document.js";
+import { createCanvasTable, type CanvasTableDetail } from "../src/shared/canvas-table.js";
 import { desktopSave } from "../src/renderer/desktop-save.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
 import { MODEL3D_CONNECTION_ID, tripoActions } from "../src/shared/model3d-operations.js";
@@ -33,6 +34,7 @@ const api = {
   balance: vi.fn(),
   getBoard: vi.fn<() => Promise<CanvasBoardDetail>>(),
   getWorkspace: vi.fn<() => Promise<CanvasWorkspaceDetail>>(),
+  getTable: vi.fn<(projectId: string, tableId: string) => Promise<CanvasTableDetail>>(),
   saveDocument: vi.fn<(projectId: string, detail: CanvasDocumentDetail, id?: string) => Promise<CanvasDocumentDetail>>(),
   saveBoard:
     vi.fn<
@@ -90,6 +92,7 @@ vi.doMock(path.resolve("src/renderer/canvas-api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/canvas-api.js")>()),
   getCanvasBoard: api.getBoard,
   getCanvasWorkspace: api.getWorkspace,
+  getCanvasTable: api.getTable,
   saveCanvasDocument: api.saveDocument,
   saveCanvasBoard: api.saveBoard,
   listCanvasJobs: async () => [],
@@ -109,6 +112,9 @@ const { CanvasWorkspace } = await import("../src/renderer/canvas-workspace.js");
 const { useCanvasDocuments } = await import("../src/renderer/use-canvas-documents.js");
 let currentDocs: ReturnType<typeof useCanvasDocuments>;
 function DocumentHarness() { currentDocs = useCanvasDocuments("p"); return null; }
+const { useCanvasTables } = await import("../src/renderer/use-canvas-tables.js");
+let currentTables: ReturnType<typeof useCanvasTables>;
+function TableHarness() { const docs = useCanvasDocuments("p"); currentTables = useCanvasTables("p", docs.workspace); return null; }
 const { PlayableEditorWorkspace } =
   await import("../src/renderer/playable-editor-workspace.js");
 const { ApiError } = await import("../src/renderer/api.js");
@@ -209,6 +215,65 @@ it("pauses Canvas polling while the window is hidden and syncs as soon as it ret
   expect(api.getBoard.mock.calls.length).toBeGreaterThan(reads);
   expect(api.getWorkspace.mock.calls.length).toBeGreaterThan(workspaces);
   hidden.mockRestore();
+});
+
+it("keeps the same documents state when a poll finds nothing new", async () => {
+  await act(async () => root.render(<DocumentHarness />));
+  await advance(0);
+  const loaded = currentDocs.workspace;
+  const reads = api.getWorkspace.mock.calls.length;
+  await advance(3000);
+  expect(api.getWorkspace.mock.calls.length).toBeGreaterThan(reads);
+  expect(currentDocs.workspace).toBe(loaded);
+  workspaceDisk.documents[0]!.markdown = "Changed on disk";
+  await advance(3000);
+  expect(currentDocs.workspace?.documents[0]?.markdown).toBe("Changed on disk");
+});
+
+it("retries a failed document save even when later polls find nothing new", async () => {
+  await act(async () => root.render(<DocumentHarness />));
+  await advance(0);
+  api.saveDocument.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+  await act(async () => currentDocs.update("rules", { markdown: "Edited" }));
+  await advance(600);
+  expect(currentDocs.error).toBe("Failed to fetch");
+  await advance(3000);
+  expect(currentDocs.error).toBeUndefined();
+  expect(api.saveDocument).toHaveBeenLastCalledWith("p", expect.objectContaining({ document: expect.objectContaining({ markdown: "Edited" }) }), "rules", expect.anything());
+});
+
+it("waits for a slow retried save before retrying again, and stops after unmount", async () => {
+  await act(async () => root.render(<DocumentHarness />));
+  await advance(0);
+  api.saveDocument.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+  await act(async () => currentDocs.update("rules", { markdown: "Edited" }));
+  await advance(600);
+  let settle!: (cause: Error) => void;
+  api.saveDocument.mockImplementationOnce(() => new Promise((_resolve, reject) => { settle = reject; }));
+  await advance(3000);
+  const pending = api.saveDocument.mock.calls.length;
+  await advance(15_000);
+  expect(api.saveDocument).toHaveBeenCalledTimes(pending);
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  await act(async () => settle(new TypeError("Failed to fetch")));
+  await advance(15_000);
+  expect(api.saveDocument).toHaveBeenCalledTimes(pending);
+});
+
+it("retries a table whose re-read failed even when later polls find nothing new", async () => {
+  const table = createCanvasTable("Items", "items");
+  workspaceDisk.tables = [{ ...table, revision: "a", source: "canvas/tables/items.json" }];
+  await act(async () => root.render(<TableHarness />));
+  await advance(0);
+  workspaceDisk.tables = [{ ...table, title: "External edit", revision: "b", source: "canvas/tables/items.json" }];
+  api.getTable.mockRejectedValueOnce(new Error("Offline"));
+  await advance(3000);
+  expect(currentTables.sessions.get("items")?.issue).toBe("Offline");
+  api.getTable.mockResolvedValue({ table: { ...table, title: "External edit" }, revision: "b" });
+  await advance(6000);
+  expect(currentTables.sessions.get("items")?.issue).toBeUndefined();
+  expect(currentTables.sessions.get("items")?.local.title).toBe("External edit");
 });
 
 it("does not claim a successful flush when a document draft has lost its workspace file", async () => {

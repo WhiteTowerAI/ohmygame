@@ -175,6 +175,27 @@ describe("AgentTimeline", () => {
     expect(html.indexOf("I will write the game files.")).toBeLessThan(html.indexOf("Thinking"));
   });
 
+  it("shows Thinking once live text stalls for a second while the elapsed time keeps counting", async () => {
+    vi.useFakeTimers();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<AgentTimeline items={[
+      user(),
+      { ...assistant("commentary", "I will write the game files."), status: "inProgress", phase: undefined },
+    ]} activeTurnId="turn-1" />));
+    expect(container.textContent).not.toContain("Thinking");
+    expect(container.textContent).toContain("Working for 1s");
+    await act(async () => { vi.advanceTimersByTime(1_000); });
+    expect(container.textContent).toContain("Thinking");
+    expect(container.textContent).toContain("Working for 2s");
+    await act(async () => { vi.advanceTimersByTime(3_000); });
+    expect(container.textContent).toContain("Working for 5s");
+    act(() => root.unmount());
+    container.remove();
+    vi.useRealTimers();
+  });
+
   it("keeps unclassified text in the stable Working container until its phase is known", () => {
     const streaming = renderToStaticMarkup(<AgentTimeline items={[
       user(),
