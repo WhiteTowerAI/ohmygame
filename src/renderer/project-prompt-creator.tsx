@@ -410,7 +410,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
         onDropError={(cause) => setError(cause.message)}
       />
       {error ? <p className="home-notice" role="alert">{error}</p> : null}
-      {typePending && pluginTypesFailed ? (
+      {pluginTypesFailed ? (
         <p className="home-notice" role="alert">
           {t("createDialog.pluginsFailed")}{" "}
           <Button size="sm" variant="ghost" onClick={retryPluginTypes}>{t("common.retry")}</Button>

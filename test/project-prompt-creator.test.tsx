@@ -257,6 +257,14 @@ describe("Home prompt box", () => {
     expect(typePicker().textContent).toBe("Tile Map");
   });
 
+  it("offers a retry when plugins' types fail to load while an app type is chosen", async () => {
+    typesFail = 1;
+    await render();
+    const retry = [...container.querySelectorAll<HTMLButtonElement>(".home-notice button")].find((item) => item.textContent === "Retry")!;
+    await act(async () => retry.click());
+    expect(container.querySelector(".home-notice")).toBeNull();
+  });
+
   it("offers a retry when the plugins a project can turn on fail to load", async () => {
     choicesFail = 1;
     await render();
