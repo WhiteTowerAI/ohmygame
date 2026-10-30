@@ -2,7 +2,7 @@ import { isAccountRuntimeId, type AccountRuntimeId, type AccountProfileIds } fro
 import path from "node:path";
 import { mkdir, readdir, rename, rm } from "node:fs/promises";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { AgentModelRef, AgentReasoningLevel, ConversationSummary, PlanSessionState, ProjectState } from "../shared/contracts.js";
+import type { AgentModelRef, AgentReasoningLevel, AgentResponseStats, ConversationSummary, PlanSessionState, ProjectState } from "../shared/contracts.js";
 import { parseReasoningLevel } from "../shared/reasoning.js";
 import { ConversationCache, type ConversationInfo } from "./conversation-cache.js";
 import type { ConversationImageStore } from "./conversation-images.js";
@@ -187,6 +187,28 @@ export class ConversationManager {
 
   setModel(project: ProjectState, stored: StoredConversation, model: AgentModelRef): void {
     this.open(project, stored).appendModelChange(model.provider, model.id);
+  }
+
+  /**
+   * The latest response's speed and cache use, and the context it filled,
+   * from the usage its provider reported. Context counts only until the
+   * conversation is compacted after it.
+   */
+  async lastResponse(project: ProjectState, stored: StoredConversation): Promise<(AgentResponseStats & { contextTokens?: number }) | undefined> {
+    const branch = (await this.view(project, stored)).getBranch();
+    const index = branch.findLastIndex((entry) => entry.type === "message" && entry.message.role === "assistant" && Boolean(entry.message.usage?.output));
+    const entry = branch[index];
+    if (entry?.type !== "message" || entry.message.role !== "assistant") return undefined;
+    const { usage, timestamp } = entry.message;
+    const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
+    const seconds = (Date.parse(entry.timestamp) - timestamp) / 1000;
+    const compacted = branch.slice(index + 1).some((later) => later.type === "compaction");
+    return {
+      outputTokens: usage.output,
+      ...(seconds >= 0.5 ? { tokensPerSecond: Math.round(usage.output / seconds) } : {}),
+      ...(prompt > 0 ? { cacheHitPercent: Math.round((usage.cacheRead / prompt) * 100) } : {}),
+      ...(compacted ? {} : { contextTokens: prompt + usage.output }),
+    };
   }
 
   async reasoningLevel(project: ProjectState, stored: StoredConversation): Promise<AgentReasoningLevel | undefined> {

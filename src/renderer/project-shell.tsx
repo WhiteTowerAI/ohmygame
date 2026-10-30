@@ -613,9 +613,9 @@ export function ProjectShell({
     }
   }
 
-  async function currentContextUsage(): Promise<AgentContextUsage | undefined> {
+  async function currentContextUsage(passive = false): Promise<AgentContextUsage | undefined> {
     if (!project || !conversation) return undefined;
-    return getConversationContextUsage(project.id, conversation.id);
+    return getConversationContextUsage(project.id, conversation.id, passive);
   }
 
   async function executePlan(): Promise<boolean> {

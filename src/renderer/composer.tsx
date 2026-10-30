@@ -18,6 +18,7 @@ import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { composerDrafts, type ComposerDraft } from "./composer-drafts.js";
 import { t } from "./i18n.js";
 import type { AgentContextUsage } from "../shared/contracts.js";
+import { ComposerStatus } from "./composer-status.js";
 import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
 import { LIMIT_RESUME_PROMPT, limitResumeAt } from "./limit-resume.js";
 
@@ -49,7 +50,8 @@ interface ComposerProps {
   onInitialDraftHandled?: () => void;
   onSubmit: (prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[], references: PromptReference[], contexts: PromptContext[]) => Promise<boolean>;
   onCompact: (instructions?: string) => Promise<void>;
-  onContextUsage: () => Promise<AgentContextUsage | undefined>;
+  /** `passive` reads what is known without loading the agent's session. */
+  onContextUsage: (passive?: boolean) => Promise<AgentContextUsage | undefined>;
   onCancelPlan: () => Promise<boolean>;
   onModelChange: (model: AgentModel) => void;
   onReasoningChange: (level: AgentReasoningLevel) => void;
@@ -331,6 +333,16 @@ export function Composer({
     return () => { disposed = true; };
   }, [showCompactCommand, running, modelStatus, model?.provider, model?.id, conversationId, accountProfileId, contextMenu.open]);
 
+  // The status line under the composer follows each finished response.
+  const [statusUsage, setStatusUsage] = useState<AgentContextUsage>();
+  useEffect(() => {
+    if (!conversationId || running) return;
+    let disposed = false;
+    void onContextUsage(true).then((usage) => { if (!disposed) setStatusUsage(usage); }).catch(() => {});
+    return () => { disposed = true; };
+  }, [conversationId, running, model?.provider, model?.id]);
+  useEffect(() => setStatusUsage(undefined), [conversationId]);
+
   useEffect(() => {
     if (resumeArmedAt === undefined) return;
     // The conversation moved on (a new turn started or the failure is no longer last), so the offer no longer applies.
@@ -517,6 +529,7 @@ export function Composer({
         value={prompt}
         variant="project"
       />
+      <ComposerStatus usage={runtimeUsage ?? statusUsage} />
     </div>
   );
 }

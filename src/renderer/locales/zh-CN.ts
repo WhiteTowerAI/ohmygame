@@ -1565,6 +1565,16 @@ const zhCN: typeof en = {
     otherClients: "DeepSeek Harness 和其他 MCP 客户端",
     skill: "Skill（可选）· 复制到 ~/.claude/skills 或 ~/.agents/skills",
   },
+  composerStatus: {
+    label: "对话状态",
+    details: "上下文和用量",
+    speed: "{{value}} tok/s",
+    speedHint: "最近一次回复的生成速度",
+    cache: "缓存命中 {{percent}}%",
+    cacheHint: "最近一次请求里由服务商缓存提供的提示词比例",
+    contextUsed: "上下文已用 {{percent}}%",
+    lastResponse: "最近一次回复生成了 {{tokens}} tokens。",
+  },
   agentUsage: {
     title: "额度",
     window: "额度",

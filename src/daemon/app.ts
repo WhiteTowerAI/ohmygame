@@ -28,7 +28,7 @@ import Fastify, { LogController, type FastifyReply, type FastifyRequest } from "
 import { daemonLoggerOptions, logFailedRequests } from "./request-log.js";
 import { ActivityLog } from "./activity-log.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { buildsWebPreview, isWebRuntimeProjectType, pluginProjectType, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
@@ -3338,7 +3338,7 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.get<{ Params: { projectId: string; conversationId: string } }>(
+  app.get<{ Params: { projectId: string; conversationId: string }; Querystring: { passive?: string } }>(
     "/projects/:projectId/conversations/:conversationId/context-usage",
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
@@ -3346,12 +3346,19 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       try {
-        const provider = (await conversations.model(project, conversation))?.provider;
+        const model = await conversations.model(project, conversation);
+        const provider = model?.provider;
         const native = isAgentRuntimeId(provider);
-        // Displaying native usage must not create a session or probe the selected account.
-        const usage = await agents.contextUsage(project, conversation, { loadSession: !native });
+        // Displaying native usage must not create a session or probe the
+        // selected account; the composer's status line never loads a session.
+        const usage = await agents.contextUsage(project, conversation, { loadSession: !native && request.query.passive !== "1" });
         const limits = native ? agentRuntimes.cachedLimits(provider, isAccountRuntimeId(provider) ? await conversations.accountProfileId(project, conversation, provider) : undefined) : undefined;
-        return { contextUsage: usage ?? (limits?.length ? { tokens: null, contextWindow: 0, percent: null, limits } : undefined) };
+        const { contextTokens, ...lastResponse } = await conversations.lastResponse(project, conversation) ?? {};
+        // Without a session, the latest response tells how full the context is.
+        const contextWindow = !usage && contextTokens && model && !native ? (await availableModel(model.provider, model.id))?.contextWindow : undefined;
+        const estimated = contextWindow ? { tokens: contextTokens!, contextWindow, percent: (contextTokens! / contextWindow) * 100 } : undefined;
+        const base: AgentContextUsage | undefined = usage ?? estimated ?? (limits?.length || "outputTokens" in lastResponse ? { tokens: null, contextWindow: 0, percent: null } : undefined);
+        return { contextUsage: base && { ...base, ...(limits?.length && !base.limits ? { limits } : {}), ...("outputTokens" in lastResponse ? { lastResponse } : {}) } };
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }

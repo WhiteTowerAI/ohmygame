@@ -1210,8 +1210,9 @@ export async function compactConversation(projectId: string, conversationId: str
   });
 }
 
-export async function getConversationContextUsage(projectId: string, conversationId: string): Promise<AgentContextUsage | undefined> {
-  const result = await request<{ contextUsage?: AgentContextUsage }>(`/projects/${projectId}/conversations/${conversationId}/context-usage`);
+/** `passive` reads what is known without loading the conversation's agent session. */
+export async function getConversationContextUsage(projectId: string, conversationId: string, passive = false): Promise<AgentContextUsage | undefined> {
+  const result = await request<{ contextUsage?: AgentContextUsage }>(`/projects/${projectId}/conversations/${conversationId}/context-usage${passive ? "?passive=1" : ""}`);
   return result.contextUsage;
 }
 

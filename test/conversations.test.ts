@@ -241,6 +241,25 @@ describe("ConversationManager", () => {
     expect(restored.getBranch().filter((entry) => entry.type === "message")).toHaveLength(2);
   });
 
+  it("reports the latest response's speed, cache hits and context until it is compacted", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const session = SessionManager.create(project.workspacePath, sessionDirectory(project));
+    session.appendMessage({ role: "user", content: "Add a pause menu", timestamp: Date.now() } as never);
+    const stored = { summary: { id: session.getSessionId() } as never, sessionPath: session.getSessionFile()! };
+    expect(await conversations.lastResponse(project, stored)).toBeUndefined();
+    session.appendMessage({
+      role: "assistant", content: [{ type: "text", text: "Done" }], stopReason: "stop",
+      usage: { input: 1500, output: 420, cacheRead: 9300, cacheWrite: 0, totalTokens: 11220, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      timestamp: Date.now() - 5000,
+    } as never);
+    const last = await conversations.lastResponse(project, stored);
+    expect(last).toMatchObject({ outputTokens: 420, cacheHitPercent: 86, contextTokens: 11220 });
+    expect(last?.tokensPerSecond).toBeGreaterThan(70);
+    session.appendCompaction("Summary", session.getLeafId()!, 11220);
+    expect(await conversations.lastResponse(project, stored)).not.toHaveProperty("contextTokens");
+  });
+
   it("normalizes deterministic fallback titles", () => {
     expect(defaultConversationTitle("   ")).toBe("New conversation");
     expect(defaultConversationTitle("hello\n    world")).toBe("hello world");

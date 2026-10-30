@@ -1586,6 +1586,16 @@ const en = {
     otherClients: "DeepSeek Harness and other MCP clients",
     skill: "Skill (optional) · copy into ~/.claude/skills or ~/.agents/skills",
   },
+  composerStatus: {
+    label: "Conversation status",
+    details: "Context and usage",
+    speed: "{{value}} tok/s",
+    speedHint: "How fast the latest response was written",
+    cache: "Cache hit {{percent}}%",
+    cacheHint: "How much of the latest prompt the provider's cache served",
+    contextUsed: "Context used {{percent}}%",
+    lastResponse: "The latest response wrote {{tokens}} tokens.",
+  },
   agentUsage: {
     title: "Usage limits",
     window: "Limit",
