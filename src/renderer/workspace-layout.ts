@@ -24,7 +24,7 @@ const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
   general: ["chat", "game", "design", "canvas", "code", "assets"],
   "godot-game": ["chat", "game", "design", "canvas", "code", "assets"],
   "interactive-story": ["chat", "story", "design", "canvas", "code", "assets"],
-  "asset-canvas": ["chat", "canvas"],
+  "asset-canvas": ["chat", "canvas", "code"],
 };
 
 /** The panels a project offers: its type's, less the game where it has no preview. */
@@ -50,7 +50,9 @@ const area = (panels: WorkspacePanel[], size: number): AreaState => ({ panels, a
  */
 export function presetLayout(preset: Preset, offered: readonly WorkspacePanel[]): Layout {
   let middle = offered.filter((panel) => homeOf(panel) === "center");
-  const first: WorkspacePanel | undefined = preset === "art" ? "canvas" : preset === "code" || !middle.some((panel) => panel === "game" || panel === "story") ? "code" : undefined;
+  // A project with nothing to play opens on its code, unless it is a canvas.
+  const playable = middle.some((panel) => panel === "game" || panel === "story");
+  const first: WorkspacePanel | undefined = preset === "art" ? "canvas" : preset === "code" || (!playable && offered.includes("design")) ? "code" : undefined;
   if (first && middle.includes(first)) middle = [first, ...middle.filter((panel) => panel !== first)];
   return {
     left: area(offered.filter((panel) => homeOf(panel) === "left"), 380),

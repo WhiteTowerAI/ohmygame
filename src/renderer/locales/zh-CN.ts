@@ -2484,10 +2484,6 @@ const zhCN: typeof en = {
     boardOptions: "画板选项：{{name}}",
     assetCanvasWorkspace: "素材画布工作区",
     designWorkspace: "设计工作区",
-    tab: {
-      canvas: "画布",
-    },
-    workspaceMode: "工作区模式",
     actionFailed: "无法完成这个操作。",
     reconnectFailed: "无法重新连接，画布仍处于打开状态。",
     retrySyncAction: "重试同步",

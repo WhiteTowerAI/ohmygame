@@ -2535,10 +2535,6 @@ const en = {
     boardOptions: "Board options: {{name}}",
     assetCanvasWorkspace: "Asset Canvas workspace",
     designWorkspace: "Design workspace",
-    tab: {
-      canvas: "Canvas",
-    },
-    workspaceMode: "Workspace mode",
     actionFailed: "Could not complete this action.",
     reconnectFailed: "Could not reconnect. Your canvas is still open.",
     retrySyncAction: "Retry sync",

@@ -98,7 +98,7 @@ import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { ProjectAppearanceDialog } from "./project-appearance-settings.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
-import { CodingWorkspace } from "./coding-workspace.js";
+import { CodingWorkspace, WorkspaceCodeView } from "./coding-workspace.js";
 import { PlayableEditorWorkspace, type StoryView } from "./playable-editor-workspace.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
@@ -277,8 +277,10 @@ export function ProjectShell({
   // route's design view is the canvas, which it brings forward, and the route
   // follows it.
   const story = offered.includes("story");
-  const coding = offered.includes("code") && !story;
-  const panelled = offered.includes("code");
+  // An asset canvas is the canvas, with its files in a Code panel beside it.
+  const canvasOnly = state.project?.type === "asset-canvas";
+  const coding = offered.includes("code") && !story && !canvasOnly;
+  const panelled = offered.includes("code") && !canvasOnly;
   const designShown = visible.includes("canvas");
   useEffect(() => { if (view === "design" && panelled) revealPanel("canvas"); }, [view, panelled]);
   useEffect(() => {
@@ -961,12 +963,11 @@ export function ProjectShell({
   const publishButton = project ? publishAction(project, { publishing, agentBusy }) : undefined;
 
   // The code panel opens the file, and comes back if it was closed. A game's
-  // workspace brings it forward itself; the canvas shows its code view first.
+  // workspace brings it forward itself.
   const openWorkspaceFile = useCallback((path: string): void => {
-    if (story) revealPanel("code");
-    else if (!panelled && offered.includes("canvas")) revealPanel("canvas");
+    if (story || canvasOnly) revealPanel("code");
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
-  }, [story, panelled, offered.includes("canvas")]);
+  }, [story, canvasOnly]);
   const addToChat = useCallback((text: string) => {
     if (!conversation) return;
     composerDrafts.get({ projectId, conversationId: conversation.id }).update({ reference: { text } });
@@ -1302,12 +1303,13 @@ export function ProjectShell({
       /> : createPortal(<Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
-        workspaceRevision={workspaceRevision}
-        openFileRequest={openFileRequest}
         onSaveReady={registerDesignSave}
         onContextChange={setDesignContext}
         headerActionsTarget={nodes.canvas.toolbar}
       /></Suspense>, nodes.canvas.body)}
+      {project && canvasOnly && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={t("workspace.tab.code")}>
+        <WorkspaceCodeView projectId={project.id} revision={workspaceRevision} openFileRequest={openFileRequest} />
+      </main>, nodes.code.body) : null}
       </ErrorBoundary>
     </ProjectFrame>
     </>
