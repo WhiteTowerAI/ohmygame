@@ -2976,6 +2976,20 @@ select.settings-search-input {
   gap: var(--space-2);
 }
 
+.project-appearance-library {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.project-appearance-library-toggle svg {
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.project-appearance-library-toggle.is-open svg {
+  transform: rotate(180deg);
+}
+
 .project-appearance-tone {
   width: 22px;
   height: 22px;

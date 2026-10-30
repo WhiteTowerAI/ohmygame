@@ -11,7 +11,7 @@ import {
   setProjectLogo,
 } from "./api.js";
 import { refreshRecentProject } from "./app-sidebar.js";
-import { LoaderCircle, Upload } from "./icons.js";
+import { ChevronDown, LoaderCircle, Upload } from "./icons.js";
 import { imageToLogo, imageToWebP } from "./image.js";
 import { PROJECT_ICON_SYMBOLS, ProjectPlaceholder } from "./project-placeholder.js";
 import { Button, Dialog, SegmentedControl } from "./ui/index.js";
@@ -37,6 +37,9 @@ export function ProjectAppearanceSettings({ project, disabled = false, standalon
   const [coverMode, setCoverMode] = useState<ProjectCoverMode>();
   const [coverUrl, setCoverUrl] = useState<string>();
   const [logoUrl, setLogoUrl] = useState<string>();
+  // The default icons and colours fold away until asked for.
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const libraryId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const appearance = current.appearance ?? {};
@@ -138,6 +141,8 @@ export function ProjectAppearanceSettings({ project, disabled = false, standalon
             <span>{t("projectAppearance.iconHint")}</span>
           </div>
           <div className="project-appearance-actions">
+            <Button size="sm" variant="ghost" className={`project-appearance-library-toggle${libraryOpen ? " is-open" : ""}`} aria-expanded={libraryOpen} aria-controls={libraryId}
+              icon={<ChevronDown size={14} />} onClick={() => setLibraryOpen((open) => !open)}>{t("projectAppearance.library")}</Button>
             <Button size="sm" icon={<Upload size={14} />} onClick={() => logoInput.current?.click()}>{t("projectAppearance.upload")}</Button>
             {appearance.logo || appearance.icon || appearance.tone !== undefined
               ? <Button size="sm" variant="ghost" onClick={resetIcon}>{t("projectAppearance.reset")}</Button>
@@ -148,6 +153,7 @@ export function ProjectAppearanceSettings({ project, disabled = false, standalon
             event.target.value = "";
           }} />
         </div>
+        {libraryOpen ? <div id={libraryId} className="project-appearance-library">
         <div className="project-appearance-icons" role="radiogroup" aria-label={t("projectAppearance.library")}>
           {PROJECT_ICONS.map((icon) => {
             const Symbol = PROJECT_ICON_SYMBOLS[icon];
@@ -168,6 +174,7 @@ export function ProjectAppearanceSettings({ project, disabled = false, standalon
               onClick={() => chooseTone(tone)} />
           ))}
         </div>
+        </div> : null}
         <div className="project-appearance-row project-appearance-cover-row">
           <span className="project-appearance-cover" aria-hidden="true">
             {coverUrl ? <img src={coverUrl} alt="" /> : <ProjectPlaceholder projectId={current.id} appearance={appearance} size={26} />}

@@ -1279,7 +1279,7 @@ const en = {
     menu: "Appearance…",
     title: "Appearance",
     icon: "Icon",
-    iconHint: "Shown in the sidebar. Upload a square image or pick one below.",
+    iconHint: "Shown in the sidebar. Upload a square image or pick one of the default icons.",
     upload: "Upload",
     reset: "Reset",
     library: "Default icons",

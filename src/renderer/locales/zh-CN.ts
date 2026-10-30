@@ -1260,7 +1260,7 @@ const zhCN: typeof en = {
     menu: "外观…",
     title: "外观",
     icon: "图标",
-    iconHint: "显示在侧栏。上传一张方形图片，或从下面选一个。",
+    iconHint: "显示在侧栏。上传一张方形图片，或从默认图标里选一个。",
     upload: "上传",
     reset: "恢复默认",
     library: "默认图标",
