@@ -808,6 +808,7 @@ const zhCN: typeof en = {
     noStarterHint: "只按提示词开始",
     projectPlugins: "只在这个项目开启",
     noProjectPlugins: "还没有可以只在一个项目里开启的插件。",
+    projectPluginsFailed: "无法加载可在项目里开启的插件。",
     browsePlugins: "浏览插件",
     ideas: {
       web: {

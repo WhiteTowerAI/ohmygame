@@ -241,6 +241,21 @@ describe("new project dialog", () => {
     expect(button("Create and start").disabled).toBe(false);
   });
 
+  it("creates an app type chosen here even when plugins' types failed to load", async () => {
+    listProjectTypes.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => typeSelect().click());
+    const web = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.startsWith("Web Game"))!;
+    await act(async () => web.click());
+    expect(button("Create and start").disabled).toBe(false);
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalledWith({ type: "web-game" });
+  });
+
   it("turns on the Godot plugin chosen on Home in the app's Godot type, which does not turn it on", async () => {
     capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] };
     const godotV2 = { id: "ohmygame/godot", displayName: "Godot", description: "", version: "1.0.0", capabilities: [], consented: true, providesTypes: ["ohmygame/godot:godot-game"] };

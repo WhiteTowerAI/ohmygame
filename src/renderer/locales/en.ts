@@ -823,6 +823,7 @@ const en = {
     noStarterHint: "Start from the prompt alone",
     projectPlugins: "On in this project only",
     noProjectPlugins: "No plugins can be turned on for one project yet.",
+    projectPluginsFailed: "Couldn't load the plugins a project can turn on.",
     browsePlugins: "Browse plugins",
     ideas: {
       web: {

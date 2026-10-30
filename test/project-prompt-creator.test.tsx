@@ -25,12 +25,13 @@ let projectPlugins: ProjectPluginChoice[];
 let pendingTypes: Promise<never> | undefined;
 let pendingCapabilities: Promise<ConversationCapabilities> | undefined;
 let typesFail = 0;
+let choicesFail = 0;
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   waitForRuntime: async () => undefined,
   getHomeComposerCapabilities: async () => pendingCapabilities ?? capabilities,
   listModels: async () => ({ models: [] }),
-  listProjectPluginChoices: async () => projectPlugins,
+  listProjectPluginChoices: async () => choicesFail-- > 0 ? Promise.reject(new Error("offline")) : projectPlugins,
   listProjectTypes: async () => typesFail-- > 0 ? Promise.reject(new Error("offline")) : pendingTypes ?? [
     { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: { id: "ohmygame/godot", version: "1.0.0" } },
     { id: "acme/tiles:tile-map", title: "Tile Map", plugin: { id: "acme/tiles", version: "2.1.0" } },
@@ -62,6 +63,7 @@ beforeEach(() => {
   pendingTypes = undefined;
   pendingCapabilities = undefined;
   typesFail = 0;
+  choicesFail = 0;
   window.location.hash = "";
   onSubmit.mockReset();
   draftKey = `test-${crypto.randomUUID()}`;
@@ -253,6 +255,16 @@ describe("Home prompt box", () => {
     await act(async () => retry.click());
     expect(container.querySelector(".home-notice")).toBeNull();
     expect(typePicker().textContent).toBe("Tile Map");
+  });
+
+  it("offers a retry when the plugins a project can turn on fail to load", async () => {
+    choicesFail = 1;
+    await render();
+    await act(async () => pluginButton().click());
+    expect(document.querySelector(".home-plugin-empty")!.textContent).toContain("Couldn't load the plugins");
+    const retry = [...document.querySelectorAll<HTMLButtonElement>(".home-plugin-empty button")].find((item) => item.textContent === "Retry")!;
+    await act(async () => retry.click());
+    expect(menuItem("Tiles")).toBeDefined();
   });
 
   it("keeps No plugin when the person picks it before plugins load", async () => {

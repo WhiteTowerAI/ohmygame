@@ -15,13 +15,16 @@ type Plugin = ConversationCapabilities["plugins"][number];
  * project alone. A plugin that asks for more than files is allowed here,
  * before it is chosen, as in the project's own Plugins sheet.
  */
-export function HomePluginMenu({ starters, starter, onStarter, choices, selected, onSelected, disabled }: {
+export function HomePluginMenu({ starters, starter, onStarter, choices, selected, onSelected, failed = false, onRetry, disabled }: {
   starters: readonly Plugin[];
   starter?: Plugin;
   onStarter: (id: string | undefined) => void;
   choices: readonly ProjectPluginChoice[];
   selected: readonly string[];
   onSelected: (ids: string[]) => void;
+  /** The plugins a project can turn on failed to load. */
+  failed?: boolean;
+  onRetry?: () => void;
   disabled?: boolean;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
@@ -70,7 +73,10 @@ export function HomePluginMenu({ starters, starter, onStarter, choices, selected
               <PluginRow key={choice.id} role="menuitemcheckbox" checked={selected.includes(choice.id)} title={choice.displayName} detail={choice.description}
                 icon={<Package size={16} />} onClick={() => toggle(choice)} />
             ))}
-            {!choices.length ? <p className="home-plugin-empty">
+            {failed ? <p className="home-plugin-empty" role="alert">
+              {t("home.projectPluginsFailed")}{" "}
+              <Button size="sm" variant="ghost" onClick={onRetry}>{t("common.retry")}</Button>
+            </p> : !choices.length ? <p className="home-plugin-empty">
               {t("home.noProjectPlugins")}{" "}
               <a href={pluginHash()} onClick={() => setOpen(false)}>{t("home.browsePlugins")}</a>
             </p> : null}

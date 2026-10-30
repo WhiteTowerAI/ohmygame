@@ -80,7 +80,8 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   // until plugins' types load, sending waits rather than sending another type.
   const typePending = !isAppProjectType(savedType) && loadedPluginTypes === undefined;
   const type = isAppProjectType(savedType) || typePending || pluginTypes.some((option) => option.id === savedType) ? savedType : DEFAULT_TYPE;
-  const projectPluginChoices = useProjectPluginChoices().choices ?? [];
+  const { choices: loadedPluginChoices, failed: pluginChoicesFailed, retry: retryPluginChoices } = useProjectPluginChoices();
+  const projectPluginChoices = loadedPluginChoices ?? [];
   const [projectPluginIds, setProjectPluginIds] = useState<string[]>([]);
   const [mentionCursor, setMentionCursor] = useState(0);
   const [savingDefaults, setSavingDefaults] = useState(false);
@@ -342,6 +343,8 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
               choices={projectPlugins}
               selected={projectPluginIds.filter((id) => projectPlugins.some((plugin) => plugin.id === id))}
               onSelected={setProjectPluginIds}
+              failed={pluginChoicesFailed}
+              onRetry={retryPluginChoices}
               disabled={creating}
             />
             <ModelSelector

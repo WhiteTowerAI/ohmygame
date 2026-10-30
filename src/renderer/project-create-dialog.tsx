@@ -100,6 +100,8 @@ export function ProjectCreateDialog({
   const type: string = offered(chosenType) ? chosenType
     : offered(preferred) ? preferred
     : pluginProjectType(isAppProjectType(preferred) ? preferred : initialType, referenced) ?? referenced.find((plugin) => plugin.projectTypes?.length)?.projectTypes?.[0] ?? types[0]?.value ?? initialType;
+  // The type asked for: the person's choice here, else Home's. Only a plugin's waits for plugins' types.
+  const wanted = chosenType ?? preferred;
   // A plugin's type is recorded as a general project that its plugin runs.
   const kind: ProjectType = isAppProjectType(type) ? type : "general";
   // The plugin that adds the type turns on with the project, so creating allows what it asks for.
@@ -110,7 +112,7 @@ export function ProjectCreateDialog({
   const typePluginConsent = typePlugin && !typePlugin.consented ? typePlugin : undefined;
   // Home's plugin type and that type's plugin load apart from the plugins.
   const ready = pluginsPhase === "ready"
-    && (isAppProjectType(preferred) || installedPluginTypes.types !== undefined)
+    && (isAppProjectType(wanted) || installedPluginTypes.types !== undefined)
     && (isAppProjectType(type) || pluginChoices !== undefined);
   const [workspacePath, setWorkspacePath] = useState(initialWorkspacePath);
   // Settings → General → Project location, where a project without a chosen folder goes.
@@ -291,7 +293,7 @@ export function ProjectCreateDialog({
             {onOpenProject ? <Button size="sm" onClick={() => onOpenProject(existingProject.id)}>{t("creator.openProject")}</Button> : null}
           </p>
         ) : null}
-        {(installedPluginTypes.failed && !isAppProjectType(preferred)) || (pluginChoicesFailed && !isAppProjectType(type)) ? (
+        {(installedPluginTypes.failed && !isAppProjectType(wanted)) || (pluginChoicesFailed && !isAppProjectType(type)) ? (
           <p className="new-project-error" role="alert">
             {t("createDialog.pluginsFailed")}
             <Button size="sm" onClick={() => {
