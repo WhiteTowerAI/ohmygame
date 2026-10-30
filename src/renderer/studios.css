@@ -128,17 +128,22 @@
   opacity: 1;
 }
 .studio-templates .home-effect-template-card .home-explore-cover {
-  background: #111a36;
+  background:
+    radial-gradient(circle at 50% 44%, rgb(126 92 255 / 28%), transparent 58%),
+    linear-gradient(135deg, #28205f 0%, #171747 52%, #101336 100%);
+  box-shadow: inset 0 0 0 1px rgb(151 126 255 / 24%), inset 0 -18px 34px rgb(7 6 28 / 24%);
 }
 .studio-templates .home-effect-template-card .home-explore-cover::after {
   position: absolute;
   inset: 0;
   pointer-events: none;
   content: "";
-  background: linear-gradient(135deg, rgb(18 30 70 / 18%), transparent 48%, rgb(7 12 30 / 22%));
+  background:
+    linear-gradient(135deg, rgb(105 77 229 / 24%), transparent 42%, rgb(7 5 29 / 28%)),
+    radial-gradient(circle at 50% 115%, rgb(183 132 255 / 18%), transparent 58%);
 }
 .studio-templates .home-effect-template-card .home-explore-cover img {
-  filter: saturate(1.08) contrast(1.04);
+  filter: saturate(1.14) contrast(1.05) brightness(.96);
 }
 .studio-templates .home-whats-new-copy small {
   display: -webkit-box;
