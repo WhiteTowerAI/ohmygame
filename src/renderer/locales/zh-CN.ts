@@ -1554,6 +1554,7 @@ const zhCN: typeof en = {
     description: "让 Claude Code、Codex 等外部 agent 通过 MCP 读写 OhMyGame 的项目、画布和素材。",
     desktopOnly: "请在 OhMyGame 桌面版中连接 Agent。",
     otherClients: "DeepSeek Harness 和其他 MCP 客户端",
+    otherClientsEnvironment: "这些客户端还需设置的环境变量",
     skill: "Skill（可选）· 复制到 ~/.claude/skills 或 ~/.agents/skills",
   },
   agentUsage: {

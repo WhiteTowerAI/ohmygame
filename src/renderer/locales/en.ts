@@ -1575,6 +1575,7 @@ const en = {
     description: "Lets Claude Code, Codex and other external agents read and write OhMyGame's projects, canvases and assets over MCP.",
     desktopOnly: "Connect agents from the OhMyGame desktop app.",
     otherClients: "DeepSeek Harness and other MCP clients",
+    otherClientsEnvironment: "Environment variables for those clients to set",
     skill: "Skill (optional) · copy into ~/.claude/skills or ~/.agents/skills",
   },
   agentUsage: {

@@ -70,6 +70,14 @@ it("lets other agents use OhMyGame and shows how to add it to each client", asyn
   ]);
 });
 
+it("shows the launcher's environment apart from its command, which a Windows shell could not run inline", async () => {
+  external = { ...external, enabled: true, launcher: { command: "C:\\Program Files\\OhMyGame\\OhMyGame.exe", args: ["mcp.js"], env: { ELECTRON_RUN_AS_NODE: "1" } } };
+  await act(async () => root.render(<ExternalAgentsSettings />));
+  const blocks = [...host.querySelectorAll(".ui-code-block")].map((block) => block.querySelector("code")?.textContent);
+  expect(blocks).toContain('"C:\\Program Files\\OhMyGame\\OhMyGame.exe" mcp.js');
+  expect(blocks).toContain("ELECTRON_RUN_AS_NODE=1");
+});
+
 it("lists the clients that used the server since OhMyGame started", async () => {
   external = {
     ...external,
