@@ -211,6 +211,19 @@ it("pauses Canvas polling while the window is hidden and syncs as soon as it ret
   hidden.mockRestore();
 });
 
+it("keeps the same documents state when a poll finds nothing new", async () => {
+  await act(async () => root.render(<DocumentHarness />));
+  await advance(0);
+  const loaded = currentDocs.workspace;
+  const reads = api.getWorkspace.mock.calls.length;
+  await advance(3000);
+  expect(api.getWorkspace.mock.calls.length).toBeGreaterThan(reads);
+  expect(currentDocs.workspace).toBe(loaded);
+  workspaceDisk.documents[0]!.markdown = "Changed on disk";
+  await advance(3000);
+  expect(currentDocs.workspace?.documents[0]?.markdown).toBe("Changed on disk");
+});
+
 it("does not claim a successful flush when a document draft has lost its workspace file", async () => {
   await act(async () => root.render(<DocumentHarness />));
   await act(async () => currentDocs.update("rules", { markdown: "Unsaved rules" }));

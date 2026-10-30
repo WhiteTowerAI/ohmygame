@@ -409,7 +409,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           const nodeId = job.context?.nodeId;
           if (nodeId && !latestJobs.has(nodeId)) latestJobs.set(nodeId, job);
         }
-        setCanvasJobs(Object.fromEntries(latestJobs));
+        // Most polls find nothing new; keep the same object so the canvas does not re-render.
+        const nextJobs = Object.fromEntries(latestJobs);
+        setCanvasJobs((current) => JSON.stringify(current) === JSON.stringify(nextJobs) ? current : nextJobs);
         const completedAssetIds: string[] = [];
         let completedCover: AssetCanvasCoverSource | undefined;
         // Jobs arrive newest first; the daemon persists outputs to the current board.

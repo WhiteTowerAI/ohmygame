@@ -88,8 +88,10 @@ export function useCanvasDocuments(projectId: string, enabled = true) {
   );
   const publish = useCallback(
     (value: CanvasWorkspaceDetail) => {
+      // Most polls find nothing new; keep the same state so the workspace does not re-render.
+      const unchanged = current.current !== undefined && JSON.stringify(current.current) === JSON.stringify(value);
       current.current = value;
-      if (mounted.current) setWorkspace(value);
+      if (mounted.current && !unchanged) setWorkspace(value);
       const drafts = value.documents.flatMap((document) => {
         const base = bases.current.get(document.id);
         const local = documentContent(document);
