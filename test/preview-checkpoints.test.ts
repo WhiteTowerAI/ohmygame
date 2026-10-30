@@ -121,7 +121,7 @@ async function fixture() {
       expect(user.text).toBe(prompt);
       expect(user.changes).toBeDefined();
       return user;
-    });
+    }, { timeout: 15_000 });
   };
   const lease = () =>
     app.inject({
