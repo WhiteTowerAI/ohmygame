@@ -10,5 +10,6 @@ export function sameJson(left: unknown, right: unknown): boolean {
   const keys = (value: object) => Object.entries(value).filter(([, item]) => item !== undefined).map(([key]) => key);
   const leftKeys = keys(left), rightKeys = keys(right);
   return leftKeys.length === rightKeys.length
-    && leftKeys.every((key) => sameJson((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
+    && leftKeys.every((key) => Object.hasOwn(right, key)
+      && sameJson((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
 }

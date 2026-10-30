@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssetCanvasDocument } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import type { CanvasBoardDetail } from "../src/shared/canvas-workspace.js";
+import { sameJson } from "../src/shared/same-json.js";
 
 const api = {
   getCanvasBoard: vi.fn(), saveCanvasBoard: vi.fn(), generateCanvasMedia: vi.fn(),
@@ -43,6 +44,13 @@ function adapter(onConflict = vi.fn(), flushDocuments = vi.fn<() => Promise<void
 }
 
 describe("canvas board storage", () => {
+  it("compares JSON by own keys, whatever their order", () => {
+    expect(sameJson({ a: 1, b: [1, { c: 2 }] }, { b: [1, { c: 2 }], a: 1 })).toBe(true);
+    expect(sameJson(JSON.parse('{"__proto__":{}}'), { other: 1 })).toBe(false);
+    expect(sameJson({ a: undefined, b: 1 }, { b: 1 })).toBe(true);
+    expect(sameJson([1, 2], { 0: 1, 1: 2 })).toBe(false);
+  });
+
   it("does not save a board that only came back with its keys in another order", async () => {
     const loaded = canvas();
     api.getCanvasBoard.mockResolvedValue(detail(loaded));
