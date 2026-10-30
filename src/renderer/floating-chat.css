@@ -13,7 +13,6 @@
   flex-direction: column;
   width: min(640px, calc(100% - 48px));
   max-height: calc(100% - 2 * var(--space-4));
-  overflow: hidden;
   border-radius: 14px;
   background: var(--color-surface-raised);
   box-shadow: var(--shadow-float);
@@ -22,7 +21,6 @@
 
 .floating-chat.is-folded {
   width: auto;
-  overflow: visible;
   background: transparent;
   box-shadow: none;
 }
@@ -84,20 +82,28 @@
   min-height: 0;
 }
 
+.floating-chat-input[hidden] {
+  display: none;
+}
+
 .has-thread .floating-chat-input {
   box-shadow: inset 0 1px 0 var(--color-border);
 }
 
-/* In the bar the composer and cards sit in its own surface, not the panel's. */
-.floating-chat-input > .composer,
-.floating-chat-input > .plan-review {
+/* In the bar the composer and cards sit in its own surface, not the panel's.
+   Nothing here clips, so the composer's menus can open above the bar; a tall
+   card scrolls within itself instead. */
+.floating-chat-input > .chat-input > .composer,
+.floating-chat-input > .chat-input > .plan-review {
   position: static;
   padding: 6px 10px 10px;
   background: transparent;
 }
 
-.floating-chat-input > .questionnaire-card {
+.floating-chat-input > .chat-input > .questionnaire-card {
+  max-height: min(40vh, 360px);
   margin: var(--space-2) var(--space-3) 0;
+  overflow-y: auto;
 }
 
 /* folded: a pill at the bottom middle */

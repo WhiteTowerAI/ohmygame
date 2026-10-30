@@ -25,6 +25,7 @@ import { observeWorkspaceVersion, workspaceVersion } from "./workspace-version.j
 import {
   Activity,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useMemo,
   useReducer,
@@ -102,7 +103,7 @@ import type { PublishDetails } from "./publish-dialog.js";
 import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
-import { closePanel, createPanelNodes, PanelLayout, PanelMount, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
+import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import type { CodingView } from "./coding-workspace.js";
 import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
@@ -237,6 +238,17 @@ export function ProjectShell({
   const initialPromptAttempted = useRef(false);
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
   const timeline = useRef<HTMLDivElement>(null);
+  // The cards that wait on an answer and the composer render into this node,
+  // which moves between the chat panel and the floating bar, so neither a
+  // half-answered question nor a draft is lost on the way.
+  const [chatInputNode] = useState(() => {
+    const node = document.createElement("div");
+    node.className = "chat-input";
+    return node;
+  });
+  useLayoutEffect(() => {
+    if (chatShown && timeline.current) place(timeline.current, chatInputNode);
+  }, [chatShown, chatInputNode]);
   const followTimeline = useRef(true);
 
   // Games and stories put their canvas beside their other panels. Their
@@ -951,7 +963,7 @@ export function ProjectShell({
   ] : []);
   // The cards that wait on an answer and the composer: in the chat panel, or
   // in the floating bar over the middle while the panel is closed.
-  const chatInput = <>
+  const chatInput = createPortal(<>
     {approval ? (
       <ApprovalCard
         request={approval}
@@ -1044,13 +1056,14 @@ export function ProjectShell({
       canPublish={Boolean(project && (isWebRuntimeProjectType(project.type) || project.type === "interactive-story") && !publishing && !agentBusy)}
       onPublish={project ? () => setPublishDialog({ projectId: project.id, status: "open" }) : undefined}
     /> : null}
-  </>;
+  </>, chatInputNode);
   const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "canvas" || id === "code" || id === "assets" ? [id] : []));
   const storyVisible = new Set(visible.filter((id): id is StoryView => id === "story" || id === "design" || id === "canvas" || id === "code" || id === "assets"));
 
   return (
     <>
     {integrationGate.dialog}
+    {chatInput}
     {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
     <ProjectFrame
       rail={<ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={{
@@ -1091,7 +1104,8 @@ export function ProjectShell({
         running={currentConversationBusy}
         attention={Boolean(approval || questionnaire || state.plan.mode === "awaiting_approval")}
         onExpand={() => revealPanel("chat")}
-      >{chatInput}</FloatingChat> : undefined}
+        input={chatInputNode}
+      /> : undefined}
       empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered))}>{t("panels.reset")}</Button>} /> : null} /> : null}
     {createPortal(<div className="pane-header-actions">
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
@@ -1148,7 +1162,6 @@ export function ProjectShell({
             </Activity>
           </div>
 
-          {chatShown ? chatInput : null}
       </div>
     </section>, nodes.chat.body)}
       <ErrorBoundary key={`${projectId}:${workspaceEpoch}`} label={t("errorBoundary.label.workspace")} resetKey={project?.id} onHome={onHome} homeLabel={homeLabel}>

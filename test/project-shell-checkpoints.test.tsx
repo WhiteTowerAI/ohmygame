@@ -264,11 +264,14 @@ describe("project shell layout", () => {
     // route brings its canvas forward, beside the design document.
     expect(tabs("left")).toEqual(["*Chat"]);
     expect(tabs("center")).toEqual(["Code", "Design", "*Canvas", "Assets"]);
+    const composer = document.querySelector(".composer");
+    expect(composer).not.toBeNull();
     await click("Close Chat");
     expect(container.querySelector(".dock-area-left")).toBeNull();
-    // With the chat closed, its composer floats over the middle, and only there.
+    // With the chat closed, its composer floats over the middle, and only
+    // there: the same one, moved rather than made again, so it keeps its state.
     expect(document.querySelectorAll(".composer")).toHaveLength(1);
-    expect(container.querySelector(".dock-area-center .floating-chat .composer")).not.toBeNull();
+    expect(container.querySelector(".dock-area-center .floating-chat .composer")).toBe(composer);
 
     await act(async () =>
       daemon.send(1, "workspace.restored", {
@@ -288,7 +291,7 @@ describe("project shell layout", () => {
     await settle();
     expect(tabs("left")).toEqual(["*Chat"]);
     expect(container.querySelector(".floating-chat")).toBeNull();
-    expect(document.querySelectorAll(".agent-pane .composer")).toHaveLength(1);
+    expect(document.querySelector(".agent-pane .agent-body > .chat-input > .composer")).toBe(composer);
   });
 });
 

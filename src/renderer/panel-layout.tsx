@@ -87,8 +87,9 @@ export function createPanelNodes(): PanelNodes {
 type MovingParent = Element & { moveBefore?: (node: Node, child: Node | null) => void };
 
 // Moving a connected node with moveBefore keeps its state, a running game's
-// iframe included, where append would reload it.
-function place(parent: Element, node: Element): void {
+// iframe included, where append would reload it. Views rendered outside their
+// place, such as the chat's composer, move with it too.
+export function place(parent: Element, node: Element): void {
   if (node.parentNode === parent) return;
   const { moveBefore } = parent as MovingParent;
   if (moveBefore && node.isConnected && parent.isConnected) {
@@ -112,6 +113,11 @@ function parkingLot(): HTMLDivElement {
     document.body.append(parking);
   }
   return parking;
+}
+
+/** Keeps a view rendered outside the layout out of sight until it is placed again. */
+export function park(node: Element): void {
+  place(parkingLot(), node);
 }
 
 /** A panel's content that shows a view from outside the layout. */
