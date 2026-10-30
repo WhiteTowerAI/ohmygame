@@ -54,6 +54,8 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
     // is taken as the person presses whatever opens the menu, so it is ready
     // when the menu appears, and the view hides once the still has painted.
     let early: { at: number; still: Promise<string | undefined> } | undefined;
+    let disposed = false;
+    const discard = (still: Promise<string | undefined>) => { void still.then((url) => { if (url) URL.revokeObjectURL(url); }); };
     const takeStill = async () => {
       const png = await bridge.capture(projectId).catch(() => undefined);
       if (!png?.length) return undefined;
@@ -68,6 +70,7 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
       if (!shown || !(event.target instanceof Element) || element.current?.contains(event.target)) return;
       if (event instanceof KeyboardEvent && event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown") return;
       if (!event.target.closest('button, [role="button"], [role="menuitem"], [role="combobox"]')) return;
+      if (early) discard(early.still);
       early = { at: performance.now(), still: takeStill() };
     };
     const update = () => {
@@ -81,15 +84,23 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
       shown = layout.visible;
       if (layout.visible) setStill(undefined);
       if (!covered) return send();
-      const pending = early && performance.now() - early.at < STILL_REUSE_MS ? early.still : takeStill();
+      const fresh = early && performance.now() - early.at < STILL_REUSE_MS;
+      if (early && !fresh) discard(early.still);
+      const pending = fresh ? early!.still : takeStill();
       early = undefined;
-      void Promise.race([pending, new Promise<undefined>((resolve) => setTimeout(resolve, STILL_WAIT_MS))])
-        .then((url) => {
-          if (url && last === serialized) setStill(url);
-          else if (url) URL.revokeObjectURL(url);
-          // Hide the view once the still is on screen, a frame after it renders.
-          requestAnimationFrame(() => requestAnimationFrame(send));
-        });
+      // Hide the view once the still is on screen, a frame after it renders.
+      const hide = () => requestAnimationFrame(() => requestAnimationFrame(send));
+      let late = false;
+      const timer = setTimeout(() => { late = true; hide(); }, STILL_WAIT_MS);
+      void pending.then((url) => {
+        if (late || disposed || last !== serialized) {
+          if (url) URL.revokeObjectURL(url);
+          return;
+        }
+        clearTimeout(timer);
+        if (url) setStill(url);
+        hide();
+      });
     };
     const schedule = () => {
       if (animation) return;
@@ -106,6 +117,8 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
     document.addEventListener("keydown", prepare, true);
     update();
     return () => {
+      disposed = true;
+      if (early) discard(early.still);
       cancelAnimationFrame(animation);
       resize.disconnect();
       mutations.disconnect();

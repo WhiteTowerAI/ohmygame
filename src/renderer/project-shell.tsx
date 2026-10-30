@@ -182,9 +182,14 @@ export function ProjectShell({
   const auth = useAuth();
   const runtime = useRuntimeConnection();
   const openedGeneration = useRef(runtime.generation);
+  // The conversation the route opens now, for answers that arrive after the person moved on.
+  const routeConversation = useRef(conversationId);
+  routeConversation.current = conversationId;
   const previewPaused = runtime.generation !== openedGeneration.current || runtime.status !== "ready";
   const [state, dispatch] = useReducer(rendererReducer, initialRendererState);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const latestConversations = useRef(conversations);
+  latestConversations.current = conversations;
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
   const [initialPromptDeferred, setInitialPromptDeferred] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
@@ -279,6 +284,17 @@ export function ProjectShell({
   const story = offered.includes("story");
   // An asset canvas is the canvas, with its files in a Code panel beside it.
   const canvasOnly = state.project?.type === "asset-canvas";
+  // The canvas saves its edits after a pause, so showing an asset canvas's
+  // Code saves them first and then reads the files again.
+  const canvasCode = canvasOnly && visible.includes("code");
+  const [canvasCodeRevision, setCanvasCodeRevision] = useState(0);
+  useEffect(() => {
+    if (!canvasCode) return;
+    let disposed = false;
+    void (saveDesign.current?.() ?? Promise.resolve()).catch(() => {})
+      .then(() => { if (!disposed) setCanvasCodeRevision((value) => value + 1); });
+    return () => { disposed = true; };
+  }, [canvasCode]);
   const coding = offered.includes("code") && !story && !canvasOnly;
   const panelled = offered.includes("code") && !canvasOnly;
   const designShown = visible.includes("canvas");
@@ -883,10 +899,11 @@ export function ProjectShell({
   async function archive(conversationId: string): Promise<void> {
     if (!project) return;
     await archiveConversation(project.id, conversationId);
-    const rest = conversations.filter((item) => item.id !== conversationId);
-    setConversations(rest);
-    if (conversationId !== conversation?.id) return;
-    if (rest[0]) onOpenConversation(rest[0].id, true);
+    setConversations((items) => items.filter((item) => item.id !== conversationId));
+    // Another conversation opened while this one was archived stays open.
+    if (conversationId !== routeConversation.current) return;
+    const next = latestConversations.current.find((item) => item.id !== conversationId);
+    if (next) onOpenConversation(next.id, true);
     else await newConversation();
   }
 
@@ -1309,7 +1326,7 @@ export function ProjectShell({
         headerActionsTarget={nodes.canvas.toolbar}
       /></Suspense>, nodes.canvas.body)}
       {project && canvasOnly && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={t("workspace.tab.code")}>
-        <WorkspaceCodeView projectId={project.id} revision={workspaceRevision} openFileRequest={openFileRequest} />
+        <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />
       </main>, nodes.code.body) : null}
       </ErrorBoundary>
     </ProjectFrame>

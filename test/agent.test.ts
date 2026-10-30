@@ -761,6 +761,22 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("refuses a prompt while an idle conversation's file is archived, and accepts one after", async () => {
+    const session = new FakeSession();
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const moved = deferred<void>();
+    const archiving = manager.release(project.id, conversation.summary.id, () => moved.promise);
+    await Promise.resolve();
+    expect(() => manager.prompt(project, conversation, "Build")).toThrow("This conversation is being archived");
+    await expect(manager.release(project.id, conversation.summary.id, async () => {})).rejects.toThrow("This conversation is being archived");
+    moved.resolve();
+    await archiving;
+    await expect(manager.prompt(project, conversation, "Build").result).resolves.toBe("completed");
+    await manager.close();
+  });
+
   it("pauses a planning turn for a questionnaire and resumes it with structured answers", async () => {
     const session = new FakeSession();
     const prompt = deferred<void>();

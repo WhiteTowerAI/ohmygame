@@ -2985,9 +2985,16 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const { conversationId } = request.params;
       if (!await conversations.get(project, conversationId)) return reply.code(404).send({ error: "Conversation not found" });
-      try { await agents.release(project.id, conversationId); }
-      catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
-      await conversations.archive(project, conversationId);
+      let busy = true;
+      try {
+        await agents.release(project.id, conversationId, async () => {
+          busy = false;
+          await conversations.archive(project, conversationId);
+        });
+      } catch (cause) {
+        if (!busy) throw cause;
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
       return reply.code(204).send();
     },
   );

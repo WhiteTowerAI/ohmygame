@@ -205,12 +205,12 @@ async function openProject(
   const { ProjectShell } = await import("../src/renderer/project-shell.js");
   const { AuthProvider } = await import("../src/renderer/auth.js");
   updateRuntimeConnection(READY);
-  await act(async () =>
+  const render = (conversationId: string) => act(async () =>
     root.render(
       <AuthProvider>
         <ProjectShell
           projectId="project"
-          conversationId="conversation"
+          conversationId={conversationId}
           onOpenConversation={() => {}}
           onNavigate={() => {}} onHome={() => {}}
           {...shellProps}
@@ -218,8 +218,9 @@ async function openProject(
       </AuthProvider>,
     ),
   );
+  await render("conversation");
   await settle();
-  return daemon;
+  return Object.assign(daemon, { route: render });
 }
 
 const settle = () =>
@@ -321,6 +322,24 @@ describe("checkpoints in the project shell", () => {
     expect(daemon.requests.filter((request) => request.route === `/agent-runtimes/${runtime}/profiles`)).toHaveLength(profileReads);
     expect(daemon.requests.find((request) => request.route.endsWith("/account-profile"))).toMatchObject({ method: "PUT", body: JSON.stringify({ runtime, profileId: "work" }) });
     expect(daemon.requests.some((request) => request.route.endsWith("/model") && request.method === "PUT")).toBe(false);
+  });
+
+  it("keeps a conversation opened while the previous one was being archived", async () => {
+    let archived!: () => void;
+    const onOpenConversation = vi.fn();
+    const other = { ...detail("turn").conversation, id: "other", title: "Other" };
+    const daemon = await openProject((route, init) => {
+      if (route === "/projects/project/conversations") return Response.json([detail("turn").conversation, other]);
+      if (route === "/projects/project/conversations/other") return Response.json({ ...detail("turn"), conversation: other });
+      if (route.endsWith("/conversation/archive") && init.method === "POST") return new Promise((resolve) => { archived = () => resolve(new Response(null, { status: 204 })); });
+    }, undefined, { onOpenConversation });
+    await act(async () => container.querySelector<HTMLButtonElement>(".conversation-trigger")!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Archive Chat"]')!.click());
+    await daemon.route("other");
+    onOpenConversation.mockClear();
+    await act(async () => archived());
+    await settle();
+    expect(onOpenConversation).not.toHaveBeenCalled();
   });
 
   it("shows why a project could not open instead of failing to render", async () => {

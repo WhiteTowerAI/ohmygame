@@ -492,6 +492,8 @@ export class AgentManager {
   readonly #steeringPrompts = new Map<string, QueuedPrompt[]>();
   readonly #queueMutations = new Map<string, Promise<void>>();
   readonly #revisions = new Set<string>();
+  /** Conversations whose session file is being archived. Nothing loads or prompts them meanwhile. */
+  readonly #archiving = new Set<string>();
   readonly #sessionDisposals = new Map<CodingSession, Promise<void>>();
   /** The projects whose files a restore, an undo or a put-back is changing. No turn starts in them meanwhile. */
   readonly #puttingBack = new Set<string>();
@@ -635,14 +637,24 @@ export class AgentManager {
     persist();
   }
 
-  /** Lets go of an idle conversation's session, as when it is archived. */
-  async release(projectId: string, conversationId: string): Promise<void> {
+  /**
+   * Lets go of an idle conversation's session and keeps it reserved while
+   * `move` archives its file, so no prompt or session load starts in between.
+   */
+  async release(projectId: string, conversationId: string, move: () => Promise<void>): Promise<void> {
     const key = conversationKey(projectId, conversationId);
+    if (this.#archiving.has(key)) throw new Error(ARCHIVING);
     if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
-    if (this.#activeTurns.has(key) || this.#revisions.has(key) || this.#sessionLoads.has(key) || this.pendingPrompts(projectId, conversationId).length) {
+    if (this.#archiving.has(key) || this.#activeTurns.has(key) || this.#revisions.has(key) || this.#sessionLoads.has(key) || this.pendingPrompts(projectId, conversationId).length) {
       throw new Error("Wait for the agent to finish before archiving this conversation");
     }
-    this.#forgetConversation(key);
+    this.#archiving.add(key);
+    try {
+      this.#forgetConversation(key);
+      await move();
+    } finally {
+      this.#archiving.delete(key);
+    }
   }
 
   async setReasoningLevel(
@@ -760,6 +772,7 @@ export class AgentManager {
     if (!prompt.trim() && images.length === 0 && !attachmentContext.trim()) throw new Error("Prompt must not be empty");
     if (this.#closing) throw new Error("Agent manager is closing");
     const key = conversationKey(project.id, conversation.summary.id);
+    if (this.#archiving.has(key)) throw new Error(ARCHIVING);
     const active = this.#activeTurns.get(key);
     if (active?.ended) {
       // The conversation reads as idle, so this is a message for a new run and not one to queue in the run
@@ -1740,6 +1753,7 @@ export class AgentManager {
     const key = conversationKey(project.id, conversation.summary.id);
     const existing = this.#sessions.get(key);
     if (existing) return existing;
+    if (this.#archiving.has(key)) throw new Error(ARCHIVING);
     const loading = this.#sessionLoads.get(key);
     if (loading) {
       await loading;
@@ -2344,6 +2358,7 @@ const LOCAL_ATTACHMENTS_MARKER = "<local-attachments>";
 const USER_PROMPT_ENTRY = "ohmygame-user-prompt";
 /** What is answered to a message, an edit, a restore or an undo that comes while the project's files are being put back. */
 const PUTTING_BACK = "Wait until the project's files have been put back";
+const ARCHIVING = "This conversation is being archived";
 // How long the end of a run waits for its cleanup and for the snapshot that closes it. A snapshot reads only what
 // changed since the one before it, some 60 MB a second on a laptop disk, so this is time for a turn that wrote more
 // than a gigabyte. The turn is then closed without an end, and gets one later if the snapshot does come back.
