@@ -1,6 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DesktopWebGamePreviewBridge, WebGamePlayerBridge, WebGamePreviewLayout } from "../shared/web-game-player.js";
 
+/** How long a still taken as a menu was pressed can stand in for the game. */
+const STILL_REUSE_MS = 1500;
+/** How long the view waits for its still before it hides anyway. */
+const STILL_WAIT_MS = 500;
+
 /** Native views sit above DOM content, so clip them and hide them beneath overlays. */
 export function desktopPreviewLayout(element: HTMLElement, visible: boolean): WebGamePreviewLayout {
   const rect = element.getBoundingClientRect();
@@ -44,6 +49,27 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
     let animation = 0;
     let last = "";
     let shown = false;
+    // The native view can only hide whole, so when a menu or dialog covers
+    // it, a still of the game stands in instead of an empty panel. The still
+    // is taken as the person presses whatever opens the menu, so it is ready
+    // when the menu appears, and the view hides once the still has painted.
+    let early: { at: number; still: Promise<string | undefined> } | undefined;
+    const takeStill = async () => {
+      const png = await bridge.capture(projectId).catch(() => undefined);
+      if (!png?.length) return undefined;
+      const url = URL.createObjectURL(new Blob([png as BlobPart], { type: "image/png" }));
+      const image = new Image();
+      image.src = url;
+      await image.decode?.().catch(() => {});
+      return url;
+    };
+    const prepare = (event: Event) => {
+      // Only a control can open a menu or dialog; typing never needs a still.
+      if (!shown || !(event.target instanceof Element) || element.current?.contains(event.target)) return;
+      if (event instanceof KeyboardEvent && event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown") return;
+      if (!event.target.closest('button, [role="button"], [role="menuitem"], [role="combobox"]')) return;
+      early = { at: performance.now(), still: takeStill() };
+    };
     const update = () => {
       if (!element.current) return;
       const layout = desktopPreviewLayout(element.current, state.current.visible && !state.current.error);
@@ -51,16 +77,19 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
       if (serialized === last) return;
       last = serialized;
       const send = () => { if (last === serialized) void bridge.layout(projectId, attachment, layout).catch(() => {}); };
-      // The native view can only hide whole, so when a menu or dialog covers
-      // it, a still of the game stands in instead of an empty panel.
       const covered = shown && !layout.visible && state.current.visible && !state.current.error;
       shown = layout.visible;
       if (layout.visible) setStill(undefined);
       if (!covered) return send();
-      void Promise.race([bridge.capture(projectId), new Promise<undefined>((resolve) => setTimeout(resolve, 200))])
-        .then((png) => { if (png && last === serialized) setStill(URL.createObjectURL(new Blob([png as BlobPart], { type: "image/png" }))); })
-        .catch(() => {})
-        .finally(send);
+      const pending = early && performance.now() - early.at < STILL_REUSE_MS ? early.still : takeStill();
+      early = undefined;
+      void Promise.race([pending, new Promise<undefined>((resolve) => setTimeout(resolve, STILL_WAIT_MS))])
+        .then((url) => {
+          if (url && last === serialized) setStill(url);
+          else if (url) URL.revokeObjectURL(url);
+          // Hide the view once the still is on screen, a frame after it renders.
+          requestAnimationFrame(() => requestAnimationFrame(send));
+        });
     };
     const schedule = () => {
       if (animation) return;
@@ -73,6 +102,8 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
     mutations.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["style", "class", "hidden", "aria-hidden", "aria-modal"] });
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
+    document.addEventListener("pointerdown", prepare, true);
+    document.addEventListener("keydown", prepare, true);
     update();
     return () => {
       cancelAnimationFrame(animation);
@@ -80,6 +111,8 @@ export function DesktopGamePreview({ bridge, refresh, projectId, url, reload, vi
       mutations.disconnect();
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
+      document.removeEventListener("pointerdown", prepare, true);
+      document.removeEventListener("keydown", prepare, true);
       synchronize.current = () => {};
       void bridge.detach(projectId, attachment).catch(() => {});
     };
