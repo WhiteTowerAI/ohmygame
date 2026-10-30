@@ -155,6 +155,19 @@ it("lists recent projects newest first, folds them, and opens one", async () => 
   expect(window.location.hash).toBe("#/projects/old");
 });
 
+it("keeps five recent projects and links to the rest", async () => {
+  await render("library");
+  await act(async () =>
+    publishRecentProjects(Array.from({ length: 7 }, (_, index) => ({
+      ...projects[0]!, id: `p${index}`, name: `Project ${index}`, updatedAt: `2026-10-2${index}T00:00:00Z`,
+    }))),
+  );
+  const recent = [...sidebar().querySelectorAll(".sidebar-recent .sidebar-item")].map((item) => item.textContent);
+  expect(recent).toEqual(["Project 6", "Project 5", "Project 4", "Project 3", "Project 2", "All projects"]);
+  button("All projects")!.click();
+  expect(onNavigate).toHaveBeenCalledWith("projects");
+});
+
 it("collapses to icons and resizes from its edge, remembering both", async () => {
   await render();
   const frame = () => container.querySelector<HTMLElement>(".page-frame")!;
