@@ -5,13 +5,14 @@ import { recentAssetCanvasProjects } from "../src/renderer/asset-canvas-home.js"
 
 describe("Asset Canvas home", () => {
   it("creates a valid one-node canvas for every quick start", () => {
-    for (const type of ["image", "video", "model-3d"] as const) {
+    for (const type of ["image", "video", "model-3d", "music"] as const) {
       const imageModel = type === "image" ? { provider: "openrouter", id: "openai/gpt-image-2.5-flare" } : undefined;
       const { document, nodeId } = createAssetCanvasStarterDocument(type, { imageModel });
 
       expect(document.nodes).toHaveLength(1);
       expect(document.nodes[0]).toMatchObject({ id: nodeId, type, position: { x: 96, y: 96 } });
       if (type === "video") expect(document.nodes[0]).toMatchObject({ data: { prompt: "", resolution: "720p", aspectRatio: "adaptive", duration: 6 } });
+      if (type === "music") expect(document.nodes[0]).toMatchObject({ data: { prompt: "", instrumental: true } });
       expect(document.editorLayout.nodes[nodeId]).toEqual({ x: 96, y: 96 });
       expect(() => validateAssetCanvasDocument(document)).not.toThrow();
     }

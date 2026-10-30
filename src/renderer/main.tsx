@@ -20,10 +20,11 @@ const root = document.getElementById("root");
 if (!root) throw new Error("Renderer root was not found");
 const route = parseAppRoute(window.location.hash);
 if (window.ohMyGameDesktop) initSentry();
-// The hidden thumbnail window is not a visit.
-if (route.page !== "thumbnail") initializeAnalytics();
-applyAppearance(readAppearance());
-await initializeRuntimeConnection();
+// A hidden thumbnail window runs Scene code, so the desktop app lets it only
+// capture and report; it themes and connects without asking the app.
+const thumbnail = route.page === "thumbnail";
+applyAppearance(readAppearance(), { desktop: !thumbnail });
+await initializeRuntimeConnection({ followService: !thumbnail });
 if (window.ohMyGameDesktop?.platform === "darwin") {
   document.documentElement.classList.add("desktop-macos");
 }
@@ -61,3 +62,5 @@ createRoot(root).render(
     <DesktopCloseGuard>{content}</DesktopCloseGuard>
   ),
 );
+// The hidden thumbnail window is not a visit. Analytics waits until the first frame is up.
+if (route.page !== "thumbnail") requestIdleCallback(initializeAnalytics, { timeout: 2_000 });

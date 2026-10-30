@@ -10,7 +10,8 @@ const repositoryRoot = path.resolve(moduleDirectory, "../..");
 
 export function windowsTitleBarOverlay(isDark: boolean) {
   return {
-    color: isDark ? "#1f1f1f" : "#ffffff",
+    // Let the renderer's title bar (including modal backdrops) show through.
+    color: "#00000000",
     symbolColor: isDark ? "#ffffff" : "#202020",
     height: 32,
   };
@@ -76,10 +77,6 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   if (!rendererTarget) throw new Error("A renderer URL or file is required");
   const loadTarget = options.rendererHash ? `${rendererTarget}${options.rendererHash}` : rendererTarget;
 
-  const runtimeArguments = [
-    `--ohmygame-daemon-url=${options.runtime.url}`,
-    `--ohmygame-daemon-token=${options.runtime.token}`,
-  ];
   const platformWindowOptions = process.platform === "darwin" && !options.nativeTitleBar
     ? {
         titleBarStyle: "hiddenInset" as const,
@@ -110,7 +107,6 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     ...platformWindowOptions,
     webPreferences: {
       preload: path.resolve(options.preloadPath),
-      additionalArguments: runtimeArguments,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -118,13 +114,24 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     },
   });
   if (options.aspectRatio) window.setAspectRatio(options.aspectRatio);
+  // The preload asks for the daemon address and token instead of reading them
+  // from its command line, which other processes of the same user can read.
+  // Only the renderer page in this window receives them, not a frame embedded
+  // in it or a page the window was redirected to. A window closing while its
+  // page still asks is destroyed, and reading its webContents would throw.
+  window.webContents.ipc.on("ohmygame:desktop-runtime", (event) => {
+    const frame = event.senderFrame;
+    event.returnValue = frame && !window.isDestroyed() && frame === window.webContents.mainFrame && isRendererPage(frame.url, rendererTarget)
+      ? { url: options.runtime.url, token: options.runtime.token }
+      : null;
+  });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isHttpUrl(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
   window.webContents.on("will-navigate", (event, url) => {
-    if (withoutHash(url) !== rendererTarget) event.preventDefault();
+    if (!isRendererPage(url, rendererTarget)) event.preventDefault();
   });
   // A hidden window, such as a Scene thumbnail capture, runs the game out of
   // sight, so it must not be heard either.
@@ -137,10 +144,14 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   return window;
 }
 
-function withoutHash(value: string): string {
-  const url = new URL(value);
-  url.hash = "";
-  return url.href;
+function isRendererPage(value: string, rendererTarget: string): boolean {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.href === rendererTarget;
+  } catch {
+    return false;
+  }
 }
 
 function isHttpUrl(value: string): boolean {

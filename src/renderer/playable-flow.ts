@@ -16,8 +16,6 @@ export type GraphMeta = Omit<NodeGraph, "nodes" | "edges">;
 export type PlayableFlowData = {
   node: PlayableNode;
   entry: boolean;
-  /** The Story Map counts the Node as an ending, by its `story.ending` or by its Signals. */
-  ending: boolean;
   /** Compiler and graph issues that belong to this Node. */
   issues: string[];
   /** Where each connected Signal leads: its edge, the target Scene's title, and whether the edge is selected. */
@@ -26,7 +24,9 @@ export type PlayableFlowData = {
   failed: boolean;
   /** The cached screenshot of the Node, and whether its source changed since. */
   thumbnail?: { capturedAt: string; stale: boolean };
-  /** Shown instead of a thumbnail before the Node was ever previewed. */
+  /** Why the current version of the Node could not be captured. */
+  thumbnailError?: string;
+  /** Shown instead of a thumbnail before the Node was ever previewed: its first image, else its first video. */
   coverAsset?: PlayableAssetDefinition;
 };
 
@@ -67,7 +67,7 @@ export function createFlowNode(node: PlayableNode, position: { x: number; y: num
     type: "playable",
     position,
     deletable: true,
-    data: { node, entry: false, ending: false, issues: [], connected: {}, failed: false },
+    data: { node, entry: false, issues: [], connected: {}, failed: false },
   };
 }
 

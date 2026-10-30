@@ -4,7 +4,7 @@ import type { CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { isCanvasDocument } from "../shared/canvas-document-schema.js";
 import { isCanvasBoard, type CanvasBoard } from "../shared/canvas-workspace.js";
 import { CanvasError, CanvasStore } from "./canvas-workspace.js";
-import type { ProjectManager } from "./projects.js";
+import { ProjectAssetError, type ProjectManager } from "./projects.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { ToolRunError, type ToolRunner } from "./tools.js";
 
@@ -25,6 +25,21 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   });
   app.post<{ Params: { projectId: string; assetId: string } }>(`${base}/assets/:assetId/library`, async (request, reply) => {
     try { return await store.exportAsset(request.params.projectId, request.params.assetId); } catch (cause) { return failure(cause, reply); }
+  });
+  const projectFailure = (cause: unknown, reply: FastifyReply) => cause instanceof ProjectAssetError ? reply.code(cause.statusCode).send({ error: cause.message }) : failure(cause, reply);
+  app.post<{ Params: { projectId: string }; Querystring: { name: string; directory?: string }; Body: Buffer }>(`${base}/files`, {
+    schema: { querystring: { type: "object", additionalProperties: false, required: ["name"], properties: { name: { type: "string", minLength: 1, maxLength: 200 }, directory: { type: "string", minLength: 1, maxLength: 1000 } } } },
+  }, async (request, reply) => {
+    const contents = request.body ?? Buffer.alloc(0);
+    if (!Buffer.isBuffer(contents)) return reply.code(415).send({ error: "Send the file as application/octet-stream" });
+    try { return reply.code(201).send({ path: await options.projects.importWorkspaceFile(request.params.projectId, request.query.name, contents, request.query.directory) }); }
+    catch (cause) { return projectFailure(cause, reply); }
+  });
+  app.post<{ Params: { projectId: string }; Body: { name: string } }>(`${base}/folders`, {
+    schema: { body: { type: "object", additionalProperties: false, required: ["name"], properties: { name: { type: "string", minLength: 1, maxLength: 200 } } } },
+  }, async (request, reply) => {
+    try { return reply.code(201).send({ path: await options.projects.createImportFolder(request.params.projectId, request.body.name) }); }
+    catch (cause) { return projectFailure(cause, reply); }
   });
   app.post<{ Params: { projectId: string }; Body: { title: string } }>(`${base}/documents`, {
     schema: { body: { type: "object", additionalProperties: false, required: ["title"], properties: { title: { type: "string", maxLength: 200 } } } },

@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import type { AgentUsageLimit, ConversationCapabilities } from "../shared/contracts.js";
 import { AgentUsageInline } from "./agent-usage.js";
-import { FileText, Lightbulb, Package, Plus, Share2, Upload, WandSparkles } from "./icons.js";
+import { FileText, Lightbulb, Plus, Share2, Upload, WandSparkles } from "./icons.js";
 import { attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
 import { matchingMentions, mentionQuery, slashCommandQuery, skillDisplayName, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { t } from "./i18n.js";
+import { PluginGlyph } from "./plugin-icons.js";
 
 type ContextAction = "files" | "design" | "plan" | "compact" | "publish";
 interface ContextMenuItem {
@@ -226,19 +227,42 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover, 
     const element = menuRef.current;
     const anchor = element?.closest(".prompt-box");
     if (!element || !anchor) return;
+    const pane = anchor.closest(".agent-body, .home-content");
+    const content = anchor.closest(".desktop-window-content");
     const updateHeight = () => {
-      const boundary = anchor.closest(".agent-body")?.getBoundingClientRect().top ?? 0;
-      element.style.maxHeight = `${Math.min(400, Math.max(48, anchor.getBoundingClientRect().top - boundary - 12))}px`;
+      const anchorRect = anchor.getBoundingClientRect();
+      const paneRect = pane?.getBoundingClientRect();
+      const contentRect = content?.getBoundingClientRect();
+      const top = Math.max(0, paneRect?.top ?? 0, contentRect?.top ?? 0);
+      const bottom = Math.min(
+        window.innerHeight,
+        paneRect?.bottom ?? window.innerHeight,
+        contentRect?.bottom ?? window.innerHeight,
+      );
+      const above = Math.max(0, anchorRect.top - top - 12);
+      const below = Math.max(0, bottom - anchorRect.bottom - 12);
+      // Include the section heading, first option, and menu padding.
+      const minimumMenuHeight = 84;
+      const openBelow = above < minimumMenuHeight && below >= minimumMenuHeight;
+      const openInside = above < minimumMenuHeight && below < minimumMenuHeight;
+      element.classList.toggle("is-below", openBelow);
+      element.classList.toggle("is-inside", openInside);
+      element.style.top = openInside ? `${Math.max(0, top - anchorRect.top + 6)}px` : "";
+      element.style.maxHeight = `${Math.min(400, openInside
+        ? Math.max(0, bottom - Math.max(top, anchorRect.top) - 12)
+        : openBelow ? below : above)}px`;
     };
     updateHeight();
     const observer = new ResizeObserver(updateHeight);
     observer.observe(anchor);
-    const boundary = anchor.closest(".agent-body");
-    if (boundary) observer.observe(boundary);
+    if (pane) observer.observe(pane);
+    if (content) observer.observe(content);
     window.addEventListener("resize", updateHeight);
+    window.addEventListener("scroll", updateHeight, true);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", updateHeight);
+      window.removeEventListener("scroll", updateHeight, true);
     };
   }, [menuRef, items.length]);
   useEffect(() => {
@@ -270,7 +294,7 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover, 
         onMouseEnter={() => onHover(index)}
         onClick={() => onSelect(item)}
       >
-        {item.action === "files" ? <Upload size={16} /> : item.action === "design" ? <FileText size={16} /> : item.action === "plan" ? <Lightbulb size={16} /> : item.action === "compact" ? <FileText size={16} /> : item.action === "publish" ? <Share2 size={16} /> : item.mention?.type === "plugin" ? <Package size={16} /> : <WandSparkles size={16} />}
+        {item.action === "files" ? <Upload size={16} /> : item.action === "design" ? <FileText size={16} /> : item.action === "plan" ? <Lightbulb size={16} /> : item.action === "compact" ? <FileText size={16} /> : item.action === "publish" ? <Share2 size={16} /> : item.mention?.type === "plugin" ? <PluginGlyph plugin={item.mention.value} size={16} /> : <WandSparkles size={16} />}
         <span>{item.label}</span>
         <small>{item.description}</small>
       </button>

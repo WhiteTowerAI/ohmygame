@@ -6,7 +6,8 @@ import {
   VIDEO_ASPECT_RATIOS,
   VIDEO_RESOLUTIONS,
 } from "./contracts.js";
-import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "./audio.js";
+import { AUDIO_REFERENCE_ID_PATTERN, AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "./audio.js";
+import { AUDIO_SETTINGS_PROPERTIES } from "./audio-schema.js";
 import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
 
@@ -55,10 +56,16 @@ const node = (type: string, data: object) => ({
 });
 const model3DOptions = { type: "object", additionalProperties: false, properties: {
   pose: { enum: ["a-pose", "t-pose"] }, textureModel: id, textureQuality: { enum: ["fast", "standard", "detailed", "extreme"] },
-  rigModel: { enum: ["v1.0-20240301", "v2.5-20260210"] }, rigType: { enum: ["biped", "quadruped", "hexapod", "octopod", "serpentine", "aquatic"] }, animateInPlace: { type: "boolean" },
+  rigModel: { enum: ["v1.0-20240301", "v2.5-20260210", "v3.0-20260909"] }, rigType: { enum: ["biped", "quadruped", "hexapod", "octopod", "serpentine", "aquatic"] }, animateInPlace: { type: "boolean" },
 } } as const;
+const audioProperties = { ...AUDIO_SETTINGS_PROPERTIES, subtitles: { type: "boolean" }, audioReferenceSerial: { type: "integer", minimum: 0 }, audioReferences: { type: "array", maxItems: 3, items: {
+  type: "object", additionalProperties: false, required: ["id", "type", "source"], properties: {
+    id: { ...id, pattern: AUDIO_REFERENCE_ID_PATTERN }, type: { enum: ["audio", "image"] }, source: reference,
+  },
+} } } as const;
 const nodes = [
   node("table", { type: "object", additionalProperties: false, required: ["tableId"], properties: { tableId: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" } } }),
+  node("file", { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1, maxLength: 1000, pattern: "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.{0,2}(?:/|$))(?!.*\\\\).+", description: "Project-relative path of a file that is not a document, table or media asset." }, directory: { const: true, description: "The path is a folder." } } }),
   node("document", { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: id, references: nodeReferences } }),
   node("text", {
     type: "object",
@@ -102,6 +109,7 @@ const nodes = [
     additionalProperties: false,
     required: ["text"],
     properties: {
+      ...audioProperties,
       text: { type: "string" },
       promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
       model,
@@ -115,6 +123,7 @@ const nodes = [
     additionalProperties: false,
     required: ["prompt"],
     properties: {
+      ...audioProperties,
       prompt: { type: "string", maxLength: 4_000 },
       promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
       model,
@@ -129,6 +138,7 @@ const nodes = [
     additionalProperties: false,
     required: ["prompt", "instrumental"],
     properties: {
+      ...audioProperties,
       prompt: { type: "string", maxLength: 4_000 },
       promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
       model,
@@ -139,6 +149,9 @@ const nodes = [
       assetId: id,
     },
   }),
+  node("audio-scene", { type: "object", additionalProperties: false, required: ["prompt"], properties: {
+    ...audioProperties, prompt: { type: "string", maxLength: 4000 }, model, assetId: id, promptSource: reference.oneOf[1], durationSeconds: { type: "number", exclusiveMinimum: 0, maximum: 120 },
+  } }),
   node("model-3d", {
     type: "object",
     additionalProperties: false,

@@ -1,8 +1,6 @@
-/** Whether an Interactive Story plays as its own page, and when it was upgraded to. */
+/** Whether an Interactive Story plays as its own page; one made before that must be upgraded first. */
 export interface StoryUpgradeStatus {
   web: boolean;
-  /** Set while the upgrade can still be taken back. */
-  upgradedAt?: string;
   /** A web story's Asset IDs still in the Library; they must be in the project to publish. */
   libraryAssets?: string[];
 }

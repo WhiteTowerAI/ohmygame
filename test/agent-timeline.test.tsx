@@ -35,6 +35,14 @@ function AgentTimeline({ items, activeTurnId, failedTurnId, cancelledTurnId, ...
 }
 
 describe("AgentTimeline", () => {
+  it("places Branch in new chat immediately after Copy for every persisted completed response", () => {
+    const response: ThreadItem = { id: "response", turnId: "turn-1", type: "agentMessage", text: "Done", status: "completed", phase: "final_answer", branchEntryId: "stored-response" };
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), response]} onBranch={() => {}} />);
+    expect(html).toMatch(/aria-label="Copy response"[\s\S]*?<\/button><button[^>]*aria-label="Branch in new chat"/);
+    expect(html).not.toMatch(/aria-label="Branch in new chat"[^>]*disabled/);
+    const pending = renderToStaticMarkup(<AgentTimeline items={[user(), { ...response, branchEntryId: undefined }]} onBranch={() => {}} />);
+    expect(pending).toMatch(/aria-label="Branch in new chat"[^>]*disabled/);
+  });
   it("shows per-call line counts only for successful file edits", () => {
     const edit: ThreadItem = { id: "edit-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "call-1", tool: "edit", status: "completed", arguments: { path: "game.ts" }, output: "Updated", lineChanges: { added: 3, removed: 1 } };
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), edit]} activeTurnId="turn-1" />);
@@ -72,7 +80,7 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("Worked for");
   });
 
-  it("shows initial Thinking in the stable activity header", () => {
+  it("shows initial Thinking in a stable shimmering header without a loading icon", () => {
     const html = renderToStaticMarkup(
       <AgentTimeline items={[user()]} activeTurnId="turn-1" />,
     );
@@ -80,6 +88,8 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Thinking");
     expect(html).toContain("work-summary-thinking");
     expect(html).toContain("work-activity-active");
+    expect(html).toContain('<span class="activity-shimmer">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
+    expect(html).not.toContain("solar-refresh-linear spin");
     expect(html).not.toContain("Working for");
     expect(html).not.toContain("Worked");
     expect(html).not.toContain("<details");
@@ -110,13 +120,6 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain('class="thinking-activity"');
     expect(html).not.toContain('class="tool-activity-group" open');
     expect(html).not.toContain("<details class=\"work-activity\"");
-  });
-
-  it("shimmers the initial Thinking header without a loading icon", () => {
-    const html = renderToStaticMarkup(<AgentTimeline items={[user()]} activeTurnId="turn-1" />);
-
-    expect(html).toContain('<span class="activity-shimmer">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
-    expect(html).not.toContain("solar-refresh-linear spin");
   });
 
   it("uses Working while streaming a direct answer but does not retain Worked after completion", () => {
@@ -1129,19 +1132,6 @@ describe("AgentTimeline", () => {
 
     expect(html.match(/aria-label="Copy message"/g)).toHaveLength(2);
     expect(html.match(/aria-label="Edit message"/g)).toHaveLength(1);
-  });
-
-  it("offers restore on every user message that has a checkpoint", () => {
-    const items = [
-      { ...user(), checkpointId: "checkpoint-1" },
-      { ...user(), id: "user-2", turnId: "turn-2", text: "Second" },
-      { ...user(), id: "user-3", turnId: "turn-3", text: "Third", checkpointId: "checkpoint-3" },
-    ];
-    const html = renderToStaticMarkup(<AgentTimeline items={items} onRestore={() => {}} />);
-
-    expect(html.match(/aria-label="Restore to before this message"/g)).toHaveLength(2);
-    expect(renderToStaticMarkup(<AgentTimeline items={items} />)).not.toContain("Restore to before this message");
-    expect(renderToStaticMarkup(<AgentTimeline items={items} onRestore={() => {}} revisionDisabled />).match(/aria-label="Restore to before this message"[^>]*disabled/g)).toHaveLength(2);
   });
 
   it("shows collapsed file summaries below completed and failed turns", () => {

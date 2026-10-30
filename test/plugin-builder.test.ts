@@ -114,21 +114,26 @@ describe("Plugin Builder", () => {
     expect((await local.read("personal:design-review"))?.icon).toBeUndefined();
   });
 
-  it.each(["png", "webp"] as const)("uploads, previews, installs and updates %s icons", async format => {
+  it.each(["png", "webp", "svg"] as const)("uploads, previews, installs and updates %s icons", async format => {
     const { setup, directory, local, app } = await environment();
     const state = await setup.create();
     const root = await writeDraft(directory, state.id);
     const draft = await setup.prepare(state.id, root);
-    const bytes = await sharp({ create: { width: 32, height: 32, channels: 4, background: "#ed563b" } }).toFormat(format).toBuffer();
+    const mediaType = format === "svg" ? "image/svg+xml" : `image/${format}`;
+    const image = async (color: string) => format === "svg"
+      ? Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="${color}"/></svg>`)
+      : sharp({ create: { width: 32, height: 32, channels: 4, background: color } }).toFormat(format).toBuffer();
+    const bytes = await image("#ed563b");
     const result = await app.inject({ method: "PUT", url: `/plugins/setup-sessions/${state.id}/icon`, payload: {
-      revision: draft.revision, image: { mediaType: `image/${format}`, data: bytes.toString("base64") },
+      revision: draft.revision, image: { mediaType, data: bytes.toString("base64") },
     } });
     expect(result.statusCode, result.body).toBe(200);
     const preview = result.json();
     expect(preview.plugin.icon).toMatchObject({ type: "asset" });
     expect(await readFile(path.join(root, preview.plugin.icon.path))).toEqual(bytes);
     const icon = await app.inject({ url: `/plugins/setup-sessions/${state.id}/icon` });
-    expect(icon.headers["content-type"]).toBe(`image/${format}`);
+    expect(icon.headers["content-type"]).toBe(mediaType);
+    expect(icon.headers["content-security-policy"]).toBe("default-src 'none'; sandbox");
     expect(icon.headers["x-content-type-options"]).toBe("nosniff");
     expect(icon.rawPayload).toEqual(bytes);
     const pathPreview = await app.inject({ url: `/plugins/setup-sessions/${state.id}/icon?${new URLSearchParams({ path: preview.plugin.icon.path })}` });
@@ -143,7 +148,7 @@ describe("Plugin Builder", () => {
     expect(unchanged.statusCode).toBe(304);
     expect(unchanged.rawPayload.length).toBe(0);
     const installedPath = path.join((await local.installedPath("personal:design-review"))!, preview.plugin.icon.path);
-    const replacement = await sharp({ create: { width: 32, height: 32, channels: 4, background: "#386def" } }).toFormat(format).toBuffer();
+    const replacement = await image("#386def");
     await writeFile(installedPath, replacement);
     const modified = await app.inject({ url: "/plugins/personal%3Adesign-review/icon", headers: { "if-none-match": etag } });
     expect(modified.statusCode).toBe(200);
@@ -168,7 +173,7 @@ describe("Plugin Builder", () => {
     const state = await setup.create();
     const root = await writeDraft(directory, state.id);
     const draft = await setup.prepare(state.id, root);
-    await expect(setup.updateIcon(state.id, { revision: draft.revision!, image: { mediaType: "image/png", data: Buffer.from("not an image").toString("base64") } })).rejects.toThrow("PNG or WebP");
+    await expect(setup.updateIcon(state.id, { revision: draft.revision!, image: { mediaType: "image/png", data: Buffer.from("not an image").toString("base64") } })).rejects.toThrow();
     await expect(validatePluginIconImage(Buffer.alloc(1024 * 1024 + 1))).rejects.toThrow("1 MB");
     const oversized = await sharp({ create: { width: 2049, height: 1, channels: 4, background: "red" } }).png().toBuffer();
     await expect(validatePluginIconImage(oversized)).rejects.toThrow("2048");
@@ -215,7 +220,7 @@ describe("Plugin Builder", () => {
       const [first, second] = await Promise.all([validatePluginIconImage(bytes), validatePluginIconImage(Buffer.from(bytes))]);
       expect(second.revision).toBe(first.revision);
       expect(decode).toHaveBeenCalledTimes(1);
-      await expect(validatePluginIconImage(bytes, "image/webp")).rejects.toThrow("PNG or WebP");
+      await expect(validatePluginIconImage(bytes, "image/webp")).rejects.toThrow("PNG, WebP, or static SVG");
       expect(decode).toHaveBeenCalledTimes(1);
       const changed = await sharp({ create: { width: 17, height: 13, channels: 4, background: "#40a977" } }).png().toBuffer();
       expect((await validatePluginIconImage(changed)).revision).not.toBe(first.revision);

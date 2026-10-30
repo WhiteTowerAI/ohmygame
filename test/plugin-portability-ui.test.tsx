@@ -202,12 +202,14 @@ describe("plugin archive controls", () => {
     expect(click).toHaveBeenCalledOnce();
     await act(async () => button("Check dependencies").click());
     expect(matching("/dependencies")).toHaveLength(1);
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "Ready · Command: node",
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Check required",
     );
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "mcp@latest has no fixed package version",
-    );
+    const checks = [
+      ...container.querySelectorAll(".plugin-dependency-checks li"),
+    ].map((item) => item.textContent);
+    expect(checks).toContain("ReadyCommand: node");
+    expect(checks.some((item) => item?.includes("mcp@latest has no fixed package version"))).toBe(true);
     exportError = true;
     await act(async () => button("Export plugin").click());
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(

@@ -5,6 +5,7 @@ export type SidebarPage =
   | "home"
   | "projects"
   | "library"
+  | "plugins"
   | "general"
   | "web-game"
   | "interactive-story"
@@ -12,7 +13,7 @@ export type SidebarPage =
   | "asset-canvas"
   | "community";
 
-export type SettingsSection = "account" | "billing" | "appearance" | "providers" | "agents" | "web-search" | "network" | "plugins" | "about";
+export type SettingsSection = "account" | "billing" | "appearance" | "providers" | "agents" | "web-search" | "network" | "mcp-server" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
 export type ProjectSort = "updated" | "name";
 export interface ProjectListFilters {
@@ -20,7 +21,7 @@ export interface ProjectListFilters {
   query?: string;
   sort?: ProjectSort;
 }
-type SidebarRoutePage = Exclude<SidebarPage, "community" | "projects">;
+type SidebarRoutePage = Exclude<SidebarPage, "community" | "projects" | "plugins">;
 
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "providers";
 
@@ -33,7 +34,8 @@ export type AppRoute =
   | ({ page: "projects" } & ProjectListFilters)
   | { page: "community" }
   | { page: "community-profile"; authorId: string }
-  | { page: "settings"; section: SettingsSection; pluginId?: string }
+  | { page: "plugins"; pluginId?: string }
+  | { page: "settings"; section: SettingsSection }
   | { page: "plugin-builder"; sessionId: string }
   | { page: "game"; gameId: string }
   | { page: "playtest"; projectId: string }
@@ -47,13 +49,13 @@ export function parseAppRoute(hash: string): AppRoute {
   const pluginMatch = /^#\/(?:settings\/)?plugins(?:\/([^/]+))?$/.exec(hash);
   if (pluginMatch) {
     try {
-      return { page: "settings", section: "plugins", ...(pluginMatch[1] ? { pluginId: decodeURIComponent(pluginMatch[1]) } : {}) };
+      return { page: "plugins", ...(pluginMatch[1] ? { pluginId: decodeURIComponent(pluginMatch[1]) } : {}) };
     } catch {
-      return { page: "settings", section: "plugins" };
+      return { page: "plugins" };
     }
   }
-  const settingsMatch = /^#\/settings(?:\/(account|billing|appearance|providers|agents|web-search|network|connections|about))?$/.exec(hash);
-  if (settingsMatch?.[1] === "connections") return { page: "settings", section: "plugins" };
+  const settingsMatch = /^#\/settings(?:\/(account|billing|appearance|providers|agents|web-search|network|connections|mcp-server|about))?$/.exec(hash);
+  if (settingsMatch?.[1] === "connections") return { page: "plugins" };
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? DEFAULT_SETTINGS_SECTION };
   const communityMatch = /^#\/community(?:\/games)?$/.exec(hash);
   if (communityMatch) return { page: "community" };
@@ -142,8 +144,8 @@ export function projectsHash({ projectType, query, sort }: ProjectListFilters = 
   return `#/projects${params.size ? `?${params}` : ""}`;
 }
 
-export function pluginHash(pluginId: string): string {
-  return `#/settings/plugins/${encodeURIComponent(pluginId)}`;
+export function pluginHash(pluginId?: string): string {
+  return `#/plugins${pluginId ? `/${encodeURIComponent(pluginId)}` : ""}`;
 }
 
 export function pluginBuilderHash(sessionId: string): string {

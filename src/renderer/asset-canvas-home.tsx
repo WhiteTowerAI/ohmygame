@@ -1,5 +1,5 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Box, Film, Image, LoaderCircle, Plus, RefreshCw, type IconComponent } from "./icons.js";
+import { Box, Film, Image, LoaderCircle, Music2, Plus, RefreshCw, type IconComponent } from "./icons.js";
 import { useEffect, useRef, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import type { AssetCanvasStarter } from "../shared/asset-canvas.js";
@@ -19,6 +19,8 @@ const QUICK_START_ICONS: Record<AssetCanvasStarter, IconComponent> = {
   image: Image,
   video: Film,
   "model-3d": Box,
+  music: Music2,
+  "audio-scene": Music2,
 };
 
 export function AssetCanvasHome({ onNavigate, onOpenProject }: {
@@ -117,7 +119,7 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
           {phase === "loading" ? <AssetCanvasRecentSkeleton /> : null}
           {phase === "error" ? <p className="home-project-state" role="alert">{error}</p> : null}
           {phase === "ready" && !projects.length ? <div className="asset-canvas-empty"><Image size={18} /><span>{t("assetCanvasHome.none")}</span></div> : null}
-          {phase === "ready" && projects.length ? <div className="home-project-grid">
+          {phase === "ready" && projects.length ? <div className="home-project-grid home-recent-projects-grid">
             {projects.map((project) => <ProjectCard
               key={project.id}
               project={project}
@@ -150,7 +152,7 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
 }
 
 function AssetCanvasRecentSkeleton() {
-  return <div className="home-project-grid" aria-label={t("assetCanvasHome.loading")}>
+  return <div className="home-project-grid home-recent-projects-grid" aria-label={t("assetCanvasHome.loading")}>
     {Array.from({ length: 4 }, (_, index) => <div className="project-card home-project-skeleton" key={index} />)}
   </div>;
 }

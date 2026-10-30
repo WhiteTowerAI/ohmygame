@@ -3,7 +3,8 @@ import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 import type { MultiplayerManifestConfig } from "./multiplayer-protocol.js";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
-import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "./agent-runtimes.js";
+import type { MediaContentType } from "./media-files.js";
+import type { AccountProfileIds, AgentRuntimeAuthStatus, AgentRuntimeId, ApprovalRequestDetails, StoredApprovalDecision } from "./agent-runtimes.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
@@ -11,7 +12,7 @@ export const PROJECT_TYPE_IDS = ["general", "web-game", "interactive-story", "as
 export type ProjectType = (typeof PROJECT_TYPE_IDS)[number];
 export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
-export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile"] as const;
+export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile", "mobile-landscape"] as const;
 export type PreviewViewport = (typeof PREVIEW_VIEWPORTS)[number];
 export const PROJECT_FILE_OPEN_MODES = ["default", "reveal", "vscode", "zed", "text-editor"] as const;
 export type ProjectFileOpenMode = (typeof PROJECT_FILE_OPEN_MODES)[number];
@@ -54,6 +55,8 @@ export interface AgentModelCatalog {
   hiddenModels?: AgentModel[];
   /** Coding agents whose models were still loading; asking again a little later lists them. */
   loadingRuntimes?: AgentRuntimeId[];
+  /** Pi catalogs refreshing in the background; existing models remain available. */
+  loadingProviders?: string[];
   defaultModel?: AgentModelRef;
   defaultReasoningLevel: AgentReasoningLevel;
   defaultNativeReasoningLevel?: string;
@@ -80,6 +83,8 @@ export type MediaModelUsage = "image" | "3d" | "video";
 export type MediaModelDefaults = Partial<Record<MediaModelUsage, ModelRef>>;
 
 export interface ProviderSummary extends ModelProviderSummary {
+  /** Saved sign-in status for a local CLI provider. */
+  authStatus?: AgentRuntimeAuthStatus;
   /** OpenAI can connect chat and images independently. */
   languageConfigured?: boolean;
   imageConfigured?: boolean;
@@ -131,7 +136,7 @@ export interface Model3DOptions {
   pose?: "a-pose" | "t-pose";
   textureModel?: string;
   textureQuality?: "fast" | "standard" | "detailed" | "extreme";
-  rigModel?: "v1.0-20240301" | "v2.5-20260210";
+  rigModel?: "v1.0-20240301" | "v2.5-20260210" | "v3.0-20260909";
   rigType?: "biped" | "quadruped" | "hexapod" | "octopod" | "serpentine" | "aquatic";
   animateInPlace?: boolean;
 }
@@ -256,6 +261,8 @@ export interface CustomProviderModel {
 }
 
 export interface ProviderModelSettings {
+  canRefreshCatalog?: boolean;
+  refreshingCatalog?: boolean;
   catalogDocsUrl?: string;
   models: Array<AgentModel & { visible: boolean; custom: boolean; capabilities?: ProviderCapability[];
     source?: "preset" | "custom" | "cloud"; model3d?: Model3DDefinition; description?: string }>;
@@ -392,6 +399,8 @@ export interface ProjectState extends ProjectPreviewSettings {
   type: ProjectType;
   updatedAt: string;
   workspacePath: string;
+  /** The plugin owns the binding file; OhMyGame stores only its identity and presentation. */
+  integration?: { pluginId: string; preview?: "external" };
   /** General Game's explicit Web preview opt-in; missing means disabled. */
   webPreviewEnabled?: boolean;
   /** Directory, relative to the workspace root, in which the Web Game preview starts. */
@@ -434,7 +443,7 @@ export interface ProjectActivitySnapshot {
   names: Pick<ProjectState, "id" | "name" | "nameSource">[];
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "model-3d" | "animate-3d" | "asset" | "document" | "table";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "audio-scene" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -483,6 +492,8 @@ export interface AssetCanvasTextGenerationResponse {
 
 export type AssetCanvasNode = (
   | { id: string; type: "table"; position: AssetCanvasPosition; data: { tableId: string } }
+  /** Any other project file or folder, by project-relative path. */
+  | { id: string; type: "file"; position: AssetCanvasPosition; data: { path: string; directory?: true } }
   | { id: string; type: "document"; position: AssetCanvasPosition; data: { documentId: string; references?: AssetCanvasTextReference[] } }
   | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
     assetId: string;
@@ -516,7 +527,7 @@ export type AssetCanvasNode = (
     referenceMentions?: Record<string, AssetCanvasReference>;
     assetId?: string;
   } }
-  | { id: string; type: "speech"; position: AssetCanvasPosition; data: {
+  | { id: string; type: "speech"; position: AssetCanvasPosition; data: import("./audio.js").AudioCanvasSettings & {
     /** Script text to synthesize; also accepts a linked text/document node as promptSource. */
     text: string;
     promptSource?: AssetCanvasTextReference;
@@ -527,7 +538,7 @@ export type AssetCanvasNode = (
     speed?: number;
     assetId?: string;
   } }
-  | { id: string; type: "sound-effect"; position: AssetCanvasPosition; data: {
+  | { id: string; type: "sound-effect"; position: AssetCanvasPosition; data: import("./audio.js").AudioCanvasSettings & {
     prompt: string;
     promptSource?: AssetCanvasTextReference;
     model?: ModelRef;
@@ -536,7 +547,7 @@ export type AssetCanvasNode = (
     negativePrompt?: string;
     assetId?: string;
   } }
-  | { id: string; type: "music"; position: AssetCanvasPosition; data: {
+  | { id: string; type: "music"; position: AssetCanvasPosition; data: import("./audio.js").AudioCanvasSettings & {
     prompt: string;
     promptSource?: AssetCanvasTextReference;
     model?: ModelRef;
@@ -545,6 +556,9 @@ export type AssetCanvasNode = (
     durationSeconds?: number;
     loop?: boolean;
     assetId?: string;
+  } }
+  | { id: string; type: "audio-scene"; position: AssetCanvasPosition; data: import("./audio.js").AudioCanvasSettings & {
+    prompt: string; promptSource?: AssetCanvasTextReference; model?: ModelRef; durationSeconds?: number; assetId?: string;
   } }
   | { id: string; type: "model-3d"; position: AssetCanvasPosition; data: {
     operation?: Exclude<Model3DOperation, "animate">;
@@ -736,6 +750,8 @@ export type ThreadItem = (
       id: string;
       turnId: string;
       type: "agentMessage";
+      /** Persisted message at which a new independent chat can branch. */
+      branchEntryId?: string;
       text: string;
       status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "interrupted" | "failed">;
       phase?: AgentMessagePhase;
@@ -814,7 +830,7 @@ export type ThreadItem = (
       requestId: string;
       request: ApprovalRequestDetails;
       status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "failed">;
-      decision?: ApprovalDecision;
+      decision?: StoredApprovalDecision;
     }
   | {
       id: string;
@@ -894,6 +910,7 @@ export interface CreateProjectRequest {
   viewport?: Viewport;
   /** Absolute path returned by the desktop directory picker. */
   workspacePath?: string;
+  pluginId?: string;
 }
 /** `reasoningLevel` is for a Pi model and `nativeReasoningLevel` for a coding agent's. */
 export interface CreateConversationRequest {
@@ -912,6 +929,7 @@ export type SetConversationModelRequest = AgentModelRef;
 /** Validated against the selected model: Pi enum or native effort/variant. */
 export interface SetConversationReasoningRequest { level: string }
 export interface ConversationAgentSettings {
+  accountProfiles?: AccountProfileIds;
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
   nativeReasoningLevel?: string;
@@ -941,6 +959,10 @@ export interface ConversationCapabilities {
     description: string;
     marketplaceId: string;
     marketplaceDisplayName: string;
+    icon?: import("./plugins.js").PluginIcon;
+    iconRevision?: string;
+    projectTypes?: ProjectType[];
+    integration?: import("./plugin-integration.js").PluginIntegrationDefinition;
   }>;
   skills: Array<{
     name: string;
@@ -966,6 +988,7 @@ export type LibraryAssetOrigin = "generated" | "uploaded" | "workspace" | "built
 export type LibraryAssetPurpose = "asset" | "reference";
 
 export interface LibraryAsset {
+  audio?: import("./audio.js").AudioAssetData;
   model3d?: Model3DMetadata;
   id: string;
   name: string;
@@ -1002,21 +1025,12 @@ export interface LibraryAssetSummary extends LibraryAsset {
   referenceOnly: boolean;
 }
 
-export type LibraryUploadMediaType =
-  | "image/png"
-  | "image/jpeg"
-  | "image/svg+xml"
-  | "image/webp"
-  | "video/mp4"
-  | "video/quicktime"
-  | "video/webm"
-  | "audio/mpeg"
-  | "audio/wav";
+export type LibraryUploadMediaType = MediaContentType;
 
 export interface CreateLibraryImageRequest {
   name: string;
   purpose?: LibraryAssetPurpose;
-  image: PromptImage & { mediaType: Extract<LibraryUploadMediaType, `image/${string}`> };
+  image: PromptImage & { mediaType: "image/png" | "image/jpeg" | "image/webp" };
 }
 
 export interface LineChanges {
@@ -1135,7 +1149,7 @@ export interface Model3DGenerationConfig {
   pbr: boolean;
 }
 
-export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video", "animate-3d", "generate-speech", "generate-sound-effect", "generate-music"] as const;
+export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video", "animate-3d", "generate-speech", "generate-sound-effect", "generate-music", "generate-audio"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 
 interface RunSizedImageToolRequest {
@@ -1197,9 +1211,10 @@ export interface RunAnimate3DToolRequest {
 }
 
 export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest | RunAnimate3DToolRequest
-  | import("./audio.js").RunSpeechToolRequest | import("./audio.js").RunSoundEffectToolRequest | import("./audio.js").RunMusicToolRequest;
+  | import("./audio.js").RunSpeechToolRequest | import("./audio.js").RunSoundEffectToolRequest | import("./audio.js").RunMusicToolRequest | import("./audio.js").RunSceneAudioToolRequest;
 
 export interface ToolRunFile {
+  role?: "audio" | "subtitles" | "metadata";
   name: string;
   mediaType: string;
   assetId?: string;
@@ -1258,7 +1273,7 @@ export interface RuntimeEventData {
   "item.reasoning.textDelta": { itemId: string; delta: string };
   "agent.completed": Record<string, never>;
   "agent.cancelled": Record<string, never>;
-  "agent.error": { error: string };
+  "agent.error": { error: string; code?: ThreadItemErrorCode; diagnostics?: AgentErrorDiagnostics };
   "prompt.queued": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.steered": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.removed": Record<string, never>;

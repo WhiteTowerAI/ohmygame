@@ -79,7 +79,6 @@ export async function addPlayableNode(
           source,
           assets: [],
           signals: preset.signals.map((signal) => ({ ...signal })),
-          ...(preset.story ? { story: { ...preset.story } } : {}),
         },
       ],
     });
@@ -107,6 +106,7 @@ export async function addPlayableNode(
       },
       files,
       ...(preset.sharedFiles ? { missingFiles: preset.sharedFiles } : {}),
+      ...(preset.sharedFileCopies ? { missingFileCopies: preset.sharedFileCopies } : {}),
     };
   });
   return {

@@ -3,7 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AGENT_REASONING_LEVELS, type AgentModel, type AgentModelCatalog, type AgentModelRef, type AgentReasoningLevel } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
-import { isAgentRuntimeId, nativeEffort } from "../shared/agent-runtimes.js";
+import { isAgentRuntimeId, nativeEffort, type AccountProfileIds } from "../shared/agent-runtimes.js";
 import { reasoningLabel } from "./reasoning-label.js";
 import { t } from "./i18n.js";
 import { listModels, MODELS_CHANGED_EVENT, waitForRuntime } from "./api.js";
@@ -261,22 +261,24 @@ export type AgentModelCatalogState = AgentModelCatalog & { status: AgentModelCat
 
 const EMPTY_CATALOG: AgentModelCatalogState = { models: [], defaultReasoningLevel: "medium", status: "loading" };
 /** The models a picker offers. Conversations pass `agentRuntimes` to list coding agents' models with OhMyGame's own. */
-export function useAgentModels(options: { agentRuntimes?: boolean } = {}): AgentModelCatalogState {
+export function useAgentModels(options: { agentRuntimes?: boolean; accountProfiles?: AccountProfileIds } = {}): AgentModelCatalogState {
   const [catalog, setCatalog] = useState<AgentModelCatalogState>(EMPTY_CATALOG);
   const agentRuntimes = options.agentRuntimes === true;
+  const profileKey = JSON.stringify(options.accountProfiles);
   useEffect(() => {
     let disposed = false;
     let generation = 0;
     let retries = 0;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const load = (quiet = false) => {
+      clearTimeout(retry);
       const request = ++generation;
       if (!quiet) setCatalog((current) => ({ ...current, status: "loading" }));
-      void waitForRuntime().then(() => listModels({ agentRuntimes })).then((available) => {
+      void waitForRuntime().then(() => listModels({ agentRuntimes, accountProfiles: profileKey ? JSON.parse(profileKey) as AccountProfileIds : undefined })).then((available) => {
         if (disposed || request !== generation) return;
         setCatalog({ ...available, status: "ready" });
-        // A coding agent that was slow to list its models is asked again, a few times, without hiding the others.
-        if (available.loadingRuntimes?.length && retries < 5) {
+        // Poll pending CLI discovery and Pi refreshes without hiding the existing models.
+        if ((available.loadingRuntimes?.length || available.loadingProviders?.length) && retries < 6) {
           retries++;
           retry = setTimeout(() => load(true), 3_000);
         }
@@ -292,7 +294,7 @@ export function useAgentModels(options: { agentRuntimes?: boolean } = {}): Agent
       clearTimeout(retry);
       window.removeEventListener(MODELS_CHANGED_EVENT, reload);
     };
-  }, [agentRuntimes]);
+  }, [agentRuntimes, profileKey]);
   return catalog;
 }
 

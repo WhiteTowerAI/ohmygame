@@ -50,6 +50,7 @@ export interface CodingSession {
   readonly model?: RuntimeModel;
   /** The coding agent CLI that runs this session; absent for OhMyGame's own agent. */
   readonly runtime?: AgentRuntimeId;
+  readonly profileId?: string;
   /** Whether prompt() emits message_start for its initial user message. */
   readonly emitsInitialUserMessage?: boolean;
   readonly sessionManager?: Pick<SessionManager, "appendCustomEntry" | "getBranch"> & Partial<Pick<SessionManager, "branch">>;
@@ -62,7 +63,7 @@ export interface CodingSession {
   clearQueue?(): { steering: string[]; followUp: string[] };
   navigateTree?(targetId: string, options?: { summarize?: boolean }): Promise<{ editorText?: string; cancelled: boolean }>;
   abort(): Promise<void>;
-  dispose(): void;
+  dispose(): void | Promise<void>;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
   setModel?(model: RuntimeModel): Promise<void>;
   readonly thinkingLevel?: AgentReasoningLevel;
@@ -265,6 +266,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
             id: `${entry.id}:assistant:${index}`,
             turnId,
             type: "agentMessage",
+            ...(phase === "final_answer" && (message.stopReason === "stop" || message.stopReason === "length") ? { branchEntryId: entry.id } : {}),
             text,
             status: threadItemStatus(message.stopReason),
             ...(phase ? { phase } : {}),
@@ -398,7 +400,6 @@ interface AgentManagerOptions {
     changed(project: ProjectState, from: string, to: string): Promise<TurnChanges>;
   };
   errorDiagnostics?: () => NonNullable<ThreadItemError["diagnostics"]>;
-  onRunFailed?: (error: ThreadItemError, scope: { projectId: string; conversationId: string; turnId: string }) => void;
 }
 
 interface UndoneChanges {
@@ -491,6 +492,7 @@ export class AgentManager {
   readonly #steeringPrompts = new Map<string, QueuedPrompt[]>();
   readonly #queueMutations = new Map<string, Promise<void>>();
   readonly #revisions = new Set<string>();
+  readonly #sessionDisposals = new Map<CodingSession, Promise<void>>();
   /** The projects whose files a restore, an undo or a put-back is changing. No turn starts in them meanwhile. */
   readonly #puttingBack = new Set<string>();
   readonly #turnEndsRecorded = new Map<string, number>();
@@ -603,6 +605,18 @@ export class AgentManager {
         this.#forgetConversation(key);
   }
 
+  /** Reject removal during startup/work, then stop the profile's idle processes before deleting files. */
+  async releaseAccountProfileSessions(runtime: AgentRuntimeId, profileId: string): Promise<void> {
+    const matches = (session: CodingSession) => session.runtime === runtime && (session.profileId ?? "system") === profileId;
+    const sessions = [...this.#sessions].filter(([, managed]) => matches(managed.session));
+    await Promise.all(sessions.flatMap(([key]) => this.#activeTurns.get(key)?.ended ? [this.#turnClosed(key)] : []));
+    // An unconstructed session does not yet expose its account. Retry once startup finishes.
+    if (this.#sessionLoads.size || sessions.some(([key]) => this.#activeTurns.has(key) || this.#revisions.has(key)))
+      throw new Error("Wait for the agent to finish before deleting this account configuration");
+    await Promise.all(sessions.map(([key]) => this.#forgetConversation(key)));
+    await Promise.all([...this.#sessionDisposals].flatMap(([session, stopped]) => matches(session) ? [stopped] : []));
+  }
+
   /** The coding agent running a conversation's loaded session, if any; undefined for OhMyGame's own agent. */
   sessionRuntime(projectId: string, conversationId: string): AgentRuntimeId | undefined {
     return this.#sessions.get(conversationKey(projectId, conversationId))?.session.runtime;
@@ -707,9 +721,10 @@ export class AgentManager {
     return { turnId, result: run };
   }
 
-  async contextUsage(project: ProjectState, conversation: StoredConversation): Promise<AgentContextUsage | undefined> {
-    const managed = await this.#getSession(project, conversation);
-    return managed.session.getContextUsage?.();
+  async contextUsage(project: ProjectState, conversation: StoredConversation, { loadSession = true } = {}): Promise<AgentContextUsage | undefined> {
+    const managed = this.#sessions.get(conversationKey(project.id, conversation.summary.id))
+      ?? (loadSession ? await this.#getSession(project, conversation) : undefined);
+    return managed?.session.getContextUsage?.();
   }
 
   async skills(project: ProjectState, conversation: StoredConversation): Promise<SkillCatalogItem[]> {
@@ -1453,7 +1468,7 @@ export class AgentManager {
     const key = conversationKey(projectId, conversationId);
     const pending = this.#approvals.get(key)?.get(requestId);
     if (!pending) throw new Error("Approval request is no longer active");
-    if (decision === "allow-session" && !pending.item.request.canAllowSession) throw new Error("This request can only be allowed once");
+    if (decision === "allow-always" && !pending.item.request.always) throw new Error("This request can only be allowed once");
     this.#approvals.get(key)?.delete(requestId);
     pending.removeAbortListener?.();
     const active = this.#activeTurns.get(key);
@@ -1950,6 +1965,18 @@ export class AgentManager {
         this.events.publish(projectId, "checkpoint.created", { checkpointId: entry.id }, eventScope(active));
       }
     } else if (event.type === "message_end" && isAssistantMessage(event.message)) {
+      const responseIds = [...active.assistantItemIds.values()];
+      const sessionManager = this.#sessions.get(conversationKey(projectId, conversationId))?.session.sessionManager;
+      queueMicrotask(() => {
+        const entry = sessionManager?.getBranch().findLast((entry) => entry.type === "message" && entry.message === event.message);
+        if (!entry) return;
+        for (const id of responseIds) {
+          const item = active.items.get(id);
+          if (item?.type === "agentMessage" && item.status === "completed" && item.phase === "final_answer") {
+            this.#updateItem(projectId, active, { ...item, branchEntryId: entry.id });
+          }
+        }
+      });
       const status = threadItemStatus(event.message.stopReason);
       active.lastError = event.message.stopReason === "error" ? this.#turnError(active, assistantMessageError(event.message)) : undefined;
       for (const [contentIndex, itemId] of active.assistantItemIds) {
@@ -2195,8 +2222,7 @@ export class AgentManager {
       console.warn("Could not save agent failure diagnostics");
     }
     this.#setState(projectId, active.conversationId, { status: "error", error: error.message });
-    this.events.publish(projectId, "agent.error", { error: error.message }, eventScope(active));
-    this.options.onRunFailed?.(error, { projectId, conversationId: active.conversationId, turnId: active.turnId });
+    this.events.publish(projectId, "agent.error", { error: error.message, ...(error.code ? { code: error.code } : {}), ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) }, eventScope(active));
   }
 
   #setState(projectId: string, conversationId: string, state: ConversationAgentState): void {
@@ -2244,12 +2270,14 @@ export class AgentManager {
     return !!runtime && managed.runtimeRevision !== (this.#runtimeRevisions.get(runtime) ?? 0);
   }
 
-  #forgetConversation(key: string): void {
+  #forgetConversation(key: string): void | Promise<void> {
     const managed = this.#sessions.get(key);
     if (!managed) return;
     managed.unsubscribe();
-    managed.session.dispose();
     this.#sessions.delete(key);
+    const stopped = Promise.resolve(managed.session.dispose()).catch(() => {}).finally(() => this.#sessionDisposals.delete(managed.session));
+    this.#sessionDisposals.set(managed.session, stopped);
+    return stopped;
   }
 }
 

@@ -9,6 +9,7 @@ import { NetworkSettingsService } from "./network-settings.js";
 import { requestSystemProxy } from "./system-proxy-resolver.js";
 import { ProcessPlaytestDriver } from "./playtest-driver.js";
 import { isLocalDebugEnabled, isLoopbackHostname } from "../shared/local-debug.js";
+import type { ExternalMcpLauncher } from "../shared/external-mcp.js";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const development = process.argv.includes("--dev");
@@ -64,13 +65,13 @@ try {
     preinstalledPluginsDirectory: process.env.OHMYGAME_PREINSTALLED_PLUGINS_DIR
       ?? path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),
     examplesDirectory: process.env.OHMYGAME_EXAMPLES_DIR ?? path.join(repositoryRoot, ".runtime", "examples"),
-    interactiveStoryPlayerDirectory: process.env.OHMYGAME_PLAYER_DIR,
     accessToken,
     allowedOrigins: (process.env.OHMYGAME_ALLOWED_ORIGINS ?? "")
       .split(",")
       .map((origin) => origin.trim())
       .filter(Boolean),
     logger: true,
+    logDirectory: process.env.OHMYGAME_LOG_DIR,
     publishApiUrl: process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL,
     localDebug: isLocalDebugEnabled(
       development && isLoopbackHostname(host),
@@ -78,10 +79,23 @@ try {
       process.env.VITE_SUPABASE_PUBLISHABLE_KEY,
     ),
     playtestDriver,
+    ...externalAgentOptions(),
   });
   await app.listen({ host, port: Number(process.env.DAEMON_PORT ?? 43110) });
 } catch (error) {
   if (app) app.log.error(error); else console.error(error);
   await app?.close();
   process.exit(1);
+}
+
+/** The launcher and Skill the desktop app ships, read once and kept from the processes the daemon starts. */
+function externalAgentOptions(): { externalMcpLauncher?: ExternalMcpLauncher; externalAgentSkillDirectory?: string } {
+  const launcher = process.env.OHMYGAME_EXTERNAL_MCP_LAUNCHER;
+  const skill = process.env.OHMYGAME_EXTERNAL_SKILL_DIR;
+  delete process.env.OHMYGAME_EXTERNAL_MCP_LAUNCHER;
+  delete process.env.OHMYGAME_EXTERNAL_SKILL_DIR;
+  return {
+    ...(launcher ? { externalMcpLauncher: JSON.parse(launcher) as ExternalMcpLauncher } : {}),
+    ...(skill ? { externalAgentSkillDirectory: skill } : {}),
+  };
 }

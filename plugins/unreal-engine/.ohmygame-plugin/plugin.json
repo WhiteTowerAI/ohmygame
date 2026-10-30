@@ -1,0 +1,31 @@
+{
+  "name": "unreal-engine",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "description": "Inspect and edit Unreal scenes using the official experimental Unreal MCP.",
+  "skills": "./skills/",
+  "mcpServers": "./mcp.json",
+  "configuration": {
+    "endpoint": {
+      "type": "text",
+      "label": "Local Unreal MCP URL",
+      "description": "The loopback URL of the selected Unreal Editor's experimental MCP server. Start the server in that Editor before testing.",
+      "default": "http://127.0.0.1:8000/mcp"
+    }
+  },
+  "interface": {
+    "beta": true,
+    "displayName": "Unreal Engine",
+    "shortDescription": "Inspect scenes and edit actors through Unreal MCP.",
+    "longDescription": "Inspect scenes and edit actors through the official experimental Unreal MCP documented for Unreal Engine 5.8. Requires an Editor with the plugin enabled and its local MCP server running; available operations depend on the enabled toolsets.",
+    "icon": {
+      "type": "asset",
+      "path": "./assets/icon.svg"
+    },
+    "defaultPrompt": [
+      "Inspect the connected Unreal project's identity, level, and available toolsets without editing.",
+      "Add a named cube actor to a test level, save it, and report the verification evidence."
+    ],
+    "projectTypes": ["general"]
+  }
+}

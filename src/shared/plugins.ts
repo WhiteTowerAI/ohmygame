@@ -2,6 +2,7 @@ import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { PROJECT_TYPE_IDS, type PluginMention, type ProjectType } from "./contracts.js";
 import { PLUGIN_ICON_PRESETS, type PluginIconPresetId } from "./plugin-icons.js";
+import type { PluginIntegrationDefinition } from "./plugin-integration.js";
 
 export type PluginOrigin =
   | { type: "github"; repository: string; commit: string; release?: string }
@@ -109,9 +110,12 @@ export interface PluginSummary {
   name: string;
   displayName: string;
   description: string;
+  projectTypes?: ProjectType[];
+  integration?: PluginIntegrationDefinition;
   icon?: PluginIcon;
   iconRevision?: string;
   version?: string;
+  beta?: boolean;
   marketplace: PluginMarketplaceRef;
   source: PluginSource;
   installed: boolean;
@@ -159,7 +163,6 @@ export interface PluginDetail extends PluginSummary {
   skills: PluginComponentSummary[];
   connections: PluginConnectionSummary[];
   defaultPrompts?: string[];
-  projectTypes?: ProjectType[];
   mcpServers?: PluginConnectionSummary[];
   mcpConfigPath?: string;
   configuration?: Record<string, PluginConfigurationField>;
@@ -197,7 +200,7 @@ export const PluginIconSchema = Type.Union([
   }, { additionalProperties: false }),
   Type.Object({
     type: Type.Literal("asset"),
-    path: Type.String({ pattern: "^\\./(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|webp)$", maxLength: 1000 }),
+    path: Type.String({ pattern: "^\\./(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|webp|svg)$", maxLength: 1000 }),
   }, { additionalProperties: false }),
 ]);
 export type PluginIcon = { type: "preset"; id: PluginIconPresetId } | { type: "asset"; path: string };
@@ -207,6 +210,7 @@ export function isPluginIcon(value: unknown): value is PluginIcon {
 }
 
 const InterfaceSchema = Type.Object({
+  beta: Type.Optional(Type.Boolean()),
   displayName: Type.Optional(Type.String({ minLength: 1 })),
   shortDescription: Type.Optional(Type.String({ minLength: 1 })),
   longDescription: Type.Optional(Type.String({ minLength: 1 })),
@@ -248,6 +252,7 @@ export interface PluginMcpResult {
 }
 
 export const PluginManifestSchema = Type.Object({
+  enabledByDefault: Type.Optional(Type.Boolean()),
   formatVersion: Type.Optional(Type.Integer({ minimum: 1 })),
   minimumHostVersion: Type.Optional(SemVerSchema),
   requirements: Type.Optional(Type.Object({
@@ -260,6 +265,12 @@ export const PluginManifestSchema = Type.Object({
   skills: Type.Optional(Type.Union([RelativePathSchema, Type.Array(RelativePathSchema, { minItems: 1, uniqueItems: true })])),
   connections: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
   mcpServers: Type.Optional(RelativePathSchema),
+  integration: Type.Optional(Type.Object({
+    entry: RelativePathSchema,
+    createProject: Type.Optional(Type.Boolean()),
+    projectFiles: Type.Optional(Type.Array(RelativePathSchema, { minItems: 1, maxItems: 20, uniqueItems: true })),
+    preview: Type.Optional(Type.Literal("external")),
+  }, { additionalProperties: false })),
   configuration: Type.Optional(Type.Record(IdentifierSchema, ConfigurationFieldSchema)),
   interface: Type.Optional(InterfaceSchema),
 }, { additionalProperties: false });

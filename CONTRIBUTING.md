@@ -74,12 +74,14 @@ Development on localhost uses a local debug account when either Supabase value
 is missing. Click **Sign in** to use it. Local publishing builds the game and
 serves a temporary snapshot in Community while the daemon runs.
 
-New installations show a two-step welcome and model connection flow. Click
-**Start creating** on the provider screen after connecting a language model,
-or **Skip and start** to enter without setup. Connect a language model there or in
-**Settings → Providers & Models** when testing real agent conversations. Image,
-video, and 3D generation need their corresponding providers, which can be
-connected in Settings when needed. Public tests use fixtures and simulated
+New installations show three steps: welcome, AI connection, and optional creative
+tools. OhMyGame (Pi) is enabled by default and needs a model provider; an installed
+coding agent CLI can also supply the conversation model. Choose the default model
+on the connection screen and click **Next**. The final screen connects image,
+video, 3D, and audio providers; **Start creating** enters without requiring media setup.
+**Skip and start** on the connection screen enters without a language model.
+Providers and models can also be set up in **Settings → Providers & Models**, and
+coding agent CLIs in **Settings → Agents**. Public tests use fixtures and simulated
 providers.
 
 Bun installs dependencies and runs the build/test toolchain. The standalone
@@ -160,6 +162,20 @@ cloud repository or its dependencies are unavailable. That is expected for
 public-only checkouts; mention the skips in your PR. A passing public suite
 does not verify the hosted service. See [cloud integration](#cloud-integration)
 and the [maintainer guide](docs/maintaining.md#review-and-merge).
+
+### Keep tests and documentation focused
+
+- Extend an existing test or guide before adding one. Merge tests only when
+  they share setup and inputs at the same boundary, and keep every assertion.
+- Before removing a test, name the remaining test that guards its behavior or
+  state that the behavior is no longer supported. A passing suite or unchanged
+  line coverage is not proof; `bun run test:ablation` injects known faults and
+  reports which test groups catch them. Diagnose or quarantine slow and flaky
+  tests rather than deleting them or adding retries.
+- Keep each rule in one guide and link to it from indexes and summaries. Put
+  run-specific counts and logs in the PR. Translations and shipped agent
+  instructions have their own readers, even when the wording is similar.
+- AI can propose duplicates and merges; the evidence above and review decide.
 
 ## Formatting
 

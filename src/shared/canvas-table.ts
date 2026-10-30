@@ -228,8 +228,12 @@ export function serializeDelimitedTable(
     .join("\r\n");
 }
 
-export function importCanvasCsv(table: CanvasTable, text: string): CanvasTable {
-  const [header, ...data] = parseDelimitedTable(text, ",");
+export function importCanvasCsv(
+  table: CanvasTable,
+  text: string,
+  delimiter: "," | "\t" = ",",
+): CanvasTable {
+  const [header, ...data] = parseDelimitedTable(text, delimiter);
   const count = Math.max(header!.length, ...data.map((row) => row.length));
   const columns: CanvasTableColumn[] = Array.from(
     { length: count },

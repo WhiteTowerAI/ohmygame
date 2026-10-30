@@ -3,13 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
+import { agentEnvironment } from "../src/daemon/agent-runtimes/environment.js";
 import {
-  agentEnvironment,
-  sandboxedPath,
-  toolchainRoots,
-} from "../src/daemon/agent-runtimes/environment.js";
-import {
-  commandSandbox,
   parseVersion,
   compareVersions,
   versionAtLeast,
@@ -18,270 +13,153 @@ import {
   parseOpenCodeModels,
   resolveBinary,
 } from "../src/daemon/agent-runtimes/discovery.js";
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
-import { existsSync, realpathSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { handoffSummary } from "../src/daemon/agent-runtimes/handoff.js";
-import {
-  judgeApproval,
-  neverTouchPaths,
-} from "../src/daemon/agent-runtimes/policy.js";
 import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { piToolCall } from "../src/daemon/agent-runtimes/driver-context.js";
 import {
-  claudeSandboxSettings,
+  claudeAlways,
+  claudeAnswer,
   claudeToolCall,
 } from "../src/daemon/agent-runtimes/claude-code.js";
-import type { DriverContext } from "../src/daemon/agent-runtimes/driver-context.js";
+import {
+  codexAnswer,
+  codexApproval,
+} from "../src/daemon/agent-runtimes/codex.js";
 import {
   openCodeToolCall,
   splitModel,
 } from "../src/daemon/agent-runtimes/opencode.js";
 
-const home = os.homedir();
-const workspace = path.join(
-  home,
-  "OhMyGame",
-  "data",
-  "projects",
-  "p1",
-  "workspace",
-);
-const policy = {
-  workspacePath: workspace,
-  neverTouch: neverTouchPaths(path.join(home, "OhMyGame", "data")),
-};
+describe("Claude Code's own permission suggestions", () => {
+  const suggestions = [
+    {
+      type: "addRules",
+      rules: [{ toolName: "Bash", ruleContent: "npm run build:*" }],
+      behavior: "allow",
+      destination: "localSettings",
+    },
+    {
+      type: "addDirectories",
+      directories: ["/Users/me/assets"],
+      destination: "session",
+    },
+  ];
 
-it("requires Claude's sandbox when the policy automatically allows confined commands", () => {
-  for (const sandboxedCommands of [true, false]) {
-    const context: DriverContext = {
-      binaryPath: "/usr/bin/claude",
-      workspacePath: workspace,
-      privateDirectory: path.join(os.tmpdir(), "ohmygame-session"),
-      env: {},
-      isolateUserConfig: true,
-      instructions: "",
-      bridge: new ToolBridge([]),
-      skillDirectories: [],
-      model: "sonnet",
-      policy: { ...policy, sandboxedCommands },
-    };
-    expect(claudeSandboxSettings(context).sandbox.failIfUnavailable).toBe(
-      sandboxedCommands,
-    );
-  }
+  it("offers always allowing what Claude Code suggests, saved when it saves any of it", () => {
+    expect(claudeAlways(suggestions)).toEqual({
+      scope: "saved",
+      rules: ["Bash(npm run build:*)", "/Users/me/assets"],
+    });
+    expect(claudeAlways([suggestions[1]!])).toEqual({
+      scope: "session",
+      rules: ["/Users/me/assets"],
+    });
+    expect(claudeAlways([])).toBeUndefined();
+    // Suggestions to deny or ask are not something to offer the person.
+    expect(
+      claudeAlways([{ ...suggestions[0]!, behavior: "deny" }]),
+    ).toBeUndefined();
+  });
+
+  it("returns its suggestions when the person always allows, and nothing extra otherwise", () => {
+    const input = { command: "npm run build" };
+    expect(claudeAnswer("allow-always", input, suggestions)).toEqual({
+      behavior: "allow",
+      updatedInput: input,
+      updatedPermissions: suggestions,
+      decisionClassification: "user_permanent",
+    });
+    expect(claudeAnswer("allow", input, suggestions)).toEqual({
+      behavior: "allow",
+      updatedInput: input,
+      decisionClassification: "user_temporary",
+    });
+    expect(claudeAnswer("deny", input, suggestions)).toMatchObject({
+      behavior: "deny",
+      decisionClassification: "user_reject",
+    });
+  });
 });
 
-describe("coding agent approval policy", () => {
-  it("lets an agent work in its workspace, even inside OhMyGame's data folder", () => {
+describe("Codex's own approvals", () => {
+  it("shows a command request and saves Codex's proposed rule when always allowed", () => {
+    const params = {
+      itemId: "item-1",
+      command: "/bin/zsh -lc 'npm install three'",
+      reason: "Needs the network",
+      proposedExecpolicyAmendment: ["npm", "install"],
+    };
     expect(
-      judgeApproval(
-        {
-          kind: "file",
-          tool: "Write",
-          path: path.join(workspace, "src", "main.ts"),
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("allow");
+      codexApproval("item/commandExecution/requestApproval", params),
+    ).toEqual({
+      kind: "command",
+      tool: "shell",
+      command: "npm install three",
+      reason: "Needs the network",
+      always: { scope: "saved", rules: ["npm install"] },
+    });
     expect(
-      judgeApproval(
-        {
-          kind: "file",
-          tool: "Write",
-          path: "src/main.ts",
-          canAllowSession: true,
+      codexAnswer("item/commandExecution/requestApproval", params, "allow-always"),
+    ).toEqual({
+      decision: {
+        acceptWithExecpolicyAmendment: {
+          execpolicy_amendment: ["npm", "install"],
         },
-        policy,
-      ),
-    ).toBe("allow");
+      },
+    });
     expect(
-      judgeApproval(
-        {
-          kind: "command",
-          tool: "Bash",
-          command: "npm install && npm run build",
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("ask");
+      codexAnswer("item/commandExecution/requestApproval", params, "allow"),
+    ).toEqual({ decision: "accept" });
     expect(
-      judgeApproval(
-        {
-          kind: "command",
-          tool: "Bash",
-          command: `ls "${workspace}/assets"`,
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("allow");
+      codexAnswer("item/commandExecution/requestApproval", params, "deny"),
+    ).toEqual({ decision: "decline" });
   });
 
-  it("keeps every agent out of sign-ins, OhMyGame's data and other projects", () => {
+  it("allows for the session when Codex proposes no rule", () => {
+    const params = { command: "make" };
     expect(
-      judgeApproval(
-        {
-          kind: "file",
-          tool: "Read",
-          path: "~/.codex/auth.json",
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("deny");
+      codexApproval("item/commandExecution/requestApproval", params)?.always,
+    ).toEqual({ scope: "session", rules: [] });
     expect(
-      judgeApproval(
-        {
-          kind: "file",
-          tool: "Write",
-          path: path.join(
-            home,
-            "OhMyGame",
-            "data",
-            "projects",
-            "p2",
-            "workspace",
-            "a.ts",
-          ),
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("deny");
+      codexAnswer("item/commandExecution/requestApproval", params, "allow-always"),
+    ).toEqual({ decision: "acceptForSession" });
     expect(
-      judgeApproval(
-        {
-          kind: "command",
-          tool: "Bash",
-          command: "cat ~/.ssh/id_ed25519",
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("deny");
-    // A command that names a folder holding a protected one reaches it too.
+      codexAnswer("item/fileChange/requestApproval", {}, "allow-always"),
+    ).toEqual({ decision: "acceptForSession" });
     expect(
-      judgeApproval(
-        {
-          kind: "command",
-          tool: "Bash",
-          command: "rm -rf ~",
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("deny");
-    // Quotes and login-shell wrappers do not hide a path.
-    expect(
-      judgeApproval(
-        {
-          kind: "command",
-          tool: "shell",
-          command: `/bin/zsh -lc 'cat "${home}/.claude.json"'`,
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("deny");
+      codexAnswer("execCommandApproval", params, "allow-always"),
+    ).toEqual({ decision: "approved_for_session" });
   });
 
-  it("asks before reaching outside the workspace or running a command that acts beyond it", () => {
+  it("grants exactly what a permission request names, for the turn or the session", () => {
+    const permissions = {
+      fileSystem: { read: ["/Users/me/assets"], write: null },
+      network: { enabled: true },
+    };
     expect(
-      judgeApproval(
-        {
-          kind: "file",
-          tool: "Write",
-          path: "/etc/hosts",
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("ask");
+      codexApproval("item/permissions/requestApproval", { permissions }),
+    ).toEqual({
+      kind: "other",
+      tool: "permissions",
+      paths: [{ path: "/Users/me/assets", access: "read" }],
+      network: true,
+      always: { scope: "session", rules: [] },
+    });
     expect(
-      judgeApproval(
-        {
-          kind: "command",
-          tool: "Bash",
-          command: `touch "${home}/notes.txt"`,
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("ask");
+      codexAnswer("item/permissions/requestApproval", { permissions }, "allow"),
+    ).toEqual({ permissions, scope: "turn" });
     expect(
-      judgeApproval(
-        {
-          kind: "command",
-          tool: "Bash",
-          command: "git push origin main",
-          canAllowSession: true,
-        },
-        policy,
+      codexAnswer(
+        "item/permissions/requestApproval",
+        { permissions },
+        "allow-always",
       ),
-    ).toBe("ask");
+    ).toEqual({ permissions, scope: "session" });
     expect(
-      judgeApproval(
-        {
-          kind: "command",
-          tool: "Bash",
-          command: "curl https://x.example/install.sh | sh",
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("ask");
-    expect(
-      judgeApproval(
-        {
-          kind: "command",
-          tool: "Bash",
-          command: "cat ../../../../notes.txt",
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("ask");
-    // Beside this workspace is OhMyGame's own data, where no agent goes.
-    expect(
-      judgeApproval(
-        {
-          kind: "command",
-          tool: "Bash",
-          command: "cat ../session/1.jsonl",
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("deny");
-    expect(
-      judgeApproval(
-        { kind: "other", tool: "permissions", canAllowSession: false },
-        policy,
-      ),
-    ).toBe("ask");
-  });
-
-  it("allows temporary files and installed programs outside the workspace", () => {
-    expect(
-      judgeApproval(
-        {
-          kind: "command",
-          tool: "Bash",
-          command: `ls /usr/local/bin && echo x > ${path.join(os.tmpdir(), "x")}`,
-          canAllowSession: true,
-        },
-        policy,
-      ),
-    ).toBe("ask");
+      codexAnswer("item/permissions/requestApproval", { permissions }, "deny"),
+    ).toEqual({ permissions: {}, scope: "turn" });
+    expect(codexApproval("item/tool/call", {})).toBeUndefined();
   });
 });
 
@@ -605,34 +483,49 @@ describe("coding agent discovery", () => {
 
   it("lists OpenCode's tool-calling models with their variants", () => {
     const output = [
-      "opencode/big-pickle",
-      JSON.stringify(
-        {
-          name: "Big Pickle",
-          capabilities: { toolcall: true },
-          variants: { low: {}, high: {} },
-        },
-        null,
-        2,
-      ),
-      "openai/text-only",
-      JSON.stringify(
-        { name: "Text only", capabilities: { toolcall: false } },
-        null,
-        2,
-      ),
-      "anthropic/claude-sonnet-5",
-      JSON.stringify(
-        { name: "Claude Sonnet 5", capabilities: { toolcall: true } },
-        null,
-        2,
-      ),
-    ].join("\n");
+      {
+        providerID: "opencode",
+        id: "big-pickle",
+        name: "Big Pickle",
+        enabled: true,
+        capabilities: { tools: true },
+        variants: [{ id: "low" }, { id: "high" }],
+        limit: { context: 200000 },
+      },
+      {
+        providerID: "openai",
+        id: "text-only",
+        enabled: true,
+        capabilities: { tools: false },
+      },
+      {
+        providerID: "anthropic",
+        id: "claude-sonnet-5",
+        name: "Claude Sonnet 5",
+        enabled: true,
+        capabilities: { tools: true },
+      },
+      {
+        providerID: "x",
+        id: "disabled",
+        enabled: false,
+        capabilities: { tools: true },
+      },
+      {
+        providerID: "x",
+        id: "old",
+        enabled: true,
+        status: "deprecated",
+        capabilities: { tools: true },
+      },
+      { id: "broken" },
+    ];
     expect(parseOpenCodeModels(output)).toEqual([
       {
         id: "opencode/big-pickle",
         name: "Big Pickle",
         variants: ["low", "high"],
+        contextWindow: 200000,
       },
       {
         id: "anthropic/claude-sonnet-5",
@@ -657,6 +550,7 @@ describe("coding agent discovery", () => {
         OHMYGAME_DAEMON_TOKEN: "secret",
         CLAUDE_CODE_OAUTH_TOKEN: "subscription",
         CODEX_HOME: "/home/me/.codex",
+        OPENCODE_CONFIG_DIR: "/home/me/opencode",
         HTTPS_PROXY: "http://proxy",
       },
     );
@@ -673,97 +567,35 @@ describe("coding agent discovery", () => {
     expect(env).not.toHaveProperty("OHMYGAME_DAEMON_TOKEN");
     // Another CLI's own folder is not this one's to see.
     expect(env).not.toHaveProperty("CODEX_HOME");
-  });
-});
-
-describe("sandboxed toolchains", () => {
-  it("grants the toolchains on PATH without the home folder or ~/.local", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-toolchain-"));
-    try {
-      const home = path.join(root, "home");
-      const opt = path.join(root, "opt");
-      const tool = path.join(home, ".local", "share", "tool", "bin");
-      await mkdir(path.join(opt, "bin"), { recursive: true });
-      await mkdir(tool, { recursive: true });
-      await mkdir(path.join(home, ".local", "bin"), { recursive: true });
-      await writeFile(path.join(tool, "tool"), "");
-      await symlink(
-        path.join(tool, "tool"),
-        path.join(home, ".local", "bin", "tool"),
-      );
-      const real = toolchainRoots(
-        [
-          path.join(opt, "bin"),
-          path.join(home, ".local", "bin"),
-          home,
-          "relative/bin",
-        ].join(path.delimiter),
-        realpathSync(home),
-        "linux",
-      );
-      expect(real).toEqual(
-        expect.arrayContaining([
-          realpathSync(path.join(opt, "bin")),
-          realpathSync(opt),
-          realpathSync(path.join(home, ".local", "bin")),
-          realpathSync(path.join(home, ".local", "share", "tool")),
-        ]),
-      );
-      expect(real).not.toContain(realpathSync(home));
-      expect(real).not.toContain(realpathSync(path.join(home, ".local")));
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it.skipIf(!existsSync("/System/Library/OpenSSL/openssl.cnf"))(
-    "allows Node's macOS TLS configuration without exposing the system Library",
-    () => {
-      const roots = toolchainRoots("", home, "darwin");
-      expect(roots).toContain("/System/Library/OpenSSL/openssl.cnf");
-      expect(roots).not.toContain("/System/Library");
-      expect(roots).not.toContain("/System/Library/OpenSSL");
-      expect(toolchainRoots("", home, "linux")).not.toContain(
-        "/System/Library/OpenSSL/openssl.cnf",
-      );
-    },
-  );
-
-  it("puts the macOS developer tools' own programs just before the /usr/bin shims", async () => {
-    const developer = await mkdtemp(path.join(os.tmpdir(), "ohmygame-clt-"));
-    try {
-      expect(
-        sandboxedPath(
-          ["/opt/homebrew/bin", "/usr/bin", "/bin"].join(path.delimiter),
-          "darwin",
-          developer,
-        ),
-      ).toBe(
-        ["/opt/homebrew/bin", developer, "/usr/bin", "/bin"].join(
-          path.delimiter,
-        ),
-      );
-      expect(sandboxedPath("/usr/bin", "linux", developer)).toBe("/usr/bin");
-    } finally {
-      await rm(developer, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("command sandbox status", () => {
-  it("reports an OS sandbox only where the CLI confines its commands", () => {
-    expect(commandSandbox("claude-code-cli", "darwin")).toBe("os");
-    expect(commandSandbox("codex-cli", "linux")).toBe("os");
-    expect(commandSandbox("opencode-cli", "darwin")).toBe("none");
-    expect(commandSandbox("claude-code-cli", "win32")).toBe("none");
-    // Claude Code's Linux sandbox needs bubblewrap and socat.
-    expect(commandSandbox("claude-code-cli", "linux", () => true)).toBe("os");
+    expect(env).not.toHaveProperty("OPENCODE_CONFIG_DIR");
     expect(
-      commandSandbox(
-        "claude-code-cli",
-        "linux",
-        (program) => program !== "socat",
+      agentEnvironment(
+        "opencode-cli",
+        "/opt/bin/opencode",
+        {},
+        {
+          OPENCODE_CONFIG_DIR: "/home/me/opencode",
+          OPENCODE_CONFIG: "/home/me/opencode.json",
+          OPENCODE_CONFIG_CONTENT: "ignored",
+          OPENAI_API_KEY: "ignored",
+        },
       ),
-    ).toBe("none");
+    ).toMatchObject({
+      OPENCODE_CONFIG_DIR: "/home/me/opencode",
+      OPENCODE_CONFIG: "/home/me/opencode.json",
+    });
+    const nativeEnv = agentEnvironment(
+      "opencode-cli",
+      "/opt/bin/opencode",
+      {},
+      {
+        OPENCODE_CONFIG_CONTENT: "ignored",
+        OPENAI_API_KEY: "ignored",
+      },
+    );
+    expect(nativeEnv).not.toHaveProperty("OPENCODE_CONFIG_CONTENT");
+    expect(nativeEnv).not.toHaveProperty("OPENAI_API_KEY");
+    // An ohmygame-mcp launcher the CLI may start must not connect back to OhMyGame.
+    expect(env.OHMYGAME_EXTERNAL_MCP_DISABLED).toBe("1");
   });
 });

@@ -5,6 +5,7 @@ import { afterEach, expect, it } from "vitest";
 import {
   AgentRuntimeCompatibilityError,
   checkRuntimeVersionRequirement,
+  cliProbeError,
 } from "../src/daemon/agent-runtimes/compatibility.js";
 import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
 
@@ -53,65 +54,38 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", li
   console.log(JSON.stringify({id:m.id,result}));
 });`;
 
-it("uses Claude's documented sandbox requirement only for modes that rely on it", () => {
-  expect(() =>
-    checkRuntimeVersionRequirement(
-      "claude-code-cli",
-      "2.1.82",
-      "standard",
-      "os",
-    ),
-  ).toThrow("sandbox.failIfUnavailable");
-  expect(() =>
-    checkRuntimeVersionRequirement(
-      "claude-code-cli",
-      "2.1.83",
-      "standard",
-      "os",
-    ),
-  ).not.toThrow();
-  expect(() =>
-    checkRuntimeVersionRequirement("claude-code-cli", "2.1.76", "full", "os"),
-  ).not.toThrow();
-  expect(() =>
-    checkRuntimeVersionRequirement(
-      "claude-code-cli",
-      "2.1.76",
-      "standard",
-      "none",
-    ),
-  ).not.toThrow();
-  expect(() =>
-    checkRuntimeVersionRequirement(
-      "codex-cli",
-      "0.162.0-alpha.17.2",
-      "standard",
-      "os",
-    ),
-  ).not.toThrow();
-  expect(() =>
-    checkRuntimeVersionRequirement(
-      "opencode-cli",
-      "1.18.32",
-      "standard",
-      "none",
-    ),
-  ).not.toThrow();
-  try {
-    checkRuntimeVersionRequirement(
-      "claude-code-cli",
-      undefined,
-      "standard",
-      "os",
-    );
-    expect.fail(
-      "An unknown version cannot establish the required sandbox behavior",
-    );
-  } catch (cause) {
-    expect(cause).not.toBeInstanceOf(AgentRuntimeCompatibilityError);
-    expect(String(cause)).toContain("could not verify");
-  }
+it("treats only a rejected command as incompatible, not a transient failure", () => {
+  expect(
+    cliProbeError("Codex", "error: unexpected argument '--fixture'"),
+  ).toBeInstanceOf(AgentRuntimeCompatibilityError);
+  expect(cliProbeError("Codex", "Connection timed out")).not.toBeInstanceOf(
+    AgentRuntimeCompatibilityError,
+  );
 });
+
+it("checks a version only for OpenCode's API generation", () => {
+  expect(() =>
+    checkRuntimeVersionRequirement("claude-code-cli", undefined),
+  ).not.toThrow();
+  expect(() =>
+    checkRuntimeVersionRequirement("codex-cli", "0.162.0-alpha.17.2"),
+  ).not.toThrow();
+  expect(() =>
+    checkRuntimeVersionRequirement("opencode-cli", "2.1.0"),
+  ).not.toThrow();
+  expect(() => checkRuntimeVersionRequirement("opencode-cli", undefined)).toThrow(
+    "did not report",
+  );
+});
+
+it.each(["1.18.33", "2.0.29", "3.0.0-beta.1", "3.0.0"])(
+  "rejects unsupported OpenCode API generation %s",
+  (version) => {
+    expect(() =>
+      checkRuntimeVersionRequirement("opencode-cli", version),
+    ).toThrow("unsupported");
+  },
+);
 
 // These cases execute POSIX script fixtures; Windows cannot start them as native CLIs.
 it.skipIf(process.platform === "win32")("accepts the reported Codex alpha by checking an ephemeral thread, not its version", async () => {
@@ -185,83 +159,110 @@ it.skipIf(process.platform === "win32")("keeps a temporary Codex probe failure d
   expect(await service.model("codex-cli", "fixture-model")).toBeDefined();
 });
 
-const opencode = (pure: boolean, callbacks = true, version = "1.18.32") => `
+const opencode = (version = "2.1.0", agents = ["build", "plan"]) => `
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(calls, JSON.stringify(args) + "\\n");
-if (args[0] === "--version") { console.log("${version}"); process.exit(); }
-if (args[0] === "serve" && args.includes("--help")) { console.log("opencode serve --hostname --port ${pure ? "--pure" : ""}"); process.exit(); }
-if (args[0] === "models") { console.log('fixture/model\\n{"name":"Fixture","capabilities":{"toolcall":true},"variants":{"low":{}}}'); process.exit(); }
+if (args[0] === "--version") { console.log("opencode v${version}"); process.exit(); }
 if (args[0] === "serve") {
   const config = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT);
-  if (!${callbacks}) config.permission.read = "allow";
+  fs.appendFileSync(calls, JSON.stringify({ config: Object.keys(config) }) + "\\n");
   const server = require("node:http").createServer((request,response) => {
-    fs.appendFileSync(calls, JSON.stringify(request.url) + "\\n");
-    if (request.url === "/path") return response.end(JSON.stringify({worktree:process.cwd()}));
-    if (request.url === "/config") return response.end(JSON.stringify(config));
-    if (request.url === "/event") {
+    const url = new URL(request.url, "http://localhost");
+    fs.appendFileSync(calls, JSON.stringify(url.pathname) + "\\n");
+    if (url.pathname === "/api/info") return response.end(JSON.stringify({version:"${version}"}));
+    if (url.pathname === "/api/location") return response.end(JSON.stringify({directory:process.cwd(),project:{id:"project",directory:process.cwd()}}));
+    if (url.pathname === "/api/agent") return response.end(JSON.stringify({data:${JSON.stringify(agents)}.map((id) => ({id}))}));
+    if (url.pathname === "/api/model") return response.end(JSON.stringify({data:[{providerID:"fixture",id:"model",name:"Fixture",enabled:true,capabilities:{tools:true},variants:[{id:"low"}]}]}));
+    if (url.pathname === "/api/event") {
       response.writeHead(200, {"content-type":"text/event-stream"});
-      response.write('data: {"type":"server.connected"}\\n\\n');
+      response.write('data: {"type":"server.connected","data":{}}\\n\\n');
       return;
     }
     response.writeHead(404); response.end();
   });
-  server.listen(0,"127.0.0.1",() => console.log("opencode server listening on http://127.0.0.1:"+server.address().port));
-} else
-process.exit(99);`;
+  server.listen(0,"127.0.0.1",() => console.log(JSON.stringify({url:"http://127.0.0.1:"+server.address().port})));
+  process.stdin.resume();
+  process.stdin.on("end",()=>process.exit());
+} else process.exit(99);`;
 
-it.skipIf(process.platform === "win32")("accepts an older OpenCode that advertises the required serving and isolation flags", async () => {
-  const { service, binary } = await fixture(opencode(true));
-  const status = await service.update("opencode-cli", {
-    enabled: true,
-    binaryPath: binary,
-  });
-  expect(status).toMatchObject({
-    version: "1.18.32",
-    testedVersion: "1.18.33",
-    diagnostics: [],
-  });
-  expect(await service.model("opencode-cli", "fixture/model")).toBeDefined();
-});
+it.skipIf(process.platform === "win32")(
+  "discovers v2 models on a private server without v1 flags, sessions or inference",
+  async () => {
+    const { service, binary, messages } = await fixture(opencode());
+    const status = await service.update("opencode-cli", {
+      enabled: true,
+      binaryPath: binary,
+    });
+    expect(status).toMatchObject({
+      version: "2.1.0",
+      diagnostics: [],
+    });
+    expect(await service.model("opencode-cli", "fixture/model")).toBeDefined();
+    const sent = await messages();
+    expect(sent).toContainEqual([
+      "serve",
+      "--stdio",
+      "--hostname",
+      "127.0.0.1",
+      "--port",
+      "0",
+    ]);
+    expect(sent).toContain("/api/model");
+    expect(
+      sent.some(
+        (message) =>
+          typeof message === "string" && message.startsWith("/api/session"),
+      ),
+    ).toBe(false);
+    // OpenCode keeps the person's own permission rules and saved grants.
+    expect(sent).toContainEqual({
+      config: ["share", "snapshots", "instructions"],
+    });
+    expect(sent).not.toContain("/api/permission/saved");
+  },
+);
 
-it.skipIf(process.platform === "win32")("requires OpenCode's pure flag only when CLI configuration isolation is selected", async () => {
-  const { service, binary } = await fixture(opencode(false));
-  const status = await service.update("opencode-cli", {
-    enabled: true,
-    binaryPath: binary,
-  });
-  expect(status.diagnostics).toEqual([
-    expect.objectContaining({
-      code: "runtime-incompatible",
-      capability: "--pure",
-    }),
-  ]);
-  expect((await service.models()).models).toEqual([]);
-  expect(
-    (await service.update("opencode-cli", { isolateUserConfig: false }))
-      .diagnostics,
-  ).toEqual([]);
-  expect(await service.model("opencode-cli", "fixture/model")).toBeDefined();
-});
+it.skipIf(process.platform === "win32")(
+  "rejects v1 explicitly",
+  async () => {
+    const { service, binary, messages } = await fixture(
+      opencode("1.18.33"),
+    );
+    const status = await service.update("opencode-cli", {
+      enabled: true,
+      binaryPath: binary,
+    });
+    expect(status.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "runtime-incompatible",
+        capability: "OpenCode HTTP API v2 (>=2.1.0 <3)",
+      }),
+    );
+    expect((await service.models()).models).toEqual([]);
+    expect(
+      (await messages()).some((m) => Array.isArray(m) && m[0] === "serve"),
+    ).toBe(false);
+  },
+);
 
-it.skipIf(process.platform === "win32")("rejects an OpenCode server that would bypass permission callbacks, even on a newer version", async () => {
-  const { service, binary, messages } = await fixture(
-    opencode(true, false, "99.0.0"),
-  );
-  const status = await service.update("opencode-cli", {
-    enabled: true,
-    binaryPath: binary,
-  });
-  expect(status.diagnostics).toEqual([
-    expect.objectContaining({
-      code: "runtime-incompatible",
-      capability: "permission.read=ask",
-    }),
-  ]);
-  expect((await service.models()).models).toEqual([]);
-  const requests = (await messages()).filter(
-    (message) => typeof message === "string",
-  );
-  expect(requests).toContain("/config");
-  expect(requests.some((route) => route.startsWith("/session"))).toBe(false);
-});
+it.skipIf(process.platform === "win32")(
+  "waits for OpenCode's build and plan agents before using it",
+  async () => {
+    const { service, binary, messages } = await fixture(
+      opencode("2.1.0", ["build"]),
+    );
+    const status = await service.update("opencode-cli", {
+      enabled: true,
+      binaryPath: binary,
+    });
+    expect(status.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "runtime-incompatible",
+        capability: "build/plan agents",
+      }),
+    ]);
+    expect((await service.models()).models).toEqual([]);
+    expect(await messages()).toContain("/api/agent");
+  },
+);

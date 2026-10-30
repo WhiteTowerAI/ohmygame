@@ -4,6 +4,286 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.5.0] - 2026-10-29
+
+### Added
+
+- Browse every image, video, and audio file of an Interactive Story in a new
+  **Assets** tab, with type and collection filters, search, preview, and
+  **Show in Code**.
+  ([#445](https://github.com/WhiteTowerAI/ohmygame/pull/445) by @dihuangdh)
+- Play a Scene's background video through instead of cutting it short on a
+  click, and offer **Skip** when the player has seen the Scene before. A Scene
+  opened with Allow Back can return when its video ends.
+  ([#429](https://github.com/WhiteTowerAI/ohmygame/pull/429) by @dihuangdh,
+  [#448](https://github.com/WhiteTowerAI/ohmygame/pull/448) by @dihuangdh)
+- Start from **Last Bus (末班)**, a 39-Scene interactive film example that
+  includes its design canvas, planning documents, generation history, and
+  drafts. Home's Explore section now shows two rows of examples.
+  ([#449](https://github.com/WhiteTowerAI/ohmygame/pull/449) by @dihuangdh,
+  [#451](https://github.com/WhiteTowerAI/ohmygame/pull/451) by @dihuangdh,
+  [#450](https://github.com/WhiteTowerAI/ohmygame/pull/450) by @dihuangdh)
+- Choose from the full Doubao TTS 2.0 preset voice catalog, grouped by
+  language with official samples that use no synthesis quota, and tune pitch,
+  volume, speed, dialect, pronunciation, SSML, trailing silence, and bit rate.
+  ([#406](https://github.com/WhiteTowerAI/ohmygame/pull/406) by @dogxii)
+- Open a Music canvas from the Asset Canvas home's quick start row, which no
+  longer offers Seedance 2.0.
+  ([#444](https://github.com/WhiteTowerAI/ohmygame/pull/444) by @dihuangdh,
+  [#469](https://github.com/WhiteTowerAI/ohmygame/pull/469) by @xinyang6879)
+
+### Changed
+
+- Coding agents now use their own permission modes, named as in each CLI, and
+  approval cards offer the agent's own Always allow and session options. The
+  default lets agents work without asking; existing settings move to that
+  default, and another mode can be chosen in **Settings → Agents**.
+  ([#460](https://github.com/WhiteTowerAI/ohmygame/pull/460) by @dihuangdh)
+- Every Interactive Story now plays as a web story. A story made before web
+  stories is upgraded when it is opened in the editor, without an undo, and
+  Scene sources are checked as the browser loads them, so package imports and
+  non-module files imported as modules are reported with a fix.
+  ([#436](https://github.com/WhiteTowerAI/ohmygame/pull/436) by @dihuangdh,
+  [#438](https://github.com/WhiteTowerAI/ohmygame/pull/438) by @dihuangdh)
+- The Story map Scene now lays out the story in its own code. A Story map Scene
+  made from the earlier Template no longer draws; ask the Agent to rewrite it
+  from the current Template. The story itself still opens and plays.
+  ([#439](https://github.com/WhiteTowerAI/ohmygame/pull/439) by @dihuangdh)
+- Asset Canvas always offers Sound effect and Music, and the Agent always has
+  its audio tools, even before an audio provider is connected; the node then
+  says no audio model is available. Music and Audio creation nodes no longer
+  show audio settings.
+  ([#443](https://github.com/WhiteTowerAI/ohmygame/pull/443) by @dihuangdh,
+  [#469](https://github.com/WhiteTowerAI/ohmygame/pull/469) by @xinyang6879,
+  [#470](https://github.com/WhiteTowerAI/ohmygame/pull/470) by @xinyang6879)
+
+### Removed
+
+- **Restore to before this message** in Chat. **Edit** changes only the
+  conversation, and **Undo** on a turn's change summary takes its files back.
+  ([#463](https://github.com/WhiteTowerAI/ohmygame/pull/463) by @dihuangdh)
+- Audio reference uploads, subtitles, and SRT/WebVTT downloads. Existing
+  canvases and audio stay readable.
+  ([#469](https://github.com/WhiteTowerAI/ohmygame/pull/469) by @xinyang6879)
+- The Variables list in Story settings and the "No exits yet" note on Scene
+  cards. Playtest still shows Variable values.
+  ([#441](https://github.com/WhiteTowerAI/ohmygame/pull/441) by @dihuangdh,
+  [#434](https://github.com/WhiteTowerAI/ohmygame/pull/434) by @dihuangdh)
+
+### Fixed
+
+- Keep an unsent Home prompt after visiting a project and returning.
+  ([#461](https://github.com/WhiteTowerAI/ohmygame/pull/461) by @dihuangdh)
+- Open the earliest Interactive Stories, whose `graph.json` could not be read,
+  by upgrading them on open.
+  ([#437](https://github.com/WhiteTowerAI/ohmygame/pull/437) by @dihuangdh)
+- Start the macOS app when an agent in a sandbox calls `ohmygame-mcp` while
+  OhMyGame is closed, and stop a closing window from crashing the app.
+  ([#453](https://github.com/WhiteTowerAI/ohmygame/pull/453) by @dihuangdh,
+  [#452](https://github.com/WhiteTowerAI/ohmygame/pull/452) by @dihuangdh)
+- Stop Scene thumbnail captures from logging `Invalid thumbnail request`
+  errors.
+  ([#440](https://github.com/WhiteTowerAI/ohmygame/pull/440) by @dihuangdh)
+
+## [0.0.0-beta.4.15] - 2026-10-27
+
+### Added
+
+- Manage separate Claude Code and Codex account configurations, choose the
+  default for new chats, and switch accounts in a chat while keeping sign-ins,
+  models, usage limits, and native sessions separate.
+  ([#403](https://github.com/WhiteTowerAI/ohmygame/pull/403) by @dogxii)
+- Opt in to continue a chat once a reported usage limit resets. OhMyGame sends
+  one continuation 30 seconds after the last exhausted window resets while the
+  conversation stays open; sending a message or cancelling clears the schedule.
+  ([#424](https://github.com/WhiteTowerAI/ohmygame/pull/424) by @dogxii)
+- Preview horizontal phone games with a Mobile landscape preset, including a
+  saved project default and a 667 × 375 Play window.
+  ([#399](https://github.com/WhiteTowerAI/ohmygame/pull/399) by @grootbro)
+- Prepare a TapTap Maker game's store page, Spark version binding, precheck,
+  and review with the new TapTap Release Skill and the official TapTap CLI.
+  ([#422](https://github.com/WhiteTowerAI/ohmygame/pull/422) by @dogxii)
+
+### Changed
+
+- Follow project activity and automatic naming over an event stream, and pause
+  Canvas polling while the window is hidden until it becomes visible again.
+  ([#425](https://github.com/WhiteTowerAI/ohmygame/pull/425) by @dogxii)
+- Reuse running Canvas generations and current output from unchanged settings
+  when an agent requests media, avoiding another paid run unless a new variation
+  is explicitly requested. The Canvas Generate button still starts a new run.
+  ([#423](https://github.com/WhiteTowerAI/ohmygame/pull/423) by @dogxii)
+
+### Fixed
+
+- Keep a user-started Canvas generation running when an agent following that
+  job is stopped; stopping a generation the agent started still cancels it.
+  ([#426](https://github.com/WhiteTowerAI/ohmygame/pull/426) by @dogxii)
+- Capture Scene thumbnails after restoring a workspace, show capture failures
+  without repeatedly retrying the same version, and use a video's opening frame
+  as the fallback cover for video-only Scenes.
+  ([#428](https://github.com/WhiteTowerAI/ohmygame/pull/428) by @dihuangdh)
+- Discover custom MCP search tool schemas before sending supported arguments,
+  and parse multiline event-stream search results and errors correctly.
+  ([#419](https://github.com/WhiteTowerAI/ohmygame/pull/419) by @dogxii,
+  [#401](https://github.com/WhiteTowerAI/ohmygame/pull/401) by @grootbro)
+- Load hosted Community covers directly from their HTTPS URLs while keeping
+  local debug covers available through the daemon.
+  ([#408](https://github.com/WhiteTowerAI/ohmygame/pull/408) by @dihuangdh)
+- Serve static preview scripts, stylesheets, and WebAssembly with the correct
+  media types when filename extensions use uppercase or mixed case.
+  ([#400](https://github.com/WhiteTowerAI/ohmygame/pull/400) by @grootbro)
+- Open General Game workspaces with the conversation pane expanded, and
+  recalculate the input's height when the pane is expanded or resized.
+  ([#421](https://github.com/WhiteTowerAI/ohmygame/pull/421) by @dogxii)
+- Check native process identities asynchronously so CLI and image startup do
+  not block on PowerShell, while preserving identity checks during recovery.
+  ([#420](https://github.com/WhiteTowerAI/ohmygame/pull/420) by @dogxii)
+
+## [0.0.0-beta.4.14] - 2026-10-26
+
+### Added
+
+- Create a new chat from a completed agent response, carrying the conversation
+  through that response into an independent chat.
+  ([#404](https://github.com/WhiteTowerAI/ohmygame/pull/404) by @dogxii)
+- Drop a project ZIP onto the Projects page to import it as a new project.
+  ([#389](https://github.com/WhiteTowerAI/ohmygame/pull/389) by @dogxii)
+- Like Community games directly from their cards without signing in.
+  ([#397](https://github.com/WhiteTowerAI/ohmygame/pull/397) by @dogxii)
+- Export a diagnostics ZIP with redacted desktop logs and system information
+  from Settings → About.
+  ([#354](https://github.com/WhiteTowerAI/ohmygame/pull/354) by @xuhongbo)
+- Add refreshed, localized Story scene templates with bundled Last Bus artwork
+  copied into each project that uses it.
+  ([#379](https://github.com/WhiteTowerAI/ohmygame/pull/379) by @82228,
+  [#411](https://github.com/WhiteTowerAI/ohmygame/pull/411) by @xinyang6879)
+
+### Changed
+
+- Refresh configured Pi model catalogs in the background and offer a manual
+  refresh in provider settings.
+  ([#392](https://github.com/WhiteTowerAI/ohmygame/pull/392) by @dogxii)
+- Update bundled 3D model versions and provider operation limits, including
+  Meshy T2.5 and Tripo v3.
+  ([#391](https://github.com/WhiteTowerAI/ohmygame/pull/391) by @dogxii)
+- Load non-home screens on demand to reduce the initial renderer payload.
+  ([#394](https://github.com/WhiteTowerAI/ohmygame/pull/394) by @dogxii,
+  [#393](https://github.com/WhiteTowerAI/ohmygame/pull/393) by @dogxii)
+
+### Fixed
+
+- Keep Meshy animation selections and previews stable while the 3D catalog
+  refreshes, and use Canvas node titles for downloaded media filenames.
+  ([#395](https://github.com/WhiteTowerAI/ohmygame/pull/395) by @dogxii,
+  [#398](https://github.com/WhiteTowerAI/ohmygame/pull/398) by @dogxii)
+- Explain why a Story cannot start and provide a path back to its editor.
+  ([#367](https://github.com/WhiteTowerAI/ohmygame/pull/367) by @xuhongbo)
+- Improve Windows Codex discovery and sandbox diagnostics, protect Pi credential
+  folders from coding agents, and keep the daemon access token off the renderer
+  command line.
+  ([#409](https://github.com/WhiteTowerAI/ohmygame/pull/409) by @82228,
+  [#359](https://github.com/WhiteTowerAI/ohmygame/pull/359) by @xuhongbo,
+  [#363](https://github.com/WhiteTowerAI/ohmygame/pull/363) by @xuhongbo)
+
+## [0.0.0-beta.4.13] - 2026-10-23
+
+### Added
+
+- Export any project as a ZIP with its settings, cover, and workspace, and import
+  it as a new project on another computer. Interactive Story exports include
+  referenced Library assets, and older Story project ZIPs remain importable.
+  ([#355](https://github.com/WhiteTowerAI/ohmygame/pull/355) by @xuhongbo)
+- Drop, paste, or upload text documents, CSV/TSV tables, and more image, audio,
+  video, and 3D formats into the canvas. Keep other files, including source,
+  fonts, and ZIPs, as project file nodes with a desktop file-location action.
+  ([#380](https://github.com/WhiteTowerAI/ohmygame/pull/380) by @dogxii,
+  [#381](https://github.com/WhiteTowerAI/ohmygame/pull/381) by @dogxii)
+- Confirm folder imports before copying files, with choices to preserve the
+  directory structure as one folder node, import files separately, or cancel.
+  Repeated file and folder names are kept without overwriting existing imports.
+  ([#382](https://github.com/WhiteTowerAI/ohmygame/pull/382) by @dogxii)
+
+### Changed
+
+- Claude Code, Codex, and OpenCode now load your existing CLI settings, Hooks,
+  MCP servers, Skills, and instructions while retaining OhMyGame's selected
+  permissions. OpenCode requires version 2.1.0 or newer in the 2.x series;
+  upgrade v1 before using it. If OpenCode reports saved project grants, remove
+  those grants in OpenCode and check again.
+  ([#376](https://github.com/WhiteTowerAI/ohmygame/pull/376) by @dogxii)
+- Community view counts now measure successful game-entry requests, including
+  repeat visits, refreshes, and direct shared links, rather than unique visitors.
+  Counts start at zero with the matching Cloud migration and survive updates to
+  the same published game. Hosted deployments need the matching Cloud API and
+  play-count migration.
+  ([#353](https://github.com/WhiteTowerAI/ohmygame/pull/353) by @dogxii)
+
+### Fixed
+
+- Keep Library and Community controls, plugin cards, and external-agent actions
+  usable in narrow windows, including long plugin names and translated labels.
+  ([#372](https://github.com/WhiteTowerAI/ohmygame/pull/372) by @dogxii)
+
+## [0.0.0-beta.4.12] - 2026-10-22
+
+### Added
+
+- Connect external Claude Code, Codex, and other MCP clients to OhMyGame's
+  media, canvas, project, and playtesting tools through Settings → MCP Server.
+  ([#325](https://github.com/WhiteTowerAI/ohmygame/pull/325) by @dogxii)
+- Explore optional Beta plugins for Blender, Godot, TapTap Maker, Cocos Creator,
+  Unity, Unreal Engine, Aseprite, Tiled, WeChat Mini Games, and Douyin Mini Games.
+  Enable them from the sidebar's Plugins library; these workflows remain experimental.
+  ([#278](https://github.com/WhiteTowerAI/ohmygame/pull/278) by @dogxii)
+
+### Changed
+
+- Set up a model provider or installed coding agent during first-run onboarding,
+  choose a default model, and optionally connect creative tools before starting.
+  ([#331](https://github.com/WhiteTowerAI/ohmygame/pull/331) by @dogxii)
+- Browse Community in a responsive cover grid with visible titles, creators,
+  engagement counts, search, sorting, and matching cards on creator profiles.
+  ([#357](https://github.com/WhiteTowerAI/ohmygame/pull/357) by @dogxii)
+- Publish Interactive Stories up to 100 MiB, with a longer upload timeout and
+  media optimization in a temporary copy that preserves the original assets.
+  ([#333](https://github.com/WhiteTowerAI/ohmygame/pull/333) by @82228)
+- Connect Codex Image using its saved sign-in without an extra capability check,
+  and simplify provider detail controls. Availability and quota errors are reported
+  when generating an image.
+  ([#356](https://github.com/WhiteTowerAI/ohmygame/pull/356) by @dogxii)
+- The Windows installer is shown in English or Simplified Chinese, matching the
+  app's languages; other system languages get English.
+  ([#377](https://github.com/WhiteTowerAI/ohmygame/pull/377) by @dihuangdh)
+
+### Fixed
+
+- Preserve recoverable canvas drafts when concurrent changes would merge into
+  invalid node references, and offer conflict choices instead of losing edits.
+  ([#342](https://github.com/WhiteTowerAI/ohmygame/pull/342) by @jsdhwfmax)
+- Avoid a Windows checkpoint write failure when multiple files have the same
+  contents and are saved at the same time.
+  ([#373](https://github.com/WhiteTowerAI/ohmygame/pull/373) by @xinyang6879)
+- Keep the previous story picture visible while the next node's media loads,
+  reducing black flashes between story nodes.
+  ([#343](https://github.com/WhiteTowerAI/ohmygame/pull/343) by @82228)
+- Improve Windows title bar and sidebar appearance, keep installer progress
+  moving forward, allow more time for first-start plugin preparation, and
+  prevent a failed process check from incorrectly blocking installation.
+  ([#352](https://github.com/WhiteTowerAI/ohmygame/pull/352) by @82228,
+  [#369](https://github.com/WhiteTowerAI/ohmygame/pull/369) by @82228,
+  [#377](https://github.com/WhiteTowerAI/ohmygame/pull/377) by @dihuangdh)
+- Keep composer attachment and context menus usable near window edges and in
+  short viewports, with scrolling when the full menu does not fit.
+  ([#352](https://github.com/WhiteTowerAI/ohmygame/pull/352) by @82228,
+  [#361](https://github.com/WhiteTowerAI/ohmygame/pull/361) by @xinyang6879)
+- Make plugin Skills available to installed coding agents and prevent Codex
+  startup failures caused by reserved tool names.
+  ([#278](https://github.com/WhiteTowerAI/ohmygame/pull/278) by @dogxii)
+- Remove the confusing Off map badge from scene cards while keeping visibility
+  controls available.
+  ([#346](https://github.com/WhiteTowerAI/ohmygame/pull/346) by @82228)
+
 ## [0.0.0-beta.4.11] - 2026-10-20
 
 ### Added

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "taptap-maker": {
+      "command": "node",
+      "args": ["./scripts/mcp.mjs"],
+      "lifecycle": "lazy",
+      "requestTimeoutMs": 3600000
+    }
+  }
+}

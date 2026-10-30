@@ -114,6 +114,7 @@ export function GameStudioHome({
         <div className="home-start">
           <h1>{studio.title}</h1>
           <ProjectPromptCreator
+            draftKey={projectType}
             projectType={projectType}
             placeholder={studio.placeholder}
             onOpenProject={onOpenProject}

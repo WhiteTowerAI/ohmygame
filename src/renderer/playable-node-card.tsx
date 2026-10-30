@@ -33,19 +33,20 @@ export const PLAYABLE_NODE_TYPES: NodeTypes = { playable: PlayableNodeCard };
 
 function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
   const canvas = useContext(PlayableCanvasContext);
-  const { node, entry, ending, issues, connected, failed, thumbnail, coverAsset } = data;
+  const { node, entry, issues, connected, failed, thumbnail, thumbnailError, coverAsset } = data;
   return <div className={`story-node story-media-node story-presentation-node-card playable-node-card${selected ? " is-selected" : ""}`} style={CARD_STYLE}>
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
     <div className="story-media-node-label story-scene-node-label">
       <span><InlinePlayableTitle nodeId={id} value={node.title} onRename={canvas?.onRenameNode} /></span>
       <div className="playable-node-badges">
         {entry ? <span className="playable-node-badge is-entry" title={t("sceneCard.startTitle")}><Flag size={11} /><span>{t("sceneCard.start")}</span></span> : null}
-        {node.story?.hidden ? <span className="playable-node-badge" title={t("sceneCard.offMapTitle")}><span>{t("sceneCard.offMap")}</span></span> : ending ? <span className="playable-node-badge" title={t("sceneCard.endingTitle")}><span>{t("storyMenu.ending")}</span></span> : null}
       </div>
     </div>
     <div data-alignment-frame className={`story-media-stage playable-node-stage${failed ? " is-failed" : ""}`}>
       <PlayableNodePicture projectId={canvas?.projectId} node={node} thumbnail={thumbnail} coverAsset={coverAsset} />
-      {thumbnail?.stale && !failed ? <span className="playable-node-stale" title={t("sceneCard.staleTitle")}>{t("sceneCard.stale")}</span> : null}
+      {thumbnailError && !failed
+        ? <span className="playable-node-stale is-error" title={`${t("sceneCard.captureFailedTitle")}\n${thumbnailError}`}>{t("sceneCard.captureFailed")}</span>
+        : thumbnail?.stale && !failed ? <span className="playable-node-stale" title={t("sceneCard.staleTitle")}>{t("sceneCard.stale")}</span> : null}
       {issues.length ? <p className="playable-node-issue" role="alert"><InfoCircle size={13} /><span title={issues.join("\n")}>{issues[0]}</span></p> : null}
       <button
         type="button"
@@ -64,7 +65,7 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
 
 /**
  * What a Node card shows: the Node's last thumbnail, else its first image
- * Asset, else a neutral card with its title.
+ * Asset or the first frame of its first video, else a neutral card with its title.
  */
 function PlayableNodePicture({ projectId, node, thumbnail, coverAsset }: {
   projectId?: string;
@@ -81,6 +82,16 @@ function PlayableNodePicture({ projectId, node, thumbnail, coverAsset }: {
     !captured && source?.kind === "library" ? source.assetId : undefined,
   );
   const url = captured ?? cover.url;
+  if (!captured && url && coverAsset?.type === "video") {
+    return <video
+      className="playable-node-picture is-asset"
+      src={url}
+      muted
+      playsInline
+      preload="metadata"
+      onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }}
+    />;
+  }
   if (url) return <img className={`playable-node-picture${captured ? "" : " is-asset"}`} src={url} alt="" draggable={false} />;
   return <div className="playable-node-summary">
     <strong>{node.title}</strong>
@@ -115,14 +126,15 @@ function usePlayableThumbnailUrl(projectId: string | undefined, nodeId: string, 
  * A Scene card's Exits, each with the port its connection leaves from and,
  * when the Agent wrote one, the condition it is taken on. A navigation Exit's
  * line is not drawn; the row names its target instead, and clicking the name
- * selects the connection.
+ * selects the connection. A Scene without Exits, such as an ending or a look
+ * that goes back, shows none.
  */
 function PlayableSignalOutputs({ signals, connected, onSelectEdge }: {
   signals: readonly PlayableSignal[];
   connected: PlayableFlowData["connected"];
   onSelectEdge?: (edgeId: string) => void;
 }) {
-  if (!signals.length) return <div className="story-node-outputs playable-node-outputs-empty"><span>{t("sceneCard.noExits")}</span></div>;
+  if (!signals.length) return null;
   return <div className="story-node-outputs">{signals.map((signal) => {
     const route = connected[signal.id];
     const name = signal.label || signal.id;

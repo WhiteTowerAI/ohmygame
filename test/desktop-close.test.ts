@@ -6,7 +6,7 @@ const host = vi.hoisted(() => ({
   ipcEvents: new Map<string, (...args: any[]) => void>(),
   handlers: new Map<string, (...args: any[]) => any>(),
   windowEvents: new Map<string, (...args: any[]) => void>(),
-  sender: { id: 1, send: vi.fn() },
+  sender: { id: 1, send: vi.fn(), on: vi.fn() },
   thumbnails: [] as Array<{ webContents: { id: number }; destroy: ReturnType<typeof vi.fn> }>,
   stopped: vi.fn(async () => {}),
   quit: vi.fn(), relaunch: vi.fn(), close: vi.fn(),
@@ -36,6 +36,13 @@ vi.doMock(path.resolve("src/desktop/network.ts"), () => ({
 vi.doMock(path.resolve("src/desktop/daemon-process.ts"), () => ({
   startDaemon: async () => ({ runtime: { url: "http://127.0.0.1:12345", token: "test" }, stop: host.stopped }),
 }));
+vi.doMock(path.resolve("src/desktop/log-file.ts"), () => ({
+  RotatingLogFile: class { line() {} write() {} flush() {} close() {} stream() { return { write() {}, flush() {} }; } },
+}));
+vi.doMock(path.resolve("src/desktop/console-log.ts"), async (importOriginal) => ({
+  ...(await importOriginal<object>()), recordConsole: vi.fn(), recordUncaughtErrors: vi.fn(),
+}));
+vi.doMock(path.resolve("src/desktop/external-mcp-install.ts"), () => ({ installExternalMcpLauncher: vi.fn(async () => undefined), markExternalMcpApp: vi.fn(async () => async () => {}) }));
 vi.doMock(path.resolve("src/desktop/oauth.ts"), () => ({
   isOAuthAuthorizationUrl: vi.fn(), OAuthCallbackFlow: class { cancel = async () => {}; },
 }));
@@ -83,7 +90,7 @@ beforeEach(async () => {
 afterEach(() => { process.argv.splice(process.argv.lastIndexOf("--built-renderer"), 1); vi.useRealTimers(); });
 
 const settle = async () => { await vi.advanceTimersByTimeAsync(0); };
-function acknowledge(error?: string, sender = host.sender, id?: number) {
+function acknowledge(error?: string, sender: { id: number; send: unknown } = host.sender, id?: number) {
   const sent = host.sender.send.mock.calls.findLast(([channel]) => channel === "ohmygame:prepare-close")!;
   host.ipcEvents.get("ohmygame:ready-to-close")!({ sender }, id ?? sent[1], error);
 }
@@ -158,14 +165,25 @@ it("blocks an update when background services cannot stop safely", async () => {
 it("cancels active and queued thumbnail captures and frees slots for the next batch", async () => {
   const capture = (id: string, batch: string) => host.handlers.get("ohmygame:capture-node-thumbnail")!(
     { sender: host.sender }, "p", id, { width: 1280, height: 720 }, batch,
-  ) as Promise<boolean>;
-  const previous = [capture("a", "old"), capture("b", "old"), capture("c", "old")];
-  expect(host.thumbnails).toHaveLength(2);
-  host.handlers.get("ohmygame:cancel-node-thumbnails")!({ sender: host.sender }, "old");
-  await expect(Promise.all(previous)).resolves.toEqual([false, false, false]);
-  expect(host.thumbnails.every(window => window.destroy.mock.calls.length === 1)).toBe(true);
-  const next = capture("next", "new");
-  expect(host.thumbnails).toHaveLength(3);
-  host.handlers.get("ohmygame:finish-node-thumbnail")!({ sender: host.thumbnails[2]!.webContents }, true);
-  await expect(next).resolves.toBe(true);
+  ) as Promise<unknown>;
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const previous = [capture("a", "old"), capture("b", "old"), capture("c", "old")];
+    expect(host.thumbnails).toHaveLength(2);
+    host.handlers.get("ohmygame:cancel-node-thumbnails")!({ sender: host.sender }, "old");
+    await expect(Promise.all(previous)).resolves.toEqual(Array(3).fill({ captured: false, error: "The capture was cancelled." }));
+    expect(host.thumbnails.every(window => window.destroy.mock.calls.length === 1)).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+    const next = capture("next", "new");
+    expect(host.thumbnails).toHaveLength(3);
+    host.handlers.get("ohmygame:finish-node-thumbnail")!({ sender: host.thumbnails[2]!.webContents }, true);
+    await expect(next).resolves.toEqual({ captured: true });
+    // A failure carries the hidden window's reason to the editor and the log.
+    const failing = capture("broken", "new");
+    host.handlers.get("ohmygame:finish-node-thumbnail")!({ sender: host.thumbnails[3]!.webContents }, false, "The preview could not start.");
+    await expect(failing).resolves.toEqual({ captured: false, error: "The preview could not start." });
+    expect(warn).toHaveBeenCalledExactlyOnceWith('Node thumbnail "broken" was not captured: The preview could not start.');
+  } finally {
+    warn.mockRestore();
+  }
 });

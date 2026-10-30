@@ -164,7 +164,6 @@
 .canvas-table-preview .canvas-table-row-number { width: 38px; padding: 7px 4px; }
 .canvas-table-scroll input, .canvas-table-scroll textarea { display: block; width: 100%; min-width: 0; margin: 0; border: 0; border-radius: 0; padding: 7px 8px; color: var(--text); background: transparent; font: inherit; }
 .canvas-table-scroll textarea { field-sizing: content; min-height: 32px; resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
-.canvas-table-scroll input:focus, .canvas-table-scroll textarea:focus { outline: 1px solid var(--theme-accent); outline-offset: -1px; }
 .canvas-table-scroll textarea[aria-invalid=true] { outline: 1px solid var(--danger); outline-offset: -1px; }
 .canvas-table-column-tools { display: flex; justify-content: space-between; padding: 0 6px 5px; }
 .canvas-table-column-tools select { min-width: 0; border: 0; color: var(--text-muted); background: var(--surface); font-size: 10px; }

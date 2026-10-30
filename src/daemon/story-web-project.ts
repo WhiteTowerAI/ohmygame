@@ -86,7 +86,33 @@ export async function installStoryRuntime(workspacePath: string): Promise<StoryR
     ...(pending.length ? { pending: { version, files: pending } } : {}),
   };
   await writeText(workspacePath, STORY_WEB_MANIFEST, `${JSON.stringify(next, null, 2)}\n`);
+  if (await dropStoryOptions(workspacePath)) written.push("graph.json");
   return { written: [...written, STORY_WEB_MANIFEST], pending };
+}
+
+/**
+ * Scenes once said how they showed on the Story map with a `story` field.
+ * The Story map Scene decides that in its own code now, and graph.json is
+ * refused while a Scene still has one, so a runtime update removes them.
+ */
+async function dropStoryOptions(workspacePath: string): Promise<boolean> {
+  const text = await readText(workspacePath, "graph.json");
+  if (text === undefined) return false;
+  let graph: { nodes?: unknown };
+  try {
+    graph = JSON.parse(text) as { nodes?: unknown };
+  } catch {
+    return false;
+  }
+  const hasStory = (node: unknown): node is { story: unknown } => typeof node === "object" && node !== null && "story" in node;
+  if (!Array.isArray(graph?.nodes) || !graph.nodes.some(hasStory)) return false;
+  graph.nodes = graph.nodes.map((node: unknown) => {
+    if (!hasStory(node)) return node;
+    const { story: _story, ...rest } = node;
+    return rest;
+  });
+  await writeText(workspacePath, "graph.json", `${JSON.stringify(graph, null, 2)}\n`);
+  return true;
 }
 
 /**
@@ -176,14 +202,16 @@ export interface StoryWebUpgrade {
   missingAssets: string[];
   /** Node and shared files whose imports were rewritten for the browser. */
   rewritten: string[];
+  /** Fields of an older graph.json that the upgrade removed, such as `shell`. */
+  removedGraphFields: string[];
   runtime: StoryRuntimeInstall;
 }
 
 /**
- * Turns a sandboxed Interactive Story into a web story in place: the
- * Library assets it uses become project files, imports a browser cannot
- * load on its own are rewritten, and the page and runtime are added. The
- * caller takes a checkpoint first, so the author can undo it.
+ * Turns an Interactive Story made for the former sandbox into a web story in
+ * place: the Library assets it uses become project files, imports a browser
+ * cannot load on its own are rewritten, and the page and runtime are added.
+ * The caller takes a checkpoint first, so the change is recorded.
  */
 export async function upgradeToWebStory(
   workspacePath: string,
@@ -191,9 +219,10 @@ export async function upgradeToWebStory(
 ): Promise<StoryWebUpgrade> {
   const graphText = await readText(workspacePath, "graph.json");
   if (graphText === undefined) throw new Error("This project has no graph.json.");
-  const graph = JSON.parse(graphText) as NodeGraph;
+  const { graph, removed: removedGraphFields } = withoutLegacyGraphFields(JSON.parse(graphText) as Record<string, unknown>);
   // Check the shipped runtime before copying media or rewriting project code.
   await storyWebRuntimeModules();
+  if (removedGraphFields.length) await writeText(workspacePath, "graph.json", `${JSON.stringify(graph, null, 2)}\n`);
   const { copiedAssets, missingAssets } = await copyLibraryAssets(workspacePath, libraryFile);
 
   const rewritten: string[] = [];
@@ -211,7 +240,27 @@ export async function upgradeToWebStory(
     const current = await readText(workspacePath, relative);
     if (current !== undefined && PROJECT_GUIDE_UPGRADES[relative].includes(hash(current))) await writeText(workspacePath, relative, content);
   }
-  return { copiedAssets, missingAssets, rewritten, runtime };
+  return { copiedAssets, missingAssets, rewritten, removedGraphFields, runtime };
+}
+
+/**
+ * The earliest stories drew a `shell` over every Scene, with Exits of its own
+ * and `destinations` for them. Neither exists any more, and graph.json is
+ * refused while it has them, so upgrading drops them along with the shell's
+ * connections. The shell's files stay where they are.
+ */
+function withoutLegacyGraphFields(value: Record<string, unknown>): { graph: NodeGraph; removed: string[] } {
+  const { shell, destinations, ...rest } = value;
+  const removed = [...(shell !== undefined ? ["shell"] : []), ...(destinations !== undefined ? ["destinations"] : [])];
+  const shellIsNode = Array.isArray(rest.nodes) && rest.nodes.some((node) => isRecord(node) && node.id === "shell");
+  if (shell !== undefined && !shellIsNode && Array.isArray(rest.edges)) {
+    rest.edges = rest.edges.filter((edge) => !(isRecord(edge) && isRecord(edge.source) && edge.source.nodeId === "shell"));
+  }
+  return { graph: rest as unknown as NodeGraph, removed };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Asset IDs the story still takes from the Library rather than the project. */
@@ -253,7 +302,7 @@ export async function copyLibraryAssets(
 }
 
 /**
- * Rewrites the imports the sandbox compiler bundled but a browser cannot load
+ * Rewrites the imports the former sandbox's compiler bundled but a browser cannot load
  * on its own: a text file becomes a fetch from beside the module, and a JSON
  * import gets its import attribute.
  */

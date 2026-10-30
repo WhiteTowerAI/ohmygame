@@ -12,6 +12,7 @@ interface StoredLibrary {
 }
 
 interface AddAssetOptions {
+  audio?: LibraryAsset["audio"];
   prompt?: string;
   model3d?: LibraryAsset["model3d"];
   sourceKey?: string;
@@ -191,6 +192,7 @@ export class AssetLibrary {
       origin,
       purpose: options.purpose ?? "asset",
       saved: origin !== "workspace",
+      ...(options.audio ? { audio: options.audio } : {}),
       ...(options.model3d ? { model3d: options.model3d } : {}),
       ...(options.duration !== undefined ? { duration: options.duration } : {}),
       ...(options.prompt?.trim() ? { prompt: options.prompt.trim() } : {}),

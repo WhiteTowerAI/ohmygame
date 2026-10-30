@@ -3,6 +3,7 @@ import { ChangeCounts } from "./change-counts.js";
 import { FileDiff } from "./file-diff.js";
 import {
   Check,
+  GitBranch,
   ChevronRight,
   Copy,
   Diskette,
@@ -12,7 +13,6 @@ import {
   Image,
   LoaderCircle,
   Pencil,
-  Undo2,
   Plug,
   Search,
   Terminal,
@@ -51,13 +51,13 @@ interface AgentTimelineProps {
   onOpenWorkspaceFile?: (path: string) => void;
   revisionDisabled?: boolean;
   onRevise?: (prompt: string) => Promise<boolean>;
-  /** Puts the project back to before the message the checkpoint was taken for. */
-  onRestore?: (checkpointId: string) => void;
   /** Shows under each finished turn what it changed in the workspace, with a way to undo it. */
   changeControls?: TurnChangesControls;
   /** Changes whenever the files of the workspace may have changed, so that what the turns show of them is read again. */
   workspaceRevision?: number;
   onAddToChat?: (text: string) => void;
+  onBranch?: (entryId: string) => void;
+  branchDisabled?: boolean;
   waitingForInput?: boolean;
 }
 
@@ -71,7 +71,7 @@ function turnDisplay(turn: ThreadTurn): TurnDisplay {
   return display;
 }
 
-export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, onRestore, changeControls, workspaceRevision, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
+export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -147,6 +147,8 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
                 copiedItemId: copiedAssistantId,
                 latestItemId: latestAssistantId,
                 onCopy: copyAssistant,
+                onBranch,
+                branchDisabled,
               }}
               userControls={{
                 editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
@@ -154,7 +156,6 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
                 copied: displays[index].user?.id === copiedItemId,
                 canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
                 disabled: Boolean(revisionDisabled || submitting),
-                onRestore,
                 onCopy: copy,
                 onEdit: edit,
                 onDraftChange: setDraft,
@@ -176,7 +177,6 @@ interface UserControls {
   canEdit: boolean;
   disabled: boolean;
   draft: string;
-  onRestore?: (checkpointId: string) => void;
   onCopy: (item: Extract<ThreadItem, { type: "userMessage" }>) => void;
   onEdit: (item: Extract<ThreadItem, { type: "userMessage" }>) => void;
   onDraftChange: (value: string) => void;
@@ -186,6 +186,8 @@ interface UserControls {
 
 interface AssistantControls {
   copiedItemId?: string;
+  onBranch?: (entryId: string) => void;
+  branchDisabled?: boolean;
   latestItemId?: string;
   onCopy: (id: string, text: string) => void;
 }
@@ -252,6 +254,7 @@ function FinalResponse({ projectId, items, artifacts, controls, changes }: {
   const responseId = copyable.at(-1)?.id;
   const text = copyable.map((item) => item.text).join("\n\n");
   const timestamp = copyable.at(-1)?.timestamp;
+  const branchEntryId = copyable.at(-1)?.branchEntryId;
   return (
     <div className={`assistant-response${responseId === controls.latestItemId ? " assistant-response-latest" : ""}`}>
       {items.map((item) => <TimelineItem key={item.id} item={item} />)}
@@ -262,6 +265,7 @@ function FinalResponse({ projectId, items, artifacts, controls, changes }: {
           <button type="button" aria-label={t("timeline.copyResponse")} title={t("common.copy")} onClick={() => controls.onCopy(responseId, text)}>
             {responseId === controls.copiedItemId ? <Check size={13} /> : <Copy size={13} />}
           </button>
+          {controls.onBranch ? <button type="button" aria-label={t("timeline.branchChat")} title={t("timeline.branchChat")} disabled={controls.branchDisabled || !branchEntryId} onClick={() => branchEntryId && controls.onBranch?.(branchEntryId)}><GitBranch size={13} /></button> : null}
           {timestamp ? <time dateTime={new Date(timestamp).toISOString()}>{formatResponseTime(timestamp)}</time> : null}
         </div>
       ) : null}
@@ -325,11 +329,6 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
             {controls.canEdit ? (
               <button type="button" aria-label={t("timeline.editMessage")} title={t("common.edit")} onClick={() => controls.onEdit(item)} disabled={controls.disabled}>
                 <Pencil size={13} />
-              </button>
-            ) : null}
-            {controls.onRestore && item.checkpointId ? (
-              <button type="button" aria-label={t("checkpoints.restoreToMessage")} title={t("checkpoints.restoreToMessage")} onClick={() => controls.onRestore!(item.checkpointId!)} disabled={controls.disabled}>
-                <Undo2 size={13} />
               </button>
             ) : null}
           </div>

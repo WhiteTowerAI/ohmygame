@@ -1,0 +1,22 @@
+{
+  "name": "douyin-minigame",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "description": "Adapt game projects for Douyin Mini Games and verify developer-tool and device previews.",
+  "skills": "./skills/",
+  "interface": {
+    "beta": true,
+    "displayName": "Douyin Mini Games",
+    "shortDescription": "Adapt, preview, and check Douyin mini-game builds.",
+    "longDescription": "Package games through the engine's Douyin route, check platform configuration, and verify developer-tool and device previews. Requires Douyin's game developer tool and an authorized game account for remote operations. Uploads happen only on request.",
+    "icon": {
+      "type": "asset",
+      "path": "./assets/icon.png"
+    },
+    "defaultPrompt": [
+      "Check this project's Douyin Mini Game integration and local prerequisites.",
+      "Build this game for Douyin and prepare a device preview without uploading a test version."
+    ],
+    "projectTypes": ["general"]
+  }
+}

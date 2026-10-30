@@ -15,7 +15,7 @@ const games: CommunityGame[] = [
     deploymentId: "d1",
     publishedAt: "2026-10-13T00:00:00Z",
     firstListedAt: "2026-09-01T00:00:00Z",
-    stats: { viewerCount: 10, likeCount: 8 },
+    stats: { viewCount: 10, likeCount: 8 },
   },
   {
     id: "newer",
@@ -26,7 +26,7 @@ const games: CommunityGame[] = [
     deploymentId: "d2",
     publishedAt: "2026-10-12T00:00:00Z",
     firstListedAt: "2026-10-12T00:00:00Z",
-    stats: { viewerCount: 20, likeCount: 3 },
+    stats: { viewCount: 20, likeCount: 3 },
   },
 ];
 
@@ -72,7 +72,7 @@ describe("Community filters", () => {
     expect(
       filterCommunityGames(games, {
         ...DEFAULT_COMMUNITY_FILTERS,
-        sort: "viewers",
+        sort: "views",
       })[0].id,
     ).toBe("newer");
     expect(

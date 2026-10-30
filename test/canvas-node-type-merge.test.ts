@@ -36,6 +36,35 @@ function convert(board: AssetCanvasDocument, assetId = "garage"): void {
   };
 }
 
+function concurrentImageReference(side: "local" | "remote") {
+  const base = canvas();
+  const target: Extract<AssetCanvasNode, { type: "image" }> = {
+    id: "target",
+    type: "image",
+    position: { x: 500, y: 20 },
+    data: {
+      prompt: "Use the background as a reference",
+      resolution: "2K",
+      aspectRatio: "16:9",
+      images: [],
+    },
+  };
+  base.nodes.push(target);
+  base.editorLayout.nodes.target = target.position;
+  const local = structuredClone(base),
+    remote = structuredClone(base);
+  const converted = side === "local" ? local : remote;
+  const referenced = side === "local" ? remote : local;
+  referenced.nodes[1] = {
+    ...target,
+    data: {
+      ...target.data,
+      images: [{ type: "node", nodeId: "background" }],
+    },
+  };
+  return { base, local, remote, converted, referenced };
+}
+
 // React Flow serialization and agent JSON writes can use different object key orders.
 function reorder(node: AssetCanvasNode): AssetCanvasNode {
   return {
@@ -100,6 +129,40 @@ describe("canvas node type changes", () => {
 
     expect(mergeCanvasDocument(base, local, remote)).toBeUndefined();
   });
+
+  it.each(["local", "remote"] as const)(
+    "conflicts when a %s text conversion invalidates a concurrent image reference",
+    (side) => {
+      const { base, local, remote, converted } = concurrentImageReference(side);
+      converted.nodes[0] = {
+        ...converted.nodes[0]!,
+        type: "text",
+        data: { text: "Background notes", instruction: "" },
+      };
+      for (const document of [base, local, remote]) {
+        expect(isAssetCanvasDocument(document)).toBe(true);
+      }
+
+      expect(mergeCanvasDocument(base, local, remote)).toBeUndefined();
+    },
+  );
+
+  it.each(["local", "remote"] as const)(
+    "keeps a concurrent image reference compatible with a %s asset conversion",
+    (side) => {
+      const { base, local, remote, converted, referenced } =
+        concurrentImageReference(side);
+      convert(converted);
+      for (const document of [base, local, remote]) {
+        expect(isAssetCanvasDocument(document)).toBe(true);
+      }
+
+      const merged = mergeCanvasDocument(base, local, remote)!;
+      expect(merged.nodes[0]).toEqual(converted.nodes[0]);
+      expect(merged.nodes[1]).toEqual(referenced.nodes[1]);
+      expect(isAssetCanvasDocument(merged)).toBe(true);
+    },
+  );
 
   it("keeps independent edits to another node and rebuilds the converted layout", () => {
     const base = canvas();

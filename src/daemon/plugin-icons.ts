@@ -3,13 +3,15 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import {
+  PLUGIN_ICON_MEDIA_TYPES,
   PLUGIN_ICON_MAX_BYTES,
   PLUGIN_ICON_MAX_DIMENSION,
 } from "../shared/plugin-icons.js";
 import { isPluginIcon, type PluginIcon } from "../shared/plugins.js";
 import { sniffImageType } from "./image-format.js";
+import { validatePluginSvg } from "./plugin-svg.js";
 
-// Cache successful decodes by content. Reads still check paths and current bytes.
+// Cache successful validation by content. Reads still check paths and current bytes.
 const validatedIcons = new Set<string>();
 const VALIDATED_ICON_CACHE_LIMIT = 128;
 
@@ -19,33 +21,39 @@ export async function validatePluginIconImage(
 ) {
   if (!bytes.length || bytes.length > PLUGIN_ICON_MAX_BYTES)
     throw new Error("Plugin icons must be between 1 byte and 1 MB");
-  const mediaType = sniffImageType(bytes);
+  const mediaType = sniffImageType(bytes) ?? "image/svg+xml";
   if (
-    (mediaType !== "image/png" && mediaType !== "image/webp") ||
+    (mediaType !== "image/png" &&
+      mediaType !== "image/webp" &&
+      mediaType !== "image/svg+xml") ||
     (expected && mediaType !== expected)
   )
-    throw new Error("Choose a PNG or WebP plugin icon");
+    throw new Error("Choose a PNG, WebP, or static SVG plugin icon");
   const revision = createHash("sha256").update(bytes).digest("hex");
   const { PhotonImage } = await import("@silvia-odwyer/photon-node");
   if (!validatedIcons.has(revision)) {
-    let image: InstanceType<typeof PhotonImage> | undefined;
-    try {
-      image = PhotonImage.new_from_byteslice(bytes);
-      if (
-        !image.get_width() ||
-        !image.get_height() ||
-        image.get_width() > PLUGIN_ICON_MAX_DIMENSION ||
-        image.get_height() > PLUGIN_ICON_MAX_DIMENSION
-      )
-        throw new Error("Plugin icons must be at most 2048 × 2048 pixels");
-    } catch (cause) {
-      throw new Error(
-        cause instanceof Error
-          ? cause.message
-          : "The plugin icon could not be decoded",
-      );
-    } finally {
-      image?.free();
+    if (mediaType === "image/svg+xml") {
+      validatePluginSvg(bytes);
+    } else {
+      let image: InstanceType<typeof PhotonImage> | undefined;
+      try {
+        image = PhotonImage.new_from_byteslice(bytes);
+        if (
+          !image.get_width() ||
+          !image.get_height() ||
+          image.get_width() > PLUGIN_ICON_MAX_DIMENSION ||
+          image.get_height() > PLUGIN_ICON_MAX_DIMENSION
+        )
+          throw new Error("Plugin icons must be at most 2048 × 2048 pixels");
+      } catch (cause) {
+        throw new Error(
+          cause instanceof Error
+            ? cause.message
+            : "The plugin icon could not be decoded",
+        );
+      } finally {
+        image?.free();
+      }
     }
     validatedIcons.add(revision);
     if (validatedIcons.size > VALIDATED_ICON_CACHE_LIMIT)
@@ -76,7 +84,9 @@ export async function readPluginIconAsset(
     throw new Error("Choose a plugin icon file up to 1 MB");
   return validatePluginIconImage(
     await readFile(target),
-    icon.path.endsWith(".png") ? "image/png" : "image/webp",
+    PLUGIN_ICON_MEDIA_TYPES[
+      path.extname(icon.path).slice(1) as keyof typeof PLUGIN_ICON_MEDIA_TYPES
+    ],
   );
 }
 
@@ -101,6 +111,7 @@ export function registerPluginIconRoutes(
           .header("Cache-Control", "private, no-cache")
           .header("ETag", etag)
           .header("X-Content-Type-Options", "nosniff")
+          .header("Content-Security-Policy", "default-src 'none'; sandbox")
           .type(image.mediaType);
         if (
           request.headers["if-none-match"]

@@ -15,7 +15,7 @@ interface LocalPublishedGame {
   game: CommunityGame;
   firstListedAt: string;
   updatedAt: string;
-  viewers: Set<string>;
+  viewCount: number;
   liked: boolean;
 }
 
@@ -31,9 +31,12 @@ export class LocalPublisher {
     let mount: { token: string; url: string } | undefined;
     try {
       await extractArtifact(artifact, directory);
-      mount = await this.#files.mount(directory);
       const gameId = project.publication?.gameId.startsWith("local-") ? project.publication.gameId : `local-${randomUUID()}`;
       const deploymentId = `local-${randomUUID()}`;
+      mount = await this.#files.mount(directory, () => {
+        const current = this.#games.get(gameId);
+        if (current?.game.deploymentId === deploymentId) current.viewCount += 1;
+      });
       const playUrl = `${mount.url}index.html`;
       const cover = await readFile(path.join(directory, PUBLISH_GAME_COVER_PATH)).catch(() => undefined);
       const coverUrl = cover ? `${mount.url}${PUBLISH_GAME_COVER_PATH}` : undefined;
@@ -52,7 +55,7 @@ export class LocalPublisher {
         game: { ...game, author: { id: LOCAL_DEBUG_USER.id, displayName: LOCAL_DEBUG_USER.name } },
         firstListedAt: previous?.firstListedAt ?? publishedAt,
         updatedAt: publishedAt,
-        viewers: previous?.viewers ?? new Set<string>(),
+        viewCount: previous?.viewCount ?? 0,
         liked: previous?.liked ?? false,
       });
       this.#directories.set(deploymentId, { gameId, directory, token: mount.token });
@@ -79,24 +82,24 @@ export class LocalPublisher {
     return [...this.#games.values()].reverse()
       .filter(record => record.game.id !== options.excludeGameId)
       .slice(0, options.limit)
-      .map(record => this.#publicGame(record, metrics, accessToken));
+      .map(record => this.#publicGame(record, metrics));
   }
 
   async communityGame(gameId: string, metrics = false, accessToken?: string): Promise<CommunityGame> {
     if (accessToken) this.#authorize(accessToken);
-    return this.#publicGame(this.#listedGame(gameId), metrics, accessToken);
+    return this.#publicGame(this.#listedGame(gameId), metrics);
   }
 
   async profile(authorId: string, accessToken?: string): Promise<CommunityProfile> {
     if (accessToken) this.#authorize(accessToken);
     const records = [...this.#games.values()].reverse();
     if (authorId !== LOCAL_DEBUG_USER.id || !records.length) throw new RemotePublishError("Creator has no public games", 404);
-    return this.#profile(records, accessToken);
+    return this.#profile(records);
   }
 
   async myGames(accessToken: string): Promise<CommunityProfile> {
     this.#authorize(accessToken);
-    return this.#profile([...this.#games.values()].reverse(), accessToken);
+    return this.#profile([...this.#games.values()].reverse());
   }
 
   async unpublish(gameId: string, accessToken: string): Promise<void> {
@@ -118,18 +121,11 @@ export class LocalPublisher {
     record.updatedAt = new Date().toISOString();
   }
 
-  async recordView(gameId: string, visitorId: string, accessToken?: string): Promise<CommunityGameStats> {
-    const record = this.#listedGame(gameId);
+  async setLike(gameId: string, accessToken: string | undefined, liked: boolean): Promise<CommunityGameStats> {
     if (accessToken) this.#authorize(accessToken);
-    if (!accessToken) record.viewers.add(visitorId);
-    return this.#stats(record, accessToken);
-  }
-
-  async setLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
-    this.#authorize(accessToken);
     const record = this.#listedGame(gameId);
     record.liked = liked;
-    return this.#stats(record, accessToken);
+    return this.#stats(record);
   }
 
   #listedGame(gameId: string): LocalPublishedGame {
@@ -138,18 +134,18 @@ export class LocalPublisher {
     return record;
   }
 
-  #stats(record: LocalPublishedGame, accessToken?: string): CommunityGameStats {
-    return { viewerCount: record.viewers.size, likeCount: record.liked ? 1 : 0,
-      ...(accessToken ? { liked: record.liked } : {}) };
+  #stats(record: LocalPublishedGame): CommunityGameStats {
+    return { viewCount: record.viewCount, likeCount: record.liked ? 1 : 0,
+      liked: record.liked };
   }
 
-  #publicGame(record: LocalPublishedGame, metrics: boolean, accessToken?: string): CommunityGame {
-    return { ...record.game, ...(metrics ? { stats: this.#stats(record, accessToken), firstListedAt: record.firstListedAt } : {}) };
+  #publicGame(record: LocalPublishedGame, metrics: boolean): CommunityGame {
+    return { ...record.game, ...(metrics ? { stats: this.#stats(record), firstListedAt: record.firstListedAt } : {}) };
   }
 
-  #profile(records: LocalPublishedGame[], accessToken?: string): CommunityProfile {
+  #profile(records: LocalPublishedGame[]): CommunityProfile {
     const games: ManagedCommunityGame[] = records.map(record => ({
-      ...this.#publicGame(record, true, accessToken), listingStatus: "listed", updatedAt: record.updatedAt,
+      ...this.#publicGame(record, true), listingStatus: "listed", updatedAt: record.updatedAt,
     }));
     return { author: { id: LOCAL_DEBUG_USER.id, displayName: LOCAL_DEBUG_USER.name },
       totalLikes: games.reduce((sum, game) => sum + (game.stats?.likeCount ?? 0), 0),

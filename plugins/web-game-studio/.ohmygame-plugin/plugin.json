@@ -4,6 +4,7 @@
   "description": "Create, extend, debug, polish, and playtest browser games with focused 2D, 3D, UI, and asset workflows.",
   "skills": "./skills/",
   "interface": {
+    "icon": { "type": "asset", "path": "./assets/icon.svg" },
     "displayName": "Web Game Studio",
     "shortDescription": "Build and improve polished browser games.",
     "longDescription": "A coordinated browser-game workflow covering architecture, Phaser, Three.js, React Three Fiber, UI, assets, and player-focused verification.",

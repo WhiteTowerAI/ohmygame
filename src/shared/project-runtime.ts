@@ -15,12 +15,24 @@ export function isWebRuntimeProjectType(type: ProjectType): boolean {
 
 /** Capability is independent of the preview process's readiness or errors. */
 export function supportsWebPreview(
-  project?: Pick<ProjectState, "type" | "webPreviewEnabled">,
+  project?: Pick<ProjectState, "type" | "webPreviewEnabled" | "integration">,
 ): boolean {
   return (
-    project?.type === "web-game" ||
-    (project?.type === "general" && project.webPreviewEnabled === true)
+    project?.integration?.preview !== "external" &&
+    (project?.type === "web-game" ||
+      (project?.type === "general" && project.webPreviewEnabled === true))
   );
+}
+
+export function supportsProjectPreview(project?: Pick<ProjectState, "type" | "webPreviewEnabled" | "integration">): boolean {
+  return supportsWebPreview(project) || project?.integration?.preview === "external";
+}
+
+/** Only an unambiguous compatibility intersection may change a new workspace's
+ * type. Asset/helper plugins with no restriction never choose its engine. */
+export function pluginProjectType(current: ProjectType, plugins: readonly { projectTypes?: ProjectType[] }[]): ProjectType | undefined {
+  const compatible = PROJECT_TYPE_IDS.filter((type) => plugins.every((plugin) => !plugin.projectTypes?.length || plugin.projectTypes.includes(type)));
+  return compatible.includes(current) ? current : compatible.length === 1 ? compatible[0] : undefined;
 }
 
 export function webPreviewSettingsChanged(

@@ -54,7 +54,7 @@ function memoryStorage(): Storage {
   };
 }
 
-describe.sequential("multiplayer service over HTTP and WebSocket", () => {
+describe("multiplayer service over HTTP and WebSocket", () => {
   let directory: string;
   let service: ReturnType<typeof createMultiplayerServer>;
   let endpoint: string;

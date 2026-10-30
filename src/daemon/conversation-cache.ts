@@ -168,8 +168,9 @@ function sessionInfo(manager: SessionManager, file: string, mtime: Date): Conver
     }
   }
   const headerTime = Date.parse(header.timestamp);
+  // A newly forked chat is recent even when its copied messages are old.
+  const activity = header.parentSession && Number.isFinite(headerTime) ? Math.max(latestActivity, headerTime) : latestActivity;
   return { path: file, id: manager.getSessionId(), name: manager.getSessionName(),
-    created: new Date(header.timestamp), modified: latestActivity > 0 ? new Date(latestActivity)
-      : Number.isFinite(headerTime) ? new Date(headerTime) : mtime,
+    created: new Date(header.timestamp), modified: activity > 0 ? new Date(activity) : Number.isFinite(headerTime) ? new Date(headerTime) : mtime,
     messageCount: messages.length, firstMessage: firstMessage || "(no messages)" };
 }

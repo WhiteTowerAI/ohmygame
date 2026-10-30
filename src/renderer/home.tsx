@@ -19,12 +19,13 @@ import "./studios.css";
 import { t } from "./i18n.js";
 
 interface HomeProps {
+  inert?: boolean;
   onNavigate: (page: AppNavigationTarget) => void;
   onCreate: (project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
   onOpen: (projectId: string, view?: "design") => void;
 }
 
-export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
+export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -78,10 +79,11 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   }
 
   const visibleProjects = projects.slice(0, recentProjectLimit);
-  const visibleExamples = examples.slice(0, columns);
+  // Two rows, so every example type has room; Home scrolls when the window is short.
+  const visibleExamples = examples.slice(0, columns * 2);
 
   return (
-    <main className="home-shell">
+    <main className="home-shell" inert={inert}>
       <AppSidebar active="home" onNavigate={onNavigate} />
 
       <section className="home-content home-content-fitted">
@@ -89,6 +91,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
         <div className="home-start">
           <h1>{t("home.title")}</h1>
           <ProjectPromptCreator
+            draftKey="home"
             projectType={projectType}
             projectTypes={GAME_PROJECT_TYPES}
             placeholder={t("home.placeholder")}

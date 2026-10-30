@@ -3,12 +3,13 @@ import { describe, expect, it } from "vitest";
 import { PluginsSettings } from "../src/renderer/plugins.js";
 
 describe("PluginsSettings", () => {
-  it("renders the catalog within Settings", () => {
+  it("renders the plugin catalog", () => {
     const html = renderToStaticMarkup(<PluginsSettings onPluginChange={() => undefined} onTryPlugin={async () => undefined} />);
 
     expect(html).toContain("<h1>Plugins</h1>");
     expect(html).toContain("Loading plugins");
-    expect(html).not.toContain('role="tablist"');
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('role="tabpanel"');
   });
 
   it("opens plugin details from the route without rendering catalog controls", () => {

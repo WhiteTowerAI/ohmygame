@@ -7,12 +7,20 @@ import type { ProjectActivitySnapshot, ProjectAgentActivity, ProjectState } from
 
 let activity: ProjectAgentActivity[] = [];
 let names: ProjectActivitySnapshot["names"] = [];
-const listActivity = vi.fn(async (_signal?: AbortSignal): Promise<ProjectActivitySnapshot> => ({ activity, names }));
+// Each stream starts with the current snapshot, as the daemon's does; push() sends a change to every open stream.
+const streams = new Set<{ signal: AbortSignal; onSnapshot: (snapshot: ProjectActivitySnapshot) => void }>();
+const streamActivity = vi.fn(async (signal: AbortSignal, onSnapshot: (snapshot: ProjectActivitySnapshot) => void) => {
+  const stream = { signal, onSnapshot };
+  streams.add(stream);
+  onSnapshot({ activity, names });
+  await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+  streams.delete(stream);
+});
 const listProjects = vi.fn<() => Promise<ProjectState[]>>();
 vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   listProjects,
-  listProjectActivity: listActivity,
+  streamProjectActivity: streamActivity,
   waitForRuntime: async () => undefined,
   getProjectCover: async () => undefined,
 }));
@@ -52,7 +60,8 @@ beforeEach(() => {
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
   activity = [];
   names = [];
-  listActivity.mockReset().mockImplementation(async () => ({ activity, names }));
+  streamActivity.mockClear();
+  streams.clear();
   listProjects.mockReset().mockResolvedValue([]);
   updateRuntimeConnection({ status: "ready", generation: runtimeConnection().generation + 1, recovered: false });
   container = document.createElement("div");
@@ -66,7 +75,10 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-const tick = () => act(async () => vi.advanceTimersByTimeAsync(2_000));
+const push = () => act(async () => {
+  for (const stream of streams) stream.onSnapshot({ activity, names });
+  await vi.advanceTimersByTimeAsync(2_000);
+});
 
 describe("project activity on project lists", () => {
   it.each(pages)("refreshes a generated name on $name without changing the cover", async ({ type, view }) => {
@@ -75,14 +87,14 @@ describe("project activity on project lists", () => {
     await act(async () => root.render(view));
     const cover = container.querySelector(".project-card-preview")!.innerHTML;
     names = [{ ...initial, name: "Moon Garden", nameSource: "ai" }];
-    await tick();
+    await push();
     expect(container.querySelector(".project-card-name")?.textContent).toBe("Moon Garden");
     expect(container.querySelector(".project-card-preview")!.innerHTML).toBe(cover);
     const calls = listProjects.mock.calls.length;
-    await tick();
+    await push();
     expect(listProjects).toHaveBeenCalledTimes(calls);
   });
-  it("receives a name after a short turn between polls without extra project requests", async () => {
+  it("receives a name after a short turn without extra project requests", async () => {
     const initial = { ...project("active", "web-game"), nameSource: "default" as const };
     listProjects.mockResolvedValue([initial]);
     await act(async () => root.render(pages[1].view));
@@ -91,7 +103,7 @@ describe("project activity on project lists", () => {
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
     expect(listProjects).toHaveBeenCalledTimes(calls);
     names = [{ ...initial, name: "Moon Garden", nameSource: "ai" }];
-    await tick();
+    await push();
     expect(container.querySelector(".project-card-name")?.textContent).toBe("Moon Garden");
     expect(listProjects).toHaveBeenCalledTimes(calls);
   });
@@ -106,79 +118,53 @@ describe("project activity on project lists", () => {
     expect(idle.querySelector(".project-card-time")).not.toBeNull();
 
     activity = [{ projectId: "active", status: "cancelling" }];
-    await tick();
+    await push();
     expect(active.querySelector('[role="status"]')?.textContent).toBe("Stopping");
     activity = [];
-    await tick();
+    await push();
     expect(active.querySelector('[role="status"]')).toBeNull();
     expect(active.querySelector(".project-card-time")).not.toBeNull();
   });
 
-  it.each(pages)("skips activity requests when $name has no projects", async ({ view }) => {
+  it.each(pages)("opens no activity stream when $name has no projects", async ({ view }) => {
     await act(async () => root.render(view));
-    await tick();
+    await push();
     expect(container.querySelector(".project-card-open")).toBeNull();
-    expect(listActivity).not.toHaveBeenCalled();
+    expect(streamActivity).not.toHaveBeenCalled();
   });
 });
 
-describe("project activity refresh", () => {
-  it("avoids overlapping requests and aborts polling on unmount", async () => {
-    let finish!: (value: ProjectActivitySnapshot) => void;
-    listActivity.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+describe("project activity stream", () => {
+  it("opens one stream and ignores what arrives after unmount", async () => {
     await act(async () => root.render(<Activity />));
-    const signal = listActivity.mock.calls[0]![0]!;
-    await tick();
-    await act(async () => window.dispatchEvent(new Event("focus")));
-    expect(listActivity).toHaveBeenCalledTimes(1);
+    await push();
+    expect(streamActivity).toHaveBeenCalledTimes(1);
+    const { signal, onSnapshot } = [...streams][0]!;
     await act(async () => root.render(null));
     expect(signal.aborted).toBe(true);
     const previous = snapshot;
-    await act(async () => finish({ activity: [{ projectId: "late", status: "running" }], names: [] }));
-    await tick();
-    await act(async () => window.dispatchEvent(new Event("focus")));
-    expect(listActivity).toHaveBeenCalledTimes(1);
+    await act(async () => onSnapshot({ activity: [{ projectId: "late", status: "running" }], names: [] }));
     expect(snapshot).toBe(previous);
   });
 
-  it("pauses requests while hidden and refreshes immediately on return or focus", async () => {
-    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
-    await act(async () => root.render(<Activity />));
-    await tick();
-    expect(listActivity).not.toHaveBeenCalled();
-    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
-    activity = [{ projectId: "active", status: "running" }];
-    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-    expect(snapshot.get("active")).toBe("running");
-    activity = [];
-    await act(async () => window.dispatchEvent(new Event("focus")));
-    expect(snapshot.size).toBe(0);
-    expect(listActivity).toHaveBeenCalledTimes(2);
-  });
-
-  it("keeps the last status on a temporary failure and clears it after recovery", async () => {
+  it("keeps the last status between snapshots and clears it when activity ends", async () => {
     activity = [{ projectId: "active", status: "running" }];
     await act(async () => root.render(<Activity />));
-    listActivity.mockRejectedValueOnce(new Error("Runtime disconnected"));
-    await tick();
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
     expect(snapshot.get("active")).toBe("running");
     activity = [];
-    await tick();
+    await push();
     expect(snapshot.size).toBe(0);
   });
 
-  it("waits for project loading and refreshes after a runtime restart", async () => {
+  it("waits for project loading before opening the stream", async () => {
     await act(async () => root.render(<Activity enabled={false} />));
-    await tick();
-    expect(listActivity).not.toHaveBeenCalled();
+    await push();
+    expect(streamActivity).not.toHaveBeenCalled();
     activity = [{ projectId: "active", status: "running" }];
     await act(async () => root.render(<Activity />));
-    const signal = listActivity.mock.calls[0]![0]!;
-    activity = [];
-    await act(async () => updateRuntimeConnection({ status: "ready", generation: runtimeConnection().generation + 1, recovered: true }));
-    expect(signal.aborted).toBe(true);
-    expect(listActivity).toHaveBeenCalledTimes(2);
-    expect(snapshot.size).toBe(0);
+    expect(streamActivity).toHaveBeenCalledTimes(1);
+    expect(snapshot.get("active")).toBe("running");
   });
 
   it("retains the same snapshot when status responses only change order", async () => {
@@ -186,7 +172,7 @@ describe("project activity refresh", () => {
     await act(async () => root.render(<Activity />));
     const previous = snapshot;
     activity = [...activity].reverse();
-    await tick();
+    await push();
     expect(snapshot).toBe(previous);
   });
 });

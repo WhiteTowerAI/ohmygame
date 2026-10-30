@@ -28,7 +28,10 @@ requests to the daemon.
 `bun run dev:desktop` starts Vite and Electron. Electron starts the compiled
 daemon itself on an available loopback port, waits for `/health`, and passes
 the daemon address plus a random process-scoped token through the isolated
-preload bridge. The renderer has no Node.js access.
+preload bridge. The preload asks the main process for them when the page
+loads, and the main process answers only the renderer page in the window's
+main frame, not an embedded frame or another page. The renderer has no
+Node.js access.
 
 The main desktop window starts at 1200 × 780 logical pixels, centered on the
 display containing the pointer. It fits within 90% of that display's available
@@ -81,16 +84,52 @@ automatic policy, idle collection, logs, and browser storage.
 The home route reads the daemon's `/settings/onboarding` preference before
 opening the studio. The daemon stores version 1 state in `onboarding.json`
 under its data directory: `status` is `pending`, `completed`, or `skipped`,
-and `step` is `welcome` or `connect`. Atomic, serialized writes retain the
-current step across restarts. Completing setup requires a language model in
-the same enabled, visible catalog used by the home composer. This checks
-configuration and catalog availability, without sending an inference request.
-The provider screen enables **Start creating** only when a language model is
-available; it records `completed`. Until then, a separate **Skip and start**
-text button without a hover background records `skipped` and allows
-configuration later in Settings; it is hidden once a model is ready.
-**Next** and the provider screen's actions sit near the bottom, above the
-step indicators.
+and `step` is `welcome`, `connect`, or `media`. Existing version 1 records
+remain valid. Atomic, serialized writes retain the current step across restarts.
+The connection step offers model providers and local coding agent CLIs; discovery
+never enables a CLI automatically. Selecting an installed CLI enables it and
+starts sign-in when needed. Rechecking installation enables the explicitly
+selected CLI once available; finishing sign-in refreshes its models without
+requiring another selection. Failed sign-in can be retried in place.
+**Next** saves the selected model. CLI sign-in
+can return a browser URL or a terminal command,
+with a recheck after sign-in. Advanced CLI configuration stays in Settings → Agents.
+
+OhMyGame (Pi) appears first with a **Default** subtitle alongside the CLIs in a
+single horizontally scrolling row. Initially only agent choices are shown.
+Selecting one replaces those cards with a compact name and a **Switch**
+action, then shows its configuration. A short hint on the agent choices explains
+that multiple agents can stay connected and users can switch between them.
+The hint is hidden in an agent's configuration. Reopening the choices preserves model
+selections and hides configuration until an agent is selected again. It cannot be disabled. Selecting it
+does not disable any CLI. Sign-in, API key, and configuration actions use icons
+with accessible labels and tooltips. Connected
+providers show a check; disabled connections offer an enable icon without
+changing their credentials.
+Wide windows show all four agents; narrower windows hide the scrollbar and
+allow wheel, touch, keyboard, and arrow navigation. Vertical wheel events only
+move the row while there is horizontal space in that direction.
+The connection screen also selects the default conversation model. It uses
+`/models?runtimes=1`, including enabled coding agents, and retries catalogs with
+`loadingRuntimes` without hiding models already available. Native defaults use
+`nativeReasoningLevel`; provider defaults use `reasoningLevel`. **Next** saves
+the default and opens optional creative tools. Completing setup requires an
+enabled, visible provider model or an enabled CLI model, without sending inference.
+**Skip and start** on the connection screen records `skipped` when no model is ready.
+
+The final `media` step offers image, video, 3D, and audio category filters and
+reuses Settings' provider connection forms. All providers in the selected category
+are shown directly, without a More section. The **+** button opens the shared
+custom-provider form inline, without changing the conversation model. The footer
+offers **Start creating**; step indicators handle navigation. The description points
+to **Settings → Providers & Models** for later configuration.
+Media default models stay in Settings; this step does not load their catalogs.
+Media setup never changes the chat model or reloads the conversation catalog
+when media connections change. **Start creating** enters the studio without
+requiring media credentials or waiting for media catalogs; completion records
+`completed` when a conversation model is available, otherwise `skipped`.
+Actions remain outside the media form's scrolling area and above three step
+indicators.
 
 Settings → Providers and the setup list share one grouping. Every working
 connection, including free cloud and local services, is under **Connected
@@ -99,26 +138,29 @@ providers** (OpenAI, Anthropic, OpenRouter, Google, DeepSeek, Meshy, Tripo,
 filtered by capability), **Local providers**, and the collapsed **More
 providers**.
 
-The setup list shows language providers only. Without a search, connected and
+The connection step lists language providers only. Without a search, connected and
 popular providers come first, and the rest, including local services, stay
-under **More providers**. The legacy OpenAI Codex entry is hidden unless it is
+under **More providers**. Clicking it reveals the remaining providers and removes
+the button; the list stays expanded while searching and clearing the search.
+The legacy OpenAI Codex entry is hidden unless it is
 already connected, because OpenAI sign-in covers ChatGPT subscriptions.
 Searching lists every match. Saved
-built-in and custom connections show **Connected** instead of offering setup
-again. Disabled connections offer **Enable** without changing credentials.
+built-in and custom connections show a check instead of offering setup again.
+Disabled connections offer an enable icon without changing credentials.
 Before starting or retrying setup, the renderer refreshes the provider's saved
 state to avoid reopening a connection that changed since the list loaded.
 Existing provider credentials and models can be edited from Settings.
 
-Connecting, adding, or enabling a provider during setup makes its recommended
-language model the global default. Navigation and completion stay disabled
-until the default is saved, including during catalog refreshes. If saving
-fails, **Retry** saves the default again without repeating authorization.
-The recommendation mirrors Pi's
-per-provider defaults for the popular providers and falls back to the
-provider's first visible model. The ready line names the default model and its
-provider; with more than one model available, it is a menu that changes the
-default.
+Connecting, adding, or enabling a provider during setup selects its recommended
+language model within the form. The recommendation mirrors Pi's per-provider
+defaults for popular providers and falls back to the provider's first visible
+model. The ready line names the selected model and its provider; its menu lists
+only the current agent's models. Switching agents retains each model choice
+without saving or reloading catalogs. **Next**, or navigating to the media step,
+saves the selected model once. Navigation stays disabled during that save;
+**Retry** retries a failed save without repeating authorization or enabling the
+agent again. Provider listing and conversation models load independently, so a
+failed or slow provider list does not block an available CLI model.
 
 An installation with no preference but existing projects or a configured
 language provider is marked completed once. Media credentials alone do not
@@ -128,12 +170,14 @@ than blocking project access. Project links, playtest windows, and thumbnail
 renderers do not pass through the home gate.
 
 **Settings → About → View getting started** reopens the welcome. Moving to the
-connection step with **Next** saves a pending preference again. The two bottom
-step indicators are buttons for switching between the welcome and provider
-screens. Selecting the provider step also returns from its inline forms to
+connection step with **Next** saves a pending preference again. The three bottom
+step indicators switch between welcome, AI connection, and optional creative
+tools. Selecting the provider step also returns from its inline forms to
 the provider list. Step navigation is disabled while saving. The welcome's
-illustration plays once per visit in 5.2 seconds. Only the forming game world
-is visible at first: terrain rises, paths unfold, water reshapes, and trees
+illustration plays once per setup session in 5.2 seconds. Returning from a later
+step shows the final logo, title, and controls immediately, including when setup
+resumes at a later step. Only the forming game world
+is visible at first: terrain rises, paths unfold, and trees
 grow in sequence. Its outline then morphs into a small OhMyGame logo beside
 the wordmark, followed by **Your own game studio.** and **Next**. Hidden
 controls stay out of keyboard navigation. Reduced-motion preferences show the
@@ -142,8 +186,36 @@ the daemon's provider authentication flow and custom-provider form; it does
 not require an OhMyGame cloud account. The add button beside provider search
 opens that form inline. Settings uses the same form in its existing dialog.
 Saving or cancelling returns to the provider list without adding a persisted
-setup step. Image, video, and 3D connections and default models are configured
-in Settings and do not change the language-only completion requirement.
+setup step. Image, video, 3D, and audio connections can be configured in optional
+creative tools or in Settings, and never change the language-model completion
+requirement.
+
+After the completion or skip preference is saved, a 1.9-second localized
+**Welcome, Gamer!** greeting appears on one centered line in the app's system font
+and fades in and out over the studio. Its size adapts to the window. The studio loads behind
+it and remains inert until the greeting ends. Failed saves stay in setup with a
+retry action; ordinary launches do not replay the greeting. Reduced-motion
+preferences bypass the animation, including when changed during the greeting.
+
+## Web search
+
+**Settings → Web Search** selects Auto, Exa, Parallel, or Custom MCP. Auto assigns
+each session to Exa or Parallel and can retry with the other public provider.
+An explicitly selected provider never falls back to another service.
+
+Custom MCP supports HTTP endpoints that accept `tools/list` and `tools/call`
+without an MCP initialization handshake. The selected tool must declare a string
+`query` property in its input schema. Search sends that query and, only when
+declared as a number or integer, `numResults` or `max_results` (in that order).
+The result count defaults to 8 and is clamped to the declared minimum/maximum.
+Other optional properties use the server's defaults; additional required
+parameters produce a compatibility error before the search is sent.
+
+Tool discovery supports JSON and SSE responses and paginated tool lists. Its
+schema is cached for five minutes for the current endpoint, tool, and bearer
+token. Discovery and search share a 25-second timeout and the caller's
+cancellation signal. A failed discovery is reported rather than sending guessed
+arguments. The optional bearer token is used for both discovery and search.
 
 ## Network proxy
 
@@ -222,7 +294,9 @@ without an OhMyGame approval prompt. Provider credentials stay in the daemon
 and are never written to workspaces or returned to the renderer.
 
 The desktop app writes the daemon's access token to the daemon's stdin, not
-to its environment, which other processes of the same user can read. A daemon
+to its environment, which other processes of the same user can read. For the
+same reason the desktop app never puts the token on a command line: the
+renderer receives it over IPC rather than as a process argument. A daemon
 started on its own may be given the token in `OHMYGAME_DAEMON_TOKEN`; it
 removes the variable at startup, though the original environment may still
 be visible in process listings. Either way no process the daemon starts
@@ -232,8 +306,11 @@ the daemon's other settings (`OHMYGAME_*`, `DAEMON_HOST`, `DAEMON_PORT`).
 
 ## Agent game use
 
-General Game projects open on Design as engine-independent workspaces with
-Code, Design, Assets and Web preview. The bundled Game Studio plugin provides game production,
+General Game projects open on Design with the conversation pane expanded, as
+engine-independent workspaces with Code, Design, Assets and Web preview.
+The conversation pane can still be collapsed manually; see the
+[workspace example](assets/general-game-conversation.png).
+The bundled Game Studio plugin provides game production,
 architecture, and verification Skills for General Game, Godot, and Interactive
 Story projects. Web Game keeps its independent Web Game Studio plugin and
 existing creation instructions. Plugins are enabled by default; a saved disabled
@@ -327,9 +404,9 @@ operations, and whether it can be shown in watch mode. The daemon registers
 the tool only when the current project's type is included in those capabilities
 and, for General Game, its Web preview switch is enabled.
 
-The shipped adapter is `web` for `web-game`, `interactive-story` (a web story
-opens its own page through the preview; a story still in the sandbox opens a
-Published Player draft), and configured Web previews in `general` projects
+The shipped adapter is `web` for `web-game`, `interactive-story` (the story
+opens its own page through the preview; one made before web stories is
+refused until the Story editor upgrades it), and configured Web previews in `general` projects
 and uses Electron's bundled Chromium. Godot and Unity projects do not receive this tool yet. When
 their runtime bridges are added, they should implement the same adapter
 contract for launch or attach, input, screenshots, state, reset or stepping,
@@ -394,9 +471,28 @@ naming requests leave the project eligible for a later message. Manual names,
 duplicates and legacy projects are preserved; a delayed AI result cannot replace
 a manual rename. The optional `nameSource` field in `project.json` records
 `default`, `ai` or `manual`; an absent field is treated as legacy data.
-Project lists use the existing two-second activity poll to receive names, even
-after a short turn finishes. `/projects/activity` returns `{ activity, names }`;
-`names` contains only each project's `id`, `name` and optional `nameSource`.
+Project lists receive names from the project activity stream, even after a
+short turn finishes. `/projects/activity` returns `{ activity, names }`, and
+`/projects/activity/events` streams the same snapshot as an `activity` SSE event
+whenever it changes; `names` contains only each project's `id`, `name` and
+optional `nameSource`. Stopping the daemon ends this and the other SSE streams
+first, so an open Projects page does not hold shutdown open.
+
+## Project navigation
+
+Project workspaces return to their entry page using the top-left Back arrow.
+The destination survives conversation/view changes and refreshes in the same
+tab; a project link opened without an entry page returns to Projects. The
+Projects URL preserves its type filter, search (`q`), and name sorting
+(`sort=name`) when returning or refreshing. See the
+[workspace return example](assets/project-return-navigation.webp).
+
+In the desktop app, the project card menu's **Open in folder** action opens the
+project's workspace in the system file manager, including projects using an
+existing folder. It is available in recent projects and the Projects list.
+See the [project menu example](assets/project-card-menu.png).
+The desktop file opener resolves `.` through `/projects/:projectId/files/location`
+to open the workspace root; file reads and writes still require a file path.
 
 ## Checkpoints
 
@@ -410,9 +506,8 @@ once a day.
 
 **Undo** takes back one turn's files while preserving the conversation, and
 **Reapply** restores their exact pre-undo contents. Editing a message preserves
-files. **Restore to before this message** explicitly restores the workspace and
-rewinds the selected conversation. These operations coordinate project writes,
-check later edits for conflicts, and retain recovery data if interrupted.
+files. These operations coordinate project writes, check later edits for
+conflicts, and retain recovery data if interrupted.
 
 See [turn file changes and recovery](checkpoints.md) for the UI, file scope,
 workspace versions, model notices, storage limits, and API routes, and
@@ -451,15 +546,33 @@ when an update is published; publication details show that snapshot.
 ## Publishing
 
 In web game, General, and interactive story chats, type `/publish` and select
-the command or send it to open the existing publish dialog. The command is handled locally
-and is not sent to the agent. It is available while the agent and publishing
-are idle; Godot projects do not offer it. Confirm the title, description, and
-cover in the dialog to publish and get the share link.
+the command or send it to open the existing publish dialog. The command is
+handled locally and is not sent to the agent. It is available while the agent
+and publishing are idle; Godot projects do not offer it. Confirm the title,
+description, and cover in the dialog to publish and get the share link.
+
+Published ZIPs may be up to 100 MiB. The matching Cloud API accepts up to
+200 MiB per file, 1 GiB after extraction, and 2,000 entries. Deploy the Cloud
+limit update before releasing the client; older services still reject larger
+uploads. Deployment uploads have a ten-minute timeout per attempt.
+
+Interactive Story publishing optimizes temporary copies of referenced media;
+workspace and Library originals, local builds, and project exports are unchanged.
+PNG scanlines are recompressed losslessly, preserving transparency and metadata.
+MP4 files are encoded as H.264 (CRF 23) with AAC audio at 128 kbit/s when FFmpeg
+is available on PATH or selected by `OHMYGAME_FFMPEG_PATH`. No encoder is bundled.
+Video dimensions are rounded down to even pixels for H.264 compatibility.
+Encoding has a two-minute limit per video. Missing encoders, failed encodes,
+and larger results keep the original. Files below 256 KiB are skipped; PNG
+optimization is bounded to 64 MiB and video encoding to 200 MiB per source.
+Other media formats keep their original encoding. ZIP compression alone offers
+little reduction for already compressed images, audio, or video.
 
 A workspace is publishable when it has a non-empty `scripts.build` that
 produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Only that static output is uploaded; hidden files, dependencies,
-and symbolic links are skipped, and binary assets are preserved byte for byte.
+and symbolic links are skipped. Binary assets retain their original bytes except
+for the Interactive Story publish-copy optimizations described above.
 The workspace, Pi sessions, conversations, and credentials are never sent.
 
 Each publish creates an immutable Deployment of the same Game, so the play link
@@ -470,20 +583,16 @@ Deployment ID, play URL, publish time, and the published title and description.
 
 ![Creator profile with published game covers](assets/community-profile.webp)
 
-Community uses the original mosaic of large, medium, and small square covers.
-Full groups use the existing 28-card layout; additional works continue in the
-same pattern rather than being truncated. Narrow layouts use equal square
-cards, with two columns on small screens. Clicking or tapping the cover opens
-the game detail, including on the owner's profile. Covers are requested
-only when cards approach the visible area. Desktop overlays retain the original
-gradient, hover animation, and centered title and author, with viewer and like counts
-below. Small mosaic cards omit the author to leave room for the title and
-counts. Overlays appear on hover or keyboard focus; hidden links and likes
-do not intercept cover clicks. Narrow layouts and touch devices show the
-overlay directly. Long titles and author names truncate within the card.
-The filter button beside **My profile** and **Refresh** supports title,
-description, and author search, sorting by first listing, viewers, or likes,
-and first-listing periods.
+Community displays games in a responsive grid with 16:10 covers, titles, creator
+links, and view/like counts visible below each cover. Search across title,
+description, and author, sorting by first listing, views, or likes, the
+first-listed time filter, and reset stay above the grid. Clicking or tapping the
+cover opens the game detail, including on the owner's profile; creator links and
+likes stay independently clickable. Covers are requested only when cards approach
+the visible area. Creator profiles and related games use the same cards, with
+colors following the app's light or dark theme. See the
+[dark](assets/community-gallery-dark.webp) and
+[light](assets/community-gallery-light.webp) examples (sample games).
 
 Author links open their public profile with listed works. **My profile** requires
 sign-in and includes deployed works. Profile cards open the game detail; they
@@ -519,26 +628,56 @@ Legacy hidden works remain accessible to their signed-in author through the
 same detail page, with read-only engagement counts. Other visitors cannot read
 their Community details or covers.
 
-Viewer counts are cumulative unique viewers per work, recorded when the app
-successfully opens the Community game detail. Refreshes and repeat visits do
-not add viewers. Signed-in visits use the account identity; anonymous visits
-use a random browser identifier. Logging in merges that browser's anonymous
-visit with the account, and signed-out returns from it reuse the same identity.
-Authenticated creator visits do not increment their own count. Shared play HTML
-does not include an injected tracking script, so direct shared-link visits are
-not included in this count. Clearing browser storage or visiting from another
-browser can count an anonymous viewer again.
+View counts measure deduplicated successful game entries, including creator visits.
+The Cloud play server considers GET requests for
+`/` and `/index.html`, covering desktop iframes, direct shared links, and future
+web Community players with the same `playUrl`. Lists, covers, assets, other HTML
+pages, HEAD requests, missing files, and explicit preloads do not add views.
+The client reads the latest metrics after the game iframe loads; it does not
+send a view mutation or create a Community visitor identity. Cloud uses a
+separate signed play cookie for a 10-minute per-browser/game cooldown, a 60-second
+IP/User-Agent fallback for new or unavailable cookies, and a generous shared IP
+quota. Repeated or excessive entries still open normally without adding counts.
 
-Likes require sign-in, support undo, and are unique per account and work. A
-completed like updates the card, sort order, and profile total together, even
-when an earlier refresh is still in flight.
+Entry HTML is served with `Cache-Control: no-store`; versioned assets retain
+immutable caching. Counts are best effort: a failed counter does not block play,
+and they do not establish that the game finished loading or a human played it.
+Browser history restoration without a new request and offline play are not
+counted. Counts start at zero with the play-count migration, survive publishing
+updates, and reset when a work is unpublished and published as a new game.
+Local debug snapshots count raw entry requests in memory and do not simulate
+Cloud's browser/IP abuse controls. Hosted thresholds and rollout are documented
+in the Cloud Publish contract.
+
+![Game details display cumulative opens from embedded and shared play](assets/community-view-count.png)
+
+Likes work directly on Community cards without sign-in, support undo, and are
+unique per visitor or account and work. The daemon stores a signed visitor
+credential in `community-visitor.json` under its data directory, scoped to the
+Cloud API URL and readable only by the current user on POSIX systems. It is
+never sent to game frames. Public browsing does not create it; the first anonymous
+like does. Signing in explicitly merges that visitor's likes into the account,
+deduplicates existing likes, and clears the credential after acknowledgement.
+Failed merges preserve the credential for retry without blocking public reads;
+signing out creates a new identity only on the next anonymous mutation.
+A completed like updates the card,
+sort order, and profile total together, even when an earlier refresh is still
+in flight. Clearing application data resets the visitor identity; it does not
+remove likes already stored by Cloud. This is browser/app identity, not a
+hardware device guarantee. Cloud applies shared IP and identity rate limits.
+
+![Signed-out players can like games directly from Community cards](assets/community-anonymous-like.png)
+
 Community reads opt in to metrics with `?metrics=true`; older service responses
 without metrics show unavailable counts. Cloud access tokens are forwarded
 transiently and never stored in project files. Local development provides the
 same flows through temporary debug snapshots.
 
-Hosted use requires the Community engagement migration and matching Cloud API
-before releasing the updated client. See the Cloud contract for rollout order.
+Hosted use requires the Cloud play-count migration and matching API/client rollout.
+The old unique-viewer endpoint and schema are removed. See the Cloud contract
+for deployment and cache-purge instructions. Anonymous likes additionally need
+the anonymous-likes migration and server-side visitor secret; older Cloud
+deployments still allow public browsing but cannot accept anonymous likes.
 
 The Publish v1 contract is in the
 [`ohmygame-cloud` repository](https://github.com/WhiteTowerAI/ohmygame-cloud/blob/main/docs/publish-v1.md).

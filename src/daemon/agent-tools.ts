@@ -18,7 +18,7 @@ import { PLAYABLE_PRESET_IDS, PLAYABLE_PRESETS } from "./playable-presets.js";
 import { checkCanvasWorkspace } from "./canvas-check.js";
 import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
-import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "../shared/audio.js";
+import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
 import { installMultiplayerWorkspace } from "./multiplayer-workspace.js";
 import type { LocalGameAdapterId } from "./local-multiplayer.js";
@@ -32,6 +32,7 @@ const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-speech": "generate_speech",
   "generate-sound-effect": "generate_sound_effect",
   "generate-music": "generate_music",
+  "generate-audio": "generate_audio",
 };
 const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_search", "update_plan", "questionnaire", "install_plugin", "generate_canvas_media"]);
 
@@ -77,6 +78,24 @@ const mediaModelParameter = () => Type.Object({
   id: Type.String({ description: "Provider model ID" }),
 }, { description: "Override the project or global default generation model" });
 
+const audioToolSettings = {
+  pitch: Type.Optional(Type.Integer({ minimum: -12, maximum: 12 })),
+  volume: Type.Optional(Type.Integer({ minimum: -50, maximum: 100 })),
+  speed: Type.Optional(Type.Integer({ minimum: -50, maximum: 100 })),
+  voiceId: Type.Optional(Type.String({ maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN })),
+  voiceKind: Type.Optional(Type.Union([Type.Literal("preset"), Type.Literal("cloned")])),
+  voiceModel: Type.Optional(Type.Union([Type.Literal("standard"), Type.Literal("expressive")])),
+  language: Type.Optional(Type.String({ maxLength: 40 })),
+  autoLanguage: Type.Optional(Type.Boolean()),
+  dialect: Type.Optional(Type.String({ maxLength: 40 })),
+  style: Type.Optional(Type.String({ maxLength: 2000 })),
+  ssml: Type.Optional(Type.String({ maxLength: 10000 })),
+  pronunciation: Type.Optional(Type.Array(Type.Object({ word: Type.String({ minLength: 1, maxLength: 9 }), replacement: Type.String({ minLength: 1, maxLength: 200 }) }), { maxItems: 5000 })),
+  silenceMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 30000 })),
+  sectionId: Type.Optional(Type.String({ maxLength: 120 })),
+  output: Type.Optional(Type.Object({ format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav"), Type.Literal("ogg_opus")])), sampleRate: Type.Optional(Type.Union([8000, 16000, 22050, 24000, 32000, 40000, 44100, 48000].map((value) => Type.Literal(value)))), bitRate: Type.Optional(Type.Integer()) })),
+};
+
 export function createAgentTools(
   project: ProjectState,
   tools: ToolRunner,
@@ -89,7 +108,7 @@ export function createAgentTools(
   configureMultiplayer?: (adapterId: LocalGameAdapterId) => Promise<MultiplayerManifestConfig>,
 ): PiToolDefinition[] {
   const saveGeneratedAudio = async (
-    toolId: "generate-speech" | "generate-sound-effect" | "generate-music",
+    toolId: "generate-speech" | "generate-sound-effect" | "generate-music" | "generate-audio",
     request: RunToolRequest,
     prompt: string,
     prefix: string,
@@ -97,18 +116,24 @@ export function createAgentTools(
   ) => {
     const run = await tools.run(toolId, request, signal, project.id);
     try {
-      const output = run.files[0];
+      const output = run.files.find((file) => file.role === "audio") ?? run.files[0];
       if (!output) throw new Error("Audio generator returned no output");
       const file = await tools.file(run.id, output.name);
       if (!file) throw new Error("Generated audio could not be read");
       signal?.throwIfAborted();
-      const extension = output.mediaType === "audio/wav" ? "wav" : "mp3";
+      const extension = audioExtension(output.mediaType);
       const relativePath = await projects.addGeneratedAsset(project.id, `${prefix}-${run.id}.${extension}`, file.bytes, {
         prompt,
         ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
       });
+      const companionPaths: string[] = [];
+      for (const companion of run.files.filter((file) => file.role === "metadata")) {
+        const file = await tools.file(run.id, companion.name);
+        if (!file) throw new Error("Audio companion could not be read");
+        companionPaths.push(await projects.addGeneratedAsset(project.id, `${prefix}-${run.id}.${extension}.${companion.name.slice(output.name.length + 1)}`, file.bytes));
+      }
       return {
-        content: [{ type: "text" as const, text: `Generated audio saved to ${relativePath}` }],
+        content: [{ type: "text" as const, text: `Generated audio saved to ${relativePath}${companionPaths.length ? `\nCompanion files: ${companionPaths.join(", ")}` : ""}` }],
         details: { artifact: { type: "audio", path: relativePath, mediaType: output.mediaType } },
       };
     } finally { await tools.removeRun(run.id); }
@@ -354,11 +379,11 @@ export function createAgentTools(
   }), defineTool({
     name: PI_TOOL_NAMES["animate-3d"],
     label: "Animate 3D Asset",
-    description: "Rig a project GLB and bake preset animation clips using Meshy or Tripo (including explicitly enabled compatible connections). Meshy needs a textured humanoid up to 300k triangles, facing +Z. Tripo checks riggability and supports humanoid v1 or creature v2.5 rigs. Actions belong to the selected provider and rig version.",
+    description: "Rig a project GLB and bake preset animation clips using Meshy or Tripo (including explicitly enabled compatible connections). Meshy needs a textured humanoid up to 300k triangles, facing +Z. Tripo checks riggability and supports humanoid v1, creature v2.5, or v3 rigs (recommended for humanoids). Actions belong to the selected provider and rig version.",
     parameters: Type.Object({
       modelPath: Type.String({ description: "Path to a GLB model in the current project workspace" }),
       model: Type.Optional(mediaModelParameter()),
-      rigModel: Type.Optional(Type.Union([Type.Literal("v1.0-20240301"), Type.Literal("v2.5-20260210")])),
+      rigModel: Type.Optional(Type.Union([Type.Literal("v1.0-20240301"), Type.Literal("v2.5-20260210"), Type.Literal("v3.0-20260909")])),
       rigType: Type.Optional(Type.Union([Type.Literal("biped"), Type.Literal("quadruped"), Type.Literal("hexapod"), Type.Literal("octopod"), Type.Literal("serpentine"), Type.Literal("aquatic")])),
       animateInPlace: Type.Optional(Type.Boolean()),
       actions: Type.Optional(Type.Array(Type.String({ minLength: 1 }), {
@@ -453,6 +478,7 @@ export function createAgentTools(
     label: "Generate Speech",
     description: "Generate character or narrator speech and save it into the current project. Use an exact voice ID supported by the connected speech provider.",
     parameters: Type.Object({
+      ...audioToolSettings,
       text: Type.String({ minLength: 1, maxLength: 10_000, description: "The words to speak" }),
       voiceId: Type.Optional(Type.String({ minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN, description: "Provider Speaker ID; omit to use the configured default" })),
       model: Type.Optional(mediaModelParameter()),
@@ -463,14 +489,16 @@ export function createAgentTools(
       sampleRate: Type.Optional(Type.Union([8_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000].map((value) => Type.Literal(value)))),
     }),
     execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-speech", {
+      ...audioSettings(input),
       text: input.text, voiceId: input.voiceId, model: input.model, language: input.language, style: input.style, speed: input.speed,
-      output: { format: input.format, sampleRate: input.sampleRate },
+      output: input.output ?? { format: input.format, sampleRate: input.sampleRate },
     }, input.text, "speech", signal),
   }), defineTool({
     name: PI_TOOL_NAMES["generate-sound-effect"],
     label: "Generate Sound Effect",
     description: "Generate a sound effect with a compatible connected audio provider and save it into the current project.",
     parameters: Type.Object({
+      ...audioToolSettings,
       prompt: Type.String({ minLength: 1, maxLength: 4_000, description: "Describe the sound, environment, timing, and intensity" }),
       model: Type.Optional(mediaModelParameter()),
       durationSeconds: Type.Optional(Type.Number({ minimum: 0.1, maximum: 600 })),
@@ -479,14 +507,16 @@ export function createAgentTools(
       format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav")])),
     }),
     execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-sound-effect", {
+      ...audioSettings(input),
       prompt: input.prompt, model: input.model, durationSeconds: input.durationSeconds, loop: input.loop,
-      negativePrompt: input.negativePrompt, output: { format: input.format },
+      negativePrompt: input.negativePrompt, output: input.output ?? { format: input.format },
     }, input.prompt, "sound-effect", signal),
   }), defineTool({
     name: PI_TOOL_NAMES["generate-music"],
     label: "Generate Music",
     description: "Generate music with a compatible connected audio provider and save it into the current project.",
     parameters: Type.Object({
+      ...audioToolSettings,
       prompt: Type.String({ minLength: 1, maxLength: 4_000, description: "Describe genre, mood, tempo, instrumentation, and structure" }),
       model: Type.Optional(mediaModelParameter()),
       instrumental: Type.Boolean({ description: "Generate without vocals" }),
@@ -496,9 +526,15 @@ export function createAgentTools(
       format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav")])),
     }),
     execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-music", {
+      ...audioSettings(input),
       prompt: input.prompt, model: input.model, instrumental: input.instrumental, lyrics: input.lyrics,
-      durationSeconds: input.durationSeconds, loop: input.loop, output: { format: input.format },
+      durationSeconds: input.durationSeconds, loop: input.loop, output: input.output ?? { format: input.format },
     }, input.prompt, "music", signal),
+  }), defineTool({
+    name: PI_TOOL_NAMES["generate-audio"], label: "Generate Audio",
+    description: "Create game scene audio combining dialogue, sound effects, ambience and music. Use Seed Audio with a text prompt or a Speaker ID. Duration is a target, not an exact cut. Save audio and metadata companions to the project.",
+    parameters: Type.Object({ ...audioToolSettings, prompt: Type.String({ minLength: 1, maxLength: 2744 }), model: Type.Optional(mediaModelParameter()), durationSeconds: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 120 })) }),
+    execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-audio", { ...audioSettings(input), prompt: input.prompt, model: input.model, durationSeconds: input.durationSeconds }, input.prompt, "audio", signal),
   }), ...(project.type === "interactive-story" ? [defineTool({
     name: "playable_add_node",
     label: "Add Node",
@@ -536,7 +572,7 @@ export function createAgentTools(
     name: "playable_check",
     label: "Check Project",
     description: [
-      "Validate the Playable Nodes project: graph.json against its schema and references, then compile every Node and the shared modules it imports.",
+      "Validate the Playable Nodes project: graph.json against its schema and references, then check every Node's files and what they import the way the story's page loads them.",
       "Run it after changing the project and fix every issue it reports. Use mode \"publish\" before the user publishes; it also requires every Signal other than navigation ones to be connected and every source file to exist.",
     ].join("\n"),
     parameters: Type.Object({
@@ -581,14 +617,22 @@ export function createAgentTools(
   }), defineTool({
     name: "generate_canvas_media",
     label: "Generate Canvas Media",
-    description: "Generate a saved media node using its current prompt, configured model and references. Use it only for a node whose generation model is available. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool.",
-    parameters: Type.Object({ boardId: Type.String({ minLength: 1, maxLength: 100 }), nodeId: Type.String({ minLength: 1, maxLength: 120 }) }),
+    description: "Generate a saved media node using its current prompt, configured model and references. Use it only for a node whose generation model is available. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool. If the node is already generating, this waits for that run; if its current output came from the same settings, this returns it without generating again unless regenerate is true.",
+    parameters: Type.Object({
+      boardId: Type.String({ minLength: 1, maxLength: 100 }),
+      nodeId: Type.String({ minLength: 1, maxLength: 120 }),
+      regenerate: Type.Optional(Type.Boolean({ description: "Start a new paid generation even when the node's current output came from the same settings, for example when the user wants another variation." })),
+    }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
-      const job = await canvasStore.generateNode(project.id, input.boardId, input.nodeId);
+      const job = await canvasStore.generateNode(project.id, input.boardId, input.nodeId, !input.regenerate);
+      // Stopping the agent cancels only a run this call started. A followed run belongs to whoever started it,
+      // so aborting just ends this wait.
       const cancel = () => { void canvasStore.cancel(project.id, job.id).catch(() => {}); };
-      signal?.addEventListener("abort", cancel, { once: true });
-      if (signal?.aborted) cancel();
+      if (!job.reused) {
+        signal?.addEventListener("abort", cancel, { once: true });
+        if (signal?.aborted) cancel();
+      }
       try {
         let current = job;
         while (current.status === "running") {
@@ -602,7 +646,10 @@ export function createAgentTools(
         if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
         const manifest = await readCanvasAssets(project.workspacePath);
         const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
-        return { content: [{ type: "text", text: `Generated media for node ${input.nodeId}. Saved: ${paths.join(", ")}. Inspect or play the relevant output to evaluate the actual result.` }], details: { canvasGeneration: current } };
+        const summary = job.reused === "output"
+          ? `Node ${input.nodeId} already has output from these settings, so nothing new was generated. Existing: ${paths.join(", ")}. Pass regenerate: true only when another variation is wanted.`
+          : `${job.reused === "running" ? `Node ${input.nodeId} was already generating, so this waited for that run instead of starting another.` : `Generated media for node ${input.nodeId}.`} Saved: ${paths.join(", ")}.`;
+        return { content: [{ type: "text", text: `${summary} Inspect or play the relevant output to evaluate the actual result.` }], details: { canvasGeneration: current } };
       } finally { signal?.removeEventListener("abort", cancel); }
     },
   })] : []), ...(playtest?.driver.available && playtest.driver.capabilities.projectTypes.includes(project.type) && (project.type !== "general" || supportsWebPreview(project))

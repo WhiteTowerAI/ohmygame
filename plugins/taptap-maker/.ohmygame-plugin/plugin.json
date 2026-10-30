@@ -1,0 +1,33 @@
+{
+  "name": "taptap-maker",
+  "version": "0.2.0",
+  "enabledByDefault": false,
+  "description": "Develop TapTap Maker projects locally with the official CLI and MCP.",
+  "skills": "./skills/",
+  "mcpServers": "./mcp.json",
+  "integration": {
+    "entry": "./scripts/integration.mjs",
+    "createProject": true,
+    "projectFiles": ["./.maker-mcp/config.json"],
+    "preview": "external"
+  },
+  "requirements": {
+    "commands": ["git"]
+  },
+  "interface": {
+    "beta": true,
+    "displayName": "TapTap Maker",
+    "shortDescription": "Connect Maker projects, preview locally, and submit builds.",
+    "longDescription": "Create a new Maker project or connect an existing workspace with the official CLI. Develop UrhoX/Lua games, preview with Maker Runtime, and submit builds to Maker. A Maker account is required for project access and remote operations.",
+    "icon": {
+      "type": "asset",
+      "path": "./assets/icon.svg"
+    },
+    "defaultPrompt": [
+      "Check this TapTap Maker project's connection and local development setup.",
+      "Develop a small playable game in this TapTap Maker project.",
+      "Run a local preview of this Maker project and inspect its logs."
+    ],
+    "projectTypes": ["general"]
+  }
+}

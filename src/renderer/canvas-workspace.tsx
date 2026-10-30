@@ -116,7 +116,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   useEffect(() => { if (workspace && (singleBoard || !workspace.boards.some((board) => board.id === activeId))) setActiveId(workspace.boards[0]?.id); }, [workspace, activeId, singleBoard]);
   useEffect(() => { if (activeId) { try { localStorage.setItem(`canvas-active:${project.id}`, activeId); } catch { /* Board selection remains usable without storage. */ } } }, [project.id, activeId]);
   const boardName = workspace?.boards.find((board) => board.id === activeId)?.name;
-  const selectionContext = JSON.stringify({ total: selectedNodes.length, nodes: selectedNodes.slice(0, 25).map((node) => ({ id: node.id, name: canvasNodeTitle(node, workspace?.documents, workspace?.assets, tableContents).slice(0, 80), type: node.type, ...(node.type === "document" ? { source: canvasDocumentPath(node.data.documentId) } : node.type === "table" ? { source: canvasTablePath(node.data.tableId) } : {}) })) });
+  const selectionContext = JSON.stringify({ total: selectedNodes.length, nodes: selectedNodes.slice(0, 25).map((node) => ({ id: node.id, name: canvasNodeTitle(node, workspace?.documents, workspace?.assets, tableContents).slice(0, 80), type: node.type, ...(node.type === "document" ? { source: canvasDocumentPath(node.data.documentId) } : node.type === "table" ? { source: canvasTablePath(node.data.tableId) } : node.type === "file" ? { source: node.data.path } : {}) })) });
   useEffect(() => {
     if (singleBoard && workspaceView === "code") { onContextChange?.(undefined); return; }
     if (!activeId || !boardName) return;

@@ -17,6 +17,7 @@ import {
 } from "./api.js";
 import { LoaderCircle, Plug, Trash2, WandSparkles } from "./icons.js";
 import { t } from "./i18n.js";
+import { pluginHash } from "./routes.js";
 
 export function PluginEnabledSwitch({ plugin, disabled, onToggle }: {
   plugin: Pick<PluginDetail, "displayName" | "enabled" | "installed">;
@@ -214,7 +215,7 @@ export function PluginMcpPanel({
   const [definition, setDefinition] = useState("");
   if (!plugin.mcpServers?.length && !plugin.connections.length) return null;
   return (
-    <section className="plugin-components">
+    <section className="plugin-components plugin-mcp">
       <h2>{t("pluginControls.mcpServices")}</h2>
       {(plugin.mcpServers ?? []).map((server) => {
         const result = results[server.id];
@@ -240,17 +241,37 @@ export function PluginMcpPanel({
                             : t("pluginControls.readyToConnect")}
                 </span>
               </span>
-              <button
-                className="plugin-detail-secondary"
-                type="button"
-                disabled={Boolean(busy)}
-                onClick={() => void run(server.id, "test")}
-              >
-                {busy === server.id ? (
-                  <LoaderCircle size={13} className="spin" />
+              <div className="plugin-mcp-actions">
+                <button
+                  className="plugin-detail-secondary"
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() => void edit(server.id)}
+                >
+                  {t("pluginControls.editConfiguration")}
+                </button>
+                {server.transport === "http" ? (
+                  <button
+                    className="plugin-detail-secondary"
+                    type="button"
+                    disabled={Boolean(busy)}
+                    onClick={() => void run(server.id, "auth-start")}
+                  >
+                    {t("pluginControls.authorize")}
+                  </button>
                 ) : null}
-                {t("pluginControls.test")}
-              </button>
+                <button
+                  className="plugin-detail-secondary"
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() => void run(server.id, "test")}
+                >
+                  {busy === server.id ? (
+                    <LoaderCircle size={13} className="spin" />
+                  ) : null}
+                  {t("pluginControls.test")}
+                </button>
+              </div>
               <button
                 className="plugin-switch"
                 role="switch"
@@ -275,26 +296,6 @@ export function PluginMcpPanel({
                 {result.message ? <pre>{result.message}</pre> : null}
               </div>
             ) : null}
-            <div className="plugin-section-actions">
-              <button
-                className="plugin-detail-secondary"
-                type="button"
-                disabled={Boolean(busy)}
-                onClick={() => void edit(server.id)}
-              >
-                {t("pluginControls.editConfiguration")}
-              </button>
-              {server.transport === "http" ? (
-                <button
-                  className="plugin-detail-secondary"
-                  type="button"
-                  disabled={Boolean(busy)}
-                  onClick={() => void run(server.id, "auth-start")}
-                >
-                  {t("pluginControls.authorize")}
-                </button>
-              ) : null}
-            </div>
             {editing === server.id ? (
               <form
                 className="plugin-mcp-editor"
@@ -364,7 +365,7 @@ export function PluginMcpPanel({
         );
       })}
       {plugin.connections.map((connection) => (
-        <div className="plugin-component-row" key={connection.id}>
+        <div className="plugin-component-row plugin-mcp-connection" key={connection.id}>
           <span className="plugin-row-copy">
             <strong>{connection.name}</strong>
             <span>
@@ -377,25 +378,28 @@ export function PluginMcpPanel({
           </span>
           {connection.ownerPluginId ? (
             <a
-              href={`#/settings/plugins/${encodeURIComponent(connection.ownerPluginId)}`}
+              className="plugin-detail-secondary"
+              href={pluginHash(connection.ownerPluginId)}
             >
               {t("pluginControls.manageProvider")}
             </a>
           ) : null}
         </div>
       ))}
-      <button
-        className="plugin-detail-secondary"
-        type="button"
-        onClick={onAssist}
-      >
-        <WandSparkles size={13} />
-        {t("pluginControls.repairWithAi")}
-      </button>
       {error ? <p role="alert">{error}</p> : null}
-      <p className="plugin-change-notice">
-        {t("pluginControls.changesApply")}
-      </p>
+      <footer className="plugin-mcp-footer">
+        <button
+          className="plugin-detail-secondary"
+          type="button"
+          onClick={onAssist}
+        >
+          <WandSparkles size={13} />
+          {t("pluginControls.repairWithAi")}
+        </button>
+        <p className="plugin-change-notice">
+          {t("pluginControls.changesApply")}
+        </p>
+      </footer>
     </section>
   );
   async function edit(server: string) {

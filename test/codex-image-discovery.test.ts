@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -16,50 +16,17 @@ async function fixture(enabled: boolean) {
     path.join(tmpdir(), "ohmygame-image-discovery-"),
   );
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
-  const binary = path.join(directory, "codex");
-  const calls = path.join(directory, "calls");
-  const release = path.join(directory, "release");
-  await writeFile(
-    binary,
-    `#!/usr/bin/env node
-const fs = require('node:fs');
-fs.appendFileSync(${JSON.stringify(calls)}, process.argv[2] + '\\n');
-if (process.argv[2] === '--version') { console.log('codex-cli 0.163.0'); process.exit(0); }
-if (process.argv[2] === 'login') { console.log('Logged in using ChatGPT'); process.exit(0); }
-const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
-require('node:readline').createInterface({input:process.stdin}).on('line', line => {
-  const message = JSON.parse(line);
-  if (!message.id) return;
-  if (message.method === 'modelProvider/capabilities/read') {
-    fs.appendFileSync(${JSON.stringify(calls)}, 'capabilities\\n');
-    const timer = setInterval(() => {
-      if (!fs.existsSync(${JSON.stringify(release)})) return;
-      clearInterval(timer);
-      send({id:message.id,result:{imageGeneration:true}});
-    }, 10);
-  } else send({id:message.id,result:{}});
-});
-`,
-  );
-  await chmod(binary, 0o755);
-  // Exercise a real stalled app-server process without depending on shell-path
-  // discovery, local credentials or the timing of version/auth subprocesses.
+  const connection = {
+    path: path.join(directory, "codex"),
+    signature: "codex-fixture",
+    source: "path" as const,
+    env: {},
+    auth: { status: "signed-in" as const, billing: "subscription" as const },
+    error: undefined,
+  };
   const connect = vi
     .spyOn(AgentRuntimeService.prototype, "codexImageConnection")
-    .mockResolvedValue({
-      path: binary,
-      signature: binary,
-      source: "path",
-      env: { PATH: process.env.PATH ?? "" },
-      auth: { status: "signed-in", billing: "subscription" },
-      error: undefined,
-    });
-  await writeFile(
-    path.join(directory, "agent-runtimes.json"),
-    JSON.stringify({
-      runtimes: { "codex-cli": { binaryPath: binary, enabled: false } },
-    }),
-  );
+    .mockResolvedValue(connection);
   await writeFile(
     path.join(directory, "model-visibility.json"),
     JSON.stringify({
@@ -74,11 +41,11 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   });
   cleanup.push(() => app.close());
   await app.ready();
-  return { app, calls, release, connect };
+  return { app, connection, connect };
 }
 
-it("does not start a disabled CLI while listing providers, initializing onboarding or toggling another provider", async () => {
-  const { app, calls, connect } = await fixture(false);
+it("does not check a disabled CLI while listing providers, initializing onboarding or toggling another provider", async () => {
+  const { app, connect } = await fixture(false);
   const providers = await app.inject({
     method: "GET",
     url: "/settings/providers",
@@ -100,9 +67,6 @@ it("does not start a disabled CLI while listing providers, initializing onboardi
       })
     ).statusCode,
   ).toBe(200);
-  await expect(readFile(calls, "utf8")).rejects.toMatchObject({
-    code: "ENOENT",
-  });
   expect(connect).not.toHaveBeenCalled();
   const enabled = await app.inject({
     method: "PATCH",
@@ -113,26 +77,27 @@ it("does not start a disabled CLI while listing providers, initializing onboardi
   expect(enabled.json()).toMatchObject({ enabled: true, configured: false });
 });
 
-// These cases execute POSIX script fixtures; Windows cannot start them as native CLIs.
-it.skipIf(process.platform === "win32")("serves all provider operations during a stalled background probe and adopts its eventual result", async () => {
-  const { app, calls, release } = await fixture(true);
+it("serves provider operations during a slow login check and adopts the saved sign-in", async () => {
+  const { app, connection, connect } = await fixture(true);
+  let release!: (value: typeof connection) => void;
+  connect.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
   const providers = await app.inject({
     method: "GET",
     url: "/settings/providers",
   });
   expect(providers.statusCode).toBe(200);
   expect(providers.json()).toContainEqual(
-    expect.objectContaining({ id: "codex-cli", configured: false }),
+    expect.objectContaining({
+      id: "codex-cli",
+      configured: false,
+      authStatus: "unknown",
+    }),
   );
-  await expect
-    .poll(
-      async () =>
-        (await readFile(calls, "utf8").catch(() => "")).includes(
-          "capabilities\n",
-        ),
-      { timeout: 5_000 },
-    )
-    .toBe(true);
   expect(
     (await app.inject({ method: "GET", url: "/settings/onboarding" }))
       .statusCode,
@@ -146,20 +111,14 @@ it.skipIf(process.platform === "win32")("serves all provider operations during a
       })
     ).statusCode,
   ).toBe(200);
-  expect((await readFile(calls, "utf8")).match(/capabilities/g)).toHaveLength(
-    1,
-  );
-  await writeFile(release, "");
+  expect(connect).toHaveBeenCalledOnce();
+  release(connection);
   await expect
-    .poll(
-      async () =>
-        (await app.inject({ method: "GET", url: "/settings/providers" }))
-          .json()
-          .find((provider: { id: string }) => provider.id === "codex-cli")
-          ?.configured,
+    .poll(async () =>
+      (await app.inject({ method: "GET", url: "/settings/providers" }))
+        .json()
+        .find((provider: { id: string }) => provider.id === "codex-cli"),
     )
-    .toBe(true);
-  expect((await readFile(calls, "utf8")).match(/capabilities/g)).toHaveLength(
-    1,
-  );
+    .toMatchObject({ configured: true, authStatus: "signed-in" });
+  expect(connect).toHaveBeenCalledOnce();
 });

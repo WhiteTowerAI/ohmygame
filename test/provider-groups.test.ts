@@ -70,3 +70,11 @@ describe("provider groups", () => {
     expect(ids(groups.more)).toEqual(["cerebras"]);
   });
 });
+
+it("keeps both Doubao services independent, including a Seed-only connection", () => {
+  const tts = summary("volcengine-tts", { enabled: false });
+  const seed = summary("volcengine-seed-audio", { configured: true, status: "connected" });
+  const groups = groupProviders([tts, seed], predicates);
+  expect(groups.connected).toEqual([seed]);
+  expect(groups.more).toEqual([tts]);
+});

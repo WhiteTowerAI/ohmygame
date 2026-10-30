@@ -17,7 +17,37 @@ const model = (id: string, visible = true) => ({
   visible,
   custom: false,
 });
+const audioProviders: ProviderSummary[] = [
+  {
+    id: "volcengine-tts",
+    name: "Doubao Speech",
+    configured: true,
+    enabled: true,
+    status: "connected",
+    capabilities: ["audio"],
+    methods: [],
+  },
+  {
+    id: "volcengine-seed-audio",
+    name: "Doubao Seed Audio",
+    configured: true,
+    enabled: true,
+    status: "connected",
+    capabilities: ["audio"],
+    methods: [],
+  },
+];
 const api = {
+  listProviders: vi.fn(async () => audioProviders),
+  getVolcengineTtsSettings: vi.fn(async () => ({
+    configured: true,
+    defaultVoiceId: "zh_female_vv_uranus_bigtts",
+  })),
+  listAudioModelCatalog: vi.fn(async () => ({ models: [], providers: [] })),
+  setProviderEnabled: vi.fn(async (id: string, enabled: boolean) => ({
+    ...audioProviders.find((provider) => provider.id === id)!,
+    enabled,
+  })),
   getOpenAIEndpointSettings: vi.fn(async () => ({
     baseUrl: "https://api.openai.com/v1",
   })),
@@ -33,7 +63,10 @@ const api = {
     models: [model("gpt-4"), model("gpt-5"), model("gpt-3.5", false)],
     defaultApi: "openai-responses",
     canAddCustomModel: false,
+    canRefreshCatalog: true,
   })),
+  refreshProviderModels: vi.fn(async () => ({})),
+  setProviderModelVisibility: vi.fn<(...args: [string, string[], boolean]) => Promise<ProviderModelSettings>>(),
   listModels: vi.fn(async () => ({
     models: [],
     defaultModel: { provider: "openai", id: "gpt-5" },
@@ -60,6 +93,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 const openai: ProviderSummary = {
@@ -76,11 +110,11 @@ const openai: ProviderSummary = {
   ],
 };
 
-async function render(onViewChange = vi.fn()) {
+async function render(onViewChange = vi.fn(), provider = openai) {
   await act(async () =>
     root.render(
       <ModelsSettings
-        view={{ page: "provider", provider: openai }}
+        view={{ page: "provider", provider }}
         onViewChange={onViewChange}
         onOpenAgents={() => {}}
       />,
@@ -128,6 +162,23 @@ it("confirms before removing the provider", async () => {
   expect(api.removeProvider).toHaveBeenCalledWith("openai");
 });
 
+it.each(audioProviders)("keeps $name settings and actions independent", async (provider) => {
+  await render(vi.fn(), provider);
+  const header = host.querySelector(".settings-provider-detail-header")!;
+  const toggle = header.querySelector<HTMLInputElement>('[role="switch"]')!;
+  expect(toggle.getAttribute("aria-label")).toBe(`Enable ${provider.name}`);
+  expect(host.querySelector(".settings-provider-filters")).toBeNull();
+  expect(host.querySelector(`#${provider.id}-api-key`)).toBeTruthy();
+  if (provider.id === "volcengine-tts") expect(host.querySelector<HTMLSelectElement>("#volcengine-tts-voice-select")!.value).toBe("zh_female_vv_uranus_bigtts");
+  else expect(host.querySelector("#volcengine-tts-voice-select")).toBeNull();
+  await act(async () => toggle.click());
+  expect(api.setProviderEnabled).toHaveBeenCalledWith(provider.id, false);
+  await act(async () => header.querySelector<HTMLButtonElement>(".settings-provider-delete")!.click());
+  expect(api.removeProvider).not.toHaveBeenCalled();
+  await act(async () => button("Delete provider")!.click());
+  expect(api.removeProvider).toHaveBeenCalledWith(provider.id);
+});
+
 it("puts the default model first and keeps hidden models behind a toggle", async () => {
   await render();
   expect(rows()).toEqual(["GPT-5", "GPT-4"]);
@@ -138,4 +189,45 @@ it("puts the default model first and keeps hidden models behind a toggle", async
   ).toContain("GPT-5");
   await act(async () => button("Hidden models (1)")!.click());
   expect(rows()).toEqual(["GPT-5", "GPT-4", "GPT-3.5"]);
+});
+
+it("refreshes in the background and preserves the current list when a manual refresh fails", async () => {
+  vi.useFakeTimers();
+  const catalog = await api.getProviderModels();
+  api.getProviderModels.mockResolvedValueOnce({ ...catalog, refreshingCatalog: true });
+  await render();
+  expect(rows()).toEqual(["GPT-5", "GPT-4"]);
+  expect(button("Refresh models")!.disabled).toBe(true);
+  await act(async () => vi.advanceTimersByTimeAsync(1_000));
+  expect(button("Refresh models")!.disabled).toBe(false);
+  api.refreshProviderModels.mockRejectedValueOnce(new Error("offline"));
+  await act(async () => button("Refresh models")!.click());
+  expect(api.refreshProviderModels).toHaveBeenCalledWith("openai");
+  expect(rows()).toEqual(["GPT-5", "GPT-4"]);
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("Your existing models are still available");
+  await act(async () => button("Refresh models")!.click());
+  expect(api.refreshProviderModels).toHaveBeenCalledTimes(2);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("pauses background polling while the user saves model visibility", async () => {
+  vi.useFakeTimers();
+  const catalog = await api.getProviderModels();
+  api.getProviderModels.mockClear();
+  api.getProviderModels.mockResolvedValueOnce({ ...catalog, refreshingCatalog: true });
+  let save!: (settings: ProviderModelSettings) => void;
+  api.setProviderModelVisibility.mockImplementationOnce(() => new Promise((resolve) => { save = resolve; }));
+  await render();
+  await act(async () => button("Edit")!.click());
+  const checkbox = host.querySelector<HTMLInputElement>('.provider-model-row input[type="checkbox"]')!;
+  await act(async () => checkbox.click());
+  expect(api.setProviderModelVisibility).toHaveBeenCalledWith("openai", ["gpt-4"], false);
+  await act(async () => vi.advanceTimersByTimeAsync(1_000));
+  expect(api.getProviderModels).toHaveBeenCalledOnce();
+  const saved = { ...catalog, models: catalog.models.map((model) => model.id === "gpt-4" ? { ...model, visible: false } : model) };
+  api.getProviderModels.mockResolvedValueOnce(saved);
+  await act(async () => save(saved));
+  await act(async () => vi.advanceTimersByTimeAsync(1_000));
+  expect(checkbox.checked).toBe(false);
+  expect(api.getProviderModels).toHaveBeenCalledTimes(2);
 });

@@ -7,7 +7,6 @@ import {
   isTurnCommandResult,
   normalizeDisplayName,
 } from "../src/shared/multiplayer-protocol.js";
-import { isPublishedNodeManifest } from "../src/shared/playable-publish.js";
 
 const manifest = {
   enabled: true,
@@ -36,20 +35,6 @@ describe("multiplayer protocol", () => {
     );
     expect(
       isMultiplayerManifestConfig({ ...manifest, protocolVersion: 2 }),
-    ).toBe(false);
-    expect(
-      isPublishedNodeManifest({
-        version: 1,
-        runtime: "playable-nodes",
-        scope: "published:game_123",
-        graphSignature: "a".repeat(64),
-        definition: {
-          path: "./playable.json",
-          integrity: `sha256-${"A".repeat(43)}=`,
-        },
-        assets: {},
-        multiplayer: manifest,
-      }),
     ).toBe(false);
     expect(
       isPublishedMultiplayerManifest({

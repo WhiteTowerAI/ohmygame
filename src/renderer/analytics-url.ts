@@ -13,7 +13,8 @@ export function analyticsPath(route: AppRoute): string {
     case "community": return "/community/games";
     case "community-profile": return "/community/creators/:id";
     case "game": return "/community/games/:id";
-    case "settings": return route.pluginId ? "/settings/plugins/:id" : `/settings/${route.section}`;
+    case "plugins": return route.pluginId ? "/plugins/:id" : "/plugins";
+    case "settings": return `/settings/${route.section}`;
     case "playtest": return "/playtest/:id";
     case "thumbnail": return "/thumbnail/:id/:id";
     case "project":

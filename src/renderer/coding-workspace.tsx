@@ -1,3 +1,4 @@
+import { ExternalProjectPreview } from "./plugin-integration.js";
 import { previewPageUrl as isolatedPreviewUrl } from "../shared/preview-page.js";
 import {
   ArrowLeft,
@@ -36,9 +37,10 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
+import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import { isWebRuntimeProjectType, supportsWebPreview, supportsProjectPreview } from "../shared/project-runtime.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileName, filterAssets, hasMediaType, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
@@ -124,12 +126,13 @@ export function CodingWorkspace({
   onToggleChat,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
-  const publishingUnavailable = project?.type === "godot-game";
+  const hasPreview = supportsProjectPreview(project);
+  const publishingUnavailable = project?.type === "godot-game" || !!project?.integration;
   const publishLabel = project?.type === "godot-game"
     ? t("workspace.godotPublishing")
     : publishing ? t("workspace.publishing") : t("workspace.publish");
-  const [selectedTab, setSelectedTab] = useState<WorkspaceTab>(supportsPreview ? "preview" : "code");
-  const activeTab = selectedTab === "preview" && !supportsPreview ? "code" : selectedTab;
+  const [selectedTab, setSelectedTab] = useState<WorkspaceTab>(hasPreview ? "preview" : "code");
+  const activeTab = selectedTab === "preview" && !hasPreview ? "code" : selectedTab;
   const shownTab = designOpen ? "design" : activeTab;
   const [designHeaderActions, setDesignHeaderActions] = useState<HTMLDivElement | null>(null);
   const designLeave = useRef<((action: () => void) => void) | undefined>(undefined);
@@ -298,7 +301,7 @@ export function CodingWorkspace({
   }
 
   const tabs: WorkspaceTabOption<WorkspaceTab | "design">[] = [
-    ...(supportsPreview ? [{ id: "preview" as const, label: t("workspace.tab.preview"), icon: Globe2 }] : []),
+    ...(hasPreview ? [{ id: "preview" as const, label: t("workspace.tab.preview"), icon: Globe2 }] : []),
     ...(onDesignOpenChange ? [{ id: "design" as const, label: t("workspace.tab.design"), icon: FileText }] : []),
     { id: "code", label: t("workspace.tab.code"), icon: Code2 },
     { id: "assets", label: t("workspace.tab.assets"), icon: Layers3 },
@@ -342,7 +345,7 @@ export function CodingWorkspace({
           ) : null}
         </div>
         <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
-          {project && isWebRuntimeProjectType(project.type) && shownTab !== "preview" ? <button
+          {project && !project.integration && isWebRuntimeProjectType(project.type) && shownTab !== "preview" ? <button
             className="icon-button pane-header-action"
             type="button"
             aria-label={t("projectSettings.title")}
@@ -398,6 +401,7 @@ export function CodingWorkspace({
         project={project} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady} onContextChange={onDesignContextChange}
       /></Suspense> : null}
 
+      {project?.integration?.preview === "external" && shownTab === "preview" ? <ExternalProjectPreview key={project.id} project={project} onProjectUpdated={onProjectUpdated} /> : null}
       {supportsPreview ? (
         <div
           className="coding-workspace-preview-panel"
@@ -703,7 +707,7 @@ function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (
       </button>
       {open ? (
         <div className="viewport-menu-popover" id={menuId} role="menu" aria-label={t("workspace.viewportLabel")}>
-          {(["fit", "tablet", "mobile"] as const).map((viewport) => (
+          {PREVIEW_VIEWPORTS.map((viewport) => (
             <button
               className="viewport-option"
               type="button"
@@ -730,17 +734,20 @@ function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (
 function ViewportIcon({ viewport }: { viewport: PreviewViewport }) {
   if (viewport === "tablet") return <Tablet size={14} />;
   if (viewport === "mobile") return <Smartphone size={14} />;
+  if (viewport === "mobile-landscape") return <Smartphone size={14} style={{ transform: "rotate(90deg)" }} />;
   return <Monitor size={14} />;
 }
 
 function viewportLabel(viewport: PreviewViewport): string {
   if (viewport === "tablet") return t("workspace.viewport.tablet");
   if (viewport === "mobile") return t("workspace.viewport.mobile");
+  if (viewport === "mobile-landscape") return t("workspace.viewport.mobileLandscape");
   return t("projectSettings.device.fit");
 }
 
 export function playerViewport(viewport: PreviewViewport, bounds?: { width: number; height: number }): { width: number; height: number } {
   if (viewport === "mobile") return { width: 375, height: 667 };
+  if (viewport === "mobile-landscape") return { width: 667, height: 375 };
   if (viewport === "tablet") return { width: 768, height: 1024 };
   const size = (value: number | undefined, fallback: number) => Math.min(8192, Math.max(240, Math.round(value || fallback)));
   return { width: size(bounds?.width, 1280), height: size(bounds?.height, 720) };
@@ -1496,6 +1503,36 @@ function useElementSize(element: HTMLElement | null): { width: number; height: n
     return () => observer.disconnect();
   }, [element]);
   return size;
+}
+
+/** The Assets view for a workspace that does not load its file list already, such as an Interactive Story. */
+export function WorkspaceAssetsView({ projectId, revision, onShowInCode }: { projectId: string; revision: number; onShowInCode: (path: string) => void }) {
+  const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    let disposed = false;
+    setLoading(true);
+    setError(undefined);
+    void listWorkspaceFiles(projectId).then((result) => {
+      if (!disposed) setFiles(result);
+    }).catch((cause) => {
+      if (!disposed) setError(errorMessage(cause));
+    }).finally(() => {
+      if (!disposed) setLoading(false);
+    });
+    return () => { disposed = true; };
+  }, [projectId, revision]);
+
+  return <AssetsView
+    projectId={projectId}
+    files={files.filter((file) => file.mediaType && !file.directory)}
+    loading={loading}
+    error={error}
+    revision={revision}
+    onShowInCode={onShowInCode}
+  />;
 }
 
 export function AssetsView({

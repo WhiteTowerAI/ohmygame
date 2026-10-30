@@ -1,15 +1,10 @@
 import { language, t } from "./i18n.js";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import type { CommunityGameStats } from "../shared/publish-v1.js";
-import {
-  HOME_GAME_MOSAIC_SLOTS,
-  type GameMosaicSlot,
-} from "../shared/game-mosaic.js";
-import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
-import { getExploreGameCover, setCommunityLike } from "./api.js";
+import { ApiError, getExploreGameCover, setCommunityLike } from "./api.js";
 import { useAuth } from "./auth.js";
-import { Eye, Heart, LoaderCircle } from "./icons.js";
+import { Eye, Gamepad2, Heart, LoaderCircle } from "./icons.js";
 import { communityProfileHash } from "./routes.js";
 
 export function GameGrid<T extends CommunityGame>({
@@ -24,49 +19,27 @@ export function GameGrid<T extends CommunityGame>({
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
 }) {
   return (
-    <div className="explore-game-mosaics">
-      {Array.from(
-        { length: Math.ceil(games.length / HOME_GAME_MOSAIC_SLOTS.length) },
-        (_, group) => {
-          const start = group * HOME_GAME_MOSAIC_SLOTS.length;
-          const batch = games.slice(
-            start,
-            start + HOME_GAME_MOSAIC_SLOTS.length,
-          );
-          return (
-            <div
-              key={group}
-              className={`explore-game-mosaic${batch.length === HOME_GAME_MOSAIC_SLOTS.length ? " is-complete" : ""}`}
-            >
-              {batch.map((game, index) => (
-                <GameTile
-                  key={game.id}
-                  game={game}
-                  slot={HOME_GAME_MOSAIC_SLOTS[index]}
-                  onOpen={() => onOpen(game)}
-                  accessToken={accessToken}
-                  onStatsChange={onStatsChange}
-                />
-              ))}
-            </div>
-          );
-        },
-      )}
+    <div className="community-game-grid">
+      {games.map((game) => (
+        <GameTile
+          key={game.id}
+          game={game}
+          onOpen={() => onOpen(game)}
+          accessToken={accessToken}
+          onStatsChange={onStatsChange}
+        />
+      ))}
     </div>
   );
 }
 
 export function GameTile({
-  className = "",
   game,
-  slot,
   onOpen,
   accessToken,
   onStatsChange,
 }: {
-  className?: string;
   game: CommunityGame;
-  slot?: GameMosaicSlot;
   onOpen: () => void;
   accessToken?: string;
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
@@ -91,70 +64,62 @@ export function GameTile({
     return () => observer.disconnect();
   }, []);
   const coverUrl = useGameCover(visible ? game : undefined, accessToken);
-  const style: (CSSProperties & Record<string, number>) | undefined = slot
-    ? {
-        "--mosaic-column": slot.column,
-        "--mosaic-row": slot.row,
-        "--mosaic-size": slot.size,
-      }
-    : undefined;
   return (
-    <article
-      ref={tile}
-      className={`explore-game-tile explore-game-tile-size-${slot?.size ?? 1}${className ? ` ${className}` : ""}`}
-      style={style}
-    >
-      {coverUrl ? (
-        <img
-          className="explore-game-cover"
-          src={coverUrl}
-          alt=""
-          loading="lazy"
-        />
-      ) : (
-        <span className="explore-game-cover-placeholder" aria-hidden="true">
-          <img src={brandMark} alt="" />
-        </span>
-      )}
-      <button
-        className="explore-game-open"
-        type="button"
-        aria-label={t("community.play", { title: game.title })}
-        onClick={onOpen}
-      />
-      <div className="explore-game-overlay">
-        <div className="explore-game-overlay-copy">
-          <strong className="community-card-title">{game.title}</strong>
-          <a
-            className="explore-game-creator"
-            href={communityProfileHash(game.author.id)}
-            aria-label={t("community.viewProfile", {
-              name: game.author.displayName,
-            })}
-          >
-            <span className="explore-game-creator-avatar" aria-hidden="true">
-              <i>{game.author.displayName.slice(0, 1).toUpperCase()}</i>
-              {game.author.avatarUrl ? (
-                <img
-                  src={game.author.avatarUrl}
-                  alt=""
-                  onError={(event) => {
-                    event.currentTarget.hidden = true;
-                  }}
-                />
-              ) : null}
-            </span>
-            <small>{game.author.displayName}</small>
-          </a>
-          <GameStats
-            game={game}
-            onChange={
-              onStatsChange
-                ? (stats) => onStatsChange(game.id, stats)
-                : undefined
-            }
+    <article ref={tile} className="explore-game-tile">
+      <div className="community-card-cover">
+        {coverUrl ? (
+          <img
+            className="explore-game-cover"
+            src={coverUrl}
+            alt=""
+            loading="lazy"
           />
-        </div>
+        ) : (
+          <span className="explore-game-cover-placeholder" aria-hidden="true">
+            <Gamepad2 size={28} />
+          </span>
+        )}
+      </div>
+      <h2 className="community-card-title">
+        <button
+          className="explore-game-open"
+          type="button"
+          aria-label={t("community.play", { title: game.title })}
+          title={game.description || game.title}
+          onClick={onOpen}
+        >
+          {game.title}
+        </button>
+      </h2>
+      <div className="community-card-meta">
+        <a
+          className="explore-game-creator"
+          href={communityProfileHash(game.author.id)}
+          aria-label={t("community.viewProfile", {
+            name: game.author.displayName,
+          })}
+        >
+          <span className="explore-game-creator-avatar" aria-hidden="true">
+            <i>{game.author.displayName.slice(0, 1).toUpperCase()}</i>
+            {game.author.avatarUrl ? (
+              <img
+                src={game.author.avatarUrl}
+                alt=""
+                loading="lazy"
+                onError={(event) => {
+                  event.currentTarget.hidden = true;
+                }}
+              />
+            ) : null}
+          </span>
+          <small>{game.author.displayName}</small>
+        </a>
+        <GameStats
+          game={game}
+          onChange={
+            onStatsChange ? (stats) => onStatsChange(game.id, stats) : undefined
+          }
+        />
       </div>
     </article>
   );
@@ -171,15 +136,8 @@ export function GameStats({
   const userId =
     auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const currentIdentity = useRef({ gameId: game.id, userId });
-  if (
-    currentIdentity.current.gameId !== game.id ||
-    (currentIdentity.current.userId &&
-      currentIdentity.current.userId !== userId)
-  ) {
+  if (currentIdentity.current.gameId !== game.id || currentIdentity.current.userId !== userId) {
     currentIdentity.current = { gameId: game.id, userId };
-  } else {
-    // A click that opens sign-in continues under the newly signed-in account.
-    currentIdentity.current.userId = userId;
   }
   const mounted = useRef(false);
   useEffect(() => {
@@ -189,7 +147,11 @@ export function GameStats({
     };
   }, []);
   const stats = game.stats;
-  const liked = Boolean(userId && stats?.liked);
+  const currentStats = useRef(stats);
+  currentStats.current = stats;
+  const statsIdentity = useRef({ stats, userId });
+  if (statsIdentity.current.stats !== stats) statsIdentity.current = { stats, userId };
+  const liked = Boolean(statsIdentity.current.userId === userId && stats?.liked);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -200,44 +162,44 @@ export function GameStats({
     if (busy || !stats || !onChange) return;
     setBusy(true);
     setError(undefined);
-    let identity = currentIdentity.current;
+    const identity = currentIdentity.current;
     const isCurrent = () =>
       mounted.current && currentIdentity.current === identity;
     try {
-      const token = await auth.requestAccessToken();
-      if (!token || !mounted.current) return;
-      identity = currentIdentity.current;
-      if (identity.gameId !== game.id || (userId && identity.userId !== userId))
-        return;
+      const token = userId ? await auth.requestAccessToken() : undefined;
+      if ((userId && !token) || !isCurrent()) return;
       const next = await setCommunityLike(game.id, token, !liked);
-      if (isCurrent()) onChange(next);
+      if (isCurrent()) onChange({ ...next, viewCount: Math.max(next.viewCount, currentStats.current?.viewCount ?? 0) });
     } catch (cause) {
       if (isCurrent())
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(cause instanceof ApiError && cause.status === 429 ? t("community.likeRateLimited")
+          : cause instanceof ApiError && cause.status === 503 ? t("community.likeUnavailable")
+          : cause instanceof Error ? cause.message : String(cause));
     } finally {
       if (mounted.current) setBusy(false);
     }
   }
 
-  const viewers = stats ? compactCount(stats.viewerCount) : "—";
+  const viewCount = stats?.viewCount;
+  const views = viewCount !== undefined ? compactCount(viewCount) : "—";
   const likes = stats ? compactCount(stats.likeCount) : "—";
   const iconSize = "var(--community-stats-icon-size, 13px)";
   return (
     <div className="community-game-stats">
       <span
         aria-label={
-          stats
-            ? t("community.uniqueViewers", { count: stats.viewerCount })
+          viewCount !== undefined
+            ? t("community.views", { count: viewCount })
             : t("community.viewCountUnavailable")
         }
         title={
-          stats
-            ? t("community.uniqueViewers", { count: stats.viewerCount })
+          viewCount !== undefined
+            ? t("community.views", { count: viewCount })
             : t("community.viewCountUnavailable")
         }
       >
         <Eye size={iconSize} />
-        {viewers}
+        {views}
       </span>
       {onChange && game.listingStatus !== "unlisted" ? (
         <button
@@ -288,11 +250,14 @@ export function useGameCover(
   accessToken?: string,
 ): string | undefined {
   const [url, setUrl] = useState<string>();
+  // Hosted covers live on the play domain's edge cache, like the games themselves;
+  // only loopback covers from local debug publishing still go through the daemon.
+  const direct = game?.coverUrl && isHttpsUrl(game.coverUrl) ? game.coverUrl : undefined;
   useEffect(() => {
     let active = true;
     let objectUrl: string | undefined;
     setUrl(undefined);
-    if (!game?.coverUrl) return;
+    if (!game?.coverUrl || direct) return;
     void getExploreGameCover(game.id, game.deploymentId, accessToken)
       .then((cover) => {
         if (!active || !cover) return;
@@ -304,8 +269,16 @@ export function useGameCover(
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [game?.coverUrl, game?.deploymentId, game?.id, accessToken]);
-  return url;
+  }, [game?.coverUrl, game?.deploymentId, game?.id, accessToken, direct]);
+  return direct ?? url;
+}
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function compactCount(count: number): string {

@@ -115,11 +115,6 @@ export function playableDebugRecord(
   };
 }
 
-/** A State value as short text for a table cell. */
-export function formatStateValue(value: JsonValue | undefined): string {
-  return value === undefined ? "—" : JSON.stringify(value);
-}
-
 function sameJson(left: JsonValue, right: JsonValue): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }

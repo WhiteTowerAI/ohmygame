@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import {
   STORY_WEB_ENTRY,
   storyWebEditorBridge,
@@ -19,6 +19,14 @@ if (!modules[STORY_WEB_ENTRY] || !bridge.trim()) {
   throw new Error("The web story build produced incomplete resources.");
 }
 await writeFile(destination, JSON.stringify({ modules, bridge }));
+// Presets read their files and illustrations in both source development and the built daemon.
+for (const folder of ["story-templates", "scene-templates"]) {
+  await cp(
+    new URL(`../src/daemon/assets/${folder}/`, import.meta.url),
+    new URL(`../dist/daemon/assets/${folder}/`, import.meta.url),
+    { recursive: true },
+  );
+}
 console.log(
   `Prepared ${Object.keys(modules).length} story runtime modules and the editor bridge.`,
 );

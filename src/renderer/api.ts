@@ -1,4 +1,6 @@
+import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
+import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
 import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
@@ -75,17 +77,18 @@ import {
   type Model3DModel,
   type Model3DAnimationAction,
 } from "../shared/contracts.js";
-import type { AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
+import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import type { AudioModelCatalog } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
 import type { ExampleSummary } from "../shared/examples.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import type { NodeRuntimeResponse, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
+import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
+import type { ExternalAgentClientId, ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerBridge } from "../shared/web-game-player.js";
 import type { NetworkConnectionTest, NetworkSettings, NetworkSettingsState } from "../shared/network-settings.js";
@@ -143,13 +146,17 @@ declare global {
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
       selectProjectDirectory: () => Promise<string | undefined>;
+      /** Older desktop builds do not write log files. */
+      openLogsDirectory?: () => Promise<void>;
+      /** Builds the diagnostics ZIP without the background service, for when it is not running. */
+      exportDiagnostics?: () => Promise<Uint8Array<ArrayBuffer>>;
       clipboard: {
         files: () => Promise<DesktopClipboardFile[]>;
         paste: () => Promise<void>;
       };
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
-      /** Captures a Node's thumbnail in a hidden window; `false` when it could not. */
-      captureNodeThumbnail?: (projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string) => Promise<boolean>;
+      /** Captures a Node's thumbnail in a hidden window, or says why it could not. */
+      captureNodeThumbnail?: (projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string) => Promise<NodeThumbnailResult>;
       /** Shares the editor build once, instead of compiling again for each capture. */
       prepareNodeThumbnails?: (projectId: string, batchId: string, snapshot: PlayableThumbnailSnapshot) => Promise<void>;
       /** Only a hidden thumbnail window can read its assigned snapshot. */
@@ -157,13 +164,17 @@ declare global {
       /** Cancels active and queued captures in a batch. */
       cancelNodeThumbnails?: (batchId: string) => Promise<void>;
       /** Called by the hidden thumbnail window once its capture is stored or failed. */
-      finishNodeThumbnail?: (captured: boolean) => Promise<void>;
+      finishNodeThumbnail?: (captured: boolean, error?: string) => Promise<void>;
       openPlaytest: (projectId: string, viewport: { width: number; height: number }) => Promise<void>;
       webGamePlayer?: WebGamePlayerBridge;
       /** Called from a Playtest window: shows the Node in the main window's editor. */
       openPlayableNode?: (projectId: string, nodeId: string) => Promise<void>;
       /** Called in the main window when a Playtest asks to open a Node. */
       onOpenPlayableNode?: (listener: (projectId: string, nodeId: string) => void) => () => void;
+      /** Called from a Playtest window that cannot play: brings the project's editor forward. */
+      showPlaytestEditor?: (projectId: string) => Promise<void>;
+      /** Called in the main window when a Playtest asks for its project's editor. */
+      onShowPlaytestEditor?: (listener: (projectId: string) => void) => () => void;
       agentPlaytests?: {
         state: () => Promise<PlaytestWatchState>;
         setVisible: (visible: boolean) => Promise<PlaytestWatchState>;
@@ -195,8 +206,31 @@ export async function listProjects(): Promise<ProjectState[]> {
   return request("/projects");
 }
 
-export async function listProjectActivity(signal?: AbortSignal): Promise<ProjectActivitySnapshot> {
-  return request("/projects/activity", { signal });
+/** Follows project activity, reconnecting after a service restart; each connection starts with the current snapshot. */
+export async function streamProjectActivity(signal: AbortSignal, onSnapshot: (snapshot: ProjectActivitySnapshot) => void): Promise<void> {
+  while (!signal.aborted) {
+    const connection = new AbortController();
+    const unsubscribe = subscribeRuntimeConnection(() => connection.abort());
+    const connectionSignal = AbortSignal.any([signal, connection.signal]);
+    try {
+      if (runtimeConnection().status !== "ready") throw new Error(t("api.serviceUnavailable"));
+      const response = await fetch(apiUrl("/projects/activity/events"), {
+        headers: { accept: "text/event-stream", ...runtimeHeaders() },
+        signal: connectionSignal,
+      });
+      if (!response.ok || !response.body) throw new ApiError(`Activity stream failed with ${response.status}`, response.status);
+      await readEventBlocks(response.body, (block) => {
+        const data = eventData(block);
+        if (data) onSnapshot(JSON.parse(data) as ProjectActivitySnapshot);
+      }, connectionSignal);
+    } catch {
+      // Keep the last state during a temporary runtime disconnect.
+    } finally {
+      unsubscribe();
+    }
+    if (signal.aborted) return;
+    await reconnectDelay(signal);
+  }
 }
 
 export async function listExamples(): Promise<ExampleSummary[]> {
@@ -236,14 +270,53 @@ export async function duplicateProject(projectId: string): Promise<ProjectState>
   return request(`/projects/${projectId}/duplicate`, { method: "POST" });
 }
 
+/** Downloads the project as an archive that imports as a new project. */
+export async function exportProject(projectId: string, version?: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/export`), {
+    method: "POST",
+    headers: projectRuntimeHeaders(projectId, version),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+/**
+ * The name for a project file from earlier versions: its file name without
+ * `.zip` and the "(project)" suffix the story export adds in either language.
+ */
+export function archiveProjectName(fileName: string): string {
+  let name = fileName.replace(/\.zip$/i, "");
+  for (const lng of ["en", "zh-CN"]) {
+    const suffix = ` (${t("storySettings.projectFileSuffix", { lng })})`;
+    if (name.endsWith(suffix)) {
+      name = name.slice(0, -suffix.length);
+      break;
+    }
+  }
+  return name.slice(0, 255);
+}
+
+/** Creates a new project from an archive, streaming the file to the runtime. */
+export async function importProject(file: File): Promise<ProjectState> {
+  // Names a project file from earlier versions, which has no manifest.
+  const query = new URLSearchParams({ name: archiveProjectName(file.name) });
+  const response = await fetch(apiUrl(`/projects/import?${query}`), {
+    method: "POST",
+    headers: { "content-type": PROJECT_ARCHIVE_CONTENT_TYPE, ...runtimeHeaders() },
+    body: file,
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<ProjectState>;
+}
+
 export async function deleteProject(projectId: string): Promise<void> {
   await request(`/projects/${projectId}`, { method: "DELETE" });
   composerDrafts.deleteProject(projectId);
 }
 
 /** Conversations list coding agents' models too; canvas text and other one-off generation use OhMyGame's own models only. */
-export async function listModels(options: { agentRuntimes?: boolean } = {}): Promise<AgentModelCatalog> {
-  return request(options.agentRuntimes ? "/models?runtimes=1" : "/models");
+export async function listModels(options: { agentRuntimes?: boolean; accountProfiles?: AccountProfileIds } = {}): Promise<AgentModelCatalog> {
+  return request(options.agentRuntimes ? `/models?runtimes=1${options.accountProfiles ? `&profiles=${encodeURIComponent(JSON.stringify(options.accountProfiles))}` : ""}` : "/models");
 }
 
 export async function listAgentRuntimes(recheck = false): Promise<AgentRuntimeStatus[]> {
@@ -258,8 +331,25 @@ export async function recheckAgentRuntime(id: AgentRuntimeId): Promise<AgentRunt
   return request(`/agent-runtimes/${id}/recheck`, { method: "POST" });
 }
 
-export async function loginAgentRuntime(id: AgentRuntimeId): Promise<AgentRuntimeLoginResponse> {
-  return request(`/agent-runtimes/${id}/login`, { method: "POST" });
+export async function loginAgentRuntime(id: AgentRuntimeId, profileId?: string): Promise<AgentRuntimeLoginResponse> {
+  return request(`/agent-runtimes/${id}/login${profileId ? `?profileId=${encodeURIComponent(profileId)}` : ""}`, { method: "POST" });
+}
+
+export function listAccountProfiles(runtime: AccountRuntimeId, recheck = false): Promise<AgentAccountProfileStatus[]> {
+  return request(`/agent-runtimes/${runtime}/profiles${recheck ? "?recheck=1" : ""}`);
+}
+
+export function addAccountProfile(runtime: AccountRuntimeId, name: string, configDirectory?: string): Promise<AgentAccountProfile> {
+  return request(`/agent-runtimes/${runtime}/profiles`, { method: "POST", body: JSON.stringify({ name, ...(configDirectory ? { configDirectory } : {}) }) });
+}
+
+export function deleteAccountProfile(runtime: AccountRuntimeId, profileId: string): Promise<void> {
+  return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
+}
+
+/** A model comes back when the chosen account does not offer the chat's model and the chat moved to one it does. */
+export function setConversationAccountProfile(projectId: string, conversationId: string, runtime: AccountRuntimeId, profileId: string): Promise<{ profileId: string; model?: AgentModelRef; nativeReasoningLevel?: string }> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/account-profile`, { method: "PUT", body: JSON.stringify({ runtime, profileId }) });
 }
 
 export async function recheckCodexImages(): Promise<ProviderSummary> {
@@ -340,6 +430,12 @@ export async function removeProvider(providerId: string): Promise<void> {
   notifyAgentModelsChanged();
 }
 
+export async function refreshProviderModels(providerId: string): Promise<ProviderModelSettings> {
+  const result = await request<ProviderModelSettings>(`/settings/models/providers/${encodeURIComponent(providerId)}/models/refresh`, { method: "POST" });
+  notifyAgentModelsChanged();
+  return result;
+}
+
 export async function getProviderModels(providerId: string): Promise<ProviderModelSettings> {
   return request(`/settings/models/providers/${encodeURIComponent(providerId)}/models`);
 }
@@ -409,10 +505,6 @@ export async function updateMinimaxApiKey(providerId: string, apiKey: string): P
     method: "PUT",
     body: JSON.stringify({ apiKey }),
   });
-}
-
-export async function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> {
-  return request("/settings/models/providers/volcengine-tts");
 }
 
 export async function updateVolcengineTtsApiKey(apiKey: string): Promise<{ configured: boolean; defaultVoiceId?: string }> {
@@ -540,6 +632,22 @@ export async function updateWebSearchSettings(input: UpdateWebSearchSettings): P
   return request("/settings/web-search", { method: "PUT", body: JSON.stringify(input) });
 }
 
+export async function getExternalAgentSettings(): Promise<ExternalAgentSettings> {
+  return request("/settings/external-agents");
+}
+
+export async function updateExternalAgentSettings(input: UpdateExternalAgentSettings): Promise<ExternalAgentSettings> {
+  return request("/settings/external-agents", { method: "PUT", body: JSON.stringify(input) });
+}
+
+export async function connectExternalAgent(id: ExternalAgentClientId): Promise<ExternalAgentSettings> {
+  return request(`/settings/external-agents/clients/${id}`, { method: "PUT" });
+}
+
+export async function disconnectExternalAgent(id: ExternalAgentClientId): Promise<ExternalAgentSettings> {
+  return request(`/settings/external-agents/clients/${id}`, { method: "DELETE" });
+}
+
 export async function listExploreGames(accessToken?: string, options: CommunityGamesQuery = {}): Promise<CommunityGame[]> {
   const query = new URLSearchParams({ metrics: "true" });
   if (options.limit !== undefined) query.set("limit", String(options.limit));
@@ -568,11 +676,7 @@ export function getMyCommunityGames(accessToken: string): Promise<CommunityProfi
   return request("/community/me/games", { headers: communityHeaders(accessToken) });
 }
 
-export function recordCommunityView(gameId: string, visitorId: string, accessToken?: string): Promise<CommunityGameStats> {
-  return request(`/community/games/${encodeURIComponent(gameId)}/view`, { method: "POST", body: JSON.stringify({ visitorId, ...(accessToken ? { accessToken } : {}) }) });
-}
-
-export function setCommunityLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
+export function setCommunityLike(gameId: string, accessToken: string | undefined, liked: boolean): Promise<CommunityGameStats> {
   return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
 }
 
@@ -642,13 +746,27 @@ export async function publishProject(projectId: string, accessToken: string, met
   return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
 }
 
-export async function exportInteractiveStoryProject(projectId: string, version?: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/projects/${projectId}/interactive-story/export-project`), {
-    method: "POST",
-    headers: projectRuntimeHeaders(projectId, version),
-  });
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
+/**
+ * A ZIP of the redacted desktop logs and system information, for bug reports.
+ * When the background service cannot build it, the desktop app builds one
+ * with the logs and the service's status.
+ */
+export async function exportDiagnostics(): Promise<{ blob: Blob; fileName: string }> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(apiUrl("/diagnostics/export"), { method: "POST", headers: runtimeHeaders(), signal: controller.signal });
+    if (!response.ok) throw await responseError(response);
+    const fileName = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1];
+    return { blob: await response.blob(), fileName: fileName ?? diagnosticsFileName(new Date()) };
+  } catch (cause) {
+    const desktopExport = window.ohMyGameDesktop?.exportDiagnostics;
+    if (!desktopExport) throw cause;
+    const bytes = await desktopExport();
+    return { blob: new Blob([bytes], { type: "application/zip" }), fileName: diagnosticsFileName(new Date()) };
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export async function buildInteractiveStory(projectId: string, version?: string): Promise<Blob> {
@@ -681,7 +799,7 @@ export async function ensureProjectPreview(projectId: string): Promise<{ url: st
   return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1`, { method: "POST" });
 }
 
-/** Whether an Interactive Story plays as its own page, and whether its upgrade can be taken back. */
+/** Whether an Interactive Story plays as its own page, or must be upgraded first. */
 export async function getStoryUpgrade(projectId: string): Promise<StoryUpgradeStatus> {
   return request(`/projects/${projectId}/interactive-story/upgrade`);
 }
@@ -690,17 +808,8 @@ export async function upgradeStory(projectId: string): Promise<StoryUpgradeResul
   return request(`/projects/${projectId}/interactive-story/upgrade`, { method: "POST" });
 }
 
-/** Keeps the upgrade, so it is no longer offered to be taken back. */
-export async function keepStoryUpgrade(projectId: string): Promise<void> {
-  await request(`/projects/${projectId}/interactive-story/upgrade/keep`, { method: "POST" });
-}
-
 export async function copyStoryLibraryMedia(projectId: string): Promise<StoryLibraryMediaResult> {
   return request(`/projects/${projectId}/interactive-story/library-media`, { method: "POST" });
-}
-
-export async function undoStoryUpgrade(projectId: string): Promise<{ changed: string[] }> {
-  return request(`/projects/${projectId}/interactive-story/upgrade/undo`, { method: "POST" });
 }
 
 export async function getNodeRuntime(projectId: string): Promise<NodeRuntimeResponse> {
@@ -850,6 +959,20 @@ export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMed
   });
 }
 
+/** Copies a file that is not a document, table or media asset into the project's `assets/files/` folder. */
+export async function importCanvasFile(projectId: string, file: File, directory?: string): Promise<{ path: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/canvas/files?${new URLSearchParams({ name: file.name, ...(directory ? { directory } : {}) })}`, {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream" },
+    body: file,
+  });
+}
+
+/** Creates an `assets/files/` folder for a folder imported on the canvas; a repeated name gets a suffix. */
+export async function createCanvasImportFolder(projectId: string, name: string): Promise<{ path: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/canvas/folders`, { method: "POST", body: JSON.stringify({ name }) });
+}
+
 export async function getLibraryAsset(assetId: string): Promise<Blob> {
   const response = await fetch(apiUrl(`/library/assets/${encodeURIComponent(assetId)}/content`), { headers: runtimeHeaders() });
   if (!response.ok) throw await responseError(response);
@@ -917,6 +1040,10 @@ export async function createConversation(
     method: "POST",
     body: JSON.stringify({ ...(model ? { model: modelRef(model) } : {}), ...(reasoningLevel ? { reasoningLevel } : {}) }),
   });
+}
+
+export async function branchConversation(projectId: string, conversationId: string, entryId: string): Promise<ConversationSummary> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/branch`, { method: "POST", body: JSON.stringify({ entryId }) });
 }
 
 export async function getConversation(projectId: string, conversationId: string, reset = false): Promise<ConversationDetail> {
@@ -1041,11 +1168,6 @@ export async function reviseLastPrompt(
     method: "POST",
     body: JSON.stringify({ prompt }),
   });
-}
-
-/** Puts the workspace and the conversation back to just before the message the checkpoint was taken for. */
-export async function restoreCheckpoint(projectId: string, conversationId: string, checkpointId: string): Promise<void> {
-  return request(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/restore`, { method: "POST" });
 }
 
 /** Lists the files the turn of the checkpoint's message changed. */
@@ -1206,8 +1328,9 @@ async function streamProjectEvents(
         throw new ApiError(`Event stream failed with ${response.status}`, response.status);
       }
       handlers.onOpen();
-      await consumeEventStream(response.body, (event) => {
-        if (event.id <= cursor) return;
+      await readEventBlocks(response.body, (block) => {
+        const event = parseRuntimeEvent(block);
+        if (!event || event.id <= cursor) return;
         cursor = Math.max(cursor, event.id);
         handlers.onEvent(event);
       }, connectionSignal);
@@ -1234,7 +1357,11 @@ async function streamModelAuthEvents(
         signal,
       });
       if (!response.ok || !response.body) throw new ApiError(`Authentication stream failed with ${response.status}`, response.status);
-      const finished = await consumeModelAuthStream(response.body, (event) => {
+      let finished = false;
+      await readEventBlocks(response.body, (block) => {
+        const event = parseModelAuthEvent(block);
+        if (!event) return;
+        if (event.type === "completed" || event.type === "cancelled" || event.type === "error") finished = true;
         if (event.id <= cursor) return;
         cursor = Math.max(cursor, event.id);
         handlers.onEvent(event);
@@ -1248,15 +1375,11 @@ async function streamModelAuthEvents(
   }
 }
 
-async function consumeModelAuthStream(
-  body: ReadableStream<Uint8Array>,
-  onEvent: (event: ModelAuthEvent) => void,
-  signal: AbortSignal,
-): Promise<boolean> {
+/** Passes each complete event of a server-sent event stream until it ends or the signal aborts. */
+async function readEventBlocks(body: ReadableStream<Uint8Array>, onBlock: (block: string) => void, signal: AbortSignal): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let finished = false;
   try {
     while (!signal.aborted) {
       const { done, value } = await reader.read();
@@ -1265,42 +1388,20 @@ async function consumeModelAuthStream(
       const blocks = buffer.split(/\r?\n\r?\n/);
       buffer = blocks.pop() ?? "";
       for (const block of blocks) {
-        const event = parseModelAuthEvent(block);
-        if (!event) continue;
-        onEvent(event);
-        if (event.type === "completed" || event.type === "cancelled" || event.type === "error") finished = true;
+        if (signal.aborted) return;
+        onBlock(block);
       }
     }
   } finally {
     reader.releaseLock();
   }
-  return finished;
 }
 
-async function consumeEventStream(
-  body: ReadableStream<Uint8Array>,
-  onEvent: (event: RuntimeEvent) => void,
-  signal: AbortSignal,
-): Promise<void> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (!signal.aborted) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const blocks = buffer.split(/\r?\n\r?\n/);
-      buffer = blocks.pop() ?? "";
-      for (const block of blocks) {
-        const event = parseRuntimeEvent(block);
-        if (!event) continue;
-        onEvent(event);
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
+function eventData(block: string): string {
+  return block.split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n");
 }
 
 function parseRuntimeEvent(block: string): RuntimeEvent | undefined {
@@ -1325,26 +1426,13 @@ function parseRuntimeEvent(block: string): RuntimeEvent | undefined {
 }
 
 function parseModelAuthEvent(block: string): ModelAuthEvent | undefined {
-  const data = block.split(/\r?\n/)
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice(5).trimStart())
-    .join("\n");
+  const data = eventData(block);
   if (!data) return undefined;
   try {
     return JSON.parse(data) as ModelAuthEvent;
   } catch {
     return undefined;
   }
-}
-
-/**
- * The page Scenes run in. The desktop app loads its own pages from file://,
- * where Chromium will not let the sandboxed frame load its script, so there
- * the daemon serves it.
- */
-export function playableSandboxUrl(): string {
-  const runtime = desktopRuntime();
-  return runtime ? `${runtime.daemonUrl}/playable-sandbox/playable-sandbox.html` : "./playable-sandbox.html";
 }
 
 function apiUrl(path: string): string {
@@ -1491,4 +1579,27 @@ export async function releasePreview(projectId: string, leaseId: string): Promis
 }
 export async function inspectProjectPreview(projectId: string, settings: ProjectRunSettings): Promise<{ mode?: string; manager?: string; source?: string; error?: string }> {
   return request(`/projects/${projectId}/preview/inspect`, { method: "POST", body: JSON.stringify(settings) });
+}
+
+export function getPluginIntegration(pluginId: string, projectId?: string): Promise<import("../shared/plugin-integration.js").PluginIntegrationState> {
+  return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`);
+}
+export function runPluginIntegration(pluginId: string, action: import("../shared/plugin-integration.js").PluginIntegrationAction, projectId?: string, remoteProjectId?: string): Promise<import("../shared/plugin-integration.js").PluginIntegrationState> {
+  return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`, { method: "POST", body: JSON.stringify({ action, ...(remoteProjectId ? { projectId: remoteProjectId } : {}) }) });
+}
+export function cancelPluginIntegration(pluginId: string, projectId?: string): Promise<{ ok: true }> {
+  return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`, { method: "DELETE" });
+}
+export function clearProjectIntegration(projectId: string): Promise<ProjectState> {
+  return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "DELETE" });
+}
+export function setProjectIntegration(projectId: string, pluginId: string): Promise<ProjectState> {
+  return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "PUT", body: JSON.stringify({ pluginId }) });
+}
+
+export function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
+export async function previewSeedAudio(prompt: string): Promise<Blob> {
+  const response = await fetch(apiUrl("/settings/models/providers/volcengine-seed-audio/preview"), { method: "POST", headers: { ...runtimeHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ prompt, durationSeconds: 2 }) });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
 }

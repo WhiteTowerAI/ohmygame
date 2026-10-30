@@ -1,0 +1,105 @@
+@import "../../shared/style/components.css";
+
+/* A header, the map filling the middle, and Back. */
+.story-map-page {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  place-content: stretch;
+  padding-block: calc(var(--letterbox) + var(--space-3));
+}
+
+.story-map-page .tagline {
+  margin: 0;
+}
+
+/* The background stays as a dim, soft backdrop so the map reads first. */
+.story-map-page .backdrop {
+  filter: blur(0.5cqw) brightness(0.4) saturate(0.8);
+  transform: scale(1.04);
+}
+
+/* As wide as the map, so its thin bar sits beside it; the top and bottom fade out instead of cutting cards off. */
+.story-map-scroll {
+  overflow: auto;
+  justify-self: center;
+  width: fit-content;
+  max-width: 100%;
+  padding-inline: 1.5cqw;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-color: color-mix(in srgb, var(--color-ink) 28%, transparent) transparent;
+  overscroll-behavior: contain;
+  mask-image: linear-gradient(transparent, #000 3cqw, #000 calc(100% - 3cqw), transparent);
+  cursor: grab;
+}
+
+.story-map-scroll.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.story-map {
+  position: relative;
+  margin: 2.5cqw auto;
+}
+
+.story-map svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.story-map path {
+  fill: none;
+  stroke: var(--color-line);
+  stroke-width: 0.12;
+  stroke-dasharray: 0.4 0.4;
+}
+
+.story-map path.is-seen {
+  stroke: color-mix(in srgb, var(--color-ink) 45%, transparent);
+  stroke-width: 0.14;
+  stroke-dasharray: none;
+}
+
+/* A Scene: its name once seen, ??? until then. */
+.story-map-node {
+  position: absolute;
+  box-sizing: border-box;
+  display: grid;
+  width: 12cqw;
+  height: 3.6cqw;
+  place-content: center;
+  gap: 0.2cqw;
+  padding: var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--color-ink) 22%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-panel) 92%, transparent);
+  box-shadow: 0 0.3cqw 1.2cqw rgb(0 0 0 / 0.45);
+  color: var(--color-ink);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.08em;
+  overflow: hidden;
+}
+
+.story-map-node.is-locked {
+  border-style: dashed;
+  border-color: var(--color-line);
+  background: color-mix(in srgb, var(--color-panel) 60%, transparent);
+  box-shadow: none;
+  color: var(--color-muted);
+  letter-spacing: 0.3em;
+}
+
+.story-map-node.is-ending:not(.is-locked) {
+  border-color: color-mix(in srgb, var(--color-accent-ink) 70%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 22%, var(--color-panel));
+}
+
+.story-map-node small {
+  color: var(--color-accent-ink);
+  font-size: 0.8cqw;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}

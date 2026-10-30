@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ensureProjectPreview, getNodeRuntime, playableSandboxUrl } from "./api.js";
-import { createMemoryStorage, NodePlayer } from "./playable-player.js";
-import { PlaytestOverlay, playtestSaveKey, playtestSeenKey, requestAskAgent, takePlaytestRequest, usePlaytestRequests, type PlaytestRequest, type PlaytestStart } from "./playable-playtest.js";
+import { ApiError, ensureProjectPreview, getNodeRuntime } from "./api.js";
+import { NodePlayer } from "./playable-player.js";
+import { askToFixPlaytest, askToFixPlaytestStart, PlaytestOverlay, PlaytestProblem, requestAskAgent, takePlaytestRequest, usePlaytestRequests, type PlaytestProblemState, type PlaytestRequest, type PlaytestStart } from "./playable-playtest.js";
 import { PlayableStateHistory, playableDebugRecord } from "../shared/playable-debug.js";
-import { loadPlayableAssets } from "./playable-assets.js";
+import { playableNodeById } from "../shared/playable-graph.js";
+import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
 import { t } from "./i18n.js";
@@ -13,56 +14,82 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const [session, setSession] = useState(0);
   const [start, setStart] = useState<PlaytestStart>();
-  const [storage, setStorage] = useState(createMemoryStorage);
-  /** What a web story's page should do first this session, as its query parameters. */
+  /** What the story's page should do first this session, as its query parameters. */
   const [pageStart, setPageStart] = useState<Record<string, string>>({});
   const history = useRef(new PlayableStateHistory());
+  /** Counts how often the story was loaded, so a request can load it again. */
+  const [revision, setRevision] = useState(0);
+  /** Why this session's game stopped. */
+  const [failed, setFailed] = useState<string>();
+  /** Whether this session's game got past starting, so a stop is not a failure to start. */
+  const [played, setPlayed] = useState(false);
   const [playable, setPlayable] = useState<
     | { status: "loading" }
-    | { status: "ready"; definition: NodePlayerDefinition; assets: Record<string, Blob>; page?: string }
-    | { status: "error"; error: string }
+    | { status: "ready"; definition: NodePlayerDefinition; page: string }
+    | { status: "error"; problem: PlaytestProblemState }
   >({ status: "loading" });
-  const saveKey = playtestSaveKey(projectId);
 
   useEffect(() => {
     let disposed = false;
+    // Once the story is known, a failure is the project's preview or its assets.
+    let loadingStory = true;
     setPlayable({ status: "loading" });
-    // Editor actions may arrive before the Playtest window is open.
-    restart(takePlaytestRequest(projectId));
     void getNodeRuntime(projectId).then(async (result) => {
-      if (!result.available) throw new Error(t("sceneWorkbench.noScenes"));
-      if (result.web) {
-        // A web story plays its own page, which keeps its saves on the preview's origin.
-        const { url } = await ensureProjectPreview(projectId);
-        if (disposed) return;
-        document.title = `${result.definition.graph.title} - Playtest`;
-        setPlayable({ status: "ready", definition: result.definition, assets: {}, page: url });
+      if (!result.available) {
+        if (!disposed) setPlayable({ status: "error", problem: { kind: "no-scenes" } });
         return;
       }
-      const assets = await loadPlayableAssets(projectId, result.definition.graph);
+      loadingStory = false;
+      // A story from before web stories plays once the editor has upgraded it.
+      if (!result.web) {
+        if (!disposed) setPlayable({ status: "error", problem: { kind: "needs-upgrade" } });
+        return;
+      }
+      // The story plays its own page, which keeps its saves on the preview's origin.
+      const { url } = await ensureProjectPreview(projectId);
       if (disposed) return;
-      document.title = `${result.definition.graph.title} - Playtest`;
-      setPlayable({ status: "ready", definition: result.definition, assets });
+      setPlayable({ status: "ready", definition: result.definition, page: url });
     }).catch((cause) => {
-      if (!disposed) setPlayable({ status: "error", error: errorMessage(cause) });
+      if (!disposed) setPlayable({ status: "error", problem: loadingStory ? storyProblem(cause) : { kind: "unavailable", detail: errorMessage(cause) } });
     });
     return () => { disposed = true; };
-  }, [projectId]);
+  }, [projectId, revision]);
+
+  // Editor actions may arrive before the Playtest window is open.
+  useEffect(() => restart(takePlaytestRequest(projectId)), [projectId]);
+
+  const title = playable.status === "ready" ? playable.definition.graph.title : undefined;
+  useEffect(() => {
+    if (playable.status !== "loading") document.title = title ? `${title} - Playtest` : t("storyEditor.playtest");
+  }, [playable.status, title]);
 
   const onSnapshot = useCallback((next: NodeRuntimeSnapshot) => {
     history.current.record(next);
     setSnapshot(next);
+    // A web story reports itself before it starts, so only a running game
+    // counts as played; a page that reloads itself starts over.
+    if (next.status === "running" || next.status === "transitioning") setPlayed(true);
+    else if (next.status === "starting") setPlayed(false);
   }, []);
   const onDiagnostic = useCallback((message: string) => setDiagnostics((current) => [...current.slice(-19), message]), []);
 
-  usePlaytestRequests(projectId, (request) => restart(request, start));
+  const problem: PlaytestProblemState | undefined = playable.status === "error" ? playable.problem
+    : playable.status === "ready" ? startProblem(playable.definition.graph, start) ?? (failed === undefined ? undefined : { kind: played ? "stopped" : "invalid", detail: failed })
+    : undefined;
+
+  usePlaytestRequests(projectId, (request) => {
+    // Bringing a playing or loading window forward keeps its game. Anything
+    // else loads the story again, since the editor may have changed or fixed it.
+    if (request.action === "open" && playable.status !== "error" && !problem) return;
+    // Playtest without a chosen Scene starts the story as a newly opened window does.
+    restart(request, request.action === "open" ? undefined : start);
+    setRevision((current) => current + 1);
+  });
 
   /** Applies an editor request and starts a fresh Runtime session. */
   function restart(request?: PlaytestRequest, currentStart?: PlaytestStart): void {
     const nextStart = request?.action === "start" ? request.start : currentStart;
-    if (request?.action === "replay" && !nextStart) window.localStorage.removeItem(saveKey);
-    if (request?.action === "forget-seen") window.localStorage.removeItem(playtestSeenKey(projectId));
-    // A web story's page keeps its own storage, so it is asked to do the same.
+    // The page keeps its own storage, so it is asked to start over.
     setPageStart({
       ...(request?.action === "replay" && !nextStart ? { "ohmygame-new-game": "1" } : {}),
       ...(request?.action === "forget-seen" ? { "ohmygame-forget-seen": "1" } : {}),
@@ -72,29 +99,55 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     history.current.reset();
     setSnapshot(undefined);
     setDiagnostics([]);
+    setFailed(undefined);
+    setPlayed(false);
     setStart(nextStart);
-    setStorage(createMemoryStorage());
     setSession((current) => current + 1);
   }
 
+  const desktop = window.ohMyGameDesktop;
+  // A browser does not bring another tab forward; closing this window returns to the editor there.
+  const openEditor = desktop?.showPlaytestEditor
+    ? () => void desktop.showPlaytestEditor!(projectId).catch(() => {})
+    : undefined;
+
+  const record = playable.status === "ready" && snapshot ? playableDebugRecord(snapshot, playable.definition.graph, history.current.changes) : undefined;
+
+  if (problem) {
+    return (
+      <PlaytestProblem
+        problem={problem}
+        {...(openEditor ? { onOpenEditor: openEditor } : {})}
+        onRetry={() => {
+          restart(undefined, start);
+          setRevision((current) => current + 1);
+        }}
+        onPlayFromStart={() => restart()}
+        onAskAgent={() => {
+          // A game that stopped tells the AI what the player was doing, as the overlay does.
+          const text = playable.status === "ready"
+            ? askToFixPlaytest(playable.definition.graph, record, [...new Set([...(record?.errors ?? []).map((error) => error.message), ...diagnostics, problem.detail ?? ""].filter(Boolean))])
+            : askToFixPlaytestStart(problem.detail ?? "");
+          requestAskAgent(projectId, text);
+          openEditor?.();
+        }}
+        onClose={() => window.close()}
+      />
+    );
+  }
   if (playable.status === "ready") {
     const graph = playable.definition.graph;
-    const record = snapshot ? playableDebugRecord(snapshot, graph, history.current.changes) : undefined;
     return (
       <>
         <NodePlayer
           key={session}
           definition={playable.definition}
-          frameUrl={playableSandboxUrl()}
-          assets={playable.assets}
-          {...(playable.page ? { page: withParameters(playable.page, pageStart) } : {})}
-          saveKey={saveKey}
-          {...(start ? {
-            storage,
-            preview: { policy: "follow" as const, startNodeId: start.nodeId },
-          } : {})}
+          page={withParameters(playable.page, pageStart)}
+          {...(start ? { preview: { policy: "follow" as const, startNodeId: start.nodeId } } : {})}
+          loadingLabel={t("playtest.loading")}
           onSnapshot={onSnapshot}
           onDiagnostic={onDiagnostic}
+          onError={setFailed}
         />
         <PlaytestOverlay
           graph={graph}
@@ -103,7 +156,7 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
           onAskAgent={(text) => {
             requestAskAgent(projectId, text);
             // Bring the editor forward on the Scene the player was in.
-            if (record) void window.ohMyGameDesktop?.openPlayableNode?.(projectId, record.currentNode.id).catch(() => {});
+            if (record) void desktop?.openPlayableNode?.(projectId, record.currentNode.id).catch(() => {});
           }}
         />
       </>
@@ -111,11 +164,25 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   }
   return (
     <main className="playable-player-page">
-      <div className="playable-player-page-state" role={playable.status === "error" ? "alert" : undefined}>
-        {playable.status === "error" ? playable.error : t("playtest.loading")}
-      </div>
+      <div className="playable-player-page-state">{t("playtest.loading")}</div>
     </main>
   );
+}
+
+/** Why a loaded story cannot start where Playtest was asked to start it. */
+function startProblem(graph: NodeGraph, start: PlaytestStart | undefined): PlaytestProblemState | undefined {
+  if (!graph.nodes.length) return { kind: "no-scenes" };
+  if (start && !playableNodeById(graph, start.nodeId)) return { kind: "missing-start" };
+  return undefined;
+}
+
+/** What a failure to load the story means for the author. */
+function storyProblem(cause: unknown): PlaytestProblemState {
+  const detail = errorMessage(cause);
+  if (cause instanceof ApiError && cause.status === 404) return { kind: "not-found", detail };
+  // The service read the story and refused it: its files need fixing.
+  if (cause instanceof ApiError && cause.status === 400) return { kind: "invalid", detail };
+  return { kind: "unavailable", detail };
 }
 
 function withParameters(page: string, parameters: Record<string, string>): string {

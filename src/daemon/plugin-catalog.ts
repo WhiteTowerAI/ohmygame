@@ -119,7 +119,7 @@ export class BundledPluginAdapter implements PluginCatalogAdapter {
 }
 
 export function pluginSummary(plugin: PluginDetail): PluginSummary {
-  const { longDescription: _longDescription, skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, mcpServers: _mcpServers, mcpConfigPath: _mcpConfigPath, configuration: _configuration, ...summary } = plugin;
+  const { longDescription: _longDescription, skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, mcpServers: _mcpServers, mcpConfigPath: _mcpConfigPath, configuration: _configuration, ...summary } = plugin;
   return summary;
 }
 

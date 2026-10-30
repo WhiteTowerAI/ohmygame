@@ -127,6 +127,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <NavigationItem active={active === "home"} icon="home" label={t("sidebar.home")} onClick={() => onNavigate("home")} />
         <NavigationItem active={active === "projects"} icon="project" label={t("sidebar.projects")} onClick={() => onNavigate("projects")} />
         <NavigationItem active={active === "library"} icon="library" label={t("sidebar.library")} onClick={() => onNavigate("library")} />
+        <NavigationItem active={active === "plugins"} icon="plugins" label={t("sidebar.plugins")} onClick={() => onNavigate("plugins")} />
         <NavigationItem active={active === "community"} icon="community" label={t("sidebar.community")} onClick={() => onNavigate("community")} />
         <div className="home-nav-label home-nav-label-spaced">{t("sidebar.studios")}</div>
         <NavigationItem active={active === "web-game"} icon="web-game" label={t("projectType.web-game")} onClick={() => onNavigate("web-game")} />
@@ -226,7 +227,7 @@ function NavigationItem({
   onClick,
 }: {
   active: boolean;
-  icon: "home" | "project" | "library" | "general" | "web-game" | "interactive-story" | "godot" | "asset-canvas" | "community";
+  icon: "home" | "project" | "library" | "general" | "web-game" | "interactive-story" | "godot" | "asset-canvas" | "community" | "plugins";
   label: string;
   onClick: () => void;
 }) {

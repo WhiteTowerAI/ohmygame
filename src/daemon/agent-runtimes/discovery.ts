@@ -4,6 +4,7 @@ import {
   access,
   constants,
   mkdir,
+  readdir,
   realpath,
   rm,
   stat,
@@ -50,6 +51,14 @@ export interface ResolvedBinary {
   signature: string;
 }
 
+/** Only these Windows npm shims can be resolved without executing a script. */
+export function isCodexNpmShim(binaryPath: string): boolean {
+  return (
+    process.platform === "win32" &&
+    /^codex\.(?:cmd|ps1)$/i.test(path.basename(binaryPath))
+  );
+}
+
 /**
  * Finds a CLI's executable: the one the person chose, or else the newest of
  * those on PATH, the login shell's PATH, the usual install folders and the
@@ -63,6 +72,12 @@ export async function resolveBinary(
   override?: string,
   recheck = false,
 ): Promise<ResolvedBinary | undefined> {
+  if (
+    override &&
+    /\.(?:cmd|bat|ps1)$/i.test(override) &&
+    !(id === "codex-cli" && isCodexNpmShim(override))
+  )
+    return undefined;
   if (recheck) await loginShellPath(true);
   if (recheck)
     for (const key of versionCache.keys())
@@ -81,6 +96,41 @@ export async function resolveBinary(
           }),
         ),
       ];
+  // npm exposes a shell shim on Windows, but ships the native CLI inside the
+  // package. Resolve that known layout without running the shim through cmd.
+  if (id === "codex-cli" && process.platform === "win32") {
+    if (override && isCodexNpmShim(override)) {
+      if (!(await stat(override).catch(() => undefined))?.isFile())
+        return undefined;
+      candidates.splice(
+        0,
+        candidates.length,
+        ...windowsNpmCodexCandidates(path.dirname(override), "manual"),
+      );
+    } else if (!override) {
+      const directories = new Map(
+        candidates.map((candidate) => [
+          path.dirname(candidate.path),
+          candidate.source,
+        ]),
+      );
+      for (const [directory, source] of directories)
+        candidates.push(...windowsNpmCodexCandidates(directory, source));
+      const local = process.env.LOCALAPPDATA;
+      if (local) {
+        const bin = path.join(local, "OpenAI", "Codex", "bin");
+        const entries = await readdir(bin, { withFileTypes: true }).catch(
+          () => [],
+        );
+        for (const entry of entries)
+          if (entry.isDirectory())
+            candidates.push({
+              path: path.join(bin, entry.name, "codex.exe"),
+              source: "codex-app",
+            });
+      }
+    }
+  }
   const found: ResolvedBinary[] = [];
   const seen = new Set<string>();
   for (const candidate of candidates) {
@@ -116,6 +166,28 @@ export async function resolveBinary(
       best = index;
   }
   return found[best];
+}
+
+function windowsNpmCodexCandidates(
+  directory: string,
+  source: AgentRuntimeBinarySource,
+): Array<{ path: string; source: AgentRuntimeBinarySource }> {
+  const arch = process.arch === "arm64" ? "arm64" : "x64";
+  const target = `${arch === "arm64" ? "aarch64" : "x86_64"}-pc-windows-msvc`;
+  const root = path.join(directory, "node_modules", "@openai", "codex");
+  const platformPackage = `codex-win32-${arch}`;
+  // npm may nest or hoist the optional platform package. Older releases kept
+  // vendor/ in the main package and used codex/ instead of bin/.
+  return [
+    path.join(root, "node_modules", "@openai", platformPackage),
+    path.join(directory, "node_modules", "@openai", platformPackage),
+    root,
+  ].flatMap((packageRoot) =>
+    ["bin", "codex"].map((folder) => ({
+      path: path.join(packageRoot, "vendor", target, folder, "codex.exe"),
+      source,
+    })),
+  );
 }
 
 const versionCache = new Map<
@@ -283,7 +355,6 @@ export async function probeModels(
   id: AgentRuntimeId,
   env: Record<string, string>,
   privateDirectory: string,
-  isolate: boolean,
 ): Promise<{
   models: AgentModel[];
   account?: string;
@@ -324,7 +395,7 @@ export async function probeModels(
         server
           .request<{ account?: { email?: unknown } | null }>(
             "account/read",
-            {},
+            { refreshToken: false },
             PROBE_TIMEOUT_MS,
           )
           .catch(() => undefined),
@@ -369,62 +440,13 @@ export async function probeModels(
       await server.stop();
     }
   }
-  const configHome = path.join(privateDirectory, "opencode-config");
-  await mkdir(path.join(configHome, "opencode"), {
-    recursive: true,
-    mode: 0o700,
-  });
-  await writeFile(path.join(configHome, "opencode", "opencode.json"), "{}\n", {
-    mode: 0o600,
-  });
-  // Inspect the actual command, rather than assuming an installed version
-  // supports serving or the flag that isolates external plugins.
-  const help = await runCli(
-    binaryPath,
-    ["serve", "--help"],
-    env,
-    privateDirectory,
-  );
-  if (help.code !== 0)
-    throw cliProbeError(
-      "OpenCode",
-      help.stderr.trim() || "OpenCode serve help failed",
-    );
-  const required = ["--hostname", "--port", ...(isolate ? ["--pure"] : [])];
-  const missing = required.filter(
-    (flag) => !`${help.stdout}\n${help.stderr}`.includes(flag),
-  );
-  if (missing.length)
-    throw new AgentRuntimeCompatibilityError(
-      `OpenCode serve does not advertise ${missing.join(", ")}, required by OhMyGame${isolate ? " with CLI configuration isolation enabled" : ""}. Update OpenCode and check again in Settings.`,
-      missing.join(", "),
-    );
-  await OpenCodeDriver.checkCompatibility({
+  const output = await OpenCodeDriver.discover({
     binaryPath,
     env,
     privateDirectory,
-    isolateUserConfig: isolate,
   });
-  const { stdout, stderr, code } = await runCli(
-    binaryPath,
-    ["models", "--verbose", ...(isolate ? ["--pure"] : [])],
-    {
-      ...env,
-      OPENCODE_DISABLE_AUTOUPDATE: "1",
-      ...(isolate
-        ? { XDG_CONFIG_HOME: configHome, OPENCODE_DISABLE_PROJECT_CONFIG: "1" }
-        : {}),
-    },
-    privateDirectory,
-    60_000,
-  );
-  if (code !== 0)
-    throw cliProbeError(
-      "OpenCode",
-      `OpenCode could not list its models: ${stderr.trim().slice(-500) || `exit ${code}`}`,
-    );
   return {
-    models: parseOpenCodeModels(stdout).map((entry) => ({
+    models: parseOpenCodeModels(output).map((entry) => ({
       ...model(entry.id, entry.name, entry.variants),
       ...(entry.contextWindow ? { contextWindow: entry.contextWindow } : {}),
     })),
@@ -566,61 +588,45 @@ async function claudeModels(
   });
 }
 
-/** `opencode models --verbose` prints each model's `provider/model` line followed by its JSON. */
-export function parseOpenCodeModels(output: string): Array<{
+/** OpenCode v2's structured /api/model catalog. */
+export function parseOpenCodeModels(output: unknown): Array<{
   id: string;
   name: string;
   variants: string[];
   contextWindow?: number;
 }> {
-  const models: Array<{
-    id: string;
-    name: string;
-    variants: string[];
-    contextWindow?: number;
-  }> = [];
-  const lines = output.split("\n");
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]!.trim();
-    if (!/^[\w.@-]+\/\S+$/.test(line)) continue;
-    let end = index + 1;
-    let depth = 0;
-    let json = "";
-    for (; end < lines.length; end++) {
-      const current = lines[end]!;
-      json += `${current}\n`;
-      depth +=
-        (current.match(/{/g)?.length ?? 0) - (current.match(/}/g)?.length ?? 0);
-      if (depth <= 0 && json.trim()) break;
-    }
-    try {
-      const value = JSON.parse(json) as {
-        name?: unknown;
-        capabilities?: { toolcall?: unknown };
-        variants?: Record<string, unknown>;
-        status?: unknown;
-        limit?: { context?: number };
-      };
-      // An agent needs tools; a model that cannot call them cannot do the work.
-      if (
-        value.capabilities?.toolcall === false ||
-        value.status === "deprecated"
-      )
-        continue;
-      models.push({
-        id: line,
-        name: typeof value.name === "string" ? value.name : line,
-        variants: Object.keys(value.variants ?? {}),
-        ...(typeof value.limit?.context === "number" && value.limit.context > 0
-          ? { contextWindow: value.limit.context }
+  if (!Array.isArray(output))
+    throw new Error("OpenCode did not return a readable model catalog");
+  return output.flatMap((value) => {
+    if (!value || typeof value !== "object") return [];
+    const item = value as Record<string, unknown>;
+    const capabilities = item.capabilities as { tools?: unknown } | undefined;
+    if (
+      typeof item.id !== "string" ||
+      typeof item.providerID !== "string" ||
+      item.enabled !== true ||
+      capabilities?.tools !== true ||
+      item.status === "deprecated"
+    )
+      return [];
+    const context = (item.limit as { context?: unknown } | undefined)?.context;
+    return [
+      {
+        id: `${item.providerID}/${item.id}`,
+        name: typeof item.name === "string" ? item.name : item.id,
+        variants: Array.isArray(item.variants)
+          ? item.variants.flatMap((v) =>
+              v && typeof v === "object" && typeof v.id === "string"
+                ? [v.id]
+                : [],
+            )
+          : [],
+        ...(typeof context === "number" && context > 0
+          ? { contextWindow: context }
           : {}),
-      });
-      index = end;
-    } catch {
-      models.push({ id: line, name: line, variants: [] });
-    }
-  }
-  return models;
+      },
+    ];
+  });
 }
 
 /** A private folder for one probe or session, removed with it. */
@@ -630,9 +636,12 @@ export async function privateFolder(
 ): Promise<{ path: string; remove: () => Promise<void> }> {
   const folder = path.join(root, `${name}-${randomUUID()}`);
   await mkdir(folder, { recursive: true, mode: 0o700 });
-  await leaseAgentDirectory(folder);
+  const lease = leaseAgentDirectory(folder);
   return {
     path: folder,
-    remove: () => rm(folder, { recursive: true, force: true }),
+    remove: async () => {
+      await lease.release();
+      await rm(folder, { recursive: true, force: true });
+    },
   };
 }

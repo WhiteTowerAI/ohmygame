@@ -3,7 +3,6 @@ import {
   parseAppRoute,
   pluginHash,
   projectsHash,
-  settingsHash,
   type AppRoute,
 } from "./routes.js";
 import { t } from "./i18n.js";
@@ -28,6 +27,7 @@ function returnHash(hash: unknown): string | undefined {
   )
     return;
   if (route.page === "home" && hash !== "#/" && hash !== "#/home") return;
+  if (route.page === "plugins") return pluginHash(route.pluginId);
   return hash;
 }
 
@@ -46,13 +46,10 @@ function readLocation(previous: NavigationLocation): NavigationLocation {
   const route = parseAppRoute(hash);
   let state = historyState();
   if (
-    route.page === "settings" &&
-    route.section === "plugins" &&
-    hash.startsWith("#/plugins")
+    route.page === "plugins" &&
+    hash !== pluginHash(route.pluginId)
   ) {
-    hash = route.pluginId
-      ? pluginHash(route.pluginId)
-      : settingsHash("plugins");
+    hash = pluginHash(route.pluginId);
     window.history.replaceState(state, "", hash);
   }
   if (route.page === "project" && !returnHash(state.projectReturnTo)) {
@@ -86,10 +83,10 @@ function returnPageLabel(hash: string): string {
       return t("sidebar.community");
     case "game":
       return t("community.game");
+    case "plugins":
+      return t("sidebar.plugins");
     case "settings":
-      return route.section === "plugins"
-        ? t("settings.nav.plugins")
-        : t("common.settings");
+      return t("common.settings");
     default:
       return t("sidebar.projects");
   }

@@ -35,8 +35,6 @@ export const CANVAS_INDEX_SCHEMA = Type.Object({
 export const CANVAS_BOARD_SCHEMA = { ...ASSET_CANVAS_SCHEMA, required: [...ASSET_CANVAS_SCHEMA.required, "id"], properties: { ...ASSET_CANVAS_SCHEMA.properties, id: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" } } };
 export const CANVAS_LAYOUT_SCHEMA = ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA;
 export const canvasBoardPath = (id: string) => `canvas/boards/${id}.json`;
-export const canvasLayoutPath = (id: string) => `canvas/editor/${id}.json`;
-
 export function fitCanvasLayout(nodes: readonly Pick<AssetCanvasNode, "id">[], layout: AssetCanvasDocument["editorLayout"]): AssetCanvasDocument["editorLayout"] {
   const positions: AssetCanvasDocument["editorLayout"]["nodes"] = Object.assign(Object.create(null), Object.fromEntries(nodes.filter((node) => Object.hasOwn(layout.nodes, node.id)).map((node) => [node.id, layout.nodes[node.id]!])));
   const right = Math.max(-464, ...Object.values(positions).map((position) => position.x));
@@ -113,7 +111,7 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
     if ("promptSource" in data && data.promptSource && !ids.has(data.promptSource.nodeId)) delete data.promptSource;
     return { ...node, data } as AssetCanvasNode;
   });
-  return {
+  const merged = {
     ...local, nodes: cleaned, edges: edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)), viewport,
     editorLayout: {
       ...local.editorLayout,
@@ -122,4 +120,6 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
       nodes: Object.fromEntries(nodes.map((node) => [node.id, canvasNodeLayout(node)])),
     },
   };
+  // Independent edits can still conflict through references between nodes.
+  return isAssetCanvasDocument(merged) || isCanvasBoard(merged) ? merged : undefined;
 }

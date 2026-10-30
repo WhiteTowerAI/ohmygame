@@ -100,7 +100,7 @@ describe("Plugin Builder removal controls", () => {
     await act(async () => button("Delete plugin draft").click());
     expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([`DELETE /plugins/setup-sessions/${sessionId}`]);
     expect(installed).toBe(true);
-    expect(window.location.hash).toBe("#/settings/plugins");
+    expect(window.location.hash).toBe("#/plugins");
   });
 
   it("opens built-in configuration on Setup with configuration prompts and independent workspace deletion", async () => {
@@ -160,7 +160,7 @@ describe("Plugin Builder removal controls", () => {
     await act(async () => button("Delete plugin draft").click());
     expect(requests).toContain(`DELETE /plugins/setup-sessions/${sessionId}`);
     expect(readPluginBuilderInput(sessionId, localStorage).prompt).toBe("");
-    expect(window.location.hash).toBe("#/settings/plugins");
+    expect(window.location.hash).toBe("#/plugins");
   });
 
   it("does not offer uninstalling a built-in plugin", async () => {
@@ -204,7 +204,7 @@ describe("Plugin Builder icons", () => {
       Object.defineProperty(input("插件图标图片"), "files", { value: [new File(["image"], "icon.gif")] });
       input("插件图标图片").dispatchEvent(new Event("change", { bubbles: true }));
     });
-    expect(document.querySelector('[role="alert"]')?.textContent).toBe("请选择不超过 1 MB 的 PNG 或 WebP 图片");
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe("请选择不超过 1 MB 的 PNG、WebP 或 SVG 图片");
   });
   it("searches presets, validates entered IDs and makes the changed draft updateable", async () => {
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
@@ -232,7 +232,7 @@ describe("Plugin Builder icons", () => {
     await act(async () => modalButton("Package image").click());
     await fill(input("Plugin icon path"), "https://example.com/logo.png");
     expect(modalButton("Save icon").disabled).toBe(true);
-    await fill(input("Plugin icon path"), "./assets/logo.png");
+    await fill(input("Plugin icon path"), "./assets/logo.svg");
     expect(modalButton("Save icon").disabled).toBe(false);
     await act(async () => modalButton("Use default").click());
     expect(savedIcon).toEqual({ revision, icon: null });
@@ -246,12 +246,12 @@ describe("Plugin Builder icons", () => {
     await act(async () => modalButton("Upload image").click());
     expect(modalButton("Choose file")).not.toBeNull();
     expect(document.querySelector(".plugin-file-picker-name")?.textContent).toBe("No file selected");
-    const file = new File(["test-image"], "logo.webp", { type: "image/webp" });
+    const file = new File(["test-image"], "logo.svg", { type: "image/svg+xml" });
     await act(async () => { Object.defineProperty(input("Plugin icon image"), "files", { value: [file] }); input("Plugin icon image").dispatchEvent(new Event("change", { bubbles: true })); });
-    expect(document.querySelector(".plugin-file-picker-name")?.textContent).toBe("logo.webp");
+    expect(document.querySelector(".plugin-file-picker-name")?.textContent).toBe("logo.svg");
     expect(createUrl).toHaveBeenCalledWith(file);
     await act(async () => { modalButton("Save icon").click(); await vi.waitFor(() => expect(savedIcon).toBeDefined()); });
-    expect(savedIcon).toEqual({ revision, image: { mediaType: "image/webp", data: btoa("test-image") } });
+    expect(savedIcon).toEqual({ revision, image: { mediaType: "image/svg+xml", data: btoa("test-image") } });
     expect(log.mock.calls.flat().join(" ")).not.toContain("controlled input");
   });
 

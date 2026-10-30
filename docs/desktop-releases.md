@@ -40,6 +40,13 @@ Configure these repository secrets:
 | `APPLE_ID`                    | Apple account used for notarization              |
 | `APPLE_APP_SPECIFIC_PASSWORD` | Apple app-specific password                      |
 | `APPLE_TEAM_ID`               | Apple Developer team ID                          |
+| `SENTRY_AUTH_TOKEN`           | Sentry token that uploads renderer source maps   |
+
+When `SENTRY_AUTH_TOKEN` is set, `vite build` generates hidden renderer source
+maps, uploads them to the `ohmygame` Sentry project under the
+`ohmygame@<version>` release, and deletes them. The package also excludes
+renderer `.map` files, so a failed upload cannot ship them. Builds without the
+token, including local builds and fork PRs, generate no source maps.
 
 The R2 credentials belong only in GitHub Secrets. Do not include GitHub, R2,
 or code-signing credentials in the application or the public update bucket.
@@ -58,6 +65,42 @@ and remains available in every state.
 
 Development builds never reach the feed: `DesktopUpdater.check` reports the
 current version as installed unless `app.isPackaged`.
+
+## Windows installer progress
+
+The Windows setup wizard shows "Installing..." with an overall percentage and
+the current phase as supplementary text.
+Preparation occupies 0–10%, extraction uses actual Nsis7z byte progress mapped
+to 10–85%, copying ends at 95%, and final setup reaches 99%. Only successful
+installation shows 100%. Percentages represent weighted phases, not elapsed
+time; the indicator holds during work without byte callbacks and never moves
+backwards, including retries. Silent updates do not show this indicator.
+
+The pinned `app-builder-lib` patch exposes extraction and copy-complete hooks
+without replacing its installation, upgrade, or retry logic. Our visible
+controls are separate from the native per-phase progress controls that NSIS
+and Nsis7z reset. Keep the patch and installer smoke test working when upgrading
+electron-builder.
+
+## Windows installer messages
+
+The installer is built in English and Simplified Chinese
+(`nsis.installerLanguages`); other systems get English. Messages used by
+`build/installer.nsh` live in `build/messages.yml`, with `en` and `zh_CN` for
+each. electron-builder reads only its own bundled `messages.yml`, so the same
+`app-builder-lib` patch also merges ours, replacing bundled messages with the
+same name. A message missing from an installer language fails the Windows
+package build. `test/desktop-installer-contract.test.ts` runs electron-builder's
+message generation to catch that before a release. The progress smoke test
+defines its own messages and does not cover this path.
+
+On Windows, run `bun run test:installer-progress` after the NSIS toolchain has
+been cached by a desktop package build. It compiles and runs isolated native
+wizard fixtures, extracts a real archive, and checks byte progress, 64-bit
+arithmetic, retries, native resets, successful/failed completion, both languages,
+and silent mode without modifying an installed app. `--preview` pauses each
+visible fixture for layout inspection. `MAKENSIS` and `SEVEN_ZIP` can select local
+tool executables.
 
 ## Differential downloads
 
@@ -96,6 +139,13 @@ Pushing the tag starts `.github/workflows/release-desktop.yml`, which:
 5. Creates a GitHub pre-release with the Windows installer and macOS DMG/ZIP,
    extracting the matching changelog section from the same tag as its description.
 
+To test the packages before tagging, run the workflow manually from the
+branch to release (**Actions → Release desktop → Run workflow**, or
+`gh workflow run release-desktop.yml --ref <branch>`). It validates the
+changelog against `package.json`, builds both packages the same way, and keeps
+them as workflow artifacts for seven days; it does not upload to R2 or create a
+release. Only a pushed tag publishes.
+
 Re-running the release job updates the existing GitHub release assets and
 restores its description from the same tag's changelog. Do not re-push a published
 tag just to repair its GitHub Release page. A changelog edit on `dev` does not
@@ -107,6 +157,21 @@ provides the SHA-512 digest used by `electron-updater` to validate downloads.
 The Windows setup wizard lets users choose between a current-user or all-users
 installation and select the installation directory. Existing installations keep
 their recorded scope and directory during upgrades.
+
+Before installing or uninstalling, setup checks the installed executable's full
+path and requests a normal window close rather than force-killing it. The x86
+NSIS stub prefers native Windows PowerShell through `Sysnative` on x64 Windows.
+If PowerShell or CIM is unavailable, a name-only `tasklist` check is used;
+another copy with the same executable name can conservatively block setup.
+A failed check is reported separately from an application that is still running,
+with diagnostic output in the installation details. Retry after resolving the
+error, or cancel; silent setup exits without continuing if neither check works.
+
+Windows process-check regressions run in `test/desktop-installer-process.test.ts`.
+For additional installer and uninstaller smoke checks, set
+`OHMYGAME_TEST_MAKENSIS` to a local NSIS `makensis.exe` and run
+`bun run test -- test/desktop-installer-process.test.ts`. These checks compile
+small silent test installers; they do not install or uninstall the application.
 
 For a local package build, export `DESKTOP_UPDATE_URL` before running
 `bun run package:mac` or `bun run package:win`. Development builds do not use
@@ -123,6 +188,13 @@ and adapters match the installed patch, then starts the packaged daemon with
 temporary data and verifies its authenticated API on native platform builds.
 An incomplete or unpatched dependency therefore fails packaging before an
 installer is created.
+
+The startup check copies `app.asar` and its unpacked files to a temporary
+directory outside the checkout, so a missing packaged dependency cannot resolve
+from the build machine's `node_modules`. Both the daemon and the external MCP
+launcher load their modules from that isolated copy. Dependencies imported by
+the daemon, including Mediabunny for audio validation, belong in `dependencies`
+even when the renderer also bundles them.
 
 `build:host` also generates `dist/story-web/resources.json`: the readable story
 runtime modules, with comments retained, and the bundled editor bridge. The
