@@ -565,16 +565,7 @@ function PreviewControls({
   // Like a browser's toolbar: where the preview is, then how it shows, then the rest.
   return (
     <div className="preview-controls">
-      <PreviewLocation
-        disabled={!previewUrl}
-        path={path}
-        paths={paths}
-        status={status}
-        refreshDisabled={refreshDisabled}
-        refreshLabel={refreshLabel}
-        onNavigate={onNavigate}
-        onRefresh={onRefresh}
-      />
+      <PreviewLocation disabled={!previewUrl} path={path} paths={paths} onNavigate={onNavigate} />
       <ViewportMenu value={viewport} onChange={onViewportChange} />
       <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
         active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size={14} /></IconButton>
@@ -585,6 +576,7 @@ function PreviewControls({
           title={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")}
           icon={<Gamepad2 size={14} />} onClick={onToggleAgentPlaytestWatch}>{t("workspace.agentPlaytest")}</Button>
       ) : null}
+      <IconButton size="sm" className="preview-refresh-button" label={refreshLabel} disabled={refreshDisabled} onClick={onRefresh}><RefreshCw size={14} /></IconButton>
       <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size={14} /></IconButton>} items={[
         ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
         { label: t("workspace.restartPreview"), icon: <RotateCcw size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
@@ -609,20 +601,12 @@ function PreviewLocation({
   disabled,
   path,
   paths,
-  status,
-  refreshDisabled,
-  refreshLabel,
   onNavigate,
-  onRefresh,
 }: {
   disabled: boolean;
   path: string;
   paths: string[];
-  status?: ProjectState["preview"]["status"];
-  refreshDisabled: boolean;
-  refreshLabel: string;
   onNavigate: (path: string) => void;
-  onRefresh: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -667,12 +651,11 @@ function PreviewLocation({
     trigger.current?.focus();
   }
 
-  // A game with one page at the root needs no address, only its status and a refresh.
-  const compact = path === "/" && paths.every((knownPath) => knownPath === "/");
+  // A game with one page at the root needs no address.
+  if (path === "/" && paths.every((knownPath) => knownPath === "/")) return null;
   return (
-    <div className={`preview-location${compact ? " is-compact" : ""}`} ref={root}>
-      <span className={`preview-location-status is-${status ?? "waiting"}`} role="img" aria-label={t(`workspace.previewStatus.${status ?? "waiting"}`)} title={t(`workspace.previewStatus.${status ?? "waiting"}`)} />
-      {compact ? null : <button
+    <div className="preview-location" ref={root}>
+      <button
         ref={trigger}
         className="preview-location-trigger"
         type="button"
@@ -688,16 +671,6 @@ function PreviewLocation({
       >
         <span className="preview-location-path">{path}</span>
         <ChevronDown className={open ? "preview-location-chevron-open" : undefined} size={13} />
-      </button>}
-      <button
-        className="preview-location-refresh"
-        type="button"
-        onClick={onRefresh}
-        disabled={refreshDisabled}
-        title={refreshLabel}
-        aria-label={refreshLabel}
-      >
-        <RefreshCw size={13} />
       </button>
       {open ? (
         <div className="preview-location-popover" id={popoverId} role="dialog" aria-label={t("workspace.previewPages")}>

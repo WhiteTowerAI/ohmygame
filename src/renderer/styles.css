@@ -10523,12 +10523,6 @@ summary.work-summary:hover {
 }
 
 /* The preview's address, like a browser's: its state, the page, and reload. */
-.preview-location.is-compact {
-  width: auto;
-  flex: none;
-  padding-right: 0;
-}
-
 .preview-location {
   position: relative;
   display: flex;
@@ -10545,19 +10539,6 @@ summary.work-summary:hover {
   background: var(--color-hover);
 }
 
-.preview-location-status {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--color-text-tertiary);
-}
-
-.preview-location-status.is-ready { background: var(--color-success); }
-.preview-location-status.is-starting { background: var(--color-warning); }
-.preview-location-status.is-error { background: var(--color-danger); }
-
-.preview-location-refresh,
 .preview-location-trigger {
   height: 22px;
   padding: 0;
@@ -10565,19 +10546,6 @@ summary.work-summary:hover {
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-}
-
-.preview-location-refresh {
-  display: grid;
-  width: 22px;
-  flex: 0 0 22px;
-  margin-right: 1px;
-  place-items: center;
-  border-radius: var(--radius-sm);
-}
-
-.preview-location-refresh:hover:not(:disabled) {
-  background: var(--color-selected);
 }
 
 .preview-location-trigger {
@@ -10593,7 +10561,6 @@ summary.work-summary:hover {
   text-align: left;
 }
 
-.preview-location-refresh:hover:not(:disabled),
 .preview-location-trigger:hover:not(:disabled),
 .preview-location-trigger[aria-expanded="true"] {
   color: var(--color-text);
@@ -10620,7 +10587,6 @@ summary.work-summary:hover {
   }
 }
 
-.preview-location-refresh:disabled,
 .preview-location-trigger:disabled {
   cursor: default;
   opacity: 0.42;
@@ -10881,11 +10847,6 @@ summary.work-summary:hover {
 
   .preview-location {
     flex: 0 0 54px;
-  }
-
-  .preview-location-refresh {
-    width: 28px;
-    flex-basis: 28px;
   }
 
   .preview-location-trigger {
@@ -12102,7 +12063,6 @@ summary.work-summary:hover {
     .prompt-box-project .model-selector-trigger,
     .quiet-button,
     .viewport-trigger,
-    .preview-location-refresh,
     .preview-location-trigger,
     .preview-location-option,
     .file-tree-node
