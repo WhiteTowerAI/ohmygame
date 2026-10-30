@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -185,6 +185,20 @@ describe("ConversationManager", () => {
     expect(await conversations.deleteArchived(project, id)).toBe(true);
     expect(await conversations.archived(project)).toEqual([]);
     expect(await conversations.unarchive(project, id)).toBeUndefined();
+  });
+
+  it("renames a conversation archived at the same time either before the move or not at all", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const session = SessionManager.create(project.workspacePath, sessionDirectory(project));
+    appendCompletedTurn(session, "Make a platformer", "Sure");
+    const id = session.getSessionId();
+    const [archived, renamed] = await Promise.all([conversations.archive(project, id), conversations.rename(project, id, "Renamed")]);
+    expect(archived).toBe(true);
+    expect(renamed).toBeUndefined();
+    // Nothing was written back where the file used to be.
+    expect((await readdir(sessionDirectory(project))).filter((name) => name.endsWith(".jsonl"))).toEqual([]);
+    expect((await conversations.archived(project))[0]?.title).toBe("Make a platformer");
   });
 
   it("returns undefined for an unknown session", async () => {

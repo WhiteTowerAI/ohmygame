@@ -1742,7 +1742,8 @@ export class AgentManager {
    * Stores the ends of a run's turns and tells the conversation. Nothing is
    * awaited, so a reader sees the turn gone and its end together. Ends that
    * come late may find the session let go, and are then written to the
-   * conversation's file if that is still there.
+   * conversation's file if that is still there and not being archived. The
+   * write is synchronous, so archiving cannot start moving the file during it.
    */
   #recordTurnEnds(projectId: string, active: ActiveTurn, ends: StoredTurnEnd[], late = false): void {
     if (ends.length === 0) return;
@@ -1750,7 +1751,7 @@ export class AgentManager {
     try {
       const { sessionPath } = active.conversation;
       const sessionManager = this.#sessions.get(key)?.session.sessionManager
-        ?? (late && !this.#sessionLoads.has(key) && existsSync(sessionPath) ? SessionManager.open(sessionPath, sessionDirectory(active.project), active.project.workspacePath) : undefined);
+        ?? (late && !this.#sessionLoads.has(key) && !this.#archiving.has(key) && existsSync(sessionPath) ? SessionManager.open(sessionPath, sessionDirectory(active.project), active.project.workspacePath) : undefined);
       if (!sessionManager) return;
       for (const end of ends) {
         sessionManager.appendCustomEntry(TURN_END_ENTRY, end);

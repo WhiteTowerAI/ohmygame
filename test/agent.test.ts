@@ -2514,6 +2514,24 @@ describe("AgentManager", () => {
       expect(entries).not.toContainEqual(expect.objectContaining({ customType: TURN_END_ENTRY }));
       expect(events.since(project.id).filter((event) => event.type === "checkpoint.completed").map((event) => event.data)).toEqual([{ checkpointId: "checkpoint-1", files: 2 }]);
       expect(manager.turnEndsRecorded(project.id, conversation.summary.id)).toBe(1);
+
+      // An end that comes back while the file is being archived is not written where the file was.
+      const again = deferred<string>();
+      const later = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => again.promise, changed: async () => ({ files: 1 }) } });
+      const next = later.prompt(project, conversation, "Build more");
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+      await vi.advanceTimersToNextTimerAsync();
+      await expect(next.result).resolves.toBe("completed");
+      const moved = deferred<void>();
+      const archiving = later.release(project.id, conversation.summary.id, () => moved.promise);
+      await vi.waitFor(() => expect(session.dispose).toHaveBeenCalledTimes(2));
+      again.resolve("c".repeat(40));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(written()).toHaveLength(1);
+      expect(later.turnEndsRecorded(project.id, conversation.summary.id)).toBe(0);
+      moved.resolve();
+      await archiving;
+      await later.close();
       await manager.close();
     } finally {
       warn.mockRestore();

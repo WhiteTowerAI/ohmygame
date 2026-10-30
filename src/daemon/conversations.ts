@@ -18,6 +18,8 @@ export interface StoredConversation {
 
 export class ConversationManager {
   readonly #pending = new Map<string, { stored: StoredConversation; manager: SessionManager; titled: boolean }>();
+  /** The file operations on each conversation, one after another, so a rename never writes to a file being moved. */
+  readonly #fileOperations = new Map<string, Promise<unknown>>();
   readonly #cache: ConversationCache;
 
   constructor(
@@ -97,7 +99,11 @@ export class ConversationManager {
    * Archiving moves a conversation's session file aside, out of the list; it
    * can come back, or be deleted from the archive for good.
    */
-  async archive(project: ProjectState, conversationId: string): Promise<boolean> {
+  archive(project: ProjectState, conversationId: string): Promise<boolean> {
+    return this.#serially(project, conversationId, () => this.#archive(project, conversationId));
+  }
+
+  async #archive(project: ProjectState, conversationId: string): Promise<boolean> {
     const stored = await this.get(project, conversationId);
     if (!stored) return false;
     // A conversation without messages has no file yet; archiving drops it.
@@ -113,7 +119,11 @@ export class ConversationManager {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  async unarchive(project: ProjectState, conversationId: string): Promise<ConversationSummary | undefined> {
+  unarchive(project: ProjectState, conversationId: string): Promise<ConversationSummary | undefined> {
+    return this.#serially(project, conversationId, () => this.#unarchive(project, conversationId));
+  }
+
+  async #unarchive(project: ProjectState, conversationId: string): Promise<ConversationSummary | undefined> {
     const session = (await this.#sessions(project, archiveDirectory(project))).find((candidate) => candidate.id === conversationId);
     if (!session) return undefined;
     await rename(session.path, path.join(sessionDirectory(project), path.basename(session.path)));
@@ -121,15 +131,29 @@ export class ConversationManager {
   }
 
   /** Deletes an archived conversation; one still in the list must be archived first. */
-  async deleteArchived(project: ProjectState, conversationId: string): Promise<boolean> {
+  deleteArchived(project: ProjectState, conversationId: string): Promise<boolean> {
+    return this.#serially(project, conversationId, () => this.#deleteArchived(project, conversationId));
+  }
+
+  async #deleteArchived(project: ProjectState, conversationId: string): Promise<boolean> {
     const session = (await this.#sessions(project, archiveDirectory(project))).find((candidate) => candidate.id === conversationId);
     if (!session) return false;
     await rm(session.path, { force: true });
     return true;
   }
 
-  async rename(project: ProjectState, conversationId: string, title: string): Promise<ConversationSummary | undefined> {
-    return this.#rename(project, conversationId, title);
+  /** Renames a conversation in the list; one archived meanwhile is not found. */
+  rename(project: ProjectState, conversationId: string, title: string): Promise<ConversationSummary | undefined> {
+    return this.#serially(project, conversationId, () => this.#rename(project, conversationId, title));
+  }
+
+  #serially<T>(project: ProjectState, conversationId: string, operation: () => Promise<T>): Promise<T> {
+    const id = key(project.id, conversationId);
+    const result = (this.#fileOperations.get(id) ?? Promise.resolve()).then(operation, operation);
+    const settled = result.catch(() => {});
+    this.#fileOperations.set(id, settled);
+    void settled.then(() => { if (this.#fileOperations.get(id) === settled) this.#fileOperations.delete(id); });
+    return result;
   }
 
   setInitialTitle(project: ProjectState, conversationId: string, prompt: string): ConversationSummary | undefined {
