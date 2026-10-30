@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { createConversation, createProject, getHomeComposerCapabilities, getProjectLocation, listProjects } from "./api.js";
+import { consentToPlugin, createConversation, createProject, getHomeComposerCapabilities, getProjectLocation, listProjects, setProjectPluginVersion } from "./api.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { activePluginMentions } from "./composer-mentions.js";
 import { LoaderCircle } from "./icons.js";
 import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
 import { saveHomePrompt } from "./prompt-history.js";
-import { defaultProjectName, PROJECT_TYPES, projectTypeDescription, ProjectTypeMark } from "./project-types.js";
+import { defaultProjectName, PROJECT_TYPES } from "./project-types.js";
+import { isAppProjectType, MORE_TYPES, openMoreProjectTypes, projectTypeId, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
 import { Button, Dialog, Field, Input, Select, Textarea } from "./ui/index.js";
 import type {
   ConversationCapabilities,
@@ -17,6 +18,7 @@ import type {
   PromptMode,
 } from "../shared/contracts.js";
 import { pluginProjectType } from "../shared/project-runtime.js";
+import type { ProjectPluginChoice } from "../shared/plugins.js";
 import { t } from "./i18n.js";
 import "./project-create-dialog.css";
 
@@ -26,6 +28,10 @@ export interface FirstMessage {
   mentions: PluginMention[];
   attachments: ComposerAttachment[];
   mode: PromptMode;
+  /** The type chosen on Home: one of the app's, or a plugin's `publisher/name:type`. */
+  type?: string;
+  /** Plugins to turn on for this project alone once it exists. */
+  projectPlugins?: ProjectPluginChoice[];
 }
 
 /** The first message, sent in the new project's first conversation. */
@@ -84,10 +90,18 @@ export function ProjectCreateDialog({
   );
   // Types the mentioned plugins can work in; a plugin that names no types fits all of them.
   const types = PROJECT_TYPES.filter(({ value }) => pluginProjectType(value, referenced) === value);
-  const [chosenType, setChosenType] = useState<ProjectType>();
-  const type = chosenType && types.some(({ value }) => value === chosenType)
-    ? chosenType
-    : pluginProjectType(initialType, referenced) ?? referenced.find((plugin) => plugin.projectTypes?.length)?.projectTypes?.[0] ?? types[0]?.value ?? initialType;
+  // Plugins' own types, unless a mentioned plugin works only in some of the app's.
+  const installedPluginTypes = usePluginProjectTypes();
+  const pluginTypes = referenced.every((plugin) => !plugin.projectTypes?.length) ? installedPluginTypes : [];
+  const offered = (value: string | undefined): value is string =>
+    Boolean(value) && (types.some((option) => option.value === value) || pluginTypes.some((option) => option.id === value));
+  const [chosenType, setChosenType] = useState<string>();
+  const preferred = firstMessage?.type ?? initialType;
+  const type: string = offered(chosenType) ? chosenType
+    : offered(preferred) ? preferred
+    : pluginProjectType(isAppProjectType(preferred) ? preferred : initialType, referenced) ?? referenced.find((plugin) => plugin.projectTypes?.length)?.projectTypes?.[0] ?? types[0]?.value ?? initialType;
+  // A plugin's type is recorded as a general project that its plugin runs.
+  const kind: ProjectType = isAppProjectType(type) ? type : "general";
   const [workspacePath, setWorkspacePath] = useState(initialWorkspacePath);
   // Settings → General → Project location, where a project without a chosen folder goes.
   const [defaultLocation, setDefaultLocation] = useState<string>();
@@ -106,7 +120,7 @@ export function ProjectCreateDialog({
   // A prompt picks its integration from its mentions; a blank project from this list.
   const integrations = firstMessage
     ? []
-    : plugins.filter((plugin) => plugin.integration && (!plugin.projectTypes?.length || plugin.projectTypes.includes(type)));
+    : isAppProjectType(type) ? plugins.filter((plugin) => plugin.integration && (!plugin.projectTypes?.length || plugin.projectTypes.includes(kind))) : [];
 
   useEffect(() => {
     let active = true;
@@ -142,9 +156,8 @@ export function ProjectCreateDialog({
         : integrations.find((plugin) => plugin.id === integrationId)?.id;
       const input = {
         ...(name.trim() ? { name: name.trim() } : {}),
-        type,
+        ...(isAppProjectType(type) ? { type, ...(pluginId ? { pluginId } : {}) } : { projectType: type }),
         ...(workspacePath ? { workspacePath } : {}),
-        ...(pluginId ? { pluginId } : {}),
       };
       // Retrying after a failure reuses the project, unless the choices changed.
       const key = JSON.stringify(input);
@@ -161,6 +174,12 @@ export function ProjectCreateDialog({
         return;
       }
       created.current.project = project;
+      // Plugins chosen on Home for this project alone; the person allowed what they ask for there.
+      for (const plugin of firstMessage?.projectPlugins ?? []) {
+        if (plugin.providesTypes.includes(projectTypeId(type))) continue;
+        if (!plugin.consented) await consentToPlugin(plugin.id, plugin.capabilities);
+        await setProjectPluginVersion(project.id, plugin.id, plugin.version);
+      }
       const text = prompt.trim();
       if (!firstMessage || (!text && !firstMessage.attachments.length)) {
         onCreated(project);
@@ -213,13 +232,21 @@ export function ProjectCreateDialog({
         ) : null}
         <Field label={t("common.name")}>
           {(props) => <Input {...props} value={name} maxLength={120} disabled={creating}
-            placeholder={firstMessage ? t("createDialog.namedFromPrompt") : defaultProjectName(type)}
+            placeholder={firstMessage ? t("createDialog.namedFromPrompt") : defaultProjectName(kind)}
             onChange={(event) => setName(event.target.value)} />}
         </Field>
         <Field label={t("createDialog.type")}>
-          {(props) => <Select<ProjectType> id={props.id} label={t("createDialog.type")} value={type}
-            onChange={(value) => { setChosenType(value); setIntegrationId(""); }}
-            options={types.map((option) => ({ value: option.value, label: option.label, description: projectTypeDescription(option.value), icon: <ProjectTypeMark type={option.value} /> }))} />}
+          {(props) => <Select<string> id={props.id} label={t("createDialog.type")} value={type}
+            onChange={(value) => {
+              if (value === MORE_TYPES) {
+                onClose();
+                openMoreProjectTypes();
+                return;
+              }
+              setChosenType(value);
+              setIntegrationId("");
+            }}
+            options={projectTypeOptions(types.map((option) => option.value), pluginTypes)} />}
         </Field>
         {integrations.length ? (
           <Field label={t("integration.plugin")}>

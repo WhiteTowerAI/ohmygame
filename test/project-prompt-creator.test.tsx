@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationCapabilities } from "../src/shared/contracts.js";
+import type { ProjectPluginChoice } from "../src/shared/plugins.js";
 
 const plugin = (
   name: string,
@@ -19,11 +20,17 @@ const plugin = (
   ...(projectTypes ? { projectTypes } : {}),
 });
 let capabilities: ConversationCapabilities;
+let projectPlugins: ProjectPluginChoice[];
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   waitForRuntime: async () => undefined,
   getHomeComposerCapabilities: async () => capabilities,
   listModels: async () => ({ models: [] }),
+  listProjectPluginChoices: async () => projectPlugins,
+  listProjectTypes: async () => [
+    { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: "ohmygame/godot" },
+    { id: "acme/tiles:tile-map", title: "Tile Map", plugin: "acme/tiles" },
+  ],
 }));
 const { ProjectPromptCreator } =
   await import("../src/renderer/project-prompt-creator.js");
@@ -43,6 +50,12 @@ beforeEach(() => {
     ],
     skills: [],
   };
+  projectPlugins = [
+    { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", capabilities: [], consented: true, providesTypes: ["ohmygame/godot:godot-game"] },
+    { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", capabilities: ["network:tiles.example.com"], consented: false, providesTypes: ["acme/tiles:tile-map"] },
+  ];
+  localStorage.clear();
+  window.location.hash = "";
   onSubmit.mockReset();
   draftKey = `test-${crypto.randomUUID()}`;
   container = document.createElement("div");
@@ -82,15 +95,27 @@ const send = () =>
       .querySelector<HTMLButtonElement>('button[type="submit"]')!
       .click(),
   );
-const picker = () =>
-  container.querySelector<HTMLButtonElement>(
-    '[aria-label="Start with plugin"]',
-  )!;
+const typePicker = () =>
+  container.querySelector<HTMLButtonElement>('[aria-label="Project type"]')!;
+const pluginButton = () =>
+  container.querySelector<HTMLButtonElement>(".home-plugin-trigger")!;
+const optionLabel = (option: Element) => option.querySelector(".ui-option-text > span")?.textContent;
+const options = () => [...document.querySelectorAll('[role="option"]')].map(optionLabel);
+async function chooseType(label: string) {
+  await act(async () => typePicker().click());
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+    .find((item) => optionLabel(item) === label)!;
+  await act(async () => option.click());
+}
+const menuItem = (label: string) =>
+  [...document.querySelectorAll<HTMLButtonElement>(".home-plugin-row")]
+    .find((item) => item.querySelector(".home-plugin-text > span")?.textContent === label);
 
 describe("Home prompt box", () => {
-  it("starts with the first enabled starting plugin and offers only plugins that start projects", async () => {
+  it("starts with the plugin the type names, and changes it with the type", async () => {
     await render();
-    expect(picker().textContent).toBe("Web Game Studio");
+    expect(typePicker().textContent).toBe("Web Game");
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: starts with Web Game Studio");
     // Its ideas fill the prompt.
     const idea = [
       ...container.querySelectorAll<HTMLButtonElement>(".home-idea"),
@@ -100,14 +125,25 @@ describe("Home prompt box", () => {
       "Make a pixel-art dungeon roguelike with turn-based combat",
     );
 
-    await act(async () => picker().click());
-    const options = [...document.querySelectorAll('[role="option"]')].map(
-      (option) => option.querySelector("span > span")?.textContent,
-    );
-    expect(options).toEqual(["Web Game Studio", "Godot", "No plugin"]);
+    // Plugins' own types follow the app's; Godot's is the app's Godot type.
+    await act(async () => typePicker().click());
+    expect(options()).toEqual(["Web Game", "Interactive Story", "Asset Canvas", "Godot", "General Game", "Tile Map", "More types…"]);
+    await act(async () => typePicker().click());
+
+    await chooseType("Godot");
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: starts with Godot");
+    // Only plugins that start this type are offered; Blender starts none.
+    await act(async () => pluginButton().click());
+    expect([...document.querySelectorAll('[role="menuitemradio"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
+      .toEqual(["Godot", "No plugin"]);
+    await act(async () => pluginButton().click());
+
+    // A type no starter names starts with no plugin.
+    await chooseType("Tile Map");
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins");
   });
 
-  it("hands the prompt with its starting plugin to the dialog instead of creating a project", async () => {
+  it("hands the prompt with its type and starting plugin to the dialog instead of creating a project", async () => {
     await render();
     // The plugin alone is not a message.
     expect(
@@ -127,17 +163,16 @@ describe("Home prompt box", () => {
       ],
       attachments: [],
       mode: "normal",
+      type: "web-game",
+      projectPlugins: [],
     }, expect.any(Function));
   });
 
   it("sends the prompt alone with No plugin", async () => {
     await render();
-    await act(async () => picker().click());
-    const none = [
-      ...document.querySelectorAll<HTMLButtonElement>('[role="option"]'),
-    ].find((option) => option.textContent === "No plugin")!;
-    await act(async () => none.click());
-    expect(picker().textContent).toBe("No plugin");
+    await act(async () => pluginButton().click());
+    await act(async () => menuItem("No plugin")!.click());
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins");
     await type("Make a maze");
     await send();
     expect(onSubmit).toHaveBeenCalledWith(
@@ -146,10 +181,47 @@ describe("Home prompt box", () => {
     );
   });
 
-  it("hides the picker when no starting plugin is enabled", async () => {
-    capabilities = { plugins: [plugin("blender", "Blender")], skills: [] };
+  it("turns plugins on for the new project alone once the person allows what they ask for", async () => {
     await render();
-    expect(picker()).toBeNull();
+    await act(async () => pluginButton().click());
+    await act(async () => menuItem("Tiles")!.click());
+    expect(document.body.textContent).toContain("network:tiles.example.com");
+    const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow and turn on")!;
+    await act(async () => allow.click());
+    expect(pluginButton().textContent).toBe("+1");
+    await type("Make a maze");
+    await send();
+    expect(onSubmit.mock.calls[0]![0].projectPlugins.map((plugin: ProjectPluginChoice) => plugin.id)).toEqual(["acme/tiles"]);
+
+    // A plugin that adds the chosen type is on in that project already.
+    await chooseType("Godot");
+    await act(async () => pluginButton().click());
+    expect(menuItem("Tiles")).toBeDefined();
+    expect([...document.querySelectorAll('[role="menuitemcheckbox"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
+      .toEqual(["Tiles"]);
+  });
+
+  it("offers only No plugin when no starting plugin is enabled, and links to plugins when none can be turned on", async () => {
+    capabilities = { plugins: [plugin("blender", "Blender")], skills: [] };
+    projectPlugins = [];
+    await render();
+    await act(async () => pluginButton().click());
+    expect([...document.querySelectorAll('[role="menuitemradio"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
+      .toEqual(["No plugin"]);
+    expect(document.querySelector(".home-plugin-empty a")!.getAttribute("href")).toBe("#/plugins");
+  });
+
+  it("remembers the type, and leads to plugins that add types", async () => {
+    await render();
+    await chooseType("Interactive Story");
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    expect(typePicker().textContent).toBe("Interactive Story");
+
+    await chooseType("More types…");
+    expect(window.location.hash).toBe("#/plugins?adds=projectType");
+    expect(typePicker().textContent).toBe("Interactive Story");
   });
 
   it("keeps the unsent prompt when Home mounts again", async () => {

@@ -356,6 +356,12 @@ export interface ProjectPluginItem {
   consented: boolean;
 }
 
+/** A plugin a new project can turn on for itself, before the project exists (GET /project-plugins). */
+export interface ProjectPluginChoice extends Pick<ProjectPluginItem, "id" | "displayName" | "description" | "version" | "capabilities" | "consented"> {
+  /** The project types it adds, as `publisher/name:type`; a project of one of them has it on already. */
+  providesTypes: string[];
+}
+
 export interface ProjectPluginsView {
   /** Plugins on for every project they work with; switched in Plugins. */
   global: Array<Pick<PluginSummary, "id" | "displayName" | "description" | "icon" | "iconRevision">>;

@@ -815,8 +815,15 @@ const en = {
     importFolder: "Import folder",
     allProjects: "All projects",
     toCommunity: "Go to Community",
+    projectType: "Project type",
+    plugins: "Plugins",
+    pluginsWith: "Plugins: starts with {{name}}",
     starter: "Start with plugin",
     noStarter: "No plugin",
+    noStarterHint: "Start from the prompt alone",
+    projectPlugins: "On in this project only",
+    noProjectPlugins: "No plugins can be turned on for one project yet.",
+    browsePlugins: "Browse plugins",
     ideas: {
       web: {
         dungeon: "Make a pixel-art dungeon roguelike with turn-based combat",
@@ -855,6 +862,10 @@ const en = {
     "interactive-story": "Interactive Story",
     "asset-canvas": "Asset Canvas",
     "godot-game": "Godot",
+  },
+  projectTypeChoice: {
+    more: "More types…",
+    moreHint: "Find plugins that add a project type",
   },
   projectTypeDescription: {
     general: "Any engine; the agent suggests one",

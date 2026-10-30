@@ -20,9 +20,20 @@ let capabilities: ConversationCapabilities = { plugins: [], skills: [] };
 const createProject = vi.fn(async () => created);
 const createConversation = vi.fn(async () => ({ id: "first" }));
 const getHomeComposerCapabilities = vi.fn(async () => capabilities);
+// Godot's type is the app's own, so only the other plugin type is added to the menu.
+const listProjectTypes = vi.fn(async () => [
+  { id: "general", title: "General" },
+  { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: { id: "ohmygame/godot", version: "1.0.0" } },
+  { id: "acme/tiles:map", title: "Tile Map", description: "A Tiled map game", plugin: { id: "acme/tiles", version: "2.1.0" } },
+]);
+const consentToPlugin = vi.fn(async () => {});
+const setProjectPluginVersion = vi.fn(async () => {});
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   getHomeComposerCapabilities,
+  listProjectTypes,
+  consentToPlugin,
+  setProjectPluginVersion,
   createProject,
   createConversation,
 }));
@@ -49,6 +60,8 @@ beforeEach(() => {
   capabilities = { plugins: [], skills: [] };
   createProject.mockClear();
   createConversation.mockClear();
+  consentToPlugin.mockClear();
+  setProjectPluginVersion.mockClear();
   getHomeComposerCapabilities.mockClear();
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -93,6 +106,8 @@ describe("new project dialog", () => {
       "Asset Canvas",
       "Godot",
       "General Game",
+      "Tile Map",
+      "More types…",
     ]);
     const dialog = document.querySelector('[role="dialog"]')!.textContent;
     // Examples are played and remixed from Explore, and a story's format is set in its settings.
@@ -140,7 +155,8 @@ describe("new project dialog", () => {
         .placeholder,
     ).toBe("Named from the first message");
     expect(typeSelect().textContent).toBe("Godot");
-    expect(await typeOptions()).toEqual(["Godot", "General Game"]);
+    // A plugin that works only in some of the app's types leaves plugins' own types out.
+    expect(await typeOptions()).toEqual(["Godot", "General Game", "More types…"]);
 
     await act(async () => button("Create and start").click());
     expect(createProject).toHaveBeenCalledWith({ type: "godot-game" });
@@ -152,6 +168,34 @@ describe("new project dialog", () => {
       mode: "planning",
       attachments: [],
     });
+  });
+
+  it("creates the type chosen on Home, a plugin's included, and turns on the plugins chosen for it", async () => {
+    const onCreated = vi.fn();
+    const tools = { id: "acme/tools", displayName: "Tools", description: "", version: "1.2.0", capabilities: ["network:tools.example.com"], consented: false, providesTypes: [] };
+    const tiles = { id: "acme/tiles", displayName: "Tiles", description: "", version: "2.1.0", capabilities: [], consented: true, providesTypes: ["acme/tiles:map"] };
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map", projectPlugins: [tools, tiles] }}
+        onClose={() => {}} onCreated={onCreated} />,
+    ));
+    expect(typeSelect().textContent).toBe("Tile Map");
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+    // What the person allowed on Home is granted now; the type's own plugin is on already.
+    expect(consentToPlugin).toHaveBeenCalledWith("acme/tools", ["network:tools.example.com"]);
+    expect(setProjectPluginVersion.mock.calls).toEqual([["maze", "acme/tools", "1.2.0"]]);
+    expect(onCreated).toHaveBeenCalled();
+  });
+
+  it("leaves for the plugins that add project types from More types…", async () => {
+    const onClose = vi.fn();
+    await act(async () => root.render(<ProjectCreateDialog onClose={onClose} onCreated={() => {}} />));
+    await act(async () => typeSelect().click());
+    const more = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("More types…"))!;
+    await act(async () => more.click());
+    expect(onClose).toHaveBeenCalled();
+    expect(window.location.hash).toBe("#/plugins?adds=projectType");
+    expect(createProject).not.toHaveBeenCalled();
   });
 
   it("waits for the plugins before creating, so the type follows the starting plugin", async () => {
