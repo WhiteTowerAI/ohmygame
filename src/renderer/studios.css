@@ -127,6 +127,19 @@
 .studio-templates .home-template-card:disabled[aria-busy="true"] {
   opacity: 1;
 }
+.studio-templates .home-effect-template-card .home-explore-cover {
+  background: #111a36;
+}
+.studio-templates .home-effect-template-card .home-explore-cover::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background: linear-gradient(135deg, rgb(18 30 70 / 18%), transparent 48%, rgb(7 12 30 / 22%));
+}
+.studio-templates .home-effect-template-card .home-explore-cover img {
+  filter: saturate(1.08) contrast(1.04);
+}
 .studio-templates .home-whats-new-copy small {
   display: -webkit-box;
   overflow: hidden;

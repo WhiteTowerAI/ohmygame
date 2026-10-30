@@ -220,7 +220,7 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
               </button>
             ))}
             <button
-              className="home-whats-new-item home-template-card"
+              className="home-whats-new-item home-template-card home-effect-template-card"
               type="button"
               disabled={templateCreating !== undefined}
               aria-busy={templateCreating === "effect-library"}
