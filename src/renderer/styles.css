@@ -12906,11 +12906,17 @@ summary.work-summary:hover {
 .media-default-field { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; color: var(--text-secondary); font-size: 12px; }
 .media-default-field > span { flex: 0 0 auto; }
 .settings-generation-defaults > .settings-error { margin: 0; }
-.project-media-defaults { width: min(300px, calc(100vw - 16px)); max-width: none; gap: 2px; overflow: visible; }
-.project-media-defaults > .canvas-chip-menu-heading { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px 6px; }
-.project-media-defaults .media-default-field { min-height: 34px; padding: 0 8px; font-size: 11px; }
-.project-media-defaults .canvas-chip { max-width: 210px; }
-.project-media-defaults > .settings-error { margin: 0; padding: 6px 8px; font-size: 11px; }
+/* The project's models, over its canvas: a popover in the app's design. */
+.project-media-defaults { width: min(320px, calc(100vw - 16px)); max-width: none; gap: 2px; padding: var(--space-1); overflow: visible; border-radius: var(--radius-lg); background: var(--color-surface-raised); box-shadow: var(--shadow-float); }
+.project-media-defaults > .canvas-chip-menu-heading { display: flex; align-items: center; justify-content: space-between; padding: 6px var(--space-2) 2px; color: var(--color-text-tertiary); font-size: var(--text-xs); font-weight: var(--weight-regular); }
+.project-media-defaults .media-default-field { min-height: 36px; padding: 0 var(--space-1) 0 var(--space-2); border-radius: var(--radius-sm); color: var(--color-text); font-size: var(--text-md); }
+.project-media-defaults .canvas-chip { max-width: 200px; height: 26px; padding: 0 var(--space-2); border-radius: var(--radius-md); background: var(--color-stage); box-shadow: inset 0 0 0 1px var(--color-border); color: var(--color-text); font-size: var(--text-sm); }
+.project-media-defaults .canvas-chip:hover:not(:disabled) { background: var(--color-stage); box-shadow: inset 0 0 0 1px var(--color-border-strong); }
+.project-media-defaults .canvas-chip[aria-expanded="true"] { background: var(--color-stage); box-shadow: inset 0 0 0 1px var(--color-text-tertiary); }
+.project-media-defaults .canvas-chip:disabled { background: none; box-shadow: none; color: var(--color-text-tertiary); opacity: 1; }
+.project-media-defaults .canvas-chip > svg { color: var(--color-text-tertiary); }
+.project-media-defaults .canvas-chip-menu { border-radius: var(--radius-lg); background: var(--color-surface-raised); box-shadow: var(--shadow-float); }
+.project-media-defaults > .settings-error { margin: 0; padding: 6px var(--space-2); font-size: var(--text-sm); }
 @media (max-width: 720px) {
   .settings-generation-defaults.is-all .settings-generation-fields { grid-template-columns: minmax(0, 1fr); }
 }
