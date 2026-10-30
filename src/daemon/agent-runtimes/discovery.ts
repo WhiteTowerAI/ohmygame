@@ -395,7 +395,7 @@ export async function probeModels(
         server
           .request<{ account?: { email?: unknown } | null }>(
             "account/read",
-            {},
+            { refreshToken: false },
             PROBE_TIMEOUT_MS,
           )
           .catch(() => undefined),
@@ -636,9 +636,12 @@ export async function privateFolder(
 ): Promise<{ path: string; remove: () => Promise<void> }> {
   const folder = path.join(root, `${name}-${randomUUID()}`);
   await mkdir(folder, { recursive: true, mode: 0o700 });
-  await leaseAgentDirectory(folder);
+  const lease = leaseAgentDirectory(folder);
   return {
     path: folder,
-    remove: () => rm(folder, { recursive: true, force: true }),
+    remove: async () => {
+      await lease.release();
+      await rm(folder, { recursive: true, force: true });
+    },
   };
 }

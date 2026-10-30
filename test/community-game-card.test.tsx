@@ -100,25 +100,45 @@ describe("Community covers", () => {
     expect(onOpen).toHaveBeenLastCalledWith(games[28]);
   });
 
-  it("requests only visible covers and retains them when stats change", async () => {
-    const render = async (value = game) =>
+  it("loads hosted covers straight from the play domain once visible", async () => {
+    const render = async (value = game, accessToken?: string) =>
       act(async () =>
-        root.render(<GameTile game={value} onOpen={() => undefined} />),
+        root.render(<GameTile game={value} onOpen={() => undefined} accessToken={accessToken} />),
       );
     await render();
     expect(observers[0].observe).toHaveBeenCalledWith(
       container.querySelector("article"),
     );
-    expect(mocks.cover).not.toHaveBeenCalled();
+    expect(container.querySelector(".explore-game-cover")).toBeNull();
     await act(async () => observers[0].notify([{ isIntersecting: false }]));
+    expect(container.querySelector(".explore-game-cover")).toBeNull();
+    await act(async () => observers[0].notify([{ isIntersecting: true }]));
+    expect(
+      container.querySelector(".explore-game-cover")?.getAttribute("src"),
+    ).toBe("https://play.example/cover.webp");
+    expect(observers[0].disconnect).toHaveBeenCalled();
+    await render({ ...game, stats: { viewCount: 5, likeCount: 3 } }, "owner-token");
+    expect(
+      container.querySelector(".explore-game-cover")?.getAttribute("src"),
+    ).toBe("https://play.example/cover.webp");
+    expect(mocks.cover).not.toHaveBeenCalled();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("requests loopback covers through the daemon and retains them when stats change", async () => {
+    const local = { ...game, coverUrl: "http://127.0.0.1:43123/mount/__ohmygame/cover.webp" };
+    const render = async (value = local) =>
+      act(async () =>
+        root.render(<GameTile game={value} onOpen={() => undefined} />),
+      );
+    await render();
     expect(mocks.cover).not.toHaveBeenCalled();
     await act(async () => observers[0].notify([{ isIntersecting: true }]));
     expect(mocks.cover).toHaveBeenCalledWith("game", "deployment", undefined);
     expect(
       container.querySelector(".explore-game-cover")?.getAttribute("src"),
     ).toBe("blob:cover");
-    expect(observers[0].disconnect).toHaveBeenCalled();
-    await render({ ...game, stats: { viewCount: 5, likeCount: 3 } });
+    await render({ ...local, stats: { viewCount: 5, likeCount: 3 } });
     expect(mocks.cover).toHaveBeenCalledTimes(1);
     await act(async () => root.unmount());
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:cover");
@@ -134,7 +154,7 @@ describe("Community covers", () => {
     await act(async () =>
       root.render(
         <GameTile
-          game={game}
+          game={{ ...game, coverUrl: "http://127.0.0.1:43123/mount/__ohmygame/cover.webp" }}
           onOpen={() => undefined}
           accessToken="owner-token"
         />,

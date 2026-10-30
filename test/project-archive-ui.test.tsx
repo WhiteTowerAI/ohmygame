@@ -13,7 +13,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   exportProject,
   importProject,
   listProjects,
-  listProjectActivity: async () => ({ activity: [], names: [] }),
+  streamProjectActivity: async () => undefined,
   waitForRuntime: async () => undefined,
   getProjectCover: async () => undefined,
 }));

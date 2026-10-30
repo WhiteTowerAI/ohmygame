@@ -1,0 +1,6 @@
+# One step per line. shared/vn/player.js lists every command.
+The rain had not stopped since noon.
+stranger: You came alone. That was brave.
+stranger: Or foolish. We will find out which.
+? I had no choice. -> option-a
+? Who else would come? -> option-b

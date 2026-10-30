@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type {
-  ApprovalDecision,
-  ApprovalRequestDetails,
+import {
+  AGENT_PERMISSION_MODES,
+  FULL_ACCESS_PERMISSION_MODES,
+  isAgentPermissionMode,
+  type ApprovalDecision,
+  type ApprovalRequestDetails,
 } from "../../shared/agent-runtimes.js";
 import type { AgentUsageLimit } from "../../shared/contracts.js";
 import type {
@@ -17,7 +20,6 @@ import { BRIDGE_SERVER_NAME } from "./tool-bridge.js";
 import { EXTERNAL_MCP_SERVER_NAME } from "../../shared/external-mcp.js";
 import {
   BridgeResults,
-  decideApproval,
   number,
   piToolCall,
   PLANNING_DENIAL,
@@ -26,8 +28,6 @@ import {
   type DriverContext,
 } from "./driver-context.js";
 import { stageSkills, stagedSkillsRoot } from "./skills.js";
-import { canonicalPath, judgeApproval, planningPolicy } from "./policy.js";
-import { sessionCaches } from "./environment.js";
 import { NativeSessionExpiredError } from "./native-session.js";
 import { cliProbeError, runtimeStartupError } from "./compatibility.js";
 
@@ -50,7 +50,7 @@ interface PendingTurn {
   signal: AbortSignal;
   blocks: Map<string, "text" | "thinking">;
   streamed: Set<string>;
-  /** Tool calls OhMyGame allowed, which Claude Code runs next; one may be allowed before its call is reported. */
+  /** Tool calls Claude Code is about to run; one may begin before its call is reported. */
   started: Set<string>;
   readOnly: boolean;
   /** The latest model request's usage, which is what the context holds; the result's usage adds up every request. */
@@ -61,7 +61,9 @@ interface PendingTurn {
  * Claude Code over its stream-json protocol, with one long-lived process per
  * session. Messages go in on stdin, which stays open for later turns. OhMyGame's tools are an
  * in-process MCP server answered over the same pipe, and permission requests
- * come back on it too: no port, no token, no file in the workspace.
+ * come back on it too: no port, no token, no file in the workspace. Claude
+ * Code's own permission rules decide what it asks; OhMyGame shows the
+ * question and returns the person's answer.
  */
 export class ClaudeCodeDriver implements NativeDriver {
   #process?: AgentProcess;
@@ -69,7 +71,7 @@ export class ClaudeCodeDriver implements NativeDriver {
   #turn?: PendingTurn;
   #sessionId?: string;
   #limits: AgentUsageLimit[] = [];
-  #permissionMode?: string;
+  #permissionMode?: ClaudePermissionMode;
   #controls = new Map<
     string,
     {
@@ -81,7 +83,6 @@ export class ClaudeCodeDriver implements NativeDriver {
   #messageId?: string;
   #compacting?: { tokensBefore?: number };
   #disposed = false;
-  #hookDecisions = new Map<string, ApprovalDecision>();
 
   constructor(private readonly context: DriverContext) {
     this.#sessionId = context.resume;
@@ -108,7 +109,7 @@ export class ClaudeCodeDriver implements NativeDriver {
       throw runtimeStartupError(cause);
     }
     if (signal.aborted) return { status: "aborted" };
-    await this.#setPermissionMode(input.readOnly ? "default" : "acceptEdits");
+    await this.#setPermissionMode(this.#mode(input.readOnly));
     if (signal.aborted) return { status: "aborted" };
     const outcome = await new Promise<NativeTurnOutcome>((resolve) => {
       this.#turn = {
@@ -199,25 +200,18 @@ export class ClaudeCodeDriver implements NativeDriver {
           binaryPath: this.context.binaryPath,
           args,
           cwd: this.context.workspacePath,
-          env: {
-            ...this.context.env,
-            ...FOREGROUND_ONLY,
-            // Sandboxed installs cannot write the home folder's caches.
-            ...(this.context.policy.fullAccess
-              ? {}
-              : sessionCaches(commandTemporary(this.context))),
-          },
+          env: { ...this.context.env, ...FOREGROUND_ONLY },
           processDirectory: this.context.processDirectory,
           onLine: (line) => this.#receive(line),
           onExit: (code, signal, stderr) =>
             this.#exited(child, code, signal, stderr),
         });
         this.#process = child;
-        this.#permissionMode = readOnly ? "default" : "acceptEdits";
+        this.#permissionMode = this.#mode(readOnly);
         await this.#control({
           subtype: "initialize",
           sdkMcpServers: [BRIDGE_SERVER_NAME],
-          hooks: { PreToolUse: [{ hookCallbackIds: ["ohmygame-policy"] }] },
+          hooks: { PreToolUse: [{ hookCallbackIds: [PRE_TOOL_HOOK] }] },
         });
         if (this.#disposed) throw new Error("The agent session was closed");
         return child;
@@ -240,7 +234,7 @@ export class ClaudeCodeDriver implements NativeDriver {
       "--permission-prompt-tool",
       "stdio",
       "--permission-mode",
-      readOnly ? "default" : "acceptEdits",
+      this.#mode(readOnly),
       "--mcp-config",
       JSON.stringify({
         mcpServers: {
@@ -253,14 +247,12 @@ export class ClaudeCodeDriver implements NativeDriver {
       context.instructions,
     ];
     if (context.reasoningLevel) args.push("--effort", context.reasoningLevel);
+    // Planning leaves bypassPermissions for default mode, and Claude Code
+    // returns to it afterwards only when the session may use it.
+    if (this.#mode(false) === "bypassPermissions")
+      args.push("--allow-dangerously-skip-permissions");
     // Avoid recursively reconnecting to OhMyGame through the person's own MCP config.
     args.push("--disallowedTools", `mcp__${EXTERNAL_MCP_SERVER_NAME}`);
-    // Flag settings apply whichever sources load, so the sandbox holds with
-    // the person's own configuration too. Full access runs without it.
-    if (!context.policy.fullAccess) {
-      await mkdir(commandTemporary(context), { recursive: true, mode: 0o700 });
-      args.push("--settings", JSON.stringify(claudeSandboxSettings(context)));
-    }
     if (context.skillDirectories.length) {
       // Skills reach Claude Code as a plugin of this session's own.
       const skills = stagedSkillsRoot(
@@ -280,8 +272,10 @@ export class ClaudeCodeDriver implements NativeDriver {
           description: "OhMyGame Skills for this project",
         }),
       );
+      // Its folder is a working directory too, so reading a Skill's files is not
+      // a request to reach outside the project.
       if ((await stageSkills(context.skillDirectories, skills)).length)
-        args.push("--plugin-dir", plugin);
+        args.push("--plugin-dir", plugin, "--add-dir", plugin);
     }
     if (this.#sessionId) args.push("--resume", this.#sessionId);
     else {
@@ -292,14 +286,31 @@ export class ClaudeCodeDriver implements NativeDriver {
   }
 
   /**
-   * Planning runs in Claude's default mode, not its own plan mode: that mode
-   * steers Claude to write a plan file and call ExitPlanMode, while OhMyGame
-   * takes the plan through update_plan. The hook keeps the turn read-only,
-   * and default mode sends any edit the hook did not see to can_use_tool.
+   * Work runs in the Claude Code mode the person chose. Planning runs in
+   * default mode, not Claude's plan mode: that mode steers Claude to write a
+   * plan file and call ExitPlanMode, while OhMyGame takes the plan through
+   * update_plan. The hook refuses edits, and whatever Claude Code would ask
+   * about is refused without asking.
    */
-  async #setPermissionMode(mode: "default" | "acceptEdits"): Promise<void> {
+  #mode(readOnly: boolean): ClaudePermissionMode {
+    if (readOnly) return "default";
+    const chosen = this.context.permissionMode;
+    return isAgentPermissionMode("claude-code-cli", chosen)
+      ? (chosen as ClaudePermissionMode)
+      : FULL_ACCESS_PERMISSION_MODES["claude-code-cli"];
+  }
+
+  async #setPermissionMode(mode: ClaudePermissionMode): Promise<void> {
     if (this.#permissionMode === mode) return;
-    await this.#control({ subtype: "set_permission_mode", mode });
+    try {
+      await this.#control({ subtype: "set_permission_mode", mode });
+    } catch (cause) {
+      // Auto mode depends on the model. Without it Claude Code stays in
+      // default mode and asks, as it does when it starts in auto mode.
+      if (mode !== "auto" || !/auto mode unavailable/i.test(String(cause)))
+        throw cause;
+      mode = "default";
+    }
     this.#permissionMode = mode;
   }
 
@@ -508,7 +519,6 @@ export class ClaudeCodeDriver implements NativeDriver {
     const turn = this.#turn;
     if (!turn) return;
     this.#turn = undefined;
-    this.#hookDecisions.clear();
     const usage = turn.requestUsage ?? record(message.usage);
     if (usage) {
       const models = record(message.modelUsage);
@@ -582,7 +592,7 @@ export class ClaudeCodeDriver implements NativeDriver {
     request: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     if (request.subtype === "hook_callback") {
-      if (request.callback_id !== "ohmygame-policy")
+      if (request.callback_id !== PRE_TOOL_HOOK)
         throw new Error("Unknown hook callback");
       const input = record(request.input) ?? {};
       const turn = this.#turn;
@@ -591,26 +601,21 @@ export class ClaudeCodeDriver implements NativeDriver {
         typeof request.tool_use_id === "string"
           ? request.tool_use_id
           : undefined;
-      const { decision, reason } =
-        turn && !turn.signal.aborted
-          ? await this.#judge(
-              turn,
-              tool,
-              record(input.tool_input) ?? {},
-              input,
-              callId,
-            )
-          : { decision: "deny" as const, reason: "No turn is running" };
-      if (callId) this.#hookDecisions.set(callId, decision);
-      if (turn && callId && decision !== "deny") this.#started(turn, callId);
-      return {
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          permissionDecision: decision === "deny" ? "deny" : "allow",
-          permissionDecisionReason:
-            decision === "deny" ? reason : "Approved by OhMyGame",
-        },
-      };
+      const refusal =
+        !turn || turn.signal.aborted
+          ? "No turn is running"
+          : refusedTool(tool, turn.readOnly);
+      if (refusal)
+        return {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: refusal,
+          },
+        };
+      if (turn && callId) this.#started(turn, callId);
+      // No decision: Claude Code's own permission rules apply.
+      return {};
     }
     if (request.subtype === "mcp_message") {
       const turn = this.#turn;
@@ -632,18 +637,30 @@ export class ClaudeCodeDriver implements NativeDriver {
       if (mcp?.name === BRIDGE_SERVER_NAME)
         return { behavior: "allow", updatedInput: input };
       const toolName = String(request.tool_name ?? "tool");
+      const refusal = refusedTool(toolName, turn.readOnly);
+      if (refusal) return { behavior: "deny", message: refusal };
+      // Planning never stops to ask: what Claude Code would ask about is not reading.
+      if (turn.readOnly) return { behavior: "deny", message: PLANNING_DENIAL };
       const toolId =
         typeof request.tool_use_id === "string"
           ? request.tool_use_id
           : undefined;
-      const previous = toolId ? this.#hookDecisions.get(toolId) : undefined;
-      if (toolId) this.#hookDecisions.delete(toolId);
-      const { decision, reason } = previous
-        ? { decision: previous, reason: "This operation was not allowed." }
-        : await this.#judge(turn, toolName, input, request, toolId);
-      if (decision === "deny") return { behavior: "deny", message: reason };
-      if (toolId) this.#started(turn, toolId);
-      return { behavior: "allow", updatedInput: input };
+      const suggestions = Array.isArray(request.permission_suggestions)
+        ? request.permission_suggestions.filter(
+            (value): value is Record<string, unknown> => !!record(value),
+          )
+        : [];
+      const decision = await turn.sink.requestApproval(
+        claudeApproval(
+          toolName,
+          input,
+          request,
+          suggestions,
+          this.context.workspacePath,
+        ),
+        { ...(toolId ? { callId: toolId } : {}), signal: turn.signal },
+      );
+      return claudeAnswer(decision, input, suggestions);
     }
     // Nothing else is asked of a host here; an empty success keeps the CLI going.
     return {};
@@ -658,51 +675,6 @@ export class ClaudeCodeDriver implements NativeDriver {
   #started(turn: PendingTurn, callId: string): void {
     turn.started.add(callId);
     turn.sink.toolStarted(callId);
-  }
-
-  /** The hook and the permission callback answer the same question the same way. */
-  async #judge(
-    turn: PendingTurn,
-    tool: string,
-    args: Record<string, unknown>,
-    request: Record<string, unknown>,
-    callId: string | undefined,
-  ): Promise<{ decision: ApprovalDecision; reason: string }> {
-    if (
-      tool.startsWith(`mcp__${BRIDGE_SERVER_NAME}__`) ||
-      CLAUDE_OWN_TOOLS.has(tool)
-    )
-      return { decision: "allow", reason: "Approved by OhMyGame" };
-    if (tool === "ExitPlanMode")
-      return {
-        decision: "deny",
-        reason:
-          "OhMyGame reviews plans itself: record the plan with update_plan and end your reply.",
-      };
-    const details = claudeApproval(
-      tool,
-      args,
-      request,
-      this.context.workspacePath,
-    );
-    if (turn.readOnly && !CLAUDE_READ_TOOLS.has(tool)) {
-      // Current CLIs search with Bash rather than Glob/Grep, so planning may
-      // run the read commands the policy allows without asking, and no other.
-      const readCommand =
-        tool === "Bash" &&
-        judgeApproval(details, planningPolicy(this.context.policy)) === "allow";
-      return readCommand
-        ? { decision: "allow", reason: "Approved by OhMyGame" }
-        : {
-            decision: "deny",
-            reason: PLANNING_DENIAL,
-          };
-    }
-    const decision = await decideApproval(details, this.context, turn.sink, {
-      ...(callId ? { callId } : {}),
-      signal: turn.signal,
-    });
-    return { decision, reason: "This operation was not allowed." };
   }
 
   #exited(
@@ -737,77 +709,25 @@ export class ClaudeCodeDriver implements NativeDriver {
 /** Claude Code's own bookkeeping, such as loading the schemas of deferred tools, which is not work to show. */
 const HIDDEN_TOOLS = new Set(["ToolSearch"]);
 
-/**
- * Claude Code tools that touch no file and run no command: its task list,
- * Skill loading, subagents (whose own tool calls come through this hook),
- * background shell output and stopping, web research and its MCP resource
- * readers. Older and newer CLIs name some of these differently.
- * Asking about each would interrupt the person for the agent's bookkeeping.
- */
-const CLAUDE_OWN_TOOLS = new Set([
-  "ToolSearch",
-  "TodoWrite",
-  "Skill",
-  "Task",
-  "Agent",
-  "BashOutput",
-  "KillShell",
-  "KillBash",
-  "TaskStop",
-  "ListAgents",
-  "WebSearch",
-  "WebFetch",
-  "ListMcpResourcesTool",
-  "ReadMcpResourceTool",
+const PRE_TOOL_HOOK = "ohmygame-pre-tool";
+
+type ClaudePermissionMode =
+  (typeof AGENT_PERMISSION_MODES)["claude-code-cli"][number];
+
+/** Claude Code's file-changing tools, which a planning turn refuses whatever the person's rules allow. */
+const CLAUDE_CHANGE_TOOLS = new Set([
+  "Edit",
+  "MultiEdit",
+  "Write",
+  "NotebookEdit",
 ]);
 
-/** File tools a planning turn may use; the shared policy still checks their paths. */
-const CLAUDE_READ_TOOLS = new Set(["Read", "Glob", "Grep", "LS"]);
-
-/**
- * Claude Code's own sandbox confines the commands it runs at the operating
- * system level: what the shell-text policy cannot see, such as a glob or a
- * workspace link that resolves into a protected folder, is refused by the
- * OS. Protected roots are unreadable; the workspace and this session's
- * staged Skills stay readable even when they lie inside one, and writes keep
- * the sandbox's default of the workspace and temporary files. Commands
- * cannot opt out, and OhMyGame still decides which ones run. Where the
- * sandbox is not available, such as Linux without bubblewrap, the strict
- * approval policy applies. When the policy relies on confinement, startup
- * must fail instead of silently running commands without it.
- */
-/** Where sandboxed commands keep package caches, in the session's private folder. */
-function commandTemporary(context: DriverContext): string {
-  return path.join(context.privateDirectory, "tmp");
-}
-
-export function claudeSandboxSettings(context: DriverContext): {
-  sandbox: Record<string, unknown>;
-} {
-  const workspace = canonicalPath(context.workspacePath);
-  const temporary = canonicalPath(commandTemporary(context));
-  return {
-    sandbox: {
-      enabled: true,
-      failIfUnavailable: context.policy.sandboxedCommands === true,
-      autoAllowBashIfSandboxed: false,
-      allowUnsandboxedCommands: false,
-      filesystem: {
-        denyRead: context.policy.neverTouch
-          .map(canonicalPath)
-          .filter((root) => root !== workspace),
-        allowRead: [
-          workspace,
-          temporary,
-          ...(context.policy.readablePaths ?? []).map(canonicalPath),
-        ],
-        // Installs fill the package caches; those in the home folder are not writable here.
-        allowWrite: [temporary],
-      },
-      // Builds and installs need the network, as they do for OhMyGame's own agent.
-      network: { allowedDomains: ["*"] },
-    },
-  };
+/** Why OhMyGame refuses a tool before Claude Code's permission rules decide, if it does. */
+function refusedTool(tool: string, readOnly: boolean): string | undefined {
+  if (tool === "ExitPlanMode")
+    return "OhMyGame reviews plans itself: record the plan with update_plan and end your reply.";
+  if (readOnly && CLAUDE_CHANGE_TOOLS.has(tool)) return PLANNING_DENIAL;
+  return undefined;
 }
 
 function userMessage(input: NativeTurnInput): Record<string, unknown> {
@@ -847,6 +767,7 @@ function claudeApproval(
   tool: string,
   input: Record<string, unknown>,
   request: Record<string, unknown>,
+  suggestions: Record<string, unknown>[],
   workspace?: string,
 ): ApprovalRequestDetails {
   const file =
@@ -870,6 +791,7 @@ function claudeApproval(
         : tool.startsWith("mcp__")
           ? "tool"
           : "other";
+  const always = claudeAlways(suggestions);
   return {
     kind,
     tool,
@@ -883,8 +805,77 @@ function claudeApproval(
     ...(typeof request.decision_reason === "string"
       ? { reason: stripAnsi(request.decision_reason) }
       : {}),
-    canAllowSession: request.suppress_always_allow_rule !== true,
+    ...(always && request.suppress_always_allow_rule !== true
+      ? { always }
+      : {}),
   };
+}
+
+/**
+ * What Claude Code suggests in place of asking again: rules such as
+ * `Bash(npm run build:*)` and folders it may work in. They last for its
+ * session, or are saved in its settings when any suggestion says so.
+ */
+export function claudeAlways(
+  suggestions: Record<string, unknown>[],
+): ApprovalRequestDetails["always"] {
+  const rules: string[] = [];
+  let saved = false;
+  for (const suggestion of suggestions) {
+    if (suggestion.type === "addRules" && suggestion.behavior === "allow") {
+      for (const rule of Array.isArray(suggestion.rules)
+        ? suggestion.rules
+        : []) {
+        const value = record(rule);
+        if (typeof value?.toolName !== "string") continue;
+        rules.push(
+          typeof value.ruleContent === "string" && value.ruleContent
+            ? `${value.toolName}(${value.ruleContent})`
+            : value.toolName,
+        );
+      }
+    } else if (suggestion.type === "addDirectories") {
+      for (const directory of Array.isArray(suggestion.directories)
+        ? suggestion.directories
+        : [])
+        if (typeof directory === "string") rules.push(directory);
+    } else if (
+      suggestion.type === "setMode" &&
+      typeof suggestion.mode === "string"
+    ) {
+      rules.push(suggestion.mode);
+    } else continue;
+    if (suggestion.destination !== "session") saved = true;
+  }
+  return rules.length
+    ? { scope: saved ? "saved" : "session", rules }
+    : undefined;
+}
+
+/** The person's answer as Claude Code's permission result; always allowing applies its own suggestions. */
+export function claudeAnswer(
+  decision: ApprovalDecision,
+  input: Record<string, unknown>,
+  suggestions: Record<string, unknown>[],
+): Record<string, unknown> {
+  if (decision === "deny")
+    return {
+      behavior: "deny",
+      message: "The person denied this request.",
+      decisionClassification: "user_reject",
+    };
+  return decision === "allow-always" && suggestions.length
+    ? {
+        behavior: "allow",
+        updatedInput: input,
+        updatedPermissions: suggestions,
+        decisionClassification: "user_permanent",
+      }
+    : {
+        behavior: "allow",
+        updatedInput: input,
+        decisionClassification: "user_temporary",
+      };
 }
 
 function stripAnsi(value: string): string {

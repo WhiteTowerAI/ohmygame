@@ -117,7 +117,8 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
   }
 
   const visibleProjects = projects.slice(0, recentProjectLimit);
-  const visibleExamples = examples.slice(0, columns);
+  // Two rows, so every example type has room; Home scrolls when the window is short.
+  const visibleExamples = examples.slice(0, columns * 2);
 
   return (
     <main className="home-shell" inert={inert}>
@@ -128,6 +129,7 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
         <div className="home-start">
           <h1>{t("home.title")}</h1>
           <ProjectPromptCreator
+            draftKey="home"
             projectType={projectType}
             projectTypes={GAME_PROJECT_TYPES}
             placeholder={t("home.placeholder")}

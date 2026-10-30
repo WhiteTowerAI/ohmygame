@@ -47,6 +47,12 @@ class ScriptedDriver implements NativeDriver {
     return script(input, sink, signal);
   }
   async interrupt(): Promise<void> {}
+  compactions = 0;
+  async compact(sink: NativeTurnSink): Promise<void> {
+    this.compactions++;
+    sink.compaction("start");
+    sink.compaction("end", { summary: "compacted" });
+  }
   dispose(): void {
     this.disposed = true;
   }
@@ -222,6 +228,36 @@ describe("coding agent sessions", () => {
     });
     return { session, sessionManager, drivers };
   }
+
+  it.each(["claude-code-cli", "codex-cli"] as const)("only resumes a %s native session for the same account configuration", (runtime) => {
+    const manager = SessionManager.inMemory("/tmp/profile-test");
+    manager.appendCustomEntry(NATIVE_SESSION_ENTRY, { version: 2, runtime, state: "ready", sessionId: "thread-a", profileId: "personal" });
+    expect(latestNativeSession(manager.getBranch(), runtime, "personal")?.sessionId).toBe("thread-a");
+    expect(latestNativeSession(manager.getBranch(), runtime, "work")).toBeUndefined();
+    expect(latestNativeSession(manager.getBranch(), runtime)).toBeUndefined();
+  });
+
+  it("refuses to compact a native context that has not received the chat yet", async () => {
+    const sm = SessionManager.inMemory("/tmp/project-1");
+    sm.appendMessage({ role: "user", content: "keep the original requirement", timestamp: 1 });
+    sm.appendCustomEntry(NATIVE_SESSION_ENTRY, { version: 2, runtime: "claude-code-cli", state: "ready", sessionId: "thread-a", profileId: "personal" });
+    const { session, drivers } = fixture([
+      async (_input, sink) => {
+        sink.nativeSession("thread-b");
+        sink.textDone("a", "continued");
+        return { status: "completed" };
+      },
+    ], sm, { profileId: "work" });
+    await expect(session.compact()).rejects.toThrow("Send a message first");
+    expect(drivers.every((driver) => driver.compactions === 0)).toBe(true);
+    expect(latestNativeSession(sm.getBranch(), "claude-code-cli", "work")).toBeUndefined();
+    // The next message carries the chat to this account; compacting it is then allowed.
+    await session.prompt("continue");
+    expect(drivers.at(-1)!.inputs[0]!.text).toContain("keep the original requirement");
+    await session.compact();
+    expect(drivers.at(-1)!.compactions).toBe(1);
+    session.dispose();
+  });
 
   it("stops an idle CLI and resumes the same native session with the next message", async () => {
     const { session, drivers } = fixture(
@@ -663,116 +699,35 @@ describe("coding agent sessions", () => {
     ).toEqual({ error: "Claude Code exited with code 1: not signed in", diagnostics: { provider: "claude-code-cli", model: "sonnet" } });
   });
 
-  it("asks the person and remembers an answer for the conversation", async () => {
+  it("asks the person each time the agent asks, and passes always allowing back to the agent", async () => {
     const decisions: string[] = [];
     const { manager, project, conversation, received, sessionManager } = setup([
       async (_input, sink) => {
-        const request = {
-          kind: "command" as const,
-          tool: "Bash",
-          command: "git push",
-          canAllowSession: true,
-        };
         decisions.push(
-          await sink.requestApproval(request, { callId: "call-1" }),
+          await sink.requestApproval(
+            {
+              kind: "command",
+              tool: "Bash",
+              command: "git push",
+              always: { scope: "saved", rules: ["Bash(git push:*)"] },
+            },
+            { callId: "call-1" },
+          ),
         );
+        // The agent asks again only when its own rules say so; OhMyGame keeps no grants.
         decisions.push(
-          await sink.requestApproval(request, { callId: "call-2" }),
+          await sink.requestApproval(
+            { kind: "command", tool: "Bash", command: "rm -rf build" },
+            { callId: "call-2" },
+          ),
         );
         return { status: "completed" };
       },
     ]);
     received.length = 0;
     const run = manager.prompt(project, conversation, "push it");
-    await expect
-      .poll(() =>
-        received.find(
-          (event) =>
-            event.type === "item.started" &&
-            (event.data as { item: ThreadItem }).item.type ===
-              "approvalRequest",
-        ),
-      )
-      .toBeTruthy();
-    const started = received.find(
-      (event) =>
-        event.type === "item.started" &&
-        (event.data as { item: ThreadItem }).item.type === "approvalRequest",
-    )!;
-    const item = (
-      started.data as { item: Extract<ThreadItem, { type: "approvalRequest" }> }
-    ).item;
-    expect(item.request.command).toBe("git push");
-    expect(() =>
-      manager.answerApproval(
-        project.id,
-        conversation.summary.id,
-        "unknown",
-        "allow",
-      ),
-    ).toThrow();
-    manager.answerApproval(
-      project.id,
-      conversation.summary.id,
-      item.requestId,
-      "allow-session",
-    );
-    await run.result;
-    // The second request matched the first and was not asked again.
-    expect(decisions).toEqual(["allow-session", "allow"]);
-    expect(
-      received.filter(
-        (event) =>
-          event.type === "item.started" &&
-          (event.data as { item: ThreadItem }).item.type === "approvalRequest",
-      ),
-    ).toHaveLength(1);
-    expect(
-      conversationItems(sessionManager.getBranch(), false).filter(
-        (item) => item.type === "approvalRequest",
-      ),
-    ).toEqual([
-      expect.objectContaining({
-        decision: "allow-session",
-        status: "completed",
-      }),
-    ]);
-  });
-
-  it("lets a conversation approval cover what its scope names, and nothing else", async () => {
-    const decisions: string[] = [];
-    const command = (text: string, commands: string[]) => ({
-      kind: "command" as const,
-      tool: "Bash",
-      command: text,
-      canAllowSession: true,
-      sessionScope: { commands },
-    });
-    const read = (file: string, folder: string) => ({
-      kind: "file" as const,
-      tool: "Read",
-      path: file,
-      canAllowSession: true,
-      sessionScope: { readFolders: [folder] },
-    });
-    const { manager, project, conversation, received } = setup([
-      async (_input, sink) => {
-        for (const request of [
-          command("git push origin main", ["git push"]),
-          command("git push upstream dev", ["git push"]),
-          command("npm publish", ["npm publish"]),
-          read("/notes/a.md", "/notes"),
-          read("/notes/drafts/b.md", "/notes/drafts"),
-          read("/other/c.md", "/other"),
-        ])
-          decisions.push(await sink.requestApproval(request));
-        return { status: "completed" };
-      },
-    ]);
-    received.length = 0;
-    const run = manager.prompt(project, conversation, "go");
-    const asked = new Set<string>();
-    const answer = async (decision: "allow-session" | "deny") => {
+    const answered = new Set<string>();
+    const next = async () => {
       let item: Extract<ThreadItem, { type: "approvalRequest" }> | undefined;
       await expect
         .poll(() => {
@@ -788,33 +743,56 @@ describe("coding agent sessions", () => {
             .find(
               (candidate) =>
                 candidate.type === "approvalRequest" &&
-                !asked.has(candidate.requestId),
+                !answered.has(candidate.requestId),
             );
           return item;
         })
         .toBeTruthy();
-      asked.add(item!.requestId);
+      answered.add(item!.requestId);
+      return item!;
+    };
+    const first = await next();
+    expect(first.request.command).toBe("git push");
+    expect(() =>
       manager.answerApproval(
         project.id,
         conversation.summary.id,
-        item!.requestId,
-        decision,
-      );
-    };
-    await answer("allow-session"); // git push origin main
-    await answer("deny"); // npm publish: another command
-    await answer("allow-session"); // /notes/a.md
-    await answer("deny"); // /other/c.md: another folder
+        "unknown",
+        "allow",
+      ),
+    ).toThrow();
+    manager.answerApproval(
+      project.id,
+      conversation.summary.id,
+      first.requestId,
+      "allow-always",
+    );
+    const second = await next();
+    // Without the agent's offer, the request can only be allowed once.
+    expect(() =>
+      manager.answerApproval(
+        project.id,
+        conversation.summary.id,
+        second.requestId,
+        "allow-always",
+      ),
+    ).toThrow("only be allowed once");
+    manager.answerApproval(
+      project.id,
+      conversation.summary.id,
+      second.requestId,
+      "allow",
+    );
     await run.result;
-    expect(decisions).toEqual([
-      "allow-session",
-      "allow",
-      "deny",
-      "allow-session",
-      "allow",
-      "deny",
+    expect(decisions).toEqual(["allow-always", "allow"]);
+    expect(
+      conversationItems(sessionManager.getBranch(), false).filter(
+        (item) => item.type === "approvalRequest",
+      ),
+    ).toEqual([
+      expect.objectContaining({ decision: "allow-always", status: "completed" }),
+      expect.objectContaining({ decision: "allow", status: "completed" }),
     ]);
-    expect(asked.size).toBe(4);
   });
 
   it("denies requests that are still waiting when the turn is stopped", async () => {
@@ -826,7 +804,6 @@ describe("coding agent sessions", () => {
             kind: "file",
             tool: "Write",
             path: "/etc/hosts",
-            canAllowSession: false,
           },
           { signal },
         );

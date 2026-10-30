@@ -32,6 +32,7 @@ describe("coding workspace", () => {
 
   it("uses device presets and bounds the fit viewport to supported dimensions", () => {
     expect(playerViewport("mobile")).toEqual({ width: 375, height: 667 });
+    expect(playerViewport("mobile-landscape")).toEqual({ width: 667, height: 375 });
     expect(playerViewport("tablet")).toEqual({ width: 768, height: 1024 });
     expect(playerViewport("fit", { width: 930.4, height: 660.8 })).toEqual({ width: 930, height: 661 });
     expect(playerViewport("fit", { width: 0, height: 0 })).toEqual({ width: 1280, height: 720 });
@@ -164,7 +165,7 @@ describe("coding workspace", () => {
     expect(html).toContain('aria-label="Hide workspace"');
   });
 
-  it("uses the saved route and device preset when opening a Web Game preview", () => {
+  it.each(["mobile", "mobile-landscape"] as const)("uses the saved route and %s preset when opening a Web Game preview", (viewport) => {
     const html = renderToStaticMarkup(
       createElement(CodingWorkspace, {
         project: {
@@ -174,7 +175,7 @@ describe("coding workspace", () => {
           updatedAt: new Date(0).toISOString(),
           workspacePath: "/tmp/project-1",
           previewPath: "/play",
-          previewViewport: "mobile",
+          previewViewport: viewport,
           preview: { status: "ready", url: "http://127.0.0.1:43121" },
         },
         agentBusy: false,
@@ -187,7 +188,7 @@ describe("coding workspace", () => {
       }),
     );
 
-    expect(html).toContain("viewer-stage-mobile");
+    expect(html).toContain(`viewer-stage-${viewport}`);
     expect(html).toContain('src="http://127.0.0.1:43121/play?__ohmygame_client=');
   });
 

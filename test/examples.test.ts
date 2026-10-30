@@ -57,21 +57,10 @@ async function writeExamples(): Promise<string> {
   return directory;
 }
 
-async function writePlayer(): Promise<string> {
-  const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-examples-player-"));
-  await mkdir(path.join(directory, "assets"), { recursive: true });
-  await writeFile(path.join(directory, "index.html"), "<h1>Published player</h1>");
-  await writeFile(path.join(directory, "player.js"), "window.player = true");
-  await writeFile(path.join(directory, "playable-sandbox.html"), "Playable sandbox");
-  await writeFile(path.join(directory, "assets", "playable-sandbox.js"), "window.sandbox = true");
-  return directory;
-}
-
-async function startApp(examplesDirectory?: string, interactiveStoryPlayerDirectory?: string) {
+async function startApp(examplesDirectory?: string) {
   const app = createApp({
     dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-examples-data-")),
     examplesDirectory,
-    ...(interactiveStoryPlayerDirectory ? { interactiveStoryPlayerDirectory } : {}),
   });
   apps.push(app);
   await app.ready();
@@ -182,17 +171,18 @@ describe("examples", () => {
     expect((await app.inject({ method: "POST", url: "/examples/lake/play" })).statusCode).toBe(404);
   });
 
-  it("compiles an interactive story example with the Published Player when played", async () => {
-    const app = await startApp(await writeExamples(), await writePlayer());
+  it("plays an interactive story example as its own page", async () => {
+    const examples = await writeExamples();
+    await writeFile(path.join(examples, "train", "files", "index.html"), "<title>Night Train</title>");
+    const app = await startApp(examples);
 
     const response = await app.inject({ method: "POST", url: "/examples/train/play" });
 
     expect(response.statusCode).toBe(200);
     const { url } = response.json() as { url: string };
-    expect(await (await fetch(url)).text()).toBe("<h1>Published player</h1>");
-    const definition = await (await fetch(`${url}playable.json`)).json() as { graph: { title: string } };
-    expect(definition.graph.title).toBe("Night Train");
-    expect(await (await fetch(`${url}manifest.json`)).json()).toMatchObject({ scope: "example:train" });
+    expect(await (await fetch(url)).text()).toBe("<title>Night Train</title>");
+    const graph = await (await fetch(`${url}graph.json`)).json() as { title: string };
+    expect(graph.title).toBe("Night Train");
     expect((await app.inject({ method: "POST", url: "/examples/train/play" })).json()).toEqual({ url });
   });
 

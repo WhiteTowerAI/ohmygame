@@ -1,8 +1,8 @@
-import type {
-  AudioGenerationRequest,
-  AudioModel,
-  AudioModelCatalog,
-  GeneratedAudio,
+import {
+  type AudioGenerationRequest,
+  type AudioModel,
+  type AudioModelCatalog,
+  type GeneratedAudio,
 } from "../shared/audio.js";
 import type { ModelRef } from "../shared/contracts.js";
 
@@ -18,6 +18,7 @@ export class AudioGenerationError extends Error {
 export interface AudioProviderAdapter {
   readonly id: string;
   readonly name: string;
+  defaultVoiceId?(): string | undefined;
   configured(): boolean;
   enabled(): boolean;
   models(): AudioModel[];
@@ -45,6 +46,7 @@ export class ProviderAudio implements AudioGenerator {
       return {
         provider: adapter.id,
         name: adapter.name,
+        ...(adapter.defaultVoiceId?.() ? { defaultVoiceId: adapter.defaultVoiceId() } : {}),
         configured,
         state: !enabled
           ? ("disabled" as const)

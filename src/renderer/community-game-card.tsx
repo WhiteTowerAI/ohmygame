@@ -250,11 +250,14 @@ export function useGameCover(
   accessToken?: string,
 ): string | undefined {
   const [url, setUrl] = useState<string>();
+  // Hosted covers live on the play domain's edge cache, like the games themselves;
+  // only loopback covers from local debug publishing still go through the daemon.
+  const direct = game?.coverUrl && isHttpsUrl(game.coverUrl) ? game.coverUrl : undefined;
   useEffect(() => {
     let active = true;
     let objectUrl: string | undefined;
     setUrl(undefined);
-    if (!game?.coverUrl) return;
+    if (!game?.coverUrl || direct) return;
     void getExploreGameCover(game.id, game.deploymentId, accessToken)
       .then((cover) => {
         if (!active || !cover) return;
@@ -266,8 +269,16 @@ export function useGameCover(
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [game?.coverUrl, game?.deploymentId, game?.id, accessToken]);
-  return url;
+  }, [game?.coverUrl, game?.deploymentId, game?.id, accessToken, direct]);
+  return direct ?? url;
+}
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function compactCount(count: number): string {

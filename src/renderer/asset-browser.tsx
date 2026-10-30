@@ -17,6 +17,7 @@ export interface ProjectAssetFilters {
 
 export interface BrowsableAsset extends Omit<WorkspaceFile, "mediaType"> {
   mediaType: NonNullable<WorkspaceFile["mediaType"]>;
+  audio?: import("../shared/audio.js").AudioAssetData;
   projectId?: string;
   assetId?: string;
   projectName?: string;

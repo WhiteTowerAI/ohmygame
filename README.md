@@ -2,7 +2,9 @@
 
 <img src="docs/assets/banner.webp" alt="OhMyGame — the open-source studio for making games with AI" width="100%" />
 
-**Your own one-person game studio.** Everything you need to make games with AI, in one app. Bring your own key.
+**Your own one-person game studio.** Everything you need to make games with AI, in one app.
+
+**Make a game. Ship it everywhere. Earn from it.**
 
 <p>
   <a href="https://ohmygame.ai/download/mac"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" /></a>
@@ -27,6 +29,24 @@ https://github.com/user-attachments/assets/4d5805fe-92a2-40b4-a232-c7452f9a796a
 
 > [!NOTE]
 > 🚧 OhMyGame is in beta. Expect rough edges. Join us and let's build it together!
+
+## News
+
+<!-- Keep at most three entries, newest first, and only major releases.
+Updated during release preparation; see docs/maintaining.md. -->
+
+- **2026-10 · beta 5**
+  ([release notes](https://github.com/WhiteTowerAI/ohmygame/releases/tag/v0.0.0-beta.5.0))
+  - **Now with interactive stories:** make visual novels, interactive films,
+    and story games. Every screen is a web page the agent builds from your
+    description, with video, dialogue, choices, or even a mini-game, so your
+    story isn't limited to fixed node types.
+  - **Bring your own agent:** Claude Code, Codex, or OpenCode can run the
+    conversation, or you can bring OhMyGame to them.
+  - **Plugins:** build in Godot, Unity, Unreal Engine, or Cocos Creator; make
+    assets in Blender, Aseprite, or Tiled; ship to WeChat Mini Games, Douyin
+    Mini Games, or TapTap, and
+    [earn from your game](#-publish-and-earn-one-link-or-the-platforms-where-players-pay).
 
 ## What it is
 
@@ -55,12 +75,12 @@ per-run credits, and what you make is yours.
 ### 🤖 Agent: drives the canvas, builds and plays the game
 
 The agent works the canvas the way you would: it drafts the design doc, lays
-out boards, and generates assets on them. Then it reads the design doc, writes
-the code, and runs the game in a live preview. Then it opens the game in a window you can watch and plays it, including
-real-time canvas and WebGL games. When it finds a problem, it tries a fix and
-plays again. Along the way it can generate images, video, and 3D models, search
-the web, and use MCP servers or the Codex and Claude Code plugins you already
-have.
+out boards, and generates assets on them. It reads the design doc, writes the
+code, and runs the game in a live preview. Then it opens the game in a window
+you can watch and plays it, including real-time canvas and WebGL games. When it
+finds a problem, it tries a fix and plays again. Along the way it can generate
+images, video, 3D models, and audio, search the web, and use MCP servers and
+plugins.
 
 <!-- Playtesting is open loop for now: the agent plans a batch of inputs, runs
 them, then looks at the result. It has no real-time reflexes yet. -->
@@ -70,21 +90,42 @@ what it found (sped up 4×).**
 
 https://github.com/user-attachments/assets/3cb982e8-a4a8-4715-bf3c-df4e41e7855b
 
-### 🎨 Canvas: design docs, art, video, and 3D on one board
+### 🎨 Canvas: design docs, art, video, 3D, and audio on one board
 
 Every game project has a design space: a main design doc plus boards where
-the doc, images, video, and 3D models sit side by side. Nodes can use each
-other as references, so one character design can lead to more images, a video,
-or a rigged and animated 3D model. Results go into a shared Asset Library that
+the doc, images, video, 3D models, and audio sit side by side. Nodes can use
+each other as references, so one character design can lead to more images, a
+video, a voice line, or a rigged and animated 3D model. Results go into a shared Asset Library that
 your games can use.
 
 https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 
-### 🔗 Publish: one link, playable anywhere
+### 🔗 Publish and earn: one link, or the platforms where players pay
 
 Sign in and publish: OhMyGame builds your game and gives it a link anyone can
 play in the browser. Republishing updates the same link. Published games are
-listed in the in-app Community, where you can play what others have made.
+listed in the in-app Community, where you can play what others have made,
+sort by latest, most viewed, or most liked, visit creators' profiles, and like
+the games you enjoy.
+
+A one-person studio should pay for itself. Beyond the Community, plugins take
+your game to the platforms where players pay.
+
+| Ship to                                 | Earn from                | How                                                            |
+| --------------------------------------- | ------------------------ | -------------------------------------------------------------- |
+| WeChat Mini Games, Douyin Mini Games    | Ads, in-app purchases    | [Platform plugins](#-plugins-connect-with-more-game-dev-tools) |
+| TapTap                                  | Downloads, in-app purchases | TapTap Maker plugin                                         |
+| Steam and other stores                  | Sales                    | Export from Godot or Unity with their plugins                  |
+| itch.io, Poki, CrazyGames               | Sales, ad revenue share  | Upload your Web Game build                                     |
+
+**Your game, your revenue.** OhMyGame takes no cut of what your game earns.
+
+### 🧑‍💻 Bring your own agent
+
+Already use Claude Code, Codex, or OpenCode? Choose it in the model picker and
+it runs the conversation with its own sign-in. It gets the whole studio: the
+canvas, media generation, playtesting, plugins, and Undo, with your history
+kept in OhMyGame. See [coding agents](docs/coding-agents.md).
 
 ### 🔌 Use OhMyGame from Claude Code, Codex, and other agents
 
@@ -95,6 +136,18 @@ They get OhMyGame's media generation with your providers, the canvas, and
 playtesting, plus a Skill that explains the workflow. DeepSeek Harness and
 other MCP clients can add the `ohmygame-studio` command shown there. See
 [External agents](docs/external-agents.md).
+
+### 🧩 Plugins: connect with more game dev tools
+
+Plugins let the agent work in the engines and tools you already know:
+
+- **Engines:** Godot, Unity, Unreal Engine, and Cocos Creator.
+- **Platforms:** TapTap Maker, WeChat Mini Games, and Douyin Mini Games.
+- **Assets:** Blender, Aseprite, and Tiled.
+
+Turn them on in **Plugins**, or build your own with Plugin Builder. Engine
+plugins use each engine's own editor and tools, so install those first. See
+[Plugins](docs/plugins.md).
 
 ## What you can make
 
@@ -132,15 +185,14 @@ runtime is part of the project, so the agent can change anything about how it
 plays. The architecture and authoring model are documented in
 [Playable Nodes](docs/playable-nodes/README.md).
 
-<!-- TODO(asset): screenshot or GIF, Node Graph with two finished screens,
-made with OhMyGame. Leave out until there is a real one. -->
-
 ### 🎲 General games: any engine or stack
 
 **General Game** doesn't assume an engine or stack. Start from an idea, bring a
 project in any engine, or make tools and content for your game. The Game Studio
 plugin coordinates design, production art, implementation, and verification
-across engines.
+across engines, and the [engine plugins](#-plugins-connect-with-more-game-dev-tools)
+work in the engine you use. For Godot, start a **Godot** project from the
+sidebar.
 
 When the output is a web page, preview, playtesting, and publishing work as
 they do for Web games; native games use their engine's own tools. See
@@ -183,8 +235,9 @@ OhMyGame does not lock you into one model or charge per run.
   conversation with their own sign-in, while OhMyGame keeps its history, Undo,
   canvas, media tools, and plugins. Enable them in Settings; native CLI
   permission limits apply. See [coding agents](docs/coding-agents.md).
-- **Media models** for images, video, and 3D through OpenAI, OpenRouter,
-  Volcengine Ark / BytePlus ModelArk, and Meshy.
+- **Media models** for images, video, 3D, and audio through OpenAI, Codex,
+  OpenRouter, Volcengine Ark / BytePlus ModelArk, MiniMax, Meshy, Tripo,
+  Hyper3D, and Doubao Speech / Seed Audio.
 - **Custom providers and model aliases** with selectable language, image, video
   and 3D uses, protocol templates and generation defaults.
   See [custom model configuration](docs/custom-models.md).
@@ -196,86 +249,45 @@ game, or the renderer.
 
 ### Download
 
-See [the changelog](CHANGELOG.md) for changes in each release, or open
-**Settings → About → Changelog** inside the app.
-
 Grab the installer from the buttons at the top or from
 [Releases](https://github.com/WhiteTowerAI/ohmygame/releases). Builds are
 available for macOS (Apple silicon) and Windows (x64). The Windows build is
 not code-signed yet, so Windows may show a SmartScreen warning during install.
 
+See [the changelog](CHANGELOG.md) for changes in each release, or open
+**Settings → About → Changelog** inside the app.
+
 ### First run
 
 ![First-run AI connection screen](docs/assets/first-run-onboarding.png)
 
-OhMyGame ships without a model. On first launch, a small game world forms and
-transforms into the OhMyGame logo. The wordmark, **Your own game studio.**, and
-**Next** appear in sequence over about five seconds.
-Returning from a later setup step shows the welcome content immediately.
-Click **Next** to connect a model before your first prompt:
+OhMyGame ships without a model. On first launch, it walks you through setup:
 
-1. **Connect your AI.** OhMyGame (Pi) is enabled by default and uses your model
-   providers; connect a provider with sign-in or an API key, or use an installed
-   Claude Code, Codex or OpenCode CLI. Agents share one horizontally scrolling row. Use **+** beside
-   provider search to add a custom or local endpoint. CLI connections use their
-   own sign-in; choosing a connected agent enables it without changing its
-   permissions or personal configuration. Start by choosing an agent; the choices
-   then collapse into a compact row with **Switch** to reopen them.
-   Multiple agents can stay connected; choosing one does not disconnect the others.
-   Model provider setup belongs to OhMyGame. A check marks an enabled agent. Choose the
-   default conversation model below the selected agent's configuration; selections
-   are retained while switching agents and saved with **Next**. Sign-in,
-   API key and configuration actions use icons with tooltips. Connected
-   services show a check; disabled connections can be enabled without signing in again.
-   Selecting an uninstalled CLI shows setup guidance; its **Installation guide**
-   opens only when clicked, and **Check again** detects it after installation.
-   **Next** continues when a language model is ready; **Skip and start**
-   enters without setup. Setup resumes where you left off; existing installations
-   go straight to the studio.
-2. **Add creative tools (optional).** The last screen offers image, video, 3D,
-   and audio providers. Each category shows every provider; **+** adds a custom
-   provider inline. Choose a provider to connect and configure its
-   models using its configuration icon; a check marks a connected service.
-   Media default models can be set later in **Settings → Providers & Models**.
-   **Start creating** enters the studio without requiring any media connection.
-   A brief, single-line **Welcome, Gamer!** fades into the studio after setup; reduced-motion
-   preferences skip this animation.
-   These tools remain available in **Settings → Providers & Models**; coding
-   agents are managed in **Settings → Agents**. A language model alone can design
-   and build a game. Generating media needs a corresponding provider:
+1. **Connect your AI.** Sign in to a model provider or paste an API key, or use
+   a Claude Code, Codex, or OpenCode CLI you already have. Use **+** to add a
+   custom or local endpoint. **Skip and start** enters without setup.
+2. **Add creative tools (optional).** Connect image, video, 3D, and audio
+   providers now or later in **Settings → Providers & Models**. A language
+   model alone can design and build a game. Generating media needs a
+   corresponding provider:
 
    | To make                       | Connect                                                             |
    | ----------------------------- | ------------------------------------------------------------------- |
    | Design docs, code, playtests  | Any language model provider                                         |
    | Images and sprites            | Codex CLI (local sign-in), OpenAI (API key), OpenRouter, or Volcengine Ark / BytePlus ModelArk |
-   | Video                         | OpenRouter, or Volcengine Ark / BytePlus ModelArk                   |
+   | Video                         | OpenRouter, Volcengine Ark / BytePlus ModelArk, or MiniMax          |
    | 3D models, rigging, animation | Meshy, Tripo, or Hyper3D (capabilities vary by provider)              |
+   | Voice, sound effects, music   | Doubao Speech and Seed Audio (Volcengine)                           |
 
-   The **Codex CLI** image provider uses your local Codex sign-in and account
-   usage limits. Select **Codex Image** in the canvas or set it as your default
-   image source. It works with any conversation agent, even when Codex is off
-   in Agents; the terminal does not need to stay open. Multiple reference images
-   are supported within the app's shared 16-image limit; Codex manages output
-   dimensions.
+   ChatGPT sign-in doesn't cover OpenAI's image API; add a separate API key in
+   the OpenAI provider's **Image models** section. The **Codex CLI** image provider
+   uses your local Codex sign-in instead. See
+   [OpenAI image connections](docs/custom-models.md#openai-image-connections).
 
-   The OpenAI provider's ChatGPT browser sign-in does not cover its image API.
-   In the OpenAI provider's **Image models** section, configure a separate API key and Base URL,
-   fetch or manually add image models, enable them and save. This works alongside
-   browser sign-in and supports compatible GPT Image relays. API-key chat
-   connections can also share their key and endpoint with image generation.
+3. **Pick a model and describe your game** in the prompt box on the home screen.
 
-3. **Pick a model and describe your game.** Choose the model in the prompt box
-   on the home screen, then describe what you want to make.
-
-Web search works without setup. Sign in under **Account** only when you want
-to publish a game; making games locally needs no account.
-Reopen the welcome from **Settings → About → View getting started**.
-
-To move a project to another computer, choose **Export project** in its card
-menu. The ZIP file holds the workspace, project settings and cover, without
-dependencies, build output or `.env` files. Story settings uses the same project
-export. **Import project** on the Projects
-page opens it as a new project. See [Project archives](docs/project-archives.md).
+Web search works without setup. Making games locally needs no account; sign in
+only to publish. Reopen this setup from **Settings → About → View getting started**.
 
 ### Run from source
 
@@ -294,10 +306,6 @@ This uses the release branch. For development contributions, start from `dev`
 using [CONTRIBUTING.md](CONTRIBUTING.md#fork-and-create-a-branch).
 Local development can start without cloud configuration; see
 [CONTRIBUTING.md](CONTRIBUTING.md#configuration) for optional integrations.
-
-Design and Asset Canvas share boards, Markdown documents, and local media
-under `canvas/`. See [Canvas workspace](docs/canvas-agent.md) for the file
-contract and offline migration instructions.
 
 ## Privacy
 

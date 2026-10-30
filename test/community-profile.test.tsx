@@ -228,11 +228,9 @@ describe("game detail management", () => {
     mocks.auth.state = { status: "signed-in", user: { id: "viewer" } };
     await renderPlayer();
     expect(container.querySelector('[aria-label="Edit game"]')).toBeNull();
-    expect(mocks.cover).toHaveBeenCalledWith(
-      "listed",
-      "deployment-listed",
-      undefined,
-    );
+    expect(
+      container.querySelector(".electron-game-thumbnail img")?.getAttribute("src"),
+    ).toBe("https://play.example/listed/cover.webp");
     expect(
       container.querySelector('[aria-label="More game actions"]'),
     ).toBeNull();
@@ -346,11 +344,10 @@ describe("game detail management", () => {
     expect(
       container.querySelector('button[aria-label="Like Hidden game"]'),
     ).toBeNull();
-    expect(mocks.cover).toHaveBeenCalledWith(
-      "unlisted",
-      "deployment-unlisted",
-      "token",
-    );
+    // Hidden works keep live play links, so their hosted cover loads the same way.
+    expect(
+      container.querySelector(".electron-game-thumbnail img")?.getAttribute("src"),
+    ).toBe("https://play.example/unlisted/cover.webp");
     await click("Edit game");
     await submitEditor();
     expect(mocks.update).toHaveBeenCalledWith("unlisted", "token", {

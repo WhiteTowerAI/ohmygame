@@ -1,3 +1,4 @@
+import { AUDIO_SETTING_KEYS, audioExtension, audioCompanionFiles, type RunSceneAudioToolRequest } from "../shared/audio.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -301,15 +302,16 @@ export class ToolRunner {
       return this.#runVideo(input as RunVideoToolRequest, signal);
     }
     if (toolId === "generate-speech") {
-      assertOnlyKeys(input, ["text", "model", "voiceId", "language", "style", "speed", "output"]);
+      assertOnlyKeys(input, ["text", "model", "voiceId", "language", "style", "speed", "output", ...AUDIO_SETTING_KEYS]);
       return this.#runAudio(toolId, { operation: "speech", ...(input as RunSpeechToolRequest) }, signal);
     }
     if (toolId === "generate-sound-effect") {
-      assertOnlyKeys(input, ["prompt", "model", "durationSeconds", "loop", "negativePrompt", "output"]);
+      assertOnlyKeys(input, ["prompt", "model", "durationSeconds", "loop", "negativePrompt", "output", ...AUDIO_SETTING_KEYS]);
       return this.#runAudio(toolId, { operation: "sound-effect", ...(input as RunSoundEffectToolRequest) }, signal);
     }
+    if (toolId === "generate-audio") { assertOnlyKeys(input, ["prompt", "model", "durationSeconds", ...AUDIO_SETTING_KEYS]); return this.#runAudio(toolId, { ...(input as RunSceneAudioToolRequest), operation: "audio-scene" }, signal); }
     if (toolId === "generate-music") {
-      assertOnlyKeys(input, ["prompt", "model", "instrumental", "lyrics", "durationSeconds", "loop", "referenceAssetId", "output"]);
+      assertOnlyKeys(input, ["prompt", "model", "instrumental", "lyrics", "durationSeconds", "loop", "output", ...AUDIO_SETTING_KEYS]);
       return this.#runAudio(toolId, { operation: "music", ...(input as RunMusicToolRequest) }, signal);
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
@@ -567,7 +569,7 @@ export class ToolRunner {
     }
   }
 
-  async #runAudio(toolId: "generate-speech" | "generate-sound-effect" | "generate-music", input: AudioGenerationRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+  async #runAudio(toolId: "generate-speech" | "generate-sound-effect" | "generate-music" | "generate-audio", input: AudioGenerationRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
     if (!this.audioGenerator) throw new ToolRunError("Audio generation is not configured", 503);
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
@@ -577,14 +579,17 @@ export class ToolRunner {
       signal?.throwIfAborted();
       const generated = await this.audioGenerator.generate(input, signal);
       signal?.throwIfAborted();
-      const extension = generated.mediaType === "audio/wav" ? "wav" : "mp3";
+      const extension = audioExtension(generated.mediaType);
       const fileName = `output.${extension}`;
       const prompt = input.operation === "speech" ? input.text.trim()
         : input.operation === "dialogue" ? input.turns.map((turn) => turn.text.trim()).filter(Boolean).join("\n")
           : input.prompt.trim();
+      const audio = { ...(generated.metadata ? { metadata: generated.metadata } : {}), request: input };
+      const companions = audioCompanionFiles(fileName, audio);
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add(fileName, generated.bytes, {
           origin: "generated",
+          audio,
           prompt,
           sourceKey: `tool:${id}:${fileName}`,
           ...(generated.metadata?.durationMs !== undefined ? { duration: generated.metadata.durationMs / 1_000 } : {}),
@@ -598,12 +603,14 @@ export class ToolRunner {
         createdAt: new Date().toISOString(),
         files: [{
           name: fileName,
+          role: "audio",
           mediaType: generated.mediaType,
           ...(registeredAssetId ? { assetId: registeredAssetId } : {}),
-        }],
+        }, ...companions.map(({ name, mediaType, role }) => ({ name, mediaType, role }))],
       };
       await mkdir(temporary, { recursive: true });
       await writeFile(path.join(temporary, fileName), generated.bytes);
+      for (const companion of companions) await writeFile(path.join(temporary, companion.name), companion.text, "utf8");
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
       return publicRun(run);
@@ -714,6 +721,7 @@ function toolName(toolId: ToolId): string {
   if (toolId === "generate-speech") return "Generated Speech";
   if (toolId === "generate-sound-effect") return "Generated Sound Effect";
   if (toolId === "generate-music") return "Generated Music";
+  if (toolId === "generate-audio") return "Generated Audio";
   return "Generated Image";
 }
 
@@ -749,7 +757,7 @@ function isRunId(value: string): boolean {
 }
 
 function isToolRunFileName(value: string): boolean {
-  return /^(?:output(?:-[1-4])?\.(?:png|jpg|webp)|model\.glb|output\.(?:mp4|mp3|wav))$/.test(value);
+  return /^(?:output(?:-[1-4])?\.(?:png|jpg|webp)|model\.glb|output\.(?:mp4|mp3|wav|ogg)(?:\.(?:audio\.json|srt|vtt))?)$/.test(value);
 }
 
 function isToolId(value: unknown): value is ToolId {
@@ -764,7 +772,7 @@ function imageFileName(mediaType: string, index?: number): string {
 function selectedModel(toolId: string, input: RunToolRequest): ModelRef | undefined {
   if (toolId === "generate-image") return (input as RunImageToolRequest).imageModel;
   if (toolId === "generate-video" || toolId === "image-to-3d" || toolId === "animate-3d") return (input as RunVideoToolRequest | Run3DToolRequest).model;
-  if (toolId === "generate-speech" || toolId === "generate-sound-effect" || toolId === "generate-music") return (input as RunSpeechToolRequest | RunSoundEffectToolRequest | RunMusicToolRequest).model;
+  if (toolId === "generate-speech" || toolId === "generate-sound-effect" || toolId === "generate-music" || toolId === "generate-audio") return (input as RunSpeechToolRequest | RunSoundEffectToolRequest | RunMusicToolRequest).model;
   return undefined;
 }
 

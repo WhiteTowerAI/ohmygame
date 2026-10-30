@@ -1,0 +1,2 @@
+# Story Templates are copied into projects as they are; reformatting them changes what new stories start with.
+src/daemon/assets/story-templates/

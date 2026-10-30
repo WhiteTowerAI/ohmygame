@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { PassThrough } from "node:stream";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CODEX_IMAGE_MODEL,
   CodexImageProvider,
@@ -13,12 +13,41 @@ import { setAgentProcessSpawner } from "../src/daemon/agent-runtimes/process.js"
 import { ProviderImages } from "../src/daemon/provider-images.js";
 import { IMAGE_MAX_REFERENCE_IMAGES } from "../src/shared/contracts.js";
 
+type IdentityCallback = (error: Error | null, stdout: string) => void;
+const identityLookup = vi.hoisted(() =>
+  vi.fn<(done: IdentityCallback) => void>(),
+);
+vi.mock("node:child_process", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...original,
+    execFile: (
+      _command: unknown,
+      _args: unknown,
+      _options: unknown,
+      callback: IdentityCallback,
+    ) => {
+      identityLookup(callback);
+      return { stdin: { end() {} } };
+    },
+  };
+});
+
 const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
   "base64",
 );
 const roots: string[] = [];
+const pendingLookups: IdentityCallback[] = [];
+beforeEach(() => {
+  identityLookup.mockClear();
+  identityLookup.mockImplementation((done) =>
+    queueMicrotask(() => done(new Error("Identity unavailable"), "")),
+  );
+});
 afterEach(async () => {
+  for (const done of pendingLookups.splice(0))
+    done(new Error("Identity unavailable"), "");
   setAgentProcessSpawner(undefined);
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -31,6 +60,7 @@ function fakeServer(
     noImage?: boolean;
     failed?: boolean;
     hold?: string;
+    onRequest?: (message: Message) => void;
     onTurn?: (message: Message) => Promise<void>;
   } = {},
 ) {
@@ -66,6 +96,7 @@ function fakeServer(
     readline.createInterface({ input: stdin }).on("line", (line) => {
       const message = JSON.parse(line) as Message;
       calls.push(message);
+      options.onRequest?.(message);
       if (message.method === options.hold || message.method === "initialized")
         return;
       let result: unknown = {};
@@ -210,70 +241,82 @@ describe("Codex CLI image provider", () => {
     expect(cli.calls).toEqual([]);
   });
 
-  it("passes multiple references in order without staging files, generates once and deduplicates completed events", async () => {
-    const references = Array.from(
-      { length: IMAGE_MAX_REFERENCE_IMAGES },
-      (_, index) => ({
-        data: Buffer.concat([png, Buffer.from(`reference-${index}`)]).toString(
-          "base64",
+  it.each(["unavailable", "pending"])(
+    "passes references without staging files or waiting for an %s identity, and deduplicates completed events",
+    async (identity) => {
+      if (identity === "pending")
+        identityLookup.mockImplementation((done) => pendingLookups.push(done));
+      const references = Array.from(
+        { length: IMAGE_MAX_REFERENCE_IMAGES },
+        (_, index) => ({
+          data: Buffer.concat([
+            png,
+            Buffer.from(`reference-${index}`),
+          ]).toString("base64"),
+          mediaType: "image/png" as const,
+        }),
+      );
+      const cli = fakeServer({
+        onTurn: async (message) => {
+          expect(message.params.input).toEqual([
+            { type: "text", text: "An orange cat", text_elements: [] },
+            ...references.map((image) => ({
+              type: "image",
+              url: `data:${image.mediaType};base64,${image.data}`,
+            })),
+          ]);
+          const thread = cli.calls.find(
+            (call) => call.method === "thread/start",
+          )!;
+          // Ownership metadata is optional; reference images must never be staged.
+          expect(
+            (await readdir(thread.params.cwd)).filter(
+              (name) => name !== ".owner.json",
+            ),
+          ).toEqual([]);
+        },
+      });
+      const { provider, root, connect } = await setup();
+      expect(
+        await provider.generate({
+          prompt: "An orange cat",
+          images: references,
+        }),
+      ).toEqual({ bytes: png, mediaType: "image/png" });
+      expect(connect).toHaveBeenCalledWith(true);
+      expect(
+        cli.calls.some(
+          (call) => call.method === "modelProvider/capabilities/read",
         ),
-        mediaType: "image/png" as const,
-      }),
-    );
-    const cli = fakeServer({
-      onTurn: async (message) => {
-        expect(message.params.input).toEqual([
-          { type: "text", text: "An orange cat", text_elements: [] },
-          ...references.map((image) => ({
-            type: "image",
-            url: `data:${image.mediaType};base64,${image.data}`,
-          })),
-        ]);
-        const thread = cli.calls.find(
-          (call) => call.method === "thread/start",
-        )!;
-        expect(await readdir(thread.params.cwd)).toEqual([".owner.json"]);
-      },
-    });
-    const { provider, root, connect } = await setup();
-    expect(
-      await provider.generate({
-        prompt: "An orange cat",
-        images: references,
-      }),
-    ).toEqual({ bytes: png, mediaType: "image/png" });
-    expect(connect).toHaveBeenCalledWith(true);
-    expect(
-      cli.calls.some(
-        (call) => call.method === "modelProvider/capabilities/read",
-      ),
-    ).toBe(false);
-    const thread = cli.calls.find((call) => call.method === "thread/start")!;
-    expect(thread.params).toMatchObject({
-      ephemeral: true,
-      dynamicTools: [],
-      approvalPolicy: "never",
-      permissions: "ohmygame-image",
-      config: {
-        "mcp_servers.external.enabled": false,
-        "features.shell_tool": false,
-        "features.multi_agent": false,
-        permissions: {
-          "ohmygame-image": {
-            filesystem: {
-              [process.platform === "win32" ? ":root" : ":minimal"]: "read",
-              ":workspace_roots": { ".": "read" },
+      ).toBe(false);
+      const thread = cli.calls.find((call) => call.method === "thread/start")!;
+      expect(thread.params).toMatchObject({
+        ephemeral: true,
+        dynamicTools: [],
+        approvalPolicy: "never",
+        permissions: "ohmygame-image",
+        config: {
+          "mcp_servers.external.enabled": false,
+          "features.shell_tool": false,
+          "features.multi_agent": false,
+          permissions: {
+            "ohmygame-image": {
+              filesystem: {
+                [process.platform === "win32" ? ":root" : ":minimal"]: "read",
+                ":workspace_roots": { ".": "read" },
+              },
             },
           },
         },
-      },
-    });
-    expect(
-      cli.calls.filter((call) => call.method === "turn/start"),
-    ).toHaveLength(1);
-    expect(await readdir(path.join(root, "sessions"))).toEqual([]);
-    expect(cli.closed).toHaveBeenCalledOnce();
-  });
+      });
+      expect(
+        cli.calls.filter((call) => call.method === "turn/start"),
+      ).toHaveLength(1);
+      expect(await readdir(path.join(root, "sessions"))).toEqual([]);
+      expect(cli.closed).toHaveBeenCalledOnce();
+      expect(identityLookup).toHaveBeenCalled();
+    },
+  );
 
   it("rechecks saved login without launching an image-capability probe", async () => {
     const cli = fakeServer();
@@ -341,16 +384,21 @@ describe("Codex CLI image provider", () => {
   });
 
   it("cancels during thread startup and removes its private state", async () => {
-    const cli = fakeServer({ hold: "thread/start" });
+    let started!: () => void;
+    const threadStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const cli = fakeServer({
+      hold: "thread/start",
+      onRequest: (message) => {
+        if (message.method === "thread/start") started();
+      },
+    });
     const { provider, root } = await setup();
     const controller = new AbortController();
     const pending = provider.generate({ prompt: "A cat" }, controller.signal);
     void pending.catch(() => {});
-    await vi.waitFor(() =>
-      expect(cli.calls.some((call) => call.method === "thread/start")).toBe(
-        true,
-      ),
-    );
+    await threadStarted;
     controller.abort(new Error("Cancelled by user"));
     await expect(pending).rejects.toThrow("Cancelled by user");
     expect(cli.calls.some((call) => call.method === "turn/start")).toBe(false);

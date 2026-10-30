@@ -30,20 +30,18 @@ import type { PromptContext } from "../shared/contracts.js";
 import { playableElementContext, playableMoveRequest, playableTextEditRequest, type PlayableMoment } from "../shared/playable-chat-context.js";
 import {
   playableAssetType,
-  playableRuntimeKey,
   type PlayableProjectValidationIssue,
 } from "../shared/playable-editor.js";
-import { ensureProjectPreview, getNodeRuntime, playableSandboxUrl } from "./api.js";
+import { ensureProjectPreview, getNodeRuntime } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { LibraryAssetPicker, uploadLibraryFile, WorkbenchBreadcrumb, WorkbenchPreview } from "./node-workbench.js";
-import { createMemoryStorage, NodePlayer } from "./playable-player.js";
-import { loadPlayableAssets } from "./playable-assets.js";
+import { NodePlayer } from "./playable-player.js";
 import { playablePickKey, usePlayableChatReport, type PlayableChatState, type PlayableMediaAttachment, type PlayableStroke } from "./playable-chat.js";
 import { isTextEntry } from "./editor-canvas.js";
 import { t } from "./i18n.js";
 import { PlaytestControls, type PlaytestAction, type PlaytestStart } from "./playable-playtest.js";
 import { VideoTimeline, type TimelineMedia } from "./playable-video-timeline.js";
-import { playableBackdropDetails, type PlayableBackdropDetails } from "../shared/playable-backdrop.js";
+import type { PlayableBackdropDetails } from "../shared/playable-backdrop.js";
 import type { PlayableVideoClip } from "../shared/playable-video-clip.js";
 import { PlayableVideoTrimDialog } from "./playable-video-trim-dialog.js";
 import { readPlayableVideoTrimSource, type PlayableVideoTrimSource } from "./playable-video-trim-source.js";
@@ -64,8 +62,7 @@ export interface PlayableAssetRequest extends PlayableAssetDefinition {
 
 export interface PreviewRuntime {
   definition?: NodePlayerDefinition;
-  assets?: Record<string, Blob>;
-  /** A web story's page in the project preview, which plays instead of the sandbox. */
+  /** The story's page in the project preview. */
   page?: string;
   error?: string;
 }
@@ -172,7 +169,6 @@ export function PlayableNodeWorkbench({
   const [webTrimSource, setWebTrimSource] = useState<{ definition: NodePlayerDefinition; nodeId: string; value: PlayableVideoTrimSource }>();
   const mediaControl = useRef<((command: PlayableMediaCommand) => void) | null>(null);
   const videoWaiters = useRef(new Set<(media: PlayableMediaState | undefined) => void>());
-  const [storage] = useState(createMemoryStorage);
   const { toasts, show: showToast, dismiss: dismissToast } = usePreviewToasts();
   const page = useRef<HTMLElement>(null);
   const seenReport = useRef("");
@@ -360,15 +356,13 @@ export function PlayableNodeWorkbench({
     || issue.path.startsWith(`nodes/${node.id}/`)
     || Object.values(node.source).includes(issue.path));
   const errors = previewErrors(graph, node, nodeIssues, runtime.error, snapshot, diagnostics);
-  const ready = Boolean(runtime.definition && (runtime.assets || runtime.page));
+  const ready = Boolean(runtime.definition && runtime.page);
   const canSetBackdrop = Boolean(backdrop && onSetBackdrop);
   const canRemoveBackdrop = Boolean(backdrop === "set" && onRemoveBackdrop);
   const chooser = useMediaChooser((asset, target) => void addMedia(asset, target), (text) => showToast({ tone: "error", text }));
-  let videoBackground: PlayableBackdropDetails | undefined;
-  try { videoBackground = playableBackdropDetails(runtime.definition?.compiled.nodes[node.id]?.html ?? ""); } catch { /* Compiler reports invalid ranges. */ }
   const webTrim = webTrimSource && webTrimSource.definition === runtime.definition && webTrimSource.nodeId === node.id ? webTrimSource.value : undefined;
-  if (runtime.page) videoBackground = webTrim?.details;
-  const trimBlob = runtime.page ? webTrim?.blob : videoBackground?.type === "video" ? runtime.assets?.[videoBackground.assetId] : undefined;
+  const videoBackground = webTrim?.details;
+  const trimBlob = webTrim?.blob;
 
   // In the header, where the canvas has Playtest.
   const actions = <div className="story-node-editor-actions">
@@ -417,14 +411,10 @@ export function PlayableNodeWorkbench({
       />
     </>}
   >
-    {runtime.definition && (runtime.assets || runtime.page) ? <NodePlayer
+    {runtime.definition && runtime.page ? <NodePlayer
       key={session}
       definition={runtime.definition}
-      frameUrl={playableSandboxUrl()}
-      {...(runtime.page ? { page: runtime.page } : {})}
-      assets={runtime.assets ?? {}}
-      saveKey={`ohmygame:playable:preview:${projectId}`}
-      storage={storage}
+      page={runtime.page}
       preview={preview}
       {...(tool === "select" || tool === "text" || tool === "move" ? { tool } : {})}
       onPick={onPick}
@@ -790,28 +780,16 @@ function useDismiss(open: boolean, inside: readonly RefObject<HTMLElement | null
  */
 export function usePlayablePreviewRuntime(projectId: string, revision: number): PreviewRuntime {
   const [runtime, setRuntime] = useState<PreviewRuntime>({});
-  const runtimeKey = useRef<string | undefined>(undefined);
-  const assetCache = useRef(new Map<string, Blob>());
 
   useEffect(() => {
     let disposed = false;
     void getNodeRuntime(projectId).then(async (result) => {
       if (!result.available) throw new Error(t("sceneWorkbench.noScenes"));
-      if (result.web) {
-        // The page loads the project's files itself, so every revision plays afresh.
-        const { url } = await ensureProjectPreview(projectId);
-        if (!disposed) setRuntime({ definition: result.definition, page: url });
-        return;
-      }
-      const key = playableRuntimeKey(result.definition);
-      if (key === runtimeKey.current) {
-        if (!disposed) setRuntime((current) => ({ ...current, error: undefined }));
-        return;
-      }
-      const assets = await loadPlayableAssets(projectId, result.definition.graph, assetCache.current);
-      if (disposed) return;
-      runtimeKey.current = key;
-      setRuntime({ definition: result.definition, assets });
+      // A story from before web stories previews once the editor has upgraded it.
+      if (!result.web) throw new Error(t("sceneWorkbench.needsUpgrade"));
+      // The page loads the project's files itself, so every revision plays afresh.
+      const { url } = await ensureProjectPreview(projectId);
+      if (!disposed) setRuntime({ definition: result.definition, page: url });
     }).catch((cause) => {
       if (!disposed) setRuntime((current) => ({ ...current, error: errorMessage(cause) }));
     });

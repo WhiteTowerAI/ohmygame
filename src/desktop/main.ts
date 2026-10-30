@@ -27,8 +27,7 @@ import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-playe
 import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
 import { isNodeGraph } from "../shared/playable-graph-validation.js";
-import { isCompiledNodeGraph } from "../shared/playable-compiled.js";
-import type { PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
+import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { WebGamePlayerRequest, WebGamePreviewLayout } from "../shared/web-game-player.js";
@@ -52,10 +51,11 @@ let mainWindow: BrowserWindow | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
 /** A Node that fails to start never reports back; its window gives up after this. */
 const NODE_THUMBNAIL_TIMEOUT_MS = 20_000;
+const CANCELLED_THUMBNAIL: NodeThumbnailResult = { captured: false, error: "The capture was cancelled." };
 const nodeThumbnailCaptures = new AsyncTaskPool(2);
 const nodeThumbnailBatches = new Map<string, { projectId: string; controller: AbortController; requests: number; snapshot?: PlayableThumbnailSnapshot }>();
 /** Hidden Node thumbnail windows by WebContents ID. */
-const nodeThumbnails = new Map<number, { window: BrowserWindow; finish: (captured: boolean) => void; snapshot?: PlayableThumbnailSnapshot }>();
+const nodeThumbnails = new Map<number, { window: BrowserWindow; finish: (result: NodeThumbnailResult) => void; snapshot?: PlayableThumbnailSnapshot }>();
 /** Thumbnail windows run Node code, so they may only capture and report. */
 const NODE_THUMBNAIL_CHANNELS = new Set(["ohmygame:capture-page", "ohmygame:finish-node-thumbnail", "ohmygame:node-thumbnail-snapshot"]);
 
@@ -274,7 +274,7 @@ handle("ohmygame:prepare-node-thumbnails", (event, projectId: unknown, batchId: 
   if (!validRouteId(projectId) || !validRouteId(batchId) || nodeThumbnailBatches.has(batchId)
     || !snapshot || typeof snapshot.version !== "string" || (snapshot.web !== undefined && snapshot.web !== true)
     || snapshot.definition?.version !== 1 || typeof snapshot.definition.graphSignature !== "string"
-    || !isNodeGraph(snapshot.definition.graph) || !isCompiledNodeGraph(snapshot.definition.compiled, snapshot.definition.graph)) {
+    || !isNodeGraph(snapshot.definition.graph) || !isSceneHashes(snapshot.definition.hashes)) {
     throw new Error("Invalid thumbnail snapshot");
   }
   nodeThumbnailBatches.set(batchId, { projectId, snapshot, controller: new AbortController(), requests: 0 });
@@ -295,8 +295,10 @@ handle("ohmygame:cancel-node-thumbnails", (event, batchId: unknown) => {
   batch?.controller.abort();
   if (batch && !batch.requests) nodeThumbnailBatches.delete(batchId);
 });
-handle("ohmygame:finish-node-thumbnail", (event, captured: unknown) => {
-  nodeThumbnails.get(event.sender.id)?.finish(captured === true);
+handle("ohmygame:finish-node-thumbnail", (event, captured: unknown, error: unknown) => {
+  nodeThumbnails.get(event.sender.id)?.finish(captured === true
+    ? { captured: true }
+    : { captured: false, error: typeof error === "string" && error ? error.slice(0, 500) : "The capture failed." });
 });
 handle("ohmygame:agent-playtest-state", (event): PlaytestWatchState => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid Agent playtest source");
@@ -534,9 +536,6 @@ try {
     examplesDirectory: app.isPackaged
       ? path.join(process.resourcesPath, "examples")
       : path.join(repositoryRoot, ".runtime", "examples"),
-    playerDirectory: app.isPackaged
-      ? path.join(process.resourcesPath, "app.asar.unpacked", "dist", "player")
-      : undefined,
     ...(externalMcpLauncher ? { externalMcpLauncher } : {}),
     externalSkillDirectory: app.isPackaged
       ? path.join(process.resourcesPath, "integrations", "skills", "ohmygame-studio")
@@ -640,7 +639,7 @@ async function openMainWindow(): Promise<void> {
         }
         playtestWindows.clear();
         for (const batch of nodeThumbnailBatches.values()) batch.controller.abort();
-        for (const thumbnail of nodeThumbnails.values()) thumbnail.finish(false);
+        for (const thumbnail of nodeThumbnails.values()) thumbnail.finish(CANCELLED_THUMBNAIL);
       });
     },
   });
@@ -685,16 +684,23 @@ function captureBounds(value: unknown, content: Electron.Rectangle): Electron.Re
   return bounds;
 }
 
-async function scheduleNodeThumbnail(projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string): Promise<boolean> {
+async function scheduleNodeThumbnail(projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string): Promise<NodeThumbnailResult> {
   let batch = nodeThumbnailBatches.get(batchId);
   if (!batch) {
     batch = { projectId, controller: new AbortController(), requests: 0 };
     nodeThumbnailBatches.set(batchId, batch);
   } else if (batch.projectId !== projectId) throw new Error("Invalid thumbnail batch");
   batch.requests += 1;
+  const signal = batch.controller.signal;
   return nodeThumbnailCaptures.run(
-    () => captureNodeThumbnail(projectId, nodeId, viewport, batch.controller.signal, batch.snapshot), batch.controller.signal,
-  ).catch(() => false).finally(() => {
+    () => captureNodeThumbnail(projectId, nodeId, viewport, signal, batch.snapshot), signal,
+  ).catch((cause: unknown): NodeThumbnailResult => signal.aborted
+    ? CANCELLED_THUMBNAIL
+    : { captured: false, error: cause instanceof Error ? cause.message : String(cause) }).then((result) => {
+    // A cancelled capture says nothing about the Node; a failed one is kept for bug reports.
+    if (!result.captured && !signal.aborted) console.warn(`Node thumbnail "${nodeId}" was not captured: ${result.error}`);
+    return result;
+  }).finally(() => {
     batch.requests -= 1;
     if (!batch.requests) nodeThumbnailBatches.delete(batchId);
   });
@@ -702,15 +708,15 @@ async function scheduleNodeThumbnail(projectId: string, nodeId: string, viewport
 
 /**
  * Runs one Node in a hidden window. The page stores its own screenshot, with
- * the hash of what it ran, and then reports whether that worked.
+ * the hash of what it ran, and then reports whether that worked, or why not.
  */
-async function captureNodeThumbnail(projectId: string, nodeId: string, viewport: { width: number; height: number }, signal: AbortSignal, snapshot?: PlayableThumbnailSnapshot): Promise<boolean> {
-  if (!daemon || !mainWindow || signal.aborted) return false;
-  let finish!: (captured: boolean) => void;
-  const finished = new Promise<boolean>((resolve) => { finish = resolve; });
-  const cancel = () => finish(false);
+async function captureNodeThumbnail(projectId: string, nodeId: string, viewport: { width: number; height: number }, signal: AbortSignal, snapshot?: PlayableThumbnailSnapshot): Promise<NodeThumbnailResult> {
+  if (!daemon || !mainWindow || signal.aborted) return CANCELLED_THUMBNAIL;
+  let finish!: (result: NodeThumbnailResult) => void;
+  const finished = new Promise<NodeThumbnailResult>((resolve) => { finish = resolve; });
+  const cancel = () => finish(CANCELLED_THUMBNAIL);
   signal.addEventListener("abort", cancel, { once: true });
-  const timer = setTimeout(() => finish(false), NODE_THUMBNAIL_TIMEOUT_MS);
+  const timer = setTimeout(() => finish({ captured: false, error: `The Scene did not finish within ${NODE_THUMBNAIL_TIMEOUT_MS / 1000} seconds.` }), NODE_THUMBNAIL_TIMEOUT_MS);
   let thumbnailWindow: BrowserWindow | undefined;
   try {
     const opening = createDesktopWindow({
@@ -727,18 +733,23 @@ async function captureNodeThumbnail(projectId: string, nodeId: string, viewport:
         thumbnailWindow = window;
         const id = window.webContents.id;
         nodeThumbnails.set(id, { window, finish, snapshot });
-        window.once("closed", () => { nodeThumbnails.delete(id); finish(false); });
+        window.once("closed", () => { nodeThumbnails.delete(id); finish({ captured: false, error: "The capture window closed." }); });
       },
     });
-    const captured = await Promise.race([opening.then(() => finished), finished]);
-    return captured;
-  } catch {
-    return false;
+    return await Promise.race([opening.then(() => finished), finished]);
+  } catch (cause) {
+    return { captured: false, error: cause instanceof Error ? cause.message : String(cause) };
   } finally {
     signal.removeEventListener("abort", cancel);
     clearTimeout(timer);
     if (thumbnailWindow && !thumbnailWindow.isDestroyed()) thumbnailWindow.destroy();
   }
+}
+
+/** Each Scene's content hash, by Node ID, as the editor's build reports them. */
+function isSceneHashes(value: unknown): value is Record<string, string> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    && Object.values(value).every((hash) => typeof hash === "string" && /^[0-9a-f]{8,64}$/.test(hash));
 }
 
 function validRouteId(value: unknown): value is string {

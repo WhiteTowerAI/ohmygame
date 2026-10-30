@@ -66,14 +66,9 @@ console.log("opencode v2.1.0");
     if (route === "/api/agent")
       return response.end(
         JSON.stringify({
-          data: ["build", "plan"].map((id) => ({
-            id,
-            permissions: [{ action: "*", resource: "*", effect: "ask" }],
-          })),
+          data: ["build", "plan"].map((id) => ({ id })),
         }),
       );
-    if (route === "/api/permission/saved")
-      return response.end(JSON.stringify({ data: [] }));
     if (route === "/api/model")
       return response.end(
         JSON.stringify({
@@ -145,7 +140,6 @@ console.log("opencode v2.1.0");
         data: {
           id: "session-1",
           location: { directory: workspace },
-          permissions: [{ action: "*", resource: "*", effect: "ask" }],
         },
       }),
     );
@@ -226,7 +220,6 @@ console.log("opencode v2.1.0");
     tools: [echo],
     skillDirectories: [],
     instructions: "Fixture",
-    policy: { workspacePath: workspace, neverTouch: [] },
     requestApproval: async (details) => {
       asked.push(details);
       return "deny";
@@ -278,7 +271,7 @@ it.skipIf(process.platform === "win32")(
     expect(f.replies).toEqual([
       {
         decision: "reject",
-        message: expect.stringContaining("OhMyGame denied"),
+        message: expect.stringContaining("The person denied"),
       },
     ]);
     f.emit("session.execution.succeeded");
@@ -322,7 +315,7 @@ it.skipIf(process.platform === "win32")(
     expect(f.replies).toEqual([
       {
         decision: "reject",
-        message: expect.stringContaining("OhMyGame denied"),
+        message: expect.stringContaining("The person denied"),
       },
       { decision: "reject" },
       { decision: "reject" },

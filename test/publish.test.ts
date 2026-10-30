@@ -105,16 +105,10 @@ describePublishContract("remote publish", () => {
   it("builds and publishes an Interactive Story as a static game", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Story", "interactive-story");
-    // A story not yet upgraded to a web story publishes with the Published Player.
-    await playInSandbox(project.workspacePath);
     const videoContents = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
-    const video = (await runtime.daemon.inject({
-      method: "POST",
-      url: "/library/assets/upload?name=clip.mp4&mediaType=video%2Fmp4&duration=1",
-      headers: { "content-type": "application/octet-stream" },
-      payload: videoContents,
-    })).json();
-    await writePublishableGraph(project.workspacePath, video.id);
+    await mkdir(path.join(project.workspacePath, "assets"), { recursive: true });
+    await writeFile(path.join(project.workspacePath, "assets", "clip.mp4"), videoContents);
+    await writePublishableGraph(project.workspacePath, "assets/clip.mp4");
 
     const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/build` });
     expect(built.statusCode).toBe(200);
@@ -122,25 +116,19 @@ describePublishContract("remote publish", () => {
 
     const published = await publishProject(runtime.daemon, project.id);
     expect(published.statusCode, published.body).toBe(201);
+    // The story publishes as its own page, with the runtime and the media it uses.
     const output = path.join(runtime.publishData, "artifacts", published.json().deployment.id);
-    expect(await readFile(path.join(output, "index.html"), "utf8")).toContain("Published player");
-    expect(await readFile(path.join(output, "playable-sandbox.html"), "utf8")).toContain("Playable sandbox");
-    const manifest = JSON.parse(await readFile(path.join(output, "manifest.json"), "utf8"));
-    expect(manifest).toMatchObject({
-      version: 1,
-      runtime: "playable-nodes",
-      scope: `published:${project.id}`,
-      assets: { clip: { type: "video", contentType: "video/mp4", size: videoContents.length } },
-    });
-    expect(await readFile(path.join(output, ...manifest.assets.clip.path.slice(2).split("/")))).toEqual(videoContents);
+    expect(await readFile(path.join(output, "index.html"), "utf8")).toContain("story/story-web/runtime.js");
+    expect(existsSync(path.join(output, "story", "story-web", "runtime.js"))).toBe(true);
+    expect(await readFile(path.join(output, "assets", "clip.mp4"))).toEqual(videoContents);
   }, 20_000);
 
   it("builds a local Interactive Story larger than the former 25 MiB publish limit", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Large Story", "interactive-story");
-    await playInSandbox(project.workspacePath);
-    await writePublishableGraph(project.workspacePath);
-    await writeFile(path.join(runtime.playerDirectory, "large.bin"), randomBytes(26 * 1024 * 1024));
+    await mkdir(path.join(project.workspacePath, "assets"), { recursive: true });
+    await writeFile(path.join(project.workspacePath, "assets", "clip.webm"), randomBytes(26 * 1024 * 1024));
+    await writePublishableGraph(project.workspacePath, "assets/clip.webm");
 
     const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/build` });
 
@@ -550,17 +538,13 @@ describePublishContract("remote publish", () => {
 
 /** The Ash Club fixture, whose Signals are all connected, with an optional Library video. */
 /** A story from before web stories: no page and no runtime of its own. */
-async function playInSandbox(workspacePath: string): Promise<void> {
-  await rm(path.join(workspacePath, "index.html"));
-  await rm(path.join(workspacePath, "story"), { recursive: true });
-}
-
-async function writePublishableGraph(workspacePath: string, clipAssetId?: string): Promise<void> {
+/** A story whose first Scene uses the video at `clipPath` in the workspace, when given. */
+async function writePublishableGraph(workspacePath: string, clipPath?: string): Promise<void> {
   const graph = createNodeGraphFixture();
   delete graph.assets.theme;
   for (const node of graph.nodes) node.assets = node.assets.filter((id) => id !== "theme");
-  if (clipAssetId) {
-    graph.assets.clip = { type: "video", source: { kind: "library", assetId: clipAssetId } };
+  if (clipPath) {
+    graph.assets.clip = { type: "video", source: { kind: "workspace", path: clipPath } };
     graph.nodes[0]!.assets.push("clip");
   }
   await rm(path.join(workspacePath, "nodes"), { recursive: true, force: true });
@@ -578,22 +562,15 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
   });
   apps.push(publishServer);
   const apiUrl = await publishServer.listen({ host: "127.0.0.1", port: 0 });
-  const playerDirectory = await temporary("ohmygame-player-");
-  await writeFile(path.join(playerDirectory, "index.html"), "<h1>Published player</h1>");
-  await writeFile(path.join(playerDirectory, "player.js"), "window.player = true");
-  await mkdir(path.join(playerDirectory, "assets"), { recursive: true });
-  await writeFile(path.join(playerDirectory, "playable-sandbox.html"), "Playable sandbox");
-  await writeFile(path.join(playerDirectory, "assets", "playable-sandbox.js"), "window.sandbox = true");
   const daemon = createApp({
     dataDirectory: dataDirectory ?? await temporary("ohmygame-daemon-"),
     publishApiUrl: apiUrl,
     publishFetch,
     imageGenerator,
-    interactiveStoryPlayerDirectory: playerDirectory,
   });
   apps.push(daemon);
   await daemon.ready();
-  return { apiUrl, daemon, playerDirectory, publishData, publishServer };
+  return { apiUrl, daemon, publishData, publishServer };
 }
 
 async function createProject(app: FastifyInstance, name: string, type?: "general" | "web-game" | "interactive-story") {

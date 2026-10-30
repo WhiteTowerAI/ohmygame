@@ -17,7 +17,37 @@ const model = (id: string, visible = true) => ({
   visible,
   custom: false,
 });
+const audioProviders: ProviderSummary[] = [
+  {
+    id: "volcengine-tts",
+    name: "Doubao Speech",
+    configured: true,
+    enabled: true,
+    status: "connected",
+    capabilities: ["audio"],
+    methods: [],
+  },
+  {
+    id: "volcengine-seed-audio",
+    name: "Doubao Seed Audio",
+    configured: true,
+    enabled: true,
+    status: "connected",
+    capabilities: ["audio"],
+    methods: [],
+  },
+];
 const api = {
+  listProviders: vi.fn(async () => audioProviders),
+  getVolcengineTtsSettings: vi.fn(async () => ({
+    configured: true,
+    defaultVoiceId: "zh_female_vv_uranus_bigtts",
+  })),
+  listAudioModelCatalog: vi.fn(async () => ({ models: [], providers: [] })),
+  setProviderEnabled: vi.fn(async (id: string, enabled: boolean) => ({
+    ...audioProviders.find((provider) => provider.id === id)!,
+    enabled,
+  })),
   getOpenAIEndpointSettings: vi.fn(async () => ({
     baseUrl: "https://api.openai.com/v1",
   })),
@@ -80,11 +110,11 @@ const openai: ProviderSummary = {
   ],
 };
 
-async function render(onViewChange = vi.fn()) {
+async function render(onViewChange = vi.fn(), provider = openai) {
   await act(async () =>
     root.render(
       <ModelsSettings
-        view={{ page: "provider", provider: openai }}
+        view={{ page: "provider", provider }}
         onViewChange={onViewChange}
         onOpenAgents={() => {}}
       />,
@@ -130,6 +160,23 @@ it("confirms before removing the provider", async () => {
   await act(async () => host.querySelector<HTMLButtonElement>(".settings-provider-detail-header .settings-provider-delete")!.click());
   await act(async () => button("Delete provider")!.click());
   expect(api.removeProvider).toHaveBeenCalledWith("openai");
+});
+
+it.each(audioProviders)("keeps $name settings and actions independent", async (provider) => {
+  await render(vi.fn(), provider);
+  const header = host.querySelector(".settings-provider-detail-header")!;
+  const toggle = header.querySelector<HTMLInputElement>('[role="switch"]')!;
+  expect(toggle.getAttribute("aria-label")).toBe(`Enable ${provider.name}`);
+  expect(host.querySelector(".settings-provider-filters")).toBeNull();
+  expect(host.querySelector(`#${provider.id}-api-key`)).toBeTruthy();
+  if (provider.id === "volcengine-tts") expect(host.querySelector<HTMLSelectElement>("#volcengine-tts-voice-select")!.value).toBe("zh_female_vv_uranus_bigtts");
+  else expect(host.querySelector("#volcengine-tts-voice-select")).toBeNull();
+  await act(async () => toggle.click());
+  expect(api.setProviderEnabled).toHaveBeenCalledWith(provider.id, false);
+  await act(async () => header.querySelector<HTMLButtonElement>(".settings-provider-delete")!.click());
+  expect(api.removeProvider).not.toHaveBeenCalled();
+  await act(async () => button("Delete provider")!.click());
+  expect(api.removeProvider).toHaveBeenCalledWith(provider.id);
 });
 
 it("puts the default model first and keeps hidden models behind a toggle", async () => {

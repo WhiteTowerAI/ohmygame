@@ -25,15 +25,15 @@ replace the whole interface.
 ## Upgrading a story
 
 Interactive Stories play as their own web page (see
-[runtime.md](runtime.md#page-and-lifecycle)). A story made before that plays
-in OhMyGame's sandbox, and the Story canvas shows a notice at the top:
-"This story plays in the old sandbox. Upgrade it to play as its own web page,
-which the AI can change entirely, from saving to music," with **Upgrade** and
-the details of what it does. Upgrading takes a checkpoint first; the notice
-then says the story plays as its own page and offers **Undo upgrade**.
-Closing the notice keeps the upgrade for good, and Undo upgrade is no longer
-offered. Unsaved edits are saved before either, and every
-editor reloads after.
+[runtime.md](runtime.md#page-and-lifecycle)). A story made before that was
+made for a sandbox OhMyGame no longer has, and cannot play until it is
+upgraded. The Story editor upgrades it as soon as the canvas has loaded:
+unsaved edits are saved first, the upgrade takes a checkpoint, and every
+editor reloads after. There is no way back to the sandbox. If the upgrade
+fails, for example while the Agent is still working, the canvas says why with
+**Try again** and the details of what upgrading does. Until then, Playtest
+asks the author to open the story in the editor, and the Workbench preview
+says the story is being upgraded.
 
 Upgrading copies the Library media the story uses into the project. A
 published story cannot reach media left in the Library, such as one the
@@ -82,9 +82,11 @@ The workspace keeps the current Interactive Story layout:
 ### Source files
 
 The **Code** tab is always available beside **Story** and **Design**. It shows
-the project's files and their contents. Scene cards use readable names;
-the Variables panel shows starting values in author words and includes the
-raw JSON value in each value's tooltip.
+the project's files and their contents. Scene cards use readable names.
+
+The **Assets** tab, as in a web game, shows the project's images, videos,
+audio, and models in one grid, with filters and search. **Show in Code** opens
+an asset's file in the Code tab. The editor reopens on Story, not Assets.
 
 ## Flow canvas
 
@@ -101,8 +103,6 @@ Each Scene card shows:
   ([Variables](#variables));
 - a **Start** badge on the Scene the player starts in (**Set as Start**
   moves it);
-- an **Ending** badge on a Scene included in the [Story map](#story-map)
-  that counts as an ending;
 - an issue marker when the Scene fails to build, emits an undeclared Signal,
   or has an Exit that goes nowhere.
 
@@ -156,6 +156,14 @@ Start.
 A Template (Preset) is starter content plus instructions for the Agent. It is
 not stored as a type, and a Scene created from "Main menu" can later become
 anything.
+
+Template content is ordinary files under `src/daemon/assets/story-templates/`:
+`project/` is the Project Style every story starts with, `<id>/scene/` is the
+Scene a Template creates, and `<id>/project/` holds shared files the Template
+adds when a project lacks them. `{{title}}` in a Scene's HTML becomes its
+title and `{{id}}` its ID. `src/daemon/playable-presets.ts` keeps each
+Template's name, summary, brief, and Signals. The files are copied into
+projects as they are, so Prettier skips them.
 
 ## Scene Workbench
 
@@ -244,7 +252,7 @@ with Shift.
 
 The timeline points at moments; it changes no files. Changing the video
 itself, such as cutting it, is media work outside the Scene. It is editor
-tooling run by the sandbox host, like picking, and the Published Player has
+tooling run by the editor bridge, like picking, and a published game has
 none of it.
 
 ### Issues
@@ -352,19 +360,8 @@ content such as item definitions lives in shared code.
 
 The author asks for them in chat ("a trust of three or more leads to the
 good ending"), and the Agent adds each one with a starting value and a
-one-line description. **Project ▾ → Variables** lists them read-only:
-
-```text
-Variables                                         ×
-What the game remembers from Scene to Scene...
-  trust          How much the guard trusts you   Starts 0
-  inventory      What the player carries         Starts empty
-  boarded        Whether the player boarded      Starts No
-Ask the AI to add or change them.
-```
-
-Starting values read in author words (Yes/No, empty, "3 items"); their tooltips
-include the raw value. There is no form to add, delete, or edit them.
+one-line description, in `graph.json`. The editor does not list them; Playtest
+shows their values while the story runs.
 
 A branch shows as Exits. A Scene that goes different ways declares one Exit
 per outcome, and the Agent writes when each is taken. The canvas shows it on
@@ -449,20 +446,19 @@ lead to it, and branches spread side by side. What it leaves out:
 - Exits with **Allow Back** lead to side screens, such as an archive, and
   Navigation Exits lead around the game, so neither is a step in the story;
 - connections back up the story, such as retrying after a failed QTE;
-- Scenes marked off the map. Main menu and Story map Scenes start off it.
-  The Scenes before and after one are joined, so a menu between two Scenes
-  links them directly.
+- Scenes the Story map Scene lists as off the map: by default the Main menu
+  and itself, by their Template IDs. The Scenes before and after one are
+  joined, so a menu between two Scenes links them directly.
 
 Players see the Scenes they have reached, by name, and the Scenes one step
 past them as locked **???**, with a line for each way they went and a count
 of Scenes and endings found. What they have seen lasts across new games.
 
-The author decides only what the map cannot guess, from a Scene's context
-menu: **On Story map**, and **Ending**. A Scene with no Exits other than
-Navigation ones is guessed to be an ending. The Agent can set both, and the
-name players see when it should differ from the Scene's title. Asking the
-Agent changes how the map looks, since it is the Scene's own code.
-Map inclusion is shown in the context menu, without a badge on the Scene card.
+A Scene with no Exits other than Navigation ones is guessed to be an ending.
+Everything the map cannot guess, such as which Scenes are off it, which are
+endings, and names players should see instead of titles, is the Story map
+Scene's own code, like how it looks: the author asks the Agent. The canvas
+shows none of it; OhMyGame keeps only what the player has seen.
 
 The Workbench previews a Story map Scene with everything seen, so the author
 sees the whole map while editing; Playtest shows what they have played.
@@ -632,11 +628,10 @@ web story's are taken from its own page, opened at the Scene without sound.
 - The canvas captures every Scene that has no thumbnail, or one of an older
   build, without it being opened: the desktop app runs the Scene in a hidden
   window, with at most two captures running together, as the Workbench preview
-  runs it. Each batch shares the editor's successful compiled build and
-  workspace version instead of compiling the whole project for each Scene.
-  A new build cancels the previous batch; its compiled snapshot is released
-  when the captures finish or are cancelled.
-  Sandboxed captures load only the assets declared by that Scene.
+  runs it. Each batch shares the editor's successful build and workspace
+  version instead of checking the whole project for each Scene. A new build
+  cancels the previous batch; its build snapshot is released when the
+  captures finish or are cancelled.
 - The Scene is captured through the desktop `capturePage` capability, the
   same mechanism that captures Web Game project covers, about one second
   after it reports ready. A run with errors is not captured. Captures keep
@@ -646,11 +641,16 @@ web story's are taken from its own page, opened at the Scene without sound.
 - Thumbnails are editor cache stored under `.ohmygame/thumbnails/` in the
   workspace. They are not part of `graph.json`, `editor/layout.json`, or the
   published project.
-- A thumbnail records the hash of the Scene's compiled output. When the source
-  changes, the card keeps the old image with a _stale_ marker until the next
+- A thumbnail records the Scene's content hash: its files and everything they
+  import, its Assets, and the viewport. When any of them changes, the card keeps the old image with a _stale_ marker until the next
   capture replaces it.
+- A capture that fails is remembered with the hash it ran. The card shows a
+  _capture failed_ marker whose tooltip gives the reason, the desktop log
+  records it, and that version is not captured again until the Scene changes
+  or the project is opened again. A cancelled capture is not a failure.
 - A Scene that has no thumbnail yet, or whose run fails, shows its first
-  declared image asset, or a neutral card with its title.
+  declared image asset, else the first frame of its first video, else a
+  neutral card with its title.
 - A Scene that fails to build shows its last good thumbnail dimmed with an
   error marker; opening it shows the error in the Workbench.
 - When the capture capability is unavailable (for example in the browser
@@ -661,32 +661,31 @@ The same capture is attached to Agent requests about that Scene.
 ### Element picking, text editing, and moving
 
 Picking (**Select**), in-place editing (**Text**), and moving (**Move**) are editor tooling
-implemented by the editor bridge the preview injects into the story's page (or
-by the sandbox host, for a story that has not been upgraded), not by node
-code. A published game never has them.
+implemented by the editor bridge the preview injects into the story's page,
+not by Scene code. A published game never has them.
 
 1. **Select**, **Text**, or **Move** puts the preview into pick mode. The bridge
-   draws a hover outline inside the node's surface and blocks node input.
-2. With **Select**, clicking returns a **picked element** description: node
-   ID, source location when known, CSS path within the node root, tag,
+   draws a hover outline inside the Scene's surface and blocks its input.
+2. With **Select**, clicking returns a **picked element** description: Scene
+   ID, source location when known, CSS path within the Scene's root, tag,
    visible text excerpt, bounding box, and the Exit (`data-signal`) it
    belongs to. Shift-, ⌘- or Ctrl-click adds it to the picks.
 3. Preview builds add an inert `data-ohmygame-source="index.html:12:5"`
-   attribute to every element written in the node's HTML. Elements created by
+   attribute to every element written in the Scene's HTML. Elements created by
    JavaScript have no such attribute; the description then gives the source
    location of the nearest element around it that was written in the HTML,
    and the Agent finds the element from there. An element with none, such as
-   one a script adds straight to the node's root, cannot be picked with
+   one a script adds straight to the Scene's root, cannot be picked with
    **Select** or edited with **Text**: **Select** shows no hover outline for
    it and a click does nothing.
 4. With **Text**, clicking makes the element editable. On Enter the host
    reports the text before and after, and whether the element holds only text
-   and came from the node's HTML. The editor then replaces that element's
+   and came from the Scene's HTML. The editor then replaces that element's
    text in the source file, only if the file still reads the old text;
    anything else goes to the Agent.
 5. With **Move**, dragging moves the element with an inline `translate`
    added to the one it had. On release the host reports the element and its
-   new offset in cqw and cqh, and whether it came from the node's HTML with
+   new offset in cqw and cqh, and whether it came from the Scene's HTML with
    no animation of its own that overrides `translate`. The editor then sets
    `translate` in that element's `style` attribute, only if the source still
    has the same tag there; anything else goes to the Agent. The Project
@@ -701,10 +700,23 @@ code. A published game never has them.
 
 "Advance when the video ends" is Scene content, not a Runtime feature. The
 Project Style includes a small `playScene()` component that shows the
-Scene's background and emits a given Signal when the video ends or the
-player clicks. Blank uses it. Authors who want something
-else (a choice over the last frame, a loop until input) change the Scene like
-any other.
+Scene's background and emits a given Signal when the player moves on. A Scene
+another Scene opened with Allow Back can pass `onDone` instead, such as
+`(context) => context.navigation.back()`, to return there:
+
+- A video plays to its end, as in an interactive film. A click does not cut
+  it short. Over a video the player has seen before
+  (`context.story.seenBefore`), the Scene's `[data-skip]` button shows and
+  moves on.
+- A still image, or no background, moves on with a click, and the Scene's
+  `.continue-hint` shows.
+- A video that fails to load or cannot start playing falls back to a click,
+  so the player is never stuck.
+
+Blank uses it, with its hint and Skip button in its HTML so they can be
+reworded in the project's language. Authors who want something else (a
+choice over the last frame, a loop until input) change the Scene like any
+other.
 
 This keeps the Runtime free of media-ended and timer transitions while the
 most common interactive-film case needs no code.
@@ -744,13 +756,13 @@ does not reduce the download size. Custom media helpers are preserved.
 The Agent can also trim it: “Keep 3.2 through 8.75 seconds of this Scene's
 background video.” No new video is generated or transcoded.
 
-### Multi-node Agent changes
+### Multi-Scene Agent changes
 
 The Agent may create several Scenes and Exits in one turn. The turn
 review below is not built yet.
 
 - Before each Agent turn, the editor records a checkpoint of `graph.json`,
-  `editor/layout.json`, and the node and `shared/` source files.
+  `editor/layout.json`, and the Scene and `shared/` source files.
 - After the turn, the canvas highlights the change set: new Scenes and
   connections marked **New**, changed Scenes marked **Edited**, removed ones
   listed in a

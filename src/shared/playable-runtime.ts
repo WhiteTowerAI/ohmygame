@@ -1,7 +1,3 @@
-import type {
-  CompiledNodeGraph,
-  CompiledPlayableSurface,
-} from "./playable-compiled.js";
 import {
   playableEdgeForSignal,
   playableNodeById,
@@ -26,12 +22,9 @@ import {
 } from "./playable-nodes.js";
 import {
   emptyPlayableSeen,
-  layoutPlayableStory,
   parsePlayableSeen,
-  playableStoryMap,
   type PlayableSeen,
-  type PlayableStoryLayout,
-} from "./playable-story-map.js";
+} from "./playable-seen.js";
 import {
   cloneJsonObject,
   createPlayableState,
@@ -113,15 +106,23 @@ export interface PlayableMountedSurface {
   destroy(): void | Promise<void>;
 }
 
+/** A Node's files, by their paths in the project, as graph.json declares them. */
+export interface PlayableSurface {
+  id: string;
+  html: string;
+  css: string;
+  javascript: string;
+}
+
 export interface PlayableSurfaceHost {
   mountNode(
-    surface: CompiledPlayableSurface,
+    surface: PlayableSurface,
     context: Omit<PlayableNodeContext, "root">,
   ): Promise<PlayableMountedSurface>;
 }
 
 /**
- * `follow` navigates on Signals (Playtest and Published Player). `report`
+ * `follow` navigates on Signals (Playtest and the published game). `report`
  * validates navigation requests and reports where they would lead while the
  * current Node stays mounted (Workbench preview).
  */
@@ -129,7 +130,6 @@ export type NodeRuntimePolicy = "follow" | "report";
 
 export interface NodeRuntimeOptions {
   graph: NodeGraph;
-  compiled: CompiledNodeGraph;
   graphSignature: string;
   surfaceHost: PlayableSurfaceHost;
   saveStore: PlayableSaveStore;
@@ -145,8 +145,6 @@ export interface NodeRuntimeOptions {
   policy?: NodeRuntimePolicy;
   /** Node to enter instead of `entryNodeId`. */
   startNodeId?: string;
-  /** Overrides applied to `initialState` for this session; keys must be declared. */
-  previewState?: JsonObject;
   now?: () => Date;
   onError?: (error: unknown) => void;
   /** Called whenever the diagnostics snapshot may have changed. */
@@ -238,7 +236,7 @@ export type NodeRuntimeErrorCode =
   | "runtime-failed"
   | "navigation-in-progress"
   | "stale-surface"
-  | "missing-compiled-surface"
+  | "missing-node"
   | "missing-asset-url"
   | "undeclared-asset"
   | "no-save"
@@ -273,7 +271,6 @@ interface SurfaceToken {
 
 export class NodeRuntime {
   readonly #graph: NodeGraph;
-  readonly #compiled: CompiledNodeGraph;
   readonly #graphSignature: string;
   readonly #surfaceHost: PlayableSurfaceHost;
   readonly #saveStore: PlayableSaveStore;
@@ -315,7 +312,6 @@ export class NodeRuntime {
   #seen: PlayableSeen = emptyPlayableSeen();
   #seenQueue: Promise<void> = Promise.resolve();
   #seenSaveFailed = false;
-  #storyLayout?: PlayableStoryLayout;
   #positions: PlayablePositions = NO_POSITIONS;
   #music?: string;
   /** Slots as stored, including ones this version cannot load. */
@@ -327,7 +323,6 @@ export class NodeRuntime {
 
   constructor(options: NodeRuntimeOptions) {
     this.#graph = options.graph;
-    this.#compiled = options.compiled;
     this.#graphSignature = options.graphSignature;
     this.#surfaceHost = options.surfaceHost;
     this.#saveStore = options.saveStore;
@@ -349,13 +344,7 @@ export class NodeRuntime {
         );
       this.#navigation = { currentNodeId: options.startNodeId, backStack: [] };
     }
-    this.#state = options.previewState
-      ? patchPlayableState(
-          options.graph.initialState,
-          options.graph.initialState,
-          options.previewState,
-        )
-      : createPlayableState(options.graph.initialState);
+    this.#state = createPlayableState(options.graph.initialState);
   }
 
   async start(): Promise<void> {
@@ -642,15 +631,10 @@ export class NodeRuntime {
     const node = playableNodeById(this.#graph, nodeId);
     if (!node)
       throw new NodeRuntimeError(
-        "missing-compiled-surface",
+        "missing-node",
         `Playable Node "${nodeId}" is missing.`,
       );
-    const surface = this.#compiled.nodes[nodeId];
-    if (!surface)
-      throw new NodeRuntimeError(
-        "missing-compiled-surface",
-        `Compiled Playable Node "${nodeId}" is missing.`,
-      );
+    const surface: PlayableSurface = { id: node.id, ...node.source };
     const token: SurfaceToken = {
       surfaceId: nodeId,
       active: true,
@@ -658,8 +642,12 @@ export class NodeRuntime {
     };
     const abortController = new AbortController();
     this.#mountingAbortController = abortController;
+    const base = this.#baseContext(token, abortController, node.assets);
+    // A Node is marked seen once it has mounted, so this counts earlier visits only.
+    const seenBefore = this.#policy !== "report" && Object.hasOwn(this.#seen.nodes, nodeId);
     const context: Omit<PlayableNodeContext, "root"> = {
-      ...this.#baseContext(token, abortController, node.assets),
+      ...base,
+      story: { ...base.story, seenBefore },
       navigation: {
         emit: this.#guardAsync(token, (signal: string) =>
           this.#emit(token, signal),
@@ -767,11 +755,14 @@ export class NodeRuntime {
         deleteSlot: this.#guardAsync(token, (id: string) => this.#deleteSlot(token, id)),
       },
       story: {
-        map: this.#guard(token, () => {
+        seen: this.#guard(token, () => {
           this.#assertSurfaceActive(token);
-          this.#storyLayout ??= layoutPlayableStory(this.#graph);
-          // A preview shows the author the whole map, not one player's progress.
-          return playableStoryMap(this.#storyLayout, this.#policy === "report" ? "all" : this.#seen);
+          // A preview shows the author everything, not one player's progress.
+          if (this.#policy === "report") {
+            const all = (ids: string[]) => Object.fromEntries(ids.map((id) => [id, ""]));
+            return { version: 1, nodes: all(this.#graph.nodes.map((node) => node.id)), edges: all(this.#graph.edges.map((edge) => edge.id)) };
+          }
+          return structuredClone(this.#seen);
         }),
       },
       lifecycle: { signal: abortController.signal },

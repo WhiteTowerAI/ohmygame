@@ -19,8 +19,8 @@ export interface PreparedExample extends ExampleSummary {
   cover: string;
   /**
    * Static build played without creating a project. Web games are built when
-   * the app is packaged; interactive stories are compiled by the daemon on play,
-   * so the build always matches this version's Published Player.
+   * the app is packaged; an interactive story has none and plays as its own
+   * page from its files.
    */
   play?: string;
 }

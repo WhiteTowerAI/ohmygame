@@ -139,8 +139,10 @@ Files in `<dataDirectory>/external-mcp/`:
   `pid` is gone, and waits up to 30 seconds. An app whose `app.json` process
   is alive is starting or restarting its daemon, so the launcher only waits:
   the app has no single-instance lock, and a second copy would run a second
-  daemon on the same data. If the feature is off, the call instead explains
-  where to turn it on.
+  daemon on the same data. A packaged macOS app is started with `open`, so
+  it does not inherit the sandbox of a client such as Codex and crash at
+  launch. If the feature is off, the call instead explains where to turn it
+  on.
 - It sends the client's MCP roots in `X-OhMyGame-Roots`, or, for clients
   without roots, `CLAUDE_PROJECT_DIR` and its working directory. A restarted
   daemon or an expired session is reconnected once. An explicit `open_project`
@@ -192,7 +194,7 @@ bound project does not have returns an error that says why.
 | `list_projects`, `open_project`, `get_project`                              | Project ID, name, type and workspace folder; `open_project` by ID or folder |
 | `get_job`, `wait_job`, `cancel_job`                                         | Generation jobs, see below                                                  |
 | `generate_image`, `generate_video`, `generate_3d_asset`, `animate_3d_asset` | Run as jobs                                                                 |
-| `generate_speech`, `generate_sound_effect`, `generate_music`                | Run as jobs                                                                 |
+| `generate_speech`, `generate_sound_effect`, `generate_music`, `generate_audio`                | Run as jobs                                                                 |
 | `canvas_check`, `canvas_initialize`, `generate_canvas_media`                | `generate_canvas_media` runs as a job                                       |
 | `game_use`                                                                  | Needs the desktop app and a project with a game preview; opens a window     |
 | `playable_add_node`, `playable_check`                                       | Interactive Story projects only                                             |

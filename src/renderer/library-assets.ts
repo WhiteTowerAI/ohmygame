@@ -1,6 +1,6 @@
 import type { LibraryAsset as StoredLibraryAsset, LibraryAssetOrigin, LibraryAssetProject } from "../shared/contracts.js";
 import type { BrowsableAsset, MediaFilter } from "./asset-browser.js";
-import { getLibraryAsset, listLibraryAssets, waitForRuntime } from "./api.js";
+import { listLibraryAssets, waitForRuntime } from "./api.js";
 
 export interface LibraryAsset extends StoredLibraryAsset, BrowsableAsset { assetId: string; path: string }
 
@@ -53,11 +53,7 @@ export function canvasAssetDownloadName(title: string | undefined, originalName:
   return `${truncated.replace(/[.\s]+$/g, "")}${extension}`;
 }
 
-/** Saves a Library asset under its name, adding the extension its content implies when a rename dropped it. */
-export async function downloadLibraryAsset(assetId: string, name: string): Promise<void> {
-  downloadAssetBlob(await getLibraryAsset(assetId), name);
-}
-
+/** Saves an asset under its name, adding the extension its content implies when a rename dropped it. */
 export function downloadAssetBlob(blob: Blob, name: string): void {
   const extension = DOWNLOAD_EXTENSIONS[blob.type];
   const url = URL.createObjectURL(blob);

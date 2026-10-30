@@ -26,7 +26,6 @@ export interface StartDaemonOptions {
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
   examplesDirectory?: string;
-  playerDirectory?: string;
   /** How external agents start `ohmygame-mcp`, and the Skill they are given. */
   externalMcpLauncher?: ExternalMcpLauncher;
   externalSkillDirectory?: string;
@@ -69,7 +68,6 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ...(options.bundledPluginsDirectory ? { OHMYGAME_BUNDLED_PLUGINS_DIR: path.resolve(options.bundledPluginsDirectory) } : {}),
       ...(options.preinstalledPluginsDirectory ? { OHMYGAME_PREINSTALLED_PLUGINS_DIR: path.resolve(options.preinstalledPluginsDirectory) } : {}),
       ...(options.examplesDirectory ? { OHMYGAME_EXAMPLES_DIR: path.resolve(options.examplesDirectory) } : {}),
-      ...(options.playerDirectory ? { OHMYGAME_PLAYER_DIR: path.resolve(options.playerDirectory) } : {}),
       ...(options.logDirectory ? { OHMYGAME_LOG_DIR: path.resolve(options.logDirectory) } : {}),
       ...(options.externalMcpLauncher ? { OHMYGAME_EXTERNAL_MCP_LAUNCHER: JSON.stringify(options.externalMcpLauncher) } : {}),
       ...(options.externalSkillDirectory ? { OHMYGAME_EXTERNAL_SKILL_DIR: path.resolve(options.externalSkillDirectory) } : {}),

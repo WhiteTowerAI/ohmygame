@@ -3,11 +3,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { LibraryAssetProject, MediaModelDefaults, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { isProjectType, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
-import { getWorkspaceMedia, resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
+import { getWorkspaceMedia, workspaceMediaInfo, resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { isProjectPackageManager } from "./package-manager.js";
 import { validateNodeGraph } from "../shared/playable-graph-validation.js";
@@ -16,6 +17,7 @@ import { changeNodeCodebase } from "./playable-codebase.js";
 import { canvasLibraryAssetUsage, canvasReferencesAsset, removeCanvasAssetReferences, renameCanvasAssetPaths } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
+import { writeAudioCompanions } from "./audio-files.js";
 import { ProjectCovers } from "./project-covers.js";
 import { PROJECT_ARCHIVE_SETTING_KEYS, type ProjectArchiveSettings } from "../shared/project-archive.js";
 
@@ -477,11 +479,11 @@ export class ProjectManager {
       ? undefined
       : metadata.libraryAssetId && this.assetLibrary?.get(metadata.libraryAssetId)
         ? metadata.libraryAssetId
-        : (await this.assetLibrary?.add(fileName, contents, {
+        : (await (workspaceMediaInfo(fileName) ? this.assetLibrary?.add(fileName, contents, {
           origin: "generated",
           ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
           sourceKey: `project:${id}:${assetPath}`,
-        }))?.id;
+        }) : undefined))?.id;
     await this.#writeAssetMetadata(id, () => writeAssetMetadata(project.workspacePath, assetPath, {
       origin: "generated",
       purpose: "asset",
@@ -518,6 +520,7 @@ export class ProjectManager {
         }
       }
       const assetPath = await this.#storeImportedAsset(id, asset.name, (temporary) => copyFile(absolutePath, temporary));
+      if (asset.audio) await writeAudioCompanions(path.join(project.workspacePath, assetPath), asset.audio);
       for (const stalePath of stalePaths) await deleteAssetMetadata(project.workspacePath, stalePath);
       await writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: assetId, origin: asset.origin, purpose: asset.purpose });
       return { path: assetPath, assetId };
@@ -1033,7 +1036,7 @@ function normalizePreviewPath(value: unknown): string | undefined {
 }
 
 function isPreviewViewport(value: unknown): value is PreviewViewport {
-  return value === "fit" || value === "tablet" || value === "mobile";
+  return PREVIEW_VIEWPORTS.some((viewport) => viewport === value);
 }
 
 function projectRunSettings(project: ProjectState): ProjectRunSettings {
