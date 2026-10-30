@@ -1,12 +1,13 @@
-import { useState } from "react";
 import type { ChangelogEntry } from "../shared/changelog.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { t } from "./i18n.js";
 import { SettingsGroup } from "./settings-parts.js";
-import { Select } from "./ui/index.js";
+import { Collapsible } from "./ui/index.js";
 
 const RELEASES_URL = "https://github.com/WhiteTowerAI/ohmygame/releases";
+/** Older releases are on GitHub. */
+const SHOWN_RELEASES = 6;
 
 export function ChangelogPanel({
   currentVersion,
@@ -15,7 +16,6 @@ export function ChangelogPanel({
   currentVersion: string;
   availableRelease?: DesktopUpdateState["availableRelease"];
 }) {
-  const [selection, setSelection] = useState<string>();
   const entries: Array<Omit<ChangelogEntry, "date"> & { date?: string }> = [
     ...__APP_CHANGELOG__,
   ];
@@ -33,46 +33,36 @@ export function ChangelogPanel({
       notes: availableRelease.notes || bundled?.notes || "",
     });
   }
-  const selected =
-    entries.find((entry) => entry.version === selection) ??
-    entries.find((entry) => entry.version === availableRelease?.version) ??
-    entries.find((entry) => entry.version === currentVersion)!;
-  const versions = entries.map((entry) => ({ value: entry.version, label: `v${entry.version}` }));
+  // The release the person is about to get, else the one they run, starts open.
+  const open = entries.find((entry) => entry.version === availableRelease?.version)?.version ?? currentVersion;
+  const shown = entries.slice(0, SHOWN_RELEASES);
+  if (!shown.some((entry) => entry.version === open)) shown.push(entries.find((entry) => entry.version === open)!);
   return (
     <SettingsGroup
       title={t("settings.about.changelog")}
-      description={selected.date ? <time dateTime={selected.date}>{selected.date}</time> : undefined}
-      actions={
-        entries.length > 1 ? (
-          <Select
-            size="sm"
-            label={t("settings.about.releaseVersion")}
-            options={versions}
-            value={selected.version}
-            onChange={setSelection}
-          />
-        ) : (
-          <span className="settings-muted">v{selected.version}</span>
-        )
-      }
+      actions={entries.length > shown.length ? (
+        <a className="ui-button ui-button-ghost ui-button-sm" href={RELEASES_URL} target="_blank" rel="noreferrer">{t("settings.about.allReleases")}</a>
+      ) : undefined}
     >
-      {selected.notes ? (
-        <MarkdownContent
-          className="settings-changelog settings-changelog-content"
-          text={selected.notes}
-        />
-      ) : (
-        <p className="settings-changelog settings-changelog-empty">
-          {t("settings.about.notesUnavailable")}{" "}
-          <a
-            href={`${RELEASES_URL}/tag/v${encodeURIComponent(selected.version)}`}
-            target="_blank"
-            rel="noreferrer"
+      {shown.map((entry) => (
+          <Collapsible
+            key={`${entry.version}:${open}`}
+            title={`v${entry.version}`}
+            meta={entry.date ? <time dateTime={entry.date}>{entry.date}</time> : undefined}
+            defaultOpen={entry.version === open}
           >
-            {t("settings.about.viewRelease")}
-          </a>
-        </p>
-      )}
+            {entry.notes ? (
+              <MarkdownContent className="settings-changelog settings-changelog-content" text={entry.notes} />
+            ) : (
+              <p className="settings-changelog settings-changelog-empty">
+                {t("settings.about.notesUnavailable")}{" "}
+                <a href={`${RELEASES_URL}/tag/v${encodeURIComponent(entry.version)}`} target="_blank" rel="noreferrer">
+                  {t("settings.about.viewRelease")}
+                </a>
+              </p>
+            )}
+          </Collapsible>
+      ))}
     </SettingsGroup>
   );
 }

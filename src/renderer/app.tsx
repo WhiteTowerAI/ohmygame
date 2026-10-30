@@ -18,6 +18,8 @@ import { Onboarding, OnboardingArrival, OnboardingLoading } from "./onboarding.j
 import { useOnboarding } from "./use-onboarding.js";
 import { usePluginIntegrationGate } from "./plugin-integration.js";
 import { CommandMenuHost } from "./command-menu.js";
+import { rememberLastProject } from "./general-preferences.js";
+import { useRunAlerts } from "./run-alerts.js";
 
 // Home and onboarding stay in the main chunk; every other route loads on first visit.
 const CommunityProfilePage = lazy(() => import("./community-profile.js").then((module) => ({ default: module.CommunityProfilePage })));
@@ -32,6 +34,7 @@ const PluginBuilder = lazy(() => import("./plugin-builder.js").then((module) => 
 
 export function App() {
   const navigation = useAppNavigation();
+  useRunAlerts((projectId) => navigation.navigate(projectHash(projectId)));
   return <>
     <AppRoute navigation={navigation} />
     <CommandMenuHost navigate={navigation.navigate} />
@@ -55,6 +58,8 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
 
   // A Playtest window that cannot play asks for its project's editor.
   const routeProjectId = route.page === "project" ? route.projectId : undefined;
+  // Settings → General can reopen it at the next launch.
+  useEffect(() => { if (routeProjectId) rememberLastProject(routeProjectId); }, [routeProjectId]);
   useEffect(() => window.ohMyGameDesktop?.onShowPlaytestEditor?.((projectId) => {
     if (projectId !== routeProjectId) openProject(projectId);
     setPlaytestEditorProjectId(projectId);

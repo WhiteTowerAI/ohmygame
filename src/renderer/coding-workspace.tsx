@@ -1,8 +1,12 @@
 import { ExternalProjectPreview } from "./plugin-integration.js";
-import { previewPageUrl as isolatedPreviewUrl } from "../shared/preview-page.js";
+import { PREVIEW_CLIENT_QUERY, PREVIEW_SOURCE_QUERY, previewPageUrl as isolatedPreviewUrl } from "../shared/preview-page.js";
 import {
   Check,
   Copy,
+  Gamepad2,
+  MoreHorizontal,
+  MousePointer2,
+  RotateCcw,
   ChevronDown,
   ChevronRight,
   Code2,
@@ -44,7 +48,7 @@ import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import { isWebRuntimeProjectType, supportsWebPreview, supportsProjectPreview } from "../shared/project-runtime.js";
-import { createWorkspaceEntry, deleteWorkspaceEntry, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
+import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileName, filterAssets, hasMediaType, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
 import { ProjectAssetCollectionFilters } from "./library-filters.js";
@@ -63,7 +67,7 @@ import { t } from "./i18n.js";
 import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./workspace-git-changes.js";
 import type { PanelNodes } from "./panel-layout.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
-import { IconButton } from "./ui/index.js";
+import { Button, DropdownMenu, IconButton } from "./ui/index.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -101,6 +105,9 @@ interface CodingWorkspaceProps {
   onReferenceDocument?: (document: { id: string; title: string } | undefined) => void;
   /** Quotes text picked in the design document into the next message. */
   onQuoteDocument?: (text: string) => void;
+  /** The preview page that is picking an element for the next message. */
+  pickingClient?: string;
+  onPickingChange?: (client: string | undefined) => void;
   /**
    * The panels the views render into. Without them (in tests), the first
    * view renders in place.
@@ -140,6 +147,8 @@ export function CodingWorkspace({
   referencedDocument,
   onReferenceDocument,
   onQuoteDocument,
+  pickingClient,
+  onPickingChange,
   panels,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
@@ -332,6 +341,27 @@ export function CodingWorkspace({
     finally { setAgentPlaytestWatchPending(false); }
   }
 
+  const picking = pickingClient !== undefined && pickingClient === gameClient;
+  async function setPicking(active: boolean): Promise<void> {
+    if (!project) return;
+    onPickingChange?.(active ? gameClient : undefined);
+    try { await setPreviewPicking(project.id, gameClient, active); }
+    catch { if (active) onPickingChange?.(undefined); }
+  }
+  // Picking ends when the page it was in goes away.
+  useEffect(() => {
+    if (pickingClient !== undefined && (pickingClient !== gameClient || preview?.status !== "ready" || !shows("preview"))) {
+      if (project) void setPreviewPicking(project.id, pickingClient, false).catch(() => undefined);
+      onPickingChange?.(undefined);
+    }
+  }, [pickingClient, gameClient, preview?.status, shows("preview")]);
+  useEffect(() => {
+    if (!picking) return;
+    const onKey = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") void setPicking(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [picking]);
+
   const canPlay = !player.open && (!project || preview?.status === "waiting" || preview?.status === "starting");
   const settingsButton = project && !project.integration && isWebRuntimeProjectType(project.type) ? <button
     className="icon-button pane-header-action"
@@ -359,9 +389,13 @@ export function CodingWorkspace({
           viewport={viewport}
           agentPlaytestWatch={agentPlaytestWatch}
           agentPlaytestWatchPending={agentPlaytestWatchPending}
+          picking={picking}
+          pickDisabled={!project || preview?.status !== "ready" || player.open}
           onOpenSettings={() => setProjectSettingsOpen(true)}
           onNavigate={navigatePreview}
           onRefresh={refreshPreview}
+          onRestart={() => onRestart()}
+          onTogglePicking={() => void setPicking(!picking)}
           onToggleAgentPlaytestWatch={() => void toggleAgentPlaytestWatch()}
           onViewportChange={setViewport}
         />
@@ -387,6 +421,7 @@ export function CodingWorkspace({
               onRetry={() => onRestart()} onSettings={() => setProjectSettingsOpen(true)}
             />
             </ErrorBoundary>
+            {picking ? <span className="preview-pick-hint" role="status">{t("workspace.pickHint")}</span> : null}
           </div>
         ) : null}
       </>,
@@ -497,9 +532,13 @@ function PreviewControls({
   viewport,
   agentPlaytestWatch,
   agentPlaytestWatchPending,
+  picking,
+  pickDisabled,
   onOpenSettings,
   onNavigate,
   onRefresh,
+  onRestart,
+  onTogglePicking,
   onToggleAgentPlaytestWatch,
   onViewportChange,
 }: {
@@ -512,12 +551,17 @@ function PreviewControls({
   viewport: PreviewViewport;
   agentPlaytestWatch?: PlaytestWatchState;
   agentPlaytestWatchPending: boolean;
+  picking: boolean;
+  pickDisabled: boolean;
   onOpenSettings: () => void;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
+  onRestart: () => void;
+  onTogglePicking: () => void;
   onToggleAgentPlaytestWatch: () => void;
   onViewportChange: (viewport: PreviewViewport) => void;
 }) {
+  // Like a browser's toolbar: where the preview is, then how it shows, then the rest.
   return (
     <div className="preview-controls">
       <PreviewLocation
@@ -531,22 +575,32 @@ function PreviewControls({
         onRefresh={onRefresh}
       />
       <ViewportMenu value={viewport} onChange={onViewportChange} />
+      <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
+        active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size={14} /></IconButton>
       {agentPlaytestWatch ? (
-        <button className={`icon-button pane-header-action preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`} type="button" aria-label={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")} aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending} data-tooltip={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")} onClick={onToggleAgentPlaytestWatch}>
-          <Video size={14} />
-        </button>
+        <Button size="sm" variant="ghost" className={`preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`}
+          aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending}
+          title={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")}
+          icon={<Gamepad2 size={14} />} onClick={onToggleAgentPlaytestWatch}>{t("workspace.agentPlaytest")}</Button>
       ) : null}
-      <button
-        className="icon-button pane-header-action preview-settings-button"
-        type="button"
-        onClick={onOpenSettings}
-        title={t("projectSettings.title")}
-        aria-label={t("projectSettings.title")}
-      >
-        <Wrench size={14} />
-      </button>
+      <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size={14} /></IconButton>} items={[
+        ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
+        { label: t("workspace.restartPreview"), icon: <RotateCcw size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
+        "separator",
+        { label: t("projectSettings.title"), icon: <Wrench size={14} />, onSelect: onOpenSettings },
+      ]} />
     </div>
   );
+}
+
+/** The page without the editor's own query, in the person's browser. */
+function openPreviewInBrowser(url: string): void {
+  const page = new URL(url);
+  page.searchParams.delete(PREVIEW_CLIENT_QUERY);
+  page.searchParams.delete(PREVIEW_SOURCE_QUERY);
+  const external = window.ohMyGameDesktop?.openExternal;
+  if (external) void external(page.href).catch(() => undefined);
+  else window.open(page.href, "_blank", "noopener,noreferrer");
 }
 
 function PreviewLocation({

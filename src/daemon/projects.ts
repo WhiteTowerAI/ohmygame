@@ -93,13 +93,76 @@ export class ProjectManager {
   readonly #assetMetadataWrites = new Map<string, Promise<unknown>>();
   readonly #workspaceWrites = new Map<string, Promise<unknown>>();
   readonly #projectsDirectory: string;
+  readonly #locationFile: string;
+  #location?: string;
 
   constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary) {
     this.#projectsDirectory = path.join(dataDirectory, "projects");
+    this.#locationFile = path.join(dataDirectory, "project-location.json");
+  }
+
+  /**
+   * Settings → General → Project location: the folder that new projects
+   * without a chosen folder are made in, each in its own subfolder. Unset,
+   * they live in OhMyGame's own storage.
+   */
+  get location(): string | undefined {
+    return this.#location;
+  }
+
+  async setLocation(location: string | undefined): Promise<void> {
+    const next = location === undefined ? undefined : await this.#validateLocation(location);
+    await writeFile(this.#locationFile, `${JSON.stringify({ version: 1, ...(next ? { location: next } : {}) }, null, 2)}\n`);
+    this.#location = next;
+  }
+
+  async #loadLocation(): Promise<void> {
+    try {
+      const stored = JSON.parse(await readFile(this.#locationFile, "utf8")) as { version?: unknown; location?: unknown };
+      this.#location = stored.version === 1 && typeof stored.location === "string" && path.isAbsolute(stored.location) ? stored.location : undefined;
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    }
+  }
+
+  async #validateLocation(location: string): Promise<string> {
+    if (!path.isAbsolute(location)) throw new ProjectWorkspaceError("The project location must be an absolute path");
+    let resolved: string;
+    try {
+      const entry = await lstat(location);
+      if (!entry.isDirectory()) throw new Error("not a directory");
+      resolved = await realpath(location);
+    } catch {
+      throw new ProjectWorkspaceError("The project location is not an available folder");
+    }
+    if (path.parse(resolved).root === resolved) throw new ProjectWorkspaceError("The filesystem root cannot be the project location");
+    // Compared as real paths, so a link (such as macOS's /var) can't hide the overlap.
+    const storage = await realpath(this.#projectsDirectory).catch(() => this.#projectsDirectory);
+    if (pathsOverlap(resolved, storage) || pathsOverlap(resolved, this.#projectsDirectory)) throw new ProjectWorkspaceError("OhMyGame's project storage cannot be the project location");
+    return resolved;
+  }
+
+  /** A new, empty folder named after the project in the project location. */
+  async #newFolderIn(location: string, name: string): Promise<string> {
+    const base = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").replace(/^[\s.]+|[\s.]+$/g, "").slice(0, 80) || "Untitled";
+    for (let attempt = 1; attempt <= 100; attempt += 1) {
+      const folder = path.join(location, attempt === 1 ? base : `${base} ${attempt}`);
+      try {
+        await mkdir(folder);
+        return folder;
+      } catch (cause) {
+        const code = (cause as NodeJS.ErrnoException).code;
+        if (code === "EEXIST") continue;
+        if (code === "ENOENT") throw new ProjectWorkspaceError(`The project location ${location} is not available; choose another in Settings → General`);
+        throw cause;
+      }
+    }
+    throw new ProjectWorkspaceError(`Could not find a free folder name for “${name}” in ${location}`);
   }
 
   async load(onError?: (projectDirectory: string, cause: unknown) => void): Promise<void> {
     await mkdir(this.#projectsDirectory, { recursive: true });
+    await this.#loadLocation();
     const entries = await readdir(this.#projectsDirectory, { withFileTypes: true });
     // An import interrupted by a crash leaves its staging folder behind. It can
     // hold gigabytes, so remove it without delaying startup; new imports use
@@ -139,8 +202,11 @@ export class ProjectManager {
   async create(name?: string, type: ProjectType = "web-game", selectedWorkspacePath?: string, integration?: ProjectState["integration"], pluginType?: ProjectState["pluginType"]): Promise<ProjectState> {
     const id = randomUUID();
     const projectDirectory = path.join(this.#projectsDirectory, id);
+    if (selectedWorkspacePath === undefined && this.#location) {
+      selectedWorkspacePath = await this.#newFolderIn(this.#location, name?.trim() || defaultProjectName(type));
+    }
     const hasExternalWorkspace = selectedWorkspacePath !== undefined;
-    const workspacePath = hasExternalWorkspace
+    const workspacePath = selectedWorkspacePath !== undefined
       ? await this.#validateExternalWorkspace(selectedWorkspacePath)
       : path.join(projectDirectory, "workspace");
     const metadata: ProjectMetadata = {

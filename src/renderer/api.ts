@@ -4,6 +4,7 @@ import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
 import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
+import { forgetLastProject } from "./general-preferences.js";
 import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
 import {
   RUNTIME_EVENT_TYPES,
@@ -94,7 +95,7 @@ import type { WebGamePlayerBridge } from "../shared/web-game-player.js";
 import type { NetworkConnectionTest, NetworkSettings, NetworkSettingsState } from "../shared/network-settings.js";
 import { composerDrafts } from "./composer-drafts.js";
 import type { OnboardingState, UpdateOnboardingRequest } from "../shared/onboarding.js";
-import { t } from "./i18n.js";
+import { language, t } from "./i18n.js";
 
 const API_BASE = "/api";
 
@@ -136,6 +137,10 @@ declare global {
       openExternal: (url: string) => Promise<void>;
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
       restartApp?: () => Promise<void>;
+      /** Holds off system sleep while an agent works (Settings → General). */
+      setKeepAwake?: (enabled: boolean) => Promise<void>;
+      /** Brings the main window forward, for a notification the person clicked. */
+      focusWindow?: () => Promise<void>;
       onPrepareClose?: (listener: () => Promise<void>) => () => void;
       onCancelClose?: (listener: (error: string) => void) => () => void;
       windowMenu?: {
@@ -185,6 +190,8 @@ declare global {
         check: () => Promise<void>;
         download: () => Promise<void>;
         install: () => Promise<void>;
+        /** Downloads found releases by itself and installs them on quit. */
+        setAutomatic?: (enabled: boolean) => Promise<void>;
         onState: (listener: (state: DesktopUpdateState) => void) => () => void;
       };
       auth: {
@@ -312,6 +319,7 @@ export async function importProject(file: File): Promise<ProjectState> {
 export async function deleteProject(projectId: string): Promise<void> {
   await request(`/projects/${projectId}`, { method: "DELETE" });
   composerDrafts.deleteProject(projectId);
+  forgetLastProject(projectId);
 }
 
 /** Conversations list coding agents' models too; canvas text and other one-off generation use OhMyGame's own models only. */
@@ -632,6 +640,15 @@ export async function updateWebSearchSettings(input: UpdateWebSearchSettings): P
   return request("/settings/web-search", { method: "PUT", body: JSON.stringify(input) });
 }
 
+/** Settings → General → Project location; no location means OhMyGame's own storage. */
+export async function getProjectLocation(): Promise<{ location?: string }> {
+  return request("/settings/project-location");
+}
+
+export async function setProjectLocation(location: string | undefined): Promise<{ location?: string }> {
+  return request("/settings/project-location", { method: "PUT", body: JSON.stringify({ location: location ?? null }) });
+}
+
 export async function getExternalAgentSettings(): Promise<ExternalAgentSettings> {
   return request("/settings/external-agents");
 }
@@ -694,6 +711,24 @@ function communityHeaders(accessToken?: string): Record<string, string> {
 
 export async function listPlugins(): Promise<PluginCatalog> {
   return request("/plugins");
+}
+
+export async function getProjectPlugins(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginsView> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugins?locale=${encodeURIComponent(language)}`);
+}
+
+/** Turns a plugin on in a project at a version, or off with `null`. `id` is `publisher/name`. */
+export async function setProjectPluginVersion(projectId: string, id: string, version: string | null): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}`, { method: "PUT", body: JSON.stringify({ version }) });
+}
+
+/** Allows what a plugin asks for, as the person agreed in the app. */
+export async function consentToPlugin(id: string, allowed: string[]): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/consent`, { method: "POST", body: JSON.stringify({ allowed }) });
+}
+
+function pluginPath(id: string): string {
+  return id.split("/").map(encodeURIComponent).join("/");
 }
 
 export async function getHomeComposerCapabilities(): Promise<ConversationCapabilities> {
@@ -1574,6 +1609,10 @@ export async function stopPreview(projectId: string): Promise<{ preview: Project
 }
 export async function acquirePreview(projectId: string, leaseId: string, automatic = false, paused = false): Promise<void> {
   await request(`/projects/${projectId}/preview/leases/${leaseId}`, { method: "PUT", body: JSON.stringify({ automatic, paused }) });
+}
+/** Turns the preview page's next click into a `preview.picked` event, or stops that. */
+export async function setPreviewPicking(projectId: string, client: string, active: boolean): Promise<void> {
+  await request(`/projects/${projectId}/preview/picking`, { method: "PUT", body: JSON.stringify({ client, active }) });
 }
 export async function releasePreview(projectId: string, leaseId: string): Promise<void> {
   await request(`/projects/${projectId}/preview/leases/${leaseId}`, { method: "DELETE" });

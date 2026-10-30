@@ -1,4 +1,4 @@
-import { Check, FilePenLine, FileText, History, LoaderCircle, Search, X } from "./icons.js";
+import { Check, ChevronDown, FilePenLine, FileText, LoaderCircle, Search, X } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ConversationSummary } from "../shared/contracts.js";
 import { t } from "./i18n.js";
@@ -84,23 +84,24 @@ export function ConversationMenu({
   }
 
   const normalizedQuery = query.trim().toLowerCase();
+  const currentTitle = conversations.find((conversation) => conversation.id === currentConversationId)?.title || t("conversations.untitled");
   const visibleConversations = conversations.filter((conversation) => !normalizedQuery || conversation.title.toLowerCase().includes(normalizedQuery));
 
   return (
     <div className="conversation-menu" ref={root}>
       <button
         ref={trigger}
-        className="icon-button pane-header-action conversation-trigger"
+        className="conversation-trigger"
         type="button"
         disabled={disabled}
         aria-expanded={open}
         aria-controls="conversation-menu-popover"
         aria-haspopup="dialog"
         title={t("conversations.history")}
-        aria-label={t("conversations.history")}
         onClick={() => setOpen((value) => !value)}
       >
-        <History size={14} />
+        <span>{currentTitle}</span>
+        <ChevronDown size={12} />
       </button>
 
       {open ? (

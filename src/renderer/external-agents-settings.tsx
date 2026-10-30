@@ -3,8 +3,10 @@ import { CircleX, LoaderCircle, Plug, Terminal } from "./icons.js";
 import type { AgentRuntimeId } from "../shared/agent-runtimes.js";
 import {
   EXTERNAL_MCP_SERVER_NAME,
+  externalClientAddArguments,
   type ExternalAgentClientId,
   type ExternalAgentSettings,
+  type ExternalMcpClientActivity,
   type ExternalMcpLauncher,
 } from "../shared/external-mcp.js";
 import {
@@ -13,9 +15,9 @@ import {
   getExternalAgentSettings,
   updateExternalAgentSettings,
 } from "./api.js";
-import { AgentMark, CommandText } from "./coding-agents-settings.js";
-import { t } from "./i18n.js";
-import { Button, Switch } from "./ui/index.js";
+import { AgentMark } from "./coding-agents-settings.js";
+import { language, t } from "./i18n.js";
+import { Alert, Badge, Button, CodeBlock, Switch } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 
 const CLIENTS: Record<
@@ -84,6 +86,9 @@ export function ExternalAgentsSettings() {
           </SettingsRow>
         </SettingsGroup>
       ) : null}
+      {settings && !settings.enabled ? (
+        <Alert title={t("externalAgents.off")}>{t("externalAgents.offHint")}</Alert>
+      ) : null}
       {settings?.enabled && !settings.launcher ? (
         <SettingsNote>{t("externalAgents.desktopOnly")}</SettingsNote>
       ) : null}
@@ -128,35 +133,58 @@ export function ExternalAgentsSettings() {
               </SettingsRow>
             );
           })}
-          <ManualSetup launcher={settings.launcher} />
         </SettingsGroup>
       ) : null}
+      {settings?.enabled && settings.launcher ? <ManualSetup launcher={settings.launcher} /> : null}
+      {settings?.enabled && settings.recent?.length ? <RecentClients clients={settings.recent} /> : null}
       {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
     </>
   );
 }
 
-/** For DeepSeek Harness and other clients OhMyGame cannot configure itself. */
+/** The same commands Connect runs, for doing it by hand, and the launcher for every other client. */
 function ManualSetup({ launcher }: { launcher: ExternalMcpLauncher }) {
-  const environment = Object.entries(launcher.env).map(
-    ([name, value]) => `${name}=${value}`,
-  );
+  const command = (id: ExternalAgentClientId, cli: string) => [cli, ...externalClientAddArguments(id, launcher)].map(quote).join(" ");
+  const environment = Object.entries(launcher.env).map(([name, value]) => `${name}=${quote(value)}`);
   return (
-    <details className="settings-pad settings-details external-agents-manual">
-      <summary>{t("externalAgents.otherClients")}</summary>
-      <div className="settings-form">
-        <p className="settings-muted">
-          {t("externalAgents.otherClientsHint", { name: EXTERNAL_MCP_SERVER_NAME })}
-        </p>
-        <CommandText command={[launcher.command, ...launcher.args].map(quote).join(" ")} />
-        {environment.length ? (
-          <p className="settings-muted">
-            {t("externalAgents.environment", { value: environment.join(" ") })}
-          </p>
-        ) : null}
+    <SettingsGroup title={t("externalAgents.manual")} description={t("externalAgents.otherClientsHint", { name: EXTERNAL_MCP_SERVER_NAME })}>
+      <div className="settings-pad settings-form">
+        <CodeBlock title="Claude Code" code={command("claude-code", "claude")} />
+        <CodeBlock title="Codex" code={command("codex", "codex")} />
+        <CodeBlock title={t("externalAgents.otherClients")} code={[...environment, [launcher.command, ...launcher.args].map(quote).join(" ")].join(" ")} />
       </div>
-    </details>
+    </SettingsGroup>
   );
+}
+
+/** Clients that used the server since OhMyGame started. */
+function RecentClients({ clients }: { clients: ExternalMcpClientActivity[] }) {
+  return (
+    <SettingsGroup title={t("externalAgents.recent")}>
+      {clients.map((client) => (
+        <SettingsRow key={client.name} title={clientLabel(client.name)} description={t("externalAgents.recentDetail", { time: usedAgo(client.lastUsedAt), count: client.calls })}>
+          <Badge tone={client.active ? "success" : "outline"}>{t(client.active ? "externalAgents.online" : "externalAgents.offline")}</Badge>
+        </SettingsRow>
+      ))}
+    </SettingsGroup>
+  );
+}
+
+/** Known clients by their product name; others as they call themselves. */
+function clientLabel(name: string): string {
+  const id = name.toLowerCase();
+  if (id.includes("claude")) return "Claude Code";
+  if (id.includes("codex")) return "Codex";
+  return name;
+}
+
+function usedAgo(value: string, now = Date.now()): string {
+  const seconds = Math.round((new Date(value).getTime() - now) / 1000);
+  const format = new Intl.RelativeTimeFormat(language, { numeric: "auto" });
+  for (const [unit, size] of [["day", 86_400], ["hour", 3_600], ["minute", 60]] as const) {
+    if (Math.abs(seconds) >= size) return format.format(Math.round(seconds / size), unit);
+  }
+  return format.format(0, "second");
 }
 
 function quote(value: string): string {

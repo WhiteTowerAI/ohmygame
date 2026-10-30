@@ -124,6 +124,16 @@ export interface PluginSummary {
   preinstalled?: boolean;
   configurationStatus?: "ready" | "needs-configuration";
   mcpServerCount?: number;
+  skillCount?: number;
+}
+
+/** What a plugin adds, for its card's tags and the browse filter. */
+export type PluginContribution = "skills" | "mcp" | "service";
+export const PLUGIN_CONTRIBUTIONS: readonly PluginContribution[] = ["skills", "mcp", "service"];
+
+export function pluginContributions(plugin: Pick<PluginSummary, "skillCount" | "mcpServerCount" | "integration">): PluginContribution[] {
+  return PLUGIN_CONTRIBUTIONS.filter((kind) =>
+    kind === "skills" ? Boolean(plugin.skillCount) : kind === "mcp" ? Boolean(plugin.mcpServerCount) : Boolean(plugin.integration));
 }
 
 export function pluginCollection(plugin: Pick<PluginSummary, "source" | "marketplace">): "public" | "personal" {
@@ -321,4 +331,30 @@ export function isPluginManifest(value: unknown): value is PluginManifest {
     if (field.default !== undefined && (field.type === "boolean" ? typeof field.default !== "boolean" : typeof field.default !== "string")) return false;
     return true;
   });
+}
+
+/** A plugin as one project sees it, for the project's Plugins sheet. */
+export interface ProjectPluginItem {
+  id: string;
+  displayName: string;
+  description: string;
+  /** The newest installed version, offered when turning it on. */
+  version: string;
+  /** The version this project uses; absent while it is off here. */
+  used?: string;
+  /** Provides the project's type, so it stays on. */
+  providesType: boolean;
+  /** Why a plugin the project asks for is not running. */
+  status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "needs-consent" | "needs-approval";
+  /** What it asks to be allowed, such as `network:api.example.com`. */
+  capabilities: string[];
+  /** The person allowed what it asks for when it was installed. */
+  consented: boolean;
+}
+
+export interface ProjectPluginsView {
+  /** Plugins on for every project they work with; switched in Plugins. */
+  global: Array<Pick<PluginSummary, "id" | "displayName" | "description">>;
+  /** Plugins each project turns on for itself, recorded in its `ohmygame.json`. */
+  plugins: ProjectPluginItem[];
 }

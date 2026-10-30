@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { createConversation, createProject, getHomeComposerCapabilities, listProjects } from "./api.js";
+import { createConversation, createProject, getHomeComposerCapabilities, getProjectLocation, listProjects } from "./api.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { activePluginMentions } from "./composer-mentions.js";
 import { LoaderCircle } from "./icons.js";
@@ -89,6 +89,13 @@ export function ProjectCreateDialog({
     ? chosenType
     : pluginProjectType(initialType, referenced) ?? referenced.find((plugin) => plugin.projectTypes?.length)?.projectTypes?.[0] ?? types[0]?.value ?? initialType;
   const [workspacePath, setWorkspacePath] = useState(initialWorkspacePath);
+  // Settings → General → Project location, where a project without a chosen folder goes.
+  const [defaultLocation, setDefaultLocation] = useState<string>();
+  useEffect(() => {
+    let active = true;
+    void getProjectLocation().then((value) => { if (active) setDefaultLocation(value.location); }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
   const [selectingWorkspace, setSelectingWorkspace] = useState(false);
   const [existingProject, setExistingProject] = useState<ProjectState>();
   const [integrationId, setIntegrationId] = useState("");
@@ -188,7 +195,7 @@ export function ProjectCreateDialog({
   // Creating with a plugin that makes its own project (TapTap Maker) continues in its panel.
   if (integrationGate.creation) return <IntegrationStep label={integrationGate.creationTitle} onCancel={integrationGate.cancelCreation}>{integrationGate.creation}</IntegrationStep>;
 
-  const location = workspacePath ?? t("createDialog.managedFolder");
+  const location = workspacePath ?? (defaultLocation ? t("createDialog.inLocation", { path: defaultLocation }) : t("createDialog.managedFolder"));
   return (
     <Dialog open onClose={close} title={t("createDialog.newProject")} size="md"
       footer={<>

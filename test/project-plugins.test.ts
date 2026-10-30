@@ -373,6 +373,14 @@ describe("project plugins", () => {
     ).rejects.toThrow("not installed");
   });
 
+  it("gives a project made before ohmygame.json one when it turns a plugin on", async () => {
+    const { index, grants, folder } = await setup();
+    await expect(setProjectPlugin({ folder, id: "ohmygame/game-studio", version: "1.0.0", index, grants })).rejects.toThrow("does not exist");
+    await setProjectPlugin({ folder, id: "ohmygame/game-studio", version: "1.0.0", index, grants, initialType: "general" });
+    const file = await readProjectFile(folder);
+    expect(file?.ok && file.file).toMatchObject({ type: "general", plugins: { "ohmygame/game-studio": "1.0.0" } });
+  });
+
   it("keeps approvals by the folder's real path and for the person only", async () => {
     const { data, index, grants, folder } = await setup();
     await createProjectPlugins({

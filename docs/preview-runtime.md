@@ -129,9 +129,10 @@ automatically. Duplicated projects receive a separate origin.
 Page reload and server restart are separate controls. The Game panel's toolbar
 leads with the preview's address, like a browser's: a dot for the preview's state
 (running, starting, failed or not started), the current page, which opens the page
-picker, and reload. The viewport, playtest, settings and Play controls follow at
-its end, and in a narrow panel the address shrinks to its dot, the page
-picker's chevron and reload.
+picker, and reload. The device, element picking, **AI playtest** and a **More**
+menu (open in browser, restart the preview, project settings) follow, then Play;
+in a narrow panel the address shrinks to its dot, the page picker's chevron and
+reload.
 Internal navigation updates the address without reloading the game. The desktop editor owns one human game
 WebContentsView per project. Play moves that view into a separate native window;
 closing Play returns it to Preview. Both directions preserve the same document,
@@ -187,6 +188,20 @@ Preview state is delivered through one `preview.updated` event containing the
 complete runtime state. Browser reports use a typed message envelope for activity,
 navigation, lifecycle and diagnostics; obsolete standalone diagnostic messages
 are not accepted.
+
+### Picking an element
+
+The Game panel's pick button turns the page's next click into context for the
+next message instead of game input. `PUT /projects/:id/preview/picking`
+(`{ client, active }`) reaches that page's bridge over its refresh stream, which
+works for the desktop view and the browser iframe alike. While picking, the
+bridge outlines the element under the pointer in an overlay of its own, and
+swallows pointer, mouse and touch input. A click reports the element as a
+`pick` message: its tag, a shortened accessible name or text, a CSS path of at
+most five steps, its box in page pixels, and the page. Escape, here or in the
+editor, cancels. The daemon validates and bounds the report and publishes
+`preview.picked`, and the chat adds it as a `preview-element` context chip. A
+game drawn into one canvas only offers the `<canvas>` element.
 
 ## External plugin preview
 

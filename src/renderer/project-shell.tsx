@@ -1,6 +1,8 @@
 import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
 import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
 import {
+  Play,
+  Plug,
   ArrowLeft,
   Download,
   FolderOpen,
@@ -36,6 +38,7 @@ import {
   lazy,
   Suspense,
 } from "react";
+import { previewElementContext } from "../shared/playable-chat-context.js";
 import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
@@ -86,6 +89,7 @@ import {
 } from "./api.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { ConversationMenu } from "./conversation-menu.js";
+import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
 import { CodingWorkspace } from "./coding-workspace.js";
@@ -150,6 +154,8 @@ const PANELS: Record<WorkspacePanel, { title: () => string; icon: IconComponent 
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
 const NAMED_UNFINISHED_FILES = 10;
+
+const MAX_PREVIEW_PICKS = 6;
 
 export function ProjectShell({
   projectId,
@@ -220,6 +226,12 @@ export function ProjectShell({
   const registerDesignSave = useCallback((save: (() => Promise<void>) | undefined) => { saveDesign.current = save; }, []);
   const [designContext, setDesignContext] = useState<PromptContext>();
   const [dismissedDesign, setDismissedDesign] = useState<string>();
+  // Elements picked in the game preview, and the preview page picking one now.
+  const [previewPicks, setPreviewPicks] = useState<Array<{ key: string; context: PromptContext }>>([]);
+  const [pickingClient, setPickingClient] = useState<string>();
+  const pickingRef = useRef(pickingClient);
+  pickingRef.current = pickingClient;
+  const [pluginsOpen, setPluginsOpen] = useState(false);
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
   // The chat takes the request once its conversation is open.
   usePlaytestAskRequests(state.conversation ? state.project?.id : undefined, requestPrompt);
@@ -297,6 +309,18 @@ export function ProjectShell({
           void getUnfinishedRestore(projectId).then((pending) => { if (!disposed) setUnfinishedRestore(pending); }).catch(() => {});
         }
         if (event.type === "agent.completed") setWorkspaceRevision((value) => value + 1);
+        if (event.type === "preview.picked") {
+          // Only the pick this window asked for; another window's goes to it.
+          const asked = pickingRef.current === event.data.client;
+          setPickingClient((current) => current === event.data.client ? undefined : current);
+          const pick = event.data.pick;
+          if (pick && asked) {
+            const key = `preview:${pick.path}:${pick.selector}`;
+            // A message carries at most 12 contexts, so the oldest picks give way.
+            setPreviewPicks((current) => current.some((item) => item.key === key) ? current : [...current, { key, context: previewElementContext(pick) }].slice(-MAX_PREVIEW_PICKS));
+            revealPanel("chat");
+          }
+        }
         // A restored conversation lost its later messages. Undo is marked by
         // the event; reloading its conversation could drop a newly started turn.
         if (event.type === "workspace.restored" && event.conversationId === selectedConversationId) {
@@ -522,7 +546,8 @@ export function ProjectShell({
   const playableSurface = storyShown && playableChat?.surface && playableChat.surface.key !== dismissedSurface ? playableChat.surface : undefined;
   const designChipKey = designContext ? `design:${designContext.text}` : undefined;
   const currentDesignContext = canvasOpen && designChipKey !== dismissedDesign ? designContext : undefined;
-  const chatContexts = [playableSurface?.chip, ...(storyShown ? playableChat?.attachments ?? [] : []).map((attachment) => attachment.chip), ...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : [])].filter((chip) => chip !== undefined);
+  const chatContexts = [playableSurface?.chip, ...(storyShown ? playableChat?.attachments ?? [] : []).map((attachment) => attachment.chip), ...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : []),
+    ...previewPicks.map(({ key, context }) => ({ key, kind: context.kind, label: context.label }))].filter((chip) => chip !== undefined);
 
   async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[] = [], references: PromptReference[] = [], designContexts: PromptContext[] = []): Promise<boolean> {
     if (!project || !conversation) return false;
@@ -538,7 +563,9 @@ export function ProjectShell({
       const contexts = [surface?.context, ...previewContexts.map((attachment) => attachment.context)].filter((context) => context !== undefined);
       const sentImages = previewImage ? [...images, previewImage] : images;
       const allReferences = [...(surface?.references ?? []), ...references.filter((reference) => !(surface?.references ?? []).some((current) => current.path === reference.path))];
-      await sendPrompt(project.id, conversation.id, nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : [])]);
+      const picks = previewPicks;
+      await sendPrompt(project.id, conversation.id, nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : []), ...picks.map((item) => item.context)]);
+      if (picks.length) setPreviewPicks((current) => current.filter((item) => !picks.includes(item)));
       if (sentImages.length || attachments.length) setWorkspaceRevision((value) => value + 1);
       if (previewContexts.length) playableChat?.clearAttachments();
       return true;
@@ -902,6 +929,7 @@ export function ProjectShell({
       void openProjectFile(project.id, ".", "default").catch((cause: unknown) => dispatch({ type: "notice", message: errorMessage(cause) }));
     } }] : []),
     { label: exporting === "project" ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: !project || !!exporting, onSelect: () => void exportFile("project") },
+    { label: t("projectPlugins.menu"), icon: <Plug size={14} />, disabled: !project, onSelect: () => setPluginsOpen(true) },
     "separator",
     { label: homeLabel, icon: <ArrowLeft size={14} />, onSelect: requestHome },
   ];
@@ -1049,6 +1077,7 @@ export function ProjectShell({
       contexts={chatContexts}
       onRemoveContext={(key) => {
         if (key === designChipKey) setDismissedDesign(key);
+        else if (previewPicks.some((item) => item.key === key)) setPreviewPicks((current) => current.filter((item) => item.key !== key));
         else if (key === playableChat?.surface?.key) setDismissedSurface(key);
         else playableChat?.removeAttachment(key);
       }}
@@ -1073,6 +1102,7 @@ export function ProjectShell({
     <>
     {integrationGate.dialog}
     {chatInput}
+    {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} /> : null}
     {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
     <ProjectFrame
       rail={<ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={{
@@ -1085,6 +1115,8 @@ export function ProjectShell({
         {toggleMenu.length ? <DropdownMenu placement="bottom-end" items={toggleMenu} trigger={(props) => (
           <IconButton {...props} size="sm" label={t("panels.menu")}><LayoutGrid size={16} /></IconButton>
         )} /> : null}
+        {project && offered.includes("game") && !visible.includes("game") ? <Button size="sm" variant="ghost" icon={<Play size={14} />}
+          onClick={() => revealPanel("game")}>{t("workspace.play")}</Button> : null}
         {project && publishButton ? <DropdownMenu placement="bottom-end" items={[
           { label: t("workspace.publishToCommunity"), icon: <Globe2 size={14} />, disabled: exporting === "web", onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
           "separator",
@@ -1122,6 +1154,14 @@ export function ProjectShell({
       /> : undefined}
       empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered))}>{t("panels.reset")}</Button>} /> : null} /> : null}
     {createPortal(<div className="pane-header-actions">
+            <ConversationMenu
+              conversations={conversations}
+              currentConversationId={conversation?.id}
+              activeConversationId={activeTurn?.conversationId}
+              disabled={!conversation}
+              onRename={rename}
+              onSelect={onOpenConversation}
+            />
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
               <CanvasChipSelect icon={UserRound} label={t("codingAgents.chatProfile", { name: accountRuntime === "codex-cli" ? "Codex" : "Claude Code" })} value={selectedProfileId}
                 options={accountProfiles.map((profile) => {
@@ -1140,14 +1180,6 @@ export function ProjectShell({
             >
               {creatingConversation ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
             </button>
-            <ConversationMenu
-              conversations={conversations}
-              currentConversationId={conversation?.id}
-              activeConversationId={activeTurn?.conversationId}
-              disabled={!conversation}
-              onRename={rename}
-              onSelect={onOpenConversation}
-            />
     </div>, nodes.chat.toolbar)}
     {createPortal(<section className="agent-pane" aria-label={t("workspace.agent")}>
       <div className="agent-body" ref={timeline} onScroll={(event) => {
@@ -1201,6 +1233,8 @@ export function ProjectShell({
           referencedDocument={referencedDocument}
           onReferenceDocument={referenceDocument}
           onQuoteDocument={quoteDocument}
+          pickingClient={pickingClient}
+          onPickingChange={setPickingClient}
           panels={{
             nodes: { preview: nodes.game, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
             visible: codingVisible,

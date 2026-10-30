@@ -159,6 +159,14 @@ export class PreviewManager {
     }
   }
 
+  /** Starts or stops picking in one preview page; false when no preview is running. */
+  setPicking(project: ProjectState, client: string, active: boolean): boolean {
+    const proxy = this.#proxies.get(project.id);
+    if (!proxy || project.preview.status !== "ready") return false;
+    proxy.setPicking(client, active);
+    return true;
+  }
+
   touch(project: ProjectState, id: string, active = true): void {
     const session = this.#session(project);
     if (active) {
@@ -554,6 +562,10 @@ export class PreviewManager {
           onActivity: (id, active) => {
             if (proxyHandle && this.#proxies.get(project.id) === proxyHandle)
               this.touch(project, `page:${id}`, active);
+          },
+          onPick: (client, pick) => {
+            if (proxyHandle && this.#proxies.get(project.id) === proxyHandle)
+              this.events.publish(project.id, "preview.picked", { client, ...(pick ? { pick } : {}) });
           },
           onNavigation: (client, source, pathname) => {
             if (

@@ -21,7 +21,6 @@ import {
   Search,
   Settings,
   UserRound,
-  Wallet,
 } from "./icons.js";
 import { getProjectCover, listConversations, listProjects, waitForRuntime } from "./api.js";
 import { useAuth } from "./auth.js";
@@ -558,7 +557,7 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
   );
 }
 
-function openSettings(section: "account" | "billing" | "about"): void {
+function openSettings(section: "account" | "about"): void {
   window.location.hash = settingsHash(section);
 }
 
@@ -574,7 +573,6 @@ function AccountMenu({ active, avatarSize, onNavigate }: { active: boolean; avat
   const items: MenuEntry[] = signedIn ? [
     settings,
     { label: t("sidebar.account"), icon: <UserRound size={16} />, onSelect: () => openSettings("account") },
-    { label: t("sidebar.billing"), icon: <Wallet size={16} />, onSelect: () => openSettings("billing") },
     "separator",
     about,
   ] : [

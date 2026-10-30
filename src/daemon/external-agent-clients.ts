@@ -13,6 +13,7 @@ import type { AgentRuntimeId } from "../shared/agent-runtimes.js";
 import {
   EXTERNAL_AGENT_CLIENT_IDS,
   EXTERNAL_MCP_SERVER_NAME,
+  externalClientAddArguments,
   type ExternalAgentClientId,
   type ExternalAgentClientState,
   type ExternalMcpLauncher,
@@ -265,27 +266,7 @@ export function addArguments(
   id: ExternalAgentClientId,
   launcher: ExternalMcpLauncher,
 ): string[] {
-  const env = Object.entries(launcher.env).map(
-    ([name, value]) => `${name}=${value}`,
-  );
-  const command = ["--", launcher.command, ...launcher.args];
-  return id === "claude-code"
-    ? [
-        "mcp",
-        "add",
-        "--scope",
-        "user",
-        EXTERNAL_MCP_SERVER_NAME,
-        ...env.flatMap((item) => ["-e", item]),
-        ...command,
-      ]
-    : [
-        "mcp",
-        "add",
-        EXTERNAL_MCP_SERVER_NAME,
-        ...env.flatMap((item) => ["--env", item]),
-        ...command,
-      ];
+  return externalClientAddArguments(id, launcher);
 }
 
 export function removeArguments(id: ExternalAgentClientId): string[] {

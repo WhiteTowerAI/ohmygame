@@ -292,6 +292,15 @@
   color: var(--color-text-tertiary);
 }
 
+/* A long folder path keeps its end, where the name is. */
+.settings-location {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+
 .settings-mono {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -661,7 +670,16 @@
   white-space: pre-wrap;
 }
 
-/* The changelog sits in a card like the other groups. */
+/* Releases fold inside the card, as in the lab; the hairlines between rows divide them. */
+.settings-card > .ui-collapsible {
+  padding: 0 var(--space-4);
+  border-bottom: 0;
+}
+
+.ui-collapsible-body > .settings-changelog {
+  padding: 0;
+}
+
 .settings-changelog {
   padding: var(--space-4);
   color: var(--color-text-secondary);

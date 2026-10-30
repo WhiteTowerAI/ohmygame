@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { MediaModelCatalog, MediaModelDefaults, MediaModelUsage, ModelRef, ProjectState, ProviderCapability } from "../shared/contracts.js";
 import { listImageModelCatalog, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setDefaultMediaModel, updateProjectMediaModelDefaults } from "./api.js";
@@ -68,12 +68,13 @@ function ModelDefaultField({ usage, catalog, selected, inherit = false, loading,
   </div>;
 }
 
-export function GlobalMediaModelDefaults({ capability }: { capability: "all" | ProviderCapability }) {
+/** `leading` rows come first, such as the chat model, which Agents sets. */
+export function GlobalMediaModelDefaults({ capability, leading }: { capability: "all" | ProviderCapability; leading?: ReactNode }) {
   const { catalogs, loading, error: loadError } = useMediaModelCatalogs();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const usages = USAGES.filter((usage) => capability === "all" || usage === capability);
-  if (!usages.length) return null;
+  if (!usages.length && !leading) return null;
   async function choose(usage: MediaModelUsage, model?: ModelRef) {
     if (busy) return;
     setBusy(true); setError(undefined);
@@ -82,6 +83,7 @@ export function GlobalMediaModelDefaults({ capability }: { capability: "all" | P
     finally { setBusy(false); }
   }
   return <SettingsGroup className={`settings-generation-defaults${capability === "all" ? " is-all" : ""}`} label={t("mediaDefaults.globalDefaults")} title={t("mediaDefaults.title")} description={t("settings.providers.defaultsHint")}>
+    {leading}
     {usages.map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={catalogs[usage]?.defaultModel} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
     {error || loadError ? <div className="settings-pad"><SettingsNote tone="danger">{error ?? loadError}</SettingsNote></div> : null}
   </SettingsGroup>;

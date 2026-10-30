@@ -406,6 +406,7 @@ export class PluginServices {
     folder: string,
     id: string,
     version: string | null,
+    initialType?: string,
   ): Promise<void> {
     await this.ready();
     await setProjectPlugin({
@@ -414,6 +415,7 @@ export class PluginServices {
       version,
       index: this.index,
       grants: this.grants,
+      ...(initialType ? { initialType } : {}),
     });
     await this.changed(folder);
   }

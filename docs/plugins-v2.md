@@ -72,7 +72,14 @@ project type hooks the manifest declares can be registered.
   `GET`/`PUT /plugin-store/:publisher/:name/configuration`,
   `DELETE /plugin-store/:publisher/:name/:version`,
   `PUT /projects/:id/plugins/:publisher/:name` (moves a project to another
-  installed version, which is both an update and a rollback).
+  installed version, which is both an update and a rollback; `null` turns
+  it off). A project without `ohmygame.json` gets one the first time a
+  plugin is turned on, typed `general`, or its own core type.
+- A project's Plugins sheet: `GET /projects/:id/plugins` lists the format 1
+  plugins on for it (shown locked) and every installed format 2 plugin with
+  the version the project uses, its status, what it asks for, and whether the
+  person allowed that. Turning on one never allowed asks first, then posts
+  the consent. The type's plugin stays on.
 
 Releases install only when they are signed by a key the app trusts for
 their publisher (`AppOptions.pluginReleaseKeys`). The app ships with none

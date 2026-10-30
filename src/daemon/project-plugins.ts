@@ -459,12 +459,15 @@ export async function setProjectPlugin({
   version,
   index,
   grants,
+  initialType,
 }: {
   folder: string;
   id: string;
   version: string | null;
   index: PluginIndex;
   grants: PluginGrants;
+  /** The type to write when the folder has no `ohmygame.json` yet. */
+  initialType?: string;
 }): Promise<ProjectFile> {
   const key = await projectFolderKey(folder);
   if (version === null) {
@@ -484,7 +487,7 @@ export async function setProjectPlugin({
   const file = await writeProjectFileAt(key, (current) => ({
     ...current,
     plugins: { ...current.plugins, [id]: version },
-  }));
+  }), initialType ? { type: initialType } : undefined);
   await grants.approve(key, id, capabilityGrants(entry.manifest));
   return file;
 }

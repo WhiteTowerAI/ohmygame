@@ -92,13 +92,18 @@ Daemon: ExternalMcpService
 Settings → **MCP Server** has its own page, apart from Agents, which sets up
 the agents OhMyGame runs. **Allow other agents to use OhMyGame** turns the
 feature on; **Connect agents** then lists Claude Code and Codex with
-**Connect** and **Disconnect**, and other clients get the launcher command to
-configure by hand. See the [MCP Server page](assets/external-agents-settings.webp).
+**Connect** and **Disconnect**. **Connect by hand** shows the same `mcp add`
+commands Connect runs, for Claude Code and Codex, and the launcher command for
+every other client, each with a copy button. **Recent connections** lists the
+clients that used the server since OhMyGame started, by the name each gives in
+`initialize`, with when it last called, how many tools it called, and whether
+its session is still open. The daemon keeps these in memory only, at most
+eight. See the [MCP Server page](assets/external-agents-settings.webp).
 The renderer uses:
 
 | Route                                              | Purpose                                        |
 | -------------------------------------------------- | ---------------------------------------------- |
-| `GET`, `PUT /settings/external-agents`             | `{ enabled }`, the launcher, and client states |
+| `GET`, `PUT /settings/external-agents`             | `{ enabled }`, the launcher, client states, and recent connections |
 | `PUT /settings/external-agents/clients/:client`    | Connect `claude-code` or `codex`               |
 | `DELETE /settings/external-agents/clients/:client` | Disconnect it                                  |
 

@@ -41,6 +41,7 @@ export {
   Badge,
   Breadcrumb,
   Card,
+  CodeBlock,
   Collapsible,
   Empty,
   Item,

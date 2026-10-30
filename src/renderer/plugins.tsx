@@ -22,9 +22,12 @@ import {
 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  PLUGIN_CONTRIBUTIONS,
   pluginComponentKey,
   pluginCollection,
+  pluginContributions,
   type PluginComponentSummary,
+  type PluginContribution,
   type PluginDetail,
   type InstallPluginRequest,
   type PluginInstallCandidate,
@@ -86,6 +89,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   const [query, setQuery] = useState("");
   const [source, setSource] = useState<BrowseSource>("all");
   const [worksWith, setWorksWith] = useState<ProjectType | "all">("all");
+  const [adds, setAdds] = useState<PluginContribution | "all">("all");
   const [updating, setUpdating] = useState<string>();
   const [adding, setAdding] = useState<"install">();
   const [gitDialogOpen, setGitDialogOpen] = useState(false);
@@ -270,7 +274,8 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   const publicPlugins = matching.filter(plugin => pluginCollection(plugin) === "public");
   const personalPlugins = matching.filter(plugin => pluginCollection(plugin) === "personal");
   const browsed = matching.filter(plugin => (source === "all" || pluginCollection(plugin) === source)
-    && (worksWith === "all" || !plugin.projectTypes?.length || plugin.projectTypes.includes(worksWith)));
+    && (worksWith === "all" || !plugin.projectTypes?.length || plugin.projectTypes.includes(worksWith))
+    && (adds === "all" || pluginContributions(plugin).includes(adds)));
   const skills: SkillEntry[] = skillCatalog
     ? [...skillCatalog.plugins].sort(compareCatalogPlugins).flatMap(plugin => plugin.skills.map(skill => ({ plugin, skill })))
     : [];
@@ -326,6 +331,10 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
       <Select<ProjectType | "all"> size="sm" label={t("plugins.worksWith")} value={worksWith} onChange={setWorksWith} options={[
         { value: "all", label: t("plugins.allProjectTypes") },
         ...PROJECT_TYPE_IDS.map(type => ({ value: type, label: projectTypeLabel(type) })),
+      ]} />
+      <Select<PluginContribution | "all"> size="sm" label={t("plugins.addsFilter")} value={adds} onChange={setAdds} options={[
+        { value: "all", label: t("plugins.allContributions") },
+        ...PLUGIN_CONTRIBUTIONS.map(kind => ({ value: kind, label: t(`plugins.contributions.${kind}`) })),
       ]} />
     </div>
     {browsed.length ? <div className="plugins-grid">
@@ -515,11 +524,29 @@ function PluginCard({ plugin, disabled, onToggle, onOpen }: { plugin: PluginSumm
       <span className="plugin-card-text">
         <strong><span className="plugin-card-name">{plugin.displayName}</span><PluginBadges plugin={plugin} /></strong>
         <small>{plugin.description}</small>
+        <PluginMeta plugin={plugin} />
       </span>
     </button>
     {plugin.installed ? <Switch size="sm" checked={plugin.enabled} disabled={disabled}
       label={`${plugin.enabled ? t("common.disable") : t("common.enable")} ${plugin.displayName}`} onChange={onToggle} /> : null}
   </article>;
+}
+
+/** Where an installed plugin applies and what it adds. */
+function PluginMeta({ plugin }: { plugin: PluginSummary }): ReactNode {
+  return <span className="plugins-meta">
+    <span>{plugin.projectTypes?.length ? t("plugins.scopeTyped") : t("plugins.scopeAll")}</span>
+    <PluginTags plugin={plugin} />
+  </span>;
+}
+
+function PluginTags({ plugin }: { plugin: PluginSummary }): ReactNode {
+  return <>
+    {plugin.projectTypes?.map(type => <span key={type} className="plugins-tag">{projectTypeLabel(type)}</span>)}
+    {pluginContributions(plugin).map(kind => <span key={kind} className="plugins-tag">
+      {kind === "skills" ? t("plugins.skillCount", { count: plugin.skillCount }) : t(`plugins.contributions.${kind}`)}
+    </span>)}
+  </>;
 }
 
 /** A catalog listing: where it comes from, what it works with, and whether it is installed. */
@@ -537,8 +564,7 @@ function BrowseCard({ plugin, onOpen }: { plugin: PluginSummary; onOpen: () => v
         <small>{plugin.description}</small>
         <span className="plugins-meta">
           <span>{official ? t("plugins.officialSource") : plugin.marketplace.displayName}</span>
-          {plugin.projectTypes?.map(type => <span key={type} className="plugins-tag">{projectTypeLabel(type)}</span>)}
-          {plugin.mcpServerCount ? <span className="plugins-tag">MCP</span> : null}
+          <PluginTags plugin={plugin} />
         </span>
       </span>
     </button>
