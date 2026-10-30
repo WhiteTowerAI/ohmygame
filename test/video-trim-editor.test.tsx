@@ -122,6 +122,8 @@ it("uses the Asset Studio filmstrip and handles, without encoding until Save", a
     1,
   );
   expect(button("Save as new video").disabled).toBe(true);
+  // On the canvas there is nothing to cancel back to; the Library passes onCancel.
+  expect(button("Cancel")).toBeUndefined();
   await key(handle("start"), "ArrowRight");
   await key(handle("end"), "ArrowLeft", true);
   expect(handle("start").getAttribute("aria-valuenow")).toBe("1");

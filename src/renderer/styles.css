@@ -4072,16 +4072,23 @@ select.settings-search-input {
   height: 32px;
   flex: none;
   place-items: center;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--color-border-strong);
   border-radius: 50%;
-  background: var(--surface);
-  color: var(--text);
+  background: var(--color-surface);
+  color: var(--color-text);
   cursor: pointer;
+}
+.video-trimmer-play:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+.video-trimmer-play:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 .video-trimmer-time {
   flex: none;
-  color: var(--text-muted);
-  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -4092,8 +4099,8 @@ select.settings-search-input {
   /* Room for the handles, which sit just outside the kept part. */
   margin: 0 10px;
   overflow: visible;
-  border-radius: 6px;
-  background: var(--surface-hover);
+  border-radius: var(--radius-sm);
+  background: var(--color-hover);
   cursor: pointer;
   touch-action: none;
 }
@@ -4102,7 +4109,7 @@ select.settings-search-input {
   inset: 0;
   display: flex;
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 .video-trimmer-frames > img {
   min-width: 0;
@@ -4125,8 +4132,8 @@ select.settings-search-input {
   top: 0;
   bottom: 0;
   box-sizing: border-box;
-  border-top: 2px solid #f2b705;
-  border-bottom: 2px solid #f2b705;
+  border-top: 2px solid var(--color-accent);
+  border-bottom: 2px solid var(--color-accent);
   pointer-events: none;
 }
 .video-trimmer-handle {
@@ -4134,7 +4141,7 @@ select.settings-search-input {
   top: 0;
   bottom: 0;
   width: 10px;
-  background: #f2b705;
+  background: var(--color-accent);
   cursor: ew-resize;
   pointer-events: auto;
   touch-action: none;
@@ -4146,7 +4153,7 @@ select.settings-search-input {
   width: 2px;
   height: 14px;
   border-radius: 1px;
-  background: rgb(0 0 0 / 50%);
+  background: var(--color-on-accent);
   transform: translate(-50%, -50%);
   content: "";
 }
@@ -4180,49 +4187,26 @@ select.settings-search-input {
   min-height: 32px;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 0 16px 0 58px;
 }
 .video-trimmer-summary {
   margin-right: auto;
-  color: var(--text-muted);
-  font-size: 12px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 .video-trimmer-error {
-  color: var(--danger);
-  font-size: 12px;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
 }
 .video-trimmer-progress {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
-}
-.video-trimmer-footer > button {
-  display: inline-flex;
-  height: 30px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-}
-.video-trimmer-footer > button.video-trimmer-save:not(:disabled) {
-  border-color: transparent;
-  background: var(--text);
-  color: var(--surface);
-}
-.video-trimmer-footer > button:disabled {
-  cursor: default;
-  opacity: 0.45;
 }
 .library-dialog-state {
   display: inline-flex;
