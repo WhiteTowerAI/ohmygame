@@ -2136,6 +2136,21 @@ select.settings-search-input {
   min-width: 0;
 }
 
+.project-type-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--color-text-tertiary);
+  color: #fff;
+}
+
+.project-type-mark.is-web-game { background: var(--hue-code); }
+.project-type-mark.is-interactive-story { background: var(--hue-video); }
+.project-type-mark.is-asset-canvas { background: var(--hue-image); }
+.project-type-mark.is-godot-game { background: #478cbf; }
+.project-type-mark.is-general { background: var(--hue-model); }
+
 .project-type-godot-icon {
   width: 14px;
   height: 14px;

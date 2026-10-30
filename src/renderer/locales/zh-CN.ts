@@ -841,6 +841,13 @@ const zhCN: typeof en = {
     "asset-canvas": "素材画布",
     "godot-game": "Godot",
   },
+  projectTypeDescription: {
+    general: "先不定引擎，让 agent 建议",
+    "web-game": "浏览器里直接玩，HTML5、Phaser 或 Three.js",
+    "interactive-story": "场景、选项和分支",
+    "asset-canvas": "在画布上做图片、视频和 3D 素材，不做游戏",
+    "godot-game": "需要本机安装 Godot 4",
+  },
   navigation: {
     backTo: "返回{{page}}",
   },

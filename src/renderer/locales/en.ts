@@ -856,6 +856,13 @@ const en = {
     "asset-canvas": "Asset Canvas",
     "godot-game": "Godot",
   },
+  projectTypeDescription: {
+    general: "Any engine; the agent suggests one",
+    "web-game": "Plays in the browser, with HTML5, Phaser or Three.js",
+    "interactive-story": "Scenes, choices and branches",
+    "asset-canvas": "Images, video and 3D on a canvas, without a game",
+    "godot-game": "Needs Godot 4 on this computer",
+  },
   navigation: {
     backTo: "Back to {{page}}",
   },
