@@ -89,13 +89,14 @@
 }
 
 .dock-tab:hover {
-  background: var(--color-hover);
+  background: color-mix(in srgb, var(--color-hover) 60%, transparent);
   color: var(--color-text-secondary);
 }
 
+/* The open tab is marked lightly; its text, not a heavy fill, says it is open. */
 .dock-tab.is-active {
   flex-shrink: 0;
-  background: var(--color-selected);
+  background: var(--color-hover);
   color: var(--color-text);
 }
 

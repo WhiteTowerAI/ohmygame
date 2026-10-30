@@ -218,9 +218,9 @@ it("pauses background polling while the user saves model visibility", async () =
   let save!: (settings: ProviderModelSettings) => void;
   api.setProviderModelVisibility.mockImplementationOnce(() => new Promise((resolve) => { save = resolve; }));
   await render();
-  await act(async () => button("Edit")!.click());
-  const checkbox = host.querySelector<HTMLInputElement>('.provider-model-row input[type="checkbox"]')!;
-  await act(async () => checkbox.click());
+  // Each row's switch shows or hides its model without entering Edit.
+  const visibility = () => host.querySelector<HTMLButtonElement>('.provider-model-row [role="switch"][aria-label="Enable GPT-4"]')!;
+  await act(async () => visibility().click());
   expect(api.setProviderModelVisibility).toHaveBeenCalledWith("openai", ["gpt-4"], false);
   await act(async () => vi.advanceTimersByTimeAsync(1_000));
   expect(api.getProviderModels).toHaveBeenCalledOnce();
@@ -228,6 +228,7 @@ it("pauses background polling while the user saves model visibility", async () =
   api.getProviderModels.mockResolvedValueOnce(saved);
   await act(async () => save(saved));
   await act(async () => vi.advanceTimersByTimeAsync(1_000));
-  expect(checkbox.checked).toBe(false);
+  // A hidden model leaves the list of shown ones for the hidden section.
+  expect(host.textContent).toContain("Hidden models (2)");
   expect(api.getProviderModels).toHaveBeenCalledTimes(2);
 });

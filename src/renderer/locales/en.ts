@@ -564,6 +564,7 @@ const en = {
     officialVersions: "Official model versions",
     search: "Search models",
     hideAll: "Hide all",
+    showAll: "Show all",
     providerModels: "Provider models",
     shownProviderModels: "Shown provider models",
     creditsPerGeneration: "{{credits}} credits / generation",
