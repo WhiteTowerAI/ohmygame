@@ -42,31 +42,35 @@ Story canvas names them in a warning and offers **Copy into project**.
 
 ## Workspace
 
-The workspace keeps the current Interactive Story layout:
+An Interactive Story opens in the project frame with two panels:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Header: Project ▾ · Back           Playtest · chat · Publish │
+│ Top bar: project name ▾          Layout and panels · Publish │
 ├───────────────┬──────────────────────────────────────────────┤
-│               │                                              │
+│ Chat          │ Story        Story · Design · Code · Assets  │
+│               │                       Settings · Playtest    │
 │  Chat with    │   Story (the flow canvas)                    │
 │  the Agent    │     or                                       │
-│  (left/right, │   Scene Workbench (opened from a Scene)      │
-│  collapsible) │                                              │
+│               │   Scene Workbench (opened from a Scene)      │
 │               │                                              │
 └───────────────┴──────────────────────────────────────────────┘
 ```
 
-- The chat panel keeps its existing placement preference and collapse
-  behavior.
-- The main area shows either the **Story** tab, the flow canvas, or the
+- **Chat**, **Story**, **Design**, **Canvas**, **Code** and **Assets** are
+  panels, as in a web game: they drag to another side or beside each other,
+  close from their tab, and come back from **Layout and panels** in the top
+  bar. The arrangement is shared with every project; see
+  [workspace panels](../runtime.md#workspace-panels).
+- The Story panel shows either the **Story** view, the flow canvas, or the
   Workbench of one Scene, with a breadcrumb (`Story › Case archive`) to
-  return. The tab is named for the whole story it shows, not for one Scene.
-- The **Project ▾** menu holds **Screen size**, **Variables**, and **Export**.
-  The **Back** arrow returns to the page used to open the project, retaining
-  project-list filters, search, and sorting. Opening a project link directly
-  uses **Projects** as the return destination. **Playtest** opens the real
-  Runtime; the chat toggle and **Publish** follow it.
+  return. The view is named for the whole story it shows, not for one Scene.
+  Its toolbar holds **Playtest**, which opens the real Runtime, and its
+  settings: **Screen size** and **Export**. Design is the game design
+  document and Canvas the asset canvas, the same documents as a web game's.
+- The project name's menu returns to the page used to open the project,
+  retaining project-list filters, search, and sorting. Opening a project link
+  directly uses **Projects** as the return destination.
 - **Export game** downloads a build that players can play anywhere.
   **Export project** downloads the editable project: its source files without
   `node_modules/` or hidden folders such as `.data/` and `.ohmygame/`, with
@@ -81,12 +85,12 @@ The workspace keeps the current Interactive Story layout:
 
 ### Source files
 
-The **Code** tab is always available beside **Story** and **Design**. It shows
-the project's files and their contents. Scene cards use readable names.
+The **Code** panel shows the project's files and their contents. Scene cards
+use readable names.
 
-The **Assets** tab, as in a web game, shows the project's images, videos,
+The **Assets** panel, as in a web game, shows the project's images, videos,
 audio, and models in one grid, with filters and search. **Show in Code** opens
-an asset's file in the Code tab. The editor reopens on Story, not Assets.
+an asset's file in the Code panel.
 
 ## Flow canvas
 

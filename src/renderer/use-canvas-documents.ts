@@ -36,7 +36,12 @@ export interface DocumentGenerationState {
 const documentContent = ({ id, title, markdown }: CanvasMarkdownDocument): CanvasMarkdownDocument => ({ id, title, markdown });
 const equal = (a: CanvasMarkdownDocument, b: CanvasMarkdownDocument) =>
   a.id === b.id && a.title === b.title && a.markdown === b.markdown;
-export function useCanvasDocuments(projectId: string) {
+/**
+ * A project's canvas documents, kept in sync with disk. Loading creates the
+ * project's canvas, so a workspace that shares one between its panels keeps it
+ * `enabled` only once one of them has opened.
+ */
+export function useCanvasDocuments(projectId: string, enabled = true) {
   const closing = useDesktopClosing();
   const [workspace, setWorkspace] = useState<CanvasWorkspaceDetail>();
   const current = useRef<CanvasWorkspaceDetail | undefined>(undefined);
@@ -181,7 +186,7 @@ export function useCanvasDocuments(projectId: string) {
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => {
-    if (closing) return;
+    if (closing || !enabled) return;
     void refresh().catch(() => {});
     // A hidden window shows nobody the external changes, so it refreshes again on return instead.
     const run = () => {
@@ -193,7 +198,7 @@ export function useCanvasDocuments(projectId: string) {
       window.clearInterval(timer);
       window.document.removeEventListener("visibilitychange", run);
     };
-  }, [refresh, closing]);
+  }, [refresh, closing, enabled]);
   const update = useCallback(
     (
       id: string,
@@ -459,6 +464,7 @@ export function useCanvasDocuments(projectId: string) {
     applyGeneration,
   };
 }
+export type CanvasDocumentsState = ReturnType<typeof useCanvasDocuments>;
 function message(cause: unknown) {
   return cause instanceof Error ? cause.message : String(cause);
 }

@@ -55,7 +55,7 @@ describe("publication feedback", () => {
     const html = renderToStaticMarkup(<PublishDialog project={project} publishing onClose={() => undefined} onPublish={async () => false} />);
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain('role="status">Publishing...');
-    expect(html).toContain('type="submit" aria-label="Publishing..." disabled=""');
-    expect(html).toContain('disabled="" aria-label="Close"');
+    expect(html).toMatch(/<button type="submit"[^>]* aria-label="Publishing\.\.\." disabled="">/);
+    expect(html).toMatch(/<button [^>]*aria-label="Close"[^>]* disabled="">/);
   });
 });

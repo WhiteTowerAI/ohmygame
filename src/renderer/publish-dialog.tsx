@@ -3,6 +3,7 @@ import type { ProjectCoverMode, ProjectState, PublicationState } from "../shared
 import { getExploreGameCover, getProjectCover, getProjectCoverState, setProjectCoverMode, setProjectCover } from "./api.js";
 import { imageToWebP } from "./image.js";
 import { Check, Copy, ExternalLink, Image, InfoCircle, LoaderCircle, RefreshCw, Upload, X } from "./icons.js";
+import { Button, Field, IconButton, Input, Switch, Textarea } from "./ui/index.js";
 import { localDebug } from "./auth.js";
 import { gameHash } from "./routes.js";
 import { language, t } from "./i18n.js";
@@ -173,10 +174,13 @@ export function PublishDialog({ project, publishing, justPublished = false, init
     }
   }
 
-  return <div className="project-create-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <section ref={dialog} className="publish-dialog" role="dialog" aria-modal="true" aria-busy={busy} aria-labelledby={titleId} tabIndex={-1}>
-      <header><h2 id={titleId}>{publication ? justPublished ? t("publish.gamePublished") : t("publish.publishedGame") : project.publication ? t("publish.update") : t("publish.publishGame")}</h2><button type="button" disabled={busy} onClick={onClose} aria-label={t("common.close")}><X size={16} /></button></header>
-      {publication ? <PublicationDetails
+  return <div className="ui-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section ref={dialog} className="ui-dialog ui-dialog-md publish-dialog" role="dialog" aria-modal="true" aria-busy={busy} aria-labelledby={titleId} tabIndex={-1}>
+      <div className="ui-dialog-head">
+        <h2 id={titleId} className="ui-dialog-title">{publication ? justPublished ? t("publish.gamePublished") : t("publish.publishedGame") : project.publication ? t("publish.update") : t("publish.publishGame")}</h2>
+        <IconButton size="sm" label={t("common.close")} className="ui-dialog-close" disabled={busy} onClick={onClose}><X size={16} /></IconButton>
+      </div>
+      {publication ? <div className="ui-dialog-body"><PublicationDetails
         publication={publication}
         coverAccessToken={coverAccessToken}
         profileUrl={profileUrl}
@@ -187,36 +191,39 @@ export function PublishDialog({ project, publishing, justPublished = false, init
           setEditing(true);
           setError(undefined);
         }}
-      /> : <form onSubmit={(event) => void submit(event)}>
-        <div className="publish-cover-field">
-          <div className="publish-cover-heading">
-            <span className="publish-cover-label">{t("publish.cover")}{pendingCover ? <span>{t("publish.notApplied")}</span> : null}</span>
-            <label className="publish-cover-automatic" title={t("publish.automaticTitle")}>
-              {t("publish.automatic")}<span className="settings-toggle"><input type="checkbox" role="switch" aria-label={t("publish.automaticLabel")} checked={coverMode === "auto"} disabled={busy || coverLoading || Boolean(pendingCover) || !coverMode} onChange={() => void toggleAutomaticCover()} /><span aria-hidden="true" /></span>
-            </label>
-          </div>
-          <label htmlFor={coverInputId}>
-            <span className="publish-cover-preview">
-              {coverUrl ? <img src={coverUrl} alt={t("publish.coverPreview")} /> : <span>{coverLoading ? <LoaderCircle className="spin" size={22} /> : <Image size={22} />}{coverLoading ? t("publish.loadingCover") : coverMode === "custom" ? t("publish.noCover") : t("publish.autoCaptured")}</span>}
+      /></div> : <form className="publish-form" onSubmit={(event) => void submit(event)}>
+        <div className="ui-dialog-body">
+          <div className="publish-cover-field">
+            <div className="publish-cover-heading">
+              <span className="publish-cover-label">{t("publish.cover")}{pendingCover ? <span>{t("publish.notApplied")}</span> : null}</span>
+              <span className="publish-cover-automatic" title={t("publish.automaticTitle")}>
+                {t("publish.automatic")}<Switch size="sm" label={t("publish.automaticLabel")} checked={coverMode === "auto"} disabled={busy || coverLoading || Boolean(pendingCover) || !coverMode} onChange={() => void toggleAutomaticCover()} />
+              </span>
+            </div>
+            <label htmlFor={coverInputId} className="publish-cover-preview">
+              {coverUrl ? <img src={coverUrl} alt={t("publish.coverPreview")} /> : <span className="publish-cover-empty">{coverLoading ? <LoaderCircle className="spin" size={20} /> : <Image size={20} />}{coverLoading ? t("publish.loadingCover") : coverMode === "custom" ? t("publish.noCover") : t("publish.autoCaptured")}</span>}
               <span className="publish-cover-action"><Upload size={14} />{t("publish.replaceCover")}</span>
-            </span>
-          </label>
-          <input id={coverInputId} hidden type="file" accept="image/png,image/jpeg,image/webp" disabled={busy || coverLoading} onChange={(event) => {
-            void selectCover(event.target.files?.[0]);
-            event.target.value = "";
-          }} />
-          {pendingCover ? <div className="publish-cover-controls">
-            <button type="button" disabled={busy} onClick={() => { setPendingCover(undefined); setError(undefined); setCoverNotice(undefined); }}>{t("publish.cancelSelection")}</button>
-            <button className="project-create-submit" type="button" disabled={busy} onClick={() => void applyCover()}>{coverOperation === "apply" ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}{t("publish.applyCoverButton")}</button>
-          </div> : null}
-          <p className={`publish-cover-status${pendingCover || coverNotice ? "" : " visually-hidden"}`} role="status">{pendingCover ? t("publish.applyCover") : coverNotice}</p>
-          {project.publication ? <p className="publish-cover-status">{t("publish.localCover")}</p> : null}
+            </label>
+            <input id={coverInputId} hidden type="file" accept="image/png,image/jpeg,image/webp" disabled={busy || coverLoading} onChange={(event) => {
+              void selectCover(event.target.files?.[0]);
+              event.target.value = "";
+            }} />
+            {pendingCover ? <div className="publish-cover-controls">
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setPendingCover(undefined); setError(undefined); setCoverNotice(undefined); }}>{t("publish.cancelSelection")}</Button>
+              <Button size="sm" variant="primary" disabled={busy} icon={coverOperation === "apply" ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />} onClick={() => void applyCover()}>{t("publish.applyCoverButton")}</Button>
+            </div> : null}
+            <p className={`publish-cover-status${pendingCover || coverNotice ? "" : " visually-hidden"}`} role="status">{pendingCover ? t("publish.applyCover") : coverNotice}</p>
+            {project.publication ? <p className="publish-cover-status">{t("publish.localCover")}</p> : null}
+          </div>
+          <Field label={t("common.name")}>{(props) => <Input {...props} ref={titleInput} value={title} maxLength={200} disabled={busy} required onChange={(event) => setTitle(event.target.value)} />}</Field>
+          <Field label={t("publish.description")}>{(props) => <Textarea {...props} value={description} maxLength={2000} disabled={busy} rows={4} placeholder={t("publish.descriptionPlaceholder")} onChange={(event) => setDescription(event.target.value)} />}</Field>
+          {localDebug ? <LocalPublishNotice /> : null}
+          {error ? <p className="publish-error" role="alert">{error}</p> : null}
         </div>
-        <label><span>{t("common.name")}</span><input ref={titleInput} value={title} maxLength={200} disabled={busy} required onChange={(event) => setTitle(event.target.value)} /></label>
-        <label><span>{t("publish.description")}</span><textarea value={description} maxLength={2000} disabled={busy} rows={4} placeholder={t("publish.descriptionPlaceholder")} onChange={(event) => setDescription(event.target.value)} /></label>
-        {localDebug ? <LocalPublishNotice /> : null}
-        {error ? <p className="project-create-error" role="alert">{error}</p> : null}
-        <footer><button type="button" disabled={busy} onClick={onClose}>{t("common.close")}</button><button className="project-create-submit" type="submit" aria-label={submitLabel} disabled={busy || coverLoading || Boolean(pendingCover) || !title.trim()}>{busy ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span role={busy ? "status" : undefined}>{submitLabel}</span></button></footer>
+        <div className="ui-dialog-footer">
+          <Button disabled={busy} onClick={onClose}>{t("common.close")}</Button>
+          <Button variant="primary" type="submit" aria-label={submitLabel} disabled={busy || coverLoading || Boolean(pendingCover) || !title.trim()} icon={busy ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}><span role={busy ? "status" : undefined}>{submitLabel}</span></Button>
+        </div>
       </form>}
     </section>
   </div>;
@@ -285,17 +292,17 @@ export function PublicationDetails({ publication, name, justPublished = false, c
     <div className="publication-link-field">
       <label htmlFor={linkId}>{t("community.link")}</label>
       <div>
-        <input id={linkId} readOnly value={publication.playUrl} onFocus={(event) => event.currentTarget.select()} />
-        <button type="button" className="icon-button" onClick={() => void copyLink()} title={copied ? t("publish.linkCopied") : t("publish.copyLink")} aria-label={t("publish.copyLink")}>
+        <Input id={linkId} readOnly value={publication.playUrl} onFocus={(event) => event.currentTarget.select()} />
+        <IconButton label={t("publish.copyLink")} title={copied ? t("publish.linkCopied") : t("publish.copyLink")} onClick={() => void copyLink()}>
           {copied ? <Check size={16} /> : <Copy size={16} />}
-        </button>
-        <a className="icon-button" href={publication.playUrl} target="_blank" rel="noopener noreferrer" title={t("publish.openGame")} aria-label={t("publish.openGame")}><ExternalLink size={16} /></a>
+        </IconButton>
+        <a className="ui-icon-button ui-icon-button-md" href={publication.playUrl} target="_blank" rel="noopener noreferrer" title={t("publish.openGame")} aria-label={t("publish.openGame")}><ExternalLink size={16} /></a>
       </div>
       <p className={`publication-copy-status${copyError ? " is-error" : ""}`} role={copyError ? "alert" : "status"}>{copyError ? t("publish.copyFailed") : copied ? t("publish.linkCopied") : ""}</p>
     </div>
     <div className="publication-secondary-actions">
       <a href={profileUrl ?? gameHash(publication.gameId)} onClick={onClose}>{profileUrl ? t("community.viewOnProfile") : t("publish.viewInCommunity")}</a>
-      <button type="button" onClick={onUpdate}><Upload size={13} />{t("publish.update")}</button>
+      <Button size="sm" icon={<Upload size={14} />} onClick={onUpdate}>{t("publish.update")}</Button>
     </div>
   </div>;
 }

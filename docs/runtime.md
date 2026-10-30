@@ -122,7 +122,7 @@ reuses Settings' provider connection forms. All providers in the selected catego
 are shown directly, without a More section. The **+** button opens the shared
 custom-provider form inline, without changing the conversation model. The footer
 offers **Start creating**; step indicators handle navigation. The description points
-to **Settings → Providers & Models** for later configuration.
+to **Settings → Providers** for later configuration.
 Media default models stay in Settings; this step does not load their catalogs.
 Media setup never changes the chat model or reloads the conversation catalog
 when media connections change. **Start creating** enters the studio without
@@ -306,8 +306,8 @@ the daemon's other settings (`OHMYGAME_*`, `DAEMON_HOST`, `DAEMON_PORT`).
 
 ## Agent game use
 
-General Game projects open on Design with the conversation pane expanded, as
-engine-independent workspaces with Code, Design, Assets and Web preview.
+General Game projects open on Canvas with the conversation pane expanded, as
+engine-independent workspaces with Code, Design, Canvas, Assets and Web preview.
 The conversation pane can still be collapsed manually; see the
 [workspace example](assets/general-game-conversation.png).
 The bundled Game Studio plugin provides game production,
@@ -320,7 +320,7 @@ Skills are listed for the agent, which reads the relevant ones for its task.
 General Game's **Web preview** switch in **Project settings** is on for newly
 created projects. Existing projects retain their saved switch; projects without
 the setting remain off. Adding a dev script does not override an explicit opt-out.
-The switch is available from Design, Code and Preview, and exposes Preview,
+The switch is available from Canvas, Code and Preview, and exposes Preview,
 Play, and the available Web `game_use` tool. It can be enabled before browser
 output exists; automatic preview starts when its
 configured script, static HTML, or custom command becomes runnable. Disabling it stops the preview server and returns
@@ -480,12 +480,67 @@ first, so an open Projects page does not hold shutdown open.
 
 ## Project navigation
 
-Project workspaces return to their entry page using the top-left Back arrow.
-The destination survives conversation/view changes and refreshes in the same
-tab; a project link opened without an entry page returns to Projects. The
-Projects URL preserves its type filter, search (`q`), and name sorting
-(`sort=name`) when returning or refreshing. See the
-[workspace return example](assets/project-return-navigation.webp).
+Inside a project the sidebar becomes a rail: the logo (Home), the recent
+projects as covers, **New project** (Home), Search, the desktop update and the
+account. The open project is marked; hovering a project lists its
+conversations, newest first, and the open project's list ends with **New
+conversation**. On macOS the rail's Back and Forward sit beside the window
+controls. The top bar holds the project's name as its menu (**Rename
+project…**, **Open in folder** in the desktop app, **Export project**, and a
+return to the entry page) and **Publish**, which an asset canvas does not have
+and Godot and plugin projects show disabled. Leaving through the rail or the
+menu saves the open design first.
+
+The return item goes back to the page the project was opened from. The
+destination survives conversation/view changes and refreshes in the same tab; a
+project link opened without an entry page returns to Projects. The Projects URL
+preserves its type filter, search (`q`), and name sorting (`sort=name`) when
+returning or refreshing.
+
+Pages outside a project share one sidebar: Search, Home, Projects, Library,
+Community, Plugins, the eight most recently edited projects, and the account.
+Its menu opens Settings (also **⌘,** or **Ctrl+,**), Account, Billing and About;
+signed out, it leads with **Sign in…**.
+
+Search, in the sidebar and the project rail, opens the command menu (also
+**⌘K** or **Ctrl+K** anywhere; `src/renderer/command-menu.tsx`). Typing filters
+it; the arrows move and Enter runs. It lists, under headings: what the page in
+view adds (a project's panels and layout presets), the app's pages and **New
+project** (also **⌘N** or **Ctrl+N**, which focuses Home's prompt), every
+project, most recently edited first, the Settings sections, and switching
+between dark and light. Leaving an open project from the menu or a shortcut
+saves its design first, as the rail does. While a dialog is open, the menu and
+these shortcuts wait for it to close. A pending desktop update shows above the account until
+it needs a restart. The sidebar collapses to icons and its edge drags between
+200 and 360px (double-click restores 232px); both stay across pages and
+restarts. Settings is a page in this frame, with its sections beside the
+content in four groups: General and Appearance; AI (Agents, Providers, Web
+Search); Connections (MCP Server, Network); and Account, Billing and About.
+`#/settings` opens General. Each agent, OhMyGame's own included, has its own
+page at `#/settings/agents/<id>`, and Back returns to the list. Appearance
+also sets the grey palette (Neutral, Warm, High contrast) and a serif chat
+font; both are stored in the renderer and applied as `data-palette` and
+`data-chat-font` on the root before the first render.
+
+Every project starts from Home. Sending its prompt opens the new-project dialog
+(name, type and folder) with the prompt as the project's first message; **Blank
+project** opens the dialog empty, and **Import folder** (desktop app) picks an
+existing folder, opening its project if it already has one. The dialog offers
+every project type, narrowed to those the prompt's plugins support. A picker in
+the prompt box chooses the plugin to start with, from the enabled plugins that
+start projects (Web Game Studio, Game Studio, Godot, Three.js World and the
+engine and mini-game plugins); its plugin mention leads the first message.
+Ideas under the box fill the prompt. The former studio pages are gone; their
+links (`#/web-game`, `#/interactive-story`, `#/godot`, `#/asset-canvas`,
+`#/general`) open Home.
+
+Projects lists every project as covers or as a list (name, type and when it
+was edited); the layout choice stays in that browser. Search, the type filter
+and sorting sit beside the title, and **New project** opens a menu: **New
+project…** (the same dialog as Home), **Import folder…** (desktop app) and
+**Import project ZIP…**. Cards and rows share one menu, from **…** or a
+right-click: open, rename, duplicate, open in folder (desktop app), export and
+delete, which asks first in a dialog.
 
 In the desktop app, the project card menu's **Open in folder** action opens the
 project's workspace in the system file manager, including projects using an
@@ -493,6 +548,64 @@ existing folder. It is available in recent projects and the Projects list.
 See the [project menu example](assets/project-card-menu.png).
 The desktop file opener resolves `.` through `/projects/:projectId/files/location`
 to open the workspace root; file reads and writes still require a file path.
+
+## Workspace panels
+
+Below the top bar a project is a set of panels in four areas: left, middle,
+right and bottom. Each panel is a tab; its controls sit beside the tabs. A tab
+drags to another area or to an empty edge, its right-click menu moves or
+closes it, and an area's **+** reopens a closed panel there. Area edges drag to
+resize. A moved or closed panel keeps its state, such as the open file, the
+design canvas or a running game, until the project closes: a closed panel's
+view waits hidden in the page, and views move with `moveBefore`, which keeps an
+iframe from reloading. When the window is too narrow for the side areas beside
+the middle one, the areas stack in one scrolling column. Every tab is named for
+screen readers, also when a narrow area shows only its icon.
+
+Every project shares one layout. Its type only names the panels it offers, in
+the order they open (`src/renderer/workspace-layout.ts`):
+
+| Project types | Panels |
+|---|---|
+| Web games, General projects, Godot | Chat, Game, Design, Canvas, Code, Assets |
+| Interactive Story | Chat, Story, Design, Canvas, Code, Assets |
+| Asset canvas | Chat, Canvas |
+
+The default puts Chat on the left and the rest in the middle, the first in
+front. A project without a preview, such as Godot without a web build, has no
+Game and opens on Code; a story opens on its Story map; panels new to the saved layout join it in the
+default's order and front tab. A chat moved to the middle reads in one centered
+column.
+
+With Chat closed, its composer floats over the middle area instead
+(`src/renderer/floating-chat.tsx`), with the approval, question and plan cards
+when they wait on an answer. Turns sent while it is open stack above it, the
+latest three at most; the chat panel keeps the whole conversation. The bar
+drags by its top edge (double-click puts it back), folds to a pill at the
+bottom, which unfolds when something waits on an answer, and opens into the
+chat panel. The composer's draft carries between the bar and the panel.
+
+Design is the game design document, the Markdown the agent reads as the game's
+design (`src/renderer/design-document-panel.tsx`). Its toolbar picks one of the
+canvas documents, the main one first, and switches between reading it beside its
+outline, editing its Markdown, or both side by side. **Reference in chat**
+references the document in the next message, as the composer's design reference
+does, and text picked in it can be added to the chat as a quote. Canvas shows the
+same documents as nodes, so the two share one copy: an edit in either shows in the
+other and saves once. Neither loads the documents, which creates the project's
+`canvas/` folder, until one of them has opened.
+
+**Layout and panels** in the top bar applies a preset (Default; Art and Code
+bring Canvas or Code forward where a project has them) and turns each panel
+on or off. The arrangement is kept once in local storage
+(`ohmygame-workspace-layout`) and fitted to each project's panels, so moving
+the chat to the right holds in every project. A change keeps other types'
+panels where they were; a panel the layout never knew opens where the default
+puts it, and closed ones stay closed. The chat side used to be a setting; a
+saved **Right** still decides where the chat first opens. The route's
+`design` view brings the Canvas panel forward and follows it, and a file link
+in the chat opens the file in Code, reopening its panel if it was closed; an
+asset canvas, which has no Code panel, shows it in its Canvas panel.
 
 ## Agent notifications
 
@@ -595,7 +708,7 @@ workspace versions, model notices, storage limits, and API routes, and
 Projects without an image use a small Solar outline icon on a moderately saturated
 background. The project ID selects a stable combination, so sorting, filtering,
 refreshing or renaming never changes the placeholder. The same renderer is used
-on Home, Projects and the project-type entry pages. These placeholders are not
+on Home and Projects. These placeholders are not
 saved as images or used for publishing. Both themes share the palette centralized
 in the `--project-cover-*` variables in `src/renderer/styles.css`.
 

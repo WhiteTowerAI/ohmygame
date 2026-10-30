@@ -40,19 +40,19 @@ afterEach(async () => {
 
 async function render(permission: AgentNotificationPermission): Promise<void> {
   notifications.permission.mockResolvedValue(permission);
-  await act(async () => root.render(<SettingsPage section="notifications" onBack={() => {}} onSectionChange={() => {}} />));
+  await act(async () => root.render(<SettingsPage section="notifications" onNavigate={() => {}} onSectionChange={() => {}} />));
 }
 
-function toggle(): HTMLInputElement {
-  return container.querySelector('input[role="switch"]') as HTMLInputElement;
+function toggle(): HTMLButtonElement {
+  return container.querySelector('[role="switch"]') as HTMLButtonElement;
 }
 
 it("asks macOS when notifications are turned on and it has not asked yet", async () => {
   localStorage.setItem("ohmygame:notifications", JSON.stringify({ enabled: false }));
   await render("not-determined");
-  expect(container.querySelectorAll('input[role="switch"]')).toHaveLength(1);
+  expect(container.querySelectorAll('[role="switch"]')).toHaveLength(1);
   await act(async () => toggle().click());
-  expect(toggle().checked).toBe(true);
+  expect(toggle().getAttribute("aria-checked")).toBe("true");
   expect(notifications.requestPermission).toHaveBeenCalledOnce();
 });
 

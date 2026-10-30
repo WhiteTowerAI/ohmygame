@@ -11,7 +11,10 @@ import { createServer } from "node:net";
 import path from "node:path";
 import type { ProjectState } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
-import { supportsWebPreview } from "../shared/project-runtime.js";
+import {
+  buildsWebPreview,
+  supportsWebPreview,
+} from "../shared/project-runtime.js";
 import {
   packageManagerRunArguments,
   resolvePackageManager,
@@ -38,6 +41,15 @@ interface PreviewOptions {
   installTimeoutMs?: number;
   idleTimeoutMs?: number;
   leaseTimeoutMs?: number;
+  /**
+   * Builds a `"web-build"` project's web version with its plugin and says
+   * which folder to serve; undefined when the project isn't built that way.
+   */
+  webBuild?: (
+    project: ProjectState,
+    signal: AbortSignal,
+    log: (message: string) => void,
+  ) => Promise<{ directory: string; entry: string } | undefined>;
 }
 interface PreviewSession {
   project: ProjectState;
@@ -52,6 +64,8 @@ interface PreviewSession {
 }
 interface PreviewOperation {
   automatic: boolean;
+  /** Stops this operation's plugin build when another operation replaces it. */
+  controller?: AbortController;
 }
 const MAX_ERROR_OUTPUT = 8 * 1024;
 
@@ -69,6 +83,9 @@ function previewable(project: ProjectState): boolean {
   return supportsWebPreview(project) || project.type === "interactive-story";
 }
 
+/** The status command of a plugin-built preview; the watcher rebuilds it on changes. */
+const WEB_BUILD_COMMAND = "Build web version";
+
 export class PreviewManager {
   readonly #running = new Map<string, ChildProcess>();
   readonly #proxies = new Map<string, PreviewProxy>();
@@ -76,6 +93,8 @@ export class PreviewManager {
   readonly #children = new Map<string, Set<ChildProcess>>();
   readonly #operations = new Map<string, PreviewOperation>();
   readonly #starting = new Map<string, Promise<string>>();
+  /** A plugin build running for a project, even after it was cancelled, until it settles. */
+  readonly #builds = new Map<string, Promise<unknown>>();
   readonly #stopping = new Map<string, Promise<void>>();
   readonly #sessions = new Map<string, PreviewSession>();
   readonly #timer: ReturnType<typeof setInterval>;
@@ -258,8 +277,11 @@ export class PreviewManager {
         "Enable Web preview in project settings first.",
       );
     const session = this.#session(project);
-    const operation: PreviewOperation = { automatic };
-    this.#operations.set(project.id, operation);
+    const operation: PreviewOperation = {
+      automatic,
+      controller: new AbortController(),
+    };
+    this.#setOperation(project.id, operation);
     const assertCurrent = () => {
       this.#assertCurrent(project.id, operation);
       if (operation.automatic && !this.#automaticAllowed(session))
@@ -268,10 +290,24 @@ export class PreviewManager {
     let child: ChildProcess | undefined;
     let began = false;
     try {
-      // A web story is its own page: the folder is served as it is, whatever scripts it carries.
-      const workspace = await resolvePreviewWorkspace(project.type === "interactive-story"
-        ? { workspacePath: project.workspacePath, startupDirectory: ".", previewMode: "static" }
-        : project);
+      const built = buildsWebPreview(project);
+      if (built && !this.options.webBuild)
+        throw new ProjectWorkspaceError(
+          "This project's preview needs its plugin, which isn't available here.",
+        );
+      // A web story is its own page: the folder is served as it is, whatever
+      // scripts it carries. A plugin-built game is served once it is built.
+      const workspace = built
+        ? {
+            runnable: true,
+            mode: "static" as const,
+            absolutePath: project.workspacePath,
+            relativePath: ".",
+            error: undefined,
+          }
+        : await resolvePreviewWorkspace(project.type === "interactive-story"
+          ? { workspacePath: project.workspacePath, startupDirectory: ".", previewMode: "static" }
+          : project);
       assertCurrent();
       if (!workspace.runnable) {
         const message = workspace.error ?? "Workspace is not runnable yet";
@@ -305,6 +341,7 @@ export class PreviewManager {
         PORT: String(port),
       };
       let processError: Error | undefined;
+      let entry = "index.html";
       let output = () => "";
       const log = (value: string) => {
         if (
@@ -325,13 +362,44 @@ export class PreviewManager {
         }, 250);
         session.logTimer.unref?.();
       };
-      if (workspace.mode === "static") {
-        this.#update(project, {
-          phase: "launching",
-          command: "Serve static files",
-        });
+      let served = workspace.absolutePath;
+      if (built) {
+        this.#update(project, { phase: "building", command: WEB_BUILD_COMMAND });
+        // A cancelled build may still be writing the build folder.
+        await this.#settledBuild(project.id);
         assertCurrent();
-        const server = await startStaticPreview(workspace.absolutePath, port);
+        const building = this.options.webBuild!(
+          project,
+          operation.controller!.signal,
+          (message) => log(`${message}\n`),
+        );
+        this.#builds.set(project.id, building);
+        const forget = () => {
+          if (this.#builds.get(project.id) === building)
+            this.#builds.delete(project.id);
+        };
+        building.then(forget, forget);
+        const build = await building;
+        assertCurrent();
+        if (!build)
+          throw new ProjectWorkspaceError(
+            "This project's plugin doesn't build a web version.",
+          );
+        served = build.directory;
+        entry = build.entry;
+        this.#update(project, {
+          directory: path.relative(project.workspacePath, build.directory) || ".",
+        });
+      }
+      if (workspace.mode === "static") {
+        if (!built)
+          this.#update(project, {
+            phase: "launching",
+            command: "Serve static files",
+          });
+        assertCurrent();
+        // A build's page is served at the root, so the panel's routes work as for any web game.
+        const server = await startStaticPreview(served, port, entry);
         try {
           assertCurrent();
         } catch (cause) {
@@ -596,9 +664,11 @@ export class PreviewManager {
       return;
     }
     const operation: PreviewOperation = { automatic: false };
-    this.#operations.set(project.id, operation);
+    this.#setOperation(project.id, operation);
     this.#starting.delete(project.id);
-    const stopping = this.#terminateProject(project.id);
+    const stopping = this.#terminateProject(project.id).then(() =>
+      this.#settledBuild(project.id),
+    );
     this.#stopping.set(project.id, stopping);
     try {
       await stopping;
@@ -629,10 +699,13 @@ export class PreviewManager {
       this.#unwatch(session);
       clearTimeout(session.logTimer);
     }
+    for (const operation of this.#operations.values())
+      operation.controller?.abort();
     this.#operations.clear();
     this.#starting.clear();
     await Promise.all([
       ...this.#stopping.values(),
+      ...[...this.#builds.values()].map((build) => build.catch(() => {})),
       ...[
         ...new Set([
           ...this.#children.keys(),
@@ -677,19 +750,7 @@ export class PreviewManager {
         session.project.workspacePath,
         { recursive: true },
         (_event, filename) => {
-          const parts = String(filename ?? "")
-            .replaceAll("\\", "/")
-            .split("/");
-          if (
-            parts.some(
-              (part) =>
-                part.startsWith(".") ||
-                ["node_modules", "dist", "build"].includes(part),
-            ) ||
-            !path.extname(parts.at(-1) ?? "") ||
-            /\.(?:pid|log|tmp|swp)$/i.test(parts.at(-1) ?? "")
-          )
-            return;
+          if (!isPreviewSourceChange(String(filename ?? ""))) return;
           session.dirty = true;
           clearTimeout(session.changeTimer);
           session.changeTimer = setTimeout(() => {
@@ -697,6 +758,25 @@ export class PreviewManager {
             if (session.project.preview.status === "ready") {
               if (session.project.preview.command === "Serve static files")
                 this.#proxies.get(session.project.id)?.reload();
+              else if (
+                session.project.preview.command === WEB_BUILD_COMMAND &&
+                this.#automaticAllowed(session)
+              )
+                void this.#beginStart(session.project, false, true).catch(
+                  () => {},
+                );
+            } else if (
+              session.project.preview.status === "starting" &&
+              session.project.preview.command === WEB_BUILD_COMMAND
+            ) {
+              // A build that started before this change would miss it: start
+              // again, which cancels it, as the same kind of start it was.
+              const automatic =
+                this.#operations.get(session.project.id)?.automatic ?? true;
+              if (!automatic || this.#automaticAllowed(session))
+                void this.#beginStart(session.project, false, automatic).catch(
+                  () => {},
+                );
             } else void this.automatic(session.project, true).catch(() => {});
           }, 800);
           session.changeTimer.unref?.();
@@ -790,6 +870,17 @@ export class PreviewManager {
       await terminateProjectProcess(child);
       this.#untrack(id, child);
     }
+  }
+  async #settledBuild(id: string): Promise<void> {
+    while (this.#builds.has(id))
+      await this.#builds.get(id)!.then(
+        () => {},
+        () => {},
+      );
+  }
+  #setOperation(id: string, operation: PreviewOperation): void {
+    this.#operations.get(id)?.controller?.abort();
+    this.#operations.set(id, operation);
   }
   #assertCurrent(id: string, operation: PreviewOperation): void {
     if (this.#operations.get(id) !== operation)
@@ -895,6 +986,42 @@ async function waitForCommand(
           ),
     );
   });
+}
+
+/**
+ * Whether a changed file, relative to the workspace, can change the running
+ * game. Hidden and generated folders, logs and temporary files can't, and nor
+ * can the files Design keeps in the workspace's root `canvas/` folder: opening
+ * Design saves its board there, which would otherwise reload the game beside
+ * it. Other files in `canvas/` may belong to the game and still count.
+ */
+export function isPreviewSourceChange(filename: string): boolean {
+  const parts = filename.replaceAll("\\", "/").split("/");
+  const name = parts.at(-1) ?? "";
+  return !(
+    isDesignCanvasFile(parts) ||
+    parts.some((part) => part.startsWith(".") || ["node_modules", "dist", "build"].includes(part)) ||
+    !path.extname(name) ||
+    /\.(?:pid|log|tmp|swp)$/i.test(name)
+  );
+}
+
+// What Design writes in canvas/ (src/daemon/canvas-workspace.ts): its index,
+// lists and instructions, and one file per board, layout, document, table and
+// schema. Anything else there may be the game's.
+const DESIGN_CANVAS_FILES = new Set(["index.json", "assets.json", "jobs.json", "AGENTS.md", "README.md"]);
+const DESIGN_CANVAS_ENTRIES: Record<string, RegExp> = {
+  boards: /^[^/]+\.json$/,
+  editor: /^[^/]+\.json$/,
+  tables: /^[^/]+\.json$/,
+  documents: /^[^/]+\.md$/,
+  schemas: /^[^/]+\.schema\.json$/,
+};
+
+function isDesignCanvasFile(parts: string[]): boolean {
+  if (parts[0] !== "canvas") return false;
+  if (parts.length === 2) return DESIGN_CANVAS_FILES.has(parts[1]);
+  return parts.length === 3 && Object.hasOwn(DESIGN_CANVAS_ENTRIES, parts[1]) && DESIGN_CANVAS_ENTRIES[parts[1]].test(parts[2]);
 }
 
 /** Hidden entries and generated folders are not files someone wrote for the project. */

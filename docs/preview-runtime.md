@@ -2,10 +2,10 @@
 
 Web Game and newly created General Game projects have browser preview enabled,
 except projects that select a plugin external preview.
-New General projects open on Design; prompt-based creation also keeps chat open.
+New General projects open on Canvas; prompt-based creation also keeps chat open.
 Existing General projects keep their saved switch, and older projects without a
-switch remain disabled. **Project settings**, available from Design, Code and
-Preview, controls Web preview, Play and Web playtesting. Design's separate
+switch remain disabled. **Project settings**, available from Canvas, Code and
+Preview, controls Web preview, Play and Web playtesting. Canvas's separate
 **Default models** button controls generation models. Neither setting selects
 or installs a game engine.
 
@@ -126,8 +126,13 @@ application relaunches. If another process occupies that port, an available port
 is used and saved; browser storage at the previous origin cannot migrate
 automatically. Duplicated projects receive a separate origin.
 
-Page reload and server restart are separate controls. Internal navigation updates
-the toolbar without reloading the game. The desktop editor owns one human game
+Page reload and server restart are separate controls. The Game panel's toolbar
+leads with the preview's address, like a browser's: a dot for the preview's state
+(running, starting, failed or not started), the current page, which opens the page
+picker, and reload. The viewport, playtest, settings and Play controls follow at
+its end, and in a narrow panel the address shrinks to its dot, the page
+picker's chevron and reload.
+Internal navigation updates the address without reloading the game. The desktop editor owns one human game
 WebContentsView per project. Play moves that view into a separate native window;
 closing Play returns it to Preview. Both directions preserve the same document,
 current route, in-memory state, localStorage and IndexedDB. Refresh explicitly
@@ -137,7 +142,14 @@ Preview saves remain available. Older standalone Play saves stay in their separa
 storage context and are not merged. Browser builds continue to use an iframe and
 separate popup, which reload the game on switching. Static file changes reload
 active pages through a local event
-stream, while development servers retain their own HMR protocol.
+stream, while development servers retain their own HMR protocol. Changes that
+can't affect the game don't reload or rebuild it: hidden folders, `node_modules`,
+`dist`, `build`, logs and temporary files, and the files Design keeps in the
+workspace's root `canvas/` folder, which it saves when it opens: its index,
+asset and job lists and instructions, and the board, layout, document, table
+and schema files directly inside `boards`, `editor`, `documents`, `tables` and
+`schemas`. Other files under `canvas/`, such as a game's own scripts, still
+reload it (`isPreviewSourceChange` in `src/daemon/preview.ts`).
 
 HTTP readiness and content diagnostics are separate: a responding server can
 still have compilation or runtime errors. The proxy forwards HTTP and HMR;

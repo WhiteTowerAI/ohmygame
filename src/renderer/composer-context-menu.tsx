@@ -227,7 +227,8 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover, 
     const element = menuRef.current;
     const anchor = element?.closest(".prompt-box");
     if (!element || !anchor) return;
-    const pane = anchor.closest(".agent-body, .home-content");
+    // The floating bar's composer is bounded by the area it floats over.
+    const pane = anchor.closest(".agent-body, .home-page, .dock-body");
     const content = anchor.closest(".desktop-window-content");
     const updateHeight = () => {
       const anchorRect = anchor.getBoundingClientRect();

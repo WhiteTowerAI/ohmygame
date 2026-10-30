@@ -1,0 +1,232 @@
+/* the project workspace: the rail, the top bar, and the body under it */
+.project-frame {
+  --sidebar-width: 56px;
+  display: grid;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-rows: 48px minmax(0, 1fr);
+  grid-template-areas: "rail top" "rail body";
+  background: var(--color-app);
+}
+
+.project-top {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 0 var(--space-3) 0 var(--space-1);
+}
+
+.project-body {
+  grid-area: body;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 6px 6px 0;
+}
+
+.project-body > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* the project's name, as its menu */
+.project-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.project-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-name svg {
+  flex: none;
+  color: var(--color-text-tertiary);
+}
+
+.project-name:hover,
+.project-name[aria-expanded="true"] {
+  background: var(--color-hover);
+}
+
+.project-status {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.project-top-spacer {
+  flex: 1;
+}
+
+/* the open project in the rail: full strength, with a short bar at the
+   rail's edge (an ink ring around a cover is louder than the cover itself) */
+.sidebar-app {
+  position: relative;
+}
+
+.sidebar-app.is-active {
+  overflow: visible;
+  opacity: 1;
+}
+
+.sidebar-app.is-active .sidebar-app-cover {
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.sidebar-app.is-active::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: -12px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--color-text);
+}
+
+.sidebar-app-new {
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  opacity: 1;
+}
+
+.sidebar-app-new:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+/* a project's conversations, on hover in the rail */
+.ui-popover.rail-popover {
+  width: 260px;
+  padding: var(--space-1);
+}
+
+.rail-popover-head {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2) var(--space-2) var(--space-1);
+}
+
+.rail-popover-head strong {
+  overflow: hidden;
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-popover-head small,
+.rail-popover-item small {
+  flex: none;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.rail-popover-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.rail-popover-item span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-popover-item:hover {
+  background: var(--color-hover);
+}
+
+.rail-popover-item.is-current {
+  background: var(--color-selected);
+}
+
+.rail-popover-new span {
+  color: var(--color-text-secondary);
+}
+
+/* macOS: the top bar is the title bar. The window controls and the rail's
+   back and forward sit at its left, over the rail, and the rest drags the
+   window. */
+.desktop-macos .project-frame {
+  position: relative;
+  /* where the title-bar buttons end: 92 + 2 × 26 + 6 */
+  --titlebar-end: 150px;
+}
+
+.desktop-macos .project-frame.is-sidebar-collapsed .sidebar {
+  padding-top: 48px;
+}
+
+.desktop-macos .project-frame.is-sidebar-collapsed .sidebar-titlebar {
+  position: absolute;
+  top: 0;
+  right: auto;
+  left: 0;
+  justify-content: flex-start;
+  width: var(--titlebar-end);
+  margin: 0;
+}
+
+.desktop-macos .project-frame.is-sidebar-collapsed .sidebar-head {
+  height: 40px;
+}
+
+.desktop-macos .project-top {
+  padding-left: calc(var(--titlebar-end) - var(--sidebar-width) + var(--space-2));
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+.desktop-macos .project-top :is(button, a, input, [role="tab"]) {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+/* The top bar drags the window, so the panel headers under it don't. */
+.desktop-macos .project-body .window-drag-handle {
+  app-region: no-drag;
+  user-select: auto;
+}
+
+/* A view's own tabs lead its panel's toolbar; its actions stay at the end. */
+.project-body .dock-view-toolbar > .viewer-navigation,
+.project-body .dock-view-toolbar > .viewer-navigation > :last-child {
+  margin-right: auto;
+}

@@ -1,0 +1,522 @@
+/*
+ * The pages' frame: the sidebar, flat on the app background, and the page
+ * sheet beside it. Ported from the design lab's shell.css (Sidebar and
+ * PageFrame); colors and sizes come from ui/tokens.css.
+ */
+
+/* frame */
+.page-frame {
+  --sidebar-width: 232px;
+  display: grid;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-areas: "rail sheet";
+  background: var(--color-app);
+  transition: grid-template-columns var(--duration-fast);
+}
+
+.page-frame.is-sidebar-collapsed {
+  --sidebar-width: 56px;
+}
+
+/* While the edge is dragged: follow the pointer exactly, and keep the cursor. */
+.is-resizing-sidebar .page-frame {
+  transition: none;
+}
+
+.is-resizing-sidebar,
+.is-resizing-sidebar * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+/* sidebar */
+.sidebar {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  min-height: 0;
+  padding: 0 var(--space-2) var(--space-3);
+  overflow: hidden auto;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  scrollbar-width: none;
+}
+
+.sidebar-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  height: 48px;
+  padding: 0 0 0 var(--space-2);
+}
+
+.sidebar-brand {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.sidebar-brand .brand-logo {
+  flex: none;
+}
+
+.sidebar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-label {
+  padding: 0 var(--space-2) var(--space-1);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* a heading that folds its list: the caret shows on hover, and while folded */
+.sidebar-label-fold {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  height: 22px;
+  margin-bottom: 2px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.sidebar-label-fold:hover {
+  color: var(--color-text-secondary);
+}
+
+.sidebar-label-caret {
+  opacity: 0;
+  transform: rotate(90deg);
+  transition:
+    opacity var(--duration-fast),
+    transform var(--duration-fast);
+}
+
+.sidebar-label-fold:hover .sidebar-label-caret,
+.sidebar-label-fold:focus-visible .sidebar-label-caret,
+.is-folded .sidebar-label-caret {
+  opacity: 1;
+}
+
+.is-folded .sidebar-label-caret {
+  transform: none;
+}
+
+.sidebar-recent-fold {
+  color: var(--color-text-tertiary);
+}
+
+.sidebar-item,
+.sidebar-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-item:hover,
+.sidebar-account:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.sidebar-item.is-active,
+.sidebar-account.is-active {
+  background: var(--color-selected);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.sidebar-item:focus-visible,
+.sidebar-account:focus-visible,
+.sidebar-brand:focus-visible,
+.sidebar-label-fold:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+/* the icon holds a status dot, so the collapsed sidebar shows it too */
+.sidebar-item-icon {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+}
+
+.sidebar-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* a recent project's cover, or its placeholder when it has none */
+.sidebar-cover,
+.sidebar-app-cover {
+  display: block;
+  overflow: hidden;
+}
+
+.sidebar-cover {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+}
+
+.sidebar-cover img,
+.sidebar-app-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sidebar-cover .project-cover-placeholder svg {
+  width: 12px;
+  height: 12px;
+}
+
+.sidebar-app-cover .project-cover-placeholder svg {
+  width: 18px;
+  height: 18px;
+}
+
+.sidebar-spacer {
+  flex: 1;
+}
+
+.sidebar-dot {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  box-shadow: 0 0 0 2px var(--color-app);
+}
+
+.sidebar-dot.is-accent {
+  background: var(--color-accent);
+}
+
+.sidebar-dot.is-warning {
+  background: var(--color-warning);
+}
+
+/* a download in progress: the item, with its progress along the bottom */
+.sidebar-update {
+  position: relative;
+  overflow: hidden;
+  cursor: default;
+}
+
+.sidebar-update:hover {
+  background: none;
+  color: var(--color-text-secondary);
+}
+
+.sidebar-update-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--color-text-secondary);
+  transition: width var(--duration-fast);
+}
+
+/* the account: your avatar, or an empty one while signed out */
+.sidebar-account {
+  height: 44px;
+}
+
+.sidebar-account strong {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.sidebar-avatar,
+.sidebar-guest {
+  display: grid;
+  flex: none;
+  overflow: hidden;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+}
+
+.sidebar-avatar-image {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  object-fit: cover;
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+}
+
+/* the sidebar's edge, a drag handle across its full height */
+.sidebar-resizer {
+  position: relative;
+  z-index: 3;
+  grid-area: rail;
+  justify-self: end;
+  width: 9px;
+  margin-right: -5px;
+  outline: 0;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  inset: var(--space-2) 3px;
+  border-radius: 2px;
+  transition: background var(--duration-fast);
+}
+
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after,
+.is-resizing-sidebar .sidebar-resizer::after {
+  background: var(--color-border-strong);
+}
+
+/* collapsed: a column of 40px squares */
+.is-sidebar-collapsed .sidebar {
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.sidebar-item-shortcut {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.is-sidebar-collapsed .sidebar-brand span,
+.is-sidebar-collapsed .sidebar-item-shortcut,
+.is-sidebar-collapsed .sidebar-item-label {
+  display: none;
+}
+
+.is-sidebar-collapsed .sidebar-head {
+  justify-content: center;
+  padding: 0;
+}
+
+.is-sidebar-collapsed .sidebar-brand {
+  flex: none;
+}
+
+.is-sidebar-collapsed .sidebar-group {
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.is-sidebar-collapsed .sidebar-item,
+.is-sidebar-collapsed .sidebar-account {
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 10px;
+}
+
+.is-sidebar-collapsed .sidebar-recent {
+  gap: var(--space-2);
+}
+
+/* a recent project as an app icon: its cover cropped to a rounded square */
+.sidebar-app {
+  display: block;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: var(--color-surface-raised);
+  opacity: 0.72;
+  cursor: pointer;
+  transition: opacity var(--duration-fast);
+}
+
+.sidebar-app-cover {
+  width: 100%;
+  height: 100%;
+}
+
+.sidebar-app:hover {
+  opacity: 1;
+}
+
+.sidebar-app:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  opacity: 1;
+}
+
+/* macOS: the top row is the title bar, with the window controls at its left
+   (the window places them at 24, 18) and the sidebar toggle at its right end.
+   It is 48px so the controls sit in its middle. */
+.sidebar-titlebar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  align-self: stretch;
+  gap: 6px;
+  height: 48px;
+  margin-bottom: calc(var(--space-4) * -1);
+  padding-left: 92px;
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+.sidebar-titlebar > * {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+/* Collapsed, the sidebar is too narrow for the window controls, so the title
+   bar spans the window: controls, back, forward, toggle, from the left. */
+.desktop-macos .page-frame.is-sidebar-collapsed {
+  position: relative;
+  padding-top: 48px;
+}
+
+.desktop-macos .is-sidebar-collapsed .sidebar-titlebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  justify-content: flex-start;
+  margin: 0;
+}
+
+.desktop-macos .is-sidebar-collapsed .sidebar-head {
+  height: 40px;
+}
+
+.desktop-macos .page-frame.is-sidebar-collapsed .window-drag-region {
+  display: none;
+}
+
+/* the page: one sheet, 6px from the window */
+.page-sheet {
+  grid-area: sheet;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  margin: 6px 6px 6px 0;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.page-sheet > * {
+  min-width: 0;
+  min-height: 0;
+}
+
+.page-sheet-with-aside {
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
+.page-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  padding: var(--space-4) var(--space-3);
+  overflow: auto;
+}
+
+/* the settings sections, in the sheet's side column */
+.settings-page-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.settings-page-nav-title {
+  padding: 0 var(--space-2) var(--space-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-page-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-page-nav-item:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.settings-page-nav-item:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.settings-page-nav-item.is-active {
+  background: var(--color-selected);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+/* The Windows menu bar sits above the frame; match it to the app background. */
+.desktop-window-frame:has(.page-frame) {
+  --window-chrome-background: var(--color-app);
+}

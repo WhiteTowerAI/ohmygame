@@ -3,6 +3,8 @@ import type { ChangelogEntry } from "../shared/changelog.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { t } from "./i18n.js";
+import { SettingsGroup } from "./settings-parts.js";
+import { Select } from "./ui/index.js";
 
 const RELEASES_URL = "https://github.com/WhiteTowerAI/ohmygame/releases";
 
@@ -35,42 +37,32 @@ export function ChangelogPanel({
     entries.find((entry) => entry.version === selection) ??
     entries.find((entry) => entry.version === availableRelease?.version) ??
     entries.find((entry) => entry.version === currentVersion)!;
+  const versions = entries.map((entry) => ({ value: entry.version, label: `v${entry.version}` }));
   return (
-    <section
-      className="settings-panel settings-overview-panel settings-changelog-panel"
-      aria-label={t("settings.about.changelog")}
+    <SettingsGroup
+      title={t("settings.about.changelog")}
+      description={selected.date ? <time dateTime={selected.date}>{selected.date}</time> : undefined}
+      actions={
+        entries.length > 1 ? (
+          <Select
+            size="sm"
+            label={t("settings.about.releaseVersion")}
+            options={versions}
+            value={selected.version}
+            onChange={setSelection}
+          />
+        ) : (
+          <span className="settings-muted">v{selected.version}</span>
+        )
+      }
     >
-      <header className="settings-changelog-header">
-        <h3>{t("settings.about.changelog")}</h3>
-        <div className="settings-changelog-meta">
-          {entries.length > 1 ? (
-            <select
-              className="settings-changelog-version"
-              aria-label={t("settings.about.releaseVersion")}
-              value={selected.version}
-              onChange={(event) => setSelection(event.target.value)}
-            >
-              {entries.map((entry) => (
-                <option value={entry.version} key={entry.version}>
-                  v{entry.version}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span>v{selected.version}</span>
-          )}
-          {selected.date ? (
-            <time dateTime={selected.date}>{selected.date}</time>
-          ) : null}
-        </div>
-      </header>
       {selected.notes ? (
         <MarkdownContent
-          className="settings-changelog-content"
+          className="settings-changelog settings-changelog-content"
           text={selected.notes}
         />
       ) : (
-        <p className="settings-changelog-empty">
+        <p className="settings-changelog settings-changelog-empty">
           {t("settings.about.notesUnavailable")}{" "}
           <a
             href={`${RELEASES_URL}/tag/v${encodeURIComponent(selected.version)}`}
@@ -81,6 +73,6 @@ export function ChangelogPanel({
           </a>
         </p>
       )}
-    </section>
+    </SettingsGroup>
   );
 }

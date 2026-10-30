@@ -6,6 +6,7 @@ import { CanvasChipSelect, type CanvasChipOption } from "./canvas-chip-select.js
 import { LoaderCircle, SlidersHorizontal } from "./icons.js";
 import { menuPlacement } from "./popover-placement.js";
 import { t } from "./i18n.js";
+import { SettingsGroup, SettingsNote } from "./settings-parts.js";
 
 const USAGES = ["image", "video", "3d"] as const;
 type Catalog = MediaModelCatalog<ModelRef & { name: string; providerName: string }>;
@@ -80,13 +81,10 @@ export function GlobalMediaModelDefaults({ capability }: { capability: "all" | P
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
-  return <section className={`settings-generation-defaults settings-provider-group${capability === "all" ? " is-all" : ""}`} aria-label={t("mediaDefaults.globalDefaults")}>
-    <h4>{t("mediaDefaults.title")}</h4>
-    <div className="settings-generation-fields">
-      {usages.map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={catalogs[usage]?.defaultModel} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
-    </div>
-    {error || loadError ? <p role="alert" className="settings-error">{error ?? loadError}</p> : null}
-  </section>;
+  return <SettingsGroup className={`settings-generation-defaults${capability === "all" ? " is-all" : ""}`} label={t("mediaDefaults.globalDefaults")} title={t("mediaDefaults.title")} description={t("settings.providers.defaultsHint")}>
+    {usages.map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={catalogs[usage]?.defaultModel} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
+    {error || loadError ? <div className="settings-pad"><SettingsNote tone="danger">{error ?? loadError}</SettingsNote></div> : null}
+  </SettingsGroup>;
 }
 
 export function ProjectMediaModelSettings({ project, onSaved }: {

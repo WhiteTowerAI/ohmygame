@@ -2,17 +2,30 @@ import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integr
 import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
 import {
   ArrowLeft,
+  Download,
+  FolderOpen,
   LoaderCircle,
   MessageSquarePlus,
-  PanelToggle,
+  Clapperboard,
+  Code2,
+  FileText,
+  Gamepad2,
+  Layers3,
+  LayoutGrid,
+  MessageCircle,
+  Palette,
+  Pencil,
   RefreshCw,
+  Share2,
   UserRound,
   X,
 } from "./icons.js";
+import { createPortal } from "react-dom";
 import { observeWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
 import {
   Activity,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useMemo,
   useReducer,
@@ -27,6 +40,8 @@ import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-r
 import {
   ApiError,
   acquirePreview,
+  exportProject,
+  renameProject,
   releasePreview,
   stopPreview,
   approvePlan,
@@ -71,10 +86,12 @@ import { ConversationMenu } from "./conversation-menu.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
 import { CodingWorkspace } from "./coding-workspace.js";
-import { PlayableEditorWorkspace } from "./playable-editor-workspace.js";
+import { PlayableEditorWorkspace, type StoryView } from "./playable-editor-workspace.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
+import { FloatingChat } from "./floating-chat.js";
 import { composerDrafts } from "./composer-drafts.js";
+import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { ApprovalCard } from "./approval-card.js";
 import { notifyPromptSent, useNotificationView } from "./agent-notifications.js";
@@ -82,13 +99,22 @@ import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
 import { useAuth } from "./auth.js";
-import { readChatLayout, type ChatLayout } from "./chat-layout.js";
 import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from "./pending-publish.js";
 import type { PublishDetails } from "./publish-dialog.js";
 import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
-import { WorkspaceShell, WorkspaceAgentPane } from "./workspace-shell.js";
+import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
+import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
+import type { CodingView } from "./coding-workspace.js";
+import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
+import { desktopSave } from "./desktop-save.js";
+import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
+import { ProjectRenameDialog } from "./project-rename-dialog.js";
+import { Button, DropdownMenu, Empty, IconButton, type Command, type MenuEntry } from "./ui/index.js";
+import { useCommands, useLeaveGuard } from "./command-menu.js";
+import type { IconComponent } from "./icons.js";
+import type { AppNavigationTarget } from "./routes.js";
 import { t } from "./i18n.js";
 
 interface ProjectShellProps {
@@ -98,19 +124,27 @@ interface ProjectShellProps {
   onViewChange?: (view: "design" | "workspace", options?: { replace?: boolean }) => void;
   initialPrompt?: { generation: number; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] };
   initialDraft?: ComposerDraft;
-  initialCanvasNodeId?: string;
-  onInitialCanvasNodeHandled?: () => void;
   showStoryMap?: boolean;
   onStoryMapShown?: () => void;
   onInitialPromptHandled?: () => void;
   onInitialDraftHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
+  /** Where the rail goes: Home, the other pages and settings. */
+  onNavigate: (page: AppNavigationTarget) => void;
   onHome: () => void;
   homeLabel?: string;
 }
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
-const GODOT_WORKSPACE_OPEN_STORAGE_KEY = "ohmygame-godot-workspace-open";
+const PANELS: Record<WorkspacePanel, { title: () => string; icon: IconComponent }> = {
+  chat: { title: () => t("panels.chat"), icon: MessageCircle },
+  game: { title: () => t("panels.game"), icon: Gamepad2 },
+  design: { title: () => t("panels.design"), icon: FileText },
+  code: { title: () => t("workspace.tab.code"), icon: Code2 },
+  assets: { title: () => t("workspace.tab.assets"), icon: Layers3 },
+  story: { title: () => t("panels.story"), icon: Clapperboard },
+  canvas: { title: () => t("panels.canvas"), icon: Palette },
+};
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
 const NAMED_UNFINISHED_FILES = 10;
@@ -122,13 +156,12 @@ export function ProjectShell({
   onViewChange,
   initialPrompt,
   initialDraft,
-  initialCanvasNodeId,
-  onInitialCanvasNodeHandled,
   showStoryMap,
   onStoryMapShown,
   onInitialPromptHandled,
   onInitialDraftHandled,
   onOpenConversation,
+  onNavigate,
   onHome,
   homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }),
 }: ProjectShellProps) {
@@ -141,15 +174,32 @@ export function ProjectShell({
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
   const [initialPromptDeferred, setInitialPromptDeferred] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
-  const [agentCollapsed, setAgentCollapsed] = useState(view === "design" && !initialPrompt && !initialDraft);
-  const [designOpen, setDesignOpen] = useState(view === "design");
-  useEffect(() => { setDesignOpen(view === "design"); }, [view]);
-  const changeWorkspaceView = useCallback((open: boolean, options?: { replace?: boolean }): void => {
-    setDesignOpen(open);
-    onViewChange?.(open ? "design" : "workspace", options);
-  }, [onViewChange]);
-  const [godotWorkspaceOpen, setGodotWorkspaceOpen] = useState(readGodotWorkspaceOpen);
-  const [chatLayout] = useState<ChatLayout>(readChatLayout);
+  // The workspace's panels, in the one layout every project shares (see
+  // workspace-layout.ts). Each panel's view renders into nodes of its own,
+  // which the panel shows.
+  const offered = state.project ? panelsOf(state.project) : [];
+  const [saved, setSaved] = useState<SavedLayout | undefined>();
+  const opening = useMemo(() => state.project ? openingLayout(offered) : undefined, [!!state.project]);
+  const current = saved ?? opening;
+  const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered)) : undefined;
+  const visible = layout ? visiblePanels(layout, new Set(offered)) : [];
+  const chatShown = !layout || visible.includes("chat");
+  const [nodes] = useState(() => Object.fromEntries(Object.keys(PANELS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
+  const latestLayout = useRef({ current, offered, layout });
+  latestLayout.current = { current, offered, layout };
+  function changeLayout(next: Layout): void {
+    const { current, offered, layout } = latestLayout.current;
+    if (!offered.length || !layout) return;
+    const value = mergeLayout(current, layout, next, offered);
+    latestLayout.current = { ...latestLayout.current, current: value, layout: next };
+    setSaved(value);
+    saveLayout(value);
+  }
+  /** Brings a panel forward, opening it where it belongs if it was closed. */
+  function revealPanel(id: WorkspacePanel): void {
+    const { layout, offered } = latestLayout.current;
+    if (layout && offered.includes(id)) changeLayout(showPanel(layout, id, homeOf(id)));
+  }
   const [publishing, setPublishing] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
@@ -189,18 +239,30 @@ export function ProjectShell({
   const initialPromptAttempted = useRef(false);
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
   const timeline = useRef<HTMLDivElement>(null);
+  // The cards that wait on an answer and the composer render into this node,
+  // which moves between the chat panel and the floating bar, so neither a
+  // half-answered question nor a draft is lost on the way.
+  const [chatInputNode] = useState(() => {
+    const node = document.createElement("div");
+    node.className = "chat-input";
+    return node;
+  });
+  useLayoutEffect(() => {
+    if (chatShown && timeline.current) place(timeline.current, chatInputNode);
+  }, [chatShown, chatInputNode]);
   const followTimeline = useRef(true);
 
-  // Apply project defaults on load, preserving later manual pane toggles.
-  const godotDefaultViewApplied = useRef(false);
+  // Games and stories put their canvas beside their other panels. Their
+  // route's design view is the canvas, which it brings forward, and the route
+  // follows it.
+  const story = offered.includes("story");
+  const coding = offered.includes("code") && !story;
+  const panelled = offered.includes("code");
+  const designShown = visible.includes("canvas");
+  useEffect(() => { if (view === "design" && panelled) revealPanel("canvas"); }, [view, panelled]);
   useEffect(() => {
-    if (state.project?.type === "general" || state.project?.type === "godot-game") setAgentCollapsed(false);
-    if (state.project?.type !== "godot-game") return;
-    if (godotDefaultViewApplied.current) return;
-    godotDefaultViewApplied.current = true;
-    // Godot has no Preview, so keep its workspace visible on Design.
-    if (view !== "design" && godotWorkspaceOpen) changeWorkspaceView(true, { replace: true });
-  }, [state.project?.id, state.project?.type]);
+    if (layout && panelled && designShown !== (view === "design")) onViewChange?.(designShown ? "design" : "workspace", { replace: true });
+  }, [designShown, panelled]);
 
   useEffect(() => {
     const current = state.conversation;
@@ -396,11 +458,11 @@ export function ProjectShell({
 
   useEffect(() => {
     const element = timeline.current;
-    if (element && followTimeline.current && (state.project?.type === "godot-game" || !agentCollapsed)) {
+    if (element && followTimeline.current && chatShown) {
       const frame = requestAnimationFrame(() => { element.scrollTop = element.scrollHeight; });
       return () => cancelAnimationFrame(frame);
     }
-  }, [state.turns, agentCollapsed, state.project?.type]);
+  }, [state.turns, chatShown]);
 
   useEffect(() => {
     const element = timeline.current;
@@ -408,10 +470,13 @@ export function ProjectShell({
     const observer = new ResizeObserver(() => {
       if (followTimeline.current) element.scrollTop = element.scrollHeight;
     });
-    for (const child of element.children) observer.observe(child);
+    // The composer and cards sit in a node without a box of its own; watch them.
+    for (const child of element.children) {
+      for (const box of child === chatInputNode ? child.children : [child]) observer.observe(box);
+    }
     observer.observe(element);
     return () => observer.disconnect();
-  }, [state.conversation?.id, state.agent.status, state.plan.mode]);
+  }, [state.conversation?.id, state.agent.status, state.plan.mode, chatShown]);
 
   useEffect(() => {
     const project = state.project;
@@ -452,11 +517,13 @@ export function ProjectShell({
     ? activePlanItem.plan
     : state.plan.mode !== "normal" ? state.plan.plan : undefined;
 
-  const canvasOpen = designOpen || project?.type === "asset-canvas";
-  const playableSurface = !canvasOpen && playableChat?.surface && playableChat.surface.key !== dismissedSurface ? playableChat.surface : undefined;
+  const canvasOpen = designShown || project?.type === "asset-canvas";
+  // The open Scene goes with the message while the story shows, the canvas's selection while the canvas does.
+  const storyShown = visible.includes("story");
+  const playableSurface = storyShown && playableChat?.surface && playableChat.surface.key !== dismissedSurface ? playableChat.surface : undefined;
   const designChipKey = designContext ? `design:${designContext.text}` : undefined;
   const currentDesignContext = canvasOpen && designChipKey !== dismissedDesign ? designContext : undefined;
-  const chatContexts = [playableSurface?.chip, ...(!canvasOpen ? playableChat?.attachments ?? [] : []).map((attachment) => attachment.chip), ...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : [])].filter((chip) => chip !== undefined);
+  const chatContexts = [playableSurface?.chip, ...(storyShown ? playableChat?.attachments ?? [] : []).map((attachment) => attachment.chip), ...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : [])].filter((chip) => chip !== undefined);
 
   async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[] = [], references: PromptReference[] = [], designContexts: PromptContext[] = []): Promise<boolean> {
     if (!project || !conversation) return false;
@@ -467,7 +534,7 @@ export function ProjectShell({
       if (!await integrationGate.ensure(project, pluginId)) return false;
       await saveDesign.current?.();
       const surface = playableSurface;
-      const previewContexts = !canvasOpen ? playableChat?.attachments ?? [] : [];
+      const previewContexts = storyShown ? playableChat?.attachments ?? [] : [];
       const previewImage = previewContexts.length ? await playableChat?.capture().catch(() => undefined) : undefined;
       const contexts = [surface?.context, ...previewContexts.map((attachment) => attachment.context)].filter((context) => context !== undefined);
       const sentImages = previewImage ? [...images, previewImage] : images;
@@ -495,7 +562,7 @@ export function ProjectShell({
       await saveDesign.current?.();
       notifyPromptSent();
       await sendPrompt(project.id, conversation.id, text, surface?.references ?? [], [], "normal", [], [], [...(surface ? [surface.context] : []), ...contexts]);
-      setAgentCollapsed(false);
+      revealPanel("chat");
       return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
@@ -783,49 +850,273 @@ export function ProjectShell({
     setConversations((items) => items.map((item) => item.id === renamed.id ? renamed : item));
   }
 
-  function requestHome(): void {
+  // Leaving the project saves the open design first.
+  function leave(go: () => void): void {
     const save = saveDesign.current;
-    if (!save) { onHome(); return; }
-    void save().then(onHome).catch((cause) => {
+    if (!save) { go(); return; }
+    void save().then(go).catch((cause) => {
       dispatch({ type: "notice", message: errorMessage(cause) });
     });
   }
+  const requestHome = () => leave(onHome);
+  useLeaveGuard(leave);
 
-  const setGodotWorkspaceVisibility = useCallback((open: boolean): void => {
-    setGodotWorkspaceOpen(open);
-    localStorage.setItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY, String(open));
-  }, []);
+  const [renaming, setRenaming] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const openProjectFile = window.ohMyGameDesktop?.openProjectFile;
+  async function exportArchive(): Promise<void> {
+    if (!project || exporting) return;
+    setExporting(true);
+    try {
+      // The archive is read from disk, so pending edits are saved first.
+      await saveDesign.current?.();
+      await desktopSave.flush();
+      const archive = await exportProject(project.id);
+      const url = URL.createObjectURL(archive);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${project.name}.zip`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (cause) {
+      dispatch({ type: "notice", message: errorMessage(cause) });
+    } finally {
+      setExporting(false);
+    }
+  }
+  async function renameTo(input: string): Promise<void> {
+    setRenaming(false);
+    const name = input.trim();
+    if (!project || !name || name === project.name) return;
+    try {
+      const updated = await renameProject(project.id, name);
+      dispatch({ type: "project-updated", project: updated });
+      refreshRecentProject(updated);
+    } catch (cause) {
+      dispatch({ type: "notice", message: errorMessage(cause) });
+    }
+  }
+  const projectMenu: MenuEntry[] = [
+    { label: t("projectShell.renameProject"), icon: <Pencil size={14} />, disabled: !project, onSelect: () => setRenaming(true) },
+    ...(openProjectFile && project ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => {
+      void openProjectFile(project.id, ".", "default").catch((cause: unknown) => dispatch({ type: "notice", message: errorMessage(cause) }));
+    } }] : []),
+    { label: exporting ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: !project || exporting, onSelect: () => void exportArchive() },
+    "separator",
+    { label: homeLabel, icon: <ArrowLeft size={14} />, onSelect: requestHome },
+  ];
+  const publishButton = project ? publishAction(project, { publishing, agentBusy }) : undefined;
 
-  const isGodotProject = project?.type === "godot-game";
-
+  // The code panel opens the file, and comes back if it was closed. A game's
+  // workspace brings it forward itself; the canvas shows its code view first.
   const openWorkspaceFile = useCallback((path: string): void => {
-    changeWorkspaceView(false);
+    if (story) revealPanel("code");
+    else if (!panelled && offered.includes("canvas")) revealPanel("canvas");
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
-    if (isGodotProject) setGodotWorkspaceVisibility(true);
-  }, [changeWorkspaceView, isGodotProject, setGodotWorkspaceVisibility]);
+  }, [story, panelled, offered.includes("canvas")]);
   const addToChat = useCallback((text: string) => {
     if (!conversation) return;
     composerDrafts.get({ projectId, conversationId: conversation.id }).update({ reference: { text } });
   }, [projectId, conversation?.id]);
 
+  // The design document panel shows whether the next message references it.
+  const [referencedDocument, setReferencedDocument] = useState<string>();
+  useEffect(() => {
+    setReferencedDocument(undefined);
+    if (!conversation) return;
+    const scope = { projectId, conversationId: conversation.id };
+    const read = () => setReferencedDocument(composerDrafts.peek(scope)?.designReference?.references[0]?.path);
+    read();
+    return composerDrafts.watch(scope, read);
+  }, [projectId, conversation?.id]);
+  const referenceDocument = useCallback((document: { id: string; title: string } | undefined) => {
+    revealPanel("chat");
+    if (!conversation) return;
+    composerDrafts.get({ projectId, conversationId: conversation.id }).update({ designReference: document ? {
+      references: [{ type: "workspace-file", path: canvasDocumentPath(document.id) }],
+      context: { kind: "design-document", label: document.title || t("composer.gameDesign"), text: "Reference the saved game design document for this message." },
+    } : undefined });
+  }, [projectId, conversation?.id]);
+  const quoteDocument = useCallback((text: string) => {
+    revealPanel("chat");
+    addToChat(text);
+  }, [addToChat]);
+
   function requestPrompt(text: string): void {
-    setAgentCollapsed(false);
+    revealPanel("chat");
     if (!state.conversation) return;
     composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
   }
 
-  const agentIsCollapsed = !isGodotProject && agentCollapsed;
-  const viewerCollapsed = isGodotProject && !godotWorkspaceOpen && !designOpen;
+  const toggleMenu: MenuEntry[] = offered.length ? [
+    { heading: t("panels.layout") },
+    ...presetsFor(offered).map((preset) => ({ label: t(`panels.preset.${preset}`), onSelect: () => changeLayout(presetLayout(preset, offered)) })),
+    "separator",
+    { heading: t("panels.list") },
+    ...offered.map((id) => {
+      const Icon = PANELS[id].icon;
+      const open = !!layout && !!areaOf(layout, id);
+      return { label: PANELS[id].title(), icon: <Icon size={14} />, checked: open, onSelect: () => layout && changeLayout(open ? closePanel(layout, id) : showPanel(layout, id, homeOf(id))) };
+    }),
+  ] : [];
+  // The command menu shows this project's panels and applies its layouts.
+  useCommands(() => offered.length ? [
+    ...offered.map((id): Command => {
+      const Icon = PANELS[id].icon;
+      return { id: `panel-${id}`, group: t("commandMenu.panels"), label: t("commandMenu.showPanel", { panel: PANELS[id].title() }), keywords: id, icon: <Icon size={16} />, run: () => revealPanel(id) };
+    }),
+    ...presetsFor(offered).map((preset): Command => ({
+      id: `layout-${preset}`, group: t("commandMenu.panels"), label: t("commandMenu.layout", { preset: t(`panels.preset.${preset}`) }), keywords: `layout ${preset}`, icon: <LayoutGrid size={16} />,
+      run: () => changeLayout(presetLayout(preset, offered)),
+    })),
+  ] : []);
+  // The cards that wait on an answer and the composer: in the chat panel, or
+  // in the floating bar over the middle while the panel is closed.
+  const chatInput = createPortal(<>
+    {approval ? (
+      <ApprovalCard
+        request={approval}
+        agentName={approvalAgent}
+        waiting={approvals.length - 1}
+        onDecide={respondToApproval}
+      />
+    ) : null}
+
+    {questionnaire ? (
+      <QuestionnaireCard
+        request={questionnaire}
+        onSubmit={(answers) => respondToQuestionnaire(answers)}
+        onSkip={() => respondToQuestionnaire([], true)}
+      />
+    ) : null}
+
+    {state.plan.mode === "awaiting_approval" ? (
+      <div className="plan-review">
+        <PlanApprovalCard
+          disabled={agentBusy || state.connection !== "open"}
+          onApprove={executePlan}
+          onRefine={refineCurrentPlan}
+          onCancel={discardPlan}
+        />
+      </div>
+    ) : null}
+
+    {initialPrompt && (initialPromptDeferred || (initialPrompt.generation !== runtime.generation && !initialPromptAttempted.current)) ? <div className="paused-initial-prompt" role="status">
+      <p>{t(initialPromptDeferred ? "integration.promptNotSent" : "projectShell.promptPaused")}</p>
+      <details><summary>{t("projectShell.reviewMessage")}</summary><pre>{initialPrompt.prompt}</pre>
+        {initialPrompt.images.length || initialPrompt.attachments?.length ? <p>{t("projectShell.attachmentsRetained", { count: initialPrompt.images.length + (initialPrompt.attachments?.length ?? 0) })}</p> : null}
+      </details>
+      <button type="button" disabled={runtime.status !== "ready" || state.connection !== "open" || !conversation || conversation.id !== conversationId} onClick={sendInitialPrompt}>{t("projectShell.sendOriginal")}</button>
+    </div> : null}
+    {unfinishedRestore ? <UnfinishedRestoreBanner
+      projectId={projectId}
+      disabled={agentBusy || state.connection !== "open"}
+      workspaceRevision={workspaceRevision}
+      onClose={() => setUnfinishedRestore(false)}
+    /> : null}
+    {!questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
+      key={conversation?.id}
+      projectId={project?.id}
+      conversationId={conversation?.id}
+      supportsDesign={project?.type !== "asset-canvas"}
+      conversationReady={Boolean(conversation) && state.connection === "open"}
+      running={currentConversationBusy}
+      stopping={state.agent.status === "cancelling" || sendingInitialPrompt}
+      pendingPrompts={state.pendingPrompts}
+      plan={activePlan}
+      planMode={state.plan.mode}
+      notice={state.connection === "reconnecting" ? t("projectShell.reconnecting") : state.notice}
+      limitReached={!currentConversationBusy && items.findLast((item) => item.type === "agentMessage")?.error?.code === "quota_exceeded"}
+      models={modelCatalog.models}
+      modelStatus={modelCatalog.status}
+      model={effectiveModel}
+      reasoningLevel={state.settings.reasoningLevel}
+      nativeReasoningLevel={state.settings.nativeReasoningLevel}
+      accountProfileId={accountRuntime ? selectedProfileId : undefined}
+      modelChanging={modelChanging}
+      promptHistory={[
+        ...items.flatMap((item) => item.type === "userMessage" && item.text.trim()
+          ? [{ prompt: item.text, mentions: item.mentions ?? [] }]
+          : []),
+        ...state.pendingPrompts.flatMap((item) => item.prompt.trim()
+          ? [{ prompt: item.prompt, mentions: item.mentions }]
+          : []),
+      ]}
+      capabilities={capabilities}
+      initialDraft={conversation?.id === conversationId ? initialDraft : undefined}
+      onInitialDraftHandled={onInitialDraftHandled}
+      onSubmit={submitPrompt}
+      contexts={chatContexts}
+      onRemoveContext={(key) => {
+        if (key === designChipKey) setDismissedDesign(key);
+        else if (key === playableChat?.surface?.key) setDismissedSurface(key);
+        else playableChat?.removeAttachment(key);
+      }}
+      onCompact={compactCurrentConversation}
+      onContextUsage={currentContextUsage}
+      onCancelPlan={discardPlan}
+      onModelChange={(model) => void changeModel(model)}
+      onReasoningChange={(level) => void changeReasoning(level)}
+      onNativeReasoningChange={(level) => void changeNativeReasoning(level)}
+      onStop={() => void stopAgent()}
+      onRemovePending={removeFollowUp}
+      onSteerPending={steerFollowUp}
+      onEditPending={editFollowUp}
+      canPublish={Boolean(project && (isWebRuntimeProjectType(project.type) || project.type === "interactive-story") && !publishing && !agentBusy)}
+      onPublish={project ? () => setPublishDialog({ projectId: project.id, status: "open" }) : undefined}
+    /> : null}
+  </>, chatInputNode);
+  const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "canvas" || id === "code" || id === "assets" ? [id] : []));
+  const storyVisible = new Set(visible.filter((id): id is StoryView => id === "story" || id === "design" || id === "canvas" || id === "code" || id === "assets"));
 
   return (
     <>
     {integrationGate.dialog}
-    <WorkspaceShell chatLayout={chatLayout} agentCollapsed={agentIsCollapsed} viewerCollapsed={viewerCollapsed}
-      onHome={requestHome} homeLabel={homeLabel} homeIcon={ArrowLeft} onExpandAgent={() => setAgentCollapsed(false)}
-      agent={<WorkspaceAgentPane bodyRef={timeline} onScroll={(event) => {
-        const element = event.currentTarget;
-        followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
-      }} actions={<>
+    {chatInput}
+    {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
+    <ProjectFrame
+      rail={<ProjectRail projectId={projectId} project={project} onNavigate={onNavigate} onLeave={leave} conversations={{
+        items: conversations,
+        current: conversation?.id,
+        onOpen: (id) => onOpenConversation(id),
+        onNew: () => void newConversation(),
+      }} />}
+      top={<ProjectTop name={project?.name ?? ""} menu={projectMenu}>
+        {toggleMenu.length ? <DropdownMenu placement="bottom-end" items={toggleMenu} trigger={(props) => (
+          <IconButton {...props} size="sm" label={t("panels.menu")}><LayoutGrid size={16} /></IconButton>
+        )} /> : null}
+        {project && publishButton ? <Button size="sm" variant="primary" icon={publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
+          disabled={publishButton.disabled} title={publishButton.label}
+          onClick={() => setPublishDialog({ projectId: project.id, status: "open" })}>{t("workspace.publish")}</Button> : null}
+      </ProjectTop>}>
+    {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayout}
+      panels={(project ? offered : ["chat" as const]).map((id) => {
+        const Icon = PANELS[id].icon;
+        return { id, title: PANELS[id].title(), icon: <Icon size={14} />, home: homeOf(id), content: <PanelMount nodes={nodes[id]} /> };
+      })}
+      overlay={project && !chatShown ? <FloatingChat
+        key={conversation?.id}
+        turnCount={state.turns.length}
+        thread={(since) => (
+          <ErrorBoundary label={t("errorBoundary.label.conversation")} resetKey={conversation?.id}>
+            <AgentTimeline
+              turns={state.turns.slice(since)}
+              projectId={projectId}
+              workspacePath={project.workspacePath}
+              onOpenWorkspaceFile={openWorkspaceFile}
+              waitingForInput={Boolean(questionnaire || approval)}
+              changeControls={turnChanges}
+              workspaceRevision={workspaceRevision}
+            />
+          </ErrorBoundary>
+        )}
+        running={currentConversationBusy}
+        attention={Boolean(approval || questionnaire || state.plan.mode === "awaiting_approval")}
+        onExpand={() => revealPanel("chat")}
+        input={chatInputNode}
+      /> : undefined}
+      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered))}>{t("panels.reset")}</Button>} /> : null} /> : null}
+    {createPortal(<div className="pane-header-actions">
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
               <CanvasChipSelect icon={UserRound} label={t("codingAgents.chatProfile", { name: accountRuntime === "codex-cli" ? "Codex" : "Claude Code" })} value={selectedProfileId}
                 options={accountProfiles.map((profile) => {
@@ -852,31 +1143,15 @@ export function ProjectShell({
               onRename={rename}
               onSelect={onOpenConversation}
             />
-            {viewerCollapsed ? (
-              <button
-                className="icon-button pane-header-action"
-                type="button"
-                onClick={() => setGodotWorkspaceVisibility(true)}
-                title={t("projectShell.showWorkspace")}
-                aria-label={t("projectShell.showWorkspace")}
-              >
-                <PanelToggle size={14} />
-              </button>
-            ) : !isGodotProject ? (
-              <button
-                className="icon-button pane-header-action"
-                type="button"
-                onClick={() => setAgentCollapsed(true)}
-                title={t("projectShell.hideAgent")}
-                aria-label={t("projectShell.hideAgent")}
-              >
-                <PanelToggle size={14} />
-              </button>
-            ) : null}
-      </>}>
+    </div>, nodes.chat.toolbar)}
+    {createPortal(<section className="agent-pane" aria-label={t("workspace.agent")}>
+      <div className="agent-body" ref={timeline} onScroll={(event) => {
+        const element = event.currentTarget;
+        followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+      }}>
           <div className="timeline" aria-live="polite">
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
-            <Activity mode={agentIsCollapsed ? "hidden" : "visible"}>
+            <Activity mode={chatShown ? "visible" : "hidden"}>
               <ErrorBoundary label={t("errorBoundary.label.conversation")} resetKey={conversation?.id}>
               <AgentTimeline
                 turns={state.turns}
@@ -896,102 +1171,10 @@ export function ProjectShell({
             </Activity>
           </div>
 
-          {approval ? (
-            <ApprovalCard
-              request={approval}
-              agentName={approvalAgent}
-              waiting={approvals.length - 1}
-              onDecide={respondToApproval}
-            />
-          ) : null}
-
-          {questionnaire ? (
-            <QuestionnaireCard
-              request={questionnaire}
-              onSubmit={(answers) => respondToQuestionnaire(answers)}
-              onSkip={() => respondToQuestionnaire([], true)}
-            />
-          ) : null}
-
-          {state.plan.mode === "awaiting_approval" ? (
-            <div className="plan-review">
-              <PlanApprovalCard
-                disabled={agentBusy || state.connection !== "open"}
-                onApprove={executePlan}
-                onRefine={refineCurrentPlan}
-                onCancel={discardPlan}
-              />
-            </div>
-          ) : null}
-
-          {initialPrompt && (initialPromptDeferred || (initialPrompt.generation !== runtime.generation && !initialPromptAttempted.current)) ? <div className="paused-initial-prompt" role="status">
-            <p>{t(initialPromptDeferred ? "integration.promptNotSent" : "projectShell.promptPaused")}</p>
-            <details><summary>{t("projectShell.reviewMessage")}</summary><pre>{initialPrompt.prompt}</pre>
-              {initialPrompt.images.length || initialPrompt.attachments?.length ? <p>{t("projectShell.attachmentsRetained", { count: initialPrompt.images.length + (initialPrompt.attachments?.length ?? 0) })}</p> : null}
-            </details>
-            <button type="button" disabled={runtime.status !== "ready" || state.connection !== "open" || !conversation || conversation.id !== conversationId} onClick={sendInitialPrompt}>{t("projectShell.sendOriginal")}</button>
-          </div> : null}
-          {unfinishedRestore ? <UnfinishedRestoreBanner
-            projectId={projectId}
-            disabled={agentBusy || state.connection !== "open"}
-            workspaceRevision={workspaceRevision}
-            onClose={() => setUnfinishedRestore(false)}
-          /> : null}
-          {!questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
-            key={conversation?.id}
-            projectId={project?.id}
-            conversationId={conversation?.id}
-            supportsDesign={project?.type !== "asset-canvas"}
-            conversationReady={Boolean(conversation) && state.connection === "open"}
-            running={currentConversationBusy}
-            stopping={state.agent.status === "cancelling" || sendingInitialPrompt}
-            pendingPrompts={state.pendingPrompts}
-            plan={activePlan}
-            planMode={state.plan.mode}
-            notice={state.connection === "reconnecting" ? t("projectShell.reconnecting") : state.notice}
-            limitReached={!currentConversationBusy && items.findLast((item) => item.type === "agentMessage")?.error?.code === "quota_exceeded"}
-            models={modelCatalog.models}
-            modelStatus={modelCatalog.status}
-            model={effectiveModel}
-            reasoningLevel={state.settings.reasoningLevel}
-            nativeReasoningLevel={state.settings.nativeReasoningLevel}
-            accountProfileId={accountRuntime ? selectedProfileId : undefined}
-            modelChanging={modelChanging}
-            promptHistory={[
-              ...items.flatMap((item) => item.type === "userMessage" && item.text.trim()
-                ? [{ prompt: item.text, mentions: item.mentions ?? [] }]
-                : []),
-              ...state.pendingPrompts.flatMap((item) => item.prompt.trim()
-                ? [{ prompt: item.prompt, mentions: item.mentions }]
-                : []),
-            ]}
-            capabilities={capabilities}
-            initialDraft={conversation?.id === conversationId ? initialDraft : undefined}
-            onInitialDraftHandled={onInitialDraftHandled}
-            onSubmit={submitPrompt}
-            contexts={chatContexts}
-            onRemoveContext={(key) => {
-              if (key === designChipKey) setDismissedDesign(key);
-              else if (key === playableChat?.surface?.key) setDismissedSurface(key);
-              else playableChat?.removeAttachment(key);
-            }}
-            onCompact={compactCurrentConversation}
-            onContextUsage={currentContextUsage}
-            onCancelPlan={discardPlan}
-            onModelChange={(model) => void changeModel(model)}
-            onReasoningChange={(level) => void changeReasoning(level)}
-            onNativeReasoningChange={(level) => void changeNativeReasoning(level)}
-            onStop={() => void stopAgent()}
-            onRemovePending={removeFollowUp}
-            onSteerPending={steerFollowUp}
-            onEditPending={editFollowUp}
-            canPublish={Boolean(project && (isWebRuntimeProjectType(project.type) || project.type === "interactive-story") && !publishing && !agentBusy)}
-            onPublish={project ? () => setPublishDialog({ projectId: project.id, status: "open" }) : undefined}
-          /> : null}
-      </WorkspaceAgentPane>}
-    >
+      </div>
+    </section>, nodes.chat.body)}
       <ErrorBoundary key={`${projectId}:${workspaceEpoch}`} label={t("errorBoundary.label.workspace")} resetKey={project?.id} onHome={onHome} homeLabel={homeLabel}>
-      {!project ? <section className="viewer-pane" /> : project.type !== "interactive-story" && project.type !== "asset-canvas" ? (
+      {!project ? null : coding ? (
         <CodingWorkspace
           project={project}
           agentBusy={agentBusy}
@@ -1001,46 +1184,29 @@ export function ProjectShell({
           openFileRequest={openFileRequest}
           onPublish={publish}
           publishDialog={publishDialogStatus}
-          onOpenPublish={() => setPublishDialog({ projectId: project.id, status: "open" })}
           onClosePublish={() => setPublishDialog(undefined)}
           onRestart={restartPreview}
           onStop={async () => {
             try { await stopPreview(project.id); } catch (cause) { dispatch({ type: "notice", message: errorMessage(cause) }); }
           }}
           onAskAgent={requestPrompt}
-          designOpen={designOpen}
-          onDesignOpenChange={changeWorkspaceView}
           onDesignSaveReady={registerDesignSave}
           onDesignContextChange={setDesignContext}
           onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
-          onClose={isGodotProject ? () => setGodotWorkspaceVisibility(false) : undefined}
-          chatOnRight={chatLayout === "right"}
-          chatCollapsed={agentIsCollapsed}
-          onHome={requestHome}
-          homeLabel={homeLabel}
-          onToggleChat={isGodotProject ? undefined : () => setAgentCollapsed((collapsed) => !collapsed)}
+          referencedDocument={referencedDocument}
+          onReferenceDocument={referenceDocument}
+          onQuoteDocument={quoteDocument}
+          panels={{
+            nodes: { preview: nodes.game, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
+            visible: codingVisible,
+            onShow: (view) => revealPanel(view === "preview" ? "game" : view),
+          }}
         />
-      ) : project.type === "asset-canvas" ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
-        project={project}
-        onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
-        workspaceRevision={workspaceRevision}
-        openFileRequest={openFileRequest}
-        initialNodeId={initialCanvasNodeId}
-        onInitialNodeHandled={onInitialCanvasNodeHandled}
-        onSaveReady={registerDesignSave}
-        onContextChange={setDesignContext}
-        chatOnRight={chatLayout === "right"}
-        chatCollapsed={agentIsCollapsed}
-        onHome={requestHome}
-        homeLabel={homeLabel}
-        onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
-      /></Suspense> : <PlayableEditorWorkspace
+      ) : story ? <PlayableEditorWorkspace
         project={project}
         showStoryMap={showStoryMap}
         onStoryMapShown={onStoryMapShown}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
-        designOpen={designOpen}
-        onDesignOpenChange={changeWorkspaceView}
         onDesignSaveReady={registerDesignSave}
         onDesignContextChange={setDesignContext}
         agentBusy={agentBusy}
@@ -1049,19 +1215,29 @@ export function ProjectShell({
         openFileRequest={openFileRequest}
         onPublish={publish}
         publishDialog={publishDialogStatus}
-        onOpenPublish={() => setPublishDialog({ projectId: project.id, status: "open" })}
         onClosePublish={() => setPublishDialog(undefined)}
-        chatOnRight={chatLayout === "right"}
-        chatCollapsed={agentIsCollapsed}
-        onHome={requestHome}
-        homeLabel={homeLabel}
-        onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
         onChatContextChange={setPlayableChat}
         onAskAgent={requestPrompt}
         onSendToAgent={sendEditorRequest}
-      />}
+        referencedDocument={referencedDocument}
+        onReferenceDocument={referenceDocument}
+        onQuoteDocument={quoteDocument}
+        panels={{
+          nodes: { story: nodes.story, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
+          visible: storyVisible,
+          onShow: revealPanel,
+        }}
+      /> : createPortal(<Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+        project={project}
+        onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
+        workspaceRevision={workspaceRevision}
+        openFileRequest={openFileRequest}
+        onSaveReady={registerDesignSave}
+        onContextChange={setDesignContext}
+        headerActionsTarget={nodes.canvas.toolbar}
+      /></Suspense>, nodes.canvas.body)}
       </ErrorBoundary>
-    </WorkspaceShell>
+    </ProjectFrame>
     </>
   );
 }
@@ -1164,9 +1340,4 @@ async function initialConversationModel(): Promise<AgentModelRef | undefined> {
   } catch {
     return undefined;
   }
-}
-
-function readGodotWorkspaceOpen(): boolean {
-  // Open unless the user hid it; storage may be unavailable.
-  try { return localStorage.getItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY) !== "false"; } catch { return true; }
 }

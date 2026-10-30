@@ -44,9 +44,11 @@ const STORAGE_PREFIX = "ohmygame:composer-draft:v1:";
 /** A session belongs to a conversation, rather than to a mounted input box. */
 export function createComposerDraftStore(storage?: DraftStorage) {
   const sessions = new Map<string, { session: ComposerDraftSession; forget: () => void }>();
+  const watchers = new Map<string, Set<() => void>>();
+  const notify = (key: string | undefined) => { for (const watcher of key ? watchers.get(key) ?? [] : []) watcher(); };
 
   function get(scope?: ComposerDraftScope, initialDraft?: ComposerDraft, planning = false): ComposerDraftSession {
-    const key = scope ? `${projectPrefix(scope.projectId)}${encodeURIComponent(scope.conversationId)}` : undefined;
+    const key = scope ? scopeKey(scope) : undefined;
     const existing = key ? sessions.get(key) : undefined;
     if (existing) return existing.session;
 
@@ -84,6 +86,7 @@ export function createComposerDraftStore(storage?: DraftStorage) {
           saveDraft(storage, key, serialized);
         }
         for (const listener of listeners) listener();
+        notify(key);
       },
       clearSubmitted: (submitted) => {
         // Mode and sending status can change while the server accepts a prompt.
@@ -108,12 +111,30 @@ export function createComposerDraftStore(storage?: DraftStorage) {
           active = false;
           snapshot = { prompt: "", mentions: [], attachments: [], planning: false, submitting: false };
           for (const listener of listeners) listener();
+          notify(key);
         },
       });
       // Preserve initial plugin/skill drafts even if the input is never edited.
       if (!restored && serializedDraft !== null) saveDraft(storage, key, serializedDraft);
+      notify(key);
     }
     return session;
+  }
+
+  /** A conversation's draft, without creating it: the input box sets it up with its first prompt and mode. */
+  function peek(scope: ComposerDraftScope): SavedComposerDraft | undefined {
+    return sessions.get(scopeKey(scope))?.session.getSnapshot();
+  }
+
+  /** Follows a conversation's draft, including once its input box creates it. */
+  function watch(scope: ComposerDraftScope, listener: () => void): () => void {
+    const key = scopeKey(scope);
+    const set = watchers.get(key) ?? new Set();
+    watchers.set(key, set.add(listener));
+    return () => {
+      set.delete(listener);
+      if (!set.size) watchers.delete(key);
+    };
   }
 
   function deleteProject(projectId: string): void {
@@ -130,11 +151,15 @@ export function createComposerDraftStore(storage?: DraftStorage) {
     } catch { /* Memory drafts are still cleared when storage is unavailable. */ }
   }
 
-  return { get, deleteProject };
+  return { get, peek, watch, deleteProject };
 }
 
 function projectPrefix(projectId: string): string {
   return `${STORAGE_PREFIX}${encodeURIComponent(projectId)}:`;
+}
+
+function scopeKey(scope: ComposerDraftScope): string {
+  return `${projectPrefix(scope.projectId)}${encodeURIComponent(scope.conversationId)}`;
 }
 
 function sameMessage(left: SavedComposerDraft, right: SavedComposerDraft): boolean {

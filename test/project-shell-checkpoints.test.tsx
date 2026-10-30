@@ -18,6 +18,7 @@ let container: HTMLDivElement;
 beforeEach(() => {
   vi.resetModules();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  localStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -211,7 +212,7 @@ async function openProject(
           projectId="project"
           conversationId="conversation"
           onOpenConversation={() => {}}
-          onHome={() => {}}
+          onNavigate={() => {}} onHome={() => {}}
           {...shellProps}
         />
       </AuthProvider>,
@@ -244,20 +245,33 @@ async function click(name: string) {
 }
 
 describe("project shell layout", () => {
-  it("opens General Game Design with chat expanded and preserves manual toggles across project updates", async () => {
+  it("opens the design route on the canvas panel and keeps a closed chat closed across project updates", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const daemon = await openProject(() => undefined, detail("live-turn"), {
       view: "design",
     });
-    const collapsed = () =>
-      container
-        .querySelector(".workspace-shell")!
-        .classList.contains("workspace-shell-agent-collapsed");
+    const tabs = (area: string) =>
+      [...container.querySelectorAll(`.dock-area-${area} .dock-tab`)].map(
+        (tab) =>
+          `${tab.classList.contains("is-active") ? "*" : ""}${tab.querySelector(".dock-tab-label")!.textContent}`,
+      );
+    const menuItem = (name: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find(
+        (item) => item.textContent?.trim() === name,
+      )!;
 
-    expect(collapsed()).toBe(false);
-    expect(button("Hide agent")).toBeDefined();
-    await click("Hide agent");
-    expect(collapsed()).toBe(true);
+    // A General project without a preview offers no game panel. The design
+    // route brings its canvas forward, beside the design document.
+    expect(tabs("left")).toEqual(["*Chat"]);
+    expect(tabs("center")).toEqual(["Code", "Design", "*Canvas", "Assets"]);
+    const composer = document.querySelector(".composer");
+    expect(composer).not.toBeNull();
+    await click("Close Chat");
+    expect(container.querySelector(".dock-area-left")).toBeNull();
+    // With the chat closed, its composer floats over the middle, and only
+    // there: the same one, moved rather than made again, so it keeps its state.
+    expect(document.querySelectorAll(".composer")).toHaveLength(1);
+    expect(container.querySelector(".dock-area-center .floating-chat .composer")).toBe(composer);
 
     await act(async () =>
       daemon.send(1, "workspace.restored", {
@@ -266,10 +280,18 @@ describe("project shell layout", () => {
       }),
     );
     await settle();
-    expect(collapsed()).toBe(true);
+    expect(container.querySelector(".dock-area-left")).toBeNull();
+    expect(
+      JSON.parse(localStorage.getItem("ohmygame-workspace-layout")!)
+        .layout.left.panels,
+    ).toEqual([]);
 
-    await click("Show agent");
-    expect(collapsed()).toBe(false);
+    await click("Layout and panels");
+    await act(async () => menuItem("Chat").click());
+    await settle();
+    expect(tabs("left")).toEqual(["*Chat"]);
+    expect(container.querySelector(".floating-chat")).toBeNull();
+    expect(document.querySelector(".agent-pane .agent-body > .chat-input > .composer")).toBe(composer);
   });
 });
 
@@ -859,6 +881,79 @@ describe("checkpoints in the project shell", () => {
     expect(container.querySelector(".turn-changes-result")!.textContent).toBe(
       "2 files were put back.",
     );
+  });
+
+  it("saves pending edits before it exports, and exports nothing when saving fails", async () => {
+    let saved!: () => void;
+    const save = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { saved = resolve; }))
+      .mockRejectedValueOnce(new Error("Disk full"));
+    vi.doMock(CODING_WORKSPACE, () => ({
+      CodingWorkspace: ({ onDesignSaveReady }: { onDesignSaveReady: (save: (() => Promise<void>) | undefined) => void }) => {
+        useEffect(() => onDesignSaveReady(save), [onDesignSaveReady]);
+        return null;
+      },
+    }));
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:archive"), revokeObjectURL: vi.fn() }));
+    const daemon = await openProject((route) =>
+      route === "/projects/project/export" ? new Response(new Blob(["zip"])) : undefined);
+    const exported = () => daemon.requests.filter((request) => request.route === "/projects/project/export").length;
+    const exportArchive = async () => {
+      await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
+      await act(async () => [...document.querySelectorAll<HTMLElement>(".ui-menu-item")]
+        .find((item) => item.textContent?.includes("Export"))!.click());
+      await settle();
+    };
+
+    await exportArchive();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(exported()).toBe(0);
+    await act(async () => saved());
+    await settle();
+    expect(exported()).toBe(1);
+
+    await exportArchive();
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(exported()).toBe(1);
+    expect(document.body.textContent).toContain("Disk full");
+  });
+
+  it("reopens a story's closed Code panel to show a file the chat links to", async () => {
+    const PLAYABLE = path.resolve("src/renderer/playable-editor-workspace.tsx");
+    vi.doMock(PLAYABLE, () => ({ PlayableEditorWorkspace: () => <p>Story editor</p> }));
+    const linked = detail("live-turn");
+    linked.turns[0]!.items[1] = { ...linked.turns[0]!.items[1]!, text: "Edited [the story](story/scenes.json)." } as never;
+    try {
+      await openProject((route) => route === "/projects/project" ? Response.json({
+        id: "project", name: "Test", type: "interactive-story", workspacePath: "/tmp/project",
+        updatedAt: new Date(0).toISOString(), preview: { status: "stopped" },
+      }) : undefined, linked);
+      // A story offers a canvas too, but its panels belong to the story editor.
+      expect(container.textContent).toContain("Story editor");
+      const codeTab = () => [...container.querySelectorAll('[role="tab"]')].find((tab) => tab.getAttribute("aria-label") === "Code");
+      expect(codeTab()).toBeDefined();
+      await click("Close Code");
+      expect(codeTab()).toBeUndefined();
+      await act(async () => container.querySelector<HTMLAnchorElement>(".workspace-file-link")!.click());
+      await settle();
+      expect(codeTab()?.getAttribute("aria-selected")).toBe("true");
+    } finally {
+      vi.doUnmock(PLAYABLE);
+    }
+  });
+
+  it("opens the publish dialog from the top bar", async () => {
+    const publishDialog = vi.fn();
+    vi.doMock(CODING_WORKSPACE, () => ({
+      CodingWorkspace: (props: { publishDialog?: string }) => {
+        publishDialog(props.publishDialog);
+        return null;
+      },
+    }));
+    await openProject(() => undefined);
+    expect(publishDialog).not.toHaveBeenCalledWith("open");
+    await click("Publish");
+    expect(publishDialog).toHaveBeenLastCalledWith("open");
   });
 
   it("asks before it puts the files back after a restore that was cut off, and shows why that failed", async () => {

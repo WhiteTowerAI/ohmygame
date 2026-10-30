@@ -24,6 +24,7 @@ export interface StartDaemonOptions {
   runtimeBin?: string;
   piAgentDirectory?: string;
   bundledPluginsDirectory?: string;
+  pluginUiDirectory?: string;
   preinstalledPluginsDirectory?: string;
   examplesDirectory?: string;
   /** How external agents start `ohmygame-mcp`, and the Skill they are given. */
@@ -44,7 +45,8 @@ export interface StartDaemonOptions {
 
 export async function startDaemon(options: StartDaemonOptions): Promise<ManagedDaemon> {
   const port = await availablePort();
-  const runtime = { url: `http://127.0.0.1:${port}`, token: options.token };
+  const pluginUiPort = await availablePort();
+  const runtime = { url: `http://127.0.0.1:${port}`, token: options.token, pluginUiUrl: `http://127.0.0.1:${pluginUiPort}` };
   const environment = { ...(options.environment ?? process.env) };
   // Also discard inherited tokens, including case variants on Windows.
   for (const name of Object.keys(environment)) {
@@ -60,12 +62,14 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ELECTRON_RUN_AS_NODE: "1",
       DAEMON_HOST: "127.0.0.1",
       DAEMON_PORT: String(port),
+      OHMYGAME_PLUGIN_UI_PORT: String(pluginUiPort),
       OHMYGAME_DATA_DIR: path.resolve(options.dataDirectory),
       OHMYGAME_DAEMON_TOKEN_STDIN: "1",
       OHMYGAME_ALLOWED_ORIGINS: options.allowedOrigins.join(","),
       OHMYGAME_PROJECT_PROCESS_IPC: "1",
       ...(options.piAgentDirectory ? { PI_CODING_AGENT_DIR: path.resolve(options.piAgentDirectory) } : {}),
       ...(options.bundledPluginsDirectory ? { OHMYGAME_BUNDLED_PLUGINS_DIR: path.resolve(options.bundledPluginsDirectory) } : {}),
+      ...(options.pluginUiDirectory ? { OHMYGAME_PLUGIN_UI_DIR: path.resolve(options.pluginUiDirectory) } : {}),
       ...(options.preinstalledPluginsDirectory ? { OHMYGAME_PREINSTALLED_PLUGINS_DIR: path.resolve(options.preinstalledPluginsDirectory) } : {}),
       ...(options.examplesDirectory ? { OHMYGAME_EXAMPLES_DIR: path.resolve(options.examplesDirectory) } : {}),
       ...(options.logDirectory ? { OHMYGAME_LOG_DIR: path.resolve(options.logDirectory) } : {}),

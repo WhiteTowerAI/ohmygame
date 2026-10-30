@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PreviewManager } from "../src/daemon/preview.js";
+import { isPreviewSourceChange, PreviewManager } from "../src/daemon/preview.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
 import * as projects from "../src/daemon/projects.js";
@@ -35,6 +35,93 @@ describe("PreviewManager", () => {
     // The project's dev script never ran.
     await expect(readFile(path.join(workspacePath, "server.pid"))).rejects.toThrow();
     expect(await (await fetch(url)).text()).toContain("story page");
+  });
+
+  it("serves the web version a project's plugin builds, and stops a superseded build", async () => {
+    const workspacePath = await createWorkspace(false);
+    const project = {
+      ...createProject(workspacePath),
+      type: "godot-game" as const,
+      pluginType: { id: "ohmygame/godot:godot-game", plugin: "ohmygame/godot", preview: "web-build" as const },
+    };
+    const signals: AbortSignal[] = [];
+    const events = new RuntimeEventBus();
+    const manager = new PreviewManager(events, {
+      webBuild: async (_project, signal, log) => {
+        signals.push(signal);
+        log("Exporting the web build");
+        if (signals.length === 1)
+          await new Promise((resolve) => signal.addEventListener("abort", resolve));
+        const directory = path.join(workspacePath, ".ohmygame/build/web");
+        await mkdir(directory, { recursive: true });
+        await writeFile(path.join(directory, "game.html"), "<p>built game</p>");
+        return { directory, entry: "game.html" };
+      },
+    });
+    managers.push(manager);
+
+    const first = manager.start(project);
+    await vi.waitFor(() => expect(project.preview.phase).toBe("building"));
+    const url = await manager.start(project);
+    await expect(first).rejects.toThrow();
+    expect(signals[0]!.aborted).toBe(true);
+    expect(project.preview).toMatchObject({
+      status: "ready",
+      command: "Build web version",
+      directory: path.join(".ohmygame", "build", "web"),
+    });
+    expect(project.preview.logs).toContain("Exporting the web build");
+    expect(url).not.toContain("game.html");
+    expect(await (await fetch(url)).text()).toContain("built game");
+    // Its package scripts never ran.
+    await expect(readFile(path.join(workspacePath, "server.pid"))).rejects.toThrow();
+  });
+
+  it("builds again when files change during a build", async () => {
+    const workspacePath = await createWorkspace(false);
+    const project = {
+      ...createProject(workspacePath),
+      type: "godot-game" as const,
+      pluginType: { id: "ohmygame/godot:godot-game", plugin: "ohmygame/godot", preview: "web-build" as const },
+    };
+    let builds = 0;
+    let release!: () => void;
+    const manager = new PreviewManager(new RuntimeEventBus(), {
+      webBuild: async (_project, signal) => {
+        builds += 1;
+        if (builds === 1)
+          await new Promise<void>((resolve) => {
+            release = resolve;
+            signal.addEventListener("abort", () => resolve());
+          });
+        const directory = path.join(workspacePath, ".ohmygame/build/web");
+        await mkdir(directory, { recursive: true });
+        await writeFile(path.join(directory, "index.html"), `<p>build ${builds}</p>`);
+        return { directory, entry: "index.html" };
+      },
+    });
+    managers.push(manager);
+    manager.acquire(project, "editor");
+    const first = manager.start(project).catch(() => undefined);
+    await vi.waitFor(() => expect(project.preview.phase).toBe("building"));
+    await writeFile(path.join(workspacePath, "main.gd"), "extends Node");
+    await vi.waitFor(() => expect(builds).toBe(2), { timeout: 5_000 });
+    release();
+    await first;
+    await vi.waitFor(() => expect(project.preview.status).toBe("ready"));
+    expect(await (await fetch(project.preview.url!)).text()).toContain("build 2");
+  });
+
+  it("explains a plugin-built preview when no plugin can build it", async () => {
+    const workspacePath = await createWorkspace(false);
+    const project = {
+      ...createProject(workspacePath),
+      type: "godot-game" as const,
+      pluginType: { id: "ohmygame/godot:godot-game", plugin: "ohmygame/godot", preview: "web-build" as const },
+    };
+    const manager = new PreviewManager(new RuntimeEventBus());
+    managers.push(manager);
+    await expect(manager.start(project)).rejects.toThrow("needs its plugin");
   });
 
   it.skipIf(process.platform === "win32")("fails the start when the package manager is not installed and starts once it is", async () => {
@@ -582,3 +669,14 @@ function isProcessRunning(pid: number): boolean {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }
+
+describe("preview source changes", () => {
+  it("reloads for the game's files, but not for the design canvas, generated folders or logs", () => {
+    for (const file of ["index.html", "src/main.js", "src/canvas/renderer.ts", "canvas/game.js", "canvas/levels/one.json", "canvas/editor/index.html", "canvas/editor/game.js", "canvas/boards/game.ts", "canvas/boards/level/one.json", "assets/hero.png", "src\\style.css"]) {
+      expect(isPreviewSourceChange(file), file).toBe(true);
+    }
+    for (const file of ["canvas/boards/board.json", "canvas/editor/board.json", "canvas\\documents\\design.md", "canvas/index.json", "canvas/jobs.json", "canvas/tables/scores.json", "canvas/schemas/board.schema.json", ".data/state.json", "node_modules/x/index.js", "dist/index.js", "src/build/out.js", "server.log", "LICENSE"]) {
+      expect(isPreviewSourceChange(file), file).toBe(false);
+    }
+  });
+});

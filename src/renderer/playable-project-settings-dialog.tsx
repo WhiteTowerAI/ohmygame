@@ -11,6 +11,7 @@ import {
 import { CanvasFormatOptions } from "./canvas-format-options.js";
 import { Download, LoaderCircle } from "./icons.js";
 import { ProjectSettingsDialogFrame } from "./project-settings-dialog.js";
+import { Button } from "./ui/index.js";
 import { t } from "./i18n.js";
 
 export function PlayableProjectSettingsDialog({
@@ -69,7 +70,8 @@ export function PlayableProjectSettingsDialog({
 
   return (
     <ProjectSettingsDialogFrame busy={saving || exporting} onClose={onClose}>
-      <form onSubmit={(event) => void submit(event)}>
+      <form className="project-settings-form" onSubmit={(event) => void submit(event)}>
+        <div className="ui-dialog-body">
         <section className="project-settings-project" aria-label={t("projectSettings.project")}>
           <span>{t("projectSettings.project")}</span>
           <strong title={project.name}>{project.name}</strong>
@@ -102,22 +104,21 @@ export function PlayableProjectSettingsDialog({
           ) : null}
           <div className="project-settings-export-actions">
             {(["game", "project"] as const).map((kind) => (
-              <button
+              <Button
                 key={kind}
-                className="project-settings-browser"
-                type="button"
+                size="sm"
                 disabled={!canExport || saving || exporting || changed}
-                onClick={() => void exportProject(kind)}
-              >
-                {exporting && exportKind === kind ? (
+                icon={exporting && exportKind === kind ? (
                   <LoaderCircle className="spin" size={14} />
                 ) : (
                   <Download size={14} />
                 )}
+                onClick={() => void exportProject(kind)}
+              >
                 {exporting && exportKind === kind
                   ? t("storySettings.exporting")
                   : t(kind === "game" ? "storySettings.exportGame" : "storySettings.exportProject")}
-              </button>
+              </Button>
             ))}
           </div>
         </fieldset>
@@ -126,23 +127,20 @@ export function PlayableProjectSettingsDialog({
             {error}
           </p>
         ) : null}
-        <footer>
-          <button
-            type="button"
-            disabled={saving || exporting}
-            onClick={onClose}
-          >
+        </div>
+        <div className="ui-dialog-footer">
+          <Button disabled={saving || exporting} onClick={onClose}>
             {t("common.cancel")}
-          </button>
-          <button
-            className="project-settings-submit"
+          </Button>
+          <Button
+            variant="primary"
             type="submit"
             disabled={saving || exporting}
+            icon={saving ? <LoaderCircle className="spin" size={14} /> : undefined}
           >
-            {saving ? <LoaderCircle className="spin" size={14} /> : null}
             {t("common.save")}
-          </button>
-        </footer>
+          </Button>
+        </div>
       </form>
     </ProjectSettingsDialogFrame>
   );

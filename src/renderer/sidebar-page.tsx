@@ -1,23 +1,23 @@
 import type { ReactNode } from "react";
-import { AppSidebar } from "./app-sidebar.js";
 import { ChevronRight } from "./icons.js";
+import { PageFrame } from "./page-frame.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { t } from "./i18n.js";
 
+/** A page in the frame that scrolls as one column under its header. */
 export function SidebarPageLayout({ active, children, onNavigate }: {
   active: SidebarPage;
   children: ReactNode;
   onNavigate: (page: AppNavigationTarget) => void;
 }) {
   return (
-    <main className="home-shell">
-      <AppSidebar active={active} onNavigate={onNavigate} />
-      <section className="sidebar-page">
+    <PageFrame active={active} onNavigate={onNavigate}>
+      <main className="sidebar-page">
         <WindowDragRegion />
         <div className="sidebar-page-inner">{children}</div>
-      </section>
-    </main>
+      </main>
+    </PageFrame>
   );
 }
 
