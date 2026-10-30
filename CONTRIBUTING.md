@@ -147,6 +147,8 @@ types, tests, the renderer build, and the Node daemon/player build and startup.
 this sequence covers the full application build without building them twice.
 These checks run on Ubuntu. Plugin preparation, types, tests and the Node
 startup check also run on macOS and Windows, the platforms the app ships for.
+There the tests run in two shards, and types and the Node startup check run in
+a separate job, so the slower runners finish in parallel.
 When a test cannot hold on one platform, skip only the assertion that does not
 apply there, as the file permission checks do on Windows.
 CLI integration cases that execute POSIX script fixtures run on Ubuntu and macOS;
