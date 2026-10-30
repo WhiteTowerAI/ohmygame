@@ -221,6 +221,8 @@ export function ProjectShell({
   const [modelChanging, setModelChanging] = useState(false);
   const [accountProfiles, setAccountProfiles] = useState<AgentAccountProfileStatus[]>([]);
   const [capabilities, setCapabilities] = useState<ConversationCapabilities>(EMPTY_CAPABILITIES);
+  // Bumped when the project's plugins change, so the chat offers their skills and commands.
+  const [capabilitiesRevision, setCapabilitiesRevision] = useState(0);
   const [playableChat, setPlayableChat] = useState<PlayableChatState>();
   /** The Playable surface whose chip the user removed from the next message. */
   const [dismissedSurface, setDismissedSurface] = useState<string>();
@@ -294,7 +296,7 @@ export function ProjectShell({
       if (!disposed) setCapabilities(EMPTY_CAPABILITIES);
     });
     return () => { disposed = true; };
-  }, [projectId, state.conversation?.id, state.connection]);
+  }, [projectId, state.conversation?.id, state.connection, capabilitiesRevision]);
 
   function subscribe(cursor: number, selectedConversationId: string): void {
     unsubscribeEvents.current?.();
@@ -1106,7 +1108,7 @@ export function ProjectShell({
     <>
     {integrationGate.dialog}
     {chatInput}
-    {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
+    {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
     {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} /> : null}
     {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
     <ProjectFrame
