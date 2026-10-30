@@ -43,6 +43,15 @@ function adapter(onConflict = vi.fn(), flushDocuments = vi.fn<() => Promise<void
 }
 
 describe("canvas board storage", () => {
+  it("does not save a board that only came back with its keys in another order", async () => {
+    const loaded = canvas();
+    api.getCanvasBoard.mockResolvedValue(detail(loaded));
+    const storage = adapter();
+    const local = await storage.load();
+    await storage.save(Object.fromEntries(Object.entries(local).reverse()) as AssetCanvasDocument);
+    expect(api.saveCanvasBoard).not.toHaveBeenCalled();
+  });
+
   it("recovers a draft unchanged from its base after a disk type conversion", async () => {
     const base = canvas(), local = structuredClone(base), remote = structuredClone(base);
     const node = local.nodes[0]!;

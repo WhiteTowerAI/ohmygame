@@ -44,6 +44,8 @@ const MIN_WIDTH = 200;
 const MAX_WIDTH = 360;
 const DEFAULT_WIDTH = 232;
 const RECENT_LIMIT = 8;
+// Home shows the recent projects too, so the pages' sidebar keeps a few and links to the rest.
+const SIDEBAR_RECENT = 5;
 const WIDTH_KEY = "ohmygame-sidebar-width";
 const COLLAPSED_KEY = "ohmygame-sidebar-collapsed";
 const RECENT_OPEN_KEY = "ohmygame-sidebar-recent-open";
@@ -340,7 +342,7 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
                 {t("sidebar.recent")}<ChevronRight size={12} className="sidebar-label-caret" />
               </button>
             )}
-            {recentOpen ? projects.map((project) => {
+            {recentOpen ? projects.slice(0, SIDEBAR_RECENT).map((project) => {
               const open = () => { window.location.hash = projectHash(project.id); };
               return collapsed ? (
                 <button key={project.id} type="button" className="sidebar-app" title={project.name} aria-label={project.name} onClick={open}>
@@ -350,6 +352,9 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
                 <SidebarItem key={project.id} icon={<SidebarCover project={project} className="sidebar-cover" iconSize={12} />} label={project.name} onClick={open} />
               );
             }) : null}
+            {recentOpen && !collapsed && projects.length > SIDEBAR_RECENT ? (
+              <SidebarItem icon={<ArrowRight size={14} />} label={t("sidebar.allProjects")} onClick={() => onNavigate("projects")} />
+            ) : null}
           </div>
         ) : null}
         <span className="sidebar-spacer" />

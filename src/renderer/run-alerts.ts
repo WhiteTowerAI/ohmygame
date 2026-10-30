@@ -2,11 +2,13 @@ import { useEffect, useRef } from "react";
 import { streamProjectActivity } from "./api.js";
 import { GENERAL_PREFERENCES_EVENT, readGeneralPreferences } from "./general-preferences.js";
 import { t } from "./i18n.js";
+import { parseAppRoute } from "./routes.js";
 
 /**
  * Settings → General, while the app is open: no system sleep while an agent
- * works, and a notification and a sound when one finishes with the window in
- * the background. An agent waiting on an approval or a question is still
+ * works, and a notification and a sound when one finishes out of sight: with
+ * the window in the background, or on another page or project. An agent
+ * waiting on an approval or a question is still
  * running, so it alerts when the turn ends, not while it waits.
  */
 export function useRunAlerts(onOpenProject: (projectId: string) => void): void {
@@ -42,7 +44,7 @@ export function useRunAlerts(onOpenProject: (projectId: string) => void): void {
 }
 
 function alertFinished(projectId: string, name: string | undefined, onOpen: (projectId: string) => void): void {
-  if (document.hasFocus()) return;
+  if (document.hasFocus() && watching(projectId)) return;
   const preferences = readGeneralPreferences();
   if (preferences.runSound) playChime();
   if (!preferences.runNotifications || typeof Notification === "undefined") return;
@@ -56,6 +58,12 @@ function alertFinished(projectId: string, name: string | undefined, onOpen: (pro
   };
   if (Notification.permission === "granted") show();
   else if (Notification.permission === "default") void Notification.requestPermission().then((permission) => { if (permission === "granted") show(); });
+}
+
+/** Whether the window shows that project, where its chat says it finished. */
+function watching(projectId: string): boolean {
+  const route = parseAppRoute(window.location.hash);
+  return route.page === "project" && route.projectId === projectId;
 }
 
 /** Two soft rising notes. */
