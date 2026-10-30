@@ -31,19 +31,29 @@ describe("plugin catalog API", () => {
     expect(detail.json()).toMatchObject({ id: "personal:test-plugin", enabled: true });
   });
 
-  it("finishes indexing the bundled plugins before it closes", async () => {
+  it("finishes indexing the bundled plugins before it closes the plugin store", async () => {
+    let indexed = false;
     let finishIndexing!: () => void;
-    vi.spyOn(PluginServices.prototype, "addBundled").mockReturnValue(new Promise((resolve) => { finishIndexing = () => resolve([]); }));
+    vi.spyOn(PluginServices.prototype, "addBundled").mockReturnValue(new Promise((resolve) => {
+      finishIndexing = () => { indexed = true; resolve([]); };
+    }));
+    const closePluginServices = PluginServices.prototype.close;
+    let indexedWhenClosed: boolean | undefined;
+    vi.spyOn(PluginServices.prototype, "close").mockImplementation(function (this: PluginServices) {
+      indexedWhenClosed = indexed;
+      return closePluginServices.call(this);
+    });
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-close-")) });
-    await app.ready();
-
-    let closed = false;
-    const closing = app.close().then(() => { closed = true; });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(closed).toBe(false);
-    finishIndexing();
-    await closing;
-    expect(closed).toBe(true);
+    apps.push(app);
+    // Indexing finishes only once shutdown has started.
+    app.addHook("preClose", async () => { setTimeout(finishIndexing, 200); });
+    try {
+      await app.ready();
+      await app.close();
+      expect(indexedWhenClosed).toBe(true);
+    } finally {
+      finishIndexing();
+    }
   });
 
   it("lists a project's plugins and turns one on there, starting its ohmygame.json", async () => {
