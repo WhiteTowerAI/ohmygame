@@ -250,8 +250,15 @@ function ComposerContextMenu({ id, menuRef, trigger, items, selected, onSelect, 
       const below = Math.max(0, bottom - anchorRect.bottom - 12);
       // Include the section heading, first option, and menu padding.
       const minimumMenuHeight = 84;
-      const openBelow = above < minimumMenuHeight && below >= minimumMenuHeight;
+      // Home's composer sits high on the page, so its menu drops below it;
+      // a chat's sits at the bottom, so its menu rises. Either way the menu
+      // takes the other side when that one fits it and its own side doesn't.
+      const wanted = Math.min(400, Math.max(minimumMenuHeight, element.scrollHeight));
+      const preferBelow = anchor.classList.contains("prompt-box-home");
+      const [first, second] = preferBelow ? [below, above] : [above, below];
+      const firstSide = first >= wanted || (second < wanted && first >= second);
       const openInside = above < minimumMenuHeight && below < minimumMenuHeight;
+      const openBelow = !openInside && (preferBelow ? firstSide : !firstSide);
       element.classList.toggle("is-below", openBelow);
       element.classList.toggle("is-inside", openInside);
       element.style.top = openInside ? `${Math.max(0, top - anchorRect.top + 6)}px` : "";
