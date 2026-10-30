@@ -525,7 +525,9 @@ Search); Connections (MCP Server, Network); and Account, Billing and About.
 page at `#/settings/agents/<id>`, and Back returns to the list. Appearance
 also sets the grey palette (Neutral, Warm, High contrast) and a serif chat
 font; both are stored in the renderer and applied as `data-palette` and
-`data-chat-font` on the root before the first render.
+`data-chat-font` on the root before the first render. The palette reaches every
+screen: the older colour variables at the top of `styles.css` point at the
+design tokens in `ui/tokens.css`.
 
 Every project starts from Home. Sending its prompt opens the new-project dialog
 (name, type and folder) with the prompt as the project's first message; **Blank
