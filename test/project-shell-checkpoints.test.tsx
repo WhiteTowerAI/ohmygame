@@ -942,18 +942,52 @@ describe("checkpoints in the project shell", () => {
     }
   });
 
-  it("opens the publish dialog from the top bar", async () => {
+  it("publishes from the top bar's Publish menu, or exports the web build there after saving", async () => {
     const publishDialog = vi.fn();
+    const save = vi.fn(async () => {});
     vi.doMock(CODING_WORKSPACE, () => ({
-      CodingWorkspace: (props: { publishDialog?: string }) => {
+      CodingWorkspace: (props: { publishDialog?: string; onDesignSaveReady: (save: (() => Promise<void>) | undefined) => void }) => {
         publishDialog(props.publishDialog);
+        useEffect(() => props.onDesignSaveReady(save), [props.onDesignSaveReady]);
         return null;
       },
     }));
-    await openProject(() => undefined);
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:build"), revokeObjectURL: vi.fn() }));
+    const downloads: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { downloads.push(this.download); });
+    const daemon = await openProject((route) =>
+      route === "/projects/project/build" ? new Response(new Blob(["zip"])) : undefined);
+    const menuItem = async (label: string) => {
+      await click("Publish");
+      await act(async () => [...document.querySelectorAll<HTMLElement>(".ui-menu-item")]
+        .find((item) => item.textContent?.includes(label))!.click());
+      await settle();
+    };
+
     expect(publishDialog).not.toHaveBeenCalledWith("open");
-    await click("Publish");
+    await menuItem("Publish to the OhMyGame community");
     expect(publishDialog).toHaveBeenLastCalledWith("open");
+
+    // A story's or other editor's pending save finishes before the build reads the files.
+    let saved!: () => void;
+    const { desktopSave } = await import("../src/renderer/desktop-save.js");
+    const unregister = desktopSave.register(() => new Promise<void>((resolve) => { saved = resolve; }));
+    const built = () => daemon.requests.filter((request) => request.route === "/projects/project/build");
+    try {
+      await menuItem("Export web build");
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(built()).toHaveLength(0);
+      await click("Publish");
+      const publishItem = [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")]
+        .find((item) => item.textContent?.includes("Publish to the OhMyGame community"))!;
+      expect(publishItem.disabled).toBe(true);
+      await act(async () => saved());
+      await settle();
+    } finally {
+      unregister();
+    }
+    expect(built()).toHaveLength(1);
+    expect(downloads).toEqual(["Test (web).zip"]);
   });
 
   it("asks before it puts the files back after a restore that was cut off, and shows why that failed", async () => {

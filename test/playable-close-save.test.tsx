@@ -18,10 +18,7 @@ const listWorkspaceFiles = vi.fn(async () => [
   { path: "assets/platform.png", size: 10, mediaType: "image" as const },
   { path: "nodes/start/node.js", size: 10 },
 ]);
-const exportProject = vi.fn(async () => new Blob(["zip"]));
-/** The order in which the design's documents and the project export ran. */
-const writes: string[] = [];
-const flushDocuments = vi.fn(async () => { writes.push("documents"); });
+const flushDocuments = vi.fn(async () => {});
 let move!: (event: unknown, viewport: { x: number; y: number; zoom: number }) => void;
 let viewport = { x: 32, y: 64, zoom: 1.2 };
 vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async original => ({
@@ -40,7 +37,6 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   getPlayableValidation: async () => ({ issues: [] }),
   updateNodeCodebase: update,
   listWorkspaceFiles,
-  exportProject,
 }));
 vi.doMock(path.resolve("src/renderer/use-canvas-documents.ts"), () => ({
   useCanvasDocuments: () => ({ flush: flushDocuments }),
@@ -129,14 +125,15 @@ it("reloads a kept Assets panel when it shows again, since the canvas writes fil
   expect(listWorkspaceFiles).toHaveBeenCalledTimes(2);
 });
 
-it("saves the design's documents before exporting the project from Settings", async () => {
-  writes.length = 0;
-  exportProject.mockImplementationOnce(async () => { writes.push("export"); return new Blob(["zip"]); });
-  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:archive");
-  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-  await renderPanels(["story", "design"]);
-  await act(async () => nodes.story.toolbar.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!.click());
-  const exportButton = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Export project")!;
-  await act(async () => exportButton.click());
-  expect(writes).toEqual(["documents", "export"]);
+it("gives the shell a design save that saves the design's documents, which the shell runs before an export", async () => {
+  flushDocuments.mockClear();
+  let saveDesign: (() => Promise<void>) | undefined;
+  await act(async () => root.render(<PlayableEditorWorkspace
+    project={{ id: "p", name: "Close save", type: "interactive-story" } as ProjectState} agentBusy={false} publishing={false}
+    onPublish={async () => false} onClosePublish={() => {}}
+    onDesignSaveReady={(save) => { saveDesign = save; }}
+    panels={{ nodes, visible: new Set(["story", "design"]), onShow: () => {} }}
+  />));
+  await act(async () => saveDesign!());
+  expect(flushDocuments).toHaveBeenCalledTimes(1);
 });

@@ -2154,6 +2154,75 @@ function fakeModelRuntime(models: Array<{ provider: string; id: string; name: st
   } as unknown as ModelRuntime;
 }
 
+describe("web build export", () => {
+  async function createBuildApp() {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-web-build-")) });
+    apps.push(app);
+    return app;
+  }
+  async function createGame(app: Awaited<ReturnType<typeof createBuildApp>>, build: string) {
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Built", type: "web-game" } })).json();
+    await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({ scripts: { build: "node build.mjs" } }));
+    await writeFile(path.join(project.workspacePath, "build.mjs"), build);
+    return project;
+  }
+
+  it("downloads only the static output a publish would upload", async () => {
+    const app = await createBuildApp();
+    const project = await createGame(app, `
+      import { mkdir, writeFile } from "node:fs/promises";
+      await mkdir("dist/assets", { recursive: true });
+      await writeFile("dist/index.html", "built");
+      await writeFile("dist/assets/game.js", "window.built = true");
+    `);
+
+    const built = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
+
+    expect(built.statusCode, built.body).toBe(200);
+    expect(built.headers["content-type"]).toBe("application/zip");
+    // Entry names are stored as plain text in the archive.
+    expect(built.rawPayload.includes("assets/game.js")).toBe(true);
+    expect(built.rawPayload.includes("build.mjs")).toBe(false);
+  }, 20_000);
+
+  it("builds only games that publish", async () => {
+    const app = await createBuildApp();
+    const canvas = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Board", type: "asset-canvas" } })).json();
+
+    const refused = await app.inject({ method: "POST", url: `/projects/${canvas.id}/build` });
+
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toBe("Build requires a Web Game, General Game or Interactive Story project");
+  });
+
+  it("refuses a publish or a second build while a web build is exported", async () => {
+    const app = await createBuildApp();
+    // The build waits for the test to release it, so the export stays in progress.
+    const project = await createGame(app, `
+      import { existsSync } from "node:fs";
+      import { mkdir, writeFile } from "node:fs/promises";
+      await writeFile("started", "");
+      while (!existsSync("release")) await new Promise((resolve) => setTimeout(resolve, 20));
+      await mkdir("dist", { recursive: true });
+      await writeFile("dist/index.html", "built");
+    `);
+    const first = app.inject({ method: "POST", url: `/projects/${project.id}/build` });
+    while (!await stat(path.join(project.workspacePath, "started")).catch(() => undefined))
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Refused before the publish service is contacted, so none is needed here.
+    const published = await app.inject({ method: "POST", url: `/projects/${project.id}/publish`, payload: { accessToken: "token", title: "Built" } });
+    const second = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
+    await writeFile(path.join(project.workspacePath, "release"), "");
+
+    expect(published.statusCode).toBe(409);
+    expect(published.json()).toEqual({ error: "Wait for the web build to finish before publishing" });
+    expect(second.statusCode).toBe(409);
+    expect(second.json()).toEqual({ error: "The web build is already being exported" });
+    expect((await first).statusCode).toBe(200);
+  }, 20_000);
+});
+
 describe("Playable Nodes projects", () => {
   async function createPlayableApp(prefix: string, options: Parameters<typeof createApp>[0] = {}) {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), prefix)), ...options });
@@ -2191,7 +2260,7 @@ describe("Playable Nodes projects", () => {
     const status = () => app.inject({ method: "GET", url: `/projects/${project.id}/interactive-story/upgrade` }).then((response) => response.json());
     expect(await status()).toEqual({ web: false });
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBeUndefined();
-    const refused = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/build` });
+    const refused = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
     expect(refused.statusCode).toBe(409);
     expect(refused.json().error).toContain("Open it in the Story editor, which upgrades it");
 

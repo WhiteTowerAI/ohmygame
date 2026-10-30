@@ -104,7 +104,7 @@ export function registerCheckpointRoutes(
       }
       // Wait before entering the drain set: a closing turn's snapshot needs
       // this set empty, while publish/build need that snapshot to finish.
-      if (/\/(?:publish|interactive-story\/build)(?:\?|$)/.test(request.url))
+      if (/\/(?:publish|build)(?:\?|$)/.test(request.url))
         await agents.turnsClosed(id);
       // Export reads the current workspace, including from a project list
       // that has not observed its version. Still drain it before a restore.

@@ -583,6 +583,8 @@ export function createApp(options: AppOptions = {}) {
   const conversations = new ConversationManager(conversationImages, (runtime, id) => agentRuntimes.settings.resolveProfileId(runtime, id));
   const agentPlaytests = new Map<string, OwnedPlaytestDriver>();
   const publishing = new Set<string>();
+  // Projects whose web build is being exported; a build and a publish share the build output.
+  const building = new Set<string>();
   const artifacts = new ArtifactBuilder();
   const examples = new ExampleStore(options.examplesDirectory);
   const localPublisher = options.localDebug ? new LocalPublisher() : undefined;
@@ -3437,6 +3439,7 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(409).send({ error: "Wait for the agent to finish before publishing" });
       }
       if (publishing.has(project.id)) return reply.code(409).send({ error: "Project is already being published" });
+      if (building.has(project.id)) return reply.code(409).send({ error: "Wait for the web build to finish before publishing" });
       publishing.add(project.id);
       events.publish(project.id, "publish.started", {});
       try {
@@ -3467,14 +3470,15 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/build", async (request, reply) => {
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/build", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Build requires an Interactive Story project" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before building" });
     if (publishing.has(project.id)) return reply.code(409).send({ error: "Project is already being published" });
+    if (building.has(project.id)) return reply.code(409).send({ error: "The web build is already being exported" });
+    building.add(project.id);
     try {
-      const artifact = await artifacts.buildInteractiveStory(project);
+      const artifact = await artifacts.build(project);
       return reply
         .header("content-type", "application/zip")
         .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)
@@ -3482,6 +3486,8 @@ export function createApp(options: AppOptions = {}) {
     } catch (cause) {
       const statusCode = cause instanceof PublishError ? cause.statusCode : 500;
       return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    } finally {
+      building.delete(project.id);
     }
   });
 

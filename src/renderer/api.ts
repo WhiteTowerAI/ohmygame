@@ -769,8 +769,9 @@ export async function exportDiagnostics(): Promise<{ blob: Blob; fileName: strin
   }
 }
 
-export async function buildInteractiveStory(projectId: string, version?: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/projects/${projectId}/interactive-story/build`), {
+/** Downloads the game as it publishes, to host on another site. */
+export async function buildWebGame(projectId: string, version?: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/build`), {
     method: "POST",
     headers: projectRuntimeHeaders(projectId, version),
   });

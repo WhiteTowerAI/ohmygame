@@ -50,7 +50,6 @@ import {
 import {
   addPlayableNode,
   ApiError,
-  buildInteractiveStory,
   exportProject,
   getNodeCodebase,
   getPlayableValidation,
@@ -235,7 +234,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const thumbnailFailuresRef = useRef(thumbnailFailures);
   thumbnailFailuresRef.current = thumbnailFailures;
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
-  const [building, setBuilding] = useState(false);
   const [playtesting, setPlaytesting] = useState(false);
   const [writing, setWriting] = useState(false);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
@@ -1052,7 +1050,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   /** Saves the project, sends any requested action, and opens or focuses Playtest. */
   async function startPlaytest(request?: PlaytestRequest): Promise<void> {
-    if (!codebase || building || playtesting) return;
+    if (!codebase || playtesting) return;
     // A story with no Scenes has nothing to play, so the editor says so instead of opening Playtest.
     if (!codebase.graph.nodes.length) {
       setNotice(t("storyEditor.playtestNeedsScene"));
@@ -1086,27 +1084,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       setNotice(errorMessage(cause));
     } finally {
       setPlaytesting(false);
-    }
-  }
-
-  async function exportGame(kind: "game" | "project"): Promise<void> {
-    if (!codebase || building) return;
-    setBuilding(true);
-    try {
-      await save(codebase);
-      // The project is read from disk, so the design's pending edits are saved too.
-      if (kind === "project" && documentsOpened) await saveDesign();
-      const artifact = kind === "game"
-        ? await buildInteractiveStory(projectId, writeVersion)
-        : await exportProject(projectId, writeVersion);
-      const url = URL.createObjectURL(artifact);
-      const link = window.document.createElement("a");
-      link.href = url;
-      link.download = kind === "game" ? `${project.name}.zip` : `${project.name} (${t("storySettings.projectFileSuffix")}).zip`;
-      link.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    } finally {
-      setBuilding(false);
     }
   }
 
@@ -1173,7 +1150,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         <button className="icon-button pane-header-action" type="button" title={t("projectSettings.title")} aria-label={t("projectSettings.title")} aria-haspopup="dialog" disabled={phase !== "ready"} onClick={() => setProjectSettingsOpen(true)}>
           <Settings size={14} />
         </button>
-        <PlaytestControls disabled={phase !== "ready" || building} busy={playtesting} onOpen={() => void startPlaytest()} onAction={(action) => void startPlaytest({ action })} />
+        <PlaytestControls disabled={phase !== "ready"} busy={playtesting} onOpen={() => void startPlaytest()} onAction={(action) => void startPlaytest({ action })} />
       </>,
       body: <>
         <div className="interactive-story-body">
@@ -1282,7 +1259,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           onPlayFromHere={(start) => void startPlaytest({ action: "start", start })}
           onPlaytestAction={(action) => void startPlaytest({ action })}
           playtestBusy={playtesting}
-          playtestDisabled={building}
           onChatContextChange={onChatContextChange}
         /> : null}
         {openedNode && notice ? <div className="story-save-notice is-over-workbench" role="alert">{notice}</div> : null}
@@ -1359,17 +1335,14 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       {projectSettingsOpen && codebase ? <PlayableProjectSettingsDialog
         project={project}
         graph={codebase.graph}
-        exporting={building}
-        canExport={!agentBusy && !publishing && !building}
         onSave={async (viewport) => {
           const graph = { ...codebase.graph, viewport };
           await save({ graph, editorLayout: codebase.editorLayout });
           applyGraph(graph);
         }}
-        onExport={exportGame}
         onClose={() => setProjectSettingsOpen(false)}
       /> : null}
-      {publishDialog ? <PublishDialog project={project} publishing={publishing || building} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} /> : null}
+      {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} /> : null}
     </>
   );
 }
