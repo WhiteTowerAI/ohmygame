@@ -1,6 +1,7 @@
 import { approvalOutcomeLabel } from "./approval-card.js";
 import { ChangeCounts } from "./change-counts.js";
 import { FileDiff } from "./file-diff.js";
+import { sendsMessage } from "./general-preferences.js";
 import {
   Check,
   GitBranch,
@@ -289,7 +290,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
   const visualAttachmentNames = new Set(item.images?.map((image) => image.name).filter((name): name is string => Boolean(name)) ?? []);
   const attachments = item.attachments?.filter((attachment) => !visualAttachmentNames.has(attachment.relativePath)) ?? [];
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    if (event.nativeEvent.isComposing || !sendsMessage(event)) return;
     event.preventDefault();
     controls.onSubmit();
   }

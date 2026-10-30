@@ -4,7 +4,8 @@ import { App } from "./app.js";
 import { AuthProvider } from "./auth.js";
 import { PlaytestPage } from "./playtest.js";
 import { NodeThumbnailPage } from "./node-thumbnail-page.js";
-import { parseAppRoute } from "./routes.js";
+import { parseAppRoute, projectHash } from "./routes.js";
+import { applyAutoUpdate, launchProject } from "./general-preferences.js";
 import { applyAppearance, applyChatFont, applyPalette, readAppearance, readChatFont, readPalette } from "./appearance.js";
 import { DesktopWindowFrame } from "./desktop-window-frame.js";
 import { initializeAnalytics } from "./analytics.js";
@@ -18,6 +19,9 @@ import { t } from "./i18n.js";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Renderer root was not found");
+// Settings → General → Open to: a launch on Home goes to the last project instead.
+const reopen = !window.location.hash || window.location.hash === "#/" ? launchProject() : undefined;
+if (reopen) window.history.replaceState(window.history.state, "", projectHash(reopen));
 const route = parseAppRoute(window.location.hash);
 if (window.ohMyGameDesktop) initSentry();
 // A hidden thumbnail window runs Scene code, so the desktop app lets it only
@@ -27,6 +31,7 @@ applyAppearance(readAppearance(), { desktop: !thumbnail });
 applyPalette(readPalette());
 applyChatFont(readChatFont());
 await initializeRuntimeConnection({ followService: !thumbnail });
+if (route.page !== "thumbnail" && route.page !== "playtest") applyAutoUpdate();
 if (window.ohMyGameDesktop?.platform === "darwin") {
   document.documentElement.classList.add("desktop-macos");
 }

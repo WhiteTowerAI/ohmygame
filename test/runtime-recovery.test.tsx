@@ -523,7 +523,8 @@ describe("pane and preview boundaries", () => {
     const location = container.querySelector(".preview-location")!;
     expect(location.querySelector(".preview-location-status.is-ready")?.getAttribute("aria-label")).toBe("Preview running");
     expect([...location.children].map((child) => child.className)).toEqual(["preview-location-status is-ready", "preview-location-trigger", "preview-location-refresh"]);
-    await act(async () => (container.querySelector('[aria-label="Project settings"]') as HTMLButtonElement).click());
+    await act(async () => (container.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Project settings"))!.click());
     const browser = [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Open preview in browser")!;
     await act(async () => browser.click());
     const url = new URL(String(open.mock.calls[0][0]));

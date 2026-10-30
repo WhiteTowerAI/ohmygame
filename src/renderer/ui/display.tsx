@@ -6,12 +6,15 @@ import {
   type ReactNode,
 } from "react";
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   CircleCheck,
+  Copy,
   InfoCircle,
   TriangleAlert,
 } from "../icons.js";
+import { IconButton } from "./button.js";
 import { t } from "../i18n.js";
 import "./display.css";
 
@@ -485,6 +488,25 @@ export function Stat({
       <span className="ui-stat-label">{label}</span>
       <span className="ui-stat-value">{value}</span>
       {note ? <span className="ui-stat-note">{note}</span> : null}
+    </div>
+  );
+}
+
+/** Text people copy into another tool: a command, a config snippet. */
+export function CodeBlock({ code, title }: { code: string; title: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="ui-code-block">
+      <div className="ui-code-block-head">
+        <span>{title}</span>
+        <IconButton size="sm" label={copied ? t("common.copied") : t("common.copy")} onClick={() => {
+          void navigator.clipboard?.writeText(code).then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1400);
+          }).catch(() => undefined);
+        }}>{copied ? <Check size={14} /> : <Copy size={14} />}</IconButton>
+      </div>
+      <pre><code>{code}</code></pre>
     </div>
   );
 }

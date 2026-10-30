@@ -370,6 +370,19 @@ export interface ProjectCoverState {
   mode: ProjectCoverMode;
 }
 
+/** An element the person picked in a web game's preview, to point the agent at it. */
+export interface PreviewPick {
+  tag: string;
+  /** Its accessible name or text, shortened. */
+  text?: string;
+  /** A CSS path from the document. */
+  selector: string;
+  /** In the page's CSS pixels. */
+  box: { x: number; y: number; width: number; height: number };
+  /** The page it was on. */
+  path: string;
+}
+
 export interface PreviewRuntimeState {
   status: PreviewStatus;
   url?: string;
@@ -669,7 +682,7 @@ export interface PromptReference {
  * conversation shows only the label.
  */
 export interface PromptContext {
-  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "playable-moment" | "design-document" | "canvas-board";
+  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "playable-moment" | "design-document" | "canvas-board" | "preview-element";
   label: string;
   text: string;
 }
@@ -1264,6 +1277,8 @@ export interface RuntimeEventData {
   "project.renamed": { project: ProjectState };
   "project.updated": { project: ProjectState };
   "preview.updated": { preview: PreviewRuntimeState };
+  /** Without a pick, the person cancelled. */
+  "preview.picked": { client: string; pick?: PreviewPick };
   "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; revision?: "last-turn" };
   "checkpoint.created": { checkpointId: string };
   "checkpoint.completed": { checkpointId: string } & Pick<TurnChanges, "files" | "items">;
@@ -1295,6 +1310,7 @@ export const RUNTIME_EVENT_TYPES = [
   "project.renamed",
   "project.updated",
   "preview.updated",
+  "preview.picked",
   "agent.started",
   "checkpoint.created",
   "checkpoint.completed",

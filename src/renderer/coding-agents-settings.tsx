@@ -3,6 +3,7 @@ import {
   Check,
   ChevronRight,
   Copy,
+  ExternalLink,
   LoaderCircle,
   RefreshCw,
   Terminal,
@@ -172,6 +173,11 @@ export function CodingAgentsGroup({
                 {agent.id === defaultAgent ? (
                   <Badge tone="outline">{t("agents.default")}</Badge>
                 ) : null}
+                {agent.installed && olderThanTested(agent) ? (
+                  <span title={t("codingAgents.updateAvailableHint", { version: agent.testedVersion })}>
+                    <Badge tone="outline">{t("codingAgents.updateAvailable")}</Badge>
+                  </span>
+                ) : null}
               </>
             }
             description={agentSummary(agent)}
@@ -188,8 +194,8 @@ export function CodingAgentsGroup({
                 onChange={(enabled) => void toggle(agent, enabled)}
               />
             ) : (
-              <Button size="sm" onClick={() => onOpen(agent.id)}>
-                {t("settings.agents.setUp")}
+              <Button size="sm" icon={<ExternalLink size={14} />} onClick={() => onOpen(agent.id)}>
+                {t("codingAgents.installGuide")}
               </Button>
             )}
             <IconButton size="sm" label={action} onClick={() => onOpen(agent.id)}>
@@ -508,6 +514,19 @@ export function AgentMark({ id }: { id: AgentRuntimeId }) {
       {icon ? <img src={icon.src} alt="" /> : <Terminal size={18} />}
     </span>
   );
+}
+
+/** An installed CLI older than the version OhMyGame was tested with can be updated. */
+function olderThanTested(agent: AgentRuntimeStatus): boolean {
+  if (!agent.version || !agent.testedVersion) return false;
+  const parse = (version: string) => (/^v?(\d+)\.(\d+)\.(\d+)/.exec(version.trim()) ?? []).slice(1, 4).map(Number);
+  const installed = parse(agent.version);
+  const tested = parse(agent.testedVersion);
+  if (installed.length < 3 || tested.length < 3) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (installed[index]! !== tested[index]!) return installed[index]! < tested[index]!;
+  }
+  return false;
 }
 
 function agentSummary(agent: AgentRuntimeStatus): string {

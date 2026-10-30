@@ -27,6 +27,28 @@ describe("plugin catalog API", () => {
     expect(detail.json()).toMatchObject({ id: "personal:test-plugin", enabled: true });
   });
 
+  it("lists a project's plugins and turns one on there, starting its ohmygame.json", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-plugins-api-"));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    await app.ready();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
+    const view = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins?locale=en` })).json();
+    // Plugins from the Plugins page that work with web games are on, for every such project.
+    expect(view.global.map((plugin: { id: string }) => plugin.id)).toContain("ohmygame:web-game-studio");
+    expect(view.global.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame:godot");
+    const godot = view.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/godot");
+    expect(godot).toMatchObject({ displayName: "Godot", version: "1.0.0", providesType: false });
+    expect(godot.used).toBeUndefined();
+
+    const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/ohmygame/godot`, payload: { version: "1.0.0" } });
+    expect(on.statusCode).toBe(204);
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, "ohmygame.json"), "utf8"))).toMatchObject({ type: "general", plugins: { "ohmygame/godot": "1.0.0" } });
+    const after = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json();
+    expect(after.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/godot")).toMatchObject({ used: "1.0.0" });
+    expect((await app.inject({ method: "GET", url: "/projects/missing/plugins" })).statusCode).toBe(404);
+  });
+
   it("offers a project only the plugin mentions its prompts accept", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-types-"));
     const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-source-"));

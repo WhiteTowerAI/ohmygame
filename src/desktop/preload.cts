@@ -31,6 +31,8 @@ if (process.isMainFrame) {
     setAppearance: (appearance: "system" | "light" | "dark") =>
       ipcRenderer.invoke("ohmygame:set-appearance", appearance) as Promise<void>,
     restartApp: () => ipcRenderer.invoke("ohmygame:restart-app") as Promise<void>,
+    setKeepAwake: (enabled: boolean) => ipcRenderer.invoke("ohmygame:set-keep-awake", enabled) as Promise<void>,
+    focusWindow: () => ipcRenderer.invoke("ohmygame:focus-window") as Promise<void>,
     onPrepareClose: (listener: () => Promise<void>) => {
       const callback = (_event: Electron.IpcRendererEvent, id: number) => {
         void Promise.resolve().then(listener).then(
@@ -123,6 +125,7 @@ if (process.isMainFrame) {
       check: () => ipcRenderer.invoke("ohmygame:check-for-update") as Promise<void>,
       download: () => ipcRenderer.invoke("ohmygame:download-update") as Promise<void>,
       install: () => ipcRenderer.invoke("ohmygame:install-update") as Promise<void>,
+      setAutomatic: (enabled: boolean) => ipcRenderer.invoke("ohmygame:set-automatic-updates", enabled) as Promise<void>,
       onState: (listener: (state: DesktopUpdateState) => void) => {
         const callback = (_event: Electron.IpcRendererEvent, state: DesktopUpdateState) => listener(state);
         ipcRenderer.on("ohmygame:update-state", callback);

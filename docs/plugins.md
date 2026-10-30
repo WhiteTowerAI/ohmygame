@@ -12,12 +12,20 @@ follows in alphabetical order, ending with **Create a plugin with AI**, then the
 AI workspaces. Search shows every matching plugin in one list without groups,
 including disabled plugins. Enabling or disabling a plugin does not change its
 position in the catalog. Beta and Needs configuration remain status badges, and
-saved enablement choices are preserved.
+saved enablement choices are preserved. Each card's tags say where the plugin
+applies (every project, or the project types it lists) and what it adds: its
+Skill count, MCP services, and a service connection.
 
 **Browse** lists the whole catalog with its source, the project types each
-plugin works with, and whether it includes MCP services. It filters by source
-(OhMyGame or other sources) and by project type; a plugin without project types
-works with every type. **Skills** lists the Skills of every plugin, grouped by
+plugin works with, and what it adds. It filters by source (OhMyGame or other
+sources), by project type, and by what it adds (**Skills**, **MCP**, **Service
+connection**, from `skillCount`, `mcpServerCount` and `integration` in the
+summary); a plugin without project types works with every type.
+
+A project's **Plugins…** sheet, from the project menu, shows these plugins as
+**Global** and locked: they are on for every project they work with and switch
+on the Plugins page. Format 2 plugins switch per project there, as described in
+[Plugin format 2](plugins-v2.md#routes). **Skills** lists the Skills of every plugin, grouped by
 whether the plugin is OhMyGame's or Personal. A Skill's switch is its
 component switch and stays off while its plugin is disabled.
 

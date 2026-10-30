@@ -45,7 +45,8 @@ import { Provider3DBalance } from "./provider-3d-balance.js";
 import { MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
 import { openModelAuthExternal as openExternal, useModelProviderAuth } from "./use-model-provider-auth.js";
-import { Badge, Button, IconButton, SearchInput, SegmentedControl, Switch } from "./ui/index.js";
+import { Badge, Button, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
+import { useAgentModels } from "./model-selector.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, cloudQuotaSummary, CloudQuotaDetails } from "./cloud-quota.js";
@@ -75,13 +76,13 @@ const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
   audio: t("capability.audio"),
 };
 
-export function ModelsSettings({ view, onViewChange, onOpenAgents }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void }) {
+export function ModelsSettings({ view, onViewChange, onOpenAgents, onOpenChatModel }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void; onOpenChatModel?: () => void }) {
   const openProvider = (provider: ProviderSummary): void => onViewChange({ page: "provider", provider });
-  if (view.page === "providers") return <ProviderList onProvider={openProvider} />;
+  if (view.page === "providers") return <ProviderList onProvider={openProvider} onOpenChatModel={onOpenChatModel} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} onOpenAgents={onOpenAgents} />;
 }
 
-function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {
+function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: ProviderSummary) => void; onOpenChatModel?: () => void }) {
   const auth = useAuth();
   const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
@@ -167,14 +168,14 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
         <span className="settings-spacer" />
         <Button icon={<Plus size={14} />} onClick={() => setAdding("custom")}>{t("providers.add")}</Button>
       </div>
-      <SegmentedControl size="sm" label={t("providers.filterLabel")} options={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
+      <Tabs variant="pills" label={t("providers.filterLabel")} tabs={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
       {adding ? <CustomProviderDialog initialProvider={adding === "custom" ? undefined : LOCAL_MODEL_PROVIDERS[adding]} onClose={() => setAdding(undefined)} onSaved={() => {
         setAdding(undefined);
         setQuery("");
         setCapability("all");
         void listProviders().then(setProviders).catch((cause) => setError(errorMessage(cause)));
       }} /> : null}
-      {capability !== "language" && !normalizedQuery ? <GlobalMediaModelDefaults capability={capability} /> : null}
+      {!normalizedQuery ? <GlobalMediaModelDefaults capability={capability} leading={onOpenChatModel && (capability === "all" || capability === "language") ? <ChatModelRow onOpen={onOpenChatModel} /> : undefined} /> : null}
       {loading ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingProviders")}</div> : null}
       {!loading && visibleProviders.length === 0 ? <SettingsNote>{t("providers.noMatch")}</SettingsNote> : null}
       {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={filteredProviders} onProvider={openProvider} /> : null}
@@ -194,6 +195,18 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
       ) : null}
       {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
     </>
+  );
+}
+
+/** The chat model belongs to the agent; this row shows it and leads there. */
+function ChatModelRow({ onOpen }: { onOpen: () => void }) {
+  const catalog = useAgentModels({ agentRuntimes: true });
+  const chosen = catalog.defaultModel;
+  const model = chosen ? catalog.models.find((item) => item.provider === chosen.provider && item.id === chosen.id) : undefined;
+  return (
+    <SettingsRow title={t("settings.providers.chatModel")} description={model ? t("settings.providers.chatModelCurrent", { model: model.name }) : t("settings.providers.chatModelHint")} onClick={onOpen}>
+      <IconButton size="sm" label={t("settings.providers.chatModel")} onClick={onOpen}><ChevronRight size={16} /></IconButton>
+    </SettingsRow>
   );
 }
 

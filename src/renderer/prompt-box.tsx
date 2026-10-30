@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type Keyb
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
 import { promptHistoryDirection } from "./prompt-history.js";
 import { editPromptList, promptListLines } from "./prompt-lists.js";
+import { sendsMessage } from "./general-preferences.js";
 import { t } from "./i18n.js";
 
 export type DroppedFile = TransferredFile;
@@ -200,7 +201,7 @@ export function PromptBox({
               onHistoryNext();
               return;
             }
-            if (event.key === "Enter" && !event.shiftKey) {
+            if (sendsMessage(event)) {
               event.preventDefault();
               submit();
             }

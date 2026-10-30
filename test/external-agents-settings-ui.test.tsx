@@ -90,9 +90,37 @@ it("lets other agents use OhMyGame and connects a CLI found on this computer", a
   expect(
     clients().querySelector(".settings-row")!.textContent,
   ).toContain("Connected");
-  expect(
-    clients().querySelector(".external-agents-manual code")?.textContent,
-  ).toBe('"/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp"');
+  const snippets = [...host.querySelectorAll(".ui-code-block")].map((block) => [
+    block.querySelector(".ui-code-block-head span")?.textContent,
+    block.querySelector("code")?.textContent,
+  ]);
+  expect(snippets).toEqual([
+    ["Claude Code", 'claude mcp add --scope user ohmygame-studio -- "/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp"'],
+    ["Codex", 'codex mcp add ohmygame-studio -- "/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp"'],
+    ["DeepSeek Harness and other MCP clients", '"/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp"'],
+  ]);
+});
+
+it("lists the clients that used the server since OhMyGame started", async () => {
+  external = {
+    ...external,
+    enabled: true,
+    recent: [
+      { name: "claude-code", lastUsedAt: new Date(Date.now() - 3 * 60_000).toISOString(), calls: 12, active: true },
+      { name: "deepseek-harness", lastUsedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(), calls: 1, active: false },
+    ],
+  };
+  await act(async () => root.render(<ExternalAgentsSettings />));
+  const rows = [...host.querySelectorAll(".settings-group")].find((group) => group.textContent?.includes("Recent connections"))!.querySelectorAll(".settings-row");
+  expect([...rows].map((row) => row.textContent)).toEqual([
+    "Claude Code3 minutes ago · 12 tool callsOnline",
+    "deepseek-harness2 days ago · 1 tool callOffline",
+  ]);
+});
+
+it("says when the server is off", async () => {
+  await act(async () => root.render(<ExternalAgentsSettings />));
+  expect(host.textContent).toContain("MCP server is off");
 });
 
 it("explains that connecting needs the desktop app", async () => {

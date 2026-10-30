@@ -27,6 +27,7 @@ const CONTEXT_ICONS: Record<PromptContext["kind"], IconComponent> = {
   "playable-moment": Film,
   "design-document": FileText,
   "canvas-board": Layers3,
+  "preview-element": MousePointer2,
 };
 
 export function PromptContextIcon({ kind }: { kind: PromptContext["kind"] }) {

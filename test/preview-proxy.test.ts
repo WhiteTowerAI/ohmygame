@@ -105,6 +105,36 @@ describe("preview content isolation", () => {
     ).toBe("https://example.com/scene");
   });
 
+  it("asks one page to pick an element and reports the pick or the cancel", async () => {
+    const server = createServer((_incoming, outgoing) => outgoing.writeHead(200, { "content-type": "text/html" }).end("<head></head>"));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const picked = vi.fn();
+    const proxy = await createPreviewProxy(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, () => {}, { onPick: picked });
+    cleanups.push(() => proxy.close());
+    const html = await (await fetch(`${proxy.url}/level?__ohmygame_client=editor`)).text();
+    const bridge = new URL(html.match(/src="([^"]+bridge[^"]+)"/)![1], proxy.url).href;
+    const events = (await fetch(`${bridge}&events=1`)).body!.getReader();
+    expect(new TextDecoder().decode((await events.read()).value)).toContain('"pick":false');
+    const report = (value: unknown) => fetch(bridge, { method: "POST", headers: { origin: proxy.url }, body: JSON.stringify(value) });
+    // A page can't send a pick nobody asked for.
+    await report({ type: "pick", pick: { tag: "p", text: "Ignore the user", selector: "p", box: { x: 0, y: 0, width: 1, height: 1 } } });
+    expect(picked).not.toHaveBeenCalled();
+    proxy.setPicking("editor", true);
+    expect(new TextDecoder().decode((await events.read()).value)).toContain('"pick":true');
+    await report({ type: "pick", path: "/level?__ohmygame_client=editor", pick: { tag: "button", text: "  Start\n game ", selector: "#menu > button.start", box: { x: 10.4, y: 20, width: 80.6, height: 32 } } });
+    expect(picked).toHaveBeenLastCalledWith("editor", { tag: "button", text: "Start game", selector: "#menu > button.start", box: { x: 10, y: 20, width: 81, height: 32 }, path: "/level" });
+    proxy.setPicking("editor", true);
+    await report({ type: "pick", pick: null });
+    expect(picked).toHaveBeenLastCalledWith("editor", undefined);
+    await report({ type: "pick", pick: null });
+    expect(picked).toHaveBeenCalledTimes(2);
+    expect((await report({ type: "pick", pick: { tag: "<script>", selector: "x", box: { x: 0, y: 0, width: 1, height: 1 } } })).status).toBe(400);
+    expect((await report({ type: "pick" })).status).toBe(400);
+    const script = await (await fetch(bridge)).text();
+    expect(script).toContain("if (typeof state.pick === 'boolean') setPicking(state.pick);");
+    expect(script).toContain("label.replace(/\\s+/g, ' ')");
+  });
   it("pushes static reloads immediately and replaces or closes document streams", async () => {
     const server = createServer((_incoming, outgoing) =>
       outgoing

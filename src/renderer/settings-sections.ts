@@ -1,9 +1,10 @@
-import { Bot, Globe2, InfoCircle, Key, Palette as PaletteIcon, Server, Settings, UserRound, Wallet, Wifi } from "./icons.js";
+import { Bot, Globe2, InfoCircle, Key, Palette as PaletteIcon, Server, Settings, UserRound, Wifi } from "./icons.js";
 import type { SettingsSection } from "./routes.js";
 import { t } from "./i18n.js";
 
 // Sections in groups, as in the lab: the app itself, AI, what other tools
-// connect through, then the account.
+// connect through, then the account. Billing stays hidden until it ships;
+// its page still answers its link.
 export const SETTINGS_NAV: Array<{ heading?: string; items: Array<{ section: SettingsSection; label: string; icon: typeof Settings }> }> = [
   { items: [
     { section: "general", label: t("settings.nav.general"), icon: Settings },
@@ -20,7 +21,6 @@ export const SETTINGS_NAV: Array<{ heading?: string; items: Array<{ section: Set
   ] },
   { heading: t("settings.nav.accountGroup"), items: [
     { section: "account", label: t("settings.nav.account"), icon: UserRound },
-    { section: "billing", label: t("settings.nav.billing"), icon: Wallet },
     { section: "about", label: t("settings.nav.about"), icon: InfoCircle },
   ] },
 ];

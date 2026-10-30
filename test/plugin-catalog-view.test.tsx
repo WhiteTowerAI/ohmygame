@@ -51,6 +51,10 @@ beforeEach(() => {
     plugin("zebra", "Zebra", true, true),
     plugin("alpha", "Alpha", false, true),
   ].reverse();
+  Object.assign(catalog.find((item) => item.id === "ohmygame:taptap-maker")!, {
+    projectTypes: ["web-game"], skillCount: 1, mcpServerCount: 1,
+    integration: { entry: "./scripts/integration.mjs" },
+  });
   skills = {
     "ohmygame:game-studio": [{ id: "skills/plan/SKILL.md", name: "plan-game", description: "Plan a game", enabled: true }],
     "ohmygame:taptap-maker": [{ id: "skills/publish/SKILL.md", name: "publish-taptap", enabled: true }],
@@ -281,6 +285,12 @@ describe("plugin catalog browsing", () => {
     expect(cards()).toContain("Godot");
     expect(cards()).not.toContain("Unity");
     expect(cards()).toContain("Blender");
+
+    await pick("Works with", "All project types");
+    await pick("Adds", "MCP");
+    expect(cards()).toEqual(["TapTap Maker"]);
+    const card = [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes("TapTap Maker"))!;
+    expect([...card.querySelectorAll(".plugins-tag")].map((tag) => tag.textContent)).toEqual(["Web Game", "1 skill", "MCP", "Service connection"]);
   });
 
   it("lists every plugin's skills and switches them through their plugin", async () => {

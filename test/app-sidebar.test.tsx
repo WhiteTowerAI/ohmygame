@@ -204,7 +204,7 @@ it("leads the signed-out menu with sign in and keeps settings and about", async 
   expect(window.location.hash).toBe("#/settings/about");
 });
 
-it("opens settings, account and billing from the signed-in menu", async () => {
+it("opens settings and account from the signed-in menu", async () => {
   auth.state = {
     status: "signed-in",
     user: { id: "u", name: "Ada Lovelace", email: "ada@example.com" },
@@ -218,11 +218,10 @@ it("opens settings, account and billing from the signed-in menu", async () => {
   expect(menuLabels()).toEqual([
     "Settings",
     "Account",
-    "Billing",
     "About OhMyGame",
   ]);
-  await act(async () => button("Billing")!.click());
-  expect(window.location.hash).toBe("#/settings/billing");
+  await act(async () => button("Account")!.click());
+  expect(window.location.hash).toBe("#/settings/account");
   await act(async () => account.click());
   await act(async () => button("Settings")!.click());
   expect(onNavigate).toHaveBeenCalledWith("settings");

@@ -95,7 +95,9 @@ describe("coding workspace", () => {
 
     expect(html).toContain("Preview will appear here");
     expect(html).toContain("Describe your game in the agent panel");
-    expect(html).toContain('aria-label="Project settings"');
+    // Project settings moved into the More menu, beside picking an element.
+    expect(html).toContain('aria-label="More"');
+    expect(html).toContain('aria-label="Pick an element in the game"');
     expect(html).not.toContain('aria-label="View publication"');
   });
 

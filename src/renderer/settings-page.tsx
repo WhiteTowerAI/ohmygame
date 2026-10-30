@@ -1,8 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ExternalLink, RefreshCw } from "./icons.js";
 import { useAuth } from "./auth.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
-import { AgentsSettings } from "./agents-settings.js";
+import { AgentsSettings, OHMYGAME_AGENT } from "./agents-settings.js";
 import { PageFrame } from "./page-frame.js";
 import type { AppNavigationTarget, SettingsSection } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
@@ -18,8 +18,9 @@ import { NetworkSettingsPanel } from "./network-settings.js";
 import { ExternalAgentsSettings } from "./external-agents-settings.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
 import { ChangelogPanel } from "./changelog-panel.js";
-import { exportDiagnostics } from "./api.js";
-import { Badge, Button, Progress, SegmentedControl, Select, Spinner } from "./ui/index.js";
+import { exportDiagnostics, getProjectLocation, setProjectLocation } from "./api.js";
+import { readGeneralPreferences, setGeneralPreference, type GeneralPreferences } from "./general-preferences.js";
+import { Badge, Button, Progress, SegmentedControl, Select, Spinner, Switch } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import "./settings.css";
@@ -47,7 +48,9 @@ export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOp
     onSectionChange(next);
   }
 
-  const current = NAV.flatMap((group) => group.items).find((item) => item.section === section);
+  // Billing is hidden from the list but still answers its link.
+  const current = NAV.flatMap((group) => group.items).find((item) => item.section === section)
+    ?? (section === "billing" ? { label: t("settings.nav.billing") } : undefined);
   // A page one step into a section (an agent, a provider) draws its own head.
   const inDetail = (section === "agents" && Boolean(agent)) || (section === "providers" && modelsView.page === "provider");
   return (
@@ -79,7 +82,7 @@ export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOp
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "account" ? <AccountSettings /> : null}
           {section === "billing" ? <BillingSettings /> : null}
-          {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} onOpenAgents={() => chooseSection("agents")} /> : null}
+          {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} onOpenAgents={() => chooseSection("agents")} onOpenChatModel={() => onSectionChange("agents", OHMYGAME_AGENT)} /> : null}
           {section === "agents" ? <AgentsSettings agent={agent} onOpen={(id) => onSectionChange("agents", id)} onBack={() => onSectionChange("agents")} onOpenSection={chooseSection} onOpenPlugins={() => onNavigate("plugins")} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
           {section === "network" ? <NetworkSettingsPanel /> : null}
@@ -95,16 +98,99 @@ export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOp
 
 function GeneralSettings() {
   const [language, updateLanguage] = useState<LanguagePreference>(readLanguagePreference);
+  const [preferences, updatePreferences] = useState<GeneralPreferences>(readGeneralPreferences);
+  const desktop = Boolean(window.ohMyGameDesktop);
+  const mod = window.ohMyGameDesktop?.platform === "darwin" || navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl";
+  function change<K extends keyof GeneralPreferences>(key: K, value: GeneralPreferences[K]): void {
+    setGeneralPreference(key, value);
+    updatePreferences((current) => ({ ...current, [key]: value }));
+  }
   return (
     <>
       <SettingsGroup>
+        <SettingsRow title={t("settings.general.openTo")} description={t("settings.general.openToHint")}>
+          <Select size="sm" label={t("settings.general.openTo")} value={preferences.openTo} onChange={(value) => change("openTo", value)} options={[
+            { value: "home", label: t("settings.general.openToHome") },
+            { value: "last", label: t("settings.general.openToLast") },
+          ]} />
+        </SettingsRow>
         <SettingsRow title={t("settings.appearance.language")} description={t("settings.general.languageHint")}>
           <Select size="sm" label={t("settings.appearance.languageLabel")} options={LANGUAGE_OPTIONS} value={language} onChange={(next) => {
             updateLanguage(next);
             setLanguagePreference(next);
           }} />
         </SettingsRow>
+        <ProjectLocationRow />
       </SettingsGroup>
+      <SettingsGroup title={t("settings.general.conversation")}>
+        <SettingsRow title={t("settings.general.sendKey")} description={preferences.sendKey === "enter" ? t("settings.general.sendEnterHint") : t("settings.general.sendModEnterHint", { mod })}>
+          <SegmentedControl size="sm" label={t("settings.general.sendKey")} value={preferences.sendKey} onChange={(value) => change("sendKey", value)} options={[
+            { value: "enter", label: "Enter" },
+            { value: "mod-enter", label: `${mod} Enter` },
+          ]} />
+        </SettingsRow>
+      </SettingsGroup>
+      <SettingsGroup title={t("settings.general.notifications")}>
+        <SettingsRow title={t("settings.general.runNotifications")} description={t("settings.general.runNotificationsHint")}>
+          <Switch label={t("settings.general.runNotifications")} checked={preferences.runNotifications} onChange={(value) => change("runNotifications", value)} />
+        </SettingsRow>
+        <SettingsRow title={t("settings.general.runSound")} description={t("settings.general.runSoundHint")}>
+          <Switch label={t("settings.general.runSound")} checked={preferences.runSound} onChange={(value) => change("runSound", value)} />
+        </SettingsRow>
+      </SettingsGroup>
+      {desktop ? (
+        <SettingsGroup title={t("settings.general.system")}>
+          <SettingsRow title={t("settings.general.keepAwake")} description={t("settings.general.keepAwakeHint")}>
+            <Switch label={t("settings.general.keepAwake")} checked={preferences.keepAwake} onChange={(value) => change("keepAwake", value)} />
+          </SettingsRow>
+          {window.ohMyGameDesktop?.updates?.setAutomatic ? (
+            <SettingsRow title={t("settings.general.autoUpdate")} description={t("settings.general.autoUpdateHint")}>
+              <Switch label={t("settings.general.autoUpdate")} checked={preferences.autoUpdate} onChange={(value) => change("autoUpdate", value)} />
+            </SettingsRow>
+          ) : null}
+        </SettingsGroup>
+      ) : null}
+    </>
+  );
+}
+
+/** Where new projects go when no folder is chosen for them. */
+function ProjectLocationRow() {
+  const [location, setLocation] = useState<string>();
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const choose = window.ohMyGameDesktop?.selectProjectDirectory;
+  useEffect(() => {
+    let active = true;
+    void getProjectLocation()
+      .then((value) => { if (active) { setLocation(value.location); setLoaded(true); } })
+      .catch((cause) => { if (active) setError(errorMessage(cause)); });
+    return () => { active = false; };
+  }, []);
+  async function save(next: string | undefined): Promise<void> {
+    setBusy(true);
+    setError(undefined);
+    try {
+      setLocation((await setProjectLocation(next)).location);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function pick(): Promise<void> {
+    const selected = await choose?.();
+    if (selected) await save(selected);
+  }
+  return (
+    <>
+      <SettingsRow title={t("settings.general.projectLocation")} description={t("settings.general.projectLocationHint")}>
+        {loaded ? <span className="settings-mono settings-muted settings-location" title={location}>{location ?? t("settings.general.projectLocationDefault")}</span> : null}
+        {location ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save(undefined)}>{t("settings.general.projectLocationReset")}</Button> : null}
+        {choose ? <Button size="sm" disabled={busy || !loaded} onClick={() => void pick()}>{t("settings.general.projectLocationChange")}</Button> : null}
+      </SettingsRow>
+      {error ? <div className="settings-pad"><SettingsNote tone="danger">{error}</SettingsNote></div> : null}
     </>
   );
 }

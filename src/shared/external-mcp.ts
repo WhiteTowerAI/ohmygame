@@ -36,10 +36,50 @@ export interface ExternalAgentClientState {
   connected: boolean;
 }
 
+/** A client that used the MCP server since OhMyGame started. */
+export interface ExternalMcpClientActivity {
+  /** The name the client gives itself, such as `claude-code`. */
+  name: string;
+  lastUsedAt: string;
+  /** Tool calls it made. */
+  calls: number;
+  /** It still has an open session. */
+  active: boolean;
+}
+
 export interface ExternalAgentSettings {
   enabled: boolean;
   launcher?: ExternalMcpLauncher;
   clients: ExternalAgentClientState[];
+  recent?: ExternalMcpClientActivity[];
+}
+
+/** The `mcp add` arguments a client's CLI takes to start OhMyGame's launcher. */
+export function externalClientAddArguments(
+  id: ExternalAgentClientId,
+  launcher: ExternalMcpLauncher,
+): string[] {
+  const env = Object.entries(launcher.env).map(
+    ([name, value]) => `${name}=${value}`,
+  );
+  const command = ["--", launcher.command, ...launcher.args];
+  return id === "claude-code"
+    ? [
+        "mcp",
+        "add",
+        "--scope",
+        "user",
+        EXTERNAL_MCP_SERVER_NAME,
+        ...env.flatMap((item) => ["-e", item]),
+        ...command,
+      ]
+    : [
+        "mcp",
+        "add",
+        EXTERNAL_MCP_SERVER_NAME,
+        ...env.flatMap((item) => ["--env", item]),
+        ...command,
+      ];
 }
 
 export interface UpdateExternalAgentSettings {

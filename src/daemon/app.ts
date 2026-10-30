@@ -119,14 +119,15 @@ import { localizePluginString } from "./plugin-index.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
-import { capabilityGrants } from "./project-plugins.js";
+import { capabilityGrants, missingGrants, resolveProjectPlugins } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
 import { PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectKind, projectKindAt } from "./project-types.js";
 import { LegacyMcpConfiguration } from "./legacy-mcp.js";
-import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail } from "../shared/plugins.js";
+import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail, type ProjectPluginItem, type ProjectPluginsView } from "../shared/plugins.js";
+import { CORE_PROJECT_TYPES } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
@@ -358,7 +359,7 @@ const promptSchema = {
           additionalProperties: false,
           required: ["kind", "label", "text"],
           properties: {
-            kind: { enum: ["playable-node", "playable-element", "playable-drawing", "playable-asset", "playable-moment", "design-document", "canvas-board"] },
+            kind: { enum: ["playable-node", "playable-element", "playable-drawing", "playable-asset", "playable-moment", "design-document", "canvas-board", "preview-element"] },
             label: { type: "string", minLength: 1, maxLength: 200 },
             text: { type: "string", minLength: 1, maxLength: 16_000 },
           },
@@ -798,6 +799,7 @@ export function createApp(options: AppOptions = {}) {
   const summarizePlugin = (plugin: PluginDetail): PluginSummary => ({
     ...pluginSummary(plugin),
     mcpServerCount: plugin.mcpServers?.length ?? 0,
+    skillCount: plugin.skills.length,
     configurationStatus: pluginCapabilities.configuration.view(plugin).missing.length ? "needs-configuration" : "ready",
   });
   const plugins = new PluginCatalogService([
@@ -924,6 +926,7 @@ export function createApp(options: AppOptions = {}) {
     enabled: externalMcp.enabled,
     ...(externalClients.launcher ? { launcher: externalClients.launcher } : {}),
     clients: await externalClients.states(),
+    recent: externalMcp.recentClients(),
   });
   /** Skills from the plugins the project uses: format 1 by type, format 2 from its project file. */
   const projectPluginSkills = async (project: ProjectState) => [
@@ -1194,6 +1197,37 @@ export function createApp(options: AppOptions = {}) {
     await pluginServices.uninstall(`${request.params.publisher}/${request.params.name}`, request.params.version);
     return reply.code(204).send();
   });
+  // The project's Plugins sheet: the plugins every project gets, and the ones it turns on itself.
+  app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugins", async (request, reply): Promise<ProjectPluginsView | undefined> => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    await pluginServices.ready();
+    const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
+    const catalog = await plugins.list();
+    const global = catalog.plugins
+      .filter((plugin) => plugin.installed && plugin.enabled && (!plugin.projectTypes?.length || plugin.projectTypes.includes(project.type)))
+      .map(({ id, displayName, description }) => ({ id, displayName, description }));
+    const resolved = await resolveProjectPlugins({ folder: project.workspacePath, index: pluginServices.index, grants: pluginServices.grants }).catch(() => undefined);
+    const states = resolved?.ok ? resolved.plugins : [];
+    const ids = [...new Set([...states.map((state) => state.id), ...pluginServices.index.entries().map((entry) => entry.id)])];
+    const items = ids.map((id): ProjectPluginItem => {
+      const state = states.find((item) => item.id === id);
+      const entry = state?.entry ?? pluginServices.index.get(id);
+      const requested = entry ? capabilityGrants(entry.manifest) : [];
+      const grant = pluginServices.grants.plugin(id);
+      return {
+        id,
+        displayName: entry ? localizePluginString(entry, entry.manifest.displayName, locale) : id,
+        description: entry ? localizePluginString(entry, entry.manifest.description, locale) : "",
+        version: entry?.version ?? state?.version ?? "",
+        ...(state ? { used: state.version, status: state.status } : {}),
+        providesType: state?.providesType ?? false,
+        capabilities: requested,
+        consented: Boolean(grant && missingGrants(requested, grant.allowed).length === 0),
+      };
+    });
+    return { global, plugins: items };
+  });
   // Moving a project to another installed version is how an update reaches it, and how it rolls back.
   app.put<{ Params: { projectId: string; publisher: string; name: string }; Body: { version: string | null } }>("/projects/:projectId/plugins/:publisher/:name", {
     schema: { body: { type: "object", required: ["version"], additionalProperties: false, properties: { version: { anyOf: [{ type: "string", maxLength: 256 }, { type: "null" }] } } } },
@@ -1202,7 +1236,9 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish first" });
     try {
-      await pluginServices.setProjectPlugin(project.workspacePath, `${request.params.publisher}/${request.params.name}`, request.body.version);
+      // A project made before plugins could be per project gets its `ohmygame.json` now.
+      const initialType = (CORE_PROJECT_TYPES as readonly string[]).includes(project.type) ? project.type : "general";
+      await pluginServices.setProjectPlugin(project.workspacePath, `${request.params.publisher}/${request.params.name}`, request.body.version, initialType);
       // The change listener does this too; waiting here means the reply follows it.
       await syncPluginType(project);
       return reply.code(204).send();
@@ -1345,6 +1381,18 @@ export function createApp(options: AppOptions = {}) {
       },
     },
   };
+  app.get("/settings/project-location", async () => ({ ...(projects.location ? { location: projects.location } : {}) }));
+  app.put<{ Body: { location: string | null } }>("/settings/project-location", {
+    schema: { body: { type: "object", required: ["location"], additionalProperties: false, properties: { location: { anyOf: [{ type: "string", minLength: 1, maxLength: 4096 }, { type: "null" }] } } } },
+  }, async (request, reply) => {
+    try {
+      await projects.setLocation(request.body.location ?? undefined);
+      return { ...(projects.location ? { location: projects.location } : {}) };
+    } catch (cause) {
+      if (cause instanceof ProjectWorkspaceError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
+  });
   app.get("/settings/network", async () => networkSettings.get());
   app.put<{ Body: NetworkSettings }>("/settings/network", { schema: networkSettingsSchema }, async (request, reply) => {
     try { return await networkSettings.update(request.body); }
@@ -2994,6 +3042,18 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       previews.acquire(project, `editor:${request.params.leaseId}`, request.body.automatic, request.body.paused);
       return { preview: project.preview };
+    },
+  );
+  // Picking turns the preview's next click into a `preview.picked` event instead of game input.
+  app.put<{ Params: { projectId: string }; Body: { client: string; active: boolean } }>(
+    "/projects/:projectId/preview/picking",
+    { schema: { body: { type: "object", additionalProperties: false, required: ["client", "active"], properties: { client: { type: "string", pattern: "^[a-zA-Z0-9-]{1,100}$" }, active: { type: "boolean" } } } } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      if (!previews.setPicking(project, request.body.client, request.body.active) && request.body.active)
+        return reply.code(409).send({ error: "The preview is not running" });
+      return reply.code(204).send();
     },
   );
   app.delete<{ Params: { projectId: string; leaseId: string } }>("/projects/:projectId/preview/leases/:leaseId", async (request, reply) => {

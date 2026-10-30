@@ -458,6 +458,15 @@ projects/<project-id>/
 └── session/       Pi session files, one per conversation
 ```
 
+Settings → General → **Project location** sets the folder new projects are
+made in when the dialog doesn't choose one: each gets a new subfolder named
+after it (`Name`, then `Name 2`, …), used as an existing folder is. Unset, new
+projects live in `projects/<project-id>/workspace/`. The choice is in
+`project-location.json` in the data directory; `GET`/`PUT
+/settings/project-location` read and change it, and a folder that isn't an
+absolute, existing directory, is the filesystem root, or overlaps the projects
+storage is refused.
+
 Removing a project never deletes an existing folder used as its workspace.
 Choosing a folder that is already a project's workspace when creating a project
 opens that project instead; a folder inside another workspace can hold a
@@ -489,8 +498,9 @@ window controls on macOS, at the window's edge on Linux and in a browser. On
 Windows the app draws the title bar itself (`desktop-window-frame.tsx`): the
 window's menus, then Back and Forward, with the system's window controls at
 its right end, in the app's colours. The top bar holds the project's name as its menu (**Rename
-project…**, **Open in folder** in the desktop app, **Export project**, and a
-return to the entry page) and the **Publish** menu, which an asset canvas does
+project…**, **Open in folder** in the desktop app, **Export project**,
+**Plugins…**, and a return to the entry page), **Play** while the Game panel
+isn't on screen, which shows it, and the **Publish** menu, which an asset canvas does
 not have and Godot and plugin projects show disabled. It publishes to the
 OhMyGame community or exports the web build: the publish artifact as a ZIP
 without the upload size limit, to host elsewhere. Leaving through the rail, the
@@ -504,7 +514,7 @@ returning or refreshing.
 
 Pages outside a project share one sidebar: Search, Home, Projects, Library,
 Community, Plugins, the eight most recently edited projects, and the account.
-Its menu opens Settings (also **⌘,** or **Ctrl+,**), Account, Billing and About;
+Its menu opens Settings (also **⌘,** or **Ctrl+,**), Account and About;
 signed out, it leads with **Sign in…**.
 
 Search, in the sidebar and the project rail, opens the command menu (also
@@ -520,8 +530,15 @@ it needs a restart. The sidebar collapses to icons and its edge drags between
 200 and 360px (double-click restores 232px); both stay across pages and
 restarts. Settings is a page in this frame, with its sections beside the
 content in four groups: General and Appearance; AI (Agents, Providers, Web
-Search); Connections (MCP Server, Network); and Account, Billing and About.
-`#/settings` opens General. Each agent, OhMyGame's own included, has its own
+Search); Connections (MCP Server, Network); and Account and About. Billing is
+hidden until it ships; `#/settings/billing` still opens it.
+`#/settings` opens General. General's choices stay on this computer
+(`src/renderer/general-preferences.ts`): where the app opens (Home, or the
+project open when it last closed), whether Enter or ⌘/Ctrl+Enter sends, a
+notification and a sound when an agent finishes while the window is in the
+background, and, in the desktop app, keeping the computer awake while an agent
+works and updating by itself (off by default: a found release then downloads
+in the background and installs on quit), with the project location. Each agent, OhMyGame's own included, has its own
 page at `#/settings/agents/<id>`, and Back returns to the list. Appearance
 also sets the grey palette (Neutral, Warm, High contrast) and a serif chat
 font; both are stored in the renderer and applied as `data-palette` and
@@ -583,6 +600,9 @@ front. A project without a preview, such as Godot without a web build, has no
 Game and opens on Code; a story opens on its Story map; panels new to the saved layout join it in the
 default's order and front tab. A chat moved to the middle reads in one centered
 column.
+
+Chat's controls beside its tab name the open conversation; it opens the
+conversation list, to search, switch and rename, and **+** starts a new one.
 
 With Chat closed, its composer floats over the middle area instead
 (`src/renderer/floating-chat.tsx`), with the approval, question and plan cards
