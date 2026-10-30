@@ -92,7 +92,7 @@ export function ProjectCreateDialog({
   const types = PROJECT_TYPES.filter(({ value }) => pluginProjectType(value, referenced) === value);
   // Plugins' own types, unless a mentioned plugin works only in some of the app's.
   const installedPluginTypes = usePluginProjectTypes();
-  const pluginTypes = referenced.every((plugin) => !plugin.projectTypes?.length) ? installedPluginTypes ?? [] : [];
+  const pluginTypes = referenced.every((plugin) => !plugin.projectTypes?.length) ? installedPluginTypes.types ?? [] : [];
   const offered = (value: string | undefined): value is string =>
     Boolean(value) && (types.some((option) => option.value === value) || pluginTypes.some((option) => option.id === value));
   const [chosenType, setChosenType] = useState<string>();
@@ -106,10 +106,11 @@ export function ProjectCreateDialog({
   const pluginChoices = useProjectPluginChoices();
   const typePluginId = pluginTypes.find((option) => option.id === type)?.plugin?.id;
   const typePlugin = pluginChoices?.find((plugin) => plugin.id === typePluginId);
-  const typePluginConsent = typePlugin && !typePlugin.consented && typePlugin.capabilities.length ? typePlugin : undefined;
+  // A plugin is allowed once even when it asks for nothing beyond its files.
+  const typePluginConsent = typePlugin && !typePlugin.consented ? typePlugin : undefined;
   // Home's plugin type and that type's plugin load apart from the plugins.
   const ready = pluginsPhase === "ready"
-    && (isAppProjectType(preferred) || installedPluginTypes !== undefined)
+    && (isAppProjectType(preferred) || installedPluginTypes.types !== undefined)
     && (isAppProjectType(type) || pluginChoices !== undefined);
   const [workspacePath, setWorkspacePath] = useState(initialWorkspacePath);
   // Settings → General → Project location, where a project without a chosen folder goes.
@@ -259,7 +260,7 @@ export function ProjectCreateDialog({
             }}
             options={projectTypeOptions(types.map((option) => option.value), pluginTypes)} />}
         </Field>
-        {typePluginConsent ? (
+        {typePluginConsent?.capabilities.length ? (
           <div className="new-project-consent">
             <p>{t("createDialog.typePluginConsent", { name: typePluginConsent.displayName })}</p>
             <ul className="project-plugins-capabilities">
@@ -288,6 +289,12 @@ export function ProjectCreateDialog({
           <p className="new-project-error" role="alert">
             {t("creator.folderInUse", { name: existingProject.name })}
             {onOpenProject ? <Button size="sm" onClick={() => onOpenProject(existingProject.id)}>{t("creator.openProject")}</Button> : null}
+          </p>
+        ) : null}
+        {installedPluginTypes.failed && !isAppProjectType(preferred) ? (
+          <p className="new-project-error" role="alert">
+            {t("createDialog.pluginsFailed")}
+            <Button size="sm" onClick={installedPluginTypes.retry}>{t("common.retry")}</Button>
           </p>
         ) : null}
         {pluginsPhase === "error" ? (

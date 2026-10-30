@@ -21,13 +21,16 @@ const plugin = (
 });
 let capabilities: ConversationCapabilities;
 let projectPlugins: ProjectPluginChoice[];
+// Set to hold GET /project-types until a test answers it.
+let pendingTypes: Promise<never> | undefined;
+let pendingCapabilities: Promise<ConversationCapabilities> | undefined;
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   waitForRuntime: async () => undefined,
-  getHomeComposerCapabilities: async () => capabilities,
+  getHomeComposerCapabilities: async () => pendingCapabilities ?? capabilities,
   listModels: async () => ({ models: [] }),
   listProjectPluginChoices: async () => projectPlugins,
-  listProjectTypes: async () => [
+  listProjectTypes: async () => pendingTypes ?? [
     { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: { id: "ohmygame/godot", version: "1.0.0" } },
     { id: "acme/tiles:tile-map", title: "Tile Map", plugin: { id: "acme/tiles", version: "2.1.0" } },
   ],
@@ -55,6 +58,8 @@ beforeEach(() => {
     { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", capabilities: ["network:tiles.example.com"], consented: false, providesTypes: ["acme/tiles:tile-map"] },
   ];
   localStorage.clear();
+  pendingTypes = undefined;
+  pendingCapabilities = undefined;
   window.location.hash = "";
   onSubmit.mockReset();
   draftKey = `test-${crypto.randomUUID()}`;
@@ -225,6 +230,29 @@ describe("Home prompt box", () => {
     expect([...document.querySelectorAll('[role="menuitemradio"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
       .toEqual(["No plugin"]);
     expect(document.querySelector(".home-plugin-empty a")!.getAttribute("href")).toBe("#/plugins");
+  });
+
+  it("waits for plugins' types before sending a plugin's type it remembered", async () => {
+    localStorage.setItem("ohmygame.home.projectType", "acme/tiles:tile-map");
+    pendingTypes = new Promise(() => {});
+    await render();
+    await type("Make a map");
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+    await send();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps No plugin when the person picks it before plugins load", async () => {
+    let answer!: (value: ConversationCapabilities) => void;
+    pendingCapabilities = new Promise((resolve) => { answer = resolve; });
+    await render();
+    await act(async () => pluginButton().click());
+    await act(async () => menuItem("No plugin")!.click());
+    await act(async () => answer(capabilities));
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins");
+    await type("Make a maze");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ mentions: [] }), expect.any(Function));
   });
 
   it("remembers the type, and leads to plugins that add types", async () => {

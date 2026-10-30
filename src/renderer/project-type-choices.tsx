@@ -20,18 +20,25 @@ export function isAppProjectType(value: string): value is ProjectType {
   return (PROJECT_TYPE_IDS as readonly string[]).includes(value);
 }
 
-/** The types installed and enabled plugins add, besides those the app names itself; undefined while loading. */
-export function usePluginProjectTypes(): AvailableProjectType[] | undefined {
+/**
+ * The types installed and enabled plugins add, besides those the app names
+ * itself. `types` is undefined until they load, and stays so when loading
+ * failed, so a plugin's type is never swapped for another one unseen.
+ */
+export function usePluginProjectTypes(): { types?: AvailableProjectType[]; failed: boolean; retry: () => void } {
   const [types, setTypes] = useState<AvailableProjectType[]>();
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
     const named = new Set<string>(Object.values(PLUGIN_PROJECT_KINDS));
+    setFailed(false);
     void listProjectTypes()
       .then((all) => { if (active) setTypes(all.filter((type) => type.plugin && !named.has(type.id))); })
-      .catch(() => { if (active) setTypes([]); });
+      .catch(() => { if (active) setFailed(true); });
     return () => { active = false; };
-  }, []);
-  return types;
+  }, [attempt]);
+  return { types, failed, retry: () => setAttempt((value) => value + 1) };
 }
 
 /** The enabled format 2 plugins a new project can turn on; undefined while loading. */

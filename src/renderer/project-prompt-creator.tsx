@@ -71,10 +71,15 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const setPlanning = draftSetter("planning");
   const setAttachments = draftSetter("attachments");
   const [capabilities, setCapabilities] = useState(EMPTY_CAPABILITIES);
+  // A starter the person picked for this type, No plugin included, stays put.
+  const [starterChosen, setStarterChosen] = useState(false);
   const [savedType, setSavedType] = useState(loadType);
-  const pluginTypes = usePluginProjectTypes() ?? [];
-  // A plugin's type stays chosen only while its plugin is installed and enabled.
-  const type = isAppProjectType(savedType) || pluginTypes.some((option) => option.id === savedType) ? savedType : DEFAULT_TYPE;
+  const { types: loadedPluginTypes } = usePluginProjectTypes();
+  const pluginTypes = loadedPluginTypes ?? [];
+  // A plugin's type stays chosen only while its plugin is installed and enabled;
+  // until plugins' types load, sending waits rather than sending another type.
+  const typePending = !isAppProjectType(savedType) && loadedPluginTypes === undefined;
+  const type = isAppProjectType(savedType) || typePending || pluginTypes.some((option) => option.id === savedType) ? savedType : DEFAULT_TYPE;
   const projectPluginChoices = useProjectPluginChoices() ?? [];
   const [projectPluginIds, setProjectPluginIds] = useState<string[]>([]);
   const [mentionCursor, setMentionCursor] = useState(0);
@@ -136,7 +141,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
 
   useEffect(() => {
     // A plugin put first in the prompt by hand is kept, and so is a starter that works in the type.
-    if (selectedPlugin && (!selectedStarter || starter)) return;
+    if (starterChosen || (selectedPlugin && (!selectedStarter || starter))) return;
     const next = defaultStarter(starters, type);
     if (next || selectedStarter) chooseStarter(next?.id);
   }, [capabilities, type]);
@@ -148,6 +153,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
       return;
     }
     setSavedType(value);
+    setStarterChosen(false);
     try { localStorage.setItem(TYPE_KEY, value); } catch { /* The type is remembered only when storage works. */ }
     chooseStarter(defaultStarter(allStarters.filter((plugin) => fitsType(plugin, value)), value)?.id);
   }
@@ -172,7 +178,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
       return;
     }
     // The starting plugin alone is not a message.
-    if ((!prompt.trim() && !selectedSkill && attachments.length === 0) || creating) return;
+    if ((!prompt.trim() && !selectedSkill && attachments.length === 0) || creating || typePending) return;
     const submittedPrompt = formatComposerInvocation(selectedSkill, selectedPlugin, prompt.trim());
     const submittedDraft = draft;
     onSubmit({
@@ -332,7 +338,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
             <HomePluginMenu
               starters={starters}
               starter={starter}
-              onStarter={chooseStarter}
+              onStarter={(id) => { setStarterChosen(true); chooseStarter(id); }}
               choices={projectPlugins}
               selected={projectPluginIds.filter((id) => projectPlugins.some((plugin) => plugin.id === id))}
               onSelected={setProjectPluginIds}
@@ -353,7 +359,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
             <button
               className="icon-button send-button"
               type="submit"
-              disabled={(!selectedSkill && !prompt.trim() && attachments.length === 0) || creating}
+              disabled={(!selectedSkill && !prompt.trim() && attachments.length === 0) || creating || typePending}
               title={t("creator.create")}
               aria-label={t("creator.create")}
             >

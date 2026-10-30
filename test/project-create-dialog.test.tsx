@@ -212,6 +212,22 @@ describe("new project dialog", () => {
     expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
   });
 
+  it("allows a type's plugin that asks for nothing, and offers a retry when types fail to load", async () => {
+    listProjectTypes.mockRejectedValueOnce(new Error("offline"));
+    pluginChoices = [{ id: "acme/tiles", displayName: "Tiles", description: "", version: "2.1.0", capabilities: [], consented: false, providesTypes: ["acme/tiles:map"] }];
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    // Creating would make another type than Home's.
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => button("Retry").click());
+    expect(typeSelect().textContent).toBe("Tile Map");
+    await act(async () => button("Create and start").click());
+    expect(consentToPlugin).toHaveBeenCalledWith("acme/tiles", []);
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+  });
+
   it("turns on the Godot plugin chosen on Home in the app's Godot type, which does not turn it on", async () => {
     capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] };
     const godotV2 = { id: "ohmygame/godot", displayName: "Godot", description: "", version: "1.0.0", capabilities: [], consented: true, providesTypes: ["ohmygame/godot:godot-game"] };
