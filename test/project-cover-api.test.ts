@@ -77,14 +77,15 @@ describe("project cover API", () => {
 
   it("keeps a logo uploaded while the appearance changes", async () => {
     const { app, project } = await fixture();
-    const [, logo] = await Promise.all([
+    // Either request may finish first; both changes must survive.
+    const [appearance, logo] = await Promise.all([
       app.inject({ method: "PUT", url: `/projects/${project.id}/appearance`, payload: { icon: "moon" } }),
       app.inject({ method: "PUT", url: `/projects/${project.id}/logo`, headers: { "content-type": "image/webp" }, payload: webp("logo") }),
-      app.inject({ method: "PUT", url: `/projects/${project.id}/appearance`, payload: { icon: "star" } }),
     ]);
+    expect(appearance.statusCode).toBe(200);
     expect(logo.statusCode).toBe(200);
     const saved = (await app.inject({ method: "GET", url: `/projects/${project.id}` })).json();
-    expect(saved.appearance).toEqual({ icon: "star", logo: true });
+    expect(saved.appearance).toEqual({ icon: "moon", logo: true });
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/logo` })).rawPayload).toEqual(webp("logo"));
   });
 
