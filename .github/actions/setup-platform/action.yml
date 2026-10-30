@@ -1,5 +1,5 @@
 name: Set up platform checks
-description: Install Node, Bun and dependencies with a cached Bun store, then prepare the preinstalled plugins.
+description: Install Node, Bun and dependencies, then prepare the preinstalled plugins.
 
 runs:
   using: composite
@@ -10,21 +10,12 @@ runs:
     - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       with:
         bun-version: 1.4.2
-    # Keep the store on the workspace volume so Bun can link packages from it on Windows.
+    # Keep Bun's store on the workspace volume so it can link packages on Windows
+    # instead of copying them across drives. Restoring the store from the Actions
+    # cache took longer than a fresh install on both platforms, so it is not cached.
     - shell: bash
-      run: echo "BUN_INSTALL_CACHE_DIR=${{ runner.temp }}/bun-cache" >> "$GITHUB_ENV"
-    - id: bun-cache
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ${{ runner.temp }}/bun-cache
-        key: bun-${{ runner.os }}-${{ runner.arch }}-1.4.2-${{ hashFiles('bun.lock', 'bunfig.toml', 'patches/**') }}
+      run: echo "BUN_INSTALL_CACHE_DIR=${{ runner.temp }}/bun-store" >> "$GITHUB_ENV"
     - shell: bash
       run: bun install --frozen-lockfile
-    # Save before the checks so a failing test still warms the cache.
-    - if: steps.bun-cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ${{ runner.temp }}/bun-cache
-        key: ${{ steps.bun-cache.outputs.cache-primary-key }}
     - shell: bash
       run: bun run prepare:preinstalled-plugins
