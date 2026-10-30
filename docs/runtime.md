@@ -167,12 +167,16 @@ renderers do not pass through the home gate.
 
 **Settings → About → View getting started** reopens the welcome. Moving to the
 connection step with **Next** saves a pending preference again. The three bottom
-step indicators switch between language and appearance, AI connection, and
-where to start. Selecting the provider step also returns from its inline forms to
-the provider list. Step navigation is disabled while saving. The first step
-sets the interface language and the appearance (System, Light, or Dark). The
-appearance applies at once; changing the language saves the pending `welcome`
-step first, because the window reloads to apply it. The connection screen reuses
+step indicators switch between the welcome, choosing the AI, and where to
+start. Selecting the AI step also returns from its inline forms to the agent
+list. Step navigation is disabled while saving. The welcome is a short launch
+animation (the app mark, the category pieces dropping in under it, and a dot
+grid) with **Get started**; it asks nothing. Language and appearance follow the
+system until changed in Settings, and reduced motion shows it still. The AI
+step lists the agents as cards: OhMyGame first, with its model providers open
+below it, then the Claude Code, Codex, and OpenCode CLIs found on the machine.
+Choosing a card opens its setup in place, and **Next** stays in view while the
+list scrolls. The connection screen reuses
 the daemon's provider authentication flow and custom-provider form; it does
 not require an OhMyGame cloud account. The add button beside provider search
 opens that form inline. Settings uses the same form in its existing dialog.

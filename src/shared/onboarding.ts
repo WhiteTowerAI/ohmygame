@@ -1,4 +1,4 @@
-/** Language and appearance, connecting a model, then where to start. */
+/** A welcome, choosing the AI that builds the games, then where to start. */
 export type OnboardingStep = "welcome" | "connect" | "start";
 export type OnboardingStatus = "pending" | "completed" | "skipped";
 
