@@ -18,6 +18,7 @@ import { Onboarding, OnboardingArrival, OnboardingLoading } from "./onboarding.j
 import { useOnboarding } from "./use-onboarding.js";
 import { usePluginIntegrationGate } from "./plugin-integration.js";
 import { CommandMenuHost } from "./command-menu.js";
+import { useNotificationTargets } from "./agent-notifications.js";
 
 // Home and onboarding stay in the main chunk; every other route loads on first visit.
 const CommunityProfilePage = lazy(() => import("./community-profile.js").then((module) => ({ default: module.CommunityProfilePage })));
@@ -59,6 +60,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
     if (projectId !== routeProjectId) openProject(projectId);
     setPlaytestEditorProjectId(projectId);
   }), [routeProjectId]);
+  useNotificationTargets((target) => navigateToConversation(target.projectId, target.conversationId));
 
   if ((route.page === "home" || onboarding.replaying) && onboarding.state?.status === "pending") {
     return <Onboarding step={onboarding.state.step}

@@ -180,12 +180,21 @@ const zhCN: typeof en = {
     gettingReady: "正在准备…",
     animation: "一个小小的游戏世界逐渐成形，随后变为 OhMyGame 标志。",
   },
+  notifications: {
+    approval: "等待你批准",
+    question: "有问题想问你",
+    plan: "计划已准备好，等你审阅",
+    completed: "已完成",
+    failed: "出错停止了",
+    waiting: "等你处理",
+  },
   settings: {
     nav: {
       providers: "服务商",
       agents: "智能体",
       account: "账户",
       appearance: "外观",
+      notifications: "通知",
       webSearch: "联网搜索",
       network: "网络",
       mcpServer: "MCP 服务",
@@ -225,6 +234,12 @@ const zhCN: typeof en = {
       chatFontSample: "agent 会先问清楚，再给出计划等你批准。",
       fontDefault: "默认",
       fontSerif: "衬线",
+    },
+    notifications: {
+      enabled: "智能体动态通知",
+      enabledDescription: "智能体需要你批准或回答时提醒你；OhMyGame 在后台时，智能体完成也会提醒。",
+      blocked: "已被 macOS 阻止。",
+      openSystemSettings: "打开系统设置",
     },
     account: {
       signedInAs: "当前登录",

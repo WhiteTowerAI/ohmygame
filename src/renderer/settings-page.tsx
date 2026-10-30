@@ -16,10 +16,11 @@ import {
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { NetworkSettingsPanel } from "./network-settings.js";
 import { ExternalAgentsSettings } from "./external-agents-settings.js";
+import { readNotificationSettings, setNotificationSettings, useNotificationPermission, type NotificationSettings as NotificationPreferences } from "./agent-notifications.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
 import { ChangelogPanel } from "./changelog-panel.js";
 import { exportDiagnostics } from "./api.js";
-import { Badge, Button, Progress, SegmentedControl, Select, Spinner } from "./ui/index.js";
+import { Badge, Button, Progress, SegmentedControl, Select, Spinner, Switch } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import "./settings.css";
@@ -79,6 +80,7 @@ export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOp
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "account" ? <AccountSettings /> : null}
           {section === "billing" ? <BillingSettings /> : null}
+          {section === "notifications" ? <NotificationSettings /> : null}
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} onOpenAgents={() => chooseSection("agents")} /> : null}
           {section === "agents" ? <AgentsSettings agent={agent} onOpen={(id) => onSectionChange("agents", id)} onBack={() => onSectionChange("agents")} onOpenSection={chooseSection} onOpenPlugins={() => onNavigate("plugins")} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
@@ -105,6 +107,38 @@ function GeneralSettings() {
           }} />
         </SettingsRow>
       </SettingsGroup>
+    </>
+  );
+}
+
+// ---------- notifications ----------
+
+function NotificationSettings() {
+  const [notifications, updateNotifications] = useState<NotificationPreferences>(readNotificationSettings);
+  const [permission, setPermission] = useNotificationPermission();
+  const desktop = window.ohMyGameDesktop?.notifications;
+
+  function changeEnabled(enabled: boolean): void {
+    const next = { ...notifications, enabled };
+    updateNotifications(next);
+    setNotificationSettings(next);
+    // Turning them on is the moment to ask macOS, while it has not asked yet.
+    if (enabled && permission === "not-determined" && desktop) void desktop.requestPermission().then(setPermission, () => undefined);
+  }
+
+  return (
+    <>
+      <SettingsGroup>
+        <SettingsRow title={t("settings.notifications.enabled")} description={t("settings.notifications.enabledDescription")}>
+          <Switch label={t("settings.notifications.enabled")} checked={notifications.enabled} onChange={changeEnabled} />
+        </SettingsRow>
+      </SettingsGroup>
+      {notifications.enabled && permission === "denied" ? (
+        <SettingsNote role="status">
+          {t("settings.notifications.blocked")}{" "}
+          <Button size="sm" variant="ghost" onClick={() => void desktop?.openSettings()}>{t("settings.notifications.openSystemSettings")}</Button>
+        </SettingsNote>
+      ) : null}
     </>
   );
 }

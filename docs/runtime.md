@@ -610,6 +610,83 @@ saved **Right** still decides where the chat first opens. The route's
 in the chat opens the file in Code, reopening its panel if it was closed; an
 asset canvas, which has no Code panel, shows it in its Canvas panel.
 
+## Agent notifications
+
+The desktop app shows a system notification when an agent needs the user or
+has finished, in any project, including while the main window is closed.
+
+- The daemon's `AgentNoticeLog` (`src/daemon/agent-notices.ts`) reads runtime
+  events from every project. It records an approval request, a question, a
+  plan offered for review, a finished turn, or a failed turn; a stopped turn
+  records nothing. A planning turn that leaves a plan is recorded as the plan,
+  not as a finished turn. It also lists what still waits for the user.
+- `GET /agent-notices?after=<seq>` returns the notices after `seq` and the
+  waiting list. Notices hold IDs, the kind and the project name, never prompt
+  or reply text. The log is in memory with a per-process `epoch`, so a daemon
+  restart never replays old notices.
+- The main process (`src/desktop/agent-notifications.ts`) polls the log every
+  two seconds. Requests, questions and plans are shown unless the window is in
+  front showing that conversation; finished and failed turns only while the
+  window is not in front. Each conversation keeps one notification, replaced
+  by its newer one and withdrawn once its request is answered or the
+  conversation comes to the front. Clicking it opens the conversation, opening
+  the main window first if it was closed.
+- While the window is in the background, a request also bounces the Dock icon
+  once on macOS or flashes the taskbar button on Windows. The Dock badge
+  counts conversations waiting for the user. Windows has no count on taskbar
+  buttons, so a red dot overlays the taskbar button instead.
+- On Windows, closing the main window quits the app, so notifications arrive
+  only while the window is open, minimized or in the background.
+- **Settings → Notifications** has one switch that turns notifications off.
+  Sound follows the system's notification settings. The renderer stores the
+  choice and sends it to the main process with the notification wording in
+  the UI language.
+
+### System permission
+
+macOS asks the user once whether an app may show notifications. Electron asks
+by itself on the first notification it shows, when the user is often away and
+that notification is lost, and it cannot read the answer. So
+`src/desktop/notification-permission.ts` calls `UNUserNotificationCenter`
+through [objc-js](https://github.com/iamEvanYT/objc-js), an optional macOS-only
+dependency pinned to an exact version. No other module uses it.
+
+- The first prompt the user sends in each launch asks for permission while it
+  is undecided, so a prompt the user closed without choosing comes back on the
+  next launch. Once the user allows or blocks notifications, macOS never asks
+  again.
+- The main process reads the permission before showing new notices and shows
+  nothing while macOS blocks them. Electron reports a blocked notification as
+  shown, so the main log says `accepted by the system`, not shown.
+- Turning the switch on asks for permission while it is undecided. While
+  macOS blocks notifications, the settings page says so under the switch and
+  opens the app's page in System Settings; it reads the permission again when
+  the window comes back to the front.
+- Windows has no permission to ask for, and the app cannot tell when the user
+  turns off its notifications in Windows settings. The main process sets the
+  app user model ID to the installer's `appId`, which Windows needs to show
+  notifications; the NSIS installer writes the same ID to the Start menu
+  shortcut.
+
+Development builds run as Electron's own `com.github.Electron` bundle, which
+every Electron project on the machine shares, so the app does not read it. macOS also shows notifications only from a
+code-signed app: the Electron used by `bun run dev:desktop` is not, so its
+notifications fail with `UNErrorDomain error 1` in the main log. To try them
+in development, sign a copy of `node_modules/electron/dist/Electron.app` with
+your own identity (`codesign --force --deep --sign "<identity>"
+<copy>/Electron.app`), start with `ELECTRON_OVERRIDE_DIST_PATH=<copy> bun run
+dev:desktop`, and allow notifications for Electron in System Settings →
+Notifications if it was blocked before.
+
+To try them on Windows, install the NSIS build: Windows shows a notification
+only for an app ID that a Start menu shortcut carries, which a development run
+has none of. Keep Focus assist off, start a prompt, and switch to another app
+before the turn ends. `main.log` in `%APPDATA%\OhMyGame\logs` (see
+[diagnostics](diagnostics.md#log-files)) has one line per notice, such as
+`Agent notice 3 (completed, project …) sent to the system`, followed by
+`Notification accepted by the system` once Windows took it, or the reason it
+was not shown.
+
 ## Checkpoints
 
 All project types record private workspace snapshots before each consumed user

@@ -179,12 +179,21 @@ const en = {
     gettingReady: "Getting ready…",
     animation: "A small game world forms, then transforms into the OhMyGame logo.",
   },
+  notifications: {
+    approval: "Waiting for your approval",
+    question: "Has a question for you",
+    plan: "A plan is ready for your review",
+    completed: "Finished",
+    failed: "Stopped with an error",
+    waiting: "Waiting for you",
+  },
   settings: {
     nav: {
       providers: "Providers",
       agents: "Agents",
       account: "Account",
       appearance: "Appearance",
+      notifications: "Notifications",
       webSearch: "Web Search",
       network: "Network",
       mcpServer: "MCP Server",
@@ -225,6 +234,12 @@ const en = {
       chatFontSample: "The agent asks first, then brings a plan for you to approve.",
       fontDefault: "Default",
       fontSerif: "Serif",
+    },
+    notifications: {
+      enabled: "Notify me about agent work",
+      enabledDescription: "When an agent needs your approval or an answer, or finishes while OhMyGame is in the background.",
+      blocked: "Blocked by macOS.",
+      openSystemSettings: "Open System Settings",
     },
     account: {
       signedInAs: "Signed in as",

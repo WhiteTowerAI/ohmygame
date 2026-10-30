@@ -19,12 +19,13 @@ vi.mock("electron", () => ({
     on: (name: string, fn: (...args: any[]) => void) => host.appEvents.set(name, fn),
     whenReady: async () => {}, getPath: () => "/tmp/ohmygame-close-test", getVersion: () => "0.0.0",
     isReady: () => true, quit: host.quit, relaunch: host.relaunch, exit: vi.fn(),
+    setAppUserModelId: vi.fn(), setBadgeCount: vi.fn(),
   },
   ipcMain: {
     handle: (name: string, fn: (...args: any[]) => any) => host.handlers.set(name, fn),
     on: (name: string, fn: (...args: any[]) => void) => host.ipcEvents.set(name, fn),
   },
-  nativeTheme: {}, session: { fromPartition: () => ({ setProxy: async () => {} }), defaultSession: { setProxy: async () => {} } },
+  nativeImage: { createFromBitmap: () => ({}) }, nativeTheme: {}, session: { fromPartition: () => ({ setProxy: async () => {} }), defaultSession: { setProxy: async () => {} } },
   BrowserWindow: { getAllWindows: () => [] }, clipboard: {}, dialog: { showErrorBox: vi.fn() }, Menu: {}, shell: {},
 }));
 vi.mock("undici/index.js", () => ({ setGlobalDispatcher: vi.fn() }));
@@ -68,7 +69,7 @@ vi.doMock(path.resolve("src/desktop/window.ts"), () => ({
       return window;
     }
     const window = {
-      webContents: host.sender, isDestroyed: () => false, close: host.close,
+      webContents: host.sender, isDestroyed: () => false, close: host.close, setOverlayIcon: vi.fn(),
       on: (name: string, fn: (...args: any[]) => void) => host.windowEvents.set(name, fn),
       once: (name: string, fn: (...args: any[]) => void) => host.windowEvents.set(name, fn),
     };

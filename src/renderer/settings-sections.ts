@@ -1,4 +1,4 @@
-import { Bot, Globe2, InfoCircle, Key, Palette as PaletteIcon, Server, Settings, UserRound, Wallet, Wifi } from "./icons.js";
+import { Bell, Bot, Globe2, InfoCircle, Key, Palette as PaletteIcon, Server, Settings, UserRound, Wallet, Wifi } from "./icons.js";
 import type { SettingsSection } from "./routes.js";
 import { t } from "./i18n.js";
 
@@ -8,6 +8,8 @@ export const SETTINGS_NAV: Array<{ heading?: string; items: Array<{ section: Set
   { items: [
     { section: "general", label: t("settings.nav.general"), icon: Settings },
     { section: "appearance", label: t("settings.nav.appearance"), icon: PaletteIcon },
+    // Only the desktop app shows system notifications.
+    ...(typeof window !== "undefined" && window.ohMyGameDesktop?.notifications ? [{ section: "notifications" as const, label: t("settings.nav.notifications"), icon: Bell }] : []),
   ] },
   { heading: t("settings.nav.ai"), items: [
     { section: "agents", label: t("settings.nav.agents"), icon: Bot },
