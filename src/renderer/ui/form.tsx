@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -314,6 +315,17 @@ function OptionList<T extends string>({
   active: number;
   setActive: (index: number) => void;
 }) {
+  // Keep the highlighted option visible inside the scrolling popover.
+  useEffect(() => {
+    const item = document.getElementById(`${id}-${active}`);
+    const scroller = item?.closest<HTMLElement>(".ui-popover");
+    if (!item || !scroller) return;
+    const box = scroller.getBoundingClientRect();
+    const rect = item.getBoundingClientRect();
+    if (rect.top < box.top) scroller.scrollTop -= box.top - rect.top;
+    else if (rect.bottom > box.bottom)
+      scroller.scrollTop += rect.bottom - box.bottom;
+  }, [id, active]);
   if (!options.length)
     return <p className="ui-listbox-empty">{t("ui.noMatchingOptions")}</p>;
   return (
@@ -424,9 +436,9 @@ export function Select<T extends string>({
         aria-describedby={`${listId}-value`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-controls={open ? listId : undefined}
+        aria-controls={open && options.length ? listId : undefined}
         aria-activedescendant={
-          open && keys.active >= 0 ? `${listId}-${keys.active}` : undefined
+          open && options[keys.active] ? `${listId}-${keys.active}` : undefined
         }
         disabled={disabled}
         onClick={() => (open ? setOpen(false) : show())}
@@ -516,9 +528,11 @@ export function Combobox<T extends string>({
           aria-label={label}
           aria-expanded={open}
           aria-autocomplete="list"
-          aria-controls={open ? listId : undefined}
+          aria-controls={open && filtered.length ? listId : undefined}
           aria-activedescendant={
-            open && keys.active >= 0 ? `${listId}-${keys.active}` : undefined
+            open && filtered[keys.active]
+              ? `${listId}-${keys.active}`
+              : undefined
           }
           value={
             open

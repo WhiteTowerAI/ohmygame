@@ -26,6 +26,7 @@ afterEach(async () => {
   container.remove();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function key(target: EventTarget, key: string, init: KeyboardEventInit = {}) {
@@ -243,6 +244,69 @@ it("tells screen readers a select's value and the option the keyboard is on", as
   expect(target("aria-activedescendant")?.textContent).toBe("Medium");
   await key(select, "ArrowDown");
   expect(target("aria-activedescendant")?.textContent).toBe("Large");
+});
+
+it("scrolls the option the keyboard is on into view", async () => {
+  // Each option is 60px tall in a popover that shows 100px.
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: HTMLElement) {
+      const scroller = this.closest<HTMLElement>(".ui-popover");
+      const index = [...(this.parentElement?.children ?? [])].indexOf(this);
+      const top = this.classList.contains("ui-popover")
+        ? 0
+        : index * 60 - (scroller?.scrollTop ?? 0);
+      const height = this.classList.contains("ui-popover") ? 100 : 60;
+      return { top, bottom: top + height } as DOMRect;
+    },
+  );
+  await act(async () =>
+    root.render(
+      <Select
+        label="Size"
+        value="large"
+        onChange={vi.fn()}
+        options={[
+          { value: "small", label: "Small" },
+          { value: "medium", label: "Medium" },
+          { value: "large", label: "Large" },
+        ]}
+      />,
+    ),
+  );
+  const select = container.querySelector<HTMLButtonElement>(
+    '[role="combobox"]',
+  )!;
+  await key(select, "ArrowDown");
+  const popover = document.querySelector<HTMLElement>(".ui-popover")!;
+  expect(popover.scrollTop).toBe(80);
+  await key(select, "ArrowUp");
+  await key(select, "ArrowUp");
+  expect(popover.scrollTop).toBe(0);
+});
+
+it("points a combobox at no list when nothing matches", async () => {
+  await act(async () =>
+    root.render(
+      <Combobox
+        label="Voice"
+        onChange={vi.fn()}
+        options={[{ value: "open", label: "Open" }]}
+      />,
+    ),
+  );
+  const input = container.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await act(async () => input.focus());
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    set.call(input, "zzz");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(document.querySelector(".ui-listbox-empty")).not.toBeNull();
+  expect(input.getAttribute("aria-controls")).toBeNull();
+  expect(input.getAttribute("aria-activedescendant")).toBeNull();
 });
 
 it("shows a toast and removes it after a few seconds", async () => {
