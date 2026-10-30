@@ -3,8 +3,12 @@ import { Check } from "typebox/value";
 export type MultiplayerMode = "turn-based" | "realtime";
 export type MultiplayerAuthPolicy =
   "anonymous" | "guest-or-account" | "account-required";
+/**
+ * drop-in is realtime only: players join a room with a free seat, or a new one, without
+ * creating or starting it, and can join a round in progress. It has no room owner.
+ */
 export type MultiplayerRoomPolicy =
-  "invite-or-public" | "public" | "invite-only";
+  "invite-or-public" | "public" | "invite-only" | "drop-in";
 
 export interface MultiplayerManifestConfig {
   enabled: true;
@@ -43,6 +47,19 @@ const identifier = {
   type: "string",
   pattern: "^[A-Za-z0-9_-]{1,100}$",
 } as const;
+/** The service simulates realtime rooms at this interval; the SDK sends input no faster. */
+export const REALTIME_TICK_MS = 50;
+/** A realtime connection that sends more messages than this in a second is closed. */
+export const REALTIME_MAX_MESSAGES_PER_SECOND = 40;
+
+/**
+ * Sent with a matchmaking error when the service cannot open another room; quick play
+ * retries it. Colyseus uses the code as the HTTP status, so it stays in that range.
+ */
+export const MULTIPLAYER_ROOM_LIMIT_CODE = 503;
+export const MULTIPLAYER_MIN_CLIENTS = 2;
+export const MULTIPLAYER_MAX_CLIENTS = 32;
+
 export const MULTIPLAYER_MANIFEST_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -66,8 +83,8 @@ export const MULTIPLAYER_MANIFEST_SCHEMA = {
     protocolVersion: { const: 1 },
     serverUrl: { type: "string", pattern: "^https://[^/?#@\\s]+/?$" },
     authPolicy: { enum: ["anonymous", "guest-or-account", "account-required"] },
-    roomPolicy: { enum: ["invite-or-public", "public", "invite-only"] },
-    maxClients: { type: "integer", minimum: 2, maximum: 32 },
+    roomPolicy: { enum: ["invite-or-public", "public", "invite-only", "drop-in"] },
+    maxClients: { type: "integer", minimum: MULTIPLAYER_MIN_CLIENTS, maximum: MULTIPLAYER_MAX_CLIENTS },
     reconnectSeconds: { type: "integer", minimum: 0, maximum: 3600 },
     adapterId: identifier,
   },
@@ -82,6 +99,8 @@ export function isMultiplayerManifestConfig(
     properties: { ...MULTIPLAYER_MANIFEST_SCHEMA.properties, serverUrl: { type: "string" } },
   } : MULTIPLAYER_MANIFEST_SCHEMA;
   if (!Check(schema, value)) return false;
+  // A round in progress has no seat to give a turn-based latecomer.
+  if ((value as MultiplayerManifestConfig).roomPolicy === "drop-in" && (value as MultiplayerManifestConfig).mode !== "realtime") return false;
   try {
     const url = new URL((value as MultiplayerManifestConfig).serverUrl);
     return (
@@ -157,12 +176,23 @@ export interface MultiplayerGameState {
 }
 /** Adapters run only on the service; clients submit intent, never final state. */
 export interface MultiplayerGameAdapter<State, Command> {
+  /** Seats the rules support. A deployment's maxClients must fit, and a match starts with at least min connected players. */
+  players: { min: number; max: number };
   initialState(): State;
   validateCommand(state: State, playerId: string, command: Command): void;
   applyCommand(state: State, playerId: string, command: Command): State;
   onDisconnect?(state: State, playerId: string): void;
   onTurnTimeout?(state: State, now: number): State;
   step?(state: State, inputs: ReadonlyMap<string, { input: RealtimeInput; at: number }>, now: number): State;
+  /**
+   * The state one player may see, such as their own hand but not others'. playerId is
+   * undefined for a connection that holds no seat. Without it every player sees the whole state.
+   */
+  viewFor?(state: State, playerId: string | undefined): State;
+  /** Places a new seat, including one joining a drop-in round in progress. Without it the room lines seats up. */
+  onPlayerJoin?(state: State, playerId: string, now: number): State;
+  /** Resets the round when a drop-in room starts or restarts it, for example respawning every seat. */
+  onRoundStart?(state: State, now: number): State;
 }
 export type MultiplayerEventType =
   | "room.ready"

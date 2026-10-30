@@ -12,6 +12,9 @@ import {
 } from "../shared/gomoku.js";
 import { createGameAdapter, nextTurn } from "./game.js";
 
+/** Black and white: the board, the colours and the scores have no third seat. */
+const GOMOKU_PLAYERS = 2;
+
 /** Players send a coordinate; only the service places stones and decides victory. */
 export function createGomokuAdapter(): MultiplayerGameAdapter<
   MultiplayerGameState,
@@ -19,6 +22,7 @@ export function createGomokuAdapter(): MultiplayerGameAdapter<
 > {
   const roomRules = createGameAdapter("turn-based");
   return {
+    players: { min: GOMOKU_PLAYERS, max: GOMOKU_PLAYERS },
     initialState: () => ({
       ...roomRules.initialState(),
       remaining: GOMOKU_SIZE ** 2,
@@ -27,8 +31,6 @@ export function createGomokuAdapter(): MultiplayerGameAdapter<
     validateCommand(state, playerId, command) {
       if (["start", "close", "kick"].includes(command.type)) {
         roomRules.validateCommand(state, playerId, command);
-        if (command.type === "start" && state.players.length !== 2)
-          throw new Error("Gomoku requires exactly two players.");
         return;
       }
       if (command.type !== "action")
@@ -38,7 +40,7 @@ export function createGomokuAdapter(): MultiplayerGameAdapter<
         if (
           playerId !== state.ownerId ||
           !["playing", "finished"].includes(state.phase) ||
-          state.players.length !== 2
+          state.players.length !== GOMOKU_PLAYERS
         )
           throw new Error("Only the room owner can start a new match.");
         return;

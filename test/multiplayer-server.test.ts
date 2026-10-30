@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Client, type Room } from "@colyseus/sdk";
+import { Client, Room } from "@colyseus/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMultiplayerServer } from "../src/multiplayer-server/service.js";
+import { createBuiltInAdapter, resolveGameAdapter, type GameAdapter } from "../src/multiplayer-server/adapters.js";
 import { MultiplayerClient } from "../src/renderer/multiplayer-client.js";
 import { isGomokuState } from "../src/shared/gomoku.js";
 import { LocalMultiplayerRuntime } from "../src/daemon/local-multiplayer.js";
@@ -143,9 +144,6 @@ describe("multiplayer service over HTTP and WebSocket", () => {
       result.results.push(value);
     });
     room.onMessage("input.error", () => {});
-    room.onStateChange((state: { snapshot: string }) => {
-      if (state.snapshot) result.snapshot = JSON.parse(state.snapshot);
-    });
     room.send("sync");
     peers.push(result);
     await wait(() => {
@@ -354,6 +352,301 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     expect(other.snapshot!.state.players).toHaveLength(1);
   });
 
+  it("checks a deployment's room size against the seats its rules declare", () => {
+    const gomoku = deployments[4]!;
+    expect(resolveGameAdapter(gomoku).players).toEqual({ min: 2, max: 2 });
+    expect(() => resolveGameAdapter({ ...gomoku, maxClients: 3 })).toThrow("The gomoku rules need exactly 2 players.");
+    expect(() => resolveGameAdapter({ ...gomoku, mode: "realtime" })).toThrow("does not match the game mode");
+    const trio: GameAdapter = { ...createBuiltInAdapter("stones"), players: { min: 3, max: 3 } };
+    expect(resolveGameAdapter({ ...config, adapterId: "trio", maxClients: 3 }, { trio })).toBe(trio);
+    expect(() => resolveGameAdapter({ ...config, adapterId: "trio", maxClients: 4 }, { trio })).toThrow("The trio rules need exactly 3 players.");
+  });
+
+  /** A service whose only deployment plays the given rules, for adapters the service does not ship. */
+  async function customService(
+    adapterId: string,
+    adapter: GameAdapter,
+    settings: Partial<MultiplayerManifestConfig>,
+    serverOptions: Partial<Parameters<typeof createMultiplayerServer>[0]> = {},
+  ) {
+    await service.stop();
+    const deployment: MultiplayerManifestConfig = { ...config, gameId: adapterId, adapterId, ...settings };
+    service = createMultiplayerServer({
+      ...serverOptions,
+      deployments: [deployment],
+      adapters: { [adapterId]: adapter },
+      auth: { guestSecret: "a".repeat(32) },
+      databasePath: path.join(directory, `${adapterId}.sqlite`),
+      host: "127.0.0.1",
+      port: 0,
+      logger: false,
+    });
+    await service.start();
+    endpoint = `http://127.0.0.1:${service.port}`;
+    return deployment;
+  }
+
+  it("starts a match only once the rules' minimum players are connected", async () => {
+    const trio = await customService("trio", { ...createBuiltInAdapter("stones"), players: { min: 3, max: 3 } }, { maxClients: 3 });
+    const owner = await peer(await transport(), trio);
+    await peer(await transport(), trio, owner.room.roomId, owner.ready!.inviteCode);
+    await wait(() => expect(owner.snapshot!.state.players).toHaveLength(2));
+    const early = await command(owner, "start");
+    expect(early.result.error?.message).toBe("This game needs exactly 3 connected players to start.");
+    await peer(await transport(), trio, owner.room.roomId, owner.ready!.inviteCode);
+    await wait(() => expect(owner.snapshot!.state.players).toHaveLength(3));
+    expect((await command(owner, "start")).result.accepted).toBe(true);
+  });
+
+  it("sends each player only the state the rules let them see", async () => {
+    const rules = createBuiltInAdapter("stones");
+    const hands: GameAdapter = {
+      ...rules,
+      applyCommand(state, playerId, value) {
+        const next = rules.applyCommand(state, playerId, value);
+        if (value.type === "start")
+          next.game = { hands: Object.fromEntries(next.players.map((p) => [p.playerId, [`secret-${p.playerId}`]])) };
+        return next;
+      },
+      viewFor(state, playerId) {
+        const all = (state.game?.hands ?? {}) as Record<string, string[]>;
+        if (!state.game) return state;
+        return {
+          ...state,
+          game: {
+            hands: playerId && all[playerId] ? { [playerId]: all[playerId] } : {},
+            handSizes: Object.fromEntries(Object.entries(all).map(([id, cards]) => [id, cards.length])),
+          },
+        };
+      },
+    };
+    const deployment = await customService("hands", hands, { maxClients: 3 });
+    const ownerTransport = await transport();
+    const owner = await peer(ownerTransport, deployment);
+    const guest = await peer(await transport(), deployment, owner.room.roomId, owner.ready!.inviteCode);
+    const received = { owner: [] as string[], guest: [] as string[] };
+    owner.room.onMessage("snapshot", (value) => received.owner.push(JSON.stringify(value)));
+    guest.room.onMessage("snapshot", (value) => received.guest.push(JSON.stringify(value)));
+    await wait(() => expect(owner.snapshot!.state.players).toHaveLength(2));
+    expect((await command(owner, "start")).result.accepted).toBe(true);
+    const ownerId = owner.ready!.playerId;
+    const guestId = guest.ready!.playerId;
+    await wait(() => expect(guest.snapshot!.state.game).toEqual({
+      hands: { [guestId]: [`secret-${guestId}`] },
+      handSizes: { [ownerId]: 1, [guestId]: 1 },
+    }));
+    await wait(() => expect(owner.snapshot!.state.game?.hands).toEqual({ [ownerId]: [`secret-${ownerId}`] }));
+    // No message, including the ones sent before and after the deal, carries another seat's hand.
+    expect(received.owner.join("")).not.toContain(`secret-${guestId}`);
+    expect(received.guest.join("")).not.toContain(`secret-${ownerId}`);
+    const http = await fetch(`${endpoint}/v1/rooms/${owner.room.roomId}/snapshot`, {
+      headers: { Authorization: `Bearer ${ownerTransport.auth.token}` },
+    }).then((response) => response.json()) as MultiplayerSnapshot;
+    expect(http.state.game?.hands).toEqual({ [ownerId]: [`secret-${ownerId}`] });
+  });
+
+  /** A realtime drop-in deployment of the arena rules, or of rules built on them. */
+  function dropIn(
+    settings: Partial<MultiplayerManifestConfig> = {},
+    serverOptions: Partial<Parameters<typeof createMultiplayerServer>[0]> = {},
+    adapter = createBuiltInAdapter("arena"),
+  ) {
+    return customService("drop", adapter, { mode: "realtime", roomPolicy: "drop-in", maxClients: 3, ...settings }, serverOptions);
+  }
+  function player(manifest: MultiplayerManifestConfig, options: Partial<ConstructorParameters<typeof MultiplayerClient>[0]> = {}) {
+    const wrapper = new MultiplayerClient({
+      manifest,
+      storage: memoryStorage(),
+      identityStorage: memoryStorage(),
+      transport: new Client(endpoint),
+      // Other tests leave players alone on purpose; only the merge tests let them move.
+      mergeCheckMs: 60_000,
+      ...options,
+    });
+    wrappers.push(wrapper);
+    return wrapper;
+  }
+
+  it("quick play fills the open room, opens another when it is full, and joins a round in progress", async () => {
+    const deployment = await dropIn();
+    const [first, second, third, fourth] = [player(deployment), player(deployment), player(deployment), player(deployment)];
+    await first.quickPlay({ displayName: "First" });
+    await wait(() => expect(first.snapshot?.state.phase).toBe("lobby"));
+    expect(first.snapshot!.state.ownerId).toBe("");
+    await second.quickPlay();
+    expect(second.roomId).toBe(first.roomId);
+    // The second seat meets the arena's minimum, so the room starts the round itself.
+    await wait(() => expect(first.snapshot?.state.phase).toBe("playing"));
+    await third.quickPlay();
+    expect(third.roomId).toBe(first.roomId);
+    await wait(() => expect(third.snapshot?.state.players).toHaveLength(3));
+    expect(third.snapshot!.state.phase).toBe("playing");
+    await wait(() => expect(third.roomCode).toMatch(/^[A-F0-9]{16}$/));
+    for (const seat of third.snapshot!.state.players)
+      expect(Math.hypot(seat.x - 50, seat.y - 50)).toBeCloseTo(35);
+    await fourth.quickPlay();
+    expect(fourth.roomId).not.toBe(first.roomId);
+    await wait(() => expect(fourth.snapshot?.state.players).toHaveLength(1));
+    await expect(player(config).quickPlay()).rejects.toThrow("drop-in deployment");
+  });
+
+  it("opens only the rooms that simultaneous quick plays need", async () => {
+    const deployment = await dropIn();
+    const players = Array.from({ length: 7 }, () => player(deployment));
+    await Promise.all(players.map((wrapper) => wrapper.quickPlay()));
+    const rooms = new Map<string, number>();
+    for (const wrapper of players) rooms.set(wrapper.roomId!, (rooms.get(wrapper.roomId!) ?? 0) + 1);
+    expect([...rooms.values()].sort()).toEqual([1, 3, 3]);
+  });
+
+  it("holds a reconnecting seat, then frees it for a newcomer", async () => {
+    const deployment = await dropIn({ maxClients: 2, reconnectSeconds: 1 });
+    const [first, second] = [player(deployment), player(deployment)];
+    await first.quickPlay();
+    await second.quickPlay();
+    await wait(() => expect(first.snapshot?.state.phase).toBe("playing"));
+    await wait(() => expect(first.roomCode).toBeTruthy());
+    second.dispose();
+    await wait(() => expect(first.snapshot?.state.players.filter((p) => p.connected)).toHaveLength(1));
+    const elsewhere = player(deployment);
+    await elsewhere.quickPlay();
+    expect(elsewhere.roomId).not.toBe(first.roomId);
+    // An invitation to a full room fails instead of moving the friend to another room.
+    await expect(player(deployment).joinRoom({ roomCode: first.roomCode })).rejects.toThrow();
+    await wait(() => expect(first.snapshot?.state.players).toHaveLength(1));
+    expect(first.snapshot!.state.phase).toBe("lobby");
+    const friend = player(deployment);
+    await friend.joinRoom({ roomCode: first.roomCode });
+    expect(friend.roomId).toBe(first.roomId);
+    await wait(() => expect(first.snapshot?.state.phase).toBe("playing"));
+  });
+
+  it("restarts a finished drop-in round after a pause", async () => {
+    const arena = createBuiltInAdapter("arena");
+    const firstToMove: GameAdapter = {
+      ...arena,
+      step: (state, inputs) => inputs.size ? { ...state, phase: "finished", winnerPlayerId: [...inputs.keys()][0]! } : state,
+    };
+    const deployment = await dropIn({}, { roundRestartMs: 200 }, firstToMove);
+    const [first, second] = [player(deployment), player(deployment)];
+    await first.quickPlay();
+    await second.quickPlay();
+    await wait(() => expect(first.snapshot?.state.phase).toBe("playing"));
+    first.sendInput(1, 0);
+    await wait(() => expect(second.snapshot?.state.phase).toBe("finished"));
+    expect(second.snapshot!.state.winnerPlayerId).toBe(first.playerId);
+    await wait(() => expect(second.snapshot?.state.phase).toBe("playing"));
+    expect(second.snapshot!.state.winnerPlayerId).toBe("");
+  });
+
+  it("tells quick play when the service cannot open another room", async () => {
+    const deployment = await dropIn({ maxClients: 2 }, { maxRooms: 1 });
+    await player(deployment).quickPlay();
+    await player(deployment).quickPlay();
+    const started = Date.now();
+    await expect(player(deployment, { roomLimitRetryMs: [100, 100] }).quickPlay()).rejects.toThrow("room limit");
+    expect(Date.now() - started).toBeGreaterThanOrEqual(200);
+  });
+
+  it("brings players who are each alone in a drop-in room together", async () => {
+    const deployment = await dropIn({}, {}, createBuiltInAdapter("roam"));
+    const [first, second] = [player(deployment, { mergeCheckMs: 200 }), player(deployment, { mergeCheckMs: 200 })];
+    // A direct create opens a second room, as returning to a held seat can.
+    await first.quickPlay({ displayName: "First" });
+    await second.createRoom({ displayName: "Second" });
+    expect(second.roomId).not.toBe(first.roomId);
+    await wait(() => expect(first.roomId).toBe(second.roomId));
+    await wait(() => expect(first.snapshot?.state.players.filter((p) => p.connected)).toHaveLength(2));
+    expect(second.snapshot!.state.players.map((p) => p.displayName).sort()).toEqual(["First", "Second"]);
+    expect(first.status).toBe("connected");
+    expect(second.status).toBe("connected");
+  });
+
+  it("moves only a lonely player, into the busiest room with a free seat", async () => {
+    const deployment = await dropIn({}, {}, createBuiltInAdapter("roam"));
+    const [host, guest] = [player(deployment, { mergeCheckMs: 200 }), player(deployment, { mergeCheckMs: 200 })];
+    await host.quickPlay();
+    await guest.quickPlay();
+    const busy = host.roomId;
+    const statuses: string[] = [];
+    const loner = new MultiplayerClient(
+      { manifest: deployment, storage: memoryStorage(), identityStorage: memoryStorage(), transport: new Client(endpoint), mergeCheckMs: 200 },
+      { onStatus: (status) => statuses.push(status) },
+    );
+    wrappers.push(loner);
+    await loner.createRoom();
+    expect(loner.roomId).not.toBe(busy);
+    await wait(() => expect(loner.roomId).toBe(busy));
+    await wait(() => expect(host.snapshot?.state.players.filter((p) => p.connected)).toHaveLength(3));
+    expect([host.roomId, guest.roomId]).toEqual([busy, busy]);
+    // Moving rooms reconnects without reporting a closed connection to the game.
+    expect(statuses).not.toContain("closed");
+  });
+
+  it("paces per-frame input to the server tick so a held key keeps a player connected", async () => {
+    const deployment = await dropIn({}, {}, createBuiltInAdapter("roam"));
+    const [walker, watcher] = [player(deployment), player(deployment)];
+    await walker.quickPlay();
+    await watcher.quickPlay();
+    await wait(() => expect(watcher.snapshot?.state.players).toHaveLength(2));
+    const seat = () => watcher.snapshot!.state.players.find((p) => p.playerId === walker.playerId)!;
+    const start = seat().x;
+    const send = vi.spyOn(Room.prototype, "send");
+    try {
+      // 60 calls a second, as a game loop makes while a key is held.
+      const frames = setInterval(() => walker.sendInput(1, 0), 1000 / 60);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      clearInterval(frames);
+      const inputs = send.mock.calls.filter(([type]) => type === "input").length;
+      expect(inputs).toBeGreaterThan(30);
+      expect(inputs).toBeLessThanOrEqual(42);
+    } finally {
+      send.mockRestore();
+    }
+    await wait(() => expect(seat().x - start).toBeGreaterThan(15));
+    expect(seat().connected).toBe(true);
+    expect(walker.status).toBe("connected");
+  });
+
+  it("closes a flooding connection at once instead of holding its seat", async () => {
+    const deployment = await dropIn({ reconnectSeconds: 60 });
+    const watcher = player(deployment);
+    await watcher.quickPlay();
+    const flooder = await (await transport()).joinOrCreate(multiplayerRoomType(deployment), joinOptions(deployment));
+    peers.push({ room: flooder, results: [] });
+    flooder.reconnection.enabled = false;
+    let closed: number | undefined;
+    flooder.onLeave((code) => {
+      closed = code;
+    });
+    await wait(() => expect(watcher.snapshot?.state.phase).toBe("playing"));
+    for (let inputId = 0; inputId < 100; inputId++) flooder.send("input", { inputId, x: 1, y: 0 });
+    await wait(() => expect(closed).toBe(4002));
+    await wait(() => expect(watcher.snapshot?.state.players).toHaveLength(1));
+  });
+
+  it("lets players roam a shared world that never ends", async () => {
+    const deployment = await dropIn({}, {}, createBuiltInAdapter("roam"));
+    const explorer = player(deployment);
+    await explorer.quickPlay();
+    // One explorer is enough; there is nobody to wait for.
+    await wait(() => expect(explorer.snapshot?.state.phase).toBe("playing"));
+    const me = () => explorer.snapshot!.state.players[0]!;
+    expect(Math.hypot(me().x - 50, me().y - 50)).toBeLessThanOrEqual(6.01);
+    const frames = setInterval(() => explorer.sendInput(-1, 0), 1000 / 60);
+    await wait(() => expect(me().x).toBe(0));
+    clearInterval(frames);
+    explorer.sendInput(0, 0);
+    // Walking through the centre or into the edge finishes nothing.
+    expect(explorer.snapshot!.state.phase).toBe("playing");
+    const friend = player(deployment);
+    await friend.quickPlay();
+    expect(friend.roomId).toBe(explorer.roomId);
+    await wait(() => expect(friend.snapshot?.state.players).toHaveLength(2));
+    expect(friend.snapshot!.state.players.find((p) => p.playerId === explorer.playerId)!.x).toBe(0);
+    expect(friend.snapshot!.state.phase).toBe("playing");
+  });
+
   it("restores a refreshed browser and a persisted match after service restart", async () => {
     const storage = memoryStorage();
     const identityStorage = memoryStorage();
@@ -469,6 +762,38 @@ describe("multiplayer service over HTTP and WebSocket", () => {
       clients.push(restored);
       expect(await restored.reconnect()).toBe(true);
       await wait(() => expect(restored.snapshot?.state.game?.history).toHaveLength(1));
+    } finally {
+      for (const client of clients) client.dispose();
+      await runtime.close();
+    }
+  });
+
+  it("sizes local rooms from two to eight players and keeps gomoku at two", async () => {
+    await service.stop();
+    const runtime = new LocalMultiplayerRuntime();
+    const clients: MultiplayerClient[] = [];
+    try {
+      const stones = await runtime.configure("local-sized", "stones");
+      expect(stones.maxClients).toBe(4);
+      const arena = await runtime.configure("local-sized", "arena", { maxClients: 8 });
+      expect(arena).toMatchObject({ maxClients: 8, deploymentId: "local-arena-8p-v1" });
+      expect(await runtime.configure("local-sized", "stones", { maxClients: 6 })).toMatchObject({ maxClients: 6, deploymentId: "local-stones-6p-v1" });
+      await expect(runtime.configure("local-sized", "arena", { maxClients: 9 })).rejects.toThrow("2 to 8 players");
+      await expect(runtime.configure("local-sized", "arena", { maxClients: 1 })).rejects.toThrow("2 to 8 players");
+      await expect(runtime.configure("local-sized", "gomoku", { maxClients: 4 })).rejects.toThrow("exactly 2 players");
+      expect(await runtime.configure("local-sized", "arena", { dropIn: true })).toMatchObject({ roomPolicy: "drop-in", deploymentId: "local-arena-4p-dropin-v1" });
+      await expect(runtime.configure("local-sized", "stones", { dropIn: true })).rejects.toThrow("realtime rules");
+      expect(await runtime.configure("local-sized", "roam")).toMatchObject({ mode: "realtime", roomPolicy: "drop-in", maxClients: 4, reconnectSeconds: 15, deploymentId: "local-roam-4p-dropin-v1" });
+      expect(await runtime.configure("local-sized", "roam", { dropIn: false })).toMatchObject({ roomPolicy: "invite-or-public", deploymentId: "local-roam-4p-v1" });
+
+      const players = Array.from({ length: 9 }, () => new MultiplayerClient({ manifest: arena, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() }));
+      clients.push(...players);
+      const [owner, ...guests] = players;
+      await owner!.createRoom();
+      await wait(() => expect(owner!.roomCode).toMatch(/^[A-F0-9]{16}$/));
+      for (const guest of guests.slice(0, 7)) await guest.joinRoom({ roomCode: owner!.roomCode });
+      await wait(() => expect(owner!.snapshot?.state.players).toHaveLength(8));
+      await expect(guests[7]!.joinRoom({ roomCode: owner!.roomCode })).rejects.toThrow();
     } finally {
       for (const client of clients) client.dispose();
       await runtime.close();

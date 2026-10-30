@@ -6,7 +6,9 @@ import {
   isTurnCommand,
   isRecord,
   isTurnCommandResult,
+  MULTIPLAYER_ROOM_LIMIT_CODE,
   multiplayerRoomType,
+  REALTIME_TICK_MS,
   type JoinRoomOptions,
   type MultiplayerEvent,
   type MultiplayerManifestConfig,
@@ -23,6 +25,10 @@ export interface MultiplayerClientOptions {
   manifest: MultiplayerManifestConfig;
   /** Uses the same Supabase session as the editor, refreshed before each join. */
   accessToken?: () => Promise<string | undefined>;
+  /**
+   * Both default to localStorage: one browser is one player, in every tab and after it
+   * closes, and can come back to its seat. Tests inject separate storage per player.
+   */
   storage?: Storage;
   identityStorage?: Storage;
   /** Dependency injection for local integration tests. */
@@ -30,6 +36,13 @@ export interface MultiplayerClientOptions {
   /** Opt in only for loopback development, never for a published deployment. */
   allowLocalhost?: boolean;
   connectionTimeoutMs?: number;
+  /** Waits before each quick play retry when the service is at its room limit. */
+  roomLimitRetryMs?: number[];
+  /**
+   * Drop-in only: how long a player must be alone before moving to a room with other
+   * players, and roughly how often that is checked. Defaults to 5 seconds.
+   */
+  mergeCheckMs?: number;
 }
 export interface MultiplayerClientCallbacks {
   onStatus?: (status: MultiplayerConnectionStatus) => void;
@@ -53,7 +66,7 @@ export class MultiplayerClient {
   private readonly storage?: Storage;
   private readonly identityStorage?: Storage;
   private readonly storageKey: string;
-  private room?: Room<unknown, { snapshot: string }>;
+  private room?: Room;
   private saved?: SavedRoom;
   private current?: MultiplayerSnapshot;
   private lastEventSequence = -1;
@@ -61,6 +74,12 @@ export class MultiplayerClient {
   private busy = false;
   private disposed = false;
   private inputId = 0;
+  private latestInput?: { x: number; y: number };
+  private inputTimer?: ReturnType<typeof setInterval>;
+  private displayName?: string;
+  private mergeTimer?: ReturnType<typeof setTimeout>;
+  private aloneSince?: number;
+  private merging = false;
   private connectionStatus: MultiplayerConnectionStatus = "idle";
 
   constructor(
@@ -83,7 +102,7 @@ export class MultiplayerClient {
       throw new Error("connectionTimeoutMs must be positive.");
     this.client =
       options.transport ?? new ColyseusClient(options.manifest.serverUrl);
-    this.storage = options.storage ?? browserStorage("sessionStorage");
+    this.storage = options.storage ?? browserStorage("localStorage");
     this.identityStorage =
       options.identityStorage ?? browserStorage("localStorage");
     this.storageKey = `ohmygame:multiplayer:${options.manifest.serverUrl}:${options.manifest.gameId}:${options.manifest.deploymentId}`;
@@ -127,6 +146,7 @@ export class MultiplayerClient {
   }
 
   async createRoom(options: { displayName?: string } = {}): Promise<void> {
+    this.displayName = options.displayName;
     await this.connect(async () =>
       this.client.create(multiplayerRoomType(this.options.manifest), {
         ...this.joinOptions(options),
@@ -134,9 +154,32 @@ export class MultiplayerClient {
       }),
     );
   }
+  /**
+   * Drop-in deployments only: join the fullest room with a free seat, or open a new one
+   * when every room is full. A service at its room limit is retried a few times before
+   * the error reaches the game.
+   */
+  async quickPlay(options: { displayName?: string } = {}): Promise<void> {
+    if (this.options.manifest.roomPolicy !== "drop-in")
+      throw new Error("Quick play needs a drop-in deployment. Create or join a room instead.");
+    this.displayName = options.displayName;
+    await this.connect(async () => {
+      const join = this.joinOptions(options);
+      for (const delay of [...(this.options.roomLimitRetryMs ?? [1000, 2000]), undefined]) {
+        try {
+          return await this.client.joinOrCreate(multiplayerRoomType(this.options.manifest), join);
+        } catch (cause) {
+          if (delay === undefined || !isRecord(cause) || cause.code !== MULTIPLAYER_ROOM_LIMIT_CODE) throw cause;
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+      throw new Error("Quick play could not find a room.");
+    });
+  }
   async joinRoom(
     options: { displayName?: string; roomCode?: string; roomId?: string } = {},
   ): Promise<void> {
+    this.displayName = options.displayName;
     await this.connect(async () => {
       const join = this.joinOptions(options);
       if (options.roomId || options.roomCode)
@@ -194,13 +237,91 @@ export class MultiplayerClient {
     this.room.send("command", value);
     return value.commandId;
   }
+  /**
+   * Safe to call every frame. The latest direction goes out at most once per service
+   * tick, and keeps going out while the game keeps calling, so a held key stays fresh;
+   * sending faster would only be discarded, and a flood closes the connection.
+   */
   sendInput(x: number, y: number): void {
-    if (this.room && this.status === "connected")
-      this.room.send("input", {
-        inputId: this.inputId++,
-        x,
-        y,
-      } satisfies RealtimeInput);
+    if (!this.room || this.status !== "connected") return;
+    this.latestInput = { x, y };
+    if (this.inputTimer) return;
+    this.flushInput();
+    this.inputTimer = setInterval(() => {
+      if (this.latestInput) this.flushInput();
+      else this.stopInput();
+    }, REALTIME_TICK_MS);
+  }
+  private flushInput(): void {
+    const input = this.latestInput;
+    this.latestInput = undefined;
+    if (!input || !this.room || this.status !== "connected") return;
+    this.room.send("input", { inputId: this.inputId++, ...input } satisfies RealtimeInput);
+  }
+  /**
+   * Quick play only places a player when they arrive, so two players can end up alone
+   * in separate rooms, for example after one returns to a held seat. A drop-in player
+   * who stays alone moves to the busiest room that has others and a free seat.
+   * Checks are jittered so two lonely players rarely move at the same moment; when they
+   * do, quick play's room creation lock still brings them together.
+   */
+  private scheduleMerge(): void {
+    if (this.options.manifest.roomPolicy !== "drop-in" || this.disposed) return;
+    clearTimeout(this.mergeTimer);
+    const interval = this.options.mergeCheckMs ?? 5000;
+    this.mergeTimer = setTimeout(() => {
+      void this.checkMerge().finally(() => {
+        if (this.room) this.scheduleMerge();
+      });
+    }, interval * (0.5 + Math.random()));
+  }
+  private stopMerge(): void {
+    clearTimeout(this.mergeTimer);
+    this.mergeTimer = undefined;
+    this.aloneSince = undefined;
+  }
+  private alone(): boolean {
+    const connected = this.current?.state.players.filter((player) => player.connected) ?? [];
+    return connected.length === 1 && connected[0]!.playerId === this.saved?.playerId;
+  }
+  private async checkMerge(): Promise<void> {
+    if (this.merging || this.busy || this.disposed || !this.room || this.status !== "connected") return;
+    if (!this.alone()) {
+      this.aloneSince = undefined;
+      return;
+    }
+    this.aloneSince ??= Date.now();
+    if (Date.now() - this.aloneSince < (this.options.mergeCheckMs ?? 5000)) return;
+    const here = this.room.roomId;
+    let target: PublicMultiplayerRoom | undefined;
+    try {
+      target = (await this.publicRooms())
+        .filter((room) => room.roomId !== here && room.clients > 0 && room.clients < room.maxClients)
+        .sort((left, right) => right.clients - left.clients)[0];
+    } catch {
+      return; // An unreachable room list leaves the player where they are.
+    }
+    if (!target || this.room?.roomId !== here || !this.alone()) return;
+    this.merging = true;
+    try {
+      const displayName = this.displayName;
+      await this.leaveRoom();
+      try {
+        await this.joinRoom({ roomId: target.roomId, displayName });
+      } catch {
+        // The room filled or closed meanwhile; quick play finds the next best one.
+        await this.quickPlay({ displayName });
+      }
+    } catch {
+      /* connect() has already reported the failure through onStatus and onError. */
+    } finally {
+      this.merging = false;
+    }
+  }
+  private stopInput(): void {
+    clearInterval(this.inputTimer);
+    this.inputTimer = undefined;
+    this.latestInput = undefined;
   }
   async publicRooms(): Promise<PublicMultiplayerRoom[]> {
     const { gameId, deploymentId } = this.options.manifest;
@@ -218,6 +339,13 @@ export class MultiplayerClient {
     );
   }
   async leave(): Promise<void> {
+    await this.leaveRoom();
+    this.setStatus("closed");
+  }
+  /** Leaves without reporting a closed connection, for moving to another room. */
+  private async leaveRoom(): Promise<void> {
+    this.stopInput();
+    this.stopMerge();
     this.generation++;
     const room = this.room;
     this.room = undefined;
@@ -229,9 +357,10 @@ export class MultiplayerClient {
       room.reconnection.enabled = false;
       await room.leave(true);
     }
-    this.setStatus("closed");
   }
   dispose(): void {
+    this.stopInput();
+    this.stopMerge();
     this.disposed = true;
     this.generation++;
     const room = this.room;
@@ -243,7 +372,7 @@ export class MultiplayerClient {
     }
   }
   private async connect(
-    open: () => Promise<Room<unknown, { snapshot: string }>>,
+    open: () => Promise<Room>,
     restoring = false,
   ): Promise<void> {
     if (this.busy || this.room || this.disposed)
@@ -296,6 +425,7 @@ export class MultiplayerClient {
       this.persist();
       this.setStatus("connected");
       room.send("sync");
+      this.scheduleMerge();
     } catch (cause) {
       if (generation === this.generation) {
         this.generation++;
@@ -308,15 +438,9 @@ export class MultiplayerClient {
       this.busy = false;
     }
   }
-  private bind(room: Room<unknown, { snapshot: string }>): void {
+  private bind(room: Room): void {
     room.reconnection.minUptime = 0;
-    room.onStateChange((state) => {
-      try {
-        this.receiveSnapshot(JSON.parse(state.snapshot));
-      } catch {
-        /* wait for the first complete patch */
-      }
-    });
+    // Each player gets their own snapshot, so rules can keep a hand or a role private.
     room.onMessage("snapshot", (value: unknown) => this.receiveSnapshot(value));
     room.onMessage("ready", (value: unknown) => {
       if (!isRecord(value) || typeof value.playerId !== "string" || !this.saved)
@@ -351,6 +475,8 @@ export class MultiplayerClient {
         this.error(new Error(value.message));
     });
     room.onDrop(() => {
+      this.stopInput();
+      this.aloneSince = undefined;
       this.current = undefined;
       this.setStatus("reconnecting");
     });
@@ -373,6 +499,8 @@ export class MultiplayerClient {
     );
     room.onLeave((code, reason) => {
       if (this.room !== room) return;
+      this.stopInput();
+      this.stopMerge();
       this.room = undefined;
       this.current = undefined;
       if (code === 1000 || code >= 4000) {
@@ -381,6 +509,8 @@ export class MultiplayerClient {
       }
       this.setStatus("closed");
       if (reason) this.error(new Error(reason));
+      else if (code === 4002)
+        this.error(new Error("The multiplayer service closed the connection. Join again to keep playing."));
     });
   }
   private receiveSnapshot(value: unknown): void {
@@ -504,9 +634,7 @@ export class MultiplayerClient {
       );
   }
 }
-function browserStorage(
-  key: "localStorage" | "sessionStorage",
-): Storage | undefined {
+function browserStorage(key: "localStorage"): Storage | undefined {
   try {
     return typeof window === "undefined" ? undefined : window[key];
   } catch {

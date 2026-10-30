@@ -33,6 +33,8 @@ describe("multiplayer protocol", () => {
     expect(isMultiplayerManifestConfig({ ...manifest, maxClients: 0 })).toBe(
       false,
     );
+    expect(isMultiplayerManifestConfig({ ...manifest, mode: "realtime", roomPolicy: "drop-in" })).toBe(true);
+    expect(isMultiplayerManifestConfig({ ...manifest, mode: "turn-based", roomPolicy: "drop-in" })).toBe(false);
     expect(
       isMultiplayerManifestConfig({ ...manifest, protocolVersion: 2 }),
     ).toBe(false);

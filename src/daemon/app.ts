@@ -826,7 +826,7 @@ export function createApp(options: AppOptions = {}) {
       playtest ? { driver: playtest, resolveOpenTarget: () => playtestTarget(project) } : undefined,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
-      (adapterId) => localMultiplayer.configure(project.id, adapterId),
+      (adapterId, options) => localMultiplayer.configure(project.id, adapterId, options),
     ), ...(project.integration?.preview === "external" ? [projectPreviewTool(project, plugins, pluginIntegrations)] : [])];
   };
   const playtestTarget = async (project: ProjectState): Promise<GameUseOpenTarget> => {

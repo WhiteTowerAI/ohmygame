@@ -21,7 +21,7 @@ import { readCanvasAssets } from "./canvas-assets.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
 import { installMultiplayerWorkspace } from "./multiplayer-workspace.js";
-import type { LocalGameAdapterId } from "./local-multiplayer.js";
+import { LOCAL_MULTIPLAYER_MAX_CLIENTS, LOCAL_MULTIPLAYER_MIN_CLIENTS, type LocalGameAdapterId, type LocalMultiplayerOptions } from "./local-multiplayer.js";
 import type { MultiplayerManifestConfig } from "../shared/multiplayer-protocol.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
@@ -105,7 +105,7 @@ export function createAgentTools(
   playtest?: { driver: GameRuntimeAdapter; resolveOpenTarget: () => Promise<GameUseOpenTarget> },
   searchWeb?: SearchWeb,
   canvasStore?: CanvasStore,
-  configureMultiplayer?: (adapterId: LocalGameAdapterId) => Promise<MultiplayerManifestConfig>,
+  configureMultiplayer?: (adapterId: LocalGameAdapterId, options: LocalMultiplayerOptions) => Promise<MultiplayerManifestConfig>,
 ): PiToolDefinition[] {
   const saveGeneratedAudio = async (
     toolId: "generate-speech" | "generate-sound-effect" | "generate-music" | "generate-audio",
@@ -142,14 +142,26 @@ export function createAgentTools(
     name: "multiplayer_setup",
     label: "Set up multiplayer",
     description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this Web Game. Choose the matching server rules; unsupported game rules need a server adapter, never a PeerJS/WebRTC fallback. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game.",
-    parameters: Type.Object({ adapterId: Type.Union([Type.Literal("gomoku"), Type.Literal("stones"), Type.Literal("arena")]) }),
+    parameters: Type.Object({
+      adapterId: Type.Union([Type.Literal("gomoku"), Type.Literal("stones"), Type.Literal("arena"), Type.Literal("roam")], {
+        description: "gomoku: two-player board game. stones: turn-based take-away race. arena: realtime race to the centre, rounds end and restart. roam: realtime free movement with no goal or end, for shared towns, lobbies and exploration.",
+      }),
+      maxClients: Type.Optional(Type.Integer({
+        minimum: LOCAL_MULTIPLAYER_MIN_CLIENTS,
+        maximum: LOCAL_MULTIPLAYER_MAX_CLIENTS,
+        description: `Players per room, ${LOCAL_MULTIPLAYER_MIN_CLIENTS} to ${LOCAL_MULTIPLAYER_MAX_CLIENTS}. Gomoku is always 2; the others default to 4.`,
+      })),
+      dropIn: Type.Optional(Type.Boolean({
+        description: "Realtime rules only. Players press play and join a running round in the fullest room with a free seat, or a new room, with no room to create, owner or start button. Roam defaults to true and arena to false. Prefer it for realtime games unless the user wants private matches; invite links still work.",
+      })),
+    }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
-      const config = await configureMultiplayer(input.adapterId);
+      const config = await configureMultiplayer(input.adapterId, { maxClients: input.maxClients, dropIn: input.dropIn });
       signal?.throwIfAborted();
       const result = await installMultiplayerWorkspace(project, config);
       return {
-        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game with authoritative snapshots and commands, then test with two independent guests. This is a local playtest deployment; public publishing requires a public backend.` }],
+        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game with authoritative snapshots and commands, then test with two independent guests: one browser is one player, so use a private window or another browser for the second. This is a local playtest deployment; public publishing requires a public backend.` }],
         details: { multiplayer: result },
       };
     },

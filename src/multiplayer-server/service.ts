@@ -11,7 +11,7 @@ import {
 } from "../shared/multiplayer-protocol.js";
 import { MultiplayerAuth, type MultiplayerAuthOptions } from "./auth.js";
 import { RoomStore, type StoredRoom } from "./store.js";
-import { GameRoom, ROOM_IDLE_MS } from "./turn-room.js";
+import { GameRoom, ROOM_IDLE_MS, ROUND_RESTART_MS } from "./turn-room.js";
 import { resolveGameAdapter, type GameAdapter } from "./adapters.js";
 
 export interface MultiplayerServerOptions {
@@ -25,6 +25,8 @@ export interface MultiplayerServerOptions {
   logger?: boolean;
   allowLocalhost?: boolean;
   adapters?: Record<string, GameAdapter>;
+  /** Pause between drop-in rounds; tests shorten it. */
+  roundRestartMs?: number;
 }
 
 /** Fixed windows are bounded and also used for WebSocket upgrades. */
@@ -286,6 +288,7 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
           activeRooms.add(roomId);
           return true;
         },
+        roundRestartMs: options.roundRestartMs ?? ROUND_RESTART_MS,
       };
       static async onAuth(token: string, value: unknown) {
         if (
@@ -303,6 +306,8 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
     }
     server
       .define(multiplayerRoomType(config), DeploymentRoom)
+      // Quick play fills the fullest open room first, so players gather instead of spreading out.
+      .sortBy({ clients: -1 })
       .on("dispose", (room) => activeRooms.delete(room.roomId));
   }
   for (const config of deployments.values()) defineDeployment(config);
