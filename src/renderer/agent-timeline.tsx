@@ -33,7 +33,7 @@ import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
 import { ModelPreview } from "./model-preview.js";
 import { formatBytes } from "./format-bytes.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
-import { mergeCompletedCompactionTurns, projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
+import { mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
 import { PromptContextIcon } from "./chat-reference.js";
 import { GodotIcon } from "./godot-icon.js";
@@ -204,22 +204,30 @@ const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPend
   assistantControls: AssistantControls;
   changeControls?: TurnChangesControls;
 }) {
-  const [now, setNow] = useState(Date.now());
   const active = turn.status === "inProgress";
+  // Rebuilding the display every second re-renders the whole turn, so wait
+  // for the next moment the display can change instead.
+  const [displayTime, setDisplayTime] = useState(() => turnDisplayClock(turn, Date.now()).time);
   useEffect(() => {
     if (!active) return;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [active]);
-  const display = useMemo(() => active ? projectTurnDisplay(turn, now, waitingForInput) : turnDisplay(turn), [turn, active, now, waitingForInput]);
+    let timer: number | undefined;
+    const update = () => {
+      const now = Date.now();
+      const clock = turnDisplayClock(turn, now);
+      setDisplayTime(clock.time);
+      if (clock.next !== undefined) timer = window.setTimeout(update, clock.next - now);
+    };
+    update();
+    return () => window.clearTimeout(timer);
+  }, [turn, active]);
+  const display = useMemo(() => active ? projectTurnDisplay(turn, displayTime, waitingForInput) : turnDisplay(turn), [turn, active, displayTime, waitingForInput]);
   const fileChanges = changeControls && display.status !== "inProgress" && display.user?.checkpointId && display.user.changes && display.user.changes.files > 0
     ? <TurnChangesFooter checkpointId={display.user.checkpointId} changes={display.user.changes} controls={changeControls} />
     : null;
   return (
     <article className="agent-turn">
       <UserInput item={display.user} controls={userControls} />
-      {display.status === "inProgress" ? <ActiveWork display={display} now={now} /> : null}
+      {display.status === "inProgress" ? <ActiveWork display={display} /> : null}
       {display.status !== "inProgress" && (display.work.length > 0 || display.status === "cancelled") ? <CompletedWork display={display} /> : null}
       {display.messages.map((item) => <TimelineItem key={item.id} item={item} />)}
       {display.finalMessages.length > 0
@@ -376,19 +384,33 @@ function ShimmerText({ text, active = true, className, title, role }: {
   );
 }
 
-function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
-  const label = display.working ? t("timeline.workingFor", { duration: activeTurnDuration(display, now) }) : t("timeline.thinking");
+function ActiveWork({ display }: { display: TurnDisplay }) {
   return (
     <section className="work-activity work-activity-active">
-      <div className={`work-summary work-summary-active${display.working ? "" : " work-summary-thinking"}`}>
-        <ShimmerText text={label} active={!display.working} />
-      </div>
+      <ActiveWorkSummary display={display} />
       {display.work.length > 0 ? (
         <div className="active-work-items">
           <WorkItems items={display.work} images={display.user?.images} activeRetryId={display.activeRetryId} />
         </div>
       ) : null}
     </section>
+  );
+}
+
+/** Only the elapsed time changes every second, so only this line re-renders. */
+function ActiveWorkSummary({ display }: { display: TurnDisplay }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!display.working) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [display.working]);
+  const label = display.working ? t("timeline.workingFor", { duration: activeTurnDuration(display, now) }) : t("timeline.thinking");
+  return (
+    <div className={`work-summary work-summary-active${display.working ? "" : " work-summary-thinking"}`}>
+      <ShimmerText text={label} active={!display.working} />
+    </div>
   );
 }
 

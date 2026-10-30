@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ThreadItem, Turn } from "../src/shared/contracts.js";
-import { mergeCompletedCompactionTurns, projectTurnDisplay } from "../src/renderer/turn-display.js";
+import { mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock } from "../src/renderer/turn-display.js";
 
 describe("mergeCompletedCompactionTurns", () => {
   const compaction: Turn = {
@@ -144,6 +144,21 @@ describe("projectTurnDisplay", () => {
 
     expect(display.working).toBe(true);
     expect(display.work.at(-1)).toMatchObject({ kind: "thinking" });
+  });
+
+  it("builds the same display from the clock's time as from the current time", () => {
+    const active = turn([
+      commentary("I inspected the workspace."),
+      tool("completed"),
+      { id: "assistant", turnId: "turn-1", type: "agentMessage", text: "I will create the project files.", status: "inProgress", timestamp: 4 },
+    ], true);
+    expect(turnDisplayClock(active, 500)).toMatchObject({ time: 0 });
+    expect(turnDisplayClock(active, 2_000)).toEqual({ time: 1_004, next: undefined });
+    for (const now of [5, 500, 1_003, 1_004, 2_000, 60_000]) {
+      expect(projectTurnDisplay(active, turnDisplayClock(active, now).time)).toEqual(projectTurnDisplay(active, now));
+    }
+    expect(projectTurnDisplay(active, turnDisplayClock(active, 500).time).work.at(-1)).not.toMatchObject({ kind: "thinking" });
+    expect(projectTurnDisplay(active, turnDisplayClock(active, 1_004).time).work.at(-1)).toMatchObject({ kind: "thinking" });
   });
 
   it("does not show Thinking while waiting for questionnaire input", () => {
