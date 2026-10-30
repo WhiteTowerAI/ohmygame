@@ -5000,7 +5000,7 @@ button {
   padding-left: max(18px, calc((100% - var(--agent-content-column-width)) / 2));
 }
 
-.dock-area-center .agent-body > .questionnaire-card {
+.dock-area-center .agent-body > .chat-input > .questionnaire-card {
   width: min(calc(100% - 36px), var(--agent-content-column-width));
   margin-right: auto;
   margin-left: auto;
@@ -9577,7 +9577,7 @@ summary.work-summary:hover {
   line-height: 1.45;
 }
 
-.agent-body > .questionnaire-card {
+.agent-body > .chat-input > .questionnaire-card {
   margin-bottom: 18px;
 }
 
@@ -9639,15 +9639,21 @@ summary.work-summary:hover {
   background: var(--surface);
 }
 
-.agent-body > .questionnaire-card,
-.agent-body > .plan-review {
+/* The cards and the composer render into one node that moves between the chat
+   panel and the floating bar (see project-shell.tsx); it adds no box of its own. */
+.chat-input {
+  display: contents;
+}
+
+.agent-body > .chat-input > .questionnaire-card,
+.agent-body > .chat-input > .plan-review {
   position: sticky;
   bottom: 0;
   z-index: 5;
   flex: 0 0 auto;
 }
 
-.agent-body > .plan-review {
+.agent-body > .chat-input > .plan-review {
   background: var(--surface);
 }
 

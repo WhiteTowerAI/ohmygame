@@ -580,6 +580,14 @@ Game and opens on Code; a story opens on its Story map; panels new to the saved 
 default's order and front tab. A chat moved to the middle reads in one centered
 column.
 
+With Chat closed, its composer floats over the middle area instead
+(`src/renderer/floating-chat.tsx`), with the approval, question and plan cards
+when they wait on an answer. Turns sent while it is open stack above it, the
+latest three at most; the chat panel keeps the whole conversation. The bar
+drags by its top edge (double-click puts it back), folds to a pill at the
+bottom, which unfolds when something waits on an answer, and opens into the
+chat panel. The composer's draft carries between the bar and the panel.
+
 Design is the game design document, the Markdown the agent reads as the game's
 design (`src/renderer/design-document-panel.tsx`). Its toolbar picks one of the
 canvas documents, the main one first, and switches between reading it beside its

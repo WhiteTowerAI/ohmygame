@@ -834,6 +834,14 @@ const en = {
   navigation: {
     backTo: "Back to {{page}}",
   },
+  floatingChat: {
+    label: "Agent",
+    grip: "Drag to move, double-click to put back",
+    expand: "Open in the chat panel",
+    fold: "Fold",
+    ask: "Ask the agent",
+    working: "Working…",
+  },
   commandMenu: {
     label: "Commands",
     placeholder: "Search commands, projects and settings…",

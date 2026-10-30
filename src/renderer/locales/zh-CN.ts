@@ -819,6 +819,14 @@ const zhCN: typeof en = {
   navigation: {
     backTo: "返回{{page}}",
   },
+  floatingChat: {
+    label: "Agent",
+    grip: "拖动移动，双击放回原处",
+    expand: "在对话面板中打开",
+    fold: "收起",
+    ask: "让 agent 做点什么",
+    working: "正在处理…",
+  },
   commandMenu: {
     label: "命令",
     placeholder: "搜索命令、项目和设置…",
