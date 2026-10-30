@@ -988,10 +988,12 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     }
     const created = createFlowNode(type, position, imageModels, videoModels, defaultTextModel);
     const configured = applyRememberedSettings(created, rememberedSettings.current[type], { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, model3DModels, defaultModel3D, textModels: textModelCatalog.models });
-    const inEffectLibrary = nodesRef.current.some((candidate) => candidate.type === "text" && candidate.data.instruction === "effect-library");
+    const effectLibraryNode = nodesRef.current.find((candidate) => candidate.type === "text" && candidate.data.instruction?.startsWith("effect-library"))
+      ?? nodesRef.current.find((candidate) => candidate.type === "image" && Boolean(candidate.data.effectBasePrompt));
+    const effectDensity = nodesRef.current.find((candidate): candidate is CanvasGroupFlowNode => candidate.type === "group" && !candidate.parentId && Boolean(candidate.data.pixelStyle))?.data.pixelStyle ?? "classic";
     const node = {
       ...configured,
-      ...(type === "image" && inEffectLibrary ? { data: { ...configured.data, prompt: "", promptExpanded: true, effectBasePrompt: EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, effectColor: "original" as const, effectRhythm: "sample" as const } } : {}),
+      ...(type === "image" && effectLibraryNode ? { data: { ...configured.data, prompt: "", promptExpanded: true, effectBasePrompt: EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, effectColor: "original" as const, effectRhythm: "sample" as const, pixelStyle: effectDensity } } : {}),
       selected: true,
     };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);

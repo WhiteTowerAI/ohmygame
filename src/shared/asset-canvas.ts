@@ -14,6 +14,7 @@ import {
 import { Check } from "typebox/value";
 import { canvasNodeContent, canvasNodeLayout, contentNodeSizeIssue, isResizableCanvasNodeType, withoutContentNodeSize } from "./canvas-node-layout.js";
 import { ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA, ASSET_CANVAS_SCHEMA } from "./asset-canvas-schema.js";
+import { withPixelArtLevel, type PixelArtLevel } from "./canvas-pixel-style.js";
 
 export type AssetCanvasStarter = "image" | "video" | "model-3d" | "music" | "audio-scene";
 
@@ -208,10 +209,12 @@ export function combineAssetCanvasPrompt(linkedText: string | undefined, localPr
 }
 
 /** Safety constraint for generated sprite sheets so grid splitting cannot clip a frame. */
-export const EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT = "The final output must be a PNG with a real transparent alpha channel. Do not render any background plane, gradient, glow field, checkerboard, black, white, green, gray, blue, or other background color; pixels outside the effects must be fully transparent. If transparent output is unsupported, do not fake it with a colored background. Keep every frame fully inside its own cell with at least 10% transparent padding on all four sides. Keep the main effect within about 70% of the cell width and height; never let it fill the entire cell. No visual element may touch, cross, or be clipped by the cell boundaries. Keep identical scale, baseline, camera framing, and ground point in every frame. Keep the full effect visible from top to bottom in every frame.";
+export const EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT = "The final output must be a PNG with a real transparent alpha channel. Do not render any background plane, gradient, glow field, checkerboard, black, white, green, gray, blue, or other background color; pixels outside the effects must be fully transparent. If transparent output is unsupported, do not fake it with a colored background. Treat every cell as an independent square canvas. Keep every frame fully inside its own cell with a full 15% transparent margin on all four sides, including the ground contact or baseline. Keep the main effect within about 60% of the cell width and height; never let it fill the entire cell. No visual element, baseline, particle, glow, or shadow may touch, cross, or be clipped by the cell boundaries. Keep identical scale, baseline, camera framing, and ground point in every frame. Keep the full effect visible from top to bottom in every frame.";
 
 /** Default editor template for image nodes created inside the Effect Library. */
 export const EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE = "Requested action: {USER_ACTION}\n\nMain color: {EFFECT_COLOR}\n\nMotion rhythm: {MOTION_RHYTHM}\n\nAdditional direction:\n{ADDITIONAL_PROMPT}";
+
+const EFFECT_DETAILED_PIXEL_RULES = "DETAILED EFFECT PIXEL RULES: Preserve more of the effect's secondary contour breaks, layered highlights, small particles, and material transitions than classic pixels. Use 4–6 hard-edged tones per material, but keep every highlight and particle as an intentional square-pixel cluster on the same logical grid. Retain thin readable arcs, tendrils, droplets, sparks, and smoke fragments where they clarify motion; do not replace them with smooth glows, anti-aliased edges, noise, or random speckles. Keep the silhouette and frame-to-frame motion coherent while using the full detailed pixel budget.";
 
 /** Builds the complete, portable prompt behind an Effect Library image node. */
 export function effectLibraryPrompt(
@@ -219,6 +222,7 @@ export function effectLibraryPrompt(
   color: "original" | "ice-blue" | "electric-purple" | "toxic-green" | "gold" | undefined,
   rhythm: "sample" | "quick" | "extended" | undefined,
   additionalPrompt: string,
+  pixelStyle: PixelArtLevel = "classic",
 ): string {
   if (!basePrompt) return [additionalPrompt, EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT].map((part) => part.trim()).filter(Boolean).join("\n\n");
   const colorDirection = {
@@ -233,7 +237,14 @@ export function effectLibraryPrompt(
     quick: "Timing direction: make the motion short and forceful: a very brief buildup, an immediate peak impact, then a fast fade-out.",
     extended: "Timing direction: make the motion spacious and extended: a gradual buildup, a longer peak hold, then a slow fade-out.",
   }[rhythm ?? "sample"];
-  return [colorDirection, rhythmDirection, EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT, basePrompt, additionalPrompt]
+  const gridMatch = basePrompt.match(/(\d+)-column by (\d+)-row Sprite Sheet/i);
+  const columns = Number(gridMatch?.[1] ?? 4);
+  const rows = Number(gridMatch?.[2] ?? 3);
+  const densityPrompt = withPixelArtLevel("EFFECT PIXEL DENSITY RULES:", pixelStyle, "sprite", {
+    assetType: "animation",
+    grid: { columns, rows, unit: "frame" },
+  });
+  return [colorDirection, rhythmDirection, densityPrompt, pixelStyle === "detailed" ? EFFECT_DETAILED_PIXEL_RULES : "", EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT, basePrompt, additionalPrompt]
     .map((part) => part.trim())
     .filter(Boolean)
     .join("\n\n");

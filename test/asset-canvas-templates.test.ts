@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import i18next from "i18next";
 import type { ImageModel } from "../src/shared/contracts.js";
-import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
+import { createAssetCanvasDocument, effectLibraryPrompt, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { canvasImagePresetPrompt, QUICK_RESKIN_DEFAULT_PROMPT } from "../src/shared/canvas-image-presets.js";
 import { actionSheetPrompt, characterAssetPrompt } from "../src/shared/canvas-character-tools.js";
 import { GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS, withCharacterPixelArtLevel, withGlobalPixelStyle, withPixelArtLevel } from "../src/shared/canvas-pixel-style.js";
@@ -24,6 +24,23 @@ const reference: ImageModel = {
 };
 
 describe("pixel asset workflows", () => {
+  it("applies the selected pixel density to effect generation prompts", () => {
+    const base = "Create one complete 4-column by 3-row Sprite Sheet (12 frames) for a fire impact.";
+    const coarse = effectLibraryPrompt(base, "original", "sample", "", "coarse");
+    const classic = effectLibraryPrompt(base, "original", "sample", "", "classic");
+    const detailed = effectLibraryPrompt(base, "original", "sample", "", "detailed");
+    expect(coarse).toContain("PIXEL DENSITY: COARSE PIXELS");
+    expect(coarse).toContain("32×32 pixels");
+    expect(coarse).toContain("Use no more than 8 colors");
+    expect(classic).toContain("PIXEL DENSITY: CLASSIC PIXELS");
+    expect(classic).toContain("64×64 pixels");
+    expect(classic).not.toContain("Use no more than 8 colors");
+    expect(detailed).toContain("PIXEL DENSITY: DETAILED PIXELS");
+    expect(detailed).toContain("192×192 pixels");
+    expect(detailed).toContain("Use no more than 48 colors");
+    expect(detailed).toContain("DETAILED EFFECT PIXEL RULES");
+  });
+
   it("keeps legacy guide markers readable without creating new template boards", () => {
     expect(ASSET_CANVAS_TEMPLATES).toEqual(["pixel-art", "character-sheet", "quick-reskin", "free-sequence", "action-set"]);
     expect(templateImagePresets("pixel-art")).toHaveLength(12);
