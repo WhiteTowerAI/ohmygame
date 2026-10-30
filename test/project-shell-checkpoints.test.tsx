@@ -266,6 +266,9 @@ describe("project shell layout", () => {
     expect(tabs("center")).toEqual(["Code", "Design", "*Canvas", "Assets"]);
     await click("Close Chat");
     expect(container.querySelector(".dock-area-left")).toBeNull();
+    // With the chat closed, its composer floats over the middle, and only there.
+    expect(document.querySelectorAll(".composer")).toHaveLength(1);
+    expect(container.querySelector(".dock-area-center .floating-chat .composer")).not.toBeNull();
 
     await act(async () =>
       daemon.send(1, "workspace.restored", {
@@ -284,6 +287,8 @@ describe("project shell layout", () => {
     await act(async () => menuItem("Chat").click());
     await settle();
     expect(tabs("left")).toEqual(["*Chat"]);
+    expect(container.querySelector(".floating-chat")).toBeNull();
+    expect(document.querySelectorAll(".agent-pane .composer")).toHaveLength(1);
   });
 });
 

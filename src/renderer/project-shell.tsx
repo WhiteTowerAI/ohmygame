@@ -88,6 +88,7 @@ import { CodingWorkspace } from "./coding-workspace.js";
 import { PlayableEditorWorkspace, type StoryView } from "./playable-editor-workspace.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
+import { FloatingChat } from "./floating-chat.js";
 import { composerDrafts } from "./composer-drafts.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
@@ -948,6 +949,102 @@ export function ProjectShell({
       run: () => changeLayout(presetLayout(preset, offered)),
     })),
   ] : []);
+  // The cards that wait on an answer and the composer: in the chat panel, or
+  // in the floating bar over the middle while the panel is closed.
+  const chatInput = <>
+    {approval ? (
+      <ApprovalCard
+        request={approval}
+        agentName={approvalAgent}
+        waiting={approvals.length - 1}
+        onDecide={respondToApproval}
+      />
+    ) : null}
+
+    {questionnaire ? (
+      <QuestionnaireCard
+        request={questionnaire}
+        onSubmit={(answers) => respondToQuestionnaire(answers)}
+        onSkip={() => respondToQuestionnaire([], true)}
+      />
+    ) : null}
+
+    {state.plan.mode === "awaiting_approval" ? (
+      <div className="plan-review">
+        <PlanApprovalCard
+          disabled={agentBusy || state.connection !== "open"}
+          onApprove={executePlan}
+          onRefine={refineCurrentPlan}
+          onCancel={discardPlan}
+        />
+      </div>
+    ) : null}
+
+    {initialPrompt && (initialPromptDeferred || (initialPrompt.generation !== runtime.generation && !initialPromptAttempted.current)) ? <div className="paused-initial-prompt" role="status">
+      <p>{t(initialPromptDeferred ? "integration.promptNotSent" : "projectShell.promptPaused")}</p>
+      <details><summary>{t("projectShell.reviewMessage")}</summary><pre>{initialPrompt.prompt}</pre>
+        {initialPrompt.images.length || initialPrompt.attachments?.length ? <p>{t("projectShell.attachmentsRetained", { count: initialPrompt.images.length + (initialPrompt.attachments?.length ?? 0) })}</p> : null}
+      </details>
+      <button type="button" disabled={runtime.status !== "ready" || state.connection !== "open" || !conversation || conversation.id !== conversationId} onClick={sendInitialPrompt}>{t("projectShell.sendOriginal")}</button>
+    </div> : null}
+    {unfinishedRestore ? <UnfinishedRestoreBanner
+      projectId={projectId}
+      disabled={agentBusy || state.connection !== "open"}
+      workspaceRevision={workspaceRevision}
+      onClose={() => setUnfinishedRestore(false)}
+    /> : null}
+    {!questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
+      key={conversation?.id}
+      projectId={project?.id}
+      conversationId={conversation?.id}
+      supportsDesign={project?.type !== "asset-canvas"}
+      conversationReady={Boolean(conversation) && state.connection === "open"}
+      running={currentConversationBusy}
+      stopping={state.agent.status === "cancelling" || sendingInitialPrompt}
+      pendingPrompts={state.pendingPrompts}
+      plan={activePlan}
+      planMode={state.plan.mode}
+      notice={state.connection === "reconnecting" ? t("projectShell.reconnecting") : state.notice}
+      limitReached={!currentConversationBusy && items.findLast((item) => item.type === "agentMessage")?.error?.code === "quota_exceeded"}
+      models={modelCatalog.models}
+      modelStatus={modelCatalog.status}
+      model={effectiveModel}
+      reasoningLevel={state.settings.reasoningLevel}
+      nativeReasoningLevel={state.settings.nativeReasoningLevel}
+      accountProfileId={accountRuntime ? selectedProfileId : undefined}
+      modelChanging={modelChanging}
+      promptHistory={[
+        ...items.flatMap((item) => item.type === "userMessage" && item.text.trim()
+          ? [{ prompt: item.text, mentions: item.mentions ?? [] }]
+          : []),
+        ...state.pendingPrompts.flatMap((item) => item.prompt.trim()
+          ? [{ prompt: item.prompt, mentions: item.mentions }]
+          : []),
+      ]}
+      capabilities={capabilities}
+      initialDraft={conversation?.id === conversationId ? initialDraft : undefined}
+      onInitialDraftHandled={onInitialDraftHandled}
+      onSubmit={submitPrompt}
+      contexts={chatContexts}
+      onRemoveContext={(key) => {
+        if (key === designChipKey) setDismissedDesign(key);
+        else if (key === playableChat?.surface?.key) setDismissedSurface(key);
+        else playableChat?.removeAttachment(key);
+      }}
+      onCompact={compactCurrentConversation}
+      onContextUsage={currentContextUsage}
+      onCancelPlan={discardPlan}
+      onModelChange={(model) => void changeModel(model)}
+      onReasoningChange={(level) => void changeReasoning(level)}
+      onNativeReasoningChange={(level) => void changeNativeReasoning(level)}
+      onStop={() => void stopAgent()}
+      onRemovePending={removeFollowUp}
+      onSteerPending={steerFollowUp}
+      onEditPending={editFollowUp}
+      canPublish={Boolean(project && (isWebRuntimeProjectType(project.type) || project.type === "interactive-story") && !publishing && !agentBusy)}
+      onPublish={project ? () => setPublishDialog({ projectId: project.id, status: "open" }) : undefined}
+    /> : null}
+  </>;
   const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "canvas" || id === "code" || id === "assets" ? [id] : []));
   const storyVisible = new Set(visible.filter((id): id is StoryView => id === "story" || id === "design" || id === "canvas" || id === "code" || id === "assets"));
 
@@ -975,6 +1072,26 @@ export function ProjectShell({
         const Icon = PANELS[id].icon;
         return { id, title: PANELS[id].title(), icon: <Icon size={14} />, home: homeOf(id), content: <PanelMount nodes={nodes[id]} /> };
       })}
+      overlay={project && !chatShown ? <FloatingChat
+        key={conversation?.id}
+        turnCount={state.turns.length}
+        thread={(since) => (
+          <ErrorBoundary label={t("errorBoundary.label.conversation")} resetKey={conversation?.id}>
+            <AgentTimeline
+              turns={state.turns.slice(since)}
+              projectId={projectId}
+              workspacePath={project.workspacePath}
+              onOpenWorkspaceFile={openWorkspaceFile}
+              waitingForInput={Boolean(questionnaire || approval)}
+              changeControls={turnChanges}
+              workspaceRevision={workspaceRevision}
+            />
+          </ErrorBoundary>
+        )}
+        running={currentConversationBusy}
+        attention={Boolean(approval || questionnaire || state.plan.mode === "awaiting_approval")}
+        onExpand={() => revealPanel("chat")}
+      >{chatInput}</FloatingChat> : undefined}
       empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered))}>{t("panels.reset")}</Button>} /> : null} /> : null}
     {createPortal(<div className="pane-header-actions">
             {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
@@ -1031,98 +1148,7 @@ export function ProjectShell({
             </Activity>
           </div>
 
-          {approval ? (
-            <ApprovalCard
-              request={approval}
-              agentName={approvalAgent}
-              waiting={approvals.length - 1}
-              onDecide={respondToApproval}
-            />
-          ) : null}
-
-          {questionnaire ? (
-            <QuestionnaireCard
-              request={questionnaire}
-              onSubmit={(answers) => respondToQuestionnaire(answers)}
-              onSkip={() => respondToQuestionnaire([], true)}
-            />
-          ) : null}
-
-          {state.plan.mode === "awaiting_approval" ? (
-            <div className="plan-review">
-              <PlanApprovalCard
-                disabled={agentBusy || state.connection !== "open"}
-                onApprove={executePlan}
-                onRefine={refineCurrentPlan}
-                onCancel={discardPlan}
-              />
-            </div>
-          ) : null}
-
-          {initialPrompt && (initialPromptDeferred || (initialPrompt.generation !== runtime.generation && !initialPromptAttempted.current)) ? <div className="paused-initial-prompt" role="status">
-            <p>{t(initialPromptDeferred ? "integration.promptNotSent" : "projectShell.promptPaused")}</p>
-            <details><summary>{t("projectShell.reviewMessage")}</summary><pre>{initialPrompt.prompt}</pre>
-              {initialPrompt.images.length || initialPrompt.attachments?.length ? <p>{t("projectShell.attachmentsRetained", { count: initialPrompt.images.length + (initialPrompt.attachments?.length ?? 0) })}</p> : null}
-            </details>
-            <button type="button" disabled={runtime.status !== "ready" || state.connection !== "open" || !conversation || conversation.id !== conversationId} onClick={sendInitialPrompt}>{t("projectShell.sendOriginal")}</button>
-          </div> : null}
-          {unfinishedRestore ? <UnfinishedRestoreBanner
-            projectId={projectId}
-            disabled={agentBusy || state.connection !== "open"}
-            workspaceRevision={workspaceRevision}
-            onClose={() => setUnfinishedRestore(false)}
-          /> : null}
-          {!questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
-            key={conversation?.id}
-            projectId={project?.id}
-            conversationId={conversation?.id}
-            supportsDesign={project?.type !== "asset-canvas"}
-            conversationReady={Boolean(conversation) && state.connection === "open"}
-            running={currentConversationBusy}
-            stopping={state.agent.status === "cancelling" || sendingInitialPrompt}
-            pendingPrompts={state.pendingPrompts}
-            plan={activePlan}
-            planMode={state.plan.mode}
-            notice={state.connection === "reconnecting" ? t("projectShell.reconnecting") : state.notice}
-            limitReached={!currentConversationBusy && items.findLast((item) => item.type === "agentMessage")?.error?.code === "quota_exceeded"}
-            models={modelCatalog.models}
-            modelStatus={modelCatalog.status}
-            model={effectiveModel}
-            reasoningLevel={state.settings.reasoningLevel}
-            nativeReasoningLevel={state.settings.nativeReasoningLevel}
-            accountProfileId={accountRuntime ? selectedProfileId : undefined}
-            modelChanging={modelChanging}
-            promptHistory={[
-              ...items.flatMap((item) => item.type === "userMessage" && item.text.trim()
-                ? [{ prompt: item.text, mentions: item.mentions ?? [] }]
-                : []),
-              ...state.pendingPrompts.flatMap((item) => item.prompt.trim()
-                ? [{ prompt: item.prompt, mentions: item.mentions }]
-                : []),
-            ]}
-            capabilities={capabilities}
-            initialDraft={conversation?.id === conversationId ? initialDraft : undefined}
-            onInitialDraftHandled={onInitialDraftHandled}
-            onSubmit={submitPrompt}
-            contexts={chatContexts}
-            onRemoveContext={(key) => {
-              if (key === designChipKey) setDismissedDesign(key);
-              else if (key === playableChat?.surface?.key) setDismissedSurface(key);
-              else playableChat?.removeAttachment(key);
-            }}
-            onCompact={compactCurrentConversation}
-            onContextUsage={currentContextUsage}
-            onCancelPlan={discardPlan}
-            onModelChange={(model) => void changeModel(model)}
-            onReasoningChange={(level) => void changeReasoning(level)}
-            onNativeReasoningChange={(level) => void changeNativeReasoning(level)}
-            onStop={() => void stopAgent()}
-            onRemovePending={removeFollowUp}
-            onSteerPending={steerFollowUp}
-            onEditPending={editFollowUp}
-            canPublish={Boolean(project && (isWebRuntimeProjectType(project.type) || project.type === "interactive-story") && !publishing && !agentBusy)}
-            onPublish={project ? () => setPublishDialog({ projectId: project.id, status: "open" }) : undefined}
-          /> : null}
+          {chatShown ? chatInput : null}
       </div>
     </section>, nodes.chat.body)}
       <ErrorBoundary key={`${projectId}:${workspaceEpoch}`} label={t("errorBoundary.label.workspace")} resetKey={project?.id} onHome={onHome} homeLabel={homeLabel}>
