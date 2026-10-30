@@ -1,5 +1,5 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import os, { tmpdir } from "node:os";
 import path from "node:path";
 import { ConversationManager } from "../src/daemon/conversations.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -233,8 +233,12 @@ describe("coding agent routes", () => {
     expect((await call<ConversationDetail>("GET", second)).body.settings.accountProfiles?.["codex-cli"]).toBe(personal.id);
     const independent = new AgentRuntimeService(dataDirectory, () => undefined);
     await independent.settings.load();
-    expect((await independent.cli("codex-cli"))?.env.CODEX_HOME).toBe(process.env.CODEX_HOME);
-    expect((await independent.codexImageConnection())?.env.CODEX_HOME).toBe(process.env.CODEX_HOME);
+    // System default is the CLI's default home, whatever CODEX_HOME OhMyGame was launched with.
+    vi.stubEnv("CODEX_HOME", path.join(dataDirectory, "inherited-codex"));
+    try {
+      expect((await independent.cli("codex-cli"))?.env.CODEX_HOME).toBeUndefined();
+      expect((await independent.codexImageConnection())?.env.CODEX_HOME).toBeUndefined();
+    } finally { vi.unstubAllEnvs(); }
     const busy = await call<{turnId:string}>("POST", `${second}/turns`, {prompt:"hold busy"});
     await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", second)).body.agent.status).toBe("running"));
     expect((await call("PUT", `${second}/account-profile`, {runtime:"codex-cli",profileId:work.id})).status).toBe(409);
@@ -285,12 +289,20 @@ describe("coding agent routes", () => {
     await writeFile(path.join(managed.configDirectory!, "auth.json"), "managed credentials");
     await call("PATCH", `/agent-runtimes/${runtime}`, { defaultProfileId: managed.id });
     expect((await call("POST", `/agent-runtimes/${runtime}/profiles`, { name: "Alias", configDirectory: managed.configDirectory })).status).toBe(400);
-    const systemDirectory = path.join(dataDirectory, "system-cli");
-    await mkdir(systemDirectory);
-    vi.stubEnv(runtime === "claude-code-cli" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", systemDirectory);
+    const home = path.join(dataDirectory, "home");
+    const systemDirectory = path.join(home, runtime === "claude-code-cli" ? ".claude" : ".codex");
+    const inheritedDirectory = path.join(dataDirectory, "inherited-cli");
+    await mkdir(systemDirectory, { recursive: true });
+    await mkdir(inheritedDirectory);
+    const homedir = vi.spyOn(os, "homedir").mockReturnValue(home);
+    vi.stubEnv(runtime === "claude-code-cli" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", inheritedDirectory);
     try {
       expect((await call("POST", `/agent-runtimes/${runtime}/profiles`, { name: "System", configDirectory: systemDirectory })).status).toBe(400);
-    } finally { vi.unstubAllEnvs(); }
+      // The folder OhMyGame was launched with is an ordinary account, not System default.
+      const inherited = (await call<AgentAccountProfile>("POST", `/agent-runtimes/${runtime}/profiles`, { name: "Inherited", configDirectory: inheritedDirectory })).body;
+      expect(inherited.managed).toBe(false);
+      expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/${inherited.id}`)).status).toBe(204);
+    } finally { vi.unstubAllEnvs(); homedir.mockRestore(); }
     expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/system`)).status).toBe(400);
     expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/missing`)).status).toBe(404);
     expect((await call("DELETE", `/agent-runtimes/opencode-cli/profiles/${managed.id}`)).status).toBe(404);
@@ -424,8 +436,16 @@ describe("coding agent routes", () => {
       .replace('if (message.type !== "control_request") return;', `if (message.type === "user") { console.log(JSON.stringify({type:"system", subtype:"init", session_id:"test-thread"})); console.log(JSON.stringify({type:"assistant", message:{content:[{type:"text",text:"Profile answer"}]}})); console.log(JSON.stringify({type:"result",subtype:"success"})); return; } if (message.type !== "control_request") return;`);
     await writeFile(claude, source);
     vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", "fixture-ambient-token");
+    vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dataDirectory, "inherited-claude"));
     try {
       await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+      // System default signs in to the default folder, not the one OhMyGame was launched with.
+      // The command shown for a terminal clears the variable, which that terminal may set even when OhMyGame has none.
+      for (const inherited of [path.join(dataDirectory, "inherited-claude"), undefined]) {
+        vi.stubEnv("CLAUDE_CONFIG_DIR", inherited);
+        expect((await call<{command: string}>("POST", "/agent-runtimes/claude-code-cli/login")).body.command).toBe(`env -u CLAUDE_CONFIG_DIR '${claude}' auth login`);
+      }
+      vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dataDirectory, "inherited-claude"));
       const profile = (await call<AgentAccountProfile>("POST", "/agent-runtimes/claude-code-cli/profiles", { name: "Work" })).body;
       const login = await call<{command: string}>("POST", `/agent-runtimes/claude-code-cli/login?profileId=${profile.id}`);
       expect(login.body.command).toContain(profile.configDirectory);
@@ -436,6 +456,8 @@ describe("coding agent routes", () => {
       expect((await call("POST", `${base}/turns`, { prompt: "Hello" })).status).toBe(202);
       await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"));
       const records = (await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+      expect(records.some((record) => record.args[0] === "auth" && record.args[1] === "login" && record.dir === undefined)).toBe(true);
+      expect(records.some((record) => String(record.dir).includes("inherited-claude"))).toBe(false);
       const selected = records.filter((record) => record.dir === profile.configDirectory);
       expect(selected.some((record) => record.args[0] === "auth" && record.args[1] === "login")).toBe(true);
       expect(selected.some((record) => record.args[0] === "-p")).toBe(true);

@@ -102,7 +102,9 @@ report, so it has them before its own first turn. Codex reports them whenever it
 models are checked and while it works; Claude Code reports them during a
 conversation (its `rate_limit_event`), so they appear after its first one.
 The latest report is kept in `agent-runtimes/limits.json`, and a window whose
-reset time has passed shows as empty. OpenCode bills each model provider and
+reset time has passed shows as empty. System default reports saved by earlier
+versions are dropped once, since they may belong to the directory OhMyGame was
+launched with. OpenCode bills each model provider and
 has no quota of its own.
 
 When a turn stops at a usage limit (such as Claude Code's "You've hit your
@@ -133,9 +135,9 @@ In **Settings → Agents → Claude Code/Codex → Accounts**, click **+**, ente
 name and click **Add** to create a private configuration and start the official
 sign-in flow. **Use an existing directory** expands an optional import field for
 an absolute configuration path; importing does not start another sign-in.
-System default's own directory (`CLAUDE_CONFIG_DIR` or `~/.claude`, `CODEX_HOME`
-or `~/.codex`) cannot be imported: naming it explicitly would give Claude a
-separate Keychain entry and global configuration file while sharing its settings.
+System default's own directory (`~/.claude` or `~/.codex`) cannot be imported:
+naming it explicitly would give Claude a separate Keychain entry and global
+configuration file while sharing its settings.
 A managed Codex directory is created before its CLI starts and uses
 `cli_auth_credentials_store = "file"` in its own `config.toml`. The directory is
 private, and Codex manages its sign-in in `auth.json`. Imported configurations
@@ -149,7 +151,12 @@ Completing authorization lets the CLI update credentials in that configuration.
 
 ![Compact account list with a default selection and sign-in actions](assets/coding-agent-accounts.png)
 
-**System default** retains the existing CLI environment and sign-in. New profiles
+**System default** is the CLI's own default directory (`~/.claude` or
+`~/.codex`) and its sign-in. A `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that OhMyGame
+inherits, from a terminal or from a tool that sets it for apps with `launchctl
+setenv`, is not used: it only records whichever account was selected when
+OhMyGame started. To use that directory, import it with **Use an existing
+directory**; it then shares its sign-in and files with the terminal. New profiles
 have independent CLI settings, hooks, MCP servers, Skills and native history.
 Select an account row's radio button to make it the default for new chats. Existing chats retain
 their own selections; switching between Claude Code and Codex in a chat retains
