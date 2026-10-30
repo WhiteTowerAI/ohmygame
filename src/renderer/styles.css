@@ -9761,10 +9761,10 @@ summary.work-summary:hover {
   align-items: center;
   gap: 5px;
   padding: 3px 4px 3px 8px;
-  border: 0.5px solid var(--border);
+  border: 0.5px solid var(--color-border);
   border-radius: 999px;
-  background: var(--control-surface);
-  color: var(--text-muted);
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
   font-size: 11px;
 }
 
@@ -9777,7 +9777,7 @@ summary.work-summary:hover {
 }
 
 .composer-context small {
-  color: var(--text-faint);
+  color: var(--color-text-tertiary);
   font-size: 10px;
 }
 
@@ -9790,13 +9790,13 @@ summary.work-summary:hover {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--text-faint);
+  color: var(--color-text-tertiary);
   cursor: pointer;
 }
 
 .composer-context button:hover {
   background: var(--control-hover, rgba(255, 255, 255, 0.08));
-  color: var(--text);
+  color: var(--color-text);
 }
 
 .composer-reference {

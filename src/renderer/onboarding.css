@@ -7,16 +7,20 @@
   min-height: 0;
   padding: 28px 32px;
   overflow-y: auto;
-  background: var(--color-app);
+  background: var(--onboarding-backdrop);
   color: var(--color-text);
 }
 
-:root[data-appearance="light"] .onboarding {
-  --canvas: #ffffff;
+:root {
+  --onboarding-backdrop: var(--color-app);
+}
+
+:root[data-appearance="light"] {
+  --onboarding-backdrop: var(--color-surface);
 }
 
 :root[data-appearance="light"] .desktop-window-frame:has(.onboarding) {
-  --window-chrome-background: #ffffff;
+  --window-chrome-background: var(--onboarding-backdrop);
 }
 
 .desktop-window-content > .onboarding {
@@ -106,7 +110,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   pointer-events: none;
   animation: onboarding-demo-position var(--onboarding-intro-duration) ease both;
   --demo-duration: var(--onboarding-intro-duration, 5.2s);
-  --demo-ground: color-mix(in srgb, #82937a 44%, var(--color-app));
+  --demo-ground: color-mix(in srgb, #82937a 44%, var(--onboarding-backdrop));
   --demo-tree: color-mix(in srgb, var(--color-text) 22%, var(--demo-ground));
 }
 .onboarding-demo > svg {
@@ -134,7 +138,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   animation: onboarding-demo-morph var(--demo-duration) ease both;
 }
 .onboarding-demo-logo-details {
-  fill: var(--color-app);
+  fill: var(--onboarding-backdrop);
   animation: onboarding-demo-logo-details var(--demo-duration) ease both;
 }
 .onboarding-demo-wordmark {
@@ -148,18 +152,18 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   opacity: 0.035;
 }
 .onboarding-demo-earth {
-  fill: color-mix(in srgb, #8c8173 40%, var(--color-app));
+  fill: color-mix(in srgb, #8c8173 40%, var(--onboarding-backdrop));
 }
 .onboarding-demo-terrain {
   transform-origin: 164px 70px;
   animation: onboarding-demo-terrain var(--demo-duration) ease both;
 }
 .onboarding-demo-hill {
-  fill: color-mix(in srgb, #a4b294 48%, var(--color-app));
+  fill: color-mix(in srgb, #a4b294 48%, var(--onboarding-backdrop));
 }
 .onboarding-demo-path {
   fill: none;
-  stroke: color-mix(in srgb, #e0d6bc 70%, var(--color-app));
+  stroke: color-mix(in srgb, #e0d6bc 70%, var(--onboarding-backdrop));
   stroke-width: 13;
   stroke-linecap: round;
   stroke-dasharray: 180;
@@ -174,7 +178,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   fill: var(--demo-tree);
 }
 .onboarding-demo-tree-top {
-  fill: color-mix(in srgb, var(--demo-tree) 85%, var(--color-app));
+  fill: color-mix(in srgb, var(--demo-tree) 85%, var(--onboarding-backdrop));
 }
 .onboarding-demo-tree-piece {
   transform-box: fill-box;
@@ -182,7 +186,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   animation: onboarding-demo-grow 0.65s var(--tree-delay) ease both;
 }
 .onboarding-demo-stones {
-  fill: color-mix(in srgb, var(--color-text-secondary) 40%, var(--color-app));
+  fill: color-mix(in srgb, var(--color-text-secondary) 40%, var(--onboarding-backdrop));
   transform-origin: 140px 86px;
   animation: onboarding-demo-stones var(--demo-duration) ease both;
 }
@@ -734,13 +738,13 @@ section.onboarding-media .onboarding-provider-list {
   padding: 8px 18px;
   border: 0;
   border-radius: var(--radius-sm);
-  background: var(--color-surface-raised);
+  background: var(--color-hover);
   color: var(--color-text);
   font-size: 13px;
   font-weight: 500;
 }
 .onboarding-primary-button:hover:not(:disabled) {
-  background: var(--color-hover);
+  background: var(--color-selected);
 }
 .onboarding-primary-button:disabled {
   opacity: 0.55;
@@ -951,15 +955,12 @@ section.onboarding-media .onboarding-provider-list {
   z-index: 1000;
   display: grid;
   place-items: center;
-  background: var(--color-app);
+  background: var(--onboarding-backdrop);
   color: var(--color-text);
   animation: onboarding-arrival-exit var(--arrival-duration) ease both;
 }
 .onboarding-arrival > .window-drag-region {
   position: absolute;
-}
-:root[data-appearance="light"] .onboarding-arrival {
-  background: #fff;
 }
 .onboarding-arrival h1 {
   margin: 0;
