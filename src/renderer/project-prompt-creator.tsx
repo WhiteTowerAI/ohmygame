@@ -14,7 +14,7 @@ import type { FirstMessage } from "./project-create-dialog.js";
 import { HomePluginMenu } from "./home-plugin-menu.js";
 import { PROJECT_TYPES } from "./project-types.js";
 import { isAppProjectType, MORE_TYPES, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes, useProjectPluginChoices } from "./project-type-choices.js";
-import { Select } from "./ui/index.js";
+import { Button, Select } from "./ui/index.js";
 import { useComposerContextMenu } from "./composer-context-menu.js";
 import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, parseSkillInvocation, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { createPromptHistory, loadHomePromptHistory, nextPrompt, previousPrompt } from "./prompt-history.js";
@@ -74,13 +74,13 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   // A starter the person picked for this type, No plugin included, stays put.
   const [starterChosen, setStarterChosen] = useState(false);
   const [savedType, setSavedType] = useState(loadType);
-  const { types: loadedPluginTypes } = usePluginProjectTypes();
+  const { types: loadedPluginTypes, failed: pluginTypesFailed, retry: retryPluginTypes } = usePluginProjectTypes();
   const pluginTypes = loadedPluginTypes ?? [];
   // A plugin's type stays chosen only while its plugin is installed and enabled;
   // until plugins' types load, sending waits rather than sending another type.
   const typePending = !isAppProjectType(savedType) && loadedPluginTypes === undefined;
   const type = isAppProjectType(savedType) || typePending || pluginTypes.some((option) => option.id === savedType) ? savedType : DEFAULT_TYPE;
-  const projectPluginChoices = useProjectPluginChoices() ?? [];
+  const projectPluginChoices = useProjectPluginChoices().choices ?? [];
   const [projectPluginIds, setProjectPluginIds] = useState<string[]>([]);
   const [mentionCursor, setMentionCursor] = useState(0);
   const [savingDefaults, setSavingDefaults] = useState(false);
@@ -407,6 +407,12 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
         onDropError={(cause) => setError(cause.message)}
       />
       {error ? <p className="home-notice" role="alert">{error}</p> : null}
+      {typePending && pluginTypesFailed ? (
+        <p className="home-notice" role="alert">
+          {t("createDialog.pluginsFailed")}{" "}
+          <Button size="sm" variant="ghost" onClick={retryPluginTypes}>{t("common.retry")}</Button>
+        </p>
+      ) : null}
       <div className="home-ideas">
         {ideas.map((key) => (
           <button key={key} type="button" className="home-idea" disabled={creating} onClick={() => {

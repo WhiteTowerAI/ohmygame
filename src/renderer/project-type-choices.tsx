@@ -41,18 +41,21 @@ export function usePluginProjectTypes(): { types?: AvailableProjectType[]; faile
   return { types, failed, retry: () => setAttempt((value) => value + 1) };
 }
 
-/** The enabled format 2 plugins a new project can turn on; undefined while loading. */
-export function useProjectPluginChoices(): ProjectPluginChoice[] | undefined {
+/** The enabled format 2 plugins a new project can turn on; `choices` is undefined until they load. */
+export function useProjectPluginChoices(): { choices?: ProjectPluginChoice[]; failed: boolean; retry: () => void } {
   const [choices, setChoices] = useState<ProjectPluginChoice[]>();
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
+    setFailed(false);
     void waitForRuntime()
       .then(() => listProjectPluginChoices())
       .then((result) => { if (active) setChoices(result); })
-      .catch(() => { if (active) setChoices([]); });
+      .catch(() => { if (active) setFailed(true); });
     return () => { active = false; };
-  }, []);
-  return choices;
+  }, [attempt]);
+  return { choices, failed, retry: () => setAttempt((value) => value + 1) };
 }
 
 /** The type menu's options: the app's types, plugins' types, then 更多类型…. */

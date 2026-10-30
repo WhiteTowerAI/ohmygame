@@ -103,7 +103,7 @@ export function ProjectCreateDialog({
   // A plugin's type is recorded as a general project that its plugin runs.
   const kind: ProjectType = isAppProjectType(type) ? type : "general";
   // The plugin that adds the type turns on with the project, so creating allows what it asks for.
-  const pluginChoices = useProjectPluginChoices();
+  const { choices: pluginChoices, failed: pluginChoicesFailed, retry: retryPluginChoices } = useProjectPluginChoices();
   const typePluginId = pluginTypes.find((option) => option.id === type)?.plugin?.id;
   const typePlugin = pluginChoices?.find((plugin) => plugin.id === typePluginId);
   // A plugin is allowed once even when it asks for nothing beyond its files.
@@ -291,10 +291,13 @@ export function ProjectCreateDialog({
             {onOpenProject ? <Button size="sm" onClick={() => onOpenProject(existingProject.id)}>{t("creator.openProject")}</Button> : null}
           </p>
         ) : null}
-        {installedPluginTypes.failed && !isAppProjectType(preferred) ? (
+        {(installedPluginTypes.failed && !isAppProjectType(preferred)) || (pluginChoicesFailed && !isAppProjectType(type)) ? (
           <p className="new-project-error" role="alert">
             {t("createDialog.pluginsFailed")}
-            <Button size="sm" onClick={installedPluginTypes.retry}>{t("common.retry")}</Button>
+            <Button size="sm" onClick={() => {
+              if (installedPluginTypes.failed) installedPluginTypes.retry();
+              if (pluginChoicesFailed) retryPluginChoices();
+            }}>{t("common.retry")}</Button>
           </p>
         ) : null}
         {pluginsPhase === "error" ? (

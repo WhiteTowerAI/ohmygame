@@ -24,13 +24,14 @@ let projectPlugins: ProjectPluginChoice[];
 // Set to hold GET /project-types until a test answers it.
 let pendingTypes: Promise<never> | undefined;
 let pendingCapabilities: Promise<ConversationCapabilities> | undefined;
+let typesFail = 0;
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   waitForRuntime: async () => undefined,
   getHomeComposerCapabilities: async () => pendingCapabilities ?? capabilities,
   listModels: async () => ({ models: [] }),
   listProjectPluginChoices: async () => projectPlugins,
-  listProjectTypes: async () => pendingTypes ?? [
+  listProjectTypes: async () => typesFail-- > 0 ? Promise.reject(new Error("offline")) : pendingTypes ?? [
     { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: { id: "ohmygame/godot", version: "1.0.0" } },
     { id: "acme/tiles:tile-map", title: "Tile Map", plugin: { id: "acme/tiles", version: "2.1.0" } },
   ],
@@ -60,6 +61,7 @@ beforeEach(() => {
   localStorage.clear();
   pendingTypes = undefined;
   pendingCapabilities = undefined;
+  typesFail = 0;
   window.location.hash = "";
   onSubmit.mockReset();
   draftKey = `test-${crypto.randomUUID()}`;
@@ -240,6 +242,17 @@ describe("Home prompt box", () => {
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
     await send();
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("offers a retry when plugins' types fail to load for a type it remembered", async () => {
+    localStorage.setItem("ohmygame.home.projectType", "acme/tiles:tile-map");
+    typesFail = 1;
+    await render();
+    expect(container.querySelector(".home-notice")!.textContent).toContain("Couldn't load plugins");
+    const retry = [...container.querySelectorAll<HTMLButtonElement>(".home-notice button")].find((item) => item.textContent === "Retry")!;
+    await act(async () => retry.click());
+    expect(container.querySelector(".home-notice")).toBeNull();
+    expect(typePicker().textContent).toBe("Tile Map");
   });
 
   it("keeps No plugin when the person picks it before plugins load", async () => {
