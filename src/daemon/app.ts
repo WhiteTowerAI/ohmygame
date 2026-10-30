@@ -787,7 +787,8 @@ export function createApp(options: AppOptions = {}) {
   const pluginServices = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
   // Format 2 plugins that ship with the app sit next to the format 1 ones.
   const bundledPluginsV2 = path.join(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"), "..", "plugins-v2");
-  void pluginServices.addBundled(bundledPluginsV2).catch((err: unknown) => app.log.warn({ err }, "Could not index the bundled format 2 plugins"));
+  // Routes that list what is installed wait for this, so a fresh start doesn't miss the bundled ones.
+  const bundledPluginsV2Indexed = pluginServices.addBundled(bundledPluginsV2).then(() => {}, (err: unknown) => app.log.warn({ err }, "Could not index the bundled format 2 plugins"));
   const legacyMcp = new LegacyMcpConfiguration(piAgentDirectory);
   const bundledPlugins = new BundledPluginStore(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"));
   const preinstalledPlugins = new PreinstalledPluginManager(
@@ -1202,6 +1203,7 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     await pluginServices.ready();
+    await bundledPluginsV2Indexed;
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     const catalog = await plugins.list();
     const global = catalog.plugins
@@ -1236,6 +1238,7 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish first" });
     try {
+      await bundledPluginsV2Indexed;
       // A project made before plugins could be per project gets its `ohmygame.json` now.
       const initialType = (CORE_PROJECT_TYPES as readonly string[]).includes(project.type) ? project.type : "general";
       await pluginServices.setProjectPlugin(project.workspacePath, `${request.params.publisher}/${request.params.name}`, request.body.version, initialType);
