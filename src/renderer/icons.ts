@@ -120,6 +120,7 @@ import {
   RoutingIcon,
   TrashBinMinimalisticIcon,
   UserIcon,
+  SpeedometerMiddleIcon,
 } from "@solar-icons/react/linear";
 import type { Icon as SolarIcon, IconProps } from "@solar-icons/react/lib/types";
 import { createElement, forwardRef } from "react";
@@ -300,4 +301,5 @@ export {
   WalletIcon as Wallet,
   DatabaseIcon as Database,
   TextFieldIcon as TextField,
+  SpeedometerMiddleIcon as Gauge,
 };

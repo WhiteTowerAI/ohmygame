@@ -26,7 +26,8 @@ import { getProjectCover, getProjectLogo, listConversations, listProjects, waitF
 import { useAuth } from "./auth.js";
 import { BrandLogo } from "./brand-logo.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
-import { conversationHash, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
+import { ProjectCreateDialog } from "./project-create-dialog.js";
+import { conversationHash, createdProjectView, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { DropdownMenu, IconButton, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
 import { useDesktopUpdate } from "./use-desktop-update.js";
@@ -525,6 +526,7 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
   const recent = !project || latest.some((item) => item.id === project.id)
     ? latest : [...latest.slice(0, RECENT_LIMIT - 1), project];
   const history = useHistoryState();
+  const [creating, setCreating] = useState(false);
   const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
   const openHash = (hash: string) => onLeave(() => { window.location.hash = hash; });
   return (
@@ -551,11 +553,16 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
             conversations={project.id === projectId ? conversations : undefined} />
         ))}
         <Tooltip content={t("sidebar.newProject")} placement="right-start">
-          <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => leaveTo("home")}>
+          <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => setCreating(true)}>
             <CirclePlus size={16} />
           </button>
         </Tooltip>
       </div>
+      {creating ? <ProjectCreateDialog
+        onClose={() => setCreating(false)}
+        onOpenProject={(id) => { setCreating(false); openHash(projectHash(id)); }}
+        onCreated={(created) => { setCreating(false); openHash(projectHash(created.id, createdProjectView(created.type))); }}
+      /> : null}
       <span className="sidebar-spacer" />
       <div className="sidebar-group">
         <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={openCommandMenu} />

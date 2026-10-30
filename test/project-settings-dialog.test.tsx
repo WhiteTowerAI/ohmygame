@@ -248,6 +248,9 @@ describe("preview settings drafts", () => {
   it("saves a chosen icon and the template cover at once, without saving the form", async () => {
     vi.mocked(setProjectAppearance).mockImplementation(async (_id, appearance) => ({ ...project, appearance }));
     const radio = (name: string) => container.querySelector<HTMLButtonElement>(`[role="radio"][aria-label="${name}"]`)!;
+    // The default icons stay folded until asked for.
+    expect(radio("Rocket")).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>(".project-appearance-library-toggle")!.click());
     await act(async () => radio("Rocket").click());
     expect(setProjectAppearance).toHaveBeenLastCalledWith(project.id, { icon: "rocket" });
     expect(radio("Rocket").getAttribute("aria-checked")).toBe("true");

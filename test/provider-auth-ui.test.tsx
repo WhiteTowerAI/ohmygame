@@ -36,7 +36,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
 }));
-const { ProviderDetailDialog } = await import("../src/renderer/models-settings.js");
+const { ModelsSettings } = await import("../src/renderer/models-settings.js");
 const initialLanguage = i18next.language;
 
 let host: HTMLDivElement;
@@ -71,7 +71,11 @@ const openai: ProviderSummary = {
 async function render(provider = openai) {
   await act(async () =>
     root.render(
-      <ProviderDetailDialog provider={provider} onClose={() => {}} onOpenAgents={() => {}} />,
+      <ModelsSettings
+        view={{ page: "provider", provider }}
+        onViewChange={() => {}}
+        onOpenAgents={() => {}}
+      />,
     ),
   );
 }
@@ -109,7 +113,7 @@ it.each([
     await i18next.changeLanguage(locale);
     await render();
     const choices = [
-      ...document.body.querySelectorAll<HTMLButtonElement>(
+      ...host.querySelectorAll<HTMLButtonElement>(
         ".settings-form-actions button",
       ),
     ];
@@ -120,7 +124,7 @@ it.each([
       "api_key",
     );
     await prompt({ type: "secret", message: "Enter OpenAI API key" });
-    const input = document.body.querySelector<HTMLInputElement>(
+    const input = host.querySelector<HTMLInputElement>(
       'input[type="password"]',
     )!;
     expect(input.closest("label")?.querySelector("span")?.textContent).toBe(
@@ -144,7 +148,7 @@ it.each(["en", "zh-CN"])(
         openai.methods[1]!,
       ],
     });
-    const choice = document.body.querySelector<HTMLButtonElement>(
+    const choice = host.querySelector<HTMLButtonElement>(
       ".settings-method-row",
     )!;
     expect(choice.querySelector("strong")?.textContent).toBe(
@@ -156,7 +160,7 @@ it.each(["en", "zh-CN"])(
       message: "Paste the one-time code from your account",
       placeholder: "code#state",
     });
-    const input = document.body.querySelector<HTMLInputElement>("input")!;
+    const input = host.querySelector<HTMLInputElement>("input")!;
     expect(input.closest("label")?.textContent).toBe(
       "Paste the one-time code from your account",
     );
@@ -173,17 +177,17 @@ it("offers first-time chat credentials and an endpoint for an image-only OpenAI 
     imageConfigured: true,
   });
   const choice = [
-    ...document.body.querySelectorAll<HTMLButtonElement>(
+    ...host.querySelectorAll<HTMLButtonElement>(
       ".settings-form-actions button",
     ),
   ].find((button) => button.textContent === "OpenAI API key")!;
   await act(async () => choice.click());
   await prompt({ type: "secret", message: "Enter OpenAI API key" });
-  const input = document.body.querySelector<HTMLInputElement>('input[type="password"]')!;
+  const input = host.querySelector<HTMLInputElement>('input[type="password"]')!;
   expect(input.closest("label")?.textContent).toBe("Enter OpenAI API key");
   expect(input.placeholder).toBe("Paste your OpenAI API key");
   expect(
-    document.body.querySelector<HTMLInputElement>("#model-provider-base-url")?.value,
+    host.querySelector<HTMLInputElement>("#model-provider-base-url")?.value,
   ).toBe("https://api.openai.com/v1");
 });
 
@@ -205,18 +209,18 @@ it.each(["en", "zh-CN"])(
         { id: "profile", label: "AWS profile" },
       ],
     });
-    expect(document.body.querySelector("label")?.textContent).toContain(
+    expect(host.querySelector("label")?.textContent).toContain(
       "Select Amazon Bedrock authentication method:",
     );
     expect(
-      [...document.body.querySelectorAll("option")].map((option) => option.textContent),
+      [...host.querySelectorAll("option")].map((option) => option.textContent),
     ).toEqual(["Bearer token", "AWS profile"]);
     await prompt({
       type: "secret",
       message: "Enter Amazon Bedrock bearer token",
       placeholder: "AWS bearer token",
     });
-    const input = document.body.querySelector<HTMLInputElement>("input")!;
+    const input = host.querySelector<HTMLInputElement>("input")!;
     expect(input.closest("label")?.textContent).toBe(
       "Enter Amazon Bedrock bearer token",
     );

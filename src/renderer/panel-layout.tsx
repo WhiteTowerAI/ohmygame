@@ -365,10 +365,11 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
 }
 
 /**
- * An area's tab strip. When the labels no longer fit beside the active panel's
- * toolbar, the tabs you aren't on keep only their icons; they get their labels
- * back once the strip is wider than when it compacted, or the tabs change. A
- * single tab reads as the area's title, without a selected fill or close button.
+ * An area's tab strip. The active panel's toolbar shortens its titles first;
+ * when it still does not fit beside the tabs, the tabs you aren't on keep only
+ * their icons. They get their labels back once the strip is wider than when it
+ * compacted, or the tabs change. A single tab reads as the area's title,
+ * without a selected fill or close button.
  */
 function DockTabStrip({ single, resetKey, children, ...props }: { single: boolean; resetKey: string; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
   const strip = useRef<HTMLDivElement>(null);
@@ -384,8 +385,9 @@ function DockTabStrip({ single, resetKey, children, ...props }: { single: boolea
         if (element.clientWidth > compactWidth.current + 24) setCompact(false);
         return;
       }
-      const labels = element.querySelectorAll<HTMLElement>(".dock-tab:not(.is-active) .dock-tab-label");
-      if ([...labels].some((label) => label.scrollWidth > label.clientWidth + 1)) {
+      const toolbar = element.querySelector<HTMLElement>(".dock-toolbar:not([hidden])");
+      const overflows = (box: HTMLElement | null) => Boolean(box && box.scrollWidth > box.clientWidth + 1);
+      if (element.querySelector(".dock-tab:not(.is-active)") && (overflows(element) || overflows(toolbar))) {
         compactWidth.current = element.clientWidth;
         setCompact(true);
       }

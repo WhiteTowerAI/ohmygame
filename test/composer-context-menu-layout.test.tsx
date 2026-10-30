@@ -12,9 +12,11 @@ let paneBottom = 600;
 function Composer({
   prompt,
   agent = false,
+  home = false,
 }: {
   prompt: string;
   agent?: boolean;
+  home?: boolean;
 }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const menu = useComposerContextMenu({
@@ -34,7 +36,7 @@ function Composer({
   return (
     <div className="desktop-window-content">
       <div className={agent ? "agent-body" : "home-content"}>
-        <div className="prompt-box">
+        <div className={home ? "prompt-box prompt-box-home" : "prompt-box"}>
           <textarea ref={textarea} />
           {menu.button}
           {menu.overlay}
@@ -138,6 +140,16 @@ describe("composer menu viewport boundaries", () => {
     await act(async () => window.dispatchEvent(new Event("resize")));
     expect(menu.classList.contains("is-below")).toBe(false);
     expect(menu.style.maxHeight).toBe("148px");
+  });
+
+  it("drops Home's menu below its composer, and lifts it when only above fits", async () => {
+    await act(async () => root.render(<Composer prompt="/" home />));
+    const menu = host.querySelector<HTMLElement>("[role=listbox]")!;
+    expect(menu.classList.contains("is-below")).toBe(true);
+    expect(menu.style.maxHeight).toBe("248px");
+    promptTop = 450;
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    expect(menu.classList.contains("is-below")).toBe(false);
   });
 
   it("keeps a usable menu inside the composer when neither side has room", async () => {

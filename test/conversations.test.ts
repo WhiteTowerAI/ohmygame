@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -162,6 +162,45 @@ describe("ConversationManager", () => {
     await expect(conversations.branch(project, created, failed)).rejects.toThrow("completed agent response");
   });
 
+  it("archives a conversation out of the list, restores it and deletes it from the archive", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const session = SessionManager.create(project.workspacePath, sessionDirectory(project));
+    appendCompletedTurn(session, "Make a platformer", "Sure");
+    const id = session.getSessionId();
+    const empty = await conversations.create(project);
+
+    expect(await conversations.archive(project, id)).toBe(true);
+    // An empty conversation has no file to keep; archiving drops it.
+    expect(await conversations.archive(project, empty.summary.id)).toBe(true);
+    expect(await conversations.list(project)).toEqual([]);
+    expect((await conversations.archived(project)).map((item) => item.id)).toEqual([id]);
+    expect(await conversations.get(project, id)).toBeUndefined();
+
+    expect((await conversations.unarchive(project, id))?.title).toBe("Make a platformer");
+    expect((await conversations.list(project)).map((item) => item.id)).toEqual([id]);
+    // Only an archived conversation can be deleted.
+    expect(await conversations.deleteArchived(project, id)).toBe(false);
+    await conversations.archive(project, id);
+    expect(await conversations.deleteArchived(project, id)).toBe(true);
+    expect(await conversations.archived(project)).toEqual([]);
+    expect(await conversations.unarchive(project, id)).toBeUndefined();
+  });
+
+  it("renames a conversation archived at the same time either before the move or not at all", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const session = SessionManager.create(project.workspacePath, sessionDirectory(project));
+    appendCompletedTurn(session, "Make a platformer", "Sure");
+    const id = session.getSessionId();
+    const [archived, renamed] = await Promise.all([conversations.archive(project, id), conversations.rename(project, id, "Renamed")]);
+    expect(archived).toBe(true);
+    expect(renamed).toBeUndefined();
+    // Nothing was written back where the file used to be.
+    expect((await readdir(sessionDirectory(project))).filter((name) => name.endsWith(".jsonl"))).toEqual([]);
+    expect((await conversations.archived(project))[0]?.title).toBe("Make a platformer");
+  });
+
   it("returns undefined for an unknown session", async () => {
     const project = await createProject();
     await expect(new ConversationManager().get(project, "missing")).resolves.toBeUndefined();
@@ -214,6 +253,25 @@ describe("ConversationManager", () => {
     expect(await reopened.accountProfileId(project, stored, "codex-cli")).toBe("system");
     expect(latestNativeSession(restored.getBranch(), "codex-cli", "system")).toBeUndefined();
     expect(restored.getBranch().filter((entry) => entry.type === "message")).toHaveLength(2);
+  });
+
+  it("reports the latest response's speed, cache hits and context until it is compacted", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const session = SessionManager.create(project.workspacePath, sessionDirectory(project));
+    session.appendMessage({ role: "user", content: "Add a pause menu", timestamp: Date.now() } as never);
+    const stored = { summary: { id: session.getSessionId() } as never, sessionPath: session.getSessionFile()! };
+    expect(await conversations.lastResponse(project, stored)).toBeUndefined();
+    session.appendMessage({
+      role: "assistant", content: [{ type: "text", text: "Done" }], stopReason: "stop",
+      usage: { input: 1500, output: 420, cacheRead: 9300, cacheWrite: 0, totalTokens: 11220, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      timestamp: Date.now() - 5000,
+    } as never);
+    const last = await conversations.lastResponse(project, stored);
+    expect(last).toMatchObject({ outputTokens: 420, cacheHitPercent: 86, contextTokens: 11220 });
+    expect(last?.tokensPerSecond).toBeGreaterThan(70);
+    session.appendCompaction("Summary", session.getLeafId()!, 11220);
+    expect(await conversations.lastResponse(project, stored)).not.toHaveProperty("contextTokens");
   });
 
   it("normalizes deterministic fallback titles", () => {

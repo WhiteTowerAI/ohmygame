@@ -702,23 +702,6 @@ body {
   margin-top: 18px;
 }
 
-.settings-provider-row {
-  display: grid;
-  min-height: 64px;
-  grid-template-columns: 34px minmax(0, 1fr) auto 32px;
-  align-items: center;
-  gap: 12px;
-  padding: 7px 8px;
-  border-radius: 6px;
-  background: var(--settings-row-surface);
-  transition: background-color 120ms ease;
-}
-
-.settings-provider-row.is-featured {
-  min-height: 70px;
-  background: var(--settings-row-surface-emphasis);
-}
-
 .settings-provider-mark,
 .settings-provider-mark-slot {
   display: grid;
@@ -847,36 +830,6 @@ body {
 
 .settings-provider-status.is-error {
   color: var(--danger);
-}
-
-.settings-provider-row > button {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  grid-column: 4;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.settings-provider-row > button:hover:not(:disabled),
-.settings-provider-row > button:focus-visible {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.settings-provider-row > button:disabled {
-  cursor: default;
-  opacity: 0.55;
 }
 
 .settings-provider-more {
@@ -2045,12 +1998,6 @@ select.settings-search-input {
     overflow-x: auto;
   }
 
-  .settings-provider-row {
-    grid-template-columns: 34px minmax(0, 1fr) 32px;
-    grid-template-rows: auto auto;
-    row-gap: 3px;
-  }
-
   .settings-provider-mark,
   .settings-provider-mark-slot {
     grid-column: 1;
@@ -2073,10 +2020,6 @@ select.settings-search-input {
     grid-row: 2;
   }
 
-  .settings-provider-row > button {
-    grid-column: 3;
-    grid-row: 1 / span 2;
-  }
 }
 
 /* Keep the creation area near the upper middle as project shelves grow below it. */
@@ -2192,6 +2135,21 @@ select.settings-search-input {
 .sidebar-page-toolbar {
   min-width: 0;
 }
+
+.project-type-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--color-text-tertiary);
+  color: #fff;
+}
+
+.project-type-mark.is-web-game { background: var(--hue-code); }
+.project-type-mark.is-interactive-story { background: var(--hue-video); }
+.project-type-mark.is-asset-canvas { background: var(--hue-image); }
+.project-type-mark.is-godot-game { background: #478cbf; }
+.project-type-mark.is-general { background: var(--hue-model); }
 
 .project-type-godot-icon {
   width: 14px;
@@ -3016,6 +2974,20 @@ select.settings-search-input {
 .project-appearance-tones {
   display: flex;
   gap: var(--space-2);
+}
+
+.project-appearance-library {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.project-appearance-library-toggle svg {
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.project-appearance-library-toggle.is-open svg {
+  transform: rotate(180deg);
 }
 
 .project-appearance-tone {
@@ -6906,11 +6878,6 @@ button {
   min-width: 0;
 }
 
-.chat-header-actions .conversation-popover {
-  right: auto;
-  left: 0;
-}
-
 .viewer-title {
   overflow: hidden;
   color: var(--text);
@@ -7163,7 +7130,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  max-width: 180px;
+  max-width: 100%;
   height: 24px;
   padding: 0 6px;
   border: 0;
@@ -7192,10 +7159,6 @@ button {
 }
 
 .conversation-popover {
-  position: absolute;
-  z-index: 10;
-  top: 34px;
-  right: 0;
   width: 260px;
   overflow: hidden;
   padding: var(--space-1);
@@ -7301,22 +7264,114 @@ button {
   color: var(--text);
 }
 
-.conversation-rename-button {
+/* A row's actions cover its time and check mark while it is hovered. */
+.conversation-row-actions {
   position: absolute;
   top: 2px;
   right: 4px;
+  display: flex;
+  gap: 2px;
+  padding-left: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-hover);
   opacity: 0;
 }
 
-.conversation-row:hover .conversation-rename-button,
-.conversation-rename-button:focus-visible {
+.conversation-row:hover .conversation-row-actions,
+.conversation-row-actions:focus-within,
+.conversation-row-actions.is-visible {
   opacity: 1;
 }
 
+.conversation-row-actions.is-visible {
+  background: none;
+}
+
 .conversation-row:hover .conversation-option-mark,
-.conversation-row:has(.conversation-rename-button:focus-visible)
-  .conversation-option-mark {
+.conversation-row:hover .conversation-option-meta,
+.conversation-row:focus-within .conversation-option-mark,
+.conversation-row:focus-within .conversation-option-meta {
   opacity: 0;
+}
+
+.conversation-row.is-archived .conversation-option {
+  padding-left: var(--space-2);
+  padding-right: 64px;
+  cursor: default;
+}
+
+.conversation-row.is-archived .conversation-option-meta {
+  opacity: 1;
+}
+
+.conversation-rename-button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.conversation-rename-button.is-danger:hover:not(:disabled),
+.conversation-rename-button.is-confirming {
+  color: var(--color-danger);
+}
+
+.conversation-rename-button.is-confirming {
+  width: auto;
+  padding: 0 var(--space-2);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.conversation-archive-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-1) var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.conversation-archive-back,
+.conversation-archive-link {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.conversation-archive-back {
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.conversation-archive-link {
+  gap: var(--space-2);
+  width: 100%;
+  height: 30px;
+  margin-top: var(--space-1);
+  padding: 0 var(--space-2);
+  box-shadow: inset 0 1px 0 var(--color-border);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.conversation-archive-back:hover,
+.conversation-archive-link:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.conversation-archive-hint {
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  line-height: 1.4;
 }
 
 .conversation-rename {
@@ -9840,6 +9895,120 @@ summary.work-summary:hover {
   z-index: 9;
 }
 
+/* The chat's composer reads as paper on the panel, with a hairline edge. */
+[data-appearance="light"] .prompt-box-project {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 4%);
+}
+
+.composer-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  min-width: 0;
+  height: 26px;
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.composer-status-context {
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.composer-status-context:hover,
+.composer-status-context[aria-expanded="true"] {
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+}
+
+.composer-status-ring circle {
+  fill: none;
+  stroke-width: 2;
+}
+
+.composer-status-ring circle:first-child {
+  stroke: var(--color-border-strong);
+}
+
+.composer-status-ring circle:last-child {
+  stroke: var(--color-text-secondary);
+  stroke-linecap: round;
+}
+
+.composer-status-popover {
+  width: 260px;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.composer-status-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-status-heading > span + span {
+  color: var(--color-text-secondary);
+}
+
+.composer-status-heading.is-quota {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  box-shadow: inset 0 1px 0 var(--color-border);
+}
+
+.composer-status-heading:first-child.is-quota {
+  margin-top: 0;
+  padding-top: 0;
+  box-shadow: none;
+}
+
+.composer-status-bar {
+  height: 4px;
+  margin-top: var(--space-2);
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--color-hover);
+}
+
+.composer-status-bar > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--color-text-secondary);
+}
+
+.composer-status-note {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.composer-status-popover .cloud-quota-details {
+  margin-top: var(--space-2);
+}
+
 .prompt-box-project {
   z-index: 9;
   min-height: 88px;
@@ -10497,12 +10666,6 @@ summary.work-summary:hover {
 }
 
 /* The preview's address, like a browser's: its state, the page, and reload. */
-.preview-location.is-compact {
-  width: auto;
-  flex: none;
-  padding-right: 0;
-}
-
 .preview-location {
   position: relative;
   display: flex;
@@ -10519,19 +10682,6 @@ summary.work-summary:hover {
   background: var(--color-hover);
 }
 
-.preview-location-status {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--color-text-tertiary);
-}
-
-.preview-location-status.is-ready { background: var(--color-success); }
-.preview-location-status.is-starting { background: var(--color-warning); }
-.preview-location-status.is-error { background: var(--color-danger); }
-
-.preview-location-refresh,
 .preview-location-trigger {
   height: 22px;
   padding: 0;
@@ -10539,19 +10689,6 @@ summary.work-summary:hover {
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-}
-
-.preview-location-refresh {
-  display: grid;
-  width: 22px;
-  flex: 0 0 22px;
-  margin-right: 1px;
-  place-items: center;
-  border-radius: var(--radius-sm);
-}
-
-.preview-location-refresh:hover:not(:disabled) {
-  background: var(--color-selected);
 }
 
 .preview-location-trigger {
@@ -10567,7 +10704,6 @@ summary.work-summary:hover {
   text-align: left;
 }
 
-.preview-location-refresh:hover:not(:disabled),
 .preview-location-trigger:hover:not(:disabled),
 .preview-location-trigger[aria-expanded="true"] {
   color: var(--color-text);
@@ -10594,7 +10730,6 @@ summary.work-summary:hover {
   }
 }
 
-.preview-location-refresh:disabled,
 .preview-location-trigger:disabled {
   cursor: default;
   opacity: 0.42;
@@ -10855,11 +10990,6 @@ summary.work-summary:hover {
 
   .preview-location {
     flex: 0 0 54px;
-  }
-
-  .preview-location-refresh {
-    width: 28px;
-    flex-basis: 28px;
   }
 
   .preview-location-trigger {
@@ -11839,12 +11969,6 @@ summary.work-summary:hover {
     display: none;
   }
 
-  .conversation-popover {
-    position: fixed;
-    top: 50px;
-    right: 16px;
-  }
-
   .agent-pane {
     border-right: 0;
     border-bottom: 1px solid var(--border);
@@ -11931,12 +12055,6 @@ summary.work-summary:hover {
   background: #2d2d2d;
 }
 
-:root[data-appearance="light"]
-  .settings-provider-row
-  > button:not(.is-primary):hover:not(:disabled),
-:root[data-appearance="light"] .settings-provider-row > button:not(.is-primary):focus-visible {
-  background: var(--surface-hover);
-}
 
 :root[data-appearance="light"] .settings-account-avatar {
   background: var(--surface-hover);
@@ -12088,7 +12206,6 @@ summary.work-summary:hover {
     .prompt-box-project .model-selector-trigger,
     .quiet-button,
     .viewport-trigger,
-    .preview-location-refresh,
     .preview-location-trigger,
     .preview-location-option,
     .file-tree-node
@@ -12892,11 +13009,17 @@ summary.work-summary:hover {
 .media-default-field { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; color: var(--text-secondary); font-size: 12px; }
 .media-default-field > span { flex: 0 0 auto; }
 .settings-generation-defaults > .settings-error { margin: 0; }
-.project-media-defaults { width: min(300px, calc(100vw - 16px)); max-width: none; gap: 2px; overflow: visible; }
-.project-media-defaults > .canvas-chip-menu-heading { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px 6px; }
-.project-media-defaults .media-default-field { min-height: 34px; padding: 0 8px; font-size: 11px; }
-.project-media-defaults .canvas-chip { max-width: 210px; }
-.project-media-defaults > .settings-error { margin: 0; padding: 6px 8px; font-size: 11px; }
+/* The project's models, over its canvas: a popover in the app's design. */
+.project-media-defaults { width: min(320px, calc(100vw - 16px)); max-width: none; gap: 2px; padding: var(--space-1); overflow: visible; border-radius: var(--radius-lg); background: var(--color-surface-raised); box-shadow: var(--shadow-float); }
+.project-media-defaults > .canvas-chip-menu-heading { display: flex; align-items: center; justify-content: space-between; padding: 6px var(--space-2) 2px; color: var(--color-text-tertiary); font-size: var(--text-xs); font-weight: var(--weight-regular); }
+.project-media-defaults .media-default-field { min-height: 36px; padding: 0 var(--space-1) 0 var(--space-2); border-radius: var(--radius-sm); color: var(--color-text); font-size: var(--text-md); }
+.project-media-defaults .canvas-chip { max-width: 200px; height: 26px; padding: 0 var(--space-2); border-radius: var(--radius-md); background: var(--color-stage); box-shadow: inset 0 0 0 1px var(--color-border); color: var(--color-text); font-size: var(--text-sm); }
+.project-media-defaults .canvas-chip:hover:not(:disabled) { background: var(--color-stage); box-shadow: inset 0 0 0 1px var(--color-border-strong); }
+.project-media-defaults .canvas-chip[aria-expanded="true"] { background: var(--color-stage); box-shadow: inset 0 0 0 1px var(--color-text-tertiary); }
+.project-media-defaults .canvas-chip:disabled { background: none; box-shadow: none; color: var(--color-text-tertiary); opacity: 1; }
+.project-media-defaults .canvas-chip > svg { color: var(--color-text-tertiary); }
+.project-media-defaults .canvas-chip-menu { border-radius: var(--radius-lg); background: var(--color-surface-raised); box-shadow: var(--shadow-float); }
+.project-media-defaults > .settings-error { margin: 0; padding: 6px var(--space-2); font-size: var(--text-sm); }
 @media (max-width: 720px) {
   .settings-generation-defaults.is-all .settings-generation-fields { grid-template-columns: minmax(0, 1fr); }
 }

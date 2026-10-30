@@ -761,6 +761,42 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("refuses a prompt while an idle conversation's file is archived, and accepts one after", async () => {
+    const session = new FakeSession();
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const moved = deferred<void>();
+    const archiving = manager.release(project.id, conversation.summary.id, () => moved.promise);
+    await Promise.resolve();
+    expect(() => manager.prompt(project, conversation, "Build")).toThrow("This conversation is being archived");
+    await expect(manager.release(project.id, conversation.summary.id, async () => {})).rejects.toThrow("This conversation is being archived");
+    moved.resolve();
+    await archiving;
+    await expect(manager.prompt(project, conversation, "Build").result).resolves.toBe("completed");
+    // A change to the idle session that has begun keeps archiving out until it is done, however long it waits.
+    const switched = deferred<void>();
+    session.setModel.mockImplementation(() => switched.promise);
+    const switching = manager.setModel(project.id, conversation.summary.id, { provider: "sandbox", id: "other" } as never, () => {});
+    await Promise.resolve();
+    await expect(manager.release(project.id, conversation.summary.id, async () => {})).rejects.toThrow("Wait for the agent to finish");
+    switched.resolve();
+    await switching;
+    const compacting = manager.compact(project, conversation);
+    await Promise.resolve();
+    await expect(manager.release(project.id, conversation.summary.id, async () => {})).rejects.toThrow("Wait for the agent to finish");
+    await (await compacting).result;
+    expect(session.compact).toHaveBeenCalledOnce();
+    // Once archiving has begun, a change is refused.
+    const moving = deferred<void>();
+    const archivingAgain = manager.release(project.id, conversation.summary.id, () => moving.promise);
+    await expect(manager.compact(project, conversation)).rejects.toThrow("This conversation is being archived");
+    await expect(manager.setReasoningLevel(project.id, conversation.summary.id, "high", () => {})).rejects.toThrow("This conversation is being archived");
+    moving.resolve();
+    await archivingAgain;
+    await manager.close();
+  });
+
   it("pauses a planning turn for a questionnaire and resumes it with structured answers", async () => {
     const session = new FakeSession();
     const prompt = deferred<void>();
@@ -2478,6 +2514,24 @@ describe("AgentManager", () => {
       expect(entries).not.toContainEqual(expect.objectContaining({ customType: TURN_END_ENTRY }));
       expect(events.since(project.id).filter((event) => event.type === "checkpoint.completed").map((event) => event.data)).toEqual([{ checkpointId: "checkpoint-1", files: 2 }]);
       expect(manager.turnEndsRecorded(project.id, conversation.summary.id)).toBe(1);
+
+      // An end that comes back while the file is being archived is not written where the file was.
+      const again = deferred<string>();
+      const later = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => again.promise, changed: async () => ({ files: 1 }) } });
+      const next = later.prompt(project, conversation, "Build more");
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+      await vi.advanceTimersToNextTimerAsync();
+      await expect(next.result).resolves.toBe("completed");
+      const moved = deferred<void>();
+      const archiving = later.release(project.id, conversation.summary.id, () => moved.promise);
+      await vi.waitFor(() => expect(session.dispose).toHaveBeenCalledTimes(2));
+      again.resolve("c".repeat(40));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(written()).toHaveLength(1);
+      expect(later.turnEndsRecorded(project.id, conversation.summary.id)).toBe(0);
+      moved.resolve();
+      await archiving;
+      await later.close();
       await manager.close();
     } finally {
       warn.mockRestore();
