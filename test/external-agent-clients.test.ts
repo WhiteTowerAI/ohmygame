@@ -69,7 +69,6 @@ async function fixture(
           ? { path: `/bin/${runtime}`, env: { HOME: home } }
           : undefined,
       run,
-      environment: {},
       home,
     });
   const clients = create();

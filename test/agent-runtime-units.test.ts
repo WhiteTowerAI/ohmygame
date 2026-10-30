@@ -549,6 +549,7 @@ describe("coding agent discovery", () => {
         OPENAI_API_KEY: "sk-openai",
         OHMYGAME_DAEMON_TOKEN: "secret",
         CLAUDE_CODE_OAUTH_TOKEN: "subscription",
+        CLAUDE_CONFIG_DIR: "/home/me/.claude-work",
         CODEX_HOME: "/home/me/.codex",
         OPENCODE_CONFIG_DIR: "/home/me/opencode",
         HTTPS_PROXY: "http://proxy",
@@ -565,6 +566,11 @@ describe("coding agent discovery", () => {
     expect(env).not.toHaveProperty("ANTHROPIC_API_KEY");
     expect(env).not.toHaveProperty("OPENAI_API_KEY");
     expect(env).not.toHaveProperty("OHMYGAME_DAEMON_TOKEN");
+    // System default uses the CLI's default folder; the service names an account's folder itself.
+    expect(env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
+    expect(
+      agentEnvironment("codex-cli", "/opt/bin/codex", {}, { CODEX_HOME: "/home/me/.codex-work" }),
+    ).not.toHaveProperty("CODEX_HOME");
     // Another CLI's own folder is not this one's to see.
     expect(env).not.toHaveProperty("CODEX_HOME");
     expect(env).not.toHaveProperty("OPENCODE_CONFIG_DIR");

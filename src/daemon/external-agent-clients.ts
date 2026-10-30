@@ -17,6 +17,7 @@ import {
   type ExternalAgentClientState,
   type ExternalMcpLauncher,
 } from "../shared/external-mcp.js";
+import { systemConfigDirectory } from "./agent-runtimes/environment.js";
 
 /** The coding agent CLI each client is, so discovery and its chosen executable are shared. */
 const CLIENT_RUNTIMES: Record<ExternalAgentClientId, AgentRuntimeId> = {
@@ -51,7 +52,6 @@ export interface ExternalAgentClientsOptions {
     runtime: AgentRuntimeId,
   ) => Promise<{ path: string; env: Record<string, string> } | undefined>;
   run: RunCli;
-  environment?: NodeJS.ProcessEnv;
   home?: string;
 }
 
@@ -197,13 +197,10 @@ export class ExternalAgentClients {
   /** Where each client reads user Skills. Codex and DeepSeek Harness share `~/.agents/skills`. */
   #skillFolder(id: ExternalAgentClientId): string {
     const home = this.#options.home ?? os.homedir();
-    const environment = this.#options.environment ?? process.env;
+    // The CLI commands run as System default, which never inherits CLAUDE_CONFIG_DIR.
     const root =
       id === "claude-code"
-        ? path.join(
-            environment.CLAUDE_CONFIG_DIR || path.join(home, ".claude"),
-            "skills",
-          )
+        ? path.join(systemConfigDirectory("claude-code-cli", home), "skills")
         : path.join(home, ".agents", "skills");
     return path.join(root, EXTERNAL_MCP_SERVER_NAME);
   }

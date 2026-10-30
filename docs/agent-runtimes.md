@@ -132,7 +132,9 @@ profileId }`. Missing selections mean System default; changing the new-chat
 default does not change existing chats.
 
 The service passes `CLAUDE_CONFIG_DIR` or `CODEX_HOME` to login, discovery and
-inference. Explicit Claude profiles omit ambient OAuth tokens. Managed Codex
+inference for a profile. System default runs without either, so an inherited
+value never replaces the CLI's default directory. Explicit Claude profiles omit
+ambient OAuth tokens. Managed Codex
 homes are created with file-backed credentials; imported homes keep their native
 settings. Credentials remain CLI-owned. Each profile records `managed` ownership;
 only directories directly inside the runtime's reserved account folder may be

@@ -243,11 +243,11 @@ is 60 seconds.
 
 ## Clients
 
-| Client      | Connected by                                  | Skill folder                                         |
-| ----------- | --------------------------------------------- | ---------------------------------------------------- |
-| Claude Code | `claude mcp add --scope user ohmygame-studio` | `$CLAUDE_CONFIG_DIR/skills`, else `~/.claude/skills` |
-| Codex       | `codex mcp add ohmygame-studio`               | `~/.agents/skills`                                   |
-| dsh, others | Hand configuration with the command shown     | `~/.agents/skills` for `dsh`, copied by hand         |
+| Client      | Connected by                                  | Skill folder                                 |
+| ----------- | --------------------------------------------- | -------------------------------------------- |
+| Claude Code | `claude mcp add --scope user ohmygame-studio` | `~/.claude/skills`                           |
+| Codex       | `codex mcp add ohmygame-studio`               | `~/.agents/skills`                           |
+| dsh, others | Hand configuration with the command shown     | `~/.agents/skills` for `dsh`, copied by hand |
 
 OhMyGame copies the Skill only into a missing folder or one it wrote, and
 removes it on disconnect unless another connected client reads the same

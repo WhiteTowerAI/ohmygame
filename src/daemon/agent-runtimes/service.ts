@@ -1,6 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile, stat, realpath, rm } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import type {
   SessionManager,
@@ -41,7 +40,7 @@ import {
   runCli,
   type AuthProbe,
 } from "./discovery.js";
-import { agentEnvironment, loginShellPath } from "./environment.js";
+import { agentEnvironment, loginShellPath, systemConfigDirectory } from "./environment.js";
 import { AgentProcess, stopAgentProcesses } from "./process.js";
 import {
   recoverAgentProcesses,
@@ -725,9 +724,7 @@ export class AgentRuntimeService {
       if (directory === managedRoot || directory.startsWith(`${managedRoot}${path.sep}`))
         throw new Error("Managed account directories cannot be imported");
       // Naming System default's directory explicitly gives Claude another Keychain entry and global config file.
-      const system = runtime === "claude-code-cli"
-        ? process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude")
-        : process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+      const system = systemConfigDirectory(runtime);
       if (directory === await realpath(system).catch(() => path.resolve(system)))
         throw new Error("System default already uses this configuration directory");
     }
