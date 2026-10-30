@@ -59,9 +59,10 @@
   overflow-x: clip;
 }
 
+/* The tabs keep their size; the toolbar beside them gives way first. */
 .dock-tab-list {
   display: flex;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   align-items: center;
   gap: 2px;
   min-width: 0;
@@ -251,12 +252,31 @@
 /* the active panel's own controls, after the tabs */
 .dock-toolbar {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   align-self: stretch;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+  min-width: 0;
   padding-left: var(--space-2);
+}
+
+/* Titles in a toolbar shorten before the tabs give up their labels. */
+.dock-toolbar > *,
+.dock-toolbar .pane-header-actions > * {
+  flex: none;
+}
+
+.dock-toolbar .design-doc-picker,
+.dock-toolbar .conversation-menu {
+  flex: 0 1 auto;
+  min-width: 88px;
+}
+
+.dock-toolbar .design-doc-spacer,
+.dock-toolbar .chat-header-spacer {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .dock-toolbar[hidden] {
