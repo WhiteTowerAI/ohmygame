@@ -510,6 +510,10 @@ export function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
         {preview.url && kind === "audio" ? <CanvasAudio src={preview.url} data={data.audioAsset} /> : null}
         {!preview.url ? <div className="story-media-empty"><Icon size={34} /><strong>{data.assetError || preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset")}</strong>{data.assetError ? <span>{data.assetError}</span> : <CanvasAssetRecovery preview={preview} />}</div> : null}
       </div>
+      {selected && data.examplePrompt ? <div className="asset-example-prompt nodrag nowheel">
+        <label htmlFor={`asset-example-prompt-${data.assetId ?? "example"}`}>{t("effectLibrary.examplePrompt")}</label>
+        <CanvasTextarea id={`asset-example-prompt-${data.assetId ?? "example"}`} value={data.examplePrompt} readOnly rows={8} aria-label={t("effectLibrary.examplePrompt")} onChange={() => undefined} />
+      </div> : null}
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
   );

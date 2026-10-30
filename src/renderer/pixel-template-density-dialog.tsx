@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { PIXEL_ART_LEVELS, type PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { pixelExampleImageUrl, pixelPresetExampleId } from "./asset-canvas-pixel-examples.js";
 import { pixelArtLevelOptions, pixelAssetTemplatePresetIds, type PixelAssetTemplateCategory } from "./asset-canvas-pixel-workflows.js";
+import effectLibraryCover from "./assets/templates/examples/effect-library-cover.webp";
 import { t } from "./i18n.js";
 
 const LAST_LEVEL_KEY = "ohmygame.pixelTemplateLevel";
@@ -12,7 +13,10 @@ export function lastPixelTemplateLevel(): PixelArtLevel {
 }
 
 /** Shows the category's own example at each density; Maps have no per-density examples, so they use the scene. */
-function levelPreviewUrl(category: PixelAssetTemplateCategory, level: PixelArtLevel): string | undefined {
+type DensityDialogCategory = PixelAssetTemplateCategory | "effects";
+
+function levelPreviewUrl(category: DensityDialogCategory, level: PixelArtLevel): string | undefined {
+  if (category === "effects") return effectLibraryCover;
   const own = pixelAssetTemplatePresetIds(category)
     .map((id) => pixelPresetExampleId(id, level))
     .find((id) => id?.startsWith(`${level}/`));
@@ -20,7 +24,7 @@ function levelPreviewUrl(category: PixelAssetTemplateCategory, level: PixelArtLe
 }
 
 export function PixelTemplateDensityDialog({ category, returnFocus, onClose, onConfirm }: {
-  category: PixelAssetTemplateCategory;
+  category: DensityDialogCategory;
   returnFocus: HTMLElement | null;
   onClose: () => void;
   onConfirm: (level: PixelArtLevel) => void;
@@ -63,7 +67,7 @@ export function PixelTemplateDensityDialog({ category, returnFocus, onClose, onC
       if (event.target === event.currentTarget) onClose();
     }}>
       <section ref={dialog} className="project-create-dialog pixel-template-density-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <header><h2 id={titleId}>{t("assetCanvas.pixelPresets.densityDialogTitle", { category: t(`assetCanvas.pixelPresets.categories.${category}`) })}</h2></header>
+        <header><h2 id={titleId}>{t("assetCanvas.pixelPresets.densityDialogTitle", { category: category === "effects" ? t("effectLibrary.title") : t(`assetCanvas.pixelPresets.categories.${category}`) })}</h2></header>
         <form onSubmit={(event) => {
           event.preventDefault();
           localStorage.setItem(LAST_LEVEL_KEY, level);

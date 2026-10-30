@@ -57,7 +57,7 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
   const [projectType, setProjectType] = useState<ProjectType>("web-game");
   const [createOpen, setCreateOpen] = useState(false);
   const [templateCreating, setTemplateCreating] = useState<PixelAssetTemplateCategory | "effect-library">();
-  const [templateDensityCategory, setTemplateDensityCategory] = useState<PixelAssetTemplateCategory>();
+  const [templateDensityCategory, setTemplateDensityCategory] = useState<PixelAssetTemplateCategory | "effects">();
   const templateTrigger = useRef<HTMLElement | null>(null);
   const [renameTarget, setRenameTarget] = useState<ProjectState>();
   const renameTrigger = useRef<HTMLElement | null>(null);
@@ -117,12 +117,12 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
     }
   }
 
-  async function createEffectTemplate(): Promise<void> {
+  async function createEffectTemplate(level: PixelArtLevel): Promise<void> {
     setTemplateCreating("effect-library");
     setProjectActionError(undefined);
     try {
       const { createEffectLibraryProject } = await import("./asset-canvas-templates.js");
-      const created = await createEffectLibraryProject();
+      const created = await createEffectLibraryProject(level);
       onOpenAssetCanvas(created.projectId, created.nodeId);
     } catch (error) {
       setProjectActionError(errorMessage(error));
@@ -224,7 +224,10 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
               type="button"
               disabled={templateCreating !== undefined}
               aria-busy={templateCreating === "effect-library"}
-              onClick={() => void createEffectTemplate()}
+              onClick={(event) => {
+                templateTrigger.current = event.currentTarget;
+                setTemplateDensityCategory("effects");
+              }}
             >
               <span className="home-whats-new-icon home-explore-cover">
                 <img src={effectLibraryCover} alt="" />
@@ -248,7 +251,8 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
         onClose={() => setTemplateDensityCategory(undefined)}
         onConfirm={(level) => {
           setTemplateDensityCategory(undefined);
-          void createTemplate(templateDensityCategory, level);
+          if (templateDensityCategory === "effects") void createEffectTemplate(level);
+          else void createTemplate(templateDensityCategory, level);
         }}
       /> : null}
       {renameTarget ? <ProjectRenameDialog name={renameTarget.name} returnFocus={renameTrigger.current} onClose={() => setRenameTarget(undefined)} onConfirm={(name) => {

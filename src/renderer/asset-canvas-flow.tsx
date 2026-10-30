@@ -74,6 +74,8 @@ export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> 
   quickReskinMode?: "person-clothing";
   sourceInputLabel?: string;
   exampleImage?: string;
+  /** Prompt shown when a fixed template example is selected. */
+  examplePrompt?: string;
   references?: AssetCanvasReference[];
   referenceMode?: "frame" | "reference";
   referenceMentions?: Record<string, AssetCanvasReference>;

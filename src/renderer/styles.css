@@ -7970,6 +7970,24 @@ button {
   background: var(--story-editor-stage);
 }
 
+.asset-example-prompt {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.asset-example-prompt label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.asset-example-prompt textarea {
+  min-height: 150px;
+  resize: vertical;
+}
+
 .story-presentation-node-card > .story-media-stage {
   aspect-ratio: var(--story-viewport-ratio, 16 / 9);
 }
