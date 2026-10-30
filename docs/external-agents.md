@@ -95,10 +95,10 @@ Daemon: ExternalMcpService
 
 Settings → **MCP Server** has its own page, apart from Agents, which sets up
 the agents OhMyGame runs. Its **MCP Server** switch turns the feature on; **Connect** then shows the `mcp add` commands for Claude Code and
-Codex, the launcher command for every other client with any environment
-variables it needs shown apart from it (an inline `NAME=value command` does
-not run in a Windows shell), and the folder of the Skill to copy, each with a
-copy button. **Recent connections** lists the
+Codex, the launcher's command, arguments and environment variables for every
+other client, each as a field of its own as those clients ask for them (one
+shell line would need quoting that PowerShell, cmd and POSIX shells read
+differently), and the folder of the Skill to copy, each with a copy button. **Recent connections** lists the
 clients that used the server since OhMyGame started, by the name each gives in
 `initialize`, with when it last called, how many tools it called, and whether
 its session is still open. The daemon keeps these in memory only, at most
