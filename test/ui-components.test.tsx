@@ -216,6 +216,35 @@ it("picks a segment and a select option from the keyboard", async () => {
   expect(document.querySelector('[role="listbox"]')).toBeNull();
 });
 
+it("tells screen readers a select's value and the option the keyboard is on", async () => {
+  await act(async () =>
+    root.render(
+      <Select
+        label="Size"
+        value="medium"
+        onChange={vi.fn()}
+        options={[
+          { value: "small", label: "Small" },
+          { value: "medium", label: "Medium" },
+          { value: "large", label: "Large" },
+        ]}
+      />,
+    ),
+  );
+  const select = container.querySelector<HTMLButtonElement>(
+    '[role="combobox"]',
+  )!;
+  const target = (attribute: string) =>
+    document.getElementById(select.getAttribute(attribute)!);
+  expect(target("aria-describedby")?.textContent).toBe("Medium");
+  // Opening starts on the saved option; arrows move from there.
+  await key(select, "ArrowDown");
+  expect(target("aria-controls")?.getAttribute("role")).toBe("listbox");
+  expect(target("aria-activedescendant")?.textContent).toBe("Medium");
+  await key(select, "ArrowDown");
+  expect(target("aria-activedescendant")?.textContent).toBe("Large");
+});
+
 it("shows a toast and removes it after a few seconds", async () => {
   vi.useFakeTimers();
   function Trigger() {
