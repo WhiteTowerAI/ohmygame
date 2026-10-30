@@ -1,5 +1,5 @@
 import { ExternalProjectPreview } from "./plugin-integration.js";
-import { PREVIEW_CLIENT_QUERY, PREVIEW_SOURCE_QUERY, previewPageUrl as isolatedPreviewUrl } from "../shared/preview-page.js";
+import { previewPageUrl as isolatedPreviewUrl } from "../shared/preview-page.js";
 import {
   Check,
   Copy,
@@ -595,14 +595,15 @@ function PreviewControls({
   );
 }
 
-/** The page without the editor's own query, in the person's browser. */
+/**
+ * The page in the person's browser, as a client of its own: sharing the
+ * editor's id would take over the editor's reload stream and element picking.
+ */
 function openPreviewInBrowser(url: string): void {
-  const page = new URL(url);
-  page.searchParams.delete(PREVIEW_CLIENT_QUERY);
-  page.searchParams.delete(PREVIEW_SOURCE_QUERY);
+  const page = isolatedPreviewUrl(url, "external");
   const external = window.ohMyGameDesktop?.openExternal;
-  if (external) void external(page.href).catch(() => undefined);
-  else window.open(page.href, "_blank", "noopener,noreferrer");
+  if (external) void external(page).catch(() => undefined);
+  else window.open(page, "_blank", "noopener,noreferrer");
 }
 
 function PreviewLocation({
