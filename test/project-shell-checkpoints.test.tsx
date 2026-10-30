@@ -323,6 +323,13 @@ describe("checkpoints in the project shell", () => {
     expect(daemon.requests.some((request) => request.route.endsWith("/model") && request.method === "PUT")).toBe(false);
   });
 
+  it("shows why a project could not open instead of failing to render", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await openProject((route) => route === "/projects/project" ? Response.json({ error: "Project storage is unreadable" }, { status: 500 }) : undefined);
+    expect(container.textContent).toContain("Project storage is unreadable");
+    expect(errors.mock.calls.some((call) => String(call[0]).includes("hooks"))).toBe(false);
+  });
+
   it("refreshes the account picker after a profile is deleted in settings", async () => {
     let removed = false;
     const chat = detail("turn");

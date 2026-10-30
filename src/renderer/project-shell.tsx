@@ -521,10 +521,6 @@ export function ProjectShell({
     if (pending) void publish(pending).catch(() => undefined);
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
 
-  if (state.phase === "fatal") {
-    return <FatalState message={state.notice ?? t("projectShell.runtimeUnreachable")} onHome={onHome} homeLabel={homeLabel} />;
-  }
-
   const project = state.project;
   const conversation = state.conversation;
   const publishDialogStatus = publishDialog?.projectId === project?.id ? publishDialog?.status : undefined;
@@ -1123,6 +1119,11 @@ export function ProjectShell({
   </>, chatInputNode);
   const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "canvas" || id === "code" || id === "assets" ? [id] : []));
   const storyVisible = new Set(visible.filter((id): id is StoryView => id === "story" || id === "design" || id === "canvas" || id === "code" || id === "assets"));
+
+  // After every hook, so a project that fails to load renders the same hooks.
+  if (state.phase === "fatal") {
+    return <FatalState message={state.notice ?? t("projectShell.runtimeUnreachable")} onHome={onHome} homeLabel={homeLabel} />;
+  }
 
   return (
     <>
