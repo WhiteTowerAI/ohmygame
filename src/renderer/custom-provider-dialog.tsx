@@ -10,7 +10,7 @@ import { ChevronDown, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2 } fr
 import { initialCustomThinkingLevelMap, invalidateCustomModelCapabilities, mergeDiscoveredProviderModels, modelError, type ModelRow } from "./custom-provider-models.js";
 import { isLocalModelProvider } from "./local-model-providers.js";
 import { t } from "./i18n.js";
-import { Button, Dialog } from "./ui/index.js";
+import { Button, Dialog, IconButton } from "./ui/index.js";
 
 export const PROVIDER_API_LABELS: Record<string, string> = {
   "openai-completions": "OpenAI Chat Completions",
@@ -220,8 +220,8 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
               {visibleModels.map((row) => <div className="custom-provider-model-item" key={row.model.id}>
                 <div className="custom-provider-model-row">
                   <label className="custom-provider-model-choice"><input type="checkbox" aria-label={t("customProvider.enableModel", { name: row.model.name || row.model.id })} checked={row.enabled} onChange={(event) => { toggleModels([row.model.id], event.target.checked); if (event.target.checked && !modelUsageList(row.model).length) setEditing(row.model.id); }} disabled={saving} /><span><strong>{row.model.name || row.model.id}</strong><small>{row.model.id}</small><span className="custom-model-usage-badges">{modelUsageList(row.model).length ? modelUsageList(row.model).map((usage) => <small key={usage}>{t(`capability.${usage}`)}</small>) : <small>{t("models.unassigned")}</small>}</span></span></label>
-                  <button className="icon-button" type="button" aria-label={t("common.editName", { name: row.model.name || row.model.id })} data-tooltip={t("common.editName", { name: row.model.name || row.model.id })} aria-expanded={editing === row.model.id} disabled={saving} onClick={() => setEditing((current) => current === row.model.id ? undefined : row.model.id)}><Pencil size={14} /></button>
-                  <button className="icon-button" type="button" aria-label={t("common.removeName", { name: row.model.name || row.model.id })} data-tooltip={t("common.removeName", { name: row.model.name || row.model.id })} disabled={saving} onClick={() => { setRows((current) => current.filter((item) => item.model.id !== row.model.id)); if (editing === row.model.id) setEditing(undefined); }}><Trash2 size={14} /></button>
+                  <IconButton size="sm" label={t("common.editName", { name: row.model.name || row.model.id })} aria-expanded={editing === row.model.id} disabled={saving} onClick={() => setEditing((current) => current === row.model.id ? undefined : row.model.id)}><Pencil size={14} /></IconButton>
+                  <IconButton size="sm" label={t("common.removeName", { name: row.model.name || row.model.id })} disabled={saving} onClick={() => { setRows((current) => current.filter((item) => item.model.id !== row.model.id)); if (editing === row.model.id) setEditing(undefined); }}><Trash2 size={14} /></IconButton>
                 </div>
                 {editing === row.model.id ? <div className="custom-provider-model-editor" role="group" aria-label={t("customProvider.editModel", { id: row.model.id })}><ModelFields model={row.model} preset={form.preset} onChange={(model) => updateModel(row.model.id, model)} disabled={saving} /></div> : null}
               </div>)}
