@@ -1029,10 +1029,15 @@ describe("plugin tools", () => {
       );
       expect(changes).toContain(undefined);
       changes.length = 0;
-      await services.setProjectPlugin(folder, "acme/tiles", "1.1.0");
-      // The folder watcher may report the same write again after its 200 ms
-      // debounce; on a slow machine that lands before this check.
-      expect(new Set(changes)).toEqual(new Set([folder]));
+      // Hold the folder watcher's 200 ms debounce so only the method itself can
+      // report this write; the held echo is dropped with the fake timers.
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        await services.setProjectPlugin(folder, "acme/tiles", "1.1.0");
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(changes).toEqual([folder]);
       await expect(
         count.execute("call-6", {}, undefined, undefined, undefined as never),
       ).rejects.toThrow("is now 1.1.0");
