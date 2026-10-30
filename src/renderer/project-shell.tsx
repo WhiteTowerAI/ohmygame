@@ -468,10 +468,13 @@ export function ProjectShell({
     const observer = new ResizeObserver(() => {
       if (followTimeline.current) element.scrollTop = element.scrollHeight;
     });
-    for (const child of element.children) observer.observe(child);
+    // The composer and cards sit in a node without a box of its own; watch them.
+    for (const child of element.children) {
+      for (const box of child === chatInputNode ? child.children : [child]) observer.observe(box);
+    }
     observer.observe(element);
     return () => observer.disconnect();
-  }, [state.conversation?.id, state.agent.status, state.plan.mode]);
+  }, [state.conversation?.id, state.agent.status, state.plan.mode, chatShown]);
 
   useEffect(() => {
     const project = state.project;
