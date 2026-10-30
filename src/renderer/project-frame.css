@@ -181,20 +181,25 @@
   color: var(--color-text-secondary);
 }
 
-/* macOS: the top bar is the title bar. The window controls and the rail's
-   back and forward sit at its left, over the rail, and the rest drags the
-   window. */
-.desktop-macos .project-frame {
+/* The rail's back and forward lead the top bar, over the rail: after the
+   macOS window controls, or at the window's edge where the system draws the
+   title bar. On Windows they sit in the window's own title bar instead. */
+.project-frame:has(.sidebar-titlebar) {
   position: relative;
-  /* where the title-bar buttons end: 92 + 2 × 26 + 6 */
-  --titlebar-end: 150px;
+  --titlebar-start: 6px;
+  /* where the title-bar buttons end: start + 2 × 26 + 6 */
+  --titlebar-end: calc(var(--titlebar-start) + 58px);
 }
 
-.desktop-macos .project-frame.is-sidebar-collapsed .sidebar {
+.desktop-macos .project-frame {
+  --titlebar-start: 92px;
+}
+
+.project-frame:has(.sidebar-titlebar) .sidebar {
   padding-top: 48px;
 }
 
-.desktop-macos .project-frame.is-sidebar-collapsed .sidebar-titlebar {
+.project-frame .sidebar-titlebar {
   position: absolute;
   top: 0;
   right: auto;
@@ -202,14 +207,19 @@
   justify-content: flex-start;
   width: var(--titlebar-end);
   margin: 0;
+  padding-left: var(--titlebar-start);
 }
 
-.desktop-macos .project-frame.is-sidebar-collapsed .sidebar-head {
+.project-frame:has(.sidebar-titlebar) .sidebar-head {
   height: 40px;
 }
 
-.desktop-macos .project-top {
+.project-frame:has(.sidebar-titlebar) .project-top {
   padding-left: calc(var(--titlebar-end) - var(--sidebar-width) + var(--space-2));
+}
+
+/* macOS: the top bar is the title bar, and the rest of it drags the window. */
+.desktop-macos .project-top {
   app-region: drag;
   -webkit-app-region: drag;
 }

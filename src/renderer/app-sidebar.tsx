@@ -35,6 +35,7 @@ import { UserAvatar } from "./user-avatar.js";
 import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
 import { language, t } from "./i18n.js";
 import { openCommandMenu, shortcut } from "./command-menu.js";
+import { hasWindowsTitleBar } from "./desktop-window-frame.js";
 import "./app-sidebar.css";
 
 export type SidebarActive = SidebarPage | "settings";
@@ -192,7 +193,8 @@ interface NavigationLike extends EventTarget {
   canGoForward: boolean;
 }
 
-function useHistoryState() {
+/** Whether the window can go back and forward, as the title bars show it. */
+export function useHistoryState() {
   const navigationApi = (window as unknown as { navigation?: NavigationLike }).navigation;
   const read = () => ({ back: navigationApi?.canGoBack ?? true, forward: navigationApi?.canGoForward ?? true });
   const [state, setState] = useState(read);
@@ -515,12 +517,14 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
   const recent = !project || latest.some((item) => item.id === project.id)
     ? latest : [...latest.slice(0, RECENT_LIMIT - 1), project];
   const history = useHistoryState();
-  const mac = window.ohMyGameDesktop?.platform === "darwin";
   const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
   const openHash = (hash: string) => onLeave(() => { window.location.hash = hash; });
   return (
     <nav className="sidebar project-rail" aria-label={t("sidebar.projectNavigation")}>
-      {mac ? (
+      {/* Back and forward lead the title bar: here, over the rail, beside the
+          macOS window controls or at the window's edge where the system draws
+          the title bar; on Windows they follow the window's menus instead. */}
+      {!hasWindowsTitleBar() ? (
         <div className="sidebar-titlebar">
           <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => onLeave(() => window.history.back())}><ArrowLeft size={16} /></IconButton>
           <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => onLeave(() => window.history.forward())}><ArrowRight size={16} /></IconButton>
