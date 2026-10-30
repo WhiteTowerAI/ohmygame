@@ -242,6 +242,25 @@ it("retries a failed document save even when later polls find nothing new", asyn
   expect(api.saveDocument).toHaveBeenLastCalledWith("p", expect.objectContaining({ document: expect.objectContaining({ markdown: "Edited" }) }), "rules", expect.anything());
 });
 
+it("waits for a slow retried save before retrying again, and stops after unmount", async () => {
+  await act(async () => root.render(<DocumentHarness />));
+  await advance(0);
+  api.saveDocument.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+  await act(async () => currentDocs.update("rules", { markdown: "Edited" }));
+  await advance(600);
+  let settle!: (cause: Error) => void;
+  api.saveDocument.mockImplementationOnce(() => new Promise((_resolve, reject) => { settle = reject; }));
+  await advance(3000);
+  const pending = api.saveDocument.mock.calls.length;
+  await advance(15_000);
+  expect(api.saveDocument).toHaveBeenCalledTimes(pending);
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  await act(async () => settle(new TypeError("Failed to fetch")));
+  await advance(15_000);
+  expect(api.saveDocument).toHaveBeenCalledTimes(pending);
+});
+
 it("retries a table whose re-read failed even when later polls find nothing new", async () => {
   const table = createCanvasTable("Items", "items");
   workspaceDisk.tables = [{ ...table, revision: "a", source: "canvas/tables/items.json" }];

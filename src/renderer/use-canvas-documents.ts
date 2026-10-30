@@ -330,13 +330,23 @@ export function useCanvasDocuments(projectId: string, enabled = true) {
     return () => window.clearTimeout(timer);
   }, [workspace, flush, conflict, closing]);
   // A poll that finds nothing new keeps the same workspace, so a failed save
-  // is retried here, at the poll's pace, while the window is visible.
+  // is retried here, at the poll's pace, while the window is visible. Each
+  // retry waits for the last one, since a save can take longer than the pace.
   useEffect(() => {
     if (!error || !workspace || conflict || closing || !enabled) return;
-    const timer = window.setInterval(() => {
-      if (!isDesktopClosing() && !window.document.hidden) void flush().catch(() => {});
-    }, 3000);
-    return () => window.clearInterval(timer);
+    let stopped = false;
+    let timer: number | undefined;
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        if (isDesktopClosing() || window.document.hidden) return schedule();
+        void flush().catch(() => {}).finally(() => { if (!stopped) schedule(); });
+      }, 3000);
+    };
+    schedule();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
   }, [error, workspace, flush, conflict, closing, enabled]);
   const create = useCallback(async () => {
     await flush();
