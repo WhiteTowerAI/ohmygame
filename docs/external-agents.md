@@ -132,6 +132,12 @@ Files in `<dataDirectory>/external-mcp/`:
   `.cmd` files without a shell; the installer keeps the executable's path
   across updates. At startup, clients connected with a different launcher are
   connected again and their Skill is updated.
+- The CLI commands run as System default, so they write the CLI's default
+  directory (`~/.claude.json`, `~/.codex`) even when OhMyGame was launched with
+  `CLAUDE_CONFIG_DIR` or `CODEX_HOME`. `clients.json` lists the clients connected
+  there in `systemDefault`; a client connected by an earlier version, which used
+  the inherited directory, is connected again at startup until that succeeds.
+  The earlier entry in the inherited directory is left in place.
 - It answers `initialize` and `tools/list` from `tools.json`. Clients start
   every configured MCP server when a session opens, in any folder, so the app
   must not start just because a client did.

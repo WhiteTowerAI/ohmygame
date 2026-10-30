@@ -102,7 +102,9 @@ report, so it has them before its own first turn. Codex reports them whenever it
 models are checked and while it works; Claude Code reports them during a
 conversation (its `rate_limit_event`), so they appear after its first one.
 The latest report is kept in `agent-runtimes/limits.json`, and a window whose
-reset time has passed shows as empty. OpenCode bills each model provider and
+reset time has passed shows as empty. System default reports saved by earlier
+versions are dropped once, since they may belong to the directory OhMyGame was
+launched with. OpenCode bills each model provider and
 has no quota of its own.
 
 When a turn stops at a usage limit (such as Claude Code's "You've hit your

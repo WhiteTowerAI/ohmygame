@@ -73,7 +73,7 @@ async function fixture(
     });
   const clients = create();
   await clients.load();
-  return { root, home, skill, calls, clients, create };
+  return { root, home, skill, calls, installed, clients, create };
 }
 
 it("adds OhMyGame with each CLI's own command and installs the Skill where it reads Skills", async () => {
@@ -217,8 +217,8 @@ it("leaves a person's own Skill of the same name alone", async () => {
   );
 });
 
-it("updates the Skill and reconnects with a moved launcher at startup", async () => {
-  const { home, skill, calls, clients, create } = await fixture();
+it("updates the Skill and reconnects a moved launcher or an earlier version's connection at startup", async () => {
+  const { root, home, skill, calls, installed, clients, create } = await fixture();
   await clients.connect("claude-code");
   await writeFile(
     path.join(skill, "SKILL.md"),
@@ -234,6 +234,35 @@ it("updates the Skill and reconnects with a moved launcher at startup", async ()
       "utf8",
     ),
   ).toContain("v2");
+
+  // Earlier versions connected clients in the directory OhMyGame was launched
+  // with; each is connected again until it succeeds, and older readers keep the file.
+  await same.connect("codex");
+  const file = path.join(root, "data", "external-mcp", "clients.json");
+  const { systemDefault, ...legacyFile } = JSON.parse(await readFile(file, "utf8"));
+  expect(legacyFile.version).toBe(1);
+  expect(systemDefault).toEqual(["claude-code", "codex"]);
+  await writeFile(file, JSON.stringify(legacyFile));
+  installed.delete("codex-cli");
+  const first = calls.length;
+  const legacy = create();
+  await legacy.load();
+  await legacy.refresh();
+  expect(calls.slice(first).map((call) => [call.binary, call.args[1]])).toEqual([
+    ["/bin/claude-code-cli", "remove"],
+    ["/bin/claude-code-cli", "add"],
+  ]);
+  expect(JSON.parse(await readFile(file, "utf8")).systemDefault).toEqual(["claude-code"]);
+  installed.add("codex-cli");
+  const second = calls.length;
+  const retried = create();
+  await retried.load();
+  await retried.refresh();
+  expect(calls.slice(second).map((call) => [call.binary, call.args[1]])).toEqual([
+    ["/bin/codex-cli", "remove"],
+    ["/bin/codex-cli", "add"],
+  ]);
+  expect((await retried.states()).every((state) => state.connected)).toBe(true);
 
   const moved = create({
     command: "/Applications/OhMyGame.app/bin/ohmygame-mcp",

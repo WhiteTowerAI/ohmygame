@@ -78,6 +78,7 @@ async function withinModelsWait<T>(load: Promise<T>): Promise<T | undefined> {
   ]).finally(() => clearTimeout(timer));
 }
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
+const LIMITS_VERSION = 2;
 
 interface ProbeCache {
   signature: string;
@@ -169,9 +170,14 @@ export class AgentRuntimeService {
       const stored = JSON.parse(
         await readFile(path.join(this.#root, "limits.json"), "utf8"),
       ) as Record<string, unknown>;
-      for (const [id, limits] of Object.entries(stored))
-        if ((isAgentRuntimeId(id) || ACCOUNT_RUNTIME_IDS.some((runtime) => id.startsWith(`${runtime}:`))) && Array.isArray(limits))
+      const current = stored.version === LIMITS_VERSION;
+      const reports = current && stored.limits && typeof stored.limits === "object" ? stored.limits as Record<string, unknown> : stored;
+      for (const [id, limits] of Object.entries(reports)) {
+        const known = isAgentRuntimeId(id) || ACCOUNT_RUNTIME_IDS.some((runtime) => id.startsWith(`${runtime}:`));
+        // Before version 2, System default reported for whichever folder OhMyGame was launched with.
+        if (known && Array.isArray(limits) && (current || !isAccountRuntimeId(id)))
           this.#limits.set(id, limits.filter(isUsageLimit));
+      }
     } catch {
       // No limits reported yet, or a damaged file: they arrive with the next report.
     }
@@ -189,7 +195,7 @@ export class AgentRuntimeService {
         await mkdir(this.#root, { recursive: true, mode: 0o700 });
         await writeFile(
           path.join(this.#root, "limits.json"),
-          `${JSON.stringify(Object.fromEntries(this.#limits))}\n`,
+          `${JSON.stringify({ version: LIMITS_VERSION, limits: Object.fromEntries(this.#limits) })}\n`,
         );
       })
       .catch(() => {});
@@ -383,12 +389,7 @@ export class AgentRuntimeService {
       if (!this.#deleting.has(`${id}:${loginProfileId}`)) this.#invalidate(id, loginProfileId);
       this.#logins.delete(cacheKey);
     };
-    const location = id === "claude-code-cli" ? ["CLAUDE_CONFIG_DIR", env.CLAUDE_CONFIG_DIR] : id === "codex-cli" ? ["CODEX_HOME", env.CODEX_HOME] : undefined;
-    const loginCommand = location?.[1]
-      ? process.platform === "win32"
-        ? `$env:${location[0]} = '${location[1].replaceAll("'", "''")}'; & '${binary.path.replaceAll("'", "''")}' ${id === "codex-cli" ? "login" : "auth login"}`
-        : `${location[0]}='${location[1].replaceAll("'", "'\\''")}' '${binary.path.replaceAll("'", "'\\''")}' ${id === "codex-cli" ? "login" : "auth login"}`
-      : definition.loginCommand;
+    const loginCommand = signInCommand(id, binary.path, env);
     if (id === "codex-cli") {
       const server = new CodexAppServer(binary.path, this.#root, env, {
         notification: (method) => {
@@ -903,7 +904,7 @@ export class AgentRuntimeService {
         diagnostics.push({
           code: "signed-out",
           message: `${definition.name} is not signed in`,
-          command: definition.loginCommand,
+          command: signInCommand(id, binary.path, env),
         });
       const result: ProbeCache = {
         signature: binary.signature,
@@ -1009,6 +1010,25 @@ export class AgentRuntimeService {
     this.#modelLoads.set(cacheKey, work);
     return work;
   }
+}
+
+/**
+ * The sign-in command a person can run for an account. A profile names its
+ * folder. System default clears the variable, which the person's terminal may
+ * set even when OhMyGame was launched without it.
+ */
+function signInCommand(id: AgentRuntimeId, binaryPath: string, env: Record<string, string>): string {
+  const variable = id === "claude-code-cli" ? "CLAUDE_CONFIG_DIR" : id === "codex-cli" ? "CODEX_HOME" : undefined;
+  if (!variable) return AGENT_RUNTIME_DEFINITIONS[id].loginCommand;
+  const directory = env[variable];
+  const args = id === "codex-cli" ? "login" : "auth login";
+  if (process.platform === "win32") {
+    const run = `& '${binaryPath.replaceAll("'", "''")}' ${args}`;
+    // Assigning $null removes the variable, without an error when it is absent.
+    return `$env:${variable} = ${directory ? `'${directory.replaceAll("'", "''")}'` : "$null"}; ${run}`;
+  }
+  const run = `'${binaryPath.replaceAll("'", "'\\''")}' ${args}`;
+  return directory ? `${variable}='${directory.replaceAll("'", "'\\''")}' ${run}` : `env -u ${variable} ${run}`;
 }
 
 function isUsageLimit(value: unknown): value is AgentUsageLimit {

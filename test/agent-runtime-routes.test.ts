@@ -440,7 +440,12 @@ describe("coding agent routes", () => {
     try {
       await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
       // System default signs in to the default folder, not the one OhMyGame was launched with.
-      expect((await call<{command: string}>("POST", "/agent-runtimes/claude-code-cli/login")).body.command).not.toContain("inherited-claude");
+      // The command shown for a terminal clears the variable, which that terminal may set even when OhMyGame has none.
+      for (const inherited of [path.join(dataDirectory, "inherited-claude"), undefined]) {
+        vi.stubEnv("CLAUDE_CONFIG_DIR", inherited);
+        expect((await call<{command: string}>("POST", "/agent-runtimes/claude-code-cli/login")).body.command).toBe(`env -u CLAUDE_CONFIG_DIR '${claude}' auth login`);
+      }
+      vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dataDirectory, "inherited-claude"));
       const profile = (await call<AgentAccountProfile>("POST", "/agent-runtimes/claude-code-cli/profiles", { name: "Work" })).body;
       const login = await call<{command: string}>("POST", `/agent-runtimes/claude-code-cli/login?profileId=${profile.id}`);
       expect(login.body.command).toContain(profile.configDirectory);

@@ -31,6 +31,12 @@ interface StoredClients {
   version: 1;
   /** The launcher each client was connected with; a different one is reconnected at startup. */
   connected: Partial<Record<ExternalAgentClientId, ExternalMcpLauncher>>;
+  /**
+   * Clients connected in System default's directory. Earlier versions ran each
+   * CLI with whichever `CLAUDE_CONFIG_DIR` or `CODEX_HOME` OhMyGame was launched
+   * with, so a client missing here is connected again at startup.
+   */
+  systemDefault: ExternalAgentClientId[];
 }
 
 export type RunCli = (
@@ -63,7 +69,7 @@ export interface ExternalAgentClientsOptions {
 export class ExternalAgentClients {
   readonly #options: ExternalAgentClientsOptions;
   readonly #file: string;
-  #stored: StoredClients = { version: 1, connected: {} };
+  #stored: StoredClients = { version: 1, connected: {}, systemDefault: [] };
   #queue: Promise<unknown> = Promise.resolve();
 
   constructor(options: ExternalAgentClientsOptions) {
@@ -89,7 +95,15 @@ export class ExternalAgentClients {
         value.connected &&
         typeof value.connected === "object"
       )
-        this.#stored = { version: 1, connected: value.connected };
+        this.#stored = {
+          version: 1,
+          connected: value.connected,
+          systemDefault: Array.isArray(value.systemDefault)
+            ? EXTERNAL_AGENT_CLIENT_IDS.filter((id) =>
+                value.systemDefault!.includes(id),
+              )
+            : [],
+        };
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
     }
@@ -98,7 +112,7 @@ export class ExternalAgentClients {
   /**
    * Keeps connected clients current after an update: the Skill is copied
    * again, and a client connected with another launcher, such as an app that
-   * moved, is connected again.
+   * moved, or outside System default's directory is connected again.
    */
   async refresh(): Promise<void> {
     for (const id of EXTERNAL_AGENT_CLIENT_IDS) {
@@ -107,7 +121,8 @@ export class ExternalAgentClients {
       try {
         if (
           this.#options.launcher &&
-          !sameLauncher(used, this.#options.launcher)
+          (!this.#stored.systemDefault.includes(id) ||
+            !sameLauncher(used, this.#options.launcher))
         )
           await this.connect(id);
         else await this.#installSkill(id);
@@ -151,6 +166,10 @@ export class ExternalAgentClients {
       if (added.code !== 0) throw new Error(failure(id, "add", added));
       await this.#installSkill(id);
       this.#stored.connected[id] = launcher;
+      this.#stored.systemDefault = [
+        ...this.#stored.systemDefault.filter((other) => other !== id),
+        id,
+      ];
       await this.#save();
     });
   }
@@ -176,6 +195,9 @@ export class ExternalAgentClients {
           throw new Error(failure(id, "remove", removed));
       }
       delete this.#stored.connected[id];
+      this.#stored.systemDefault = this.#stored.systemDefault.filter(
+        (other) => other !== id,
+      );
       await this.#removeSkill(id);
       await this.#save();
     });
