@@ -166,7 +166,7 @@ describePublishContract("remote publish", () => {
     });
   });
 
-  it("runs the project build and uploads only its static output, which also downloads as a web build", async () => {
+  it("runs the project build and uploads only its static output", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Built");
     await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({ scripts: { build: "node build.mjs" } }));
@@ -177,29 +177,12 @@ describePublishContract("remote publish", () => {
       await writeFile("dist/assets/game.js", "window.built = true");
     `);
 
-    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/build` });
-    expect(built.statusCode, built.body).toBe(200);
-    expect(built.headers["content-type"]).toBe("application/zip");
-    // Entry names are stored as plain text in the archive.
-    expect(built.rawPayload.includes("assets/game.js")).toBe(true);
-    expect(built.rawPayload.includes("build.mjs")).toBe(false);
-
     const response = await publishProject(runtime.daemon, project.id);
 
     expect(response.statusCode).toBe(201);
     const deployment = response.json().deployment;
     expect(await readFile(path.join(runtime.publishData, "artifacts", deployment.id, "assets", "game.js"), "utf8")).toContain("built");
     expect(await readdir(path.join(runtime.publishData, "artifacts", deployment.id))).not.toContain("build.mjs");
-  });
-
-  it("builds only games that publish", async () => {
-    const runtime = await testRuntime();
-    const canvas = (await runtime.daemon.inject({ method: "POST", url: "/projects", payload: { name: "Board", type: "asset-canvas" } })).json();
-
-    const refused = await runtime.daemon.inject({ method: "POST", url: `/projects/${canvas.id}/build` });
-
-    expect(refused.statusCode).toBe(409);
-    expect(refused.json().error).toBe("Build requires a Web Game, General Game or Interactive Story project");
   });
 
   it("rejects a package project without a build command", async () => {

@@ -865,11 +865,13 @@ export function ProjectShell({
   async function exportFile(kind: "project" | "web"): Promise<void> {
     if (!project || exporting) return;
     setExporting(kind);
+    // A restore while the edits save makes the build fail rather than build the restored files.
+    const version = workspaceVersion(project.id);
     try {
       // Both are read from disk, so pending edits are saved first.
       await saveDesign.current?.();
       await desktopSave.flush();
-      const file = kind === "web" ? await buildWebGame(project.id) : await exportProject(project.id);
+      const file = kind === "web" ? await buildWebGame(project.id, version) : await exportProject(project.id);
       const url = URL.createObjectURL(file);
       const link = document.createElement("a");
       link.href = url;
@@ -1084,7 +1086,7 @@ export function ProjectShell({
           <IconButton {...props} size="sm" label={t("panels.menu")}><LayoutGrid size={16} /></IconButton>
         )} /> : null}
         {project && publishButton ? <DropdownMenu placement="bottom-end" items={[
-          { label: t("workspace.publishToCommunity"), icon: <Globe2 size={14} />, onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
+          { label: t("workspace.publishToCommunity"), icon: <Globe2 size={14} />, disabled: exporting === "web", onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
           "separator",
           { label: exporting === "web" ? t("workspace.exportingWebBuild") : t("workspace.exportWebBuild"), icon: <Upload size={14} />, disabled: !!exporting, onSelect: () => void exportFile("web") },
         ]} trigger={(props) => (

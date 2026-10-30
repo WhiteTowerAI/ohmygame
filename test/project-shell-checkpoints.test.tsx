@@ -968,9 +968,25 @@ describe("checkpoints in the project shell", () => {
     await menuItem("Publish to the OhMyGame community");
     expect(publishDialog).toHaveBeenLastCalledWith("open");
 
-    await menuItem("Export web build");
-    expect(save).toHaveBeenCalledTimes(1);
-    expect(daemon.requests.filter((request) => request.route === "/projects/project/build")).toHaveLength(1);
+    // A story's or other editor's pending save finishes before the build reads the files.
+    let saved!: () => void;
+    const { desktopSave } = await import("../src/renderer/desktop-save.js");
+    const unregister = desktopSave.register(() => new Promise<void>((resolve) => { saved = resolve; }));
+    const built = () => daemon.requests.filter((request) => request.route === "/projects/project/build");
+    try {
+      await menuItem("Export web build");
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(built()).toHaveLength(0);
+      await click("Publish");
+      const publishItem = [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")]
+        .find((item) => item.textContent?.includes("Publish to the OhMyGame community"))!;
+      expect(publishItem.disabled).toBe(true);
+      await act(async () => saved());
+      await settle();
+    } finally {
+      unregister();
+    }
+    expect(built()).toHaveLength(1);
     expect(downloads).toEqual(["Test (web).zip"]);
   });
 
