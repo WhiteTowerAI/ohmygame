@@ -197,6 +197,9 @@ export function combineAssetCanvasPrompt(linkedText: string | undefined, localPr
 /** Safety constraint for generated sprite sheets so grid splitting cannot clip a frame. */
 export const EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT = "The final output must be a PNG with a real transparent alpha channel. Do not render any background plane, gradient, glow field, checkerboard, black, white, green, gray, blue, or other background color; pixels outside the effects must be fully transparent. If transparent output is unsupported, do not fake it with a colored background. Keep every frame fully inside its own cell with at least 10% transparent padding on all four sides. Keep the main effect within about 70% of the cell width and height; never let it fill the entire cell. No visual element may touch, cross, or be clipped by the cell boundaries. Keep identical scale, baseline, camera framing, and ground point in every frame. Keep the full effect visible from top to bottom in every frame.";
 
+/** Default editor template for image nodes created inside the Effect Library. */
+export const EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE = "Requested action: {USER_ACTION}\n\nMain color: {EFFECT_COLOR}\n\nMotion rhythm: {MOTION_RHYTHM}\n\nAdditional direction:\n{ADDITIONAL_PROMPT}";
+
 /** Builds the complete, portable prompt behind an Effect Library image node. */
 export function effectLibraryPrompt(
   basePrompt: string | undefined,

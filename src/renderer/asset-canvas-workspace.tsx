@@ -104,7 +104,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineAssetCanvasPrompt, createAssetGenerationNode, effectLibraryPrompt, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
+import { combineAssetCanvasPrompt, createAssetGenerationNode, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, effectLibraryPrompt, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { allActionsPrompt, continuousActionsPrompt, resolveContinuousActionPrompt, preferredCharacterSheetOption } from "../shared/canvas-character-tools.js";
 import { canvasImagePresetPrompt, canvasMaterialStyle, type CanvasImagePreset, type CanvasMaterialStyle } from "../shared/canvas-image-presets.js";
 import { VOLCENGINE_TTS_VOICES, availableAudioOperations, type AudioModel, type AudioOperation, type AudioProviderCatalogStatus } from "../shared/audio.js";
@@ -1167,7 +1167,22 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       return;
     }
     const created = createFlowNode(type, position, imageModels, videoModels, defaultTextModel);
-    const node = { ...applyRememberedSettings(created, rememberedSettings.current[type], { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, model3DModels, defaultModel3D, textModels: textModelCatalog.models }), selected: true };
+    const configured = applyRememberedSettings(created, rememberedSettings.current[type], { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, model3DModels, defaultModel3D, textModels: textModelCatalog.models });
+    const inEffectLibrary = nodesRef.current.some((candidate) => candidate.type === "text" && candidate.data.instruction === "effect-library");
+    const node = {
+      ...configured,
+      ...(type === "image" && inEffectLibrary ? {
+        data: {
+          ...configured.data,
+          prompt: "",
+          promptExpanded: true,
+          effectBasePrompt: EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE,
+          effectColor: "original" as const,
+          effectRhythm: "sample" as const,
+        },
+      } : {}),
+      selected: true,
+    };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
   }
 
@@ -3536,7 +3551,7 @@ function EffectPromptEditor({ data, disabled, onChange, onSubmit }: {
   onChange: (next: Pick<AssetCanvasFlowData, "effectColor" | "effectRhythm" | "prompt">) => void;
   onSubmit?: () => void;
 }) {
-  const value = data.prompt || "Requested action: {USER_ACTION}\n\nMain color: {EFFECT_COLOR}\n\nMotion rhythm: {MOTION_RHYTHM}\n\nAdditional direction:\n{ADDITIONAL_PROMPT}";
+  const value = data.prompt || EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE;
   return <div className="effect-prompt-editor nodrag"><CanvasTextarea aria-label="Effect prompt" rows={8} value={value} disabled={disabled} onChange={(prompt) => onChange({ ...data, prompt })} onSubmit={onSubmit} /></div>;
 }
 

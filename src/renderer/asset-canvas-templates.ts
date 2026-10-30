@@ -29,6 +29,14 @@ import effectIceClawSlashSheet from "./assets/templates/examples/effect-ice-claw
 import effectIceClawSlashPreview from "./assets/templates/examples/effect-ice-claw-slash-preview.gif";
 import effectElectricTrailSheet from "./assets/templates/examples/effect-electric-trail-sheet.png";
 import effectElectricTrailPreview from "./assets/templates/examples/effect-electric-trail-preview.gif";
+import effectBlueWhiteCrescentSlashSheet from "./assets/templates/examples/effect-blue-white-crescent-slash-sheet.png";
+import effectBlueWhiteCrescentSlashPreview from "./assets/templates/examples/effect-blue-white-crescent-slash-preview.gif";
+import effectSmokeDispersalSheet from "./assets/templates/examples/effect-smoke-dispersal-sheet.png";
+import effectSmokeDispersalPreview from "./assets/templates/examples/effect-smoke-dispersal-preview.gif";
+import effectGreenEnergyWaveSheet from "./assets/templates/examples/effect-green-energy-wave-sheet.png";
+import effectGreenEnergyWavePreview from "./assets/templates/examples/effect-green-energy-wave-preview.gif";
+import effectWaterOrbMagicSheet from "./assets/templates/examples/effect-water-orb-magic-sheet.png";
+import effectWaterOrbMagicPreview from "./assets/templates/examples/effect-water-orb-magic-preview.gif";
 import { TEMPLATE_SAMPLE_IMAGES, type TemplateSample } from "./asset-canvas-template-samples.js";
 import {
   changeCanvasBoard,
@@ -299,6 +307,96 @@ Frame 11: only a few tiny blue particles remain near the center.
 Frame 12: the final electric sparks fade out completely.
 
 Transparent background. Hard pixel edges. No blur. No characters, weapons, scenery, text, borders, grid lines, or UI. Keep every frame fully inside its own cell with at least 15% transparent padding on all four sides. Keep the effect within the central 70% of each cell. No lightning branch, particle, glow, or trail may touch, cross, or be clipped by a cell boundary. Keep identical camera framing, scale, center point, and motion direction in every frame.`;
+
+const EFFECT_LIBRARY_BLUE_WHITE_CRESCENT_EXAMPLE_PROMPT = `Requested action: a blue-white crescent energy slash sweeping along a curved path from the upper-right area toward the lower-right area of each cell in a 4-column by 3-row Sprite Sheet (12 frames)
+
+Main color: bright cyan, electric blue, deep navy, and white-hot highlights
+
+Motion rhythm: fast initiation, smooth curved downward sweep, strong mid-swing peak, then rapid dissipation
+
+Important motion rule: this is one single crescent-shaped slash, not a straight projectile and not a stationary effect. The crescent starts near the upper-right area, travels downward along the right side in a curved arc, and ends near the lower-right area. The motion path must stay inside the same cell and must never cross a cell boundary.
+
+Additional direction:
+Frame 1: a tiny blue-white crescent appears near the upper-right area.
+Frame 2: the crescent grows slightly and begins sliding downward.
+Frame 3: the curved blade moves diagonally downward along the right side.
+Frame 4: the crescent becomes larger while continuing its downward arc.
+Frame 5: the blade reaches the right-center area with a bright cyan inner edge.
+Frame 6: the slash reaches maximum size and brightness during the middle of the curved sweep.
+Frame 7: the crescent continues sliding toward the lower-right area.
+Frame 8: the arc begins shrinking while maintaining the same curved path.
+Frame 9: the blade becomes thinner and leaves blue-white particles behind.
+Frame 10: a smaller crescent remains near the lower-right area.
+Frame 11: only a short curved fragment and scattered blue particles remain.
+Frame 12: the final particles fade out near the lower-right area.
+
+Transparent background. Hard pixel edges. No blur. No characters, weapons, scenery, text, borders, grid lines, or UI. Use exactly one crescent-shaped slash. Keep the full effect at least 15% away from all cell boundaries. No blade, glow, trail, or particle may touch, cross, or be clipped by a cell boundary. Keep identical camera framing, scale, and cell layout in every frame.`;
+
+const EFFECT_LIBRARY_SMOKE_EXAMPLE_PROMPT = `Requested action: a gray smoke puff dispersal animation in a 4-column by 3-row Sprite Sheet (12 frames)
+
+Main color: soft gray, dark gray, light gray, and subtle white-gray highlights
+
+Motion rhythm: quick appearance, gradual expansion, brief dense peak, then loose outward dispersal and fade-out
+
+Additional direction:
+Frame 1: a single tiny gray smoke particle appears at the center.
+Frame 2: a small three-lobed gray smoke puff forms.
+Frame 3: the smoke puff grows slightly with several rounded smoke blobs.
+Frame 4: more gray smoke blobs gather into a compact cluster.
+Frame 5: the smoke becomes larger and denser with overlapping rounded puffs.
+Frame 6: the smoke cluster reaches its maximum size and density.
+Frame 7: the outer smoke blobs begin separating from the main cluster.
+Frame 8: several gray smoke chunks drift outward in different directions.
+Frame 9: the smoke breaks into smaller scattered fragments.
+Frame 10: only a few small gray smoke particles remain.
+Frame 11: sparse tiny particles fade around the center.
+Frame 12: the final smoke particles disappear completely.
+
+Transparent background. Crisp 2D fantasy game pixel art. Hard pixel edges. Softly rounded pixel clusters. No blur, scenery, characters, text, borders, grid lines, or UI. Keep the smoke centered inside each cell. Do not move the entire effect across the cell. Keep every frame fully inside its own cell with at least 15% transparent padding on all four sides. Keep the smoke within the central 70% of each cell. No smoke blob or particle may touch, cross, or be clipped by a cell boundary. Keep identical camera framing, scale, and center point in every frame.`;
+
+const EFFECT_LIBRARY_GREEN_ENERGY_WAVE_EXAMPLE_PROMPT = `Requested action: a green energy wave charging, expanding, and dissipating animation in a 4-column by 3-row Sprite Sheet (12 frames)
+
+Main color: neon green, emerald green, deep green, lime green, and pale yellow-green highlights
+
+Motion rhythm: scattered energy fragments gather inward, form a rotating vortex, compress into a bright orb, expand into a circular wave ring, then break apart and fade
+
+Additional direction:
+Frame 1: scattered green particles and short curved energy fragments float around the center.
+Frame 2: more green fragments begin spiraling inward toward the center.
+Frame 3: several curved green energy strokes gather into a loose clockwise vortex.
+Frame 4: the vortex tightens into a dense rotating green spiral with a bright center.
+Frame 5: the spiral compresses into a compact glowing green energy orb.
+Frame 6: the orb grows larger with a pale yellow-green core and a dark emerald rim.
+Frame 7: the orb reaches maximum brightness and size, with layered circular energy bands.
+Frame 8: the orb opens into a bright circular energy ring with a transparent center.
+Frame 9: the ring expands slightly and begins breaking into uneven green arc segments.
+Frame 10: the ring becomes incomplete, with separated glowing fragments around the perimeter.
+Frame 11: only sparse green particles and small curved fragments remain.
+Frame 12: the final green sparks fade out completely.
+
+Transparent background. Crisp 2D fantasy game pixel art. Hard pixel edges. No blur, no characters, no weapons, no scenery, no text, no borders, no grid lines, and no UI. Keep the effect centered in every cell. Keep every frame fully inside its own cell with at least 15% transparent padding on all four sides. Keep the effect within the central 70% of each cell. No particle, arc, ring, or orb may touch, cross, or be clipped by a cell boundary. Keep identical camera framing, scale, and center point in every frame.`;
+
+const EFFECT_LIBRARY_WATER_ORB_MAGIC_EXAMPLE_PROMPT = `Requested action: a blue water orb magic launch and dispersal animation in a 4-column by 3-row Sprite Sheet (12 frames)
+
+Main color: aqua blue, bright cyan, deep ocean blue, navy blue, and white watery highlights
+
+Motion rhythm: tiny droplets gather, form a rotating water orb, charge briefly, launch toward the left, split into droplets, then disperse and fade
+
+Additional direction:
+Frame 1: a tiny blue water droplet appears at the center.
+Frame 2: several small blue droplets gather around the center and begin moving inward.
+Frame 3: the droplets condense into a small rounded water cluster with a bright core.
+Frame 4: the cluster becomes a compact blue water orb with a dark-blue outer rim.
+Frame 5: the orb becomes smooth and spherical with a bright cyan highlight and internal swirl.
+Frame 6: the orb rotates and pulses while maintaining a stable circular shape.
+Frame 7: the orb reaches maximum charge with stronger white-blue highlights and a dense inner spiral.
+Frame 8: the orb launches from right to left, stretching into a comet-like water shape.
+Frame 9: the water projectile elongates leftward and begins breaking into curved droplets.
+Frame 10: the main water mass separates into multiple blue droplets and splash fragments.
+Frame 11: scattered droplets drift outward along the former launch path.
+Frame 12: the final tiny droplets fade out completely.
+
+Transparent background. Crisp 2D fantasy game pixel art. Hard pixel edges. Clean rounded water shapes. No blur, no characters, no weapons, no scenery, no text, no borders, no grid lines, and no UI. Keep the effect centered before launch, then keep the leftward motion fully inside each cell. Keep every frame fully inside its own cell with at least 15% transparent padding on all four sides. Keep the effect within the central 70% of each cell. No orb, droplet, splash, or particle may touch, cross, or be clipped by a cell boundary. Keep identical scale and camera framing in every frame. The launch direction must remain consistently from right to left.`;
 
 const EFFECT_LIBRARY_CATEGORIES = ["fire", "water", "ice", "lightning", "general"] as const;
 
@@ -614,7 +712,7 @@ export async function createEffectLibraryProject(): Promise<{ projectId: string;
       id: crypto.randomUUID(), type: "text", title: t("effectLibrary.howToTitle"), position: { x: 40, y: 80 }, width: 440,
       data: { instruction: "effect-library", text: t("effectLibrary.canvasGuide") },
     };
-    const [sheetAssetId, gifAssetId, iceSheetAssetId, iceGifAssetId, waveSheetAssetId, waveGifAssetId, waterSplashSheetAssetId, waterSplashGifAssetId, electricOrbSheetAssetId, electricOrbGifAssetId, lightningStrikeSheetAssetId, lightningStrikeGifAssetId, iceClawSheetAssetId, iceClawGifAssetId, electricTrailSheetAssetId, electricTrailGifAssetId] = await Promise.all([
+    const [sheetAssetId, gifAssetId, iceSheetAssetId, iceGifAssetId, waveSheetAssetId, waveGifAssetId, waterSplashSheetAssetId, waterSplashGifAssetId, electricOrbSheetAssetId, electricOrbGifAssetId, lightningStrikeSheetAssetId, lightningStrikeGifAssetId, iceClawSheetAssetId, iceClawGifAssetId, electricTrailSheetAssetId, electricTrailGifAssetId, blueWhiteCrescentSheetAssetId, blueWhiteCrescentGifAssetId, smokeSheetAssetId, smokeGifAssetId, greenEnergyWaveSheetAssetId, greenEnergyWaveGifAssetId, waterOrbMagicSheetAssetId, waterOrbMagicGifAssetId] = await Promise.all([
       uploadEffectExample(effectFireHitSheet, "火焰命中-sprite-sheet.png", "image/png"),
       uploadEffectExample(effectFireHitPreview, "火焰命中-preview.gif", "image/gif"),
       uploadEffectExample(effectIceImpactSheet, "冰霜冲击-sprite-sheet.png", "image/png"),
@@ -631,8 +729,16 @@ export async function createEffectLibraryProject(): Promise<{ projectId: string;
       uploadEffectExample(effectIceClawSlashPreview, "三道寒冰爪痕-preview.gif", "image/gif"),
       uploadEffectExample(effectElectricTrailSheet, "电光拖尾-sprite-sheet.png", "image/png"),
       uploadEffectExample(effectElectricTrailPreview, "电光拖尾-preview.gif", "image/gif"),
+      uploadEffectExample(effectBlueWhiteCrescentSlashSheet, "蓝白弧形斩击-sprite-sheet.png", "image/png"),
+      uploadEffectExample(effectBlueWhiteCrescentSlashPreview, "蓝白弧形斩击-preview.gif", "image/gif"),
+      uploadEffectExample(effectSmokeDispersalSheet, "烟团消散-sprite-sheet.png", "image/png"),
+      uploadEffectExample(effectSmokeDispersalPreview, "烟团消散-preview.gif", "image/gif"),
+      uploadEffectExample(effectGreenEnergyWaveSheet, "绿色聚能波-sprite-sheet.png", "image/png"),
+      uploadEffectExample(effectGreenEnergyWavePreview, "绿色聚能波-preview.gif", "image/gif"),
+      uploadEffectExample(effectWaterOrbMagicSheet, "水球魔法-sprite-sheet.png", "image/png"),
+      uploadEffectExample(effectWaterOrbMagicPreview, "水球魔法-preview.gif", "image/gif"),
     ]);
-    const exampleGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 560, y: 80 }, width: 2080, height: 1800, data: { name: t("effectLibrary.templateExample") } };
+    const exampleGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 560, y: 80 }, width: 2080, height: 2680, data: { name: t("effectLibrary.templateExample") } };
     const sheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 54 }, title: t("effectLibrary.spriteSheetExample"), description: "4 × 3 · 12 帧", data: { assetId: sheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_EXAMPLE_PROMPT } };
     const preview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 54 }, title: t("effectLibrary.gifPreview"), description: t("effectLibrary.gifPreviewHint"), data: { assetId: gifAssetId, mediaType: "image" } };
     const iceSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 54 }, title: `${t("effectLibrary.spriteSheetExample")} · 冰霜`, description: "4 × 3 · 12 帧", data: { assetId: iceSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ICE_EXAMPLE_PROMPT } };
@@ -649,7 +755,15 @@ export async function createEffectLibraryProject(): Promise<{ projectId: string;
     const lightningStrikePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 1362 }, title: `${t("effectLibrary.gifPreview")} · 雷点`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: lightningStrikeGifAssetId, mediaType: "image" } };
     const electricTrailSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 1362 }, title: `${t("effectLibrary.spriteSheetExample")} · 电光拖尾`, description: "4 × 3 · 12 帧", data: { assetId: electricTrailSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ELECTRIC_TRAIL_EXAMPLE_PROMPT } };
     const electricTrailPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 1362 }, title: `${t("effectLibrary.gifPreview")} · 电光拖尾`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: electricTrailGifAssetId, mediaType: "image" } };
-    const workGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 560, y: 1940 }, width: 2080, height: 460, data: { name: t("effectLibrary.myEffects") } };
+    const blueWhiteCrescentSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 1798 }, title: `${t("effectLibrary.spriteSheetExample")} · 蓝白弧斩`, description: "4 × 3 · 12 帧", data: { assetId: blueWhiteCrescentSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_BLUE_WHITE_CRESCENT_EXAMPLE_PROMPT } };
+    const blueWhiteCrescentPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 1798 }, title: `${t("effectLibrary.gifPreview")} · 蓝白弧斩`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: blueWhiteCrescentGifAssetId, mediaType: "image" } };
+    const smokeSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 1798 }, title: `${t("effectLibrary.spriteSheetExample")} · 烟团`, description: "4 × 3 · 12 帧", data: { assetId: smokeSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_SMOKE_EXAMPLE_PROMPT } };
+    const smokePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 1798 }, title: `${t("effectLibrary.gifPreview")} · 烟团`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: smokeGifAssetId, mediaType: "image" } };
+    const greenEnergyWaveSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 2234 }, title: `${t("effectLibrary.spriteSheetExample")} · 绿色聚能波`, description: "4 × 3 · 12 帧", data: { assetId: greenEnergyWaveSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_GREEN_ENERGY_WAVE_EXAMPLE_PROMPT } };
+    const greenEnergyWavePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 2234 }, title: `${t("effectLibrary.gifPreview")} · 绿色聚能波`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: greenEnergyWaveGifAssetId, mediaType: "image" } };
+    const waterOrbMagicSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 2234 }, title: `${t("effectLibrary.spriteSheetExample")} · 水球魔法`, description: "4 × 3 · 12 帧", data: { assetId: waterOrbMagicSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_WATER_ORB_MAGIC_EXAMPLE_PROMPT } };
+    const waterOrbMagicPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 2234 }, title: `${t("effectLibrary.gifPreview")} · 水球魔法`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: waterOrbMagicGifAssetId, mediaType: "image" } };
+    const workGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 560, y: 2820 }, width: 2080, height: 460, data: { name: t("effectLibrary.myEffects") } };
     const imageOption = preferredImageOption(imageModels[0], "1:1");
     const image = createAssetGenerationNode("image", { x: 28, y: 52 }, {
       ...(imageModels[0] ? { imageModel: { provider: imageModels[0].provider, id: imageModels[0].id } } : {}),
@@ -663,7 +777,7 @@ export async function createEffectLibraryProject(): Promise<{ projectId: string;
     image.data.effectRhythm = "sample";
     image.data.prompt = "";
     image.data.promptExpanded = true;
-    const nodes: AssetCanvasNode[] = [guide, exampleGroup, sheet, preview, iceSheet, icePreview, waveSheet, wavePreview, waterSplashSheet, waterSplashPreview, electricOrbSheet, electricOrbPreview, lightningStrikeSheet, lightningStrikePreview, iceClawSheet, iceClawPreview, electricTrailSheet, electricTrailPreview, workGroup, image];
+    const nodes: AssetCanvasNode[] = [guide, exampleGroup, sheet, preview, iceSheet, icePreview, waveSheet, wavePreview, waterSplashSheet, waterSplashPreview, electricOrbSheet, electricOrbPreview, lightningStrikeSheet, lightningStrikePreview, iceClawSheet, iceClawPreview, electricTrailSheet, electricTrailPreview, blueWhiteCrescentSheet, blueWhiteCrescentPreview, smokeSheet, smokePreview, waterOrbMagicSheet, waterOrbMagicPreview, greenEnergyWaveSheet, greenEnergyWavePreview, workGroup, image];
     document.nodes = nodes;
     document.editorLayout.nodes = Object.fromEntries(nodes.map((node) => [node.id, { ...node.position, ...(node.width ? { width: node.width } : {}), ...(node.height ? { height: node.height } : {}) }]));
     const workspace = await getCanvasWorkspace(project.id);
