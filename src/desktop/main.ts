@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
+import { rmdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -235,6 +236,30 @@ handle("ohmygame:reveal-plugin-skill", async (event, pluginId: unknown, skillId:
   const result = await response.json() as { path?: unknown };
   if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid Plugin Skill path");
   shell.showItemInFolder(result.path);
+});
+// Removes a project from OhMyGame. The daemon moves the files of a project in
+// its own storage aside and says where; they go to the Trash from there, so
+// removing never deletes what the person made.
+handle("ohmygame:remove-project", async (event, projectId: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid project source");
+  if (!validRouteId(projectId) || !daemon) throw new Error("Invalid project");
+  const response = await fetch(`${daemon.runtime.url}/projects/${encodeURIComponent(projectId)}?keep=1`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${daemon.runtime.token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => undefined) as { error?: unknown } | undefined;
+    throw new Error(typeof body?.error === "string" ? body.error : "The project could not be removed");
+  }
+  const result = await response.json() as { movedTo?: unknown };
+  if (result.movedTo === undefined) return;
+  if (typeof result.movedTo !== "string" || !path.isAbsolute(result.movedTo)) throw new Error("Invalid removed project folder");
+  try {
+    await shell.trashItem(result.movedTo);
+  } catch {
+    throw new Error(`The project was removed, but its files could not be moved to the Trash. They are in ${result.movedTo}`);
+  }
+  await rmdir(path.dirname(result.movedTo)).catch(() => {});
 });
 handle("ohmygame:open-logs-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid logs folder source");

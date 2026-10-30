@@ -12,7 +12,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
 }));
 vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({ useAuth: () => ({ state: { status: "signed-in", user: { id: "u", name: "Player" } }, openSignIn: vi.fn() }) }));
 vi.doMock(path.resolve("src/renderer/provider-models.tsx"), () => ({ ProviderModels: () => <div>Models</div> }));
-const { ModelsSettings } = await import("../src/renderer/models-settings.js");
+const { ProviderDetailDialog } = await import("../src/renderer/models-settings.js");
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -31,12 +31,12 @@ afterEach(async () => {
 });
 
 const provider = (id: string, custom = false): ProviderSummary => ({ id, name: id, configured: true, status: "connected", capabilities: ["3d"], methods: [{ type: "api_key", label: "API key" }], custom });
-const render = (value: ProviderSummary) => act(async () => root.render(<ModelsSettings view={{ page: "provider", provider: value }} onViewChange={() => {}} onOpenAgents={() => {}} />));
+const render = (value: ProviderSummary) => act(async () => root.render(<ProviderDetailDialog provider={value} onClose={() => {}} onOpenAgents={() => {}} />));
 
 it.each(["meshy", "tripo"])("shows %s account credits with a stable connection ID", async (id) => {
   await render(provider(id));
   expect(api.balance).toHaveBeenCalledWith({ provider: id, id: "connection" });
-  expect(container.querySelector('[aria-label="API balance"]')?.textContent).toContain("10 credits");
+  expect(document.body.querySelector('[aria-label="API balance"]')?.textContent).toContain("10 credits");
 });
 
 it("keeps Hyper3D's free daily quota separate from its API-key balance", async () => {
@@ -45,8 +45,8 @@ it("keeps Hyper3D's free daily quota separate from its API-key balance", async (
     unit: "credits", personal: { remaining: 3, limit: 5, reserved: 0, resetsAt: "2026-10-12T00:00:00Z" },
   } } }]);
   await render(hyper3d);
-  expect(container.querySelector('[aria-label="Daily quota"]')?.textContent).toContain("3 / 5 credits");
-  expect(container.querySelector('[aria-label="API balance"]')?.textContent).toContain("10 credits");
+  expect(document.body.querySelector('[aria-label="Daily quota"]')?.textContent).toContain("3 / 5 credits");
+  expect(document.body.querySelector('[aria-label="API balance"]')?.textContent).toContain("10 credits");
   expect(api.balance).toHaveBeenCalledWith({ provider: "hyper3d", id: "connection" });
 });
 
@@ -62,6 +62,6 @@ it("deduplicates custom balances while keeping distinct model-level endpoints se
   expect(api.balance).toHaveBeenCalledTimes(2);
   expect(api.balance).toHaveBeenCalledWith({ provider: "studio", id: "first" });
   expect(api.balance).toHaveBeenCalledWith({ provider: "studio", id: "other" });
-  expect(container.querySelector('[aria-label="API balance · First"]')).not.toBeNull();
-  expect(container.querySelector('[aria-label="API balance · Other account"]')).not.toBeNull();
+  expect(document.body.querySelector('[aria-label="API balance · First"]')).not.toBeNull();
+  expect(document.body.querySelector('[aria-label="API balance · Other account"]')).not.toBeNull();
 });

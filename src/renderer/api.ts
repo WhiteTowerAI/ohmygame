@@ -53,6 +53,7 @@ import {
   type ProjectRunSettings,
   type ProjectFileOpenMode,
   type ProjectActivitySnapshot,
+  type ProjectAppearance,
   type ProjectCoverMode,
   type ProjectCoverState,
   type ProjectState,
@@ -89,7 +90,7 @@ import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
-import type { ExternalAgentClientId, ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
+import type { ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerBridge } from "../shared/web-game-player.js";
 import type { NetworkConnectionTest, NetworkSettings, NetworkSettingsState } from "../shared/network-settings.js";
@@ -153,6 +154,7 @@ declare global {
       selectProjectDirectory: () => Promise<string | undefined>;
       /** Older desktop builds do not write log files. */
       openLogsDirectory?: () => Promise<void>;
+      removeProject?: (projectId: string) => Promise<void>;
       /** Builds the diagnostics ZIP without the background service, for when it is not running. */
       exportDiagnostics?: () => Promise<Uint8Array<ArrayBuffer>>;
       clipboard: {
@@ -316,8 +318,26 @@ export async function importProject(file: File): Promise<ProjectState> {
   return response.json() as Promise<ProjectState>;
 }
 
+/** Electron prefixes errors from the main process with the channel; the reason follows. */
+function ipcError(cause: unknown): Error {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return new Error(message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, ""));
+}
+
+/** Whether removing a project keeps its files: the desktop app puts OhMyGame's own copies in the Trash. */
+export function projectRemovalKeepsFiles(): boolean {
+  return typeof window !== "undefined" && typeof window.ohMyGameDesktop?.removeProject === "function";
+}
+
+/**
+ * Takes a project out of OhMyGame. In the desktop app nothing is deleted: a
+ * folder the person chose stays, and a project in OhMyGame's storage goes to
+ * the Trash. Elsewhere a project in OhMyGame's storage is deleted.
+ */
 export async function deleteProject(projectId: string): Promise<void> {
-  await request(`/projects/${projectId}`, { method: "DELETE" });
+  const remove = window.ohMyGameDesktop?.removeProject;
+  if (remove) await remove(projectId).catch((cause: unknown) => { throw ipcError(cause); });
+  else await request(`/projects/${projectId}`, { method: "DELETE" });
   composerDrafts.deleteProject(projectId);
   forgetLastProject(projectId);
 }
@@ -641,11 +661,11 @@ export async function updateWebSearchSettings(input: UpdateWebSearchSettings): P
 }
 
 /** Settings → General → Project location; no location means OhMyGame's own storage. */
-export async function getProjectLocation(): Promise<{ location?: string }> {
+export async function getProjectLocation(): Promise<{ location?: string; storage?: string }> {
   return request("/settings/project-location");
 }
 
-export async function setProjectLocation(location: string | undefined): Promise<{ location?: string }> {
+export async function setProjectLocation(location: string | undefined): Promise<{ location?: string; storage?: string }> {
   return request("/settings/project-location", { method: "PUT", body: JSON.stringify({ location: location ?? null }) });
 }
 
@@ -655,14 +675,6 @@ export async function getExternalAgentSettings(): Promise<ExternalAgentSettings>
 
 export async function updateExternalAgentSettings(input: UpdateExternalAgentSettings): Promise<ExternalAgentSettings> {
   return request("/settings/external-agents", { method: "PUT", body: JSON.stringify(input) });
-}
-
-export async function connectExternalAgent(id: ExternalAgentClientId): Promise<ExternalAgentSettings> {
-  return request(`/settings/external-agents/clients/${id}`, { method: "PUT" });
-}
-
-export async function disconnectExternalAgent(id: ExternalAgentClientId): Promise<ExternalAgentSettings> {
-  return request(`/settings/external-agents/clients/${id}`, { method: "DELETE" });
 }
 
 export async function listExploreGames(accessToken?: string, options: CommunityGamesQuery = {}): Promise<CommunityGame[]> {
@@ -936,6 +948,25 @@ export async function setProjectCover(projectId: string, cover: Blob, source: Pr
 
 export async function setProjectCoverMode(projectId: string, mode: ProjectCoverMode): Promise<void> {
   await request(`/projects/${projectId}/cover/state`, { method: "PUT", body: JSON.stringify({ mode }) });
+}
+
+export async function setProjectAppearance(projectId: string, appearance: Omit<ProjectAppearance, "logo">): Promise<ProjectState> {
+  return request(`/projects/${projectId}/appearance`, { method: "PUT", body: JSON.stringify(appearance) });
+}
+
+export async function getProjectLogo(projectId: string): Promise<Blob | undefined> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/logo`), { headers: runtimeHeaders() });
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+export async function setProjectLogo(projectId: string, logo: Blob | undefined): Promise<ProjectState> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/logo`), logo
+    ? { method: "PUT", headers: { "content-type": "image/webp", ...projectRuntimeHeaders(projectId) }, body: logo }
+    : { method: "DELETE", headers: projectRuntimeHeaders(projectId) });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<ProjectState>;
 }
 
 export async function listWorkspaceFiles(projectId: string): Promise<WorkspaceFile[]> {

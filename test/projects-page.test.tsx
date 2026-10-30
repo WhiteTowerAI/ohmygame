@@ -100,15 +100,30 @@ describe("Projects page", () => {
     expect(container.querySelectorAll(".project-row")).toHaveLength(3);
   });
 
-  it("asks before deleting a project and reloads the list", async () => {
+  it("asks before removing a project, says it deletes its files outside the desktop app, and reloads the list", async () => {
     await render();
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Project actions for Garden Keepers"]')!.click());
-    await act(async () => button("Delete").click());
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Delete “Garden Keepers”?");
+    await act(async () => button("Remove from OhMyGame").click());
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Remove “Garden Keepers” from OhMyGame?");
+    expect(dialog.textContent).toContain("Its files will be deleted permanently.");
     listProjects.mockResolvedValue(PROJECTS.filter(({ id }) => id !== "garden"));
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((item) => item.textContent === "Delete")!.click());
     expect(deleteProject).toHaveBeenCalledWith("garden");
     expect(names()).toEqual(["Arcade Runner", "Forest Adventure"]);
+  });
+
+  it("puts a project's files in the Trash in the desktop app", async () => {
+    vi.stubGlobal("ohMyGameDesktop", { platform: "darwin", removeProject: vi.fn() });
+    try {
+      await render();
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Project actions for Garden Keepers"]')!.click());
+      await act(async () => button("Remove from OhMyGame").click());
+      expect(document.querySelector('[role="dialog"]')!.textContent).toContain("Its files go to the Trash");
+      expect([...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].map((item) => item.textContent)).toContain("Remove");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("clears a search that matches nothing", async () => {

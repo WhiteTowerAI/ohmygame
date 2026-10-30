@@ -21,6 +21,7 @@ and `src/renderer/project-card.tsx`. The focused suites are
 | `ohmygame-project.json` | The manifest: format, version, project settings and cover mode.        |
 | `workspace/`            | The project's workspace files.                                         |
 | `cover.webp`            | The project's stored cover, when it has one. A story thumbnail is not. |
+| `logo.webp`             | The project's uploaded logo, when it has one.                          |
 
 The manifest looks like this:
 
@@ -41,7 +42,8 @@ The manifest looks like this:
 ```
 
 `project` holds the name, type, plugin integration, preview and run settings,
-and media model defaults: the keys listed in `PROJECT_ARCHIVE_SETTING_KEYS`.
+media model defaults and appearance: the keys listed in
+`PROJECT_ARCHIVE_SETTING_KEYS`.
 A key is present only when the project sets it. `cover.mode` says whether the
 cover was chosen by hand (`custom`) or captured automatically (`auto`).
 
@@ -89,6 +91,8 @@ memory. Import then works like **Duplicate**:
 - Canvas generation history in `canvas/jobs.json` is bound to the new id;
 - an Interactive Story gets the current agent instructions and schemas;
 - the cover is restored with its mode;
+- the logo is restored when `appearance.logo` names one; when `logo.webp` is
+  missing or not a WebP image, the project shows its icon instead;
 - preview readiness is checked again.
 
 Settings pass the same checks as saved project settings. An archive from a

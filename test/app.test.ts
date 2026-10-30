@@ -435,6 +435,30 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).statusCode).toBe(404);
   });
 
+  it("removes a project and keeps its files, moving OhMyGame's own copy aside under its name", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-remove-"));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    const managed = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Moon/Garden" } })).json();
+    await writeFile(path.join(managed.workspacePath, "index.html"), "<h1>Moon</h1>");
+    const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-project-remove-external-"));
+    await writeFile(path.join(folder, "README.md"), "Mine\n");
+    const external = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Mine", workspacePath: folder } })).json();
+
+    const removed = await app.inject({ method: "DELETE", url: `/projects/${managed.id}?keep=1` });
+    expect(removed.statusCode).toBe(200);
+    const movedTo = removed.json().movedTo as string;
+    expect(movedTo).toBe(path.join(dataDirectory, "removed-projects", managed.id, "Moon-Garden"));
+    expect(await readFile(path.join(movedTo, "index.html"), "utf8")).toBe("<h1>Moon</h1>");
+    expect((await app.inject({ method: "GET", url: `/projects/${managed.id}` })).statusCode).toBe(404);
+
+    const unregistered = await app.inject({ method: "DELETE", url: `/projects/${external.id}?keep=1` });
+    expect(unregistered.json()).toEqual({});
+    expect(await readFile(path.join(folder, "README.md"), "utf8")).toBe("Mine\n");
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
+    await rm(folder, { recursive: true, force: true });
+  });
+
   it("exposes workspace code and media with project provenance", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-api-")) });
     apps.push(app);

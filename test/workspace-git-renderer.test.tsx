@@ -95,16 +95,9 @@ describe("Code Git changes view", () => {
     expect(container.querySelector(".file-content-header")).toBeNull();
     expect(toolbar.querySelector(".file-content-path")?.textContent).toBe("src/saved.ts");
     expect(toolbar.querySelector(".file-content-name")?.textContent).toBe("saved.ts");
-    const toggle = toolbar.querySelector<HTMLButtonElement>('button[aria-label="Hide files"]')!;
-    await act(async () => toggle.click());
-    expect(container.querySelector<HTMLElement>(".file-explorer")?.hidden).toBe(true);
-    expect(container.querySelector(".code-view")?.classList.contains("is-tree-hidden")).toBe(true);
-    // Hidden, the tree measures 0 but stays mounted, so its open folders and scroll stay.
-    await resized();
-    expect(container.querySelector('[role="tree"]')).toBe(tree);
-    await act(async () => toolbar.querySelector<HTMLButtonElement>('button[aria-label="Show files"]')!.click());
+    // The tree stays beside the code; there is no toggle to hide it.
+    expect(toolbar.querySelector('button[aria-label="Hide files"]')).toBeNull();
     expect(container.querySelector<HTMLElement>(".file-explorer")?.hidden).toBe(false);
-    expect(container.querySelector('[role="tree"]')).toBe(tree);
     toolbar.remove();
   });
 
@@ -142,18 +135,18 @@ describe("Code Git changes view", () => {
       "project",
       "removed.ts",
     );
-    expect(button("Changes2").getAttribute("aria-pressed")).toBe("true");
+    expect(button("Changes2").getAttribute("aria-checked")).toBe("true");
     const count = vi.mocked(api.getWorkspaceGitChanges).mock.calls.length;
     await render("project", 1, 1, undefined, "renamed.ts");
     expect(api.getWorkspaceGitChanges).toHaveBeenCalledTimes(count + 1);
-    expect(button("Changes2").getAttribute("aria-pressed")).toBe("true");
+    expect(button("Changes2").getAttribute("aria-checked")).toBe("true");
     vi.mocked(api.getWorkspaceGitChanges).mockResolvedValue({
       available: true,
       head: "new",
       changes: [],
     });
     await click("Refresh Git changes");
-    expect(button("Changes0").getAttribute("aria-pressed")).toBe("true");
+    expect(button("Changes0").getAttribute("aria-checked")).toBe("true");
     expect(container.querySelector(".git-diff-content")).toBeNull();
     expect(container.querySelector(".git-changes-list")?.textContent).toContain(
       "No uncommitted changes",
@@ -184,7 +177,7 @@ describe("Code Git changes view", () => {
     await render();
     await click("Changes2");
     await render("project", 0, 0, 1);
-    expect(button("Files").getAttribute("aria-pressed")).toBe("true");
+    expect(button("Files").getAttribute("aria-checked")).toBe("true");
     expect(container.querySelector(".file-content-path")?.textContent).toBe(
       "saved.ts",
     );

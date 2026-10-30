@@ -89,15 +89,21 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 const button = (label: string) => container.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+/** Answers the delete confirmation, which is a dialog rather than the browser's confirm. */
+const answer = async (choice: "Delete" | "Cancel") => {
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+  expect(dialog).toBeTruthy();
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === choice)!.click());
+};
 
 describe("Plugin Builder removal controls", () => {
   it("deletes an installed workspace independently of uninstalling its plugin", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
     await act(async () => button("Delete plugin draft").click());
+    await answer("Cancel");
     expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([]);
-    confirm.mockReturnValue(true);
     await act(async () => button("Delete plugin draft").click());
+    await answer("Delete");
     expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([`DELETE /plugins/setup-sessions/${sessionId}`]);
     expect(installed).toBe(true);
     expect(window.location.hash).toBe("#/plugins");
@@ -105,7 +111,6 @@ describe("Plugin Builder removal controls", () => {
 
   it("opens built-in configuration on Setup with configuration prompts and independent workspace deletion", async () => {
     configuring = true; builtIn = true;
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
     expect(container.querySelector('[aria-label="Plugin preview"]')?.getAttribute("data-active-tab")).toBe("configuration");
     expect(container.querySelector("textarea")?.placeholder).toContain("configuration problem");
@@ -113,15 +118,16 @@ describe("Plugin Builder removal controls", () => {
     expect(button("Disable Review")).not.toBeNull();
     expect(container.textContent).not.toContain("Install plugin");
     await act(async () => button("Delete workspace").click());
+    await answer("Delete");
     expect(requests).toContain(`DELETE /plugins/setup-sessions/${sessionId}`);
     expect(installed).toBe(true);
   });
 
   it("deletes only conversation history and keeps the installed draft open", async () => {
     hasConversation = true;
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
     await act(async () => button("Delete conversation").click());
+    await answer("Delete");
     expect(requests).toContain(`DELETE /plugins/setup-sessions/${sessionId}/conversation`);
     expect(requests).not.toContain(`DELETE /plugins/setup-sessions/${sessionId}`);
     expect(button("Delete conversation").disabled).toBe(true);
@@ -155,9 +161,9 @@ describe("Plugin Builder removal controls", () => {
   it("deletes an uninstalled workspace and its unsent input before returning to Plugins", async () => {
     installed = false;
     savePluginBuilderInput(sessionId, { prompt: "Unsent draft" }, localStorage);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
     await act(async () => button("Delete plugin draft").click());
+    await answer("Delete");
     expect(requests).toContain(`DELETE /plugins/setup-sessions/${sessionId}`);
     expect(readPluginBuilderInput(sessionId, localStorage).prompt).toBe("");
     expect(window.location.hash).toBe("#/plugins");

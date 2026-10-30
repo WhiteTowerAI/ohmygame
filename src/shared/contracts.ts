@@ -403,6 +403,18 @@ export interface PreviewRuntimeState {
 
 export type ProjectNameSource = "default" | "ai" | "manual";
 
+/** How a project shows in the sidebar and on its card, set in project settings. */
+export interface ProjectAppearance {
+  /** A default library icon, replacing the one picked from the project ID. */
+  icon?: import("./project-appearance.js").ProjectIcon;
+  /** The default template's background tone, from 0 to 3. */
+  tone?: number;
+  /** Shows the default template instead of a captured or uploaded cover. */
+  cover?: "template";
+  /** Set while the project has an uploaded logo. */
+  logo?: true;
+}
+
 export interface ProjectState extends ProjectPreviewSettings {
   id: string;
   name: string;
@@ -439,6 +451,7 @@ export interface ProjectState extends ProjectPreviewSettings {
   workspaceAvailable?: boolean;
   preview: PreviewRuntimeState;
   publication?: PublicationState;
+  appearance?: ProjectAppearance;
 }
 
 export interface ProjectRunSettings extends ProjectPreviewSettings {

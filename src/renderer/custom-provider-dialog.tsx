@@ -10,7 +10,7 @@ import { ChevronDown, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2 } fr
 import { initialCustomThinkingLevelMap, invalidateCustomModelCapabilities, mergeDiscoveredProviderModels, modelError, type ModelRow } from "./custom-provider-models.js";
 import { isLocalModelProvider } from "./local-model-providers.js";
 import { t } from "./i18n.js";
-import { Button, Dialog, IconButton } from "./ui/index.js";
+import { Button, Dialog, IconButton, Select } from "./ui/index.js";
 
 export const PROVIDER_API_LABELS: Record<string, string> = {
   "openai-completions": "OpenAI Chat Completions",
@@ -45,8 +45,9 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
   const nameInput = useRef<HTMLInputElement>(null);
   const endpointInput = useRef<HTMLInputElement>(null);
   const keyInput = useRef<HTMLInputElement>(null);
-  const apiInput = useRef<HTMLSelectElement>(null);
-  const authenticationInput = useRef<HTMLSelectElement>(null);
+  // The kit selects are buttons without refs; they are found by id to focus.
+  const apiId = useId();
+  const authenticationId = useId();
   const modelSearch = useRef<HTMLInputElement>(null);
   const fetchButton = useRef<HTMLButtonElement>(null);
   const closeRef = useRef(onClose);
@@ -75,8 +76,8 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
 
   useEffect(() => {
     const initialInput = initialFocus === "baseUrl" ? endpointInput.current
-      : initialFocus === "api" ? apiInput.current
-      : initialFocus === "apiKey" ? keyInput.current ?? authenticationInput.current
+      : initialFocus === "api" ? document.getElementById(apiId)
+      : initialFocus === "apiKey" ? keyInput.current ?? document.getElementById(authenticationId)
       : initialFocus === "models" ? modelSearch.current ?? fetchButton.current
       : nameInput.current;
     initialInput?.focus();
@@ -199,8 +200,8 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
         <label><span>{t("models.displayName")}</span><input ref={nameInput} value={form.name} onChange={(event) => field("name", event.target.value)} placeholder={t("customProvider.namePlaceholder")} maxLength={100} required autoComplete="off" /></label>
         <label><span>{t("providers.baseUrl")}</span><input ref={endpointInput} type="url" value={form.baseUrl} onChange={(event) => field("baseUrl", event.target.value)} placeholder="https://api.example.com/v1" required autoComplete="off" spellCheck={false} /><small>{t("customProvider.baseUrlHint")}</small></label>
         <div className="project-settings-field-row">
-          <label><span>{t("customProvider.defaultProtocol")}</span><select ref={apiInput} value={form.api} onChange={(event) => field("api", event.target.value)}>{CUSTOM_MODEL_APIS.map((api) => <option key={api} value={api}>{PROVIDER_API_LABELS[api]}</option>)}</select></label>
-          <label><span>{t("customProvider.authentication")}</span><select ref={authenticationInput} value={form.authentication} onChange={(event) => field("authentication", event.target.value as SaveCustomProviderRequest["authentication"])}><option value="api_key">{t("providers.apiKey")}</option><option value="none">{t("customProvider.noApiKey")}</option></select></label>
+          <label htmlFor={apiId}><span>{t("customProvider.defaultProtocol")}</span><Select id={apiId} label={t("customProvider.defaultProtocol")} value={form.api} onChange={(value) => field("api", value)} options={CUSTOM_MODEL_APIS.map((api) => ({ value: api, label: PROVIDER_API_LABELS[api] ?? api }))} /></label>
+          <label htmlFor={authenticationId}><span>{t("customProvider.authentication")}</span><Select<SaveCustomProviderRequest["authentication"]> id={authenticationId} label={t("customProvider.authentication")} value={form.authentication} onChange={(value) => field("authentication", value)} options={[{ value: "api_key", label: t("providers.apiKey") }, { value: "none", label: t("customProvider.noApiKey") }]} /></label>
         </div>
         {form.authentication === "api_key" ? <label><span>{t("providers.apiKey")}</span><input ref={keyInput} type="password" value={form.apiKey ?? ""} onChange={(event) => field("apiKey", event.target.value)} required={!settings || settings.authentication !== "api_key"} placeholder={settings?.authentication === "api_key" ? t("customProvider.keepKeyPlaceholder") : t("customProvider.keyPlaceholder")} autoComplete="new-password" spellCheck={false} /></label> : null}
       </fieldset>
@@ -240,8 +241,8 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
       {error ? <p className="project-settings-error" role="alert">{error}</p> : null}
     </div>;
   const fields = <form id={formId} noValidate onSubmit={(event) => void submit(event)}>{body}</form>;
-  if (modal) return <Dialog open size="lg" title={title} onClose={() => { if (!savingRef.current) onClose(); }} footer={<>
-    <Button variant="ghost" disabled={saving} onClick={onClose}>{t("common.cancel")}</Button>
+  if (modal) return <Dialog open size="lg" title={title} description={settings || initialProvider ? undefined : t("customProvider.addHint")} onClose={() => { if (!savingRef.current) onClose(); }} footer={<>
+    <Button disabled={saving} onClick={onClose}>{t("common.cancel")}</Button>
     <Button variant="primary" type="submit" form={formId} className="project-settings-submit" disabled={saving} icon={saving ? <LoaderCircle className="spin" size={14} /> : undefined}>{submitLabel}</Button>
   </>}>
     <section ref={dialog} className="custom-provider-dialog custom-provider-form-body" aria-label={title}>{fields}</section>

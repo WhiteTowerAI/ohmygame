@@ -24,41 +24,42 @@ import {
   UfoIcon,
   UmbrellaIcon,
 } from "@solar-icons/react/linear";
+import type { ComponentType } from "react";
+import type { ProjectAppearance } from "../shared/contracts.js";
+import { projectSymbol, type ProjectIcon } from "../shared/project-appearance.js";
 
-// Keep the pool and order stable so existing projects retain their identity.
-const symbols = [
-  PlanetIcon,
-  LeafIcon,
-  GhostSmileIcon,
-  CompassIcon,
-  CatIcon,
-  RocketIcon,
-  CupHotIcon,
-  GamepadIcon,
-  MoonIcon,
-  BalloonIcon,
-  BookIcon,
-  PaletteIcon,
-  CloudSunIcon,
-  CrownIcon,
-  MusicNoteIcon,
-  BoxIcon,
-  CameraIcon,
-  StarIcon,
-  UfoIcon,
-  SunIcon,
-  LightbulbIcon,
-  UmbrellaIcon,
-  GlobalIcon,
-  FireIcon,
-];
+/** The default icon library, by the names projects save. */
+export const PROJECT_ICON_SYMBOLS: Record<ProjectIcon, ComponentType<{ size?: number; "aria-hidden"?: boolean | "true" }>> = {
+  planet: PlanetIcon,
+  leaf: LeafIcon,
+  ghost: GhostSmileIcon,
+  compass: CompassIcon,
+  cat: CatIcon,
+  rocket: RocketIcon,
+  cup: CupHotIcon,
+  gamepad: GamepadIcon,
+  moon: MoonIcon,
+  balloon: BalloonIcon,
+  book: BookIcon,
+  palette: PaletteIcon,
+  "cloud-sun": CloudSunIcon,
+  crown: CrownIcon,
+  music: MusicNoteIcon,
+  box: BoxIcon,
+  camera: CameraIcon,
+  star: StarIcon,
+  ufo: UfoIcon,
+  sun: SunIcon,
+  lightbulb: LightbulbIcon,
+  umbrella: UmbrellaIcon,
+  globe: GlobalIcon,
+  fire: FireIcon,
+};
 
-export function ProjectPlaceholder({ projectId }: { projectId: string }) {
-  let hash = 2166136261;
-  for (const character of projectId)
-    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0;
-  const Symbol = symbols[hash % symbols.length]!;
-  const tone = (hash >>> 16) % 4;
+/** The default template: a project's icon centred on its background tone. */
+export function ProjectPlaceholder({ projectId, appearance, size = 38 }: { projectId: string; appearance?: ProjectAppearance; size?: number }) {
+  const { icon, tone } = projectSymbol(projectId, appearance);
+  const Symbol = PROJECT_ICON_SYMBOLS[icon];
   return (
     <span
       className="project-cover-placeholder"
@@ -66,7 +67,7 @@ export function ProjectPlaceholder({ projectId }: { projectId: string }) {
         background: `var(--project-cover-bg-${tone})`,
       }}
     >
-      <Symbol size={38} aria-hidden="true" />
+      <Symbol size={size} aria-hidden="true" />
     </span>
   );
 }

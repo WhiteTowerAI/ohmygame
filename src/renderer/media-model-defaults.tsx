@@ -6,7 +6,9 @@ import { CanvasChipSelect, type CanvasChipOption } from "./canvas-chip-select.js
 import { LoaderCircle, SlidersHorizontal } from "./icons.js";
 import { menuPlacement } from "./popover-placement.js";
 import { t } from "./i18n.js";
-import { SettingsGroup, SettingsNote } from "./settings-parts.js";
+import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
+import { ProviderMark } from "./model-selector.js";
+import { Select } from "./ui/index.js";
 
 const USAGES = ["image", "video", "3d"] as const;
 type Catalog = MediaModelCatalog<ModelRef & { name: string; providerName: string }>;
@@ -68,6 +70,29 @@ function ModelDefaultField({ usage, catalog, selected, inherit = false, loading,
   </div>;
 }
 
+/** One kind of generation in Providers: the kit select, each model with its provider's logo. */
+function GlobalModelDefaultRow({ usage, catalog, loading, disabled, onChange }: {
+  usage: MediaModelUsage; catalog?: Catalog; loading: boolean; disabled: boolean; onChange: (model?: ModelRef) => void;
+}) {
+  const label = t(`capability.${usage}`);
+  const selected = catalog?.defaultModel;
+  const selectedModel = selected && catalog?.models.find((model) => modelKey(model) === modelKey(selected));
+  const first = catalog?.models[0];
+  const options = [
+    ...(first ? [{ value: "", label: t("mediaDefaults.automatic", { label: first.name }), icon: <ProviderMark provider={first.provider} name={first.providerName} /> }] : []),
+    ...(selected && !selectedModel ? [{ value: modelKey(selected), label: t("mediaDefaults.modelUnavailable", { id: selected.id }) }] : []),
+    ...(catalog?.models.map((model) => ({ value: modelKey(model), label: model.name, description: model.providerName, icon: <ProviderMark provider={model.provider} name={model.providerName} /> })) ?? []),
+  ];
+  return <SettingsRow title={label}>
+    {!catalog ? <span className="settings-muted">{loading ? t("mediaDefaults.loading") : t("mediaDefaults.unavailable")}</span>
+      : !options.length ? <span className="settings-muted">{t("mediaDefaults.connectFirst")}</span>
+      : <span className={disabled ? "settings-select-busy" : undefined}>
+        <Select size="sm" label={t("mediaDefaults.globalModel", { usage: label })} value={selected ? modelKey(selected) : ""} options={options}
+          onChange={(value) => { if (!disabled) onChange(catalog.models.find((model) => modelKey(model) === value)); }} />
+      </span>}
+  </SettingsRow>;
+}
+
 /** `leading` rows come first, such as the chat model, which Agents sets. */
 export function GlobalMediaModelDefaults({ capability, leading }: { capability: "all" | ProviderCapability; leading?: ReactNode }) {
   const { catalogs, loading, error: loadError } = useMediaModelCatalogs();
@@ -84,7 +109,7 @@ export function GlobalMediaModelDefaults({ capability, leading }: { capability: 
   }
   return <SettingsGroup className={`settings-generation-defaults${capability === "all" ? " is-all" : ""}`} label={t("mediaDefaults.globalDefaults")} title={t("mediaDefaults.title")} description={t("settings.providers.defaultsHint")}>
     {leading}
-    {usages.map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={catalogs[usage]?.defaultModel} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
+    {usages.map((usage) => <GlobalModelDefaultRow key={usage} usage={usage} catalog={catalogs[usage]} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
     {error || loadError ? <div className="settings-pad"><SettingsNote tone="danger">{error ?? loadError}</SettingsNote></div> : null}
   </SettingsGroup>;
 }

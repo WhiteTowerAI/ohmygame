@@ -19,7 +19,6 @@ import {
   FileText,
   Folder,
   FolderOpen,
-  Columns2,
   Globe2,
   Music2,
   FolderPlus,
@@ -50,8 +49,10 @@ import type { PlaytestWatchState } from "../shared/playtest.js";
 import { isWebRuntimeProjectType, supportsWebPreview, supportsProjectPreview } from "../shared/project-runtime.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
-import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileName, filterAssets, hasMediaType, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
-import { ProjectAssetCollectionFilters } from "./library-filters.js";
+import { AssetThumbnail, WorkspaceAssetDialog, fileExtension, fileName, filterAssets, hasMediaType, libraryAssetOriginLabel, mediaTypeLabel, type BrowsableAsset, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
+import { useNearViewport } from "./asset-gallery.js";
+import { ProjectAssetFilterRow } from "./library-filters.js";
+import "./library.css";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { MarkdownContent, workspaceLinkPath } from "./markdown-content.js";
@@ -67,7 +68,7 @@ import { t } from "./i18n.js";
 import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./workspace-git-changes.js";
 import type { PanelNodes } from "./panel-layout.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
-import { Button, DropdownMenu, IconButton } from "./ui/index.js";
+import { Button, CategoryMark, DropdownMenu, Empty, IconButton, MediaTile, SearchInput, SegmentedControl, Tabs } from "./ui/index.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -985,7 +986,6 @@ export function WorkspaceFileBrowser({
   toolbarTarget?: HTMLElement | null;
 }) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [treeOpen, setTreeOpen] = useState(true);
   const [browserView, setBrowserView] = useState<"files" | "changes">("files");
   const [selectedGitPath, setSelectedGitPath] = useState<string>();
   const git = useWorkspaceGitChanges(projectId, revision, filesRevision);
@@ -1063,26 +1063,25 @@ export function WorkspaceFileBrowser({
     {onOpenExternal ? <FileOpenActions path={selectedFile.path} onOpen={onOpenExternal} /> : null}
   </> : null;
   const toolbar = toolbarTarget ? createPortal(<>
-    <IconButton size="sm" label={treeOpen ? t("workspace.hideFiles") : t("workspace.showFiles")} active={treeOpen} onClick={() => setTreeOpen((value) => !value)}><Columns2 size={14} /></IconButton>
     {fileHeader ?? <span className="file-content-path" />}
   </>, toolbarTarget) : null;
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingCode")} />;
   if (error && !selectedPath) return <WorkspaceState error={error} />;
   return <>
     {toolbar}
-    <div className={`code-view${treeOpen ? "" : " is-tree-hidden"}`} ref={codeElement} style={{ "--file-explorer-width": `${explorerWidth}px` } as CSSProperties}>
-      <div className="file-explorer" hidden={!treeOpen}>
+    <div className="code-view" ref={codeElement} style={{ "--file-explorer-width": `${explorerWidth}px` } as CSSProperties}>
+      <div className="file-explorer">
         {git.data?.available || git.error ? <div className="file-explorer-views">
-          {git.data?.available ? <nav aria-label={t("workspace.gitViews")}>
-            <button type="button" aria-pressed={!showChanges} onClick={() => setBrowserView("files")}>{t("workspace.gitFiles")}</button>
-            <button type="button" aria-pressed={Boolean(showChanges)} onClick={() => { setBrowserView("changes"); git.refresh(); }}>
-              {t("workspace.gitChanges")}<span className="git-change-count">{git.data.changes.length}</span>
-            </button>
-          </nav> : <span className="git-changes-note" role="alert">{t("workspace.gitFailed")}</span>}
-          <button type="button" className="icon-button" disabled={git.loading} onClick={git.refresh}
-            title={t("workspace.gitRefresh")} aria-label={t("workspace.gitRefresh")}>
-            <RefreshCw size={12} className={git.loading ? "spin" : undefined} />
-          </button>
+          {git.data?.available ? <SegmentedControl size="sm" label={t("workspace.gitViews")} value={showChanges ? "changes" : "files"}
+            options={[
+              { value: "files", label: t("workspace.gitFiles") },
+              { value: "changes", label: <>{t("workspace.gitChanges")}<span className="git-change-count">{git.data.changes.length}</span></> },
+            ]}
+            onChange={(view) => { setBrowserView(view); if (view === "changes") git.refresh(); }} />
+            : <span className="git-changes-note" role="alert">{t("workspace.gitFailed")}</span>}
+          <IconButton size="sm" label={t("workspace.gitRefresh")} disabled={git.loading} onClick={git.refresh}>
+            <RefreshCw size={14} className={git.loading ? "spin" : undefined} />
+          </IconButton>
         </div> : null}
         <label className="file-filter">
           <Search size={13} aria-hidden="true" />
@@ -1139,7 +1138,6 @@ export function WorkspaceFileBrowser({
         </div>}
       </div>
       <div
-        hidden={!treeOpen}
         className="file-explorer-resizer"
         role="separator"
         aria-label={t("workspace.resizeExplorer")}
@@ -1663,22 +1661,32 @@ export function AssetsView({
   const [selectedPath, setSelectedPath] = useState<string>();
   const [filters, setFilters] = useState<ProjectAssetFilters>({});
   const assets = useMemo(() => files.filter(hasMediaType).map((file) => ({ ...file, projectId: projectId ?? "", revision, referenceOnly: file.purpose === "reference" })), [files, projectId, revision]);
-  const visibleAssets = useMemo(() => filterAssets(assets, mediaFilter, query, filters), [assets, mediaFilter, query, filters]);
+  // Laid out as the Library page: kind tabs with counts, the source and use
+  // filters beside them, and tiles below.
+  const narrowed = useMemo(() => filterAssets(assets, "all", query, filters), [assets, query, filters]);
+  const visibleAssets = useMemo(() => mediaFilter === "all" ? narrowed : narrowed.filter((asset) => asset.mediaType === mediaFilter), [narrowed, mediaFilter]);
   const selectedAsset = assets.find((asset) => asset.path === selectedPath);
+  const filtered = Boolean(query.trim()) || (filters.origin ?? "all") !== "all" || (filters.purpose ?? "all") !== "all";
+  const resetFilters = () => { setQuery(""); setFilters({}); };
 
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingAssets")} />;
   if (error) return <WorkspaceState error={error} />;
   if (!projectId || files.length === 0) return <WorkspaceState icon={<ImageIcon size={20} />} label={t("workspace.noMedia")} />;
   return (
     <div className="assets-view">
-      <div className="assets-toolbar">
-        <AssetToolbar mediaFilter={mediaFilter} query={query} onMediaFilterChange={setMediaFilter} onQueryChange={setQuery}>
-          <ProjectAssetCollectionFilters assets={assets} filters={filters} onChange={setFilters} />
-        </AssetToolbar>
+      <div className="assets-search"><SearchInput value={query} onChange={setQuery} label={t("assets.search")} placeholder={t("assets.search")} /></div>
+      <div className="library-filter-row assets-filter-row">
+        <Tabs variant="pills" label={t("assets.mediaTypes")} value={mediaFilter} onChange={setMediaFilter} tabs={[
+          { value: "all", label: t("assets.filter.all"), icon: <Layers3 size={14} />, count: narrowed.length },
+          ...ASSET_KINDS.map((kind) => ({ value: kind, label: t(`assets.filter.${kind}`), icon: <CategoryMark category={kind} />, count: narrowed.filter((asset) => asset.mediaType === kind).length })),
+        ]} />
+        <span className="library-filter-spacer" />
+        <ProjectAssetFilterRow assets={assets} filters={filters} onChange={setFilters} />
+        {filtered ? <Button size="sm" variant="ghost" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : null}
       </div>
-      {visibleAssets.length ? <div className="library-grid assets-grid">{visibleAssets.map((asset) => (
-        <WorkspaceAssetCard key={asset.path} title={fileName(asset.path)} asset={asset} onOpen={() => setSelectedPath(asset.path)} />
-      ))}</div> : <WorkspaceState icon={<ImageIcon size={20} />} label={t("library.noMatch")} />}
+      {visibleAssets.length ? <div className="library-tiles">{visibleAssets.map((asset) => (
+        <ProjectAssetTile key={asset.path} asset={asset} selected={selectedPath === asset.path} onOpen={() => setSelectedPath(asset.path)} />
+      ))}</div> : <Empty title={t("library.noMatch")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />}
       {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
         onClose={() => setSelectedPath(undefined)}
@@ -1686,6 +1694,19 @@ export function AssetsView({
       /> : null}
     </div>
   );
+}
+
+const ASSET_KINDS = ["image", "video", "audio", "model"] as const;
+
+/** A project asset as a Library tile: its kind and where it came from below the preview. */
+function ProjectAssetTile({ asset, selected, onOpen }: { asset: BrowsableAsset; selected: boolean; onOpen: () => void }) {
+  const [tile, visible] = useNearViewport<HTMLButtonElement>();
+  const extension = fileExtension(asset.path).slice(1).toUpperCase();
+  return <MediaTile ref={tile} category={asset.mediaType} name={fileName(asset.path)} selected={selected} onClick={onOpen}
+    meta={`${mediaTypeLabel(asset.mediaType)} · ${asset.referenceOnly ? t("assets.reference") : libraryAssetOriginLabel(asset.origin)}`}
+    preview={asset.mediaType === "audio"
+      ? <span className="library-file-mark"><CategoryMark category="audio" size={22} />{extension ? <small>{extension}</small> : null}</span>
+      : <AssetThumbnail asset={asset} visible={visible} />} />;
 }
 
 function WorkspaceState({ label, error, loading, icon }: { label?: string; error?: string; loading?: boolean; icon?: React.ReactNode }) {

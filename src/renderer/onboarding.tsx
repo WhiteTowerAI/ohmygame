@@ -28,6 +28,9 @@ import {
 import {
   Check,
   ChevronDown,
+  FilePlus,
+  Import,
+  Sparkles,
   Plug,
   LoaderCircle,
   Plus,
@@ -36,6 +39,7 @@ import {
   Settings,
   Key,
   LogIn,
+  type IconComponent,
 } from "./icons.js";
 import { ActiveProviderAuth } from "./models-settings.js";
 import { CustomProviderForm } from "./custom-provider-dialog.js";
@@ -44,13 +48,24 @@ import { PROVIDER_ICONS } from "./provider-icons.js";
 import { groupProviders } from "./provider-groups.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { WindowDragRegion } from "./window-drag-region.js";
-import { OnboardingMedia } from "./onboarding-media.js";
 import { OnboardingAgents } from "./onboarding-agents.js";
-import { OnboardingDemo } from "./onboarding-demo.js";
-import { t } from "./i18n.js";
+import { readAppearance, setAppearance, type Appearance } from "./appearance.js";
+import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
+import { SegmentedControl, Select } from "./ui/index.js";
 import "./onboarding.css";
 
 type Connection = { provider: ProviderSummary; method: ModelAuthMethod };
+
+/** Where the last step sends people: Home's prompt, a blank project, or a folder they already have. */
+export type OnboardingStart = "prompt" | "blank" | "import";
+
+const LANGUAGE_OPTIONS: readonly { value: LanguagePreference; label: string }[] = [
+  { value: "system", label: t("settings.appearance.system") },
+  // Language names stay in their own language so people can find theirs.
+  { value: "en", label: "English" },
+  { value: "zh-CN", label: "简体中文" },
+];
+const STEPS: readonly OnboardingStep[] = ["welcome", "connect", "start"];
 
 export function Onboarding({
   step,
@@ -59,7 +74,7 @@ export function Onboarding({
 }: {
   step: OnboardingStep;
   onStepChange: (step: OnboardingStep) => Promise<void>;
-  onFinish: (status: Exclude<OnboardingStatus, "pending">) => Promise<void>;
+  onFinish: (status: Exclude<OnboardingStatus, "pending">, start?: OnboardingStart) => Promise<void>;
 }) {
   const generation = useReadyRuntimeGeneration();
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
@@ -82,10 +97,6 @@ export function Onboarding({
   const [customSettings, setCustomSettings] =
     useState<Awaited<ReturnType<typeof getCustomProvider>>>();
   const [refresh, setRefresh] = useState(0);
-  const [playWelcomeIntro, setPlayWelcomeIntro] = useState(step === "welcome");
-  useEffect(() => {
-    if (step !== "welcome") setPlayWelcomeIntro(false);
-  }, [step]);
   const [choosingAgent, setChoosingAgent] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState<"pi" | AgentRuntimeId>();
   const [selectedModels, setSelectedModels] = useState<
@@ -287,7 +298,7 @@ export function Onboarding({
       return;
     }
     void run(async () => {
-      if (step === "connect" && next === "media" && agentModel)
+      if (step === "connect" && next === "start" && agentModel)
         await chooseModel(catalog, agentModel);
       await onStepChange(next);
       reset();
@@ -404,7 +415,7 @@ export function Onboarding({
 
   return (
     <main
-      className={`onboarding onboarding-${step}${step === "welcome" && !playWelcomeIntro ? " onboarding-welcome-static" : ""}${adding ? " onboarding-custom" : ""}`}
+      className={`onboarding onboarding-${step}${adding ? " onboarding-custom" : ""}`}
       aria-label={t("onboarding.welcome")}
       aria-busy={busy}
     >
@@ -412,26 +423,35 @@ export function Onboarding({
       <div key={`content-${step}`} className="onboarding-content">
         {step === "welcome" ? (
           <>
-            <OnboardingDemo />
-            <h1
-              className="onboarding-welcome-title"
-              ref={heading}
-              tabIndex={-1}
-              onAnimationEnd={(event) => {
-                if (document.activeElement === document.body)
-                  event.currentTarget.focus({ preventScroll: true });
-              }}
-            >
-              {t("onboarding.tagline")}
+            <h1 ref={heading} tabIndex={-1}>
+              {t("onboarding.welcome")}
             </h1>
+            <p className="onboarding-lede">{t("onboarding.welcomeHint")}</p>
+            <WelcomePreferences
+              busy={busy}
+              onLanguageChange={(next) =>
+                // The language reloads the window; saving first brings setup back to this step.
+                void run(async () => {
+                  await onStepChange("welcome");
+                  setLanguagePreference(next);
+                })
+              }
+            />
           </>
-        ) : step === "media" ? (
+        ) : step === "start" ? (
           <>
             <h1 ref={heading} tabIndex={-1}>
-              {t("onboarding.mediaTitle")}
+              {t("onboarding.startTitle")}
             </h1>
-            <p className="onboarding-lede">{t("onboarding.mediaHint")}</p>
-            <OnboardingMedia busy={busy} onSavingChange={setSavingProvider} />
+            <p className="onboarding-lede">{t("onboarding.startHint")}</p>
+            <StartChoices
+              busy={busy}
+              onChoose={(start) =>
+                void run(() =>
+                  onFinish(catalog.models.length ? "completed" : "skipped", start),
+                )
+              }
+            />
           </>
         ) : (
           connectionContent
@@ -481,7 +501,7 @@ export function Onboarding({
                 className="onboarding-primary-button"
                 type="button"
                 disabled={busy || choosingAgent || !agentModel}
-                onClick={() => navigate("media")}
+                onClick={() => navigate("start")}
               >
                 {t("onboarding.next")}
               </button>
@@ -490,15 +510,15 @@ export function Onboarding({
                   className="onboarding-text-button onboarding-skip-button"
                   type="button"
                   disabled={busy}
-                  onClick={() => void run(() => onFinish("skipped"))}
+                  onClick={() => void run(() => onStepChange("start"))}
                 >
-                  {t("onboarding.skipAndStart")}
+                  {t("onboarding.skipStep")}
                 </button>
               ) : null}
             </>
           ) : (
             <button
-              className="onboarding-primary-button"
+              className="onboarding-text-button onboarding-skip-button"
               type="button"
               disabled={busy}
               onClick={() =>
@@ -507,7 +527,7 @@ export function Onboarding({
                 )
               }
             >
-              {t("onboarding.startCreating")}
+              {t("onboarding.later")}
             </button>
           )}
         </footer>
@@ -516,7 +536,7 @@ export function Onboarding({
         className="onboarding-progress"
         aria-label={t("onboarding.gettingStarted")}
       >
-        {(["welcome", "connect", "media"] as const).map((target, index) => (
+        {STEPS.map((target, index) => (
           <button
             key={target}
             className={step === target ? "is-current" : undefined}
@@ -528,7 +548,7 @@ export function Onboarding({
                   ? "onboarding.welcomeStep"
                   : target === "connect"
                     ? "onboarding.providerStep"
-                    : "onboarding.mediaStep",
+                    : "onboarding.startStep",
               ),
             })}
             aria-current={step === target ? "step" : undefined}
@@ -538,6 +558,55 @@ export function Onboarding({
         ))}
       </nav>
     </main>
+  );
+}
+
+/** The first step: the language and appearance, which apply as soon as they change. */
+function WelcomePreferences({ busy, onLanguageChange }: {
+  busy: boolean;
+  onLanguageChange: (language: LanguagePreference) => void;
+}) {
+  const [language] = useState(readLanguagePreference);
+  const [appearance, updateAppearance] = useState<Appearance>(readAppearance);
+  return (
+    <div className="onboarding-preferences">
+      <label className="onboarding-preference">
+        <span>{t("settings.appearance.language")}</span>
+        <Select label={t("settings.appearance.languageLabel")} options={LANGUAGE_OPTIONS} value={language}
+          onChange={(next) => { if (!busy && next !== language) onLanguageChange(next); }} />
+      </label>
+      <div className="onboarding-preference">
+        <span>{t("settings.nav.appearance")}</span>
+        <SegmentedControl label={t("settings.appearance.theme")} value={appearance} onChange={(next) => {
+          updateAppearance(next);
+          setAppearance(next);
+        }} options={(["system", "light", "dark"] as const).map((value) => ({ value, label: t(`settings.appearance.${value}`) }))} />
+      </div>
+    </div>
+  );
+}
+
+/** The last step: each choice finishes setup and lands where it says. */
+function StartChoices({ busy, onChoose }: {
+  busy: boolean;
+  onChoose: (start: OnboardingStart) => void;
+}) {
+  const canImport = Boolean(window.ohMyGameDesktop?.selectProjectDirectory);
+  const choices: { id: OnboardingStart; icon: IconComponent; title: string; hint: string }[] = [
+    { id: "prompt", icon: Sparkles, title: t("onboarding.startPrompt"), hint: t("onboarding.startPromptHint") },
+    { id: "blank", icon: FilePlus, title: t("home.startBlank"), hint: t("onboarding.startBlankHint") },
+    ...(canImport ? [{ id: "import" as const, icon: Import, title: t("home.importFolder"), hint: t("onboarding.startImportHint") }] : []),
+  ];
+  return (
+    <div className="onboarding-start-choices">
+      {choices.map(({ id, icon: Icon, title, hint }) => (
+        <button key={id} type="button" className="onboarding-start-choice" disabled={busy} onClick={() => onChoose(id)}>
+          <span className="onboarding-start-icon"><Icon size={20} /></span>
+          <strong>{title}</strong>
+          <small>{hint}</small>
+        </button>
+      ))}
+    </div>
   );
 }
 

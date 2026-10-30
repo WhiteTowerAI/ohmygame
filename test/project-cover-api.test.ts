@@ -45,6 +45,36 @@ describe("project cover API", () => {
     expect((await app.inject({ method: "PUT", url: "/projects/missing/cover/state", payload: { mode: "custom" } })).statusCode).toBe(404);
   });
 
+  it("saves the appearance, shows the template instead of the cover and keeps a logo", async () => {
+    const { app, project, url, put } = await fixture();
+    const appearance = (payload: object) => app.inject({ method: "PUT", url: `/projects/${project.id}/appearance`, payload });
+    const logoUrl = `/projects/${project.id}/logo`;
+    await put(webp("automatic"), "auto");
+    const saved = await appearance({ icon: "rocket", tone: 1, cover: "template" });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().appearance).toEqual({ icon: "rocket", tone: 1, cover: "template" });
+    expect(saved.json().updatedAt > project.updatedAt).toBe(true);
+    expect((await app.inject({ method: "GET", url })).statusCode).toBe(404);
+
+    expect((await app.inject({ method: "GET", url: logoUrl })).statusCode).toBe(404);
+    const uploaded = await app.inject({ method: "PUT", url: logoUrl, headers: { "content-type": "image/webp" }, payload: webp("logo") });
+    expect(uploaded.json().appearance).toEqual({ icon: "rocket", tone: 1, cover: "template", logo: true });
+    expect((await app.inject({ method: "GET", url: logoUrl })).rawPayload).toEqual(webp("logo"));
+    // Changing the icon or cover keeps the uploaded logo.
+    expect((await appearance({ icon: "cat" })).json().appearance).toEqual({ icon: "cat", logo: true });
+    expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("automatic"));
+    expect((await app.inject({ method: "DELETE", url: logoUrl })).json().appearance).toEqual({ icon: "cat" });
+    expect((await app.inject({ method: "GET", url: logoUrl })).statusCode).toBe(404);
+    expect((await appearance({})).json().appearance).toBeUndefined();
+
+    expect((await appearance({ icon: "unknown" })).statusCode).toBe(400);
+    expect((await appearance({ tone: 4 })).statusCode).toBe(400);
+    // The logo follows its own upload, so the appearance ignores it.
+    expect((await appearance({ logo: true })).json().appearance).toBeUndefined();
+    expect((await app.inject({ method: "PUT", url: logoUrl, headers: { "content-type": "image/webp" }, payload: Buffer.from("png") })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PUT", url: "/projects/missing/appearance", payload: {} })).statusCode).toBe(404);
+  });
+
   it.each([false, true])("freezes the Interactive Story cover with an existing thumbnail: %s", async (existing) => {
     const { app, project, url } = await fixture("interactive-story");
     await writePlayableFixtureWorkspace(project.workspacePath);

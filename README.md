@@ -263,13 +263,14 @@ See [the changelog](CHANGELOG.md) for changes in each release, or open
 
 OhMyGame ships without a model. On first launch, it walks you through setup:
 
-1. **Connect your AI.** Sign in to a model provider or paste an API key, or use
+1. **Choose a language and appearance.** Both apply right away and can be
+   changed later in Settings.
+2. **Connect your AI.** Sign in to a model provider or paste an API key, or use
    a Claude Code, Codex, or OpenCode CLI you already have. Use **+** to add a
-   custom or local endpoint. **Skip and start** enters without setup.
-2. **Add creative tools (optional).** Connect image, video, 3D, and audio
-   providers now or later in **Settings → Providers**. A language
-   model alone can design and build a game. Generating media needs a
-   corresponding provider:
+   custom or local endpoint. **Skip this step** moves on without a model.
+
+   A language model alone can design and build a game. Generating media needs
+   a corresponding provider, which you connect in **Settings → Providers**:
 
    | To make                       | Connect                                                             |
    | ----------------------------- | ------------------------------------------------------------------- |
@@ -284,7 +285,8 @@ OhMyGame ships without a model. On first launch, it walks you through setup:
    uses your local Codex sign-in instead. See
    [OpenAI image connections](docs/custom-models.md#openai-image-connections).
 
-3. **Pick a model and describe your game** in the prompt box on the home screen.
+3. **Choose where to start:** describe a game in the prompt box on the home
+   screen, start a blank project, or import a folder you already have.
 
 Web search works without setup. Making games locally needs no account; sign in
 only to publish. Reopen this setup from **Settings → About → View getting started**.

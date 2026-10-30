@@ -139,31 +139,30 @@ describe("Plugin library", () => {
     expect(window.location.hash).toBe("#/plugins");
   });
 
-  it("shows compact configuration workspaces with delete in the actions menu", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("shows AI workspaces as cards and asks before deleting one", async () => {
     await act(async () => root.render(<PluginBuilderSessions />));
-    expect(
-      container.querySelector(".plugin-builder-session-card"),
-    ).not.toBeNull();
-    expect(container.querySelector(".plugin-card")).toBeNull();
+    expect(container.querySelector(".plugin-builder-session-card")).not.toBeNull();
     const actions = container.querySelector<HTMLButtonElement>(
       '[aria-label="Actions for Configure Studio"]',
     )!;
-    await act(async () => actions.click());
-    const remove = [
-      ...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-    ].find((element) => element.textContent === "Delete")!;
-    await act(async () => remove.click());
-    expect(confirm).toHaveBeenCalledWith(
-      expect.stringContaining("Configure Studio"),
+    const chooseDelete = async () => {
+      await act(async () => actions.click());
+      await act(async () =>
+        [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+          .find((element) => element.textContent === "Delete")!
+          .click(),
+      );
+    };
+    await chooseDelete();
+    const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog()?.textContent).toContain("Delete “Configure Studio”?");
+    await act(async () =>
+      [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent === "Cancel")!.click(),
     );
     expect(removed).toEqual([]);
-    confirm.mockReturnValue(true);
-    await act(async () => actions.click());
+    await chooseDelete();
     await act(async () =>
-      [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-        .find((element) => element.textContent === "Delete")!
-        .click(),
+      [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent === "Delete")!.click(),
     );
     expect(removed).toEqual(["/plugins/setup-sessions/workspace"]);
     await vi.waitFor(() =>

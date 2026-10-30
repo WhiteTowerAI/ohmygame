@@ -22,7 +22,7 @@ import {
   Settings,
   UserRound,
 } from "./icons.js";
-import { getProjectCover, listConversations, listProjects, waitForRuntime } from "./api.js";
+import { getProjectCover, getProjectLogo, listConversations, listProjects, waitForRuntime } from "./api.js";
 import { useAuth } from "./auth.js";
 import { BrandLogo } from "./brand-logo.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
@@ -151,34 +151,43 @@ function useRecentProjects(active?: SidebarActive): ProjectState[] {
   return useSyncExternalStore(subscribeRecent, () => recentProjects, () => recentProjects);
 }
 
-// Covers load once per project version and stay while the app runs.
-const covers = new Map<string, { version: string; url: Promise<string | undefined> }>();
+// Covers and logos load once per project version and stay while the app runs.
+const images = new Map<string, { version: string; url: Promise<string | undefined> }>();
 
-function coverUrl(project: ProjectState): Promise<string | undefined> {
-  const cached = covers.get(project.id);
+function imageUrl(project: ProjectState, kind: "cover" | "logo"): Promise<string | undefined> {
+  const key = `${kind}:${project.id}`;
+  const cached = images.get(key);
   if (cached?.version === project.updatedAt) return cached.url;
-  const url = getProjectCover(project.id)
-    .then((cover) => (cover ? URL.createObjectURL(cover) : undefined))
+  const url = (kind === "logo" ? getProjectLogo(project.id) : getProjectCover(project.id))
+    .then((image) => (image ? URL.createObjectURL(image) : undefined))
     .catch(() => undefined);
   void cached?.url.then((previous) => previous && URL.revokeObjectURL(previous));
-  covers.set(project.id, { version: project.updatedAt, url });
+  images.set(key, { version: project.updatedAt, url });
   return url;
 }
 
-function SidebarCover({ project, className }: { project: ProjectState; className: string }) {
+/**
+ * A recent project's mark: its uploaded logo, the default icon it chose, its
+ * cover, or else the default template, with the icon centred at the given size.
+ */
+function SidebarCover({ project, className, iconSize }: { project: ProjectState; className: string; iconSize: number }) {
+  const appearance = project.appearance;
+  const kind = appearance?.logo ? "logo" : appearance?.icon || appearance?.cover === "template" ? undefined : "cover";
   const [url, setUrl] = useState<string>();
   useEffect(() => {
+    setUrl(undefined);
+    if (!kind) return;
     let disposed = false;
-    void coverUrl(project).then((next) => {
+    void imageUrl(project, kind).then((next) => {
       if (!disposed) setUrl(next);
     });
     return () => {
       disposed = true;
     };
-  }, [project.id, project.updatedAt]);
+  }, [project.id, project.updatedAt, kind]);
   return (
     <span className={className} aria-hidden="true">
-      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={project.id} />}
+      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={project.id} appearance={appearance} size={iconSize} />}
     </span>
   );
 }
@@ -334,10 +343,10 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
               const open = () => { window.location.hash = projectHash(project.id); };
               return collapsed ? (
                 <button key={project.id} type="button" className="sidebar-app" title={project.name} aria-label={project.name} onClick={open}>
-                  <SidebarCover project={project} className="sidebar-app-cover" />
+                  <SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />
                 </button>
               ) : (
-                <SidebarItem key={project.id} icon={<SidebarCover project={project} className="sidebar-cover" />} label={project.name} onClick={open} />
+                <SidebarItem key={project.id} icon={<SidebarCover project={project} className="sidebar-cover" iconSize={12} />} label={project.name} onClick={open} />
               );
             }) : null}
           </div>
@@ -365,7 +374,7 @@ export interface RailConversations {
 }
 
 /** "Edited 3 hours ago", from when a project or conversation last changed. */
-function editedAgo(value: string, now = Date.now()): string {
+export function editedAgo(value: string, now = Date.now()): string {
   const seconds = Math.round((new Date(value).getTime() - now) / 1000);
   const format = new Intl.RelativeTimeFormat(language, { numeric: "auto" });
   for (const [unit, size] of [["year", 31_536_000], ["month", 2_592_000], ["day", 86_400], ["hour", 3_600], ["minute", 60]] as const) {
@@ -453,7 +462,7 @@ function RailProject({ project, open: openProject, conversations }: {
           if (!focusFirst.current || body.current?.contains(event.relatedTarget as Node | null)) return;
           close();
         }}>
-        <SidebarCover project={project} className="sidebar-app-cover" />
+        <SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />
       </button>
       <Popover open={open} onClose={close} anchor={anchor} placement="right-start" className="rail-popover"
         label={t("sidebar.projectConversations", { name: project.name })}>

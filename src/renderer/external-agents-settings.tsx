@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { CircleX, LoaderCircle, Plug, Terminal } from "./icons.js";
-import type { AgentRuntimeId } from "../shared/agent-runtimes.js";
+import { LoaderCircle, Terminal } from "./icons.js";
 import {
   EXTERNAL_MCP_SERVER_NAME,
   externalClientAddArguments,
@@ -9,34 +8,20 @@ import {
   type ExternalMcpClientActivity,
   type ExternalMcpLauncher,
 } from "../shared/external-mcp.js";
-import {
-  connectExternalAgent,
-  disconnectExternalAgent,
-  getExternalAgentSettings,
-  updateExternalAgentSettings,
-} from "./api.js";
-import { AgentMark } from "./coding-agents-settings.js";
+import { getExternalAgentSettings, updateExternalAgentSettings } from "./api.js";
 import { language, t } from "./i18n.js";
-import { Alert, Badge, Button, CodeBlock, Switch } from "./ui/index.js";
+import { Alert, Badge, CodeBlock, Switch } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
-
-const CLIENTS: Record<
-  ExternalAgentClientId,
-  { name: string; runtime: AgentRuntimeId }
-> = {
-  "claude-code": { name: "Claude Code", runtime: "claude-code-cli" },
-  codex: { name: "Codex", runtime: "codex-cli" },
-};
 
 /**
  * Settings → MCP Server: lets coding agents outside OhMyGame use its tools
- * through the `ohmygame-studio` MCP server. The switch publishes the server,
- * and each detected CLI is connected with its own `mcp add` command.
+ * through the `ohmygame-studio` MCP server. The switch publishes the server;
+ * people add it to each client with the commands shown, as in the lab.
  */
 export function ExternalAgentsSettings() {
   const [settings, setSettings] = useState<ExternalAgentSettings>();
   const [error, setError] = useState<string>();
-  const [pending, setPending] = useState<string>();
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     let active = true;
     void getExternalAgentSettings()
@@ -46,18 +31,15 @@ export function ExternalAgentsSettings() {
       active = false;
     };
   }, []);
-  async function change(
-    key: string,
-    work: () => Promise<ExternalAgentSettings>,
-  ): Promise<void> {
-    setPending(key);
+  async function setEnabled(enabled: boolean): Promise<void> {
+    setSaving(true);
     setError(undefined);
     try {
-      setSettings(await work());
+      setSettings(await updateExternalAgentSettings({ enabled }));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
-      setPending(undefined);
+      setSaving(false);
     }
   }
   return (
@@ -78,10 +60,8 @@ export function ExternalAgentsSettings() {
             <Switch
               label={t("externalAgents.enable")}
               checked={settings.enabled}
-              disabled={pending !== undefined}
-              onChange={(enabled) =>
-                void change("enabled", () => updateExternalAgentSettings({ enabled }))
-              }
+              disabled={saving}
+              onChange={(enabled) => void setEnabled(enabled)}
             />
           </SettingsRow>
         </SettingsGroup>
@@ -92,58 +72,15 @@ export function ExternalAgentsSettings() {
       {settings?.enabled && !settings.launcher ? (
         <SettingsNote>{t("externalAgents.desktopOnly")}</SettingsNote>
       ) : null}
-      {settings?.enabled && settings.launcher ? (
-        <SettingsGroup className="external-agents-clients" title={t("externalAgents.clients")}>
-          {settings.clients.map((client) => {
-            const { name, runtime } = CLIENTS[client.id];
-            const busy = pending === client.id;
-            return (
-              <SettingsRow
-                key={client.id}
-                icon={<AgentMark id={runtime} />}
-                title={name}
-                description={
-                  !client.available
-                    ? t("codingAgents.notFound")
-                    : client.connected
-                      ? t("externalAgents.connected")
-                      : t("externalAgents.notConnected")
-                }
-              >
-                {client.available ? (
-                  <Button
-                    size="sm"
-                    variant={client.connected ? "ghost" : "secondary"}
-                    className={`external-agent-action${client.connected ? " is-danger" : ""}`}
-                    aria-label={t(client.connected ? "settings.mcp.disconnectName" : "settings.mcp.connectName", { name })}
-                    aria-busy={busy}
-                    disabled={pending !== undefined}
-                    icon={busy ? <LoaderCircle className="spin" size={14} /> : client.connected ? <CircleX size={14} /> : <Plug size={14} />}
-                    onClick={() =>
-                      void change(client.id, () =>
-                        client.connected
-                          ? disconnectExternalAgent(client.id)
-                          : connectExternalAgent(client.id),
-                      )
-                    }
-                  >
-                    {t(client.connected ? "externalAgents.disconnect" : "externalAgents.connect")}
-                  </Button>
-                ) : null}
-              </SettingsRow>
-            );
-          })}
-        </SettingsGroup>
-      ) : null}
-      {settings?.enabled && settings.launcher ? <ManualSetup launcher={settings.launcher} /> : null}
+      {settings?.enabled && settings.launcher ? <Connect launcher={settings.launcher} skillDirectory={settings.skillDirectory} /> : null}
       {settings?.enabled && settings.recent?.length ? <RecentClients clients={settings.recent} /> : null}
       {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
     </>
   );
 }
 
-/** The same commands Connect runs, for doing it by hand, and the launcher for every other client. */
-function ManualSetup({ launcher }: { launcher: ExternalMcpLauncher }) {
+/** Each client's `mcp add` command, the launcher for every other client, and the Skill to copy. */
+function Connect({ launcher, skillDirectory }: { launcher: ExternalMcpLauncher; skillDirectory?: string }) {
   const command = (id: ExternalAgentClientId, cli: string) => [cli, ...externalClientAddArguments(id, launcher)].map(quote).join(" ");
   const environment = Object.entries(launcher.env).map(([name, value]) => `${name}=${quote(value)}`);
   return (
@@ -152,6 +89,7 @@ function ManualSetup({ launcher }: { launcher: ExternalMcpLauncher }) {
         <CodeBlock title="Claude Code" code={command("claude-code", "claude")} />
         <CodeBlock title="Codex" code={command("codex", "codex")} />
         <CodeBlock title={t("externalAgents.otherClients")} code={[...environment, [launcher.command, ...launcher.args].map(quote).join(" ")].join(" ")} />
+        {skillDirectory ? <CodeBlock title={t("externalAgents.skill")} code={skillDirectory} /> : null}
       </div>
     </SettingsGroup>
   );

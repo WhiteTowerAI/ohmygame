@@ -413,10 +413,7 @@ it("serves the public contract from the daemon without the app token", async () 
     headers: { authorization: "Bearer app-token" },
     payload: { enabled: true },
   });
-  expect(settings.json()).toMatchObject({
-    enabled: true,
-    clients: [{ id: "claude-code" }, { id: "codex" }],
-  });
+  expect(settings.json()).toMatchObject({ enabled: true });
   const endpoint = JSON.parse(
     await readFile(
       path.join(dataDirectory, "external-mcp", "endpoint.json"),

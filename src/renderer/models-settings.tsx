@@ -1,5 +1,5 @@
-import { ChevronDown, ChevronRight, Code2, ExternalLink, LoaderCircle, Pencil, Server, Plus, RefreshCw, Settings, Trash2, UserRound } from "./icons.js";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { ChevronDown, ChevronRight, CirclePlus, Code2, ExternalLink, LoaderCircle, Pencil, Server, RefreshCw, SettingsMinimal, Trash2, UserRound } from "./icons.js";
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   CustomProviderDetails,
   CustomProviderModel,
@@ -45,7 +45,7 @@ import { Provider3DBalance } from "./provider-3d-balance.js";
 import { MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
 import { openModelAuthExternal as openExternal, useModelProviderAuth } from "./use-model-provider-auth.js";
-import { Badge, Button, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
+import { Badge, Button, Dialog, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
 import { useAgentModels } from "./model-selector.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { useAuth } from "./auth.js";
@@ -76,13 +76,43 @@ const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
   audio: t("capability.audio"),
 };
 
+// A provider's details open over the list in a dialog, as in the lab; the
+// detail views drop their own back header there.
+const InProviderDialog = createContext(false);
+
 export function ModelsSettings({ view, onViewChange, onOpenAgents, onOpenChatModel }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void; onOpenChatModel?: () => void }) {
+  // The list stays open under the dialog and reloads once it closes.
+  const [revision, setRevision] = useState(0);
   const openProvider = (provider: ProviderSummary): void => onViewChange({ page: "provider", provider });
-  if (view.page === "providers") return <ProviderList onProvider={openProvider} onOpenChatModel={onOpenChatModel} />;
-  return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} onOpenAgents={onOpenAgents} />;
+  const close = (): void => {
+    onViewChange({ page: "providers" });
+    setRevision((value) => value + 1);
+  };
+  return (
+    <>
+      <ProviderList revision={revision} onProvider={openProvider} onOpenChatModel={onOpenChatModel} />
+      {view.page === "provider" ? <ProviderDetailDialog key={view.provider.id} provider={view.provider} onClose={close} onOpenAgents={onOpenAgents} /> : null}
+    </>
+  );
 }
 
-function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: ProviderSummary) => void; onOpenChatModel?: () => void }) {
+/** One provider's connection, models and settings, over the list. */
+export function ProviderDetailDialog({ provider, onClose, onOpenAgents }: { provider: ProviderSummary; onClose: () => void; onOpenAgents?: () => void }) {
+  return (
+    <Dialog open onClose={onClose} size="lg"
+      title={<span className="settings-provider-dialog-title"><ProviderMark provider={provider} />{provider.name}</span>}
+      description={providerDescription(provider)}>
+      <InProviderDialog.Provider value={true}>
+        {/* Keeps the settings styles, which are scoped to the page body. */}
+        <div className="settings-body settings-dialog-body">
+          <ProviderAuthView provider={provider} onBack={onClose} onCompleted={onClose} onOpenAgents={onOpenAgents} />
+        </div>
+      </InProviderDialog.Provider>
+    </Dialog>
+  );
+}
+
+function ProviderList({ revision, onProvider, onOpenChatModel }: { revision: number; onProvider: (provider: ProviderSummary) => void; onOpenChatModel?: () => void }) {
   const auth = useAuth();
   const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
@@ -115,7 +145,7 @@ function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: 
     window.addEventListener("focus", load);
     const timer = setInterval(load, 30_000);
     return () => { active = false; clearInterval(timer); window.removeEventListener(MODELS_CHANGED_EVENT, load); window.removeEventListener("focus", load); };
-  }, [userId]);
+  }, [userId, revision]);
   async function toggleProvider(provider: ProviderSummary, enabled: boolean): Promise<void> {
     setPending((current) => new Set(current).add(provider.id));
     setError(undefined);
@@ -166,7 +196,7 @@ function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: 
       <div className="settings-toolbar">
         <SearchInput value={query} onChange={setQuery} placeholder={t("providers.search")} label={t("providers.search")} />
         <span className="settings-spacer" />
-        <Button icon={<Plus size={14} />} onClick={() => setAdding("custom")}>{t("providers.add")}</Button>
+        <Button icon={<CirclePlus size={14} />} onClick={() => setAdding("custom")}>{t("providers.add")}</Button>
       </div>
       <Tabs variant="pills" label={t("providers.filterLabel")} tabs={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
       {adding ? <CustomProviderDialog initialProvider={adding === "custom" ? undefined : LOCAL_MODEL_PROVIDERS[adding]} onClose={() => setAdding(undefined)} onSaved={() => {
@@ -244,7 +274,7 @@ function ProviderRow({ detail, featured = false, onProvider, provider, onToggle,
         <Switch label={t("providers.enableProvider", { name: provider.name })} checked={provider.enabled !== false} disabled={pending.has(provider.id)} onChange={(enabled) => onToggle(provider, enabled)} />
       ) : provider.status === "not_configured" ? null : <span className={`settings-provider-status is-${provider.status}`}>{providerStatus(provider)}</span>}
       {combined || provider.configured ? (
-        <IconButton size="sm" label={actionLabel} disabled={busy} onClick={() => onProvider(provider)}><Settings size={16} /></IconButton>
+        <IconButton size="sm" label={actionLabel} disabled={busy} onClick={() => onProvider(provider)}><SettingsMinimal size={16} /></IconButton>
       ) : (
         <Button size="sm" aria-label={actionLabel} disabled={busy} icon={provider.status === "connecting" ? <LoaderCircle size={14} className="spin" /> : provider.status === "error" ? <RefreshCw size={14} /> : undefined} onClick={() => onProvider(provider)}>
           {provider.status === "error" ? t("common.retry") : t("providers.action.connect")}
@@ -1194,6 +1224,8 @@ export function ActiveProviderAuth({ provider, method, inline = false, onBack, o
 }
 
 function ProviderDetailHeader({ provider, onBack, children, description }: { provider: ModelProviderSummary; onBack: () => void; children?: ReactNode; description?: string }) {
+  // The dialog shows the name; its controls (enable, delete) stay here.
+  if (useContext(InProviderDialog)) return children ? <div className="settings-provider-dialog-actions">{children}</div> : null;
   return (
     <SettingsDetailHead mark={<ProviderMark provider={provider} />} title={provider.name} description={description ?? providerDescription(provider)} onBack={onBack} backLabel={t("settings.providers.back")}>
       {children}

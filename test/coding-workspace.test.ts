@@ -40,13 +40,14 @@ describe("coding workspace", () => {
     expect(playerViewport("fit", { width: 20000, height: 200 })).toEqual({ width: 8192, height: 240 });
   });
 
-  it("browses project assets without file mutation menus and keeps a shared filter entry", () => {
+  it("browses project assets as Library tiles with the source and use filters, without file mutation menus", () => {
     const html = renderToStaticMarkup(createElement(AssetsView, {
       projectId: "project", files: [{ path: "hero.png", size: 3, mediaType: "image", origin: "generated", purpose: "asset", prompt: "A long generation prompt" }],
       loading: false, revision: 0, onShowInCode: () => undefined,
     }));
-    expect(html).toContain('aria-label="Filter assets"');
-    expect(html).toContain("<strong>hero.png</strong>");
+    expect(html).toContain('aria-label="Source"');
+    expect(html).toContain('aria-label="Use"');
+    expect(html).toContain('<span class="ui-media-name-text">hero.png</span>');
     expect(html).not.toContain("Asset actions");
     expect(html).not.toContain("Save to Library");
     expect(html).not.toContain("Rename");

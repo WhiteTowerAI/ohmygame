@@ -1,7 +1,11 @@
-import { Check, ChevronDown, FilePenLine, FileText, LoaderCircle, Search, X } from "./icons.js";
+import { Check, ChevronDown, FilePenLine, LoaderCircle, Search, X } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ConversationSummary } from "../shared/contracts.js";
 import { t } from "./i18n.js";
+import { editedAgo } from "./app-sidebar.js";
+
+/** Below this many conversations the list fits at a glance and needs no search. */
+const SEARCH_FROM = 8;
 
 interface ConversationMenuProps {
   conversations: ConversationSummary[];
@@ -44,7 +48,7 @@ export function ConversationMenu({
     };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
-    requestAnimationFrame(() => searchInput.current?.focus());
+    requestAnimationFrame(() => (searchInput.current ?? root.current?.querySelector<HTMLElement>(".conversation-option"))?.focus());
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
@@ -106,10 +110,12 @@ export function ConversationMenu({
 
       {open ? (
         <div id="conversation-menu-popover" className="conversation-popover" role="dialog" aria-label={t("conversations.label")}>
-          <label className="project-switcher-search">
-            <Search size={13} />
-            <input ref={searchInput} aria-label={t("conversations.search")} value={query} placeholder={t("conversations.search")} onChange={(event) => setQuery(event.target.value)} />
-          </label>
+          {conversations.length >= SEARCH_FROM ? (
+            <label className="project-switcher-search">
+              <Search size={13} />
+              <input ref={searchInput} aria-label={t("conversations.search")} value={query} placeholder={t("conversations.search")} onChange={(event) => setQuery(event.target.value)} />
+            </label>
+          ) : <div className="conversation-menu-label">{t("conversations.label")}</div>}
           <div className="conversation-list">
             {visibleConversations.map((conversation) => editingId === conversation.id ? (
               <form className="conversation-rename" key={conversation.id} onSubmit={submitRename}>
@@ -139,16 +145,13 @@ export function ConversationMenu({
                     if (conversation.id !== currentConversationId) onSelect(conversation.id);
                   }}
                 >
-                  <FileText className="conversation-option-icon" size={16} aria-hidden="true" />
-                  <span className="conversation-option-copy">
-                    <span className="conversation-option-title">{conversation.title}</span>
-                    <span className="conversation-option-meta">
-                      {conversation.id === activeConversationId
-                        ? t("conversations.running")
-                        : conversation.messageCount === 0
-                          ? t("conversations.empty")
-                          : t("conversations.messages", { count: conversation.messageCount })}
-                    </span>
+                  <span className="conversation-option-title">{conversation.title}</span>
+                  <span className="conversation-option-meta">
+                    {conversation.id === activeConversationId
+                      ? t("conversations.running")
+                      : conversation.messageCount === 0
+                        ? t("conversations.empty")
+                        : editedAgo(conversation.updatedAt)}
                   </span>
                   <span className="conversation-option-mark" aria-hidden="true">
                     {conversation.id === currentConversationId ? <Check size={14} /> : null}

@@ -15,10 +15,14 @@ import { useProjectShelfLayout } from "./use-project-shelf-layout.js";
 import { useProjectActivity } from "./use-project-activity.js";
 import { Button } from "./ui/index.js";
 import "./home.css";
+import type { OnboardingStart } from "./onboarding.js";
 import { t } from "./i18n.js";
 
 interface HomeProps {
   inert?: boolean;
+  /** Where setup's last step sent the person; Home acts on it once. */
+  start?: OnboardingStart;
+  onStartHandled?: () => void;
   onNavigate: (page: AppNavigationTarget) => void;
   onCreate: (project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
   onOpen: (projectId: string, view?: "design") => void;
@@ -35,7 +39,7 @@ interface CreateRequest {
 // Home is where every project starts: the prompt opens the new-project dialog
 // with the prompt as the first message; Start blank and Import folder open it
 // without one.
-export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps) {
+export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onStartHandled }: HomeProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -78,6 +82,14 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
       setImportError(errorMessage(error));
     }
   }
+
+  useEffect(() => {
+    if (!start || inert) return;
+    onStartHandled?.();
+    if (start === "blank") setCreating({});
+    else if (start === "import") void importFolder();
+    else document.querySelector<HTMLElement>(".home-hero textarea, .home-hero [contenteditable=\"true\"]")?.focus();
+  }, [start, inert]);
 
   const visibleProjects = projects.slice(0, recentProjectLimit);
   // Two rows, so every example type has room; Home scrolls when the window is short.

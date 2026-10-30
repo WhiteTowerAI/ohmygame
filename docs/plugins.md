@@ -22,12 +22,11 @@ sources), by project type, and by what it adds (**Skills**, **MCP**, **Service
 connection**, from `skillCount`, `mcpServerCount` and `integration` in the
 summary); a plugin without project types works with every type.
 
-A project's **Plugins…** sheet, from the project menu, shows these plugins as
-**Global** and locked: they are on for every project they work with and switch
-on the Plugins page. Format 2 plugins switch per project there, as described in
-[Plugin format 2](plugins-v2.md#routes). **Skills** lists the Skills of every plugin, grouped by
-whether the plugin is OhMyGame's or Personal. A Skill's switch is its
-component switch and stays off while its plugin is disabled.
+A project's **Plugins…** sheet, from the project menu, lists the format 2
+plugins that switch per project, with how many are on, as described in
+[Plugin format 2](plugins-v2.md#routes). Under **Every project** it shows these
+plugins locked on: they are on for every project they work with and switch on
+the Plugins page, which **Manage all plugins** opens.
 
 A plugin's page has **About** (the long description and Try it prompts),
 **Skills**, and **Settings** (configuration, integration, MCP services, and

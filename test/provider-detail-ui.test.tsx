@@ -78,7 +78,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
   ...api,
 }));
-const { ModelsSettings } = await import("../src/renderer/models-settings.js");
+const { ProviderDetailDialog } = await import("../src/renderer/models-settings.js");
 
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -113,20 +113,16 @@ const openai: ProviderSummary = {
 async function render(onViewChange = vi.fn(), provider = openai) {
   await act(async () =>
     root.render(
-      <ModelsSettings
-        view={{ page: "provider", provider }}
-        onViewChange={onViewChange}
-        onOpenAgents={() => {}}
-      />,
+      <ProviderDetailDialog provider={provider} onClose={() => onViewChange({ page: "providers" })} onOpenAgents={() => {}} />,
     ),
   );
 }
 const button = (label: string) =>
-  [...host.querySelectorAll("button")].find(
+  [...document.body.querySelectorAll("button")].find(
     (item) => item.textContent?.trim() === label,
   );
 const rows = () =>
-  [...host.querySelectorAll(".provider-model-row strong")].map(
+  [...document.body.querySelectorAll(".provider-model-row strong")].map(
     (item) => item.textContent,
   );
 
@@ -134,43 +130,42 @@ it("keeps the provider header compact and exposes advanced connection settings",
   const onViewChange = vi.fn();
   await render(onViewChange);
   expect(
-    host.querySelector(".settings-detail-title p")?.textContent,
+    document.body.querySelector(".ui-dialog-description")?.textContent,
   ).toBe("Browser sign-in or API key");
-  expect(host.querySelector('.settings-detail-head button[aria-label="Back to Providers"]')).toBeDefined();
-  expect(host.querySelector(".settings-provider-breadcrumb")).toBeNull();
-  expect(host.querySelector(".settings-detail-head .settings-provider-delete")).toBeDefined();
-  expect(host.querySelectorAll(".settings-provider-status-dot")).toHaveLength(0);
-  const connection = host.querySelector('[aria-label="Connection"]')!;
+  expect(document.body.querySelector(".settings-provider-breadcrumb")).toBeNull();
+  expect(document.body.querySelector(".settings-provider-dialog-actions .settings-provider-delete")).not.toBeNull();
+  expect(document.body.querySelectorAll(".settings-provider-status-dot")).toHaveLength(0);
+  const connection = document.body.querySelector('[aria-label="Connection"]')!;
   expect(connection.textContent).toContain("Signed in with ChatGPT");
   expect(connection.querySelectorAll(".settings-provider-status-dot")).toHaveLength(0);
-  expect(host.querySelector(".settings-provider-remove")).toBeNull();
+  expect(document.body.querySelector(".settings-provider-remove")).toBeNull();
   expect(button("Use API key")).toBeDefined();
-  const advanced = host.querySelector<HTMLDetailsElement>(
+  const advanced = document.body.querySelector<HTMLDetailsElement>(
     ".settings-provider-advanced",
   )!;
   expect(advanced.open).toBe(true);
   expect(advanced.textContent).toContain("Responses connection");
 
-  await act(async () => host.querySelector<HTMLButtonElement>('.settings-detail-head button[aria-label="Back to Providers"]')!.click());
+  await act(async () => document.body.querySelector<HTMLButtonElement>(".ui-dialog-close")!.click());
   expect(onViewChange).toHaveBeenCalledWith({ page: "providers" });
 });
 
 it("confirms before removing the provider", async () => {
   await render();
-  await act(async () => host.querySelector<HTMLButtonElement>(".settings-detail-head .settings-provider-delete")!.click());
+  await act(async () => document.body.querySelector<HTMLButtonElement>(".settings-provider-dialog-actions .settings-provider-delete")!.click());
   await act(async () => button("Delete provider")!.click());
   expect(api.removeProvider).toHaveBeenCalledWith("openai");
 });
 
 it.each(audioProviders)("keeps $name settings and actions independent", async (provider) => {
   await render(vi.fn(), provider);
-  const header = host.querySelector(".settings-detail-head")!;
+  const header = document.body.querySelector(".settings-provider-dialog-actions")!;
   const toggle = header.querySelector<HTMLInputElement>('[role="switch"]')!;
   expect(toggle.getAttribute("aria-label")).toBe(`Enable ${provider.name}`);
-  expect(host.querySelector(".settings-provider-filters")).toBeNull();
-  expect(host.querySelector(`#${provider.id}-api-key`)).toBeTruthy();
-  if (provider.id === "volcengine-tts") expect(host.querySelector<HTMLSelectElement>("#volcengine-tts-voice-select")!.value).toBe("zh_female_vv_uranus_bigtts");
-  else expect(host.querySelector("#volcengine-tts-voice-select")).toBeNull();
+  expect(document.body.querySelector(".settings-provider-filters")).toBeNull();
+  expect(document.body.querySelector(`#${provider.id}-api-key`)).toBeTruthy();
+  if (provider.id === "volcengine-tts") expect(document.body.querySelector<HTMLSelectElement>("#volcengine-tts-voice-select")!.value).toBe("zh_female_vv_uranus_bigtts");
+  else expect(document.body.querySelector("#volcengine-tts-voice-select")).toBeNull();
   await act(async () => toggle.click());
   expect(api.setProviderEnabled).toHaveBeenCalledWith(provider.id, false);
   await act(async () => header.querySelector<HTMLButtonElement>(".settings-provider-delete")!.click());
@@ -183,7 +178,7 @@ it("puts the default model first and keeps hidden models behind a toggle", async
   await render();
   expect(rows()).toEqual(["GPT-5", "GPT-4"]);
   expect(
-    host
+    document.body
       .querySelector(".provider-model-default")
       ?.closest(".provider-model-row")?.textContent,
   ).toContain("GPT-5");
@@ -204,10 +199,10 @@ it("refreshes in the background and preserves the current list when a manual ref
   await act(async () => button("Refresh models")!.click());
   expect(api.refreshProviderModels).toHaveBeenCalledWith("openai");
   expect(rows()).toEqual(["GPT-5", "GPT-4"]);
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain("Your existing models are still available");
+  expect(document.body.querySelector('[role="alert"]')?.textContent).toContain("Your existing models are still available");
   await act(async () => button("Refresh models")!.click());
   expect(api.refreshProviderModels).toHaveBeenCalledTimes(2);
-  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(document.body.querySelector('[role="alert"]')).toBeNull();
 });
 
 it("pauses background polling while the user saves model visibility", async () => {
@@ -219,7 +214,7 @@ it("pauses background polling while the user saves model visibility", async () =
   api.setProviderModelVisibility.mockImplementationOnce(() => new Promise((resolve) => { save = resolve; }));
   await render();
   await act(async () => button("Edit")!.click());
-  const checkbox = host.querySelector<HTMLInputElement>('.provider-model-row input[type="checkbox"]')!;
+  const checkbox = document.body.querySelector<HTMLInputElement>('.provider-model-row input[type="checkbox"]')!;
   await act(async () => checkbox.click());
   expect(api.setProviderModelVisibility).toHaveBeenCalledWith("openai", ["gpt-4"], false);
   await act(async () => vi.advanceTimersByTimeAsync(1_000));

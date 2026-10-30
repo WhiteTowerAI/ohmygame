@@ -91,12 +91,19 @@ describe("composer menu viewport boundaries", () => {
     "keeps the %s menu below the Windows title bar",
     async (prompt) => {
       await act(async () => root.render(<Composer prompt={prompt} />));
-      if (!prompt)
+      if (!prompt) {
         await act(async () =>
           host
             .querySelector<HTMLButtonElement>(".composer-attach-button")!
             .click(),
         );
+        // The + menu opens the "/" list from its last item.
+        await act(async () =>
+          [...document.querySelectorAll<HTMLButtonElement>("[role=menuitem]")]
+            .find((item) => item.textContent?.includes("Commands and skills"))!
+            .click(),
+        );
+      }
       expect(
         host.querySelector<HTMLElement>("[role=listbox]")!.style.maxHeight,
       ).toBe("196px");
@@ -136,7 +143,8 @@ describe("composer menu viewport boundaries", () => {
   it("keeps a usable menu inside the composer when neither side has room", async () => {
     promptTop = 100;
     paneBottom = 220;
-    await act(async () => root.render(<Composer prompt="@" agent />));
+    // "@" has nothing to offer without plugins; "/" always has plan mode.
+    await act(async () => root.render(<Composer prompt="/" agent />));
     const menu = host.querySelector<HTMLElement>("[role=listbox]")!;
     expect(menu.classList.contains("is-inside")).toBe(true);
     expect(menu.classList.contains("is-below")).toBe(false);

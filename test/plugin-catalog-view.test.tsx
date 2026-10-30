@@ -228,16 +228,16 @@ describe("plugin catalog browsing", () => {
   it("adds plugins from a menu that closes on Escape", async () => {
     await renderCatalog();
     const add = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Add plugin",
+      (button) => button.textContent === "Add",
     )!;
     await act(async () => add.click());
     expect(add.getAttribute("aria-expanded")).toBe("true");
     const items = [
       ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
     ];
-    expect(
-      items.map((item) => item.querySelector("small")?.textContent),
-    ).toContain("Clone a public HTTPS repository");
+    expect(items.map((item) => item.textContent)).toEqual(
+      expect.arrayContaining(["Browse plugins", "Create with AI…", "Install from Git…"]),
+    );
     expect(document.activeElement).toBe(items[0]);
     await act(async () =>
       document.dispatchEvent(
@@ -281,13 +281,14 @@ describe("plugin catalog browsing", () => {
     await pick("Source", "Other sources");
     expect(cards()).toEqual(["Alpha", "Zebra"]);
     await pick("Source", "OhMyGame");
-    await pick("Works with", "Godot");
-    expect(cards()).toContain("Godot");
-    expect(cards()).not.toContain("Unity");
-    expect(cards()).toContain("Blender");
-
-    await pick("Works with", "All project types");
-    await pick("Adds", "MCP");
+    // One category filter, offering only what some plugin adds.
+    const category = container.querySelector<HTMLButtonElement>('[aria-label="Category"]')!;
+    await act(async () => category.click());
+    expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent))
+      .toEqual(["All categories", "Skills", "MCP", "Service connection"]);
+    await act(async () => category.click());
+    expect(container.querySelector('[aria-label="Works with"]')).toBeNull();
+    await pick("Category", "MCP");
     expect(cards()).toEqual(["TapTap Maker"]);
     const card = [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes("TapTap Maker"))!;
     expect([...card.querySelectorAll(".plugins-tag")].map((tag) => tag.textContent)).toEqual(["Web Game", "1 skill", "MCP", "Service connection"]);
@@ -318,7 +319,7 @@ describe("plugin catalog browsing", () => {
     await renderCatalog();
     await click("Skills");
     await vi.waitFor(() => expect(container.textContent).toContain("plan-game"));
-    await click("Add plugin");
+    await click("Add");
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
         .find((item) => item.textContent?.startsWith("Install from Git"))!

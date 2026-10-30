@@ -216,15 +216,17 @@ async function fillInput(placeholder: string, value: string) {
 async function fillCustomProvider() {
   await fillInput("My provider", "Test provider");
   await fillInput("https://api.example.com/v1", customProvider.baseUrl);
-  const authentication = [...container.querySelectorAll("label")]
-    .find(
-      (label) => label.querySelector("span")?.textContent === "Authentication",
-    )!
-    .querySelector("select")!;
-  await act(async () => {
-    authentication.value = "none";
-    authentication.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('button[aria-label="Authentication"]')!
+      .click(),
+  );
+  // The kit select lists its options in a popover on the document body.
+  await act(async () =>
+    [...document.body.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find((option) => option.textContent === "No API key")!
+      .click(),
+  );
 }
 async function event(value: Omit<ModelAuthEvent, "id" | "operationId">) {
   await act(async () =>
@@ -424,7 +426,7 @@ describe("first-run screens", () => {
     }
     await act(async () => root.render(<Harness />));
     expect(stepButton("welcome").getAttribute("aria-current")).toBe("step");
-    expect(container.querySelector(".onboarding-welcome-static")).toBeNull();
+    expect(container.querySelector("h1")?.textContent).toBe("Welcome to OhMyGame");
     await act(async () => stepButton("connect").click());
     expect(change).toHaveBeenLastCalledWith("connect");
     expect(container.querySelector("h1")?.textContent).toBe("Connect your AI.");
@@ -433,9 +435,7 @@ describe("first-run screens", () => {
     await act(async () => providerButton("OpenRouter", "API key").click());
     await act(async () => stepButton("welcome").click());
     expect(change).toHaveBeenLastCalledWith("welcome");
-    expect(
-      container.querySelector(".onboarding-welcome-static"),
-    ).not.toBeNull();
+    expect(container.querySelector("h1")?.textContent).toBe("Welcome to OhMyGame");
     expect(api.cancelModelAuth).toHaveBeenCalledWith("operation");
     await act(async () => stepButton("connect").click());
     expect(container.querySelector("h1")?.textContent).toBe("Connect your AI.");
@@ -443,38 +443,20 @@ describe("first-run screens", () => {
     expect(stepButton("welcome").hasAttribute("aria-current")).toBe(false);
   });
 
-  it.each(["connect", "media"] as const)(
-    "skips the welcome intro when returning from a resumed %s step",
-    async (step) => {
-      const onStepChange = vi.fn();
-      const onFinish = vi.fn();
-      await act(async () =>
-        root.render(
-          <Onboarding
-            step={step}
-            onStepChange={onStepChange}
-            onFinish={onFinish}
-          />,
-        ),
-      );
-      await act(async () =>
-        root.render(
-          <Onboarding
-            step="welcome"
-            onStepChange={onStepChange}
-            onFinish={onFinish}
-          />,
-        ),
-      );
-      expect(
-        container.querySelector(".onboarding-welcome-static"),
-      ).not.toBeNull();
-      expect(button("Next").disabled).toBe(false);
-      expect(container.querySelector("h1")?.textContent).toBe(
-        "Your own game studio.",
-      );
-    },
-  );
+  it("applies the appearance at once on the first step", async () => {
+    await act(async () =>
+      root.render(
+        <Onboarding step="welcome" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+      ),
+    );
+    expect(container.querySelector('[aria-label="Interface language"]')).not.toBeNull();
+    const dark = [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((item) => item.textContent === "Dark")!;
+    await act(async () => dark.click());
+    expect(dark.getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem("ohmygame:appearance")).toBe("dark");
+    expect(document.documentElement.dataset.appearance).toBe("dark");
+    expect(button("Next").disabled).toBe(false);
+  });
 
   it("hides the legacy Codex entry and starts the chosen provider's authorization", async () => {
     api.listProviders.mockResolvedValue(
@@ -539,32 +521,35 @@ describe("first-run screens", () => {
     expect(finish).not.toHaveBeenCalled();
   });
 
-  it("allows entering without a model and retries a failed preference save", async () => {
+  it("skips connecting a model and retries a failed step save", async () => {
     const save = deferred<void>();
-    const finish = vi
+    const change = vi
       .fn()
       .mockReturnValueOnce(save.promise)
       .mockResolvedValue(undefined);
+    const finish = vi.fn();
     await showConnection(
-      <Onboarding step="connect" onStepChange={vi.fn()} onFinish={finish} />,
+      <Onboarding step="connect" onStepChange={change} onFinish={finish} />,
     );
     expect(container.textContent).not.toContain("Skip for now");
     expect(button("Next").disabled).toBe(true);
     await act(async () => button("Next").click());
+    expect(change).not.toHaveBeenCalled();
+    // Skipping the connection moves on to the last step instead of leaving setup.
+    await act(async () => button("Skip this step").click());
+    expect(change).toHaveBeenCalledWith("start");
     expect(finish).not.toHaveBeenCalled();
-    await act(async () => button("Skip and start").click());
-    expect(finish).toHaveBeenCalledWith("skipped");
-    expect(button("Skip and start").disabled).toBe(true);
+    expect(button("Skip this step").disabled).toBe(true);
     expect(button("Next").disabled).toBe(true);
     expect(stepButton("welcome").disabled).toBe(true);
     expect(stepButton("connect").disabled).toBe(true);
     await act(async () => save.reject(new Error("Could not save setup")));
     expect(container.textContent).toContain("Could not save setup");
-    expect(button("Skip and start").disabled).toBe(false);
+    expect(button("Skip this step").disabled).toBe(false);
     expect(button("Next").disabled).toBe(true);
     await act(async () => button("Retry").click());
-    expect(finish).toHaveBeenCalledTimes(2);
-    expect(finish).toHaveBeenLastCalledWith("skipped");
+    expect(change).toHaveBeenCalledTimes(2);
+    expect(change).toHaveBeenLastCalledWith("start");
     expect(container.textContent).not.toContain("Could not save setup");
   });
 
@@ -600,11 +585,11 @@ describe("first-run screens", () => {
     expect(finish).not.toHaveBeenCalled();
     await act(async () =>
       root.render(
-        <Onboarding step="media" onStepChange={vi.fn()} onFinish={finish} />,
+        <Onboarding step="start" onStepChange={vi.fn()} onFinish={finish} />,
       ),
     );
-    await act(async () => button("Start creating").click());
-    expect(finish).toHaveBeenCalledWith("completed");
+    await act(async () => button("Describe a gameTell the AI what to make on Home.").click());
+    expect(finish).toHaveBeenCalledWith("completed", "prompt");
   });
 
   it("makes the provider connected during setup supply its recommended default model", async () => {
@@ -670,7 +655,7 @@ describe("first-run screens", () => {
         .querySelector('button[aria-haspopup="listbox"]')
         ?.getAttribute("aria-label"),
     ).toBe("Default model: Claude Opus 4.8");
-    expect(container.textContent).not.toContain("Skip and start");
+    expect(container.textContent).not.toContain("Skip this step");
   });
 
   it("keeps setup busy while saving the connected provider's default across catalog refreshes", async () => {
@@ -906,7 +891,13 @@ describe("first-run screens", () => {
     expect(api.startModelProviderLogin).toHaveBeenCalledTimes(2);
     await act(async () => stepButton("connect").click());
     expect(api.cancelModelAuth).toHaveBeenCalledWith("operation");
-    await act(async () => button("Skip and start").click());
+    await act(async () => button("Skip this step").click());
+    await act(async () =>
+      root.render(
+        <Onboarding step="start" onStepChange={vi.fn()} onFinish={finish} />,
+      ),
+    );
+    await act(async () => button("Not now").click());
     expect(finish).toHaveBeenCalledWith("skipped");
   });
 
@@ -928,7 +919,13 @@ describe("first-run screens", () => {
       <Onboarding step="connect" onStepChange={vi.fn()} onFinish={finish} />,
     );
     expect(container.textContent).toContain("Catalog unavailable");
-    await act(async () => button("Skip and start").click());
+    await act(async () => button("Skip this step").click());
+    await act(async () =>
+      root.render(
+        <Onboarding step="start" onStepChange={vi.fn()} onFinish={finish} />,
+      ),
+    );
+    await act(async () => button("Not now").click());
     expect(finish).toHaveBeenCalledWith("skipped");
   });
 
@@ -1000,11 +997,11 @@ describe("first-run screens", () => {
     expect(finish).not.toHaveBeenCalled();
     await act(async () =>
       root.render(
-        <Onboarding step="media" onStepChange={vi.fn()} onFinish={finish} />,
+        <Onboarding step="start" onStepChange={vi.fn()} onFinish={finish} />,
       ),
     );
-    await act(async () => button("Start creating").click());
-    expect(finish).toHaveBeenCalledWith("completed");
+    await act(async () => button("Describe a gameTell the AI what to make on Home.").click());
+    expect(finish).toHaveBeenCalledWith("completed", "prompt");
   });
 
   it("keeps save failures recoverable and prevents leaving while saving", async () => {
@@ -1117,7 +1114,7 @@ describe("three-step setup with coding agents", () => {
     diagnostics: [],
   } satisfies import("../src/shared/agent-runtimes.js").AgentRuntimeStatus;
 
-  it("keeps media optional and finishes with a CLI alone", async () => {
+  it("finishes with a CLI alone and a chosen start", async () => {
     const finish = vi.fn();
     function Flow() {
       const [step, setStep] = useState<OnboardingStep>("welcome");
@@ -1165,13 +1162,13 @@ describe("three-step setup with coding agents", () => {
       nativeReasoningLevel: "low",
     });
     expect(container.querySelector("h1")?.textContent).toBe(
-      "Add creative tools.",
+      "Where do you want to start?",
     );
     expect(container.textContent).not.toContain("Native model");
     expect(container.querySelector(".onboarding-agents")).toBeNull();
     expect(finish).not.toHaveBeenCalled();
-    await act(async () => button("Start creating").click());
-    expect(finish).toHaveBeenCalledWith("completed");
+    await act(async () => button("Blank projectCreate an empty project and build it up.").click());
+    expect(finish).toHaveBeenCalledWith("completed", "blank");
   });
 
   it("saves native effort without sending the built-in reasoning enum", async () => {
@@ -1235,7 +1232,7 @@ describe("three-step setup with coding agents", () => {
       );
       expect(button("Next").disabled).toBe(false);
       await act(async () => button("Next").click());
-      expect(change).toHaveBeenCalledWith("media");
+      expect(change).toHaveBeenCalledWith("start");
       expect(api.updateAgentDefaults).toHaveBeenCalledWith({
         model: nativeModel,
         nativeReasoningLevel: "low",
@@ -1536,26 +1533,24 @@ describe("three-step setup with coding agents", () => {
     }
   });
 
-  it("allows starting without media setup or a conversation model", async () => {
+  it("offers where to start without a conversation model", async () => {
     const step = vi.fn(),
       finish = vi.fn();
     await act(async () =>
       root.render(
-        <Onboarding step="media" onStepChange={step} onFinish={finish} />,
+        <Onboarding step="start" onStepChange={step} onFinish={finish} />,
       ),
     );
-    expect(button("Start creating").disabled).toBe(false);
-    expect(container.querySelector("footer")?.textContent).toBe(
-      "Start creating",
-    );
-    expect(container.textContent).toContain("Settings → Providers.");
+    // Import folder needs the desktop app's folder picker.
+    expect([...container.querySelectorAll(".onboarding-start-choice strong")].map((item) => item.textContent)).toEqual(["Describe a game", "Blank project"]);
+    expect(container.querySelector("footer")?.textContent).toBe("Not now");
     expect(step).not.toHaveBeenCalled();
-    await act(async () => button("Start creating").click());
+    await act(async () => button("Not now").click());
     expect(finish).toHaveBeenCalledWith("skipped");
   });
 });
 
-describe("optional creative tools and built-in agent", () => {
+describe("built-in agent", () => {
   it("labels OhMyGame as default without pretending a model is connected", async () => {
     await showConnection(
       <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
@@ -1621,224 +1616,6 @@ describe("optional creative tools and built-in agent", () => {
     expect(modelLine.textContent).not.toContain("Native");
   });
 
-  it("filters creative providers by image, video, 3D and audio", async () => {
-    api.listProviders.mockResolvedValue([
-      {
-        ...provider,
-        id: "image-test",
-        name: "Image provider",
-        capabilities: ["image"],
-      },
-      {
-        ...provider,
-        id: "video-test",
-        name: "Video provider",
-        capabilities: ["video"],
-      },
-      { ...provider, id: "3d-test", name: "3D provider", capabilities: ["3d"] },
-      {
-        ...provider,
-        id: "audio-test",
-        name: "Audio provider",
-        capabilities: ["audio"],
-      },
-    ]);
-    await act(async () =>
-      root.render(
-        <Onboarding step="media" onStepChange={vi.fn()} onFinish={vi.fn()} />,
-      ),
-    );
-    expect(providerButton("Image provider", "Configure")).toBeDefined();
-    for (const [tab, name] of [
-      ["Video", "Video provider"],
-      ["3D", "3D provider"],
-      ["Audio", "Audio provider"],
-    ]) {
-      await act(async () => button(tab!).click());
-      expect(providerButton(name!, "Configure")).toBeDefined();
-      expect(
-        container.querySelector('[aria-label="Image provider"]'),
-      ).toBeNull();
-    }
-  });
-
-  it("keeps creative setup focused on connections without loading default-model catalogs", async () => {
-    api.listProviders.mockResolvedValue([
-      { ...provider, configured: true, capabilities: ["image"] },
-    ]);
-    await act(async () =>
-      root.render(
-        <Onboarding step="media" onStepChange={vi.fn()} onFinish={vi.fn()} />,
-      ),
-    );
-    expect(container.querySelector(".settings-generation-defaults")).toBeNull();
-    expect(
-      container.querySelector(
-        '[aria-label="OpenRouter"] [aria-label="Connected"]',
-      ),
-    ).not.toBeNull();
-    expect(providerButton("OpenRouter", "Configure").textContent).toBe("");
-    const modelLoads = api.listModels.mock.calls.length;
-    await act(async () => api.notifyAgentModelsChanged());
-    expect(api.listModels).toHaveBeenCalledTimes(modelLoads);
-    expect(api.listImageModelCatalog).not.toHaveBeenCalled();
-    expect(api.listVideoModelCatalog).not.toHaveBeenCalled();
-    expect(api.listModel3DCatalog).not.toHaveBeenCalled();
-    expect(button("Start creating").disabled).toBe(false);
-  });
-
-  it("lists all media providers without a More section", async () => {
-    api.listProviders.mockResolvedValue([
-      { ...provider, id: "openai", name: "OpenAI", capabilities: ["image"] },
-      {
-        ...provider,
-        id: "other-image",
-        name: "Other image provider",
-        capabilities: ["image"],
-      },
-    ]);
-    await act(async () =>
-      root.render(
-        <Onboarding step="media" onStepChange={vi.fn()} onFinish={vi.fn()} />,
-      ),
-    );
-    expect(providerButton("OpenAI", "Configure")).toBeDefined();
-    expect(providerButton("Other image provider", "Configure")).toBeDefined();
-    expect(container.textContent).not.toContain("More providers");
-  });
-
-  it("adds a custom provider inline on the media step without changing the chat model", async () => {
-    api.listProviders.mockResolvedValue([]);
-    api.saveCustomProvider.mockImplementation(async () => {
-      api.listProviders.mockResolvedValue([
-        {
-          ...provider,
-          id: customProvider.id,
-          name: customProvider.name,
-          custom: true,
-          configured: true,
-          capabilities: ["image"],
-        },
-      ]);
-      return customProvider;
-    });
-    await act(async () =>
-      root.render(
-        <Onboarding step="media" onStepChange={vi.fn()} onFinish={vi.fn()} />,
-      ),
-    );
-    await openCustomProvider();
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
-    expect(
-      container.querySelector('section[aria-label="Custom provider"]'),
-    ).not.toBeNull();
-    await fillCustomProvider();
-    await act(async () => button("Add provider").click());
-    expect(api.saveCustomProvider).toHaveBeenCalledOnce();
-    expect(providerButton(customProvider.name, "Configure")).toBeDefined();
-    expect(api.updateAgentDefaults).not.toHaveBeenCalled();
-    expect(button("Start creating").disabled).toBe(false);
-  });
-
-  it("keeps setup busy while a custom media provider is being saved", async () => {
-    const save = deferred<CustomProviderDetails>();
-    api.saveCustomProvider.mockReturnValue(save.promise);
-    await act(async () =>
-      root.render(
-        <Onboarding step="media" onStepChange={vi.fn()} onFinish={vi.fn()} />,
-      ),
-    );
-    await openCustomProvider();
-    await fillCustomProvider();
-    await act(async () => button("Add provider").click());
-    expect(button("Start creating").disabled).toBe(true);
-    expect(stepButton("connect").disabled).toBe(true);
-    await act(async () => save.resolve(customProvider));
-    expect(button("Start creating").disabled).toBe(false);
-  });
-
-  it("uses the shared authorization form and does not change the conversation model", async () => {
-    const mediaProvider = { ...provider, capabilities: ["image"] };
-    api.listProviders.mockResolvedValue([mediaProvider]);
-    await act(async () =>
-      root.render(
-        <Onboarding step="media" onStepChange={vi.fn()} onFinish={vi.fn()} />,
-      ),
-    );
-    await act(async () => providerButton("OpenRouter", "Configure").click());
-    expect(api.startModelProviderLogin).toHaveBeenCalledWith(
-      "openrouter",
-      "api_key",
-    );
-    await act(async () => streams[0]!.onEvent(secretPrompt("image-key")));
-    expect(container.querySelector('input[type="password"]')).not.toBeNull();
-    expect(button("Start creating").disabled).toBe(false);
-    api.listProviders.mockResolvedValue([
-      { ...mediaProvider, configured: true, status: "connected" },
-    ]);
-    await event({ type: "completed" });
-    expect(
-      container.querySelector(
-        '[aria-label="OpenRouter"] [aria-label="Connected"]',
-      ),
-    ).not.toBeNull();
-    expect(api.updateAgentDefaults).not.toHaveBeenCalled();
-    expect(api.listImageModelCatalog).not.toHaveBeenCalled();
-    expect(api.listVideoModelCatalog).not.toHaveBeenCalled();
-    expect(api.listModel3DCatalog).not.toHaveBeenCalled();
-  });
-
-  it("keeps media setup skippable after a provider-loading failure", async () => {
-    const finish = vi.fn();
-    api.listModels.mockResolvedValue({
-      ...catalog,
-      models: [
-        {
-          provider: "codex-cli",
-          providerName: "Codex",
-          id: "native",
-          name: "Native",
-          reasoningLevels: [],
-        },
-      ],
-    });
-    api.listProviders.mockRejectedValue(
-      new Error("Media providers unavailable"),
-    );
-    await act(async () =>
-      root.render(
-        <Onboarding step="media" onStepChange={vi.fn()} onFinish={finish} />,
-      ),
-    );
-    expect(container.textContent).toContain("Media providers unavailable");
-    expect(button("Start creating").disabled).toBe(false);
-    await act(async () => button("Start creating").click());
-    expect(finish).toHaveBeenCalledWith("completed");
-    expect(api.updateAgentDefaults).not.toHaveBeenCalled();
-  });
-
-  it("does not mark an OpenAI chat-only connection as image-ready", async () => {
-    api.listProviders.mockResolvedValue([
-      {
-        ...provider,
-        id: "openai",
-        name: "OpenAI",
-        configured: true,
-        languageConfigured: true,
-        imageConfigured: false,
-        capabilities: ["image", "language"],
-      },
-    ]);
-    await act(async () =>
-      root.render(
-        <Onboarding step="media" onStepChange={vi.fn()} onFinish={vi.fn()} />,
-      ),
-    );
-    expect(
-      container.querySelector('[aria-label="OpenAI"]')?.textContent,
-    ).not.toContain("Connected");
-    expect(api.listImageModelCatalog).not.toHaveBeenCalled();
-  });
 });
 
 describe("onboarding interactions", () => {
@@ -2018,13 +1795,13 @@ it("shows the arrival only after saving setup and reveals the interactive studio
   api.getOnboardingState.mockResolvedValue({
     version: 1,
     status: "pending",
-    step: "media",
+    step: "start",
   });
   api.updateOnboardingState.mockRejectedValueOnce(
     new Error("Setup save failed"),
   );
   await act(async () => root.render(<App />));
-  await act(async () => button("Start creating").click());
+  await act(async () => button("Not now").click());
   expect(container.textContent).toContain("Setup save failed");
   expect(container.querySelector(".onboarding-arrival")).toBeNull();
   vi.useFakeTimers();
