@@ -315,8 +315,14 @@ function OptionList<T extends string>({
   active: number;
   setActive: (index: number) => void;
 }) {
-  // Keep the highlighted option visible inside the scrolling popover.
+  // Keep the highlighted option visible inside the scrolling popover, unless
+  // the pointer chose it: scrolling under the pointer would make the list jump.
+  const hovered = useRef(false);
   useEffect(() => {
+    if (hovered.current) {
+      hovered.current = false;
+      return;
+    }
     const item = document.getElementById(`${id}-${active}`);
     const scroller = item?.closest<HTMLElement>(".ui-popover");
     if (!item || !scroller) return;
@@ -339,7 +345,11 @@ function OptionList<T extends string>({
           aria-selected={option.value === value}
           disabled={option.disabled}
           className={`ui-option${index === active ? " is-active" : ""}`}
-          onPointerEnter={() => setActive(index)}
+          onPointerEnter={() => {
+            if (index === active) return;
+            hovered.current = true;
+            setActive(index);
+          }}
           onClick={() => onPick(option.value)}
         >
           {option.icon ? (

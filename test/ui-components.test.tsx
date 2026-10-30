@@ -279,9 +279,16 @@ it("scrolls the option the keyboard is on into view", async () => {
   await key(select, "ArrowDown");
   const popover = document.querySelector<HTMLElement>(".ui-popover")!;
   expect(popover.scrollTop).toBe(80);
-  await key(select, "ArrowUp");
-  await key(select, "ArrowUp");
-  expect(popover.scrollTop).toBe(0);
+  // Hovering a clipped option leaves the list where it is.
+  const small = document.querySelector<HTMLElement>('[role="option"]')!;
+  await act(async () =>
+    small.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })),
+  );
+  expect(small.classList.contains("is-active")).toBe(true);
+  expect(popover.scrollTop).toBe(80);
+  // The keyboard scrolls again: Medium is 20px above the top.
+  await key(select, "ArrowDown");
+  expect(popover.scrollTop).toBe(60);
 });
 
 it("points a combobox at no list when nothing matches", async () => {
