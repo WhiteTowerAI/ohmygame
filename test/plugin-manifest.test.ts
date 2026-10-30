@@ -750,7 +750,6 @@ describe("plugin releases", () => {
     };
     const sign = (value: typeof release) => ({ ...value, signature: sign_(null, releaseMessage(value), privateKey).toString("base64") });
     const services = new PluginServices({ directory: path.join(dir, "store") });
-    cleanup.push(dir);
     const downloads: string[] = [];
     const download = async (url: string, file: string) => {
       downloads.push(url);
