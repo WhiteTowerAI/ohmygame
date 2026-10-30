@@ -484,14 +484,17 @@ Inside a project the sidebar becomes a rail: the logo (Home), the recent
 projects as covers, **New project** (Home), Search, the desktop update and the
 account. The open project is marked; hovering a project lists its
 conversations, newest first, and the open project's list ends with **New
-conversation**. On macOS the rail's Back and Forward sit beside the window
-controls. The top bar holds the project's name as its menu (**Rename
+conversation**. The rail's Back and Forward lead the top bar: beside the
+window controls on macOS, at the window's edge on Linux and in a browser. On
+Windows the app draws the title bar itself (`desktop-window-frame.tsx`): the
+window's menus, then Back and Forward, with the system's window controls at
+its right end, in the app's colours. The top bar holds the project's name as its menu (**Rename
 project…**, **Open in folder** in the desktop app, **Export project**, and a
 return to the entry page) and the **Publish** menu, which an asset canvas does
 not have and Godot and plugin projects show disabled. It publishes to the
 OhMyGame community or exports the web build: the publish artifact as a ZIP
-without the upload size limit, to host elsewhere. Leaving through the rail or
-the menu, and either export, saves the open design first.
+without the upload size limit, to host elsewhere. Leaving through the rail, the
+menu or the title bar, and either export, saves the open design first.
 
 The return item goes back to the page the project was opened from. The
 destination survives conversation/view changes and refreshes in the same tab; a

@@ -82,7 +82,8 @@ function isModalDialog(dialog: Element): boolean {
   }
 }
 
-function leave(go: () => void): void {
+/** Leaves the page in view through its guard, as the menu and the title bar do. */
+export function leave(go: () => void): void {
   if (leaveGuard) leaveGuard(go);
   else go();
 }
