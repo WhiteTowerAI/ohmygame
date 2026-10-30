@@ -558,6 +558,7 @@ const zhCN: typeof en = {
     officialVersions: "官方模型版本",
     search: "搜索模型",
     hideAll: "全部隐藏",
+    showAll: "全部显示",
     providerModels: "服务商模型",
     shownProviderModels: "已显示的服务商模型",
     creditsPerGeneration: "每次生成 {{credits}} 积分",

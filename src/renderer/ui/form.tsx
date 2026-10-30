@@ -381,6 +381,7 @@ export function Select<T extends string>({
   placeholder = t("ui.selectPlaceholder"),
   size = "md",
   id,
+  disabled = false,
 }: {
   value?: T;
   options: readonly SelectOption<T>[];
@@ -389,6 +390,7 @@ export function Select<T extends string>({
   placeholder?: string;
   size?: "sm" | "md";
   id?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
@@ -410,6 +412,7 @@ export function Select<T extends string>({
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={open}
+        disabled={disabled}
         onClick={() => setOpen((state) => !state)}
         onKeyDown={(event) => {
           if (!open && (event.key === "ArrowDown" || event.key === "Enter")) {

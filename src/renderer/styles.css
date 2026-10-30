@@ -462,8 +462,8 @@ body {
   bottom: 3px;
   left: 0;
   border-radius: var(--segmented-indicator-radius, 4px);
-  background: var(--surface-raised);
-  box-shadow: var(--segmented-indicator-shadow, 0 1px 2px rgb(0 0 0 / 7%));
+  background: var(--color-segment);
+  box-shadow: var(--segmented-indicator-shadow, var(--shadow-segment));
   pointer-events: none;
   transition: transform var(--segmented-control-motion), width var(--segmented-control-motion);
 }
@@ -1247,7 +1247,7 @@ select.settings-search-input {
 }
 
 .provider-models-list-actions {
-  gap: 12px;
+  gap: var(--space-1);
   color: var(--text-faint);
   font-size: 11px;
 }
@@ -1260,24 +1260,6 @@ select.settings-search-input {
   margin: 0 3px;
   font-style: normal;
   opacity: 0.6;
-}
-
-.provider-models-list-actions button {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  cursor: pointer;
-}
-
-.provider-models-list-actions button:hover:not(:disabled) {
-  color: var(--text);
-}
-
-.provider-models-list-actions button:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 .provider-models-list {
@@ -9902,14 +9884,19 @@ summary.work-summary:hover {
   box-shadow: 0 2px 10px rgb(0 0 0 / 4%);
 }
 
+/* The status line takes the room under the prompt box; nothing more goes below it. */
+.composer:has(> .composer-status) {
+  padding-bottom: 6px;
+}
+
 .composer-status {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-4);
   min-width: 0;
-  height: 26px;
-  margin-top: 2px;
+  height: 22px;
+  margin-top: 4px;
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;

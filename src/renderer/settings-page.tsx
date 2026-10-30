@@ -22,7 +22,7 @@ import { readLanguagePreference, setLanguagePreference, t, type LanguagePreferen
 import { ChangelogPanel } from "./changelog-panel.js";
 import { exportDiagnostics, getProjectLocation, setProjectLocation } from "./api.js";
 import { readGeneralPreferences, setGeneralPreference, type GeneralPreferences } from "./general-preferences.js";
-import { Badge, Button, Progress, SegmentedControl, Select, Spinner, Switch } from "./ui/index.js";
+import { Badge, Button, Progress, SegmentedControl, Select, Spinner, Switch, Tooltip } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import "./settings.css";
 
@@ -366,8 +366,11 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
           </div>
           <nav className="settings-about-links" aria-label={t("settings.about.projectLinks")}>
             {PROJECT_LINKS.map((link) => (
-              <a key={link.href} className="ui-icon-button ui-icon-button-md" href={link.href} target="_blank" rel="noreferrer"
-                aria-label={link.title()} data-tooltip={link.title()}>{link.icon}</a>
+              // The card clips what overflows it, so the tooltip floats above the page.
+              <Tooltip key={link.href} content={link.title()} placement="bottom">
+                <a className="ui-icon-button ui-icon-button-md" href={link.href} target="_blank" rel="noreferrer"
+                  aria-label={link.title()}>{link.icon}</a>
+              </Tooltip>
             ))}
           </nav>
           {updates ? <UpdateControl status={status} onRetry={retry} /> : null}
