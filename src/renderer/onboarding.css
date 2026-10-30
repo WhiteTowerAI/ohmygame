@@ -7,8 +7,8 @@
   min-height: 0;
   padding: 28px 32px;
   overflow-y: auto;
-  background: var(--canvas);
-  color: var(--text);
+  background: var(--color-app);
+  color: var(--color-text);
 }
 
 :root[data-appearance="light"] .onboarding {
@@ -47,15 +47,15 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   min-height: 32px;
   padding: 6px 10px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
   font-size: 12px;
   font-weight: 400;
 }
 .onboarding-text-button:hover:not(:disabled) {
-  background: var(--menu-hover);
-  color: var(--text);
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 .onboarding-content {
   display: flex;
@@ -94,7 +94,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding-lede {
   max-width: 400px;
   margin: 14px 0 0;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-size: 14px;
   line-height: 1.5;
   text-wrap: balance;
@@ -106,8 +106,8 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   pointer-events: none;
   animation: onboarding-demo-position var(--onboarding-intro-duration) ease both;
   --demo-duration: var(--onboarding-intro-duration, 5.2s);
-  --demo-ground: color-mix(in srgb, #82937a 44%, var(--canvas));
-  --demo-tree: color-mix(in srgb, var(--text) 22%, var(--demo-ground));
+  --demo-ground: color-mix(in srgb, #82937a 44%, var(--color-app));
+  --demo-tree: color-mix(in srgb, var(--color-text) 22%, var(--demo-ground));
 }
 .onboarding-demo > svg {
   position: absolute;
@@ -130,36 +130,36 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   animation: onboarding-demo-gather var(--demo-duration) ease both;
 }
 .onboarding-demo-play .onboarding-demo-morph {
-  fill: var(--text);
+  fill: var(--color-text);
   animation: onboarding-demo-morph var(--demo-duration) ease both;
 }
 .onboarding-demo-logo-details {
-  fill: var(--canvas);
+  fill: var(--color-app);
   animation: onboarding-demo-logo-details var(--demo-duration) ease both;
 }
 .onboarding-demo-wordmark {
-  fill: var(--text);
+  fill: var(--color-text);
   font-size: 24px;
   font-weight: 500;
   animation: onboarding-demo-wordmark var(--demo-duration) ease both;
 }
 .onboarding-demo-shadow {
-  fill: var(--text);
+  fill: var(--color-text);
   opacity: 0.035;
 }
 .onboarding-demo-earth {
-  fill: color-mix(in srgb, #8c8173 40%, var(--canvas));
+  fill: color-mix(in srgb, #8c8173 40%, var(--color-app));
 }
 .onboarding-demo-terrain {
   transform-origin: 164px 70px;
   animation: onboarding-demo-terrain var(--demo-duration) ease both;
 }
 .onboarding-demo-hill {
-  fill: color-mix(in srgb, #a4b294 48%, var(--canvas));
+  fill: color-mix(in srgb, #a4b294 48%, var(--color-app));
 }
 .onboarding-demo-path {
   fill: none;
-  stroke: color-mix(in srgb, #e0d6bc 70%, var(--canvas));
+  stroke: color-mix(in srgb, #e0d6bc 70%, var(--color-app));
   stroke-width: 13;
   stroke-linecap: round;
   stroke-dasharray: 180;
@@ -174,7 +174,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   fill: var(--demo-tree);
 }
 .onboarding-demo-tree-top {
-  fill: color-mix(in srgb, var(--demo-tree) 85%, var(--canvas));
+  fill: color-mix(in srgb, var(--demo-tree) 85%, var(--color-app));
 }
 .onboarding-demo-tree-piece {
   transform-box: fill-box;
@@ -182,7 +182,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   animation: onboarding-demo-grow 0.65s var(--tree-delay) ease both;
 }
 .onboarding-demo-stones {
-  fill: color-mix(in srgb, var(--text-secondary) 40%, var(--canvas));
+  fill: color-mix(in srgb, var(--color-text-secondary) 40%, var(--color-app));
   transform-origin: 140px 86px;
   animation: onboarding-demo-stones var(--demo-duration) ease both;
 }
@@ -246,7 +246,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   74%,
   100% {
     d: var(--demo-logo-outline);
-    fill: var(--text);
+    fill: var(--color-text);
   }
 }
 @keyframes onboarding-demo-logo-details {
@@ -390,7 +390,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   object-fit: contain;
 }
 .onboarding .settings-toggle input:focus-visible + span {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 3px;
 }
 .onboarding-ready,
@@ -400,18 +400,18 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   justify-content: center;
   gap: 7px;
   margin: 16px 0 0;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-size: 12px;
 }
 .onboarding-ready strong {
-  color: var(--text);
+  color: var(--color-text);
   font-weight: inherit;
 }
 .onboarding-ready-provider {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
   white-space: nowrap;
 }
 .onboarding-ready-provider .settings-provider-mark {
@@ -427,13 +427,13 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   height: 28px;
   padding: 4px 6px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text);
+  color: var(--color-text);
   font: inherit;
 }
 .onboarding-model-select .canvas-chip:hover:not(:disabled) {
-  background: var(--menu-hover);
+  background: var(--color-hover);
 }
 .onboarding-feedback {
   max-width: 440px;
@@ -441,7 +441,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 }
 .onboarding-error {
   margin: 0;
-  color: var(--danger);
+  color: var(--color-danger);
   font-size: 13px;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -481,7 +481,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 }
 .onboarding-section-heading,
 .onboarding-provider-heading {
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
   font-size: 12px;
 }
 .onboarding-section-heading {
@@ -519,13 +519,13 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   min-width: 0;
   padding: 12px 6px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text);
+  color: var(--color-text);
   font-size: 13px;
 }
 .onboarding-agent-option:hover:not(:disabled) {
-  background: var(--menu-hover);
+  background: var(--color-hover);
 }
 .onboarding-agent-title {
   position: relative;
@@ -548,12 +548,12 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 }
 .onboarding-agent-option small {
   min-height: 14px;
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
   font-size: 11px;
   line-height: 14px;
 }
 .onboarding-agent-ready {
-  color: var(--success);
+  color: var(--color-success);
 }
 .onboarding-agent-config {
   display: flex;
@@ -594,7 +594,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 }
 .onboarding-agent-hint {
   margin: 0;
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -615,11 +615,11 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 }
 .onboarding-connected {
   align-self: center;
-  color: var(--success);
+  color: var(--color-success);
 }
 .onboarding-agent-login {
   margin-top: 8px;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -659,8 +659,8 @@ section.onboarding-media {
   flex: 1;
 }
 .onboarding-media-filters [aria-pressed="true"] {
-  background: var(--settings-row-surface-emphasis);
-  color: var(--text);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
 }
 section.onboarding-media .onboarding-provider-list {
   flex: 1 1 auto;
@@ -715,7 +715,7 @@ section.onboarding-media .onboarding-provider-list {
   height: 24px;
   padding: 0;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   background: transparent;
 }
 .onboarding-progress > button::after {
@@ -723,24 +723,24 @@ section.onboarding-media .onboarding-provider-list {
   width: 100%;
   height: 3px;
   border-radius: 2px;
-  background: var(--border);
+  background: var(--color-border);
 }
 .onboarding-progress > .is-current::after,
 .onboarding-progress > button:hover:not(:disabled)::after {
-  background: var(--text-secondary);
+  background: var(--color-text-secondary);
 }
 .onboarding-primary-button {
   min-height: 36px;
   padding: 8px 18px;
   border: 0;
-  border-radius: var(--radius);
-  background: var(--settings-row-surface-emphasis);
-  color: var(--text);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
   font-size: 13px;
   font-weight: 500;
 }
 .onboarding-primary-button:hover:not(:disabled) {
-  background: var(--menu-hover);
+  background: var(--color-hover);
 }
 .onboarding-primary-button:disabled {
   opacity: 0.55;
@@ -760,22 +760,22 @@ section.onboarding-media .onboarding-provider-list {
 .onboarding-auth .settings-search-input {
   padding-inline: 4px;
   border: 0;
-  border-bottom: 1px solid var(--search-border);
+  border-bottom: 1px solid var(--color-border);
   border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
 .onboarding-auth .settings-primary-button {
-  background: var(--settings-row-surface-emphasis);
-  color: var(--text);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
 }
 .onboarding-auth .settings-secondary-button {
   background: transparent;
 }
 .onboarding-auth .settings-primary-button:hover:not(:disabled),
 .onboarding-auth .settings-secondary-button:hover:not(:disabled) {
-  background: var(--menu-hover);
-  color: var(--text);
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 .onboarding-picker {
   width: min(100%, 400px);
@@ -785,7 +785,7 @@ section.onboarding-media .onboarding-provider-list {
   display: flex;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid var(--search-border);
+  border-bottom: 1px solid var(--color-border);
 }
 .onboarding-add-provider {
   width: 32px;
@@ -800,7 +800,7 @@ section.onboarding-media .onboarding-provider-list {
   flex: 1;
   min-width: 0;
   padding: 8px 4px;
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
 }
 .onboarding-search input {
   width: 100%;
@@ -808,7 +808,7 @@ section.onboarding-media .onboarding-provider-list {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--color-text);
   font: inherit;
   font-size: 13px;
 }
@@ -845,11 +845,11 @@ section.onboarding-media .onboarding-provider-list {
   width: 100%;
   min-height: 36px;
   padding-left: 4px;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-size: 12px;
 }
 .onboarding-more-providers small {
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
   font-size: inherit;
 }
 .onboarding-custom .onboarding-content {
@@ -882,7 +882,7 @@ section.onboarding-media .onboarding-provider-list {
   :is(input:not([type="checkbox"]), select, textarea) {
   padding-inline: 4px;
   border: 0;
-  border-bottom: 1px solid var(--search-border);
+  border-bottom: 1px solid var(--color-border);
   border-radius: 0;
   background: transparent;
   box-shadow: none;
@@ -914,15 +914,15 @@ section.onboarding-media .onboarding-provider-list {
 }
 .onboarding .custom-provider-form footer button {
   background: transparent;
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
 }
 .onboarding .custom-provider-form footer .project-settings-submit {
-  background: var(--settings-row-surface-emphasis);
-  color: var(--text);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
 }
 .onboarding .custom-provider-form footer button:hover:not(:disabled) {
-  background: var(--menu-hover);
-  color: var(--text);
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 .onboarding-loading {
   justify-content: center;
@@ -951,8 +951,8 @@ section.onboarding-media .onboarding-provider-list {
   z-index: 1000;
   display: grid;
   place-items: center;
-  background: var(--canvas);
-  color: var(--text);
+  background: var(--color-app);
+  color: var(--color-text);
   animation: onboarding-arrival-exit var(--arrival-duration) ease both;
 }
 .onboarding-arrival > .window-drag-region {
