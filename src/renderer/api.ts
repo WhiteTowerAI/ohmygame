@@ -1385,6 +1385,8 @@ export class ApiError extends Error {
     readonly conflicts?: string[],
     /** Those paths cannot be put back, whatever the request says to do with them. */
     readonly blocked?: boolean,
+    /** The plugin panel, `publisher/name:panel`, that can resolve the refusal. */
+    readonly panel?: string,
   ) {
     super(message);
   }
@@ -1411,9 +1413,9 @@ export async function request<T>(path: string, init: WorkspaceRequestInit = {}):
 }
 
 async function responseError(response: Response): Promise<ApiError> {
-  const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; conflicts?: unknown; blocked?: unknown };
+  const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; conflicts?: unknown; blocked?: unknown; panel?: unknown };
   const conflicts = Array.isArray(body.conflicts) && body.conflicts.every((path) => typeof path === "string") ? body.conflicts as string[] : undefined;
-  return new ApiError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status }), response.status, body.code, conflicts, body.blocked === true || undefined);
+  return new ApiError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status }), response.status, body.code, conflicts, body.blocked === true || undefined, typeof body.panel === "string" ? body.panel : undefined);
 }
 
 async function streamProjectEvents(

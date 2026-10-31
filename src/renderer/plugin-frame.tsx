@@ -85,6 +85,12 @@ export async function handlePluginUiRequest(
   }
 }
 
+/** A `plugin.command.progress` update; a new object for each one. */
+export interface CommandProgress {
+  command: string;
+  message: string;
+}
+
 /** Connects a loaded frame; returns how to send it events and how to disconnect. */
 export function connectPluginFrame(
   frame: Window,
@@ -131,11 +137,14 @@ export function PluginFrame({
   title,
   context,
   visible = true,
+  progress,
 }: {
   url: string;
   title: string;
   context: PluginPageContext;
   visible?: boolean;
+  /** The latest progress of a plugin command; the page hears its own plugin's. */
+  progress?: CommandProgress;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [mount, setMount] = useState(0);
@@ -190,6 +199,12 @@ export function PluginFrame({
   useEffect(() => {
     connection.current?.send({ event: "visibility", visible });
   }, [visible]);
+
+  useEffect(() => {
+    const prefix = `${latest.current.plugin.id}:`;
+    if (progress?.command.startsWith(prefix))
+      connection.current?.send({ event: "progress", command: progress.command.slice(prefix.length), message: progress.message });
+  }, [progress]);
 
   return (
     <iframe

@@ -1392,13 +1392,15 @@ export function createApp(options: AppOptions = {}) {
       const { entry, command } = found;
       // Prompts, links, panels and settings run in the app; these run plugin code.
       if (!("native" in command.run) && !("tool" in command.run)) return reply.code(400).send({ error: "This command runs in the app" });
-      const { result, change } = await pluginWrites.run(project, { plugin: entry.id, action: `command:${command.id}`, title: localizePluginString(entry, command.title, "en") }, () =>
-        pluginServices.runCommand(entry, command, {
-          folder: project.workspacePath,
-          input: request.body.input,
-          // A link the person needs, such as a sign-in page, reaches the app while the command runs.
-          onProgress: (message, url) => url && events.publish(project.id, "plugin.command.progress", { command: request.body.command, message, url }),
-        }));
+      const run = () => pluginServices.runCommand(entry, command, {
+        folder: project.workspacePath,
+        input: request.body.input,
+        // Progress reaches the plugin's page; a link the person needs, such as a sign-in page, reaches the app too.
+        onProgress: (message, url) => events.publish(project.id, "plugin.command.progress", { command: request.body.command, message, ...(url ? { url } : {}) }),
+      });
+      // A command that never changes files, such as a status check, also runs during a turn and keeps no Undo.
+      if ("native" in command.run && command.run.changesFiles === false) return { result: (await run()) ?? null };
+      const { result, change } = await pluginWrites.run(project, { plugin: entry.id, action: `command:${command.id}`, title: localizePluginString(entry, command.title, "en") }, run);
       return { result: result ?? null, ...(change ? { change } : {}) };
     } catch (cause) {
       return pluginChangeReply(reply, cause);
@@ -3310,6 +3312,11 @@ export function createApp(options: AppOptions = {}) {
         if (cause instanceof LocalPluginError) return reply.code(cause.statusCode).send({ error: cause.message });
         throw cause;
       }
+      // A plugin type can hold prompts back until its project is set up, such as signed in and bound.
+      if (project.pluginType) {
+        const ready = await pluginServices.projectReady(project.workspacePath, project.pluginType.id);
+        if (!ready.ready) return reply.code(409).send({ error: ready.message ?? "Finish setting up this project in its panel first", code: "project-not-ready", panel: ready.panel });
+      }
       let references;
       try {
         references = await Promise.all((request.body.references ?? []).map(async (reference) => ({
@@ -3652,7 +3659,7 @@ export function createApp(options: AppOptions = {}) {
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
-      if (project.integration) return reply.code(409).send({ error: "This project uses plugin publishing. Follow its plugin's publishing workflow." });
+      if (project.pluginType?.preview === "native") return reply.code(409).send({ error: "This project runs outside OhMyGame. Follow its plugin's publishing workflow." });
       if (!localPublisher && request.body.accessToken === LOCAL_DEBUG_ACCESS_TOKEN) {
         return reply.code(401).send({ error: "Local debug sign-in is unavailable outside local development" });
       }

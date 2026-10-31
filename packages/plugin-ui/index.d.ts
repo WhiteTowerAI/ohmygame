@@ -13,6 +13,8 @@ export interface PluginUiHost {
   request<T = unknown>(method: PluginUiMethod, params?: Record<string, unknown>): Promise<T>;
   on(event: "theme", listener: (theme: { tokens: Record<string, string>; appearance: "dark" | "light" }) => void): () => void;
   on(event: "visibility", listener: (value: { visible: boolean }) => void): () => void;
+  /** How one of the plugin's commands, by its manifest id, is going while it runs. */
+  on(event: "progress", listener: (value: { command: string; message: string }) => void): () => void;
 }
 
 export function connect(): Promise<PluginUiHost>;

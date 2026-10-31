@@ -11,7 +11,7 @@ import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, mcpServerSyntaxIssue, PLUGIN_DATA_ENV } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
-import { PROJECT_FILE_NAME } from "../shared/project-file.js";
+import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import {
   ExtensionHosts,
   type ExtensionHostOptions,
@@ -66,6 +66,9 @@ export class PluginToolSchemaError extends Error {
 }
 
 /** A command was asked to run in a way it can't. */
+/** How long a project type's `ready` command may take before the prompt goes ahead. */
+const READY_TIMEOUT_MS = 20_000;
+
 export class PluginCommandInputError extends Error {
   readonly statusCode = 400;
 }
@@ -361,6 +364,42 @@ export class PluginServices {
       (item) => item.id === id.slice(at + 1),
     );
     return command ? { entry: plugin.entry, command } : undefined;
+  }
+
+  /**
+   * Whether a project of a plugin type may take a prompt, from the type's
+   * `ready` command. Only an answer of `{ ready: false }` holds a prompt back:
+   * a plugin that is off, missing or failing never locks the project.
+   */
+  async projectReady(
+    folder: string,
+    type: string,
+  ): Promise<{ ready: true } | { ready: false; message?: string; panel: string }> {
+    const owner = projectTypePlugin(type);
+    if (!owner) return { ready: true };
+    await this.ready();
+    const resolved = await resolveProjectPlugins({ folder, index: this.index, grants: this.grants }).catch(() => undefined);
+    const plugin = resolved?.ok ? resolved.plugins.find((item) => item.id === owner) : undefined;
+    const entry = plugin?.status === "active" ? plugin.entry : undefined;
+    const check = entry?.manifest.contributes?.projectTypes?.find((item) => `${owner}:${item.id}` === type)?.ready;
+    if (!entry || !check) return { ready: true };
+    let answer: unknown;
+    try {
+      answer = await this.native.runCommand(`${owner}:${check.command}`, {
+        folder,
+        version: entry.version,
+        timeoutMs: READY_TIMEOUT_MS,
+      });
+    } catch {
+      return { ready: true };
+    }
+    if (!answer || typeof answer !== "object" || (answer as { ready?: unknown }).ready !== false) return { ready: true };
+    const message = (answer as { message?: unknown }).message;
+    return {
+      ready: false,
+      ...(typeof message === "string" && message.trim() ? { message: message.slice(0, 500) } : {}),
+      panel: `${owner}:${check.panel}`,
+    };
   }
 
   /** Sets some of a plugin's configuration; the next call to its native code sees them. */

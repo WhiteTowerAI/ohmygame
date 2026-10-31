@@ -168,6 +168,19 @@ const ProjectType = Type.Object(
     ),
     preview: Literals(["web", "web-build", "native"]),
     playtest: Type.Optional(Literals(["web"])),
+    ready: Type.Optional(
+      Type.Object(
+        {
+          command: Slug,
+          panel: Slug,
+        },
+        {
+          additionalProperties: false,
+          description:
+            "Before a prompt is sent in a project of this type, the app runs this native command (no input), which returns { ready, message? }; when not ready, the prompt waits and the panel opens",
+        },
+      ),
+    ),
     panels: Type.Optional(
       Type.Array(Type.String({ minLength: 1, maxLength: 100 }), {
         minItems: 1,
@@ -216,6 +229,12 @@ const CommandRun = Type.Union([
       native: CamelId,
       input: Type.Optional(RelativePath("\\.json")),
       timeoutSeconds: Type.Optional(TimeoutSeconds),
+      changesFiles: Type.Optional(
+        Type.Boolean({
+          description:
+            "false when the command never changes project files, such as a status check: it then runs during a turn and keeps no Undo",
+        }),
+      ),
     },
     { additionalProperties: false },
   ),
@@ -540,6 +559,15 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   const slashes = new Set<string>();
   const panels = new Set(contributes.panels?.map((panel) => panel.id));
   const commands = new Set(contributes.commands?.map((command) => command.id));
+  contributes.projectTypes?.forEach((type, index) => {
+    if (!type.ready) return;
+    const path = `/contributes/projectTypes/${index}/ready`;
+    const run = contributes.commands?.find((command) => command.id === type.ready!.command)?.run;
+    if (!run || !("native" in run) || run.input)
+      issue(`${path}/command`, `must name a native command without input`);
+    if (!panels.has(type.ready.panel))
+      issue(`${path}/panel`, `no panel named ${type.ready.panel}`);
+  });
   contributes.commands?.forEach((command, index) => {
     const path = `/contributes/commands/${index}`;
     const run = command.run;
