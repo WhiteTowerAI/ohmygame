@@ -3308,7 +3308,7 @@ const zhCN: typeof en = {
     installRuntime: "安装 Runtime", start: "启动预览", restart: "刷新预览", stop: "停止", logs: "获取日志",
     account: "本地环境与账号", needsSetup: "需要先准备本地环境", needsAuth: "需要连接账号", unchecked: "尚未检查",
     logsTitle: "运行日志", logsHint: "获取日志后，这里会显示 Runtime 的最新输出。", noLogs: "暂无日志输出。",
-    previewStatus: { missing: "尚未安装 Runtime", stopped: "预览已停止", running: "预览运行中", error: "请先检查预览状态再重试" },
+    previewStatus: { missing: "尚未安装 Runtime", stopped: "预览已停止", running: "预览运行中", error: "预览失败。解决下方问题后可重新启动。" },
   },
   textComposer: {
     label: "文本生成指令",
