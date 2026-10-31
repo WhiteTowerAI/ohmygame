@@ -305,7 +305,12 @@ describe("format 2 plugins in the project shell", () => {
       if (route.startsWith("/projects/project/plugin-panels")) return Response.json([
         { id: "preview", plugin: "acme/maker", version: "1.0.0", title: "Maker preview", area: "right", capabilities: {}, commands: ["upload"], url: "about:blank" },
         { id: "hidden", plugin: "acme/maker", version: "1.0.0", title: "Hidden", area: "right", when: "project.type == 'web-game'", capabilities: {}, commands: [], url: "about:blank" },
+        // Shown because a plugin without panels or commands is active here.
+        { id: "tools", plugin: "acme/maker", version: "1.0.0", title: "Tool log", area: "bottom", when: "project.plugin('acme/tools')", capabilities: {}, commands: [], url: "about:blank" },
       ]);
+      if (route.startsWith("/projects/project/plugins")) return Response.json({ global: [], plugins: [
+        { id: "acme/tools", displayName: "Tools", description: "", version: "1.0.0", used: "1.0.0", status: "active", providesType: false, capabilities: [], consented: true },
+      ] });
       if (route.startsWith("/projects/project/plugin-commands") && init.method === "POST") return Response.json({ result: null, change: { id: "change-1", changed: ["build/index.html"] } });
       if (route.startsWith("/projects/project/plugin-commands")) return Response.json([
         { id: "acme/maker:upload", plugin: "acme/maker", title: "Upload build", slots: [{ slot: "project.menu" }], run: { native: "upload" } },
@@ -316,6 +321,7 @@ describe("format 2 plugins in the project shell", () => {
     const tabs = (area: string) => [...container.querySelectorAll(`.dock-area-${area} .dock-tab-label`)].map((tab) => tab.textContent);
     // A panel whose `when` doesn't hold here stays out.
     expect(tabs("right")).toEqual(["Maker preview"]);
+    expect(tabs("bottom")).toEqual(["Tool log"]);
     const frame = container.querySelector<HTMLIFrameElement>(".dock-area-right iframe.plugin-frame")!;
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
 
@@ -328,6 +334,13 @@ describe("format 2 plugins in the project shell", () => {
     await act(async () => document.querySelector<HTMLButtonElement>(".ui-toast-action")!.click());
     await settle();
     expect(daemon.requests.some((request) => request.route === "/projects/project/plugin-changes/change-1/undo" && request.method === "POST")).toBe(true);
+
+    // An edit to ohmygame.json outside the app reaches the open project.
+    const reads = () => daemon.requests.filter((request) => request.route.startsWith("/projects/project/plugin-panels")).length;
+    const before = reads();
+    await act(async () => daemon.send(1, "project.plugins.changed", {}));
+    await settle();
+    expect(reads()).toBe(before + 1);
   });
 });
 

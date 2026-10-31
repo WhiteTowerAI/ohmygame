@@ -1036,6 +1036,8 @@ export function createApp(options: AppOptions = {}) {
     for (const project of projects.list()) {
       if (folder && project.workspacePath !== folder) continue;
       void syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"));
+      // An open project reads its plugins' panels and commands again, as after an edit to its ohmygame.json.
+      events.publish(project.id, "project.plugins.changed", {});
     }
   });
   const app = Fastify({

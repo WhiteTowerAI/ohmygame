@@ -88,6 +88,13 @@ it("asks for what isn't allowed yet, switches off, and uninstalls one version", 
   expect(onRemoved).not.toHaveBeenCalled();
 });
 
+it("offers Uninstall only for the versions that didn't ship with the app", async () => {
+  const [group] = groupStorePlugins([row("2.0.0", { bundled: true }), row("1.0.0")]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  const items = [...document.querySelectorAll(".plugin-store-versions li")];
+  expect(items.map((item) => [item.textContent?.startsWith("v2.0.0"), !!item.querySelector("button")])).toEqual([[true, false], [false, true]]);
+});
+
 it("keeps a bundled plugin installed and its saved secret unless cleared", async () => {
   const [group] = groupStorePlugins([row("1.0.0", { bundled: true, grants: { enabled: true, allowed: ["native", "network:api.example.com"] } })]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));

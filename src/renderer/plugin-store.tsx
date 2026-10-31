@@ -176,7 +176,7 @@ export function StorePluginDetail({ group, onChanged, onRemoved }: {
             <ul className="plugin-store-versions">
               {versions.map((version) => <li key={version.version}>
                 <span className="plugins-mono">v{version.version}</span>
-                {!plugin.bundled ? <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => setRemoving(version)}>
+                {!version.bundled ? <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => setRemoving(version)}>
                   {t("pluginStore.uninstall")}
                 </Button> : null}
               </li>)}

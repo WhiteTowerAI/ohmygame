@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import { matchesWhen, type WhenContext } from "../shared/plugin-when.js";
 import type { ProjectPluginChange, ProjectPluginCommand } from "../shared/plugins.js";
-import { getPluginPanels, listProjectPluginChanges, listProjectPluginCommands, undoProjectPluginChange, type PluginPanel } from "./api.js";
+import { getPluginPanels, getProjectPlugins, listProjectPluginChanges, listProjectPluginCommands, undoProjectPluginChange, type PluginPanel } from "./api.js";
 import { language, t } from "./i18n.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Alert, Button, Empty, Sheet, Skeleton } from "./ui/index.js";
@@ -25,6 +25,26 @@ export function projectWhenContext(project: Pick<ProjectState, "type" | "pluginT
   };
 }
 
+/** What a prompt command sends, naming its skill first when it has one. */
+export function commandPrompt(run: { prompt: string; skill?: string }): string {
+  return run.skill ? `Use the ${run.skill} skill.\n\n${run.prompt}` : run.prompt;
+}
+
+/**
+ * How a plugin page's `command.run` is carried out. Tool and native commands
+ * run in the plugin. A page never sends a message: a prompt only fills the
+ * composer, and only for a page allowed to; other app commands run as from a menu.
+ */
+export function pageCommand(panel: Pick<PluginPanel, "plugin" | "capabilities">, command: ProjectPluginCommand | undefined):
+  | { kind: "plugin" }
+  | { kind: "fill"; text: string }
+  | { kind: "app"; command: ProjectPluginCommand } {
+  if (!command || "tool" in command.run || "native" in command.run) return { kind: "plugin" };
+  if (!("prompt" in command.run)) return { kind: "app", command };
+  if (!panel.capabilities.composer) throw new Error(`${panel.plugin} can't use the composer`);
+  return { kind: "fill", text: commandPrompt(command.run) };
+}
+
 /** The commands a slot shows, in manifest order. */
 export function commandsForSlot(commands: readonly ProjectPluginCommand[], slot: string, context: WhenContext): ProjectPluginCommand[] {
   return commands.filter((command) => command.slots.some((entry) => entry.slot === slot && matchesWhen(entry.when, context)));
@@ -42,7 +62,7 @@ export function useProjectPluginContributions(project: Pick<ProjectState, "id" |
   when?: WhenContext;
 } {
   const generation = useReadyRuntimeGeneration();
-  const [loaded, setLoaded] = useState<{ projectId: string; panels: PluginPanel[]; commands: ProjectPluginCommand[] }>();
+  const [loaded, setLoaded] = useState<{ projectId: string; panels: PluginPanel[]; commands: ProjectPluginCommand[]; active: string[] }>();
   const projectId = project?.id;
   useEffect(() => {
     if (!projectId) return;
@@ -51,13 +71,17 @@ export function useProjectPluginContributions(project: Pick<ProjectState, "id" |
     void Promise.all([
       getPluginPanels(projectId, language).catch((): PluginPanel[] => []),
       listProjectPluginCommands(projectId).catch((): ProjectPluginCommand[] => []),
-    ]).then(([panels, commands]) => {
-      if (!disposed) setLoaded({ projectId, panels, commands });
+      // `project.plugin('<id>')` asks about every active plugin, with or without panels.
+      getProjectPlugins(projectId)
+        .then((view) => view.plugins.flatMap((plugin) => plugin.status === "active" ? [plugin.id] : []))
+        .catch((): string[] => []),
+    ]).then(([panels, commands, active]) => {
+      if (!disposed) setLoaded({ projectId, panels, commands, active });
     });
     return () => { disposed = true; };
   }, [projectId, revision, generation]);
   if (!project || loaded?.projectId !== project.id) return { panels: [], commands: [] };
-  const when = projectWhenContext(project, [...loaded.panels, ...loaded.commands].map((item) => item.plugin));
+  const when = projectWhenContext(project, [...loaded.active, ...[...loaded.panels, ...loaded.commands].map((item) => item.plugin)]);
   return {
     // A page needs its address; one without it can't be shown.
     panels: loaded.panels.filter((panel) => panel.url && matchesWhen(panel.when, when)),

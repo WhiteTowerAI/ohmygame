@@ -124,7 +124,7 @@ import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
-import { commandsForSlot, pluginPanelId, PluginChangesSheet, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
+import { commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { PluginFrame } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
@@ -352,6 +352,7 @@ export function ProjectShell({
     const unsubscribe = subscribeToProject(projectId, cursor, {
       onEvent: (event) => {
         dispatch({ type: "runtime-event", event });
+        if (event.type === "project.plugins.changed") setCapabilitiesRevision((value) => value + 1);
         if (event.type === "workspace.restored") {
           observeWorkspaceVersion(projectId, event.data.version);
           setWorkspaceEpoch(event.data.version);
@@ -995,7 +996,7 @@ export function ProjectShell({
     if (!project) return;
     const run = command.run;
     if ("prompt" in run) {
-      const prompt = run.skill ? `Use the ${run.skill} skill.\n\n${run.prompt}` : run.prompt;
+      const prompt = commandPrompt(run);
       if (run.insert) requestPrompt(prompt);
       else if (await submitPrompt(prompt, [], [], "normal")) revealPanel("chat");
       return;
@@ -1053,10 +1054,10 @@ export function ProjectShell({
         const id = `${panel.plugin}:${command}`;
         const found = plugins.commands.find((item) => item.id === id);
         // Commands that run in the app run here; the page only gets back that they did.
-        if (found && !("tool" in found.run) && !("native" in found.run)) {
-          await runProjectPluginCommand(found);
-          return null;
-        }
+        const action = pageCommand(panel, found);
+        if (action.kind === "fill") requestPrompt(action.text);
+        else if (action.kind === "app") await runProjectPluginCommand(action.command);
+        if (action.kind !== "plugin") return null;
         const { result, change } = await runPluginCommand(current.id, id);
         if (change?.changed.length) showPluginChange(found?.title ?? command, change);
         return result;

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import i18next from "i18next";
 import { composerContextItems } from "../src/renderer/composer-context-menu.js";
 import { mentionQuery, slashCommandQuery } from "../src/renderer/composer-mentions.js";
-import { slashCommands } from "../src/renderer/project-plugin-contributions.js";
+import { pageCommand, slashCommands } from "../src/renderer/project-plugin-contributions.js";
 import type { ProjectPluginCommand } from "../src/shared/plugins.js";
 
 const options = {
@@ -57,6 +57,16 @@ describe("unified composer context menu", () => {
     expect(composerContextItems({ ...options, query: mentionQuery("/up", 3), pluginCommands }).map((item) => [item.id, item.command])).toEqual([["command:acme/maker:upload", "upload"]]);
     expect(composerContextItems({ ...options, query: mentionQuery("/prev", 5), pluginCommands }).map((item) => item.command)).toEqual(["preview"]);
     expect(composerContextItems({ ...options, query: mentionQuery("@", 1), pluginCommands }).some((item) => item.pluginCommand)).toBe(false);
+  });
+
+  it("never lets a plugin page send a message", () => {
+    const prompt: ProjectPluginCommand = { id: "acme/maker:ask", plugin: "acme/maker", title: "Ask", slots: [], run: { prompt: "Fix the build", skill: "maker" } };
+    const panel = { plugin: "acme/maker", capabilities: {} };
+    expect(() => pageCommand(panel, prompt)).toThrow("can't use the composer");
+    expect(pageCommand({ ...panel, capabilities: { composer: true } }, prompt)).toEqual({ kind: "fill", text: "Use the maker skill.\n\nFix the build" });
+    const open: ProjectPluginCommand = { ...prompt, run: { openPanel: "preview" } };
+    expect(pageCommand(panel, open)).toEqual({ kind: "app", command: open });
+    expect(pageCommand(panel, { ...prompt, run: { native: "upload" } })).toEqual({ kind: "plugin" });
   });
 
   it("only offers publish from a slash query when publishing is available", () => {
