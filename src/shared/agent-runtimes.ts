@@ -11,6 +11,7 @@ export const AGENT_RUNTIME_IDS = [
   "claude-code-cli",
   "codex-cli",
   "opencode-cli",
+  "codebuddy-cli",
 ] as const;
 export type AgentRuntimeId = (typeof AGENT_RUNTIME_IDS)[number];
 
@@ -86,6 +87,8 @@ export const AGENT_PERMISSION_MODES = {
   "claude-code-cli": ["default", "acceptEdits", "auto", "bypassPermissions"],
   "codex-cli": [":workspace", ":danger-full-access"],
   "opencode-cli": ["default", "allow"],
+  // CodeBuddy names its modes as Claude Code does, and asks as it does.
+  "codebuddy-cli": ["default", "acceptEdits", "auto", "bypassPermissions"],
 } as const satisfies Record<AgentRuntimeId, readonly string[]>;
 export type AgentPermissionMode =
   (typeof AGENT_PERMISSION_MODES)[AgentRuntimeId][number];
@@ -95,6 +98,7 @@ export const FULL_ACCESS_PERMISSION_MODES = {
   "claude-code-cli": "bypassPermissions",
   "codex-cli": ":danger-full-access",
   "opencode-cli": "allow",
+  "codebuddy-cli": "bypassPermissions",
 } as const satisfies Record<AgentRuntimeId, AgentPermissionMode>;
 
 export function isAgentPermissionMode(

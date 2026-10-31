@@ -7,6 +7,8 @@ const STAGED_SKILLS: Record<AgentRuntimeId, string> = {
   "claude-code-cli": path.join("claude-plugin", "skills"),
   "codex-cli": "codex-skills",
   "opencode-cli": "opencode-skills",
+  // CodeBuddy scans a folder of Skills that only this session is told about.
+  "codebuddy-cli": "codebuddy-skills",
 };
 
 /** Where a session's Skills are staged inside its private folder, the only app data its agent may read. */

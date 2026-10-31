@@ -41,7 +41,7 @@ Updated during release preparation; see docs/maintaining.md. -->
     and story games. Every screen is a web page the agent builds from your
     description, with video, dialogue, choices, or even a mini-game, so your
     story isn't limited to fixed node types.
-  - **Bring your own agent:** Claude Code, Codex, or OpenCode can run the
+  - **Bring your own agent:** Claude Code, Codex, OpenCode, or CodeBuddy Code can run the
     conversation, or you can bring OhMyGame to them.
   - **Plugins:** build in Godot, Unity, Unreal Engine, or Cocos Creator; make
     assets in Blender, Aseprite, or Tiled; ship to WeChat Mini Games, Douyin
@@ -122,7 +122,7 @@ your game to the platforms where players pay.
 
 ### 🧑‍💻 Bring your own agent
 
-Already use Claude Code, Codex, or OpenCode? Choose it in the model picker and
+Already use Claude Code, Codex, OpenCode, or CodeBuddy Code? Choose it in the model picker and
 it runs the conversation with its own sign-in. It gets the whole studio: the
 canvas, media generation, playtesting, plugins, and Undo, with your history
 kept in OhMyGame. See [coding agents](docs/coding-agents.md).
@@ -230,7 +230,7 @@ OhMyGame does not lock you into one model or charge per run.
 - **Sign in with a subscription you already have**, such as ChatGPT Plus/Pro or
   GitHub Copilot, or paste an API key.
   <!-- TODO(legal): check each provider's terms before naming more subscriptions -->
-- **Coding agents you already use**: Claude Code, Codex, and OpenCode run a
+- **Coding agents you already use**: Claude Code, Codex, OpenCode, and CodeBuddy Code run a
   conversation with their own sign-in, while OhMyGame keeps its history, Undo,
   canvas, media tools, and plugins. Enable them in Settings; native CLI
   permission limits apply. See [coding agents](docs/coding-agents.md).
@@ -265,8 +265,8 @@ OhMyGame ships without a model. On first launch, it walks you through setup:
 1. **Get started.** Language and appearance follow your system; change them
    anytime in Settings.
 2. **Choose your AI.** Use the built-in OhMyGame agent with a model provider
-   (sign in or paste an API key), or a Claude Code, Codex, or OpenCode CLI you
-   already have. Use **+** to add a
+   (sign in or paste an API key), or a Claude Code, Codex, OpenCode, or
+   CodeBuddy Code CLI you already have. Use **+** to add a
    custom or local endpoint. **Skip this step** moves on without a model.
 
    A language model alone can design and build a game. Generating media needs

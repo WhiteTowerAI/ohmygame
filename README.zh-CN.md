@@ -39,7 +39,7 @@ https://github.com/user-attachments/assets/4d5805fe-92a2-40b4-a232-c7452f9a796a
   - **现已支持互动故事：** 适合做视觉小说、互动电影和剧情游戏。每个画面都是一个自由的网页，
     可以放视频、写对白、给选择，甚至装下一个小游戏；描述你想要的，Agent 就帮你做好，
     不受固定节点类型的限制。
-  - **带上你自己的 Agent：** 用 Claude Code、Codex 或 OpenCode 来运行对话，
+  - **带上你自己的 Agent：** 用 Claude Code、Codex、OpenCode 或 CodeBuddy Code 来运行对话，
     也可以把 OhMyGame 接进它们。
   - **插件：** 在 Godot、Unity、Unreal Engine 或 Cocos Creator 里开发；用 Blender、
     Aseprite 或 Tiled 做素材；上架微信小游戏、抖音小游戏或 TapTap，
@@ -107,7 +107,7 @@ https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 
 ### 🧑‍💻 带上你自己的 Agent
 
-已经在用 Claude Code、Codex 或 OpenCode？在模型选择器里选中它，它就会用自己的登录来运行对话，
+已经在用 Claude Code、Codex、OpenCode 或 CodeBuddy Code？在模型选择器里选中它，它就会用自己的登录来运行对话，
 并且能用上整个工作室：画布、媒体生成、试玩、插件和撤销，对话记录保留在 OhMyGame 里。
 详见[编程智能体](docs/coding-agents.md)。
 
@@ -198,7 +198,7 @@ OhMyGame 不会把你绑定在某一个模型上，也不按次收费。
   Amazon Bedrock 和 Vercel AI Gateway。
 - **直接登录你已有的订阅**，例如 ChatGPT Plus/Pro 或 GitHub Copilot，也可以粘贴 API 密钥。
   <!-- TODO(legal): 列出更多订阅前，先确认各服务商的条款 -->
-- **你已经在用的编程智能体**：Claude Code、Codex 和 OpenCode 使用各自的登录来运行对话，
+- **你已经在用的编程智能体**：Claude Code、Codex、OpenCode 和 CodeBuddy Code 使用各自的登录来运行对话，
   对话记录、撤销、画布、媒体工具和插件仍由 OhMyGame 提供。在设置中启用，并遵循原生 CLI
   的权限边界。详见[编程智能体](docs/coding-agents.md)。
 - **媒体模型**：图片、视频、3D 和音频生成，可通过 OpenAI、Codex、OpenRouter、
@@ -227,7 +227,7 @@ OhMyGame 不内置模型。首次启动时，它会带你完成设置：
 
 1. **开始使用。** 语言和外观跟随系统，可随时在设置中更改。
 2. **选择你的 AI。** 使用内置的 OhMyGame 智能体并连接模型服务商（登录或粘贴 API 密钥），
-   也可以使用你已安装的 Claude Code、Codex 或 OpenCode CLI。点击 **+** 可添加自定义或本地接口。**跳过这一步** 可以先不连接模型。
+   也可以使用你已安装的 Claude Code、Codex、OpenCode 或 CodeBuddy Code CLI。点击 **+** 可添加自定义或本地接口。**跳过这一步** 可以先不连接模型。
 
    只用语言模型也能设计和搭建游戏，生成媒体需要在 **设置 → 服务商** 中另外连接相应服务商：
 

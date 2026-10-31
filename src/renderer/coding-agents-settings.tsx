@@ -44,7 +44,11 @@ type PermissionModeKey =
   | "codexWorkspace"
   | "codexFullAccess"
   | "openCodeRules"
-  | "openCodeAllow";
+  | "openCodeAllow"
+  | "codeBuddyDefault"
+  | "codeBuddyAcceptEdits"
+  | "codeBuddyAuto"
+  | "codeBuddyBypass";
 
 /** Each agent's own permission modes, by the names their CLIs give them. */
 const PERMISSION_MODE_KEYS: Record<
@@ -62,7 +66,28 @@ const PERMISSION_MODE_KEYS: Record<
     ":danger-full-access": "codexFullAccess",
   },
   "opencode-cli": { default: "openCodeRules", allow: "openCodeAllow" },
+  "codebuddy-cli": {
+    default: "codeBuddyDefault",
+    acceptEdits: "codeBuddyAcceptEdits",
+    auto: "codeBuddyAuto",
+    bypassPermissions: "codeBuddyBypass",
+  },
 };
+
+/**
+ * Agents that sign in per model provider rather than to an account of their
+ * own, so they have no quota to show and no account to name.
+ */
+function perModelAccountNote(
+  id: AgentRuntimeId,
+):
+  | "codingAgents.openCodeAccounts"
+  | "codingAgents.codeBuddyAccounts"
+  | undefined {
+  if (id === "opencode-cli") return "codingAgents.openCodeAccounts";
+  if (id === "codebuddy-cli") return "codingAgents.codeBuddyAccounts";
+  return undefined;
+}
 
 function permissionOptions(
   runtime: AgentRuntimeId,
@@ -338,8 +363,11 @@ export function CodingAgentDetail({
             <RefreshCw size={15} className={busy === "recheck" ? "spin" : undefined} />
           </IconButton>
         </SettingsRow>
-        {agent.installed && agent.id === "opencode-cli" ? (
-          <SettingsRow title={t("codingAgents.account")} description={t("codingAgents.openCodeAccounts")} />
+        {agent.installed && perModelAccountNote(agent.id) ? (
+          <SettingsRow
+            title={t("codingAgents.account")}
+            description={t(perModelAccountNote(agent.id)!)}
+          />
         ) : null}
         {problems.length ? (
           <div className="settings-pad settings-form" aria-label={t("codingAgents.diagnostics")} role="group">
@@ -354,8 +382,8 @@ export function CodingAgentDetail({
         notifyAgentModelsChanged();
       }} disabled={busy !== undefined} /> : null}
       {login ? <LoginHint login={login} /> : null}
-      {agent.installed && agent.id !== "opencode-cli" ? (
-        // OpenCode bills each model provider; its account has no quota of its own.
+      {agent.installed && !perModelAccountNote(agent.id) ? (
+        // OpenCode and CodeBuddy bill each model provider; their accounts have no quota of their own.
         <SettingsGroup title={t("agentUsage.title")}>
           <div className="settings-pad">
             {agent.limits?.length ? (

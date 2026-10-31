@@ -11,8 +11,8 @@ of truth for individual protocol fields.
   protocol. An Agent Runtime owns an agent loop, native context, permissions,
   and, for external CLIs, a process.
 - Pi remains the default Direct Runtime for existing conversations, API
-  providers, and local models. Claude Code, Codex, and OpenCode are optional
-  Native Runtimes using their own sign-in and model semantics.
+  providers, and local models. Claude Code, Codex, OpenCode and CodeBuddy Code
+  are optional Native Runtimes using their own sign-in and model semantics.
 - `AgentManager` remains the sole conversation/turn orchestrator. A
   `NativeCodingSession` implements the existing `CodingSession` boundary;
   protocol drivers implement transport and translate events.
@@ -33,6 +33,7 @@ AgentManager: turns, queues, checkpoints, errors, cancellation
   ├── existing Pi CodingSession
   └── NativeCodingSession: shared transcript, native context lifecycle
        ├── Claude Code driver: stream-json/control requests
+       ├── CodeBuddy driver: the same protocol, with its own flags
        ├── Codex driver: App Server JSON-RPC
        └── OpenCode driver: local HTTP + SSE
             │
@@ -55,11 +56,11 @@ conversation with its own install, account, configuration and sandbox. Do not ad
 runtime selector or runtime-specific conversation settings route.
 
 The existing `ModelRef { provider, id }` identifies both the runtime and its
-native model. Runtime provider IDs are `claude-code-cli`, `codex-cli`, and
-`opencode-cli`; the suffix avoids collisions with ordinary Pi providers, such
-as `opencode`. These are not `ProviderSummary` records and are not inserted
-into the Provider language catalog. A separate persisted `runtime` field would
-create another source of truth and is unnecessary.
+native model. Runtime provider IDs are `claude-code-cli`, `codex-cli`,
+`opencode-cli` and `codebuddy-cli`; the suffix avoids collisions with ordinary
+Pi providers, such as `opencode`. These are not `ProviderSummary` records and
+are not inserted into the Provider language catalog. A separate persisted
+`runtime` field would create another source of truth and is unnecessary.
 
 `ConversationAgentSettings.model` retains this shared reference. Pi
 `reasoningLevel` keeps its existing enum; native effort/variant values are
@@ -256,6 +257,7 @@ group; it is not an OS-wide process supervisor or resource scheduler.
 | Claude Code | Long-lived stream-json stdin/stdout; control requests and MCP tool callbacks           | 2.1.302               |
 | Codex       | App Server JSON-RPC; native `dynamicTools`, approval responses, thread/turn lifecycle  | 0.163.0               |
 | OpenCode    | Private authenticated `serve --stdio`; v2 HTTP API, SSE events, daemon MCP endpoint | 2.1.0 |
+| CodeBuddy Code | Long-lived stream-json stdin/stdout, as Claude Code; control requests and MCP tool callbacks | 2.155.0 |
 
 These versions record real acceptance, not minimum versions or certification of
 all later releases. Discovery checks required protocol capabilities; real drivers
@@ -292,6 +294,19 @@ Bridge tools are marked always loaded so tool search does not hide them. Discove
 models from `initialize` or `list_models` as supported; expose failed/empty
 catalogs as diagnostics. A sole callback path is not a sufficient assumption.
 
+CodeBuddy Code implements Claude Code's stream-json protocol message for
+message, so it runs on the same driver (`stream-json.ts`) with its own flags:
+no `--permission-prompt-tool`, because it asks on the control channel, and
+`--dangerously-skip-permissions` where Claude Code needs
+`--allow-dangerously-skip-permissions`. Its permission modes are Claude Code's
+(`default`, `acceptEdits`, `auto`, `bypassPermissions`) and its approvals,
+`PreToolUse` refusals and in-process MCP server behave as Claude's do. Staged
+Skills reach it through `CODEBUDDY_SESSION_SKILL_DIRS`, a folder it scans for
+this session only. It has no operation that returns a model catalog, so
+discovery reads the models `--help` lists and offers no per-model effort: a
+conversation sends no `--effort` and the CLI's own setting decides. It reports
+no subscription windows, so Settings shows no quota for it.
+
 Codex uses the built-in permission profile the person chose: `:workspace` with
 its `on-request` approval policy, or `:danger-full-access` with `never`; planning
 turns use `:read-only`. It verifies
@@ -326,17 +341,19 @@ existing plugin adapter, hosted in a model-less Pi session. It does not run a
 second model loop. Effective plugin capabilities and project-type rules remain
 the source of truth, and plugin credentials stay in the daemon.
 
-Claude uses its control/MCP callbacks, Codex uses dynamic tools, and OpenCode
-uses a private loopback MCP endpoint. Any network bridge capability is scoped
-to the current turn, permits multiple calls during that turn, and is revoked
-permanently on completion, failure, cancellation, or disposal. Rotate it for
-every later turn. Pass abort signals to tools and discard late results. Never
-reuse the daemon token or write `.mcp.json`/credentials into a workspace.
+Claude uses its control/MCP callbacks, CodeBuddy the same ones, Codex uses
+dynamic tools, and OpenCode uses a private loopback MCP endpoint. Any network
+bridge capability is scoped to the current turn, permits multiple calls during
+that turn, and is revoked permanently on completion, failure, cancellation, or
+disposal. Rotate it for every later turn. Pass abort signals to tools and
+discard late results. Never reuse the daemon token or write
+`.mcp.json`/credentials into a workspace.
 
 Stage enabled Skills in a private session directory outside the workspace.
 Copy regular files only, omit symbolic links, and require a regular `SKILL.md`.
 Each agent reads its staged roots without asking: Claude Code through
-`--add-dir`, OpenCode through a session rule, and Codex's profiles already
+`--add-dir`, CodeBuddy through `CODEBUDDY_SESSION_SKILL_DIRS` and `--add-dir`,
+OpenCode through a session rule, and Codex's profiles already
 read them. Running staged scripts follows the agent's own rules.
 Remove staged files only after the CLI stops.
 
@@ -387,11 +404,14 @@ them; the default asks nothing:
 | Claude Code | `default` (newer CLIs call it `manual`), `acceptEdits`, `auto`, `bypassPermissions` | `bypassPermissions`   |
 | Codex       | `:workspace` (`on-request`), `:danger-full-access` (`never`)                        | `:danger-full-access` |
 | OpenCode    | `default` (the person's rules), `allow` (a session rule allowing everything)        | `allow`               |
+| CodeBuddy Code | `default`, `acceptEdits`, `auto`, `bypassPermissions`, as Claude Code's            | `bypassPermissions`   |
 
-Read-only modes (Claude's `plan`, Codex's `:read-only`) are not offered:
+Read-only modes (Claude's `plan`, CodeBuddy's `plan`, Codex's `:read-only`) are
+not offered:
 OhMyGame's planning uses them itself. Every mode keeps the person's CLI
 configuration, including its permission rules. Planning is read-only in all: each agent uses its read-only mode
-(Claude's default mode with file-changing tools refused, Codex's `:read-only`
+(Claude's and CodeBuddy's default mode with file-changing tools refused,
+Codex's `:read-only`
 profile, OpenCode's `plan` agent), and whatever it would ask about while
 planning is refused without asking.
 

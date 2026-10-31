@@ -9,6 +9,7 @@ import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalRequestDetails } from "../src/shared/agent-runtimes.js";
 import { ClaudeCodeDriver } from "../src/daemon/agent-runtimes/claude-code.js";
+import { CodeBuddyDriver } from "../src/daemon/agent-runtimes/codebuddy.js";
 import { CodexDriver } from "../src/daemon/agent-runtimes/codex.js";
 import * as discovery from "../src/daemon/agent-runtimes/discovery.js";
 import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
@@ -2391,4 +2392,280 @@ describe("OpenCode adapter", () => {
       expect(f.sent.some((r) => r.route.endsWith("/prompt"))).toBe(false);
     },
   );
+});
+
+describe("CodeBuddy adapter", () => {
+  it("runs CodeBuddy's own stream-json flags, without Claude Code's prompt tool", async () => {
+    const skill = await mkdtemp(path.join(tmpdir(), "ohmygame-skill-"));
+    cleanup.push(() => rm(skill, { recursive: true, force: true }));
+    await writeFile(path.join(skill, "SKILL.md"), "---\nname: fixture\n---\n");
+    const clis = fakeCli((message, cli) => {
+      if (message.type === "control_request")
+        cli.send({
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: message.request_id,
+            response: {},
+          },
+        });
+      if (message.type === "user")
+        cli.send({ type: "result", subtype: "success" });
+    });
+    const ctx = await context({
+      permissionMode: "default",
+      skillDirectories: [skill],
+    });
+    const driver = new CodeBuddyDriver(ctx);
+    cleanup.push(() => driver.dispose());
+    expect(
+      await driver.runTurn(
+        { text: "work", images: [], readOnly: false },
+        recordingSink().sink,
+        new AbortController().signal,
+      ),
+    ).toEqual({ status: "completed" });
+
+    const cli = clis[0]!;
+    expect(cli.args.slice(0, 5)).toEqual([
+      "-p",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+    ]);
+    expect(cli.args[cli.args.indexOf("--permission-mode") + 1]).toBe("default");
+    expect(cli.args[cli.args.indexOf("--model") + 1]).toBe("sonnet");
+    // CodeBuddy asks on the control channel; Claude Code's flag is not a CodeBuddy option.
+    expect(cli.args).not.toContain("--permission-prompt-tool");
+    // OhMyGame adds no permission settings of its own.
+    expect(cli.args).not.toContain("--settings");
+    // Avoid reconnecting to OhMyGame through the person's own MCP configuration.
+    expect(cli.args[cli.args.indexOf("--disallowedTools") + 1]).toBe(
+      "mcp__ohmygame-studio",
+    );
+    // Skills reach CodeBuddy through the folder it scans for this session only.
+    const staged = cli.env.CODEBUDDY_SESSION_SKILL_DIRS;
+    expect(staged).toBe(stagedSkillsRoot("codebuddy-cli", ctx.privateDirectory));
+    expect(cli.args[cli.args.indexOf("--add-dir") + 1]).toBe(staged);
+    // Background work would report after the turn that launched it has ended.
+    expect(cli.env.CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS).toBe("1");
+  });
+
+  it("uses the mode that asks nothing when the person allows everything", async () => {
+    const clis = fakeCli((message, cli) => {
+      if (message.type === "control_request")
+        cli.send({
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: message.request_id,
+            response: {},
+          },
+        });
+      if (message.type === "user")
+        cli.send({ type: "result", subtype: "success" });
+    });
+    const driver = new CodeBuddyDriver(
+      await context({ permissionMode: "bypassPermissions" }),
+    );
+    cleanup.push(() => driver.dispose());
+    await driver.runTurn(
+      { text: "work", images: [], readOnly: false },
+      recordingSink().sink,
+      new AbortController().signal,
+    );
+    const args = clis[0]!.args;
+    expect(args[args.indexOf("--permission-mode") + 1]).toBe(
+      "bypassPermissions",
+    );
+    // Planning returns to the same mode afterwards only when it may use it.
+    expect(args).toContain("--dangerously-skip-permissions");
+    expect(args).not.toContain("--allow-dangerously-skip-permissions");
+  });
+
+  it("asks the person what CodeBuddy asks and answers in its protocol", async () => {
+    let answer: Record<string, unknown> | undefined;
+    fakeCli((message, cli) => {
+      if (message.type === "control_request" && message.request_id !== "ask")
+        cli.send({
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: message.request_id,
+            response: {},
+          },
+        });
+      if (message.type === "user")
+        cli.send({
+          type: "control_request",
+          request_id: "ask",
+          request: {
+            subtype: "can_use_tool",
+            tool_name: "Bash",
+            tool_use_id: "bash-1",
+            input: { command: "npm install three" },
+          },
+        });
+      if (
+        message.type === "control_response" &&
+        (message.response as Record<string, unknown>).request_id === "ask"
+      ) {
+        answer = (message.response as Record<string, unknown>)
+          .response as Record<string, unknown>;
+        cli.send({ type: "result", subtype: "success" });
+      }
+    });
+    const driver = new CodeBuddyDriver(
+      await context({ permissionMode: "default" }),
+    );
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink(() => "allow");
+    await driver.runTurn(
+      { text: "work", images: [], readOnly: false },
+      recorded.sink,
+      new AbortController().signal,
+    );
+    expect(recorded.asked).toEqual([
+      { kind: "command", tool: "Bash", command: "npm install three" },
+    ]);
+    expect(answer).toEqual({
+      behavior: "allow",
+      updatedInput: { command: "npm install three" },
+      decisionClassification: "user_temporary",
+    });
+  });
+
+  it("refuses file changes in a planning turn without asking", async () => {
+    let answer: unknown;
+    fakeCli((message, cli) => {
+      if (message.type === "control_request" && message.request_id !== "hook")
+        cli.send({
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: message.request_id,
+            response: {},
+          },
+        });
+      if (message.type === "user")
+        cli.send({
+          type: "control_request",
+          request_id: "hook",
+          request: {
+            subtype: "hook_callback",
+            callback_id: "ohmygame-pre-tool",
+            tool_use_id: "write-1",
+            input: { hook_event_name: "PreToolUse", tool_name: "Write" },
+          },
+        });
+      if (
+        message.type === "control_response" &&
+        (message.response as Record<string, unknown>).request_id === "hook"
+      ) {
+        answer = (message.response as Record<string, unknown>).response;
+        cli.send({ type: "result", subtype: "success" });
+      }
+    });
+    const driver = new CodeBuddyDriver(await context());
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink(() => "allow");
+    await driver.runTurn(
+      { text: "plan", images: [], readOnly: true },
+      recorded.sink,
+      new AbortController().signal,
+    );
+    expect(answer).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: expect.stringContaining("planning turn"),
+      },
+    });
+    expect(recorded.asked).toEqual([]);
+  });
+
+  it("answers CodeBuddy's in-process MCP server with OhMyGame's tools", async () => {
+    let mcp: unknown;
+    fakeCli((message, cli) => {
+      if (message.type === "control_request" && message.request_id !== "mcp")
+        cli.send({
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: message.request_id,
+            response: {},
+          },
+        });
+      if (message.type === "user")
+        cli.send({
+          type: "control_request",
+          request_id: "mcp",
+          request: {
+            subtype: "mcp_message",
+            server_name: "ohmygame",
+            message: {
+              jsonrpc: "2.0",
+              id: 7,
+              method: "tools/call",
+              params: {
+                name: "echo_tool",
+                arguments: { value: "x" },
+                _meta: { "claudecode/toolUseId": "toolu_1" },
+              },
+            },
+          },
+        });
+      if (
+        message.type === "control_response" &&
+        (message.response as Record<string, unknown>).request_id === "mcp"
+      ) {
+        mcp = (message.response as Record<string, unknown>).response;
+        cli.send({ type: "result", subtype: "success" });
+      }
+    });
+    const driver = new CodeBuddyDriver(await context());
+    cleanup.push(() => driver.dispose());
+    await driver.runTurn(
+      { text: "work", images: [], readOnly: false },
+      recordingSink().sink,
+      new AbortController().signal,
+    );
+    expect(mcp).toEqual({
+      mcp_response: {
+        jsonrpc: "2.0",
+        id: 7,
+        result: { content: [{ type: "text", text: "echo x" }] },
+      },
+    });
+  });
+
+  it("reports a resumed conversation CodeBuddy no longer has", async () => {
+    fakeCli((message, cli) => {
+      if (message.type === "control_request")
+        cli.send({
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: message.request_id,
+            response: {},
+          },
+        });
+      if (message.type === "user")
+        cli.send({
+          type: "result",
+          subtype: "error_during_execution",
+          errors: ["No conversation found with session ID: expired"],
+        });
+    });
+    const driver = new CodeBuddyDriver(await context({ resume: "expired" }));
+    cleanup.push(() => driver.dispose());
+    await expect(
+      driver.runTurn(
+        { text: "continue", images: [], readOnly: false },
+        recordingSink().sink,
+        new AbortController().signal,
+      ),
+    ).rejects.toBeInstanceOf(NativeSessionExpiredError);
+  });
 });

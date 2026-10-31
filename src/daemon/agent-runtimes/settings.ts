@@ -40,6 +40,7 @@ const STANDARD_PERMISSION_MODES = {
   "claude-code-cli": "acceptEdits",
   "codex-cli": ":workspace",
   "opencode-cli": "default",
+  "codebuddy-cli": "acceptEdits",
 } as const satisfies Record<AgentRuntimeId, AgentPermissionMode>;
 
 /**

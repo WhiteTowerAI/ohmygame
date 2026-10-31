@@ -10,6 +10,7 @@ import {
   versionAtLeast,
 } from "../src/daemon/agent-runtimes/definitions.js";
 import {
+  parseCodeBuddyModels,
   parseOpenCodeModels,
   resolveBinary,
 } from "../src/daemon/agent-runtimes/discovery.js";
@@ -479,6 +480,26 @@ describe("coding agent discovery", () => {
     expect(versionAtLeast("0.147.0", "0.140.0")).toBe(true);
     expect(versionAtLeast("0.99.9", "0.140.0")).toBe(false);
     expect(versionAtLeast("2.0.0", "2.0.0")).toBe(true);
+  });
+
+  it("lists CodeBuddy's models from its help, even when the help is wrapped", () => {
+    const help = [
+      "fetch config failed TypeError: Right-hand side of 'instanceof' is not callable",
+      "  --model <model>                                  Model for the current session. Please",
+      "                                                   provide the model ID. Currently supported:",
+      "                                                   (fast-model, deep-model, custom-local:BC-Kimi-K3.1-Pro)",
+      "  --effort <level>                                 Reasoning effort level",
+    ].join("\n");
+    expect(parseCodeBuddyModels(help)).toEqual([
+      { id: "fast-model", name: "fast-model" },
+      { id: "deep-model", name: "deep-model" },
+      // An endpoint the person added is named by the name they gave it.
+      { id: "custom-local:BC-Kimi-K3.1-Pro", name: "BC-Kimi-K3.1-Pro" },
+    ]);
+    // Nothing to offer rather than a catalog read from unrelated text.
+    expect(parseCodeBuddyModels("Usage: codebuddy [options] [command]")).toEqual(
+      [],
+    );
   });
 
   it("lists OpenCode's tool-calling models with their variants", () => {
