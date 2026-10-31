@@ -31,7 +31,7 @@ const row = (version: string, overrides: Partial<StorePlugin> = {}): StorePlugin
     { name: "path", type: "path", title: "Engine path" },
     { name: "token", type: "secret", title: "Token" },
   ],
-  adds: { projectTypes: ["Maker game"], panels: ["Preview"], commands: ["Upload"], tools: 2, skills: 1 },
+  adds: { projectTypes: ["Maker game"], panels: ["Preview"], commands: ["Upload"], mcpServers: ["Maker CLI"], tools: 2, skills: 1 },
   ...overrides,
 });
 
@@ -71,6 +71,7 @@ it("asks for what isn't allowed yet, switches off, and uninstalls one version", 
   const [group] = groupStorePlugins([row("2.0.0"), row("1.0.0")]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={onChanged} onRemoved={onRemoved} />));
   expect(document.body.textContent).toContain("network:api.example.com");
+  expect(document.querySelector(".plugin-store-adds")!.textContent).toContain("MCP serviceMaker CLI");
   await act(async () => button("Allow").click());
   expect(api.consentToPlugin).toHaveBeenCalledWith("acme/maker", ["native", "network:api.example.com"]);
   expect(onChanged).toHaveBeenCalledTimes(1);

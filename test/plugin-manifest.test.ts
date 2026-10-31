@@ -160,6 +160,36 @@ describe("plugin manifest format 2", () => {
     ]);
   });
 
+  it("checks MCP servers against what the plugin may run, reach and read", () => {
+    const server = (fields: object) => ({
+      ...minimal,
+      configuration: {
+        region: { type: "text", title: "Region" },
+        token: { type: "secret", title: "Token" },
+      },
+      capabilities: { processes: ["maker"] },
+      contributes: { mcpServers: [{ id: "maker", title: "Maker", tools: ["build"], ...fields }] },
+    });
+    expect(messages(server({ command: "maker", args: ["--region", "${config.region}"] }))).toEqual([]);
+    expect(messages(server({}))).toEqual([
+      "/contributes/mcpServers/0 an MCP server needs a command or a url, not both",
+    ]);
+    expect(messages(server({ command: "node", url: "http://localhost:1/mcp" }))).toEqual([
+      "/contributes/mcpServers/0 an MCP server needs a command or a url, not both",
+      "/contributes/mcpServers/0/command node must be listed in capabilities.processes",
+    ]);
+    expect(
+      messages(server({ url: "http://localhost:1/mcp", cwd: "./bin", headers: { Authorization: "Bearer ${config.token}" } })),
+    ).toEqual([
+      "/contributes/mcpServers/0 args, env and cwd are for a command",
+      "/contributes/mcpServers/0 token is a secret, which needs capabilities.secrets",
+    ]);
+    expect(messages(server({ command: "maker", headers: {}, env: { MODE: "${config.mode}" } }))).toEqual([
+      "/contributes/mcpServers/0/headers headers are for a url",
+      "/contributes/mcpServers/0 no configuration field mode",
+    ]);
+  });
+
   it("closes keyed records and never throws on bad values", () => {
     for (const configuration of [
       { "bad-key": { type: "made-up", title: 42 } },

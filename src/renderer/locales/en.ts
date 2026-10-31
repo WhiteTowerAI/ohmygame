@@ -1105,6 +1105,7 @@ const en = {
     addsType: "Project type",
     addsPanel: "Panel",
     addsCommand: "Command",
+    addsMcpServer: "MCP service",
     tools: "Tools",
     toolCount_one: "{{count}} tool",
     toolCount_other: "{{count}} tools",

@@ -274,7 +274,8 @@ export function ProjectShell({
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [pluginChangesOpen, setPluginChangesOpen] = useState(false);
   /** A plugin command's link, shown with its host before it opens. */
-  const [pluginLink, setPluginLink] = useState<URL>();
+  /** A link a plugin command offers, opened only once the person sees its host; `message` is the plugin's. */
+  const [pluginLink, setPluginLink] = useState<{ url: URL; message?: string }>();
   const toast = useToast();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
@@ -358,6 +359,7 @@ export function ProjectShell({
       onEvent: (event) => {
         dispatch({ type: "runtime-event", event });
         if (event.type === "project.plugins.changed") setCapabilitiesRevision((value) => value + 1);
+        if (event.type === "plugin.command.progress" && URL.canParse(event.data.url)) setPluginLink({ url: new URL(event.data.url), message: event.data.message });
         if (event.type === "workspace.restored") {
           observeWorkspaceVersion(projectId, event.data.version);
           setWorkspaceEpoch(event.data.version);
@@ -1014,7 +1016,7 @@ export function ProjectShell({
     if ("url" in run) {
       // The manifest only checks that it starts with https://.
       const url = URL.canParse(run.url) ? new URL(run.url) : undefined;
-      if (url) setPluginLink(url);
+      if (url) setPluginLink({ url });
       else toast({ title: command.title, description: t("pluginCommands.badLink"), tone: "danger" });
       return;
     }
@@ -1060,15 +1062,16 @@ export function ProjectShell({
         get: (key) => getPluginPageValue(current.id, panel.plugin, key),
         set: (key, value) => setPluginPageValue(current.id, panel.plugin, key, value),
       },
-      runCommand: async (command) => {
+      runCommand: async (command, input) => {
         const id = `${panel.plugin}:${command}`;
         const found = plugins.commands.find((item) => item.id === id);
         // Commands that run in the app run here; the page only gets back that they did.
         const action = pageCommand(panel, found);
+        if (input !== undefined && action.kind !== "plugin") throw new Error(`${id} runs in the app and takes no input`);
         if (action.kind === "fill") requestPrompt(action.text);
         else if (action.kind === "app") await runProjectPluginCommand(action.command);
         if (action.kind !== "plugin") return null;
-        const { result, change } = await runPluginCommand(current.id, id);
+        const { result, change } = await runPluginCommand(current.id, id, input);
         if (change?.changed.length) showPluginChange(found?.title ?? command, change);
         return result;
       },
@@ -1266,9 +1269,10 @@ export function ProjectShell({
       onUndone={() => setWorkspaceRevision((value) => value + 1)} /> : null}
     {pluginLink ? <Dialog open title={t("pluginCommands.openLinkTitle")} onClose={() => setPluginLink(undefined)} footer={<>
       <Button variant="ghost" onClick={() => setPluginLink(undefined)}>{t("common.cancel")}</Button>
-      <Button variant="primary" onClick={() => { openExternalLink(pluginLink.href); setPluginLink(undefined); }}>{t("pluginCommands.openLink")}</Button>
+      <Button variant="primary" onClick={() => { openExternalLink(pluginLink.url.href); setPluginLink(undefined); }}>{t("pluginCommands.openLink")}</Button>
     </>}>
-      <p>{t("pluginCommands.openLinkHint", { host: pluginLink.host })}</p>
+      {pluginLink.message ? <p>{pluginLink.message}</p> : null}
+      <p>{t("pluginCommands.openLinkHint", { host: pluginLink.url.host })}</p>
     </Dialog> : null}
     {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
     {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} /> : null}

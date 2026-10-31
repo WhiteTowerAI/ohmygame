@@ -193,12 +193,14 @@ async function invoke(
   let lastProgress = -Infinity;
   const value = await handler(request.input, {
     signal: controller.signal,
-    progress: (message) => {
-      // Progress is a hint: frequent updates are dropped, long ones cut.
+    progress: (message, options) => {
+      // Progress is a hint: frequent updates are dropped, long ones cut. A
+      // link the person needs always goes through.
+      const url = linkFor(options?.url);
       const now = performance.now();
-      if (now - lastProgress < HOST_PROGRESS_INTERVAL_MS) return;
+      if (!url && now - lastProgress < HOST_PROGRESS_INTERVAL_MS) return;
       lastProgress = now;
-      send({ type: "progress", id: request.id, message: cut(String(message)) });
+      send({ type: "progress", id: request.id, message: cut(String(message)), ...(url ? { url } : {}) });
     },
     ...(request.turn ? { turn: request.turn } : {}),
     configuration: Object.freeze({ ...request.configuration }),
@@ -294,3 +296,9 @@ async function leave() {
 process.on("disconnect", () => void leave());
 
 send({ type: "ready", protocol: EXTENSION_HOST_PROTOCOL_VERSION });
+
+/** An https link a progress update may carry, or undefined. */
+function linkFor(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length > HOST_MESSAGE_MAX_CHARS || !URL.canParse(value)) return undefined;
+  return new URL(value).protocol === "https:" ? value : undefined;
+}

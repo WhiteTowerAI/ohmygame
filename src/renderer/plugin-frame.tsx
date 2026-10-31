@@ -33,7 +33,7 @@ export interface PluginPageContext {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
   };
-  runCommand(command: string): Promise<unknown>;
+  runCommand(command: string, input?: unknown): Promise<unknown>;
 }
 
 /** The app's current colour tokens and appearance, as a page sees them. */
@@ -81,7 +81,7 @@ export async function handlePluginUiRequest(
     case "command.run":
       if (!context.commands.includes(params.command as string))
         throw new Error(`${context.plugin.id} has no command ${String(params.command)}`);
-      return context.runCommand(params.command as string);
+      return context.runCommand(params.command as string, params.input);
   }
 }
 
@@ -158,7 +158,7 @@ export function PluginFrame({
       get: (key) => latest.current.storage.get(key),
       set: (key, value) => latest.current.storage.set(key, value),
     },
-    runCommand: (command) => latest.current.runCommand(command),
+    runCommand: (command, input) => latest.current.runCommand(command, input),
   };
 
   useEffect(() => {
