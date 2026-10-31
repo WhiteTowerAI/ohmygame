@@ -110,3 +110,19 @@ it("keeps a bundled plugin installed and its saved secret unless cleared", async
   await act(async () => document.querySelector<HTMLFormElement>(".plugin-configuration form")!.requestSubmit());
   expect(api.saveStorePluginConfiguration).toHaveBeenCalledWith("acme/maker", { path: "/opt/maker" });
 });
+
+it("keeps a setting changed again while the last change saves", async () => {
+  const [group] = groupStorePlugins([row("1.0.0")]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  let finish!: () => void;
+  api.saveStorePluginConfiguration.mockImplementationOnce(() => new Promise((resolve) => {
+    finish = () => resolve({ ...configuration, path: { type: "path", value: "/first" } });
+  }));
+  const pathInput = document.querySelector<HTMLInputElement>(".plugin-configuration input")!;
+  await act(async () => type(pathInput, "/first"));
+  await act(async () => document.querySelector<HTMLFormElement>(".plugin-configuration form")!.requestSubmit());
+  await act(async () => type(pathInput, "/second"));
+  await act(async () => finish());
+  expect(pathInput.value).toBe("/second");
+  expect(document.querySelector<HTMLButtonElement>(".plugin-configuration button[type=submit]")!.disabled).toBe(false);
+});
