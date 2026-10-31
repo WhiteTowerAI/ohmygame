@@ -51,8 +51,11 @@ export class Cancelled extends Error {
   }
 }
 
-/** How long a stopped process group gets before it is killed. */
-const STOP_GRACE_MS = 5000;
+/**
+ * How long a stopped process group gets before it is killed: within the two
+ * seconds the app gives a cancelled call before it ends this host.
+ */
+const STOP_GRACE_MS = 1000;
 /** How long output may stay open after Maker exits, held by something it started. */
 const CLOSE_GRACE_MS = 2000;
 
@@ -143,10 +146,10 @@ export async function run(
       reject(error);
     });
     // Something Maker started, such as the preview Runtime, may keep its
-    // output open; the call ends shortly after Maker itself does. Only a
-    // cancelled or failed call stops what it started.
-    child.once("exit", () => {
-      if (failure) stopTree(child);
+    // output open; the call ends shortly after Maker itself does. Only a call
+    // that failed or was cancelled stops what it started.
+    child.once("exit", (code, exitSignal) => {
+      if (failure || code !== 0 || exitSignal) stopTree(child);
       setTimeout(() => {
         child.stdout.destroy();
         child.stderr.destroy();
@@ -301,7 +304,7 @@ export async function withLock(directory, name, work, { signal, onWait } = {}) {
       const holder = await stale(file);
       if (holder === undefined) continue;
       if (holder !== false) {
-        await reclaim(file, holder);
+        await reclaim(file);
         continue;
       }
       if (!told) {
@@ -320,21 +323,30 @@ export async function withLock(directory, name, work, { signal, onWait } = {}) {
   }
 }
 
+/** A reclaim guard older than this belongs to a host that died while reclaiming. */
+const RECLAIM_STALE_MS = 60 * 1000;
+
 /**
- * Moves a stale lock aside. When another waiter replaced it meanwhile, the
- * moved lock is not the stale one and goes back.
+ * Removes a stale lock. Only one waiter reclaims at a time, under a guard
+ * file, and it checks again there, so a lock another waiter took meanwhile
+ * is never removed. Only a reclaimer removes a lock it doesn't hold.
  */
-async function reclaim(file, holder) {
-  const aside = `${file}.stale.${process.pid}.${Math.random().toString(36).slice(2)}`;
+async function reclaim(file) {
+  const guard = `${file}.reclaim`;
   try {
-    await rename(file, aside);
+    await writeFile(guard, String(process.pid), { flag: "wx", mode: 0o600 });
   } catch (error) {
-    if (error.code === "ENOENT") return;
-    throw error;
+    if (error.code !== "EEXIST") throw error;
+    const info = await stat(guard).catch(() => undefined);
+    if (info && Date.now() - info.mtimeMs > RECLAIM_STALE_MS) await rm(guard, { force: true });
+    else await new Promise((resolve) => setTimeout(resolve, 100));
+    return;
   }
-  const moved = await readFile(aside, "utf8").catch(() => undefined);
-  if (moved !== holder) await link(aside, file).catch(() => {});
-  await rm(aside, { force: true });
+  try {
+    if (typeof (await stale(file)) === "string") await rm(file, { force: true });
+  } finally {
+    await rm(guard, { force: true });
+  }
 }
 
 /**

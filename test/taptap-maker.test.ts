@@ -47,6 +47,7 @@ beforeEach(async () => {
         const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit" });
         child.unref();
         await writeFile(file("child.pid"), String(child.pid));
+        if (await has("fail-after-start")) process.exit(1);
       }
       console.log(JSON.stringify([{ id: "selected", name: "Selected" }]));
     } else if (args[0] === "login") console.log(JSON.stringify({ message: "Open https://maker.example.com/device?code=AB12 to sign in" }));
@@ -210,6 +211,14 @@ describe("TapTap Maker project setup", () => {
     }
   }, 15_000);
 
+  it("stops what Maker started when Maker fails", async () => {
+    await writeFile(path.join(directory, "leave-running"), "");
+    await writeFile(path.join(directory, "fail-after-start"), "");
+    await expect(maker.projects(context())).rejects.toThrow();
+    const child = Number(await readFile(path.join(directory, "child.pid"), "utf8"));
+    await expect.poll(() => alive(child)).toBe(false);
+  }, 15_000);
+
   it("takes over a lock whose process is gone", async () => {
     await writeFile(path.join(directory, "prepare.lock"), "999999999");
     let ran = false;
@@ -217,6 +226,18 @@ describe("TapTap Maker project setup", () => {
     expect(ran).toBe(true);
     await expect(readFile(path.join(directory, "prepare.lock"))).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  it("lets only one of several waiters take over a stale lock at a time", async () => {
+    await writeFile(path.join(directory, "prepare.lock"), "999999999");
+    let inside = 0;
+    let most = 0;
+    await Promise.all(Array.from({ length: 6 }, () => withLock(directory, "prepare", async () => {
+      most = Math.max(most, ++inside);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      inside--;
+    })));
+    expect(most).toBe(1);
+  }, 15_000);
 
   it("lets one project at a time hold the data folder's lock", async () => {
     const order: string[] = [];
