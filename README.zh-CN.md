@@ -202,7 +202,8 @@ OhMyGame 不会把你绑定在某一个模型上，也不按次收费。
   对话记录、撤销、画布、媒体工具和插件仍由 OhMyGame 提供。在设置中启用，并遵循原生 CLI
   的权限边界。详见[编程智能体](docs/coding-agents.md)。
 - **媒体模型**：图片、视频、3D 和音频生成，可通过 OpenAI、Codex、OpenRouter、
-  火山方舟 / BytePlus ModelArk、MiniMax、Meshy、Tripo、Hyper3D，以及豆包语音 / Seed Audio 接入。
+  火山方舟 / BytePlus ModelArk、MiniMax、Meshy、Tripo、Hyper3D、豆包语音 / Seed Audio，
+  以及自建 GPT-SoVITS 语音网关接入。
 - **自定义服务商和模型别名**：可以选择语言、图片、视频和 3D 用途，配置协议模板和生成默认值。
   详见[自定义模型配置](docs/custom-models.md)。
 
@@ -237,7 +238,7 @@ OhMyGame 不内置模型。首次启动时，它会带你完成设置：
    | 图片和精灵图            | Codex CLI（本机登录）、OpenAI（API 密钥）、OpenRouter，或火山方舟 / BytePlus ModelArk |
    | 视频                    | OpenRouter、火山方舟 / BytePlus ModelArk，或 MiniMax           |
    | 3D 模型、骨骼绑定、动画 | Meshy、Tripo 或 Hyper3D（各服务商支持的能力不同）               |
-   | 配音、音效、音乐        | 豆包语音和 Seed Audio（火山引擎）                              |
+   | 配音、音效、音乐        | 豆包语音和 Seed Audio（火山引擎），或自建 GPT-SoVITS 网关      |
 
    ChatGPT 登录不包含 OpenAI 的图片 API，需要在 OpenAI 服务商的 **图片模型** 区域另外添加
    API 密钥。**Codex CLI** 图片服务商则使用本机的 Codex 登录。详见

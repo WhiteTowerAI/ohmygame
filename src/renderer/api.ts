@@ -1726,6 +1726,22 @@ export function setProjectIntegration(projectId: string, pluginId: string): Prom
 }
 
 export function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
+export interface GptSovitsSettings { configured: boolean; tokenConfigured: boolean; baseUrl?: string; defaultVoiceId?: string }
+export interface GptSovitsVoiceEntry { id: string; label: string; voice: string; emotion: string; available: boolean }
+export function getGptSovitsSettings(): Promise<GptSovitsSettings> { return request("/settings/models/providers/gpt-sovits"); }
+export function updateGptSovitsSettings(input: { baseUrl?: string; token?: string | null; defaultVoiceId?: string | null }): Promise<GptSovitsSettings> {
+  return request("/settings/models/providers/gpt-sovits", { method: "PUT", body: JSON.stringify(input) });
+}
+export function listGptSovitsVoices(): Promise<{ voices: GptSovitsVoiceEntry[] }> { return request("/settings/models/providers/gpt-sovits/voices"); }
+export async function previewGptSovitsSpeech(text: string, voiceId?: string): Promise<Blob> {
+  const response = await fetch(apiUrl("/settings/models/providers/gpt-sovits/preview"), {
+    method: "POST",
+    headers: { "content-type": "application/json", ...runtimeHeaders() },
+    body: JSON.stringify(voiceId ? { text, voiceId } : { text }),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
 export async function previewSeedAudio(prompt: string): Promise<Blob> {
   const response = await fetch(apiUrl("/settings/models/providers/volcengine-seed-audio/preview"), { method: "POST", headers: { ...runtimeHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ prompt, durationSeconds: 2 }) });
   if (!response.ok) throw await responseError(response);

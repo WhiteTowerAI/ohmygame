@@ -37,6 +37,41 @@ express multiple speakers; this is not a structured per-speaker synthesis API.
 No adapter currently advertises seamless looping, separate audio stems, negative
 prompts, or precise lyric singing. Unsupported controls fail before generation.
 
+### GPT-SoVITS (self-hosted)
+
+A third native provider, `gpt-sovits`, targets a self-hosted
+[GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) (MIT licensed) server.
+The daemon does not talk to the upstream `api_v2` HTTP interface directly;
+it expects a thin async task-queue wrapper in front of it — any service that
+implements the four endpoints below qualifies, including a small FastAPI shim
+you can write yourself. Configure the wrapper's base URL (and its
+`X-GSV-Token` header value when the daemon reaches it over a private network)
+in **Settings → Providers → GPT-SoVITS**; the token is stored daemon-side and
+never returned to the client. The provider
+
+- supports the `speech` operation only, WAV output, and at most 500 characters
+  per request;
+- lists voices from the wrapper's voice packs — each entry pairs a reference
+  audio file with its transcript, and the stable voice ID is derived from the
+  reference path, so renaming or moving packs invalidates saved voice IDs;
+- submits synthesis asynchronously and polls the task, so queued requests wait
+  without consuming the synthesis timeout, and preview is limited to 20
+  characters because generation runs at offline-rendering speed: the model may
+  cold-start in minutes on a memory-constrained host.
+
+The wrapper contract (all endpoints accept the `X-GSV-Token` header when the
+wrapper requires authentication):
+
+| Method & path | Contract |
+| --- | --- |
+| `GET /voices` | `{"voices": [{"voice": "<name>", "refs": [{"file": "<server-side wav path>", "emotion": "<label>", "prompt_text": "<transcript>"}]}]}` — voices without refs are listed as unavailable |
+| `POST /tts/async?<params>` | Query-string parameters named like the `api_v2` `/tts` request: `text`, `text_lang`, `ref_audio_path`, `prompt_text`, `prompt_lang`, `speed_factor`, `media_type=wav`. Returns `{"task_id": "..."}` immediately |
+| `GET /task/{id}` | `{"status": "queued" \| "running" \| "done" \| "error", "error": "..."}` |
+| `GET /task/{id}/audio` | The synthesized WAV bytes, available once the task is done |
+
+The provider uses its own queue and synthesis timeouts (60 minutes absolute,
+30 minutes synthesis) rather than the five-minute Doubao request cap.
+
 ## Asset Canvas
 
 The canvas creation menu offers **Sound effect** and **Music**. The home-page
@@ -150,6 +185,9 @@ ignored and omitted from new companion files.
 - `DELETE /settings/models/providers/<provider-id>` — disconnect one service;
 - `POST /settings/models/providers/volcengine-tts/preview` — a short speech test;
 - `POST /settings/models/providers/volcengine-seed-audio/preview` — a short effect test;
+- `GET/PUT /settings/models/providers/gpt-sovits` — connection state (base URL, default voice; the token is write-only, reported only as `tokenConfigured`);
+- `GET /settings/models/providers/gpt-sovits/voices` — the proxied gateway voice catalog with precomputed stable voice IDs;
+- `POST /settings/models/providers/gpt-sovits/preview` — a short speech test (≤ 20 characters);
 - `POST /tools/<tool-id>/jobs` — enqueue one of the tools above.
 
 The unified `/settings/models/providers/doubao-voice` endpoints and Library audio

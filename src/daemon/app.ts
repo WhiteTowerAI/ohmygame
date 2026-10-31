@@ -99,9 +99,11 @@ import { ProviderVideos } from "./provider-videos.js";
 import { AudioGenerationError, ProviderAudio, type AudioGenerator } from "./audio-generation.js";
 import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
+import { GptSovitsProvider } from "./gpt-sovits-provider.js";
+import { GptSovitsSettingsStore } from "./gpt-sovits-settings.js";
 import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
 import { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
-import { DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioOperation } from "../shared/audio.js";
+import { DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, GPT_SOVITS_PROVIDER_NAME, type AudioOperation } from "../shared/audio.js";
 import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -622,6 +624,7 @@ export function createApp(options: AppOptions = {}) {
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
   const minimaxSettings = new MinimaxSettingsStore(dataDirectory);
   const doubaoVoiceSettings = new DoubaoVoiceSettingsStore(dataDirectory);
+  const gptSovitsSettings = new GptSovitsSettingsStore(dataDirectory);
   const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
   // Coding agents reach OhMyGame's tools over loopback only when they cannot take them over their own pipe.
   const agentRuntimes = new AgentRuntimeService(dataDirectory, () => {
@@ -741,7 +744,14 @@ export function createApp(options: AppOptions = {}) {
     undefined,
     () => providerEnabled("volcengine-seed-audio"),
   );
-  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider]);
+  const gptSovitsProvider = new GptSovitsProvider(
+    () => gptSovitsSettings.baseUrl(),
+    () => gptSovitsSettings.token(),
+    options.audioFetch,
+    () => providerEnabled("gpt-sovits"),
+    () => gptSovitsSettings.defaultVoiceId(),
+  );
+  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider, gptSovitsProvider]);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -1137,7 +1147,7 @@ export function createApp(options: AppOptions = {}) {
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), gptSovitsSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
@@ -2692,6 +2702,16 @@ export function createApp(options: AppOptions = {}) {
       methods: [{ type: "api_key" as const, label: `${DOUBAO_SEED_AUDIO_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
+    }, {
+      id: "gpt-sovits",
+      name: GPT_SOVITS_PROVIDER_NAME,
+      configured: Boolean(gptSovitsSettings.baseUrl()),
+      enabled: providerEnabled("gpt-sovits"),
+      custom: false,
+      status: gptSovitsSettings.baseUrl() ? "connected" as const : "not_configured" as const,
+      methods: [{ type: "api_key" as const, label: `${GPT_SOVITS_PROVIDER_NAME} gateway URL` }],
+      credentialType: "api_key" as const,
+      capabilities: ["audio"] as const,
     }];
     // Cloud quota/catalog verification can take tens of seconds. Refresh it in
     // the background and serve the last known snapshot so opening Settings does
@@ -2780,6 +2800,8 @@ export function createApp(options: AppOptions = {}) {
     seedanceSettings,
     minimaxSettings,
     doubaoVoiceSettings,
+    gptSovitsSettings,
+    gptSovitsProvider,
     syncOpenAIEndpoint,
     openAIImages,
     volcengineTtsProvider,

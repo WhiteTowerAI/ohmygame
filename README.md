@@ -236,7 +236,8 @@ OhMyGame does not lock you into one model or charge per run.
   permission limits apply. See [coding agents](docs/coding-agents.md).
 - **Media models** for images, video, 3D, and audio through OpenAI, Codex,
   OpenRouter, Volcengine Ark / BytePlus ModelArk, MiniMax, Meshy, Tripo,
-  Hyper3D, and Doubao Speech / Seed Audio.
+  Hyper3D, Doubao Speech / Seed Audio, and a self-hosted GPT-SoVITS speech
+  gateway.
 - **Custom providers and model aliases** with selectable language, image, video
   and 3D uses, protocol templates and generation defaults.
   See [custom model configuration](docs/custom-models.md).
@@ -278,7 +279,7 @@ OhMyGame ships without a model. On first launch, it walks you through setup:
    | Images and sprites            | Codex CLI (local sign-in), OpenAI (API key), OpenRouter, or Volcengine Ark / BytePlus ModelArk |
    | Video                         | OpenRouter, Volcengine Ark / BytePlus ModelArk, or MiniMax          |
    | 3D models, rigging, animation | Meshy, Tripo, or Hyper3D (capabilities vary by provider)              |
-   | Voice, sound effects, music   | Doubao Speech and Seed Audio (Volcengine)                           |
+   | Voice, sound effects, music   | Doubao Speech and Seed Audio (Volcengine), or a self-hosted GPT-SoVITS gateway |
 
    ChatGPT sign-in doesn't cover OpenAI's image API; add a separate API key in
    the OpenAI provider's **Image models** section. The **Codex CLI** image provider
