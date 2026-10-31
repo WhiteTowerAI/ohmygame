@@ -1090,6 +1090,7 @@ const en = {
     openLinkTitle: "Open this link?",
     openLinkHint: "A plugin wants to open a page on {{host}} in your browser.",
     openLink: "Open",
+    badLink: "This command's link isn't a valid web address.",
   },
   pluginStore: {
     section: "Turned on per project",

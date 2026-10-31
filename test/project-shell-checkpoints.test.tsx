@@ -314,6 +314,8 @@ describe("format 2 plugins in the project shell", () => {
       if (route.startsWith("/projects/project/plugin-commands") && init.method === "POST") return Response.json({ result: null, change: { id: "change-1", changed: ["build/index.html"] } });
       if (route.startsWith("/projects/project/plugin-commands")) return Response.json([
         { id: "acme/maker:upload", plugin: "acme/maker", title: "Upload build", slots: [{ slot: "project.menu" }], run: { native: "upload" } },
+        // The manifest only checks the prefix, so a link can still be malformed.
+        { id: "acme/maker:docs", plugin: "acme/maker", title: "Open docs", slots: [{ slot: "project.menu" }], run: { url: "https://[" } },
       ]);
       if (route === "/projects/project/plugin-changes/change-1/undo") return new Response(null, { status: 204 });
     }, detail("live-turn"), { wrap: (shell) => <ToastProvider>{shell}</ToastProvider> });
@@ -324,6 +326,24 @@ describe("format 2 plugins in the project shell", () => {
     expect(tabs("bottom")).toEqual(["Tool log"]);
     const frame = container.querySelector<HTMLIFrameElement>(".dock-area-right iframe.plugin-frame")!;
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+
+    // Moving or closing the panel keeps its page, as with the built-in panels.
+    const view = frame.closest(".dock-view");
+    expect(view).not.toBeNull();
+    const tab = [...container.querySelectorAll(".dock-area-right .dock-tab")].find((entry) => entry.textContent?.includes("Maker preview"))!;
+    await act(async () => tab.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 })));
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find((entry) => entry.textContent?.trim() === "Move to Bottom")!.click());
+    await settle();
+    expect(tabs("bottom")).toEqual(["Tool log", "Maker preview"]);
+    // happy-dom has no moveBefore, so the moved iframe reloads here; the view holding it is the same.
+    expect(container.querySelector(".dock-area-bottom iframe.plugin-frame[title='Maker preview']")?.closest(".dock-view")).toBe(view);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Maker preview"]')!.click());
+    expect(view!.isConnected).toBe(true);
+
+    await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find((entry) => entry.textContent?.trim() === "Open docs")!.click());
+    expect(document.querySelector(".ui-toasts")?.textContent).toContain("isn't a valid web address");
+    expect(container.querySelector(".project-name")).not.toBeNull();
 
     await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
     const item = [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find((entry) => entry.textContent?.trim() === "Upload build")!;

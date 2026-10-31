@@ -1072,6 +1072,7 @@ const zhCN: typeof en = {
     openLinkTitle: "打开这个链接？",
     openLinkHint: "插件想在浏览器中打开 {{host}} 上的页面。",
     openLink: "打开",
+    badLink: "这个命令的链接不是有效的网址。",
   },
   pluginStore: {
     section: "按项目开启",

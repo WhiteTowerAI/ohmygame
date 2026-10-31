@@ -221,6 +221,11 @@ export function ProjectShell({
   const visible = layout ? visiblePanels(layout, new Set(offered)) : [];
   const chatShown = !layout || visible.includes("chat");
   const [nodes] = useState(() => Object.fromEntries(Object.keys(PANELS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
+  // A plugin page gets its nodes once its panel is first placed, and keeps
+  // them, so moving or closing the panel never reloads the page.
+  const pluginNodes = useRef(new Map<PanelId, PanelNodes>()).current;
+  for (const id of pluginPanels.keys())
+    if (layout && areaOf(layout, id) && !pluginNodes.has(id)) pluginNodes.set(id, createPanelNodes());
   const latestLayout = useRef({ current, offered, layout, homes });
   latestLayout.current = { current, offered, layout, homes };
   function changeLayout(next: Layout): void {
@@ -269,7 +274,7 @@ export function ProjectShell({
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [pluginChangesOpen, setPluginChangesOpen] = useState(false);
   /** A plugin command's link, shown with its host before it opens. */
-  const [pluginLink, setPluginLink] = useState<string>();
+  const [pluginLink, setPluginLink] = useState<URL>();
   const toast = useToast();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
@@ -1006,7 +1011,13 @@ export function ProjectShell({
       window.location.hash = pluginHash(command.plugin);
       return;
     }
-    if ("url" in run) return setPluginLink(run.url);
+    if ("url" in run) {
+      // The manifest only checks that it starts with https://.
+      const url = URL.canParse(run.url) ? new URL(run.url) : undefined;
+      if (url) setPluginLink(url);
+      else toast({ title: command.title, description: t("pluginCommands.badLink"), tone: "danger" });
+      return;
+    }
     try {
       const { change } = await runPluginCommand(project.id, command.id);
       showPluginChange(command.title, change);
@@ -1256,9 +1267,9 @@ export function ProjectShell({
       onUndone={() => setWorkspaceRevision((value) => value + 1)} /> : null}
     {pluginLink ? <Dialog open title={t("pluginCommands.openLinkTitle")} onClose={() => setPluginLink(undefined)} footer={<>
       <Button variant="ghost" onClick={() => setPluginLink(undefined)}>{t("common.cancel")}</Button>
-      <Button variant="primary" onClick={() => { openExternalLink(pluginLink); setPluginLink(undefined); }}>{t("pluginCommands.openLink")}</Button>
+      <Button variant="primary" onClick={() => { openExternalLink(pluginLink.href); setPluginLink(undefined); }}>{t("pluginCommands.openLink")}</Button>
     </>}>
-      <p>{t("pluginCommands.openLinkHint", { host: new URL(pluginLink).host })}</p>
+      <p>{t("pluginCommands.openLinkHint", { host: pluginLink.host })}</p>
     </Dialog> : null}
     {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
     {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} /> : null}
@@ -1290,7 +1301,7 @@ export function ProjectShell({
         const { title, icon: Icon, source } = panelInfo(id);
         const plugin = pluginPanels.get(id);
         return { id, title, icon: <Icon size={14} />, home: homeOf(id, homes), ...(source ? { source } : {}),
-          content: plugin && project ? pluginPanelContent(plugin, visible.includes(id)) : <PanelMount nodes={nodes[id as WorkspacePanel]} /> };
+          content: plugin ? pluginNodes.has(id) ? <PanelMount nodes={pluginNodes.get(id)!} /> : null : <PanelMount nodes={nodes[id as WorkspacePanel]} /> };
       })}
       overlay={project && !chatShown ? <FloatingChat
         key={conversation?.id}
@@ -1441,6 +1452,10 @@ export function ProjectShell({
         onContextChange={setDesignContext}
         headerActionsTarget={nodes.canvas.toolbar}
       /></Suspense>, nodes.canvas.body)}
+      {project ? [...pluginNodes].flatMap(([id, target]) => {
+        const panel = pluginPanels.get(id);
+        return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id)] : [];
+      }) : null}
       {project && canvasOnly && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={t("workspace.tab.code")}>
         <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />
       </main>, nodes.code.body) : null}

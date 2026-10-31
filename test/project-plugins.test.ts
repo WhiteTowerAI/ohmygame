@@ -319,6 +319,18 @@ describe("project plugins", () => {
     });
   });
 
+  it("keeps a plugin off that was turned off before anything was allowed", async () => {
+    const { grants } = await setup();
+    await grants.setEnabled("ohmygame/godot", false);
+    expect(grants.plugin("ohmygame/godot")).toEqual({ enabled: false, allowed: [] });
+    // Allowing it later doesn't turn it back on.
+    await grants.consent("ohmygame/godot", ["network:api.godotengine.org"]);
+    expect(grants.plugin("ohmygame/godot")?.enabled).toBe(false);
+    // Turning on what was never allowed records nothing.
+    await grants.setEnabled("someone/tilemaps", true);
+    expect(grants.plugin("someone/tilemaps")).toBeUndefined();
+  });
+
   it("turns plugins on and off in a project, but not the type's plugin", async () => {
     const { index, grants, folder } = await setup();
     await createProjectPlugins({

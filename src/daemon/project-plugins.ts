@@ -231,10 +231,12 @@ export class PluginGrants {
     });
   }
 
+  /** Turning off a plugin not yet consented to keeps that choice, allowing nothing. */
   setEnabled(id: string, enabled: boolean): Promise<void> {
     return this.#change((data) => {
       const current = data.plugins[id];
       if (current) current.enabled = enabled;
+      else if (!enabled) data.plugins[id] = { enabled, allowed: [] };
     });
   }
 
