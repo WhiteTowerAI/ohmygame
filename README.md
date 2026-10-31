@@ -262,10 +262,11 @@ See [the changelog](CHANGELOG.md) for changes in each release, or open
 
 OhMyGame ships without a model. On first launch, it walks you through setup:
 
-1. **Choose a language and appearance.** Both apply right away and can be
-   changed later in Settings.
-2. **Connect your AI.** Sign in to a model provider or paste an API key, or use
-   a Claude Code, Codex, or OpenCode CLI you already have. Use **+** to add a
+1. **Get started.** Language and appearance follow your system; change them
+   anytime in Settings.
+2. **Choose your AI.** Use the built-in OhMyGame agent with a model provider
+   (sign in or paste an API key), or a Claude Code, Codex, or OpenCode CLI you
+   already have. Use **+** to add a
    custom or local endpoint. **Skip this step** moves on without a model.
 
    A language model alone can design and build a game. Generating media needs

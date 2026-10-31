@@ -176,8 +176,6 @@ function providerButton(name: string, label: string) {
   return result;
 }
 async function chooseAgent(name: string) {
-  if (!container.querySelector(".onboarding-agent-options"))
-    await act(async () => button("Switch").click());
   await act(async () => agentButton(name).click());
 }
 async function showConnection(
@@ -429,7 +427,7 @@ describe("first-run screens", () => {
     expect(container.querySelector("h1")?.textContent).toBe("Welcome to OhMyGame");
     await act(async () => stepButton("connect").click());
     expect(change).toHaveBeenLastCalledWith("connect");
-    expect(container.querySelector("h1")?.textContent).toBe("Connect your AI.");
+    expect(container.querySelector("h1")?.textContent).toBe("Choose your AI.");
     expect(container.textContent).not.toContain("Back");
     await chooseAgent("OhMyGame");
     await act(async () => providerButton("OpenRouter", "API key").click());
@@ -438,24 +436,25 @@ describe("first-run screens", () => {
     expect(container.querySelector("h1")?.textContent).toBe("Welcome to OhMyGame");
     expect(api.cancelModelAuth).toHaveBeenCalledWith("operation");
     await act(async () => stepButton("connect").click());
-    expect(container.querySelector("h1")?.textContent).toBe("Connect your AI.");
+    expect(container.querySelector("h1")?.textContent).toBe("Choose your AI.");
     expect(stepButton("connect").getAttribute("aria-current")).toBe("step");
     expect(stepButton("welcome").hasAttribute("aria-current")).toBe(false);
   });
 
-  it("applies the appearance at once on the first step", async () => {
+  it("opens on the launch screen without asking for language or appearance", async () => {
     await act(async () =>
       root.render(
         <Onboarding step="welcome" onStepChange={vi.fn()} onFinish={vi.fn()} />,
       ),
     );
-    expect(container.querySelector('[aria-label="Interface language"]')).not.toBeNull();
-    const dark = [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((item) => item.textContent === "Dark")!;
-    await act(async () => dark.click());
-    expect(dark.getAttribute("aria-checked")).toBe("true");
-    expect(localStorage.getItem("ohmygame:appearance")).toBe("dark");
-    expect(document.documentElement.dataset.appearance).toBe("dark");
-    expect(button("Next").disabled).toBe(false);
+    expect(container.querySelector(".onboarding-launch-mark .brand-logo")).not.toBeNull();
+    expect(container.querySelector('[aria-label="Interface language"]')).toBeNull();
+    expect(container.querySelector('[role="radio"]')).toBeNull();
+    // Only the welcome and the way on: nothing about settings it leaves alone.
+    expect(container.querySelector(".onboarding-content")?.textContent).toBe(
+      "Welcome to OhMyGameDescribe a game, and watch it come together.",
+    );
+    expect(button("Get started").disabled).toBe(false);
   });
 
   it("hides the legacy Codex entry and starts the chosen provider's authorization", async () => {
@@ -470,7 +469,7 @@ describe("first-run screens", () => {
     await showConnection(
       <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
     );
-    expect(container.querySelector("h1")?.textContent).toBe("Connect your AI.");
+    expect(container.querySelector("h1")?.textContent).toBe("Choose your AI.");
     expect(providerButton("openai", "Sign in")).toBeDefined();
     expect(container.querySelector('[aria-label="openai-codex"]')).toBeNull();
     expect(container.textContent).not.toContain("More providers");
@@ -513,7 +512,7 @@ describe("first-run screens", () => {
     expect(container.textContent).not.toContain(
       "Your projects stay on this machine.",
     );
-    await act(async () => button("Next").click());
+    await act(async () => button("Get started").click());
     expect(container.textContent).toContain("Could not save setup");
     await act(async () => button("Retry").click());
     expect(step).toHaveBeenCalledTimes(2);
@@ -953,7 +952,7 @@ describe("first-run screens", () => {
       container.querySelector('input[placeholder="My provider"]'),
     );
     await act(async () => stepButton("connect").click());
-    expect(container.querySelector("h1")?.textContent).toBe("Connect your AI.");
+    expect(container.querySelector("h1")?.textContent).toBe("Choose your AI.");
     expect(step).not.toHaveBeenCalled();
     expect(finish).not.toHaveBeenCalled();
   });
@@ -1041,7 +1040,7 @@ describe("first-run screens", () => {
     api.saveCustomProvider.mockResolvedValueOnce(customProvider);
     await act(async () => button("Add provider").click());
     expect(api.saveCustomProvider).toHaveBeenCalledTimes(2);
-    expect(container.querySelector("h1")?.textContent).toBe("Connect your AI.");
+    expect(container.querySelector("h1")?.textContent).toBe("Choose your AI.");
   });
 
   it("aborts pending model discovery when returning from the inline form", async () => {
@@ -1059,7 +1058,7 @@ describe("first-run screens", () => {
     await act(async () => button("Cancel").click());
     expect(signal.aborted).toBe(true);
     await act(async () => discovery.resolve({ models: customProvider.models }));
-    expect(container.querySelector("h1")?.textContent).toBe("Connect your AI.");
+    expect(container.querySelector("h1")?.textContent).toBe("Choose your AI.");
     expect(api.saveCustomProvider).not.toHaveBeenCalled();
   });
 
@@ -1146,7 +1145,7 @@ describe("three-step setup with coding agents", () => {
     expect(
       container.querySelectorAll(".onboarding-progress > button"),
     ).toHaveLength(3);
-    await act(async () => button("Next").click());
+    await act(async () => button("Get started").click());
     expect(api.updateAgentRuntime).not.toHaveBeenCalled();
     expect(button("Next").disabled).toBe(true);
     expect(container.querySelector('[aria-label="Default model"]')).toBeNull();
@@ -1204,7 +1203,6 @@ describe("three-step setup with coding agents", () => {
     expect(container.textContent).toContain("Discovery unavailable");
     expect(providerButton("OpenRouter", "API key").disabled).toBe(false);
     api.listAgentRuntimes.mockResolvedValue([codex]);
-    await act(async () => button("Switch").click());
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[aria-label="Rescan"]')!
@@ -1213,6 +1211,11 @@ describe("three-step setup with coding agents", () => {
     expect(agentButton("Codex")).toBeDefined();
     expect(container.textContent).not.toContain("Discovery unavailable");
     expect(api.updateAgentRuntime).not.toHaveBeenCalled();
+    // A later refresh that fails keeps the agents and offers the scan again.
+    api.listAgentRuntimes.mockRejectedValueOnce(new Error("Discovery unavailable"));
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(agentButton("Codex")).toBeDefined();
+    expect(container.querySelector('[aria-label="Rescan"]')).not.toBeNull();
   });
 
   it.each(["failed", "pending"])(
@@ -1272,9 +1275,7 @@ describe("three-step setup with coding agents", () => {
         else button("Check again").click();
       });
       expect(api.recheckAgentRuntime).toHaveBeenCalledWith("codex-cli");
-      expect(
-        container.querySelector(".onboarding-selected-agent")?.textContent,
-      ).toContain("Codex");
+      expect(agentButton("Codex").getAttribute("aria-pressed")).toBe("true");
       expect(container.textContent).not.toContain("codex login");
       expect(button("Next").disabled).toBe(false);
       expect(api.updateAgentRuntime).toHaveBeenCalledOnce();
@@ -1302,7 +1303,7 @@ describe("three-step setup with coding agents", () => {
       );
       await chooseAgent("Codex");
       expect(container.textContent).toContain("Could not connect");
-      expect(container.querySelector(".onboarding-agent-options")).toBeNull();
+      expect(agentButton("Codex").getAttribute("aria-pressed")).toBe("true");
       await act(async () => button("Sign in").click());
       expect(container.textContent).toContain("codex login");
       expect(container.textContent).not.toContain("Could not connect");
@@ -1348,9 +1349,16 @@ describe("three-step setup with coding agents", () => {
     );
     expect(agentButton("Codex").getAttribute("aria-pressed")).toBe("true");
     expect(
-      agentButton("Codex").querySelector('[aria-label="Ready"]'),
-    ).not.toBeNull();
-    expect(agentButton("Codex").textContent).not.toContain("Use");
+      agentButton("Codex").querySelector(".onboarding-agent-status")?.textContent,
+    ).toBe("Ready");
+    // Screen readers hear the status along with the name.
+    expect(
+      agentButton("Codex")
+        .getAttribute("aria-describedby")!
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent)
+        .join(" "),
+    ).toContain("Ready");
     expect(container.querySelector(".onboarding-picker")).toBeNull();
     await chooseAgent("Codex");
     expect(api.updateAgentDefaults).not.toHaveBeenCalled();
@@ -1557,20 +1565,14 @@ describe("built-in agent", () => {
       false,
     );
     const row = container.querySelector('[aria-label="OhMyGame"]')!;
-    expect(row.textContent).toBe("OhMyGameDefault");
-    expect(row.textContent).not.toContain("Enabled by default");
-    expect(row.textContent).not.toContain("Uses your model providers");
+    expect(row.textContent).toBe("OhMyGameBuilt in");
     expect(row.querySelector('[role="switch"]')).toBeNull();
+    expect(row.getAttribute("aria-pressed")).toBe("true");
     expect(button("Next").disabled).toBe(true);
-    expect(row.querySelector('[aria-label="Enabled"]')).not.toBeNull();
-    expect(row.textContent).not.toContain("Connect model");
-    await chooseAgent("OhMyGame");
-    expect(
-      container.querySelector(".onboarding-selected-agent")?.textContent,
-    ).toContain("OhMyGame");
+    // The built-in agent's providers show at once, without choosing it first.
     expect(
       container.querySelector(".onboarding-agent-config")?.textContent,
-    ).toContain("LLM providers");
+    ).toContain("Connect a model provider");
     expect(api.updateAgentRuntime).not.toHaveBeenCalled();
   });
 
@@ -1607,9 +1609,7 @@ describe("built-in agent", () => {
       reasoningLevel: "off",
     });
     expect(api.updateAgentRuntime).not.toHaveBeenCalled();
-    expect(
-      container.querySelector(".onboarding-selected-agent")?.textContent,
-    ).toContain("OhMyGame");
+    expect(agentButton("OhMyGame").getAttribute("aria-pressed")).toBe("true");
     expect(container.querySelector(".onboarding-picker")).not.toBeNull();
     const modelLine = container.querySelector(".onboarding-ready")!;
     expect(modelLine.textContent).toContain("Chat");
@@ -1619,7 +1619,7 @@ describe("built-in agent", () => {
 });
 
 describe("onboarding interactions", () => {
-  it("starts with agent choices, then collapses them into a change action without losing the model", async () => {
+  it("opens the chosen agent's setup at once and keeps its model when chosen again", async () => {
     const model = {
       provider: provider.id,
       id: "chat",
@@ -1632,70 +1632,41 @@ describe("onboarding interactions", () => {
       models: [model],
       defaultModel: model,
     });
+    api.listAgentRuntimes.mockResolvedValue([
+      {
+        id: "codex-cli",
+        name: "Codex",
+        enabled: false,
+        installed: false,
+        auth: { status: "unknown" },
+        permissionMode: ":workspace",
+        diagnostics: [],
+      },
+    ]);
     await showConnection(
       <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
       false,
     );
-    expect(container.querySelector(".onboarding-agent-options")).not.toBeNull();
-    expect(container.querySelector(".onboarding-picker")).toBeNull();
-    expect(container.querySelector(".onboarding-ready")).toBeNull();
-    expect(button("Next").disabled).toBe(true);
-    await chooseAgent("OhMyGame");
-    expect(container.querySelector(".onboarding-agent-options")).toBeNull();
-    expect(
-      container.querySelector(".onboarding-selected-agent")?.textContent,
-    ).toContain("OhMyGame");
+    expect(agentButton("OhMyGame").getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector(".onboarding-picker")).not.toBeNull();
     expect(container.querySelector(".onboarding-ready")?.textContent).toContain(
       "My model",
     );
     expect(button("Next").disabled).toBe(false);
-    await act(async () => button("Switch").click());
+    await chooseAgent("Codex");
     expect(container.querySelector(".onboarding-picker")).toBeNull();
+    // Every agent stays in sight; only the chosen one is marked.
+    expect(
+      [...container.querySelectorAll(".onboarding-agent-option.is-selected")].map(
+        (item) => item.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Codex"]);
     expect(button("Next").disabled).toBe(true);
     await chooseAgent("OhMyGame");
     expect(container.querySelector(".onboarding-ready")?.textContent).toContain(
       "My model",
     );
     expect(api.updateAgentDefaults).not.toHaveBeenCalled();
-  });
-
-  it("maps vertical wheel movement to the agent row and releases scrolling at its edges", async () => {
-    await showConnection(
-      <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
-      false,
-    );
-    const row = container.querySelector<HTMLDivElement>(
-      ".onboarding-agent-options",
-    )!;
-    Object.defineProperties(row, {
-      scrollWidth: { configurable: true, value: 600 },
-      clientWidth: { configurable: true, value: 400 },
-    });
-    const wheel = (options: WheelEventInit) => {
-      const event = new WheelEvent("wheel", {
-        cancelable: true,
-        bubbles: true,
-        ...options,
-      });
-      Object.defineProperties(event, {
-        ctrlKey: { value: options.ctrlKey ?? false },
-        shiftKey: { value: options.shiftKey ?? false },
-      });
-      row.dispatchEvent(event);
-      return event;
-    };
-    expect(wheel({ deltaY: 80 }).defaultPrevented).toBe(true);
-    expect(row.scrollLeft).toBe(80);
-    expect(wheel({ deltaX: 60, deltaY: 10 }).defaultPrevented).toBe(false);
-    expect(wheel({ deltaY: 60, ctrlKey: true }).defaultPrevented).toBe(false);
-    expect(wheel({ deltaY: 60, shiftKey: true }).defaultPrevented).toBe(false);
-    expect(row.scrollLeft).toBe(80);
-    expect(wheel({ deltaY: 3, deltaMode: 1 }).defaultPrevented).toBe(true);
-    expect(row.scrollLeft).toBe(128);
-    row.scrollLeft = 200;
-    expect(wheel({ deltaY: 60 }).defaultPrevented).toBe(false);
-    row.scrollLeft = 0;
-    expect(wheel({ deltaY: -60 }).defaultPrevented).toBe(false);
   });
 
   it.each([false, true])(

@@ -11,8 +11,8 @@ accepted tradeoffs, and validation limits.
 
 ## Using one
 
-First-run setup also offers Claude Code, Codex, and OpenCode in one
-horizontally scrolling row. Select an agent after installation and sign-in, choose its model
+First-run setup also shows Claude Code, Codex, and OpenCode beside OhMyGame
+in its row of agents. Select an agent after installation and sign-in, choose its model
 on the same connection screen, then save with **Next** and continue to choosing
 where to start. Switching agents retains each selection until it is saved. OhMyGame
 (Pi) is always enabled and uses connected model providers. Discovery alone never

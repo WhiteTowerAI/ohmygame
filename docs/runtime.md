@@ -95,20 +95,16 @@ requiring another selection. Failed sign-in can be retried in place.
 can return a browser URL or a terminal command,
 with a recheck after sign-in. Advanced CLI configuration stays in Settings → Agents.
 
-OhMyGame (Pi) appears first with a **Default** subtitle alongside the CLIs in a
-single horizontally scrolling row. Initially only agent choices are shown.
-Selecting one replaces those cards with a compact name and a **Switch**
-action, then shows its configuration. A short hint on the agent choices explains
-that multiple agents can stay connected and users can switch between them.
-The hint is hidden in an agent's configuration. Reopening the choices preserves model
-selections and hides configuration until an agent is selected again. It cannot be disabled. Selecting it
-does not disable any CLI. Sign-in, API key, and configuration actions use icons
-with accessible labels and tooltips. Connected
+The agents sit in one row: OhMyGame (Pi) first, then the CLIs. Each tile
+shows its status (ready, built in, installed, signed out, or not detected),
+which screen readers hear with the name. The chosen agent's configuration
+fills the panel below the row; choosing it again keeps its model selection.
+When discovery fails, a **Rescan** tile takes the CLIs' place, or follows them
+when a later check fails. OhMyGame cannot be
+disabled, and selecting it does not disable any CLI. Sign-in, API key, and
+configuration actions use icons with accessible labels and tooltips. Connected
 providers show a check; disabled connections offer an enable icon without
 changing their credentials.
-Wide windows show all four agents; narrower windows hide the scrollbar and
-allow wheel, touch, keyboard, and arrow navigation. Vertical wheel events only
-move the row while there is horizontal space in that direction.
 The connection screen also selects the default conversation model. It uses
 `/models?runtimes=1`, including enabled coding agents, and retries catalogs with
 `loadingRuntimes` without hiding models already available. Native defaults use
@@ -167,12 +163,15 @@ renderers do not pass through the home gate.
 
 **Settings → About → View getting started** reopens the welcome. Moving to the
 connection step with **Next** saves a pending preference again. The three bottom
-step indicators switch between language and appearance, AI connection, and
-where to start. Selecting the provider step also returns from its inline forms to
-the provider list. Step navigation is disabled while saving. The first step
-sets the interface language and the appearance (System, Light, or Dark). The
-appearance applies at once; changing the language saves the pending `welcome`
-step first, because the window reloads to apply it. The connection screen reuses
+step indicators switch between the welcome, choosing the AI, and where to
+start. Selecting the AI step also returns from its inline forms to the agent
+list. Step navigation is disabled while saving. The welcome is a short launch
+animation (the app mark and a dot grid) with **Get started**; it asks
+nothing. Language and appearance follow the
+system until changed in Settings, and reduced motion shows it still. The AI
+step shows OhMyGame and the Claude Code, Codex, and OpenCode CLIs in one row,
+with the chosen one's setup (OhMyGame's model providers by default) below it;
+**Next** stays in view while the setup scrolls. The connection screen reuses
 the daemon's provider authentication flow and custom-provider form; it does
 not require an OhMyGame cloud account. The add button beside provider search
 opens that form inline. Settings uses the same form in its existing dialog.

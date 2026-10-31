@@ -116,16 +116,12 @@ it("translates all three onboarding steps and preserves provider names", async (
   const props = { onStepChange: vi.fn(), onFinish: vi.fn() };
   await act(async () => root!.render(<Onboarding step="welcome" {...props} />));
   expect(host.querySelector("h1")?.textContent).toBe("欢迎使用 OhMyGame");
-  expect(host.querySelector(".onboarding-preferences")?.textContent).toContain("外观");
-  expect(host.querySelector("footer")?.textContent).toBe("下一步");
+  expect(host.querySelector(".onboarding-lede")?.textContent).toBe("描述一个游戏，看它一步步成形。");
+  expect(host.querySelector("footer")?.textContent).toBe("开始使用");
   await act(async () => root!.render(<Onboarding step="connect" {...props} />));
-  expect(host.querySelector("h1")?.textContent).toBe("连接你的 AI。");
-  expect(host.querySelector(".onboarding-section-heading")?.textContent).toBe("连接智能体");
-  expect(host.querySelector(".onboarding-agents-hint")?.textContent).toBe("可连接多个智能体，随时切换使用。");
-  expect(host.querySelector(".onboarding-picker")).toBeNull();
-  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="OhMyGame"]')!.click());
-  expect(host.querySelector(".onboarding-selected-agent button")?.textContent).toBe("切换");
-  expect(host.querySelector(".onboarding-agents-hint")).toBeNull();
+  expect(host.querySelector("h1")?.textContent).toBe("选择你的 AI。");
+  expect(host.querySelector('[aria-label="OhMyGame"]')?.textContent).toBe("OhMyGame内置");
+  expect(host.querySelector(".onboarding-provider-heading")?.textContent).toBe("连接一个模型服务商");
   expect(host.querySelector('[aria-label="DeepSeek"]')?.textContent).toBe(
     "DeepSeek",
   );

@@ -49,9 +49,8 @@ import { groupProviders } from "./provider-groups.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { OnboardingAgents } from "./onboarding-agents.js";
-import { readAppearance, setAppearance, type Appearance } from "./appearance.js";
-import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
-import { SegmentedControl, Select } from "./ui/index.js";
+import { BrandLogo } from "./brand-logo.js";
+import { t } from "./i18n.js";
 import "./onboarding.css";
 
 type Connection = { provider: ProviderSummary; method: ModelAuthMethod };
@@ -59,12 +58,6 @@ type Connection = { provider: ProviderSummary; method: ModelAuthMethod };
 /** Where the last step sends people: Home's prompt, a blank project, or a folder they already have. */
 export type OnboardingStart = "prompt" | "blank" | "import";
 
-const LANGUAGE_OPTIONS: readonly { value: LanguagePreference; label: string }[] = [
-  { value: "system", label: t("settings.appearance.system") },
-  // Language names stay in their own language so people can find theirs.
-  { value: "en", label: "English" },
-  { value: "zh-CN", label: "简体中文" },
-];
 const STEPS: readonly OnboardingStep[] = ["welcome", "connect", "start"];
 
 export function Onboarding({
@@ -97,7 +90,6 @@ export function Onboarding({
   const [customSettings, setCustomSettings] =
     useState<Awaited<ReturnType<typeof getCustomProvider>>>();
   const [refresh, setRefresh] = useState(0);
-  const [choosingAgent, setChoosingAgent] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState<"pi" | AgentRuntimeId>();
   const [selectedModels, setSelectedModels] = useState<
     Partial<Record<"pi" | AgentRuntimeId, AgentModelRef>>
@@ -277,7 +269,6 @@ export function Onboarding({
   }
 
   function selectAgent(id: "pi" | AgentRuntimeId) {
-    setChoosingAgent(false);
     if (agentModel)
       setSelectedModels((value) => ({ ...value, [activeAgent]: agentModel }));
     setSelectedAgent(id);
@@ -359,8 +350,6 @@ export function Onboarding({
         busy={busy}
         models={catalog.models}
         selectedAgent={activeAgent}
-        choosing={choosingAgent}
-        onExpand={() => setChoosingAgent(true)}
         onSelectAgent={selectAgent}
         loadingRuntimes={catalog.loadingRuntimes}
         onBusyChange={setSavingAgent}
@@ -423,20 +412,13 @@ export function Onboarding({
       <div key={`content-${step}`} className="onboarding-content">
         {step === "welcome" ? (
           <>
+            <div className="onboarding-launch-mark" aria-hidden="true">
+              <BrandLogo size={88} />
+            </div>
             <h1 ref={heading} tabIndex={-1}>
               {t("onboarding.welcome")}
             </h1>
             <p className="onboarding-lede">{t("onboarding.welcomeHint")}</p>
-            <WelcomePreferences
-              busy={busy}
-              onLanguageChange={(next) =>
-                // The language reloads the window; saving first brings setup back to this step.
-                void run(async () => {
-                  await onStepChange("welcome");
-                  setLanguagePreference(next);
-                })
-              }
-            />
           </>
         ) : step === "start" ? (
           <>
@@ -459,7 +441,6 @@ export function Onboarding({
         {error ||
         loadError ||
         (step === "connect" &&
-          !choosingAgent &&
           activeAgent === "pi" &&
           providerError) ? (
           <div className="onboarding-feedback">
@@ -493,14 +474,14 @@ export function Onboarding({
               disabled={busy}
               onClick={() => navigate("connect")}
             >
-              {t("onboarding.next")}
+              {t("onboarding.getStarted")}
             </button>
           ) : step === "connect" ? (
             <>
               <button
                 className="onboarding-primary-button"
                 type="button"
-                disabled={busy || choosingAgent || !agentModel}
+                disabled={busy || !agentModel}
                 onClick={() => navigate("start")}
               >
                 {t("onboarding.next")}
@@ -558,31 +539,6 @@ export function Onboarding({
         ))}
       </nav>
     </main>
-  );
-}
-
-/** The first step: the language and appearance, which apply as soon as they change. */
-function WelcomePreferences({ busy, onLanguageChange }: {
-  busy: boolean;
-  onLanguageChange: (language: LanguagePreference) => void;
-}) {
-  const [language] = useState(readLanguagePreference);
-  const [appearance, updateAppearance] = useState<Appearance>(readAppearance);
-  return (
-    <div className="onboarding-preferences">
-      <label className="onboarding-preference">
-        <span>{t("settings.appearance.language")}</span>
-        <Select label={t("settings.appearance.languageLabel")} options={LANGUAGE_OPTIONS} value={language}
-          onChange={(next) => { if (!busy && next !== language) onLanguageChange(next); }} />
-      </label>
-      <div className="onboarding-preference">
-        <span>{t("settings.nav.appearance")}</span>
-        <SegmentedControl label={t("settings.appearance.theme")} value={appearance} onChange={(next) => {
-          updateAppearance(next);
-          setAppearance(next);
-        }} options={(["system", "light", "dark"] as const).map((value) => ({ value, label: t(`settings.appearance.${value}`) }))} />
-      </div>
-    </div>
   );
 }
 

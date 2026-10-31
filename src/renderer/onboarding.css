@@ -177,38 +177,102 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   flex-direction: row;
   gap: 16px;
 }
+/* The choices scroll on their own so Next stays in view. */
 .onboarding-connect > .onboarding-content {
   flex: 1 1 auto;
   min-height: 0;
+  width: 100%;
   justify-content: flex-start;
-  padding: clamp(40px, 10dvh, 72px) 0 24px;
+  padding: clamp(24px, 7dvh, 64px) max(0px, (100% - 520px) / 2) 8px;
+  overflow-y: auto;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
 }
-/* Step 1: the language and appearance, each a labelled row. */
-.onboarding-preferences {
+.onboarding-connect .onboarding-footer {
+  margin-top: 12px;
+}
+/* Step 1: the launch. The mark pops in and the words follow, over a dot grid
+   like the canvas. */
+.onboarding-welcome::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(
+    var(--color-grid-dot) 1px,
+    transparent 1.2px
+  );
+  background-size: 20px 20px;
+  mask-image: radial-gradient(
+    ellipse 60% 55% at 50% 45%,
+    #000 0%,
+    transparent 75%
+  );
+  pointer-events: none;
+  animation: onboarding-launch-grid 1200ms var(--ease-out) both;
+}
+.onboarding-welcome
+  > :is(.onboarding-content, .onboarding-footer, .onboarding-progress) {
+  position: relative;
+}
+.onboarding-welcome > .onboarding-content,
+.onboarding-welcome > .onboarding-footer {
+  flex: none;
+  padding: 0;
+  animation: none;
+}
+/* The words and the button sit together in the middle; the steps stay at the bottom. */
+.onboarding-welcome > .onboarding-content {
+  margin-top: auto;
+}
+.onboarding-welcome > .onboarding-footer {
+  margin: 36px 0 0;
+}
+.onboarding-welcome > .onboarding-progress {
+  margin-top: auto;
+}
+.onboarding-launch-mark {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  width: min(100%, 400px);
-  margin-top: 32px;
-  padding: var(--space-2);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  text-align: left;
+  justify-content: center;
+  margin-bottom: 28px;
 }
-:root[data-appearance="light"] .onboarding-preferences {
-  background: var(--color-app);
+.onboarding-launch-mark .brand-logo {
+  border-radius: 22px;
+  /* a hairline keeps the dark tile apart from a dark window */
+  box-shadow:
+    0 10px 30px rgb(0 0 0 / 18%),
+    0 0 0 1px rgb(255 255 255 / 8%);
+  animation: onboarding-launch-mark 640ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
-.onboarding-preference {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  min-height: 44px;
-  padding: 0 var(--space-2);
-  font-size: var(--text-md);
+.onboarding-welcome h1 {
+  animation: onboarding-launch-rise 480ms var(--ease-out) 640ms both;
 }
-.onboarding-preference .ui-select {
-  min-width: 160px;
+.onboarding-welcome .onboarding-lede {
+  animation: onboarding-launch-rise 480ms var(--ease-out) 760ms both;
+}
+.onboarding-welcome .onboarding-footer {
+  animation: onboarding-launch-rise 480ms var(--ease-out) 900ms both;
+}
+.onboarding-welcome .onboarding-primary-button {
+  min-width: 140px;
+}
+/* The grid grows into place from a little smaller; growing from larger would
+   overflow the window and flash a scroll bar. */
+@keyframes onboarding-launch-grid {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@keyframes onboarding-launch-mark {
+  from {
+    opacity: 0;
+    transform: scale(0.6) rotate(-6deg);
+  }
+}
+@keyframes onboarding-launch-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
 }
 /* Step 3: where to start, as cards that finish setup. */
 .onboarding-start-choices {
@@ -221,6 +285,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding .onboarding-start-choice {
   flex-direction: column;
   align-items: flex-start;
+  justify-content: flex-start;
   gap: var(--space-1);
   min-height: 132px;
   padding: var(--space-4);
@@ -253,143 +318,121 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   font-size: var(--text-sm);
   line-height: 1.5;
 }
+/* Step 2: every agent in one row, all in sight, then the chosen one's setup. */
 .onboarding-agents {
   display: flex;
-  flex: 1 1 auto;
   flex-direction: column;
-  min-height: 0;
-  width: min(100%, 400px);
-  margin-top: 24px;
+  width: min(100%, 480px);
+  margin-top: 28px;
   text-align: left;
-}
-.onboarding-connect:has(.onboarding-agent-options) > .onboarding-content {
-  justify-content: center;
-}
-.onboarding-connect:has(.onboarding-agent-options) .onboarding-agents {
-  flex: none;
-}
-.onboarding-section-heading,
-.onboarding-provider-heading {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-.onboarding-section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: none;
-  min-height: 28px;
-  margin-bottom: 8px;
-  padding-left: 4px;
 }
 .onboarding-agent-options {
   display: flex;
-  flex: none;
-  gap: 8px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  padding: 2px;
-  margin: -2px;
-}
-.onboarding-agent-options::-webkit-scrollbar {
-  display: none;
-}
-.onboarding-agent-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: stretch;
+  gap: var(--space-2);
 }
 .onboarding .onboarding-agent-option {
-  flex: 0 0 calc((100% - 24px) / 4);
-  flex-direction: column;
-  justify-content: flex-start;
-  gap: 6px;
-  min-width: 0;
-  padding: 12px 6px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text);
-  font-size: 13px;
-}
-.onboarding-agent-option:hover:not(:disabled) {
-  background: var(--color-hover);
-}
-.onboarding-agent-title {
-  position: relative;
   display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 100%;
+  gap: 6px;
+  min-width: 0;
+  min-height: 92px;
+  padding: 12px 6px 10px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: inset 0 0 0 1px transparent;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  text-align: center;
+  transition:
+    background var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
+}
+:root[data-appearance="light"] .onboarding .onboarding-agent-option {
+  background: var(--color-app);
+}
+.onboarding .onboarding-agent-option:hover:not(:disabled, .is-selected) {
+  background: var(--color-hover);
+}
+.onboarding .onboarding-agent-option.is-selected {
+  box-shadow: inset 0 0 0 1.5px var(--color-ink);
+}
+.onboarding-agent-option.is-placeholder {
+  color: var(--color-text-tertiary);
+}
+.onboarding-agent-option:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.onboarding-agent-option .settings-provider-mark {
+  width: 28px;
   height: 28px;
+  border-radius: 7px;
 }
-.onboarding-agent-title .settings-provider-mark {
-  width: 24px;
-  height: 24px;
+.onboarding-agent-name {
+  max-width: 100%;
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.onboarding-agent-title > svg {
-  position: absolute;
-  left: calc(50% + 17px);
-}
-.onboarding-agent-option > span:not(.onboarding-agent-title) {
-  line-height: 18px;
-}
-.onboarding-agent-option small {
-  min-height: 14px;
+.onboarding-agent-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
   color: var(--color-text-secondary);
-  font-size: 11px;
-  line-height: 14px;
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
-.onboarding-agent-ready {
+.onboarding-agent-status.is-ready {
   color: var(--color-success);
+}
+.onboarding-agent-status.is-muted {
+  color: var(--color-text-tertiary);
 }
 .onboarding-agent-config {
   display: flex;
-  flex: 1 1 auto;
   flex-direction: column;
-  min-height: 0;
-  margin-top: 24px;
+  margin-top: var(--space-3);
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  animation: onboarding-step-enter 200ms var(--ease-out) both;
 }
-.onboarding-selected-agent {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 40px;
-  padding: 0 4px;
-  font-size: 13px;
+:root[data-appearance="light"] .onboarding-agent-config {
+  background: var(--color-app);
 }
-.onboarding-selected-agent > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.onboarding-agent-config:empty {
+  display: none;
+}
+.onboarding-agents .onboarding-status {
+  justify-content: flex-start;
+  margin: 4px 0 0 4px;
 }
 .onboarding-provider-heading {
-  padding-left: 4px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
 }
 .onboarding-agent-config .onboarding-picker {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
   width: 100%;
-  margin-top: 8px;
+  margin-top: 4px;
 }
-.onboarding-connect .onboarding-provider-list {
-  flex: 1 1 auto;
-  min-height: 0;
-  max-height: none;
+.onboarding-agent-config .onboarding-provider-list {
+  margin-top: 6px;
+}
+.onboarding-agent-config .onboarding-provider-row {
+  min-height: 36px;
 }
 .onboarding-agent-hint {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: 12px;
   line-height: 1.6;
-}
-.onboarding-agents-hint {
-  flex: none;
-  margin-top: 12px;
 }
 .onboarding-agent-install-actions {
   display: flex;
@@ -419,10 +462,10 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   margin-top: 8px;
 }
 .onboarding-connect .onboarding-ready {
-  flex: none;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
   max-width: 100%;
+  margin-top: 8px;
 }
 .onboarding-icon-button {
   width: 32px;
@@ -464,17 +507,17 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   min-height: 36px;
   padding: 8px 18px;
   border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-hover);
-  color: var(--color-text);
+  border-radius: var(--radius-md);
+  background: var(--color-ink);
+  color: var(--color-on-ink);
   font-size: 13px;
   font-weight: 500;
 }
 .onboarding-primary-button:hover:not(:disabled) {
-  background: var(--color-selected);
+  background: color-mix(in srgb, var(--color-ink) 86%, var(--color-app));
 }
 .onboarding-primary-button:disabled {
-  opacity: 0.55;
+  opacity: 0.35;
 }
 .onboarding-auth {
   width: min(100%, 360px);
@@ -572,6 +615,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding .onboarding-more-providers {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 4px;
   width: 100%;
   min-height: 36px;
@@ -670,12 +714,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
     flex-wrap: wrap;
   }
 }
-@media (max-width: 439px) {
-  .onboarding .onboarding-agent-option {
-    flex-basis: calc((100% - 16px) / 3);
-  }
-}
-
 .onboarding-arrival {
   position: fixed;
   inset: 0;
@@ -739,19 +777,22 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   .onboarding-connect .onboarding-footer {
     margin-bottom: 8px;
   }
-  .onboarding-agents,
-  .onboarding-agent-config {
+  .onboarding-agents {
     margin-top: 16px;
   }
   .onboarding .onboarding-agent-option {
-    gap: 4px;
+    min-height: 76px;
     padding-block: 8px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .onboarding-arrival,
   .onboarding-arrival h1,
-  .onboarding > :is(.onboarding-content, .onboarding-footer) {
+  .onboarding > :is(.onboarding-content, .onboarding-footer),
+  .onboarding-welcome::before,
+  .onboarding-welcome
+    :is(h1, .onboarding-lede, .onboarding-footer, .brand-logo),
+  .onboarding-agent-config {
     animation: none;
   }
 }
