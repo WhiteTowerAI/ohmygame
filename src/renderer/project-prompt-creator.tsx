@@ -169,8 +169,10 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   // Until plugins load, the draft's own extras stand, so neither sending nor editing drops them.
   const extraMentions = capabilitiesLoaded ? extras.map(toPluginMention) : extraPlugins ?? [];
   const ideas: readonly IdeaKey[] = (starter && starter.name in IDEAS ? IDEAS[starter.name as keyof typeof IDEAS] : undefined) ?? GENERAL_IDEAS;
-  // A plugin that adds the chosen type is on in its projects already.
-  const projectPlugins = projectPluginChoices.filter((plugin) => !plugin.providesTypes.includes(type));
+  // A plugin that adds project types is picked as the type, and is on in its projects already;
+  // the others can be turned on for the new project. While plugins move to format 2, this keeps
+  // the only bundled one, Godot, from showing as a second kind of plugin beside the starters.
+  const projectPlugins = projectPluginChoices.filter((plugin) => !plugin.providesTypes.length);
   /** The prompt as sent: the skill, the chosen plugins in order, then the text. */
   const withExtras = (text: string, others = extraMentions) =>
     others.reduceRight((rest, mention) => formatPluginInvocation(mention, rest), text);

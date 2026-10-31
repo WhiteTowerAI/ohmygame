@@ -88,8 +88,11 @@ project type hooks the manifest declares can be registered.
   and makes the app type it names first. The plugin menu beside the type
   takes any number of starting plugins, sent as mentions in the order chosen,
   and lists `GET /project-plugins`, the enabled format 2 plugins a new project
-  can turn on for itself; the type's own plugin is left out. Creating the project posts each one's consent, if still needed, and
-  turns it on once the project exists.
+  can turn on for itself, except those that add project types: they are
+  picked as the type, and a project of another type turns them on in its
+  Plugins sheet. With starting plugins to pick, the menu leaves that list out
+  while it is empty. Creating the project posts each one's consent, if still
+  needed, and turns it on once the project exists.
 
 Releases install only when they are signed by a key the app trusts for
 their publisher (`AppOptions.pluginReleaseKeys`). The app ships with none

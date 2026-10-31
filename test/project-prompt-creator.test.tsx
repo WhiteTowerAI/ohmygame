@@ -58,6 +58,7 @@ beforeEach(() => {
   projectPlugins = [
     { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", capabilities: [], consented: true, providesTypes: ["ohmygame/godot:godot-game"] },
     { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", capabilities: ["network:tiles.example.com"], consented: false, providesTypes: ["acme/tiles:tile-map"] },
+    { id: "acme/sprites", displayName: "Sprites", description: "Sprite sheets.", version: "1.2.0", capabilities: ["network:sprites.example.com"], consented: false, providesTypes: [] },
   ];
   localStorage.clear();
   pendingTypes = undefined;
@@ -328,20 +329,25 @@ describe("Home prompt box", () => {
   it("turns plugins on for the new project alone once the person allows what they ask for", async () => {
     await render();
     await act(async () => pluginButton().click());
-    await act(async () => menuItem("Tiles")!.click());
-    expect(document.body.textContent).toContain("network:tiles.example.com");
+    // Plugins that add project types are picked as the type instead.
+    expect([...document.querySelectorAll('[role="group"][aria-label="On in this project only"] [role="menuitemcheckbox"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
+      .toEqual(["Sprites"]);
+    await act(async () => menuItem("Sprites")!.click());
+    expect(document.body.textContent).toContain("network:sprites.example.com");
     const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow and turn on")!;
     await act(async () => allow.click());
     expect(pluginButton().textContent).toBe("+1");
     await type("Make a maze");
     await send();
-    expect(onSubmit.mock.calls[0]![0].projectPlugins.map((plugin: ProjectPluginChoice) => plugin.id)).toEqual(["acme/tiles"]);
+    expect(onSubmit.mock.calls[0]![0].projectPlugins.map((plugin: ProjectPluginChoice) => plugin.id)).toEqual(["acme/sprites"]);
+  });
 
-    // A plugin that adds the chosen type is on in that project already.
-    await chooseType("Tile Map");
+  it("leaves out the list of plugins for this project when only type plugins could go in it", async () => {
+    projectPlugins = projectPlugins.filter((plugin) => plugin.providesTypes.length);
+    await render();
     await act(async () => pluginButton().click());
-    expect([...document.querySelectorAll('[role="group"][aria-label="On in this project only"] [role="menuitemcheckbox"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
-      .toEqual(["Godot"]);
+    expect(starterItems()).toEqual(["Web Game Studio"]);
+    expect(document.querySelector('[role="group"][aria-label="On in this project only"]')).toBeNull();
   });
 
   it("offers no starting plugins when none is enabled, and links to plugins when none can be turned on", async () => {
@@ -389,7 +395,7 @@ describe("Home prompt box", () => {
     expect(document.querySelector(".home-plugin-empty")!.textContent).toContain("Couldn't load the plugins");
     const retry = [...document.querySelectorAll<HTMLButtonElement>(".home-plugin-empty button")].find((item) => item.textContent === "Retry")!;
     await act(async () => retry.click());
-    expect(menuItem("Tiles")).toBeDefined();
+    expect(menuItem("Sprites")).toBeDefined();
   });
 
   it("offers a plugin that sets up its own projects as a type, which keeps that plugin on", async () => {
