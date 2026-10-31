@@ -50,12 +50,13 @@
   backdrop-filter: none;
 }
 
-.home-hero .prompt-box-home textarea {
+.home-hero .prompt-box-home .prompt-editor,
+.home-hero .prompt-box-home .prompt-editor-placeholder {
   color: var(--color-text);
   font-size: var(--text-lg);
 }
 
-.home-hero .prompt-box-home textarea::placeholder {
+.home-hero .prompt-box-home .prompt-editor-placeholder {
   color: var(--color-text-tertiary);
   opacity: 1;
 }

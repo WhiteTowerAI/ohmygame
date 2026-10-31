@@ -10,7 +10,7 @@ import { PluginIcon } from "./plugin-icons.js";
 import { PluginIconPicker } from "./plugin-icon-picker.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import { useAgentModels } from "./model-selector.js";
-import { PromptBox } from "./prompt-box.js";
+import { PromptBox, type PromptInput } from "./prompt-box.js";
 import { PluginConfigurationPanel, PluginMcpPanel, PluginUninstallButton, PluginEnabledSwitch } from "./plugin-controls.js";
 import { WorkspaceFileBrowser } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
@@ -126,7 +126,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
   const [fileRequest, updateFileRequest] = useState<{ path: string; id: number }>();
   const [agentCollapsed, setAgentCollapsed] = useState(false);
   const [confirming, setConfirming] = useState<"conversation" | "workspace">();
-  const textarea = useRef<HTMLTextAreaElement>(null);
+  const promptInput = useRef<PromptInput>(null);
   const timeline = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const draftPlugin = draft?.plugin;
@@ -198,7 +198,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
   function prefill(prompt: string) {
     setAgentCollapsed(false);
     setInput(current => ({ ...current, prompt: current.prompt.trim() ? `${current.prompt.trimEnd()}\n\n${prompt}` : prompt }));
-    requestAnimationFrame(() => textarea.current?.focus());
+    requestAnimationFrame(() => promptInput.current?.focus());
   }
   function setFileRequest(file: string) { updateFileRequest({ path: file, id: Date.now() }); }
   async function toggleMcp(id: string, enabled: boolean) {
@@ -281,7 +281,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
         <div className="composer">
           {error || state?.error ? <p className="plugin-builder-error" role="alert">{error ?? state?.error}{!state ? <button type="button" onClick={() => setRetry(value => value + 1)}>{t("common.retry")}</button> : null}</p> : null}
           <PromptBox value={input.prompt} onChange={prompt => setInput(current => ({ ...current, prompt }))} onSubmit={() => void send()}
-            textareaRef={textarea} variant="project" disabled={!state} placeholder={t(configuring ? "pluginBuilder.configurePlaceholder" : state?.mode === "edit" ? "pluginBuilder.editPlaceholder" : "pluginBuilder.placeholder")}
+            inputRef={promptInput} variant="project" disabled={!state} placeholder={t(configuring ? "pluginBuilder.configurePlaceholder" : state?.mode === "edit" ? "pluginBuilder.editPlaceholder" : "pluginBuilder.placeholder")}
             actions={<ComposerActions models={catalog.models} status={catalog.status} value={model} reasoningLevel={reasoning} disabled={disabled}
               onChange={(selected, level) => setInput(current => ({ ...current, model: { provider: selected.provider, id: selected.id }, reasoningLevel: level }))}
               onReasoningChange={level => setInput(current => ({ ...current, reasoningLevel: level }))}

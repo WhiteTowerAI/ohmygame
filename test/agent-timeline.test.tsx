@@ -1108,6 +1108,23 @@ describe("AgentTimeline", () => {
     expect(html).toContain('</div><div class="user-message">Build</div>');
   });
 
+  it("shows the plugins a user message mentions as the plugins, in place", () => {
+    const mentions = [
+      { name: "web-game-studio", displayName: "Web Game Studio", marketplaceId: "ohmygame" },
+      { name: "gone", displayName: "Gone", marketplaceId: "personal" },
+    ];
+    const plugins = [{
+      id: "web-game-studio@ohmygame", name: "web-game-studio", displayName: "Web Game Studio", description: "",
+      marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame", icon: { type: "preset" as const, id: "gamepad" as const },
+    }];
+    const html = renderToStaticMarkup(<AgentTimeline plugins={plugins}
+      items={[{ ...user(), text: "@Web Game Studio hi with @Gone and @Someone", mentions }]} />);
+
+    expect(html).toMatch(/<div class="user-message"><span class="user-message-plugin" title="Plugin: Web Game Studio"><svg[^>]*>.*?<\/svg><span>Web Game Studio<\/span><\/span> hi with <span class="user-message-plugin" title="Plugin: Gone"><svg/);
+    expect(html).toContain("<span>Gone</span></span> and @Someone</div>");
+    expect(html).not.toContain("@Web Game Studio");
+  });
+
   it("renders non-image attachments without duplicating image attachments", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[{
       ...user(),

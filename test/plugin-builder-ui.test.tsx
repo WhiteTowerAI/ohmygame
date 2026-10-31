@@ -113,7 +113,7 @@ describe("Plugin Builder removal controls", () => {
     configuring = true; builtIn = true;
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
     expect(container.querySelector('[aria-label="Plugin preview"]')?.getAttribute("data-active-tab")).toBe("configuration");
-    expect(container.querySelector("textarea")?.placeholder).toContain("configuration problem");
+    expect(container.querySelector(".prompt-editor")?.getAttribute("aria-placeholder")).toContain("configuration problem");
     expect(button("Uninstall plugin")).toBeNull();
     expect(button("Disable Review")).not.toBeNull();
     expect(container.textContent).not.toContain("Install plugin");

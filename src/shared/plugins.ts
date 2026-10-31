@@ -62,15 +62,45 @@ export function pluginMentionToken(mention: Pick<PluginMention, "displayName">):
 }
 
 export function serializePluginMentions(prompt: string, mentions: readonly PluginMention[]): string {
-  const ordered = uniquePluginMentions(mentions)
-    .sort((left, right) => pluginMentionToken(right).length - pluginMentionToken(left).length);
-  if (ordered.length === 0) return prompt;
-  const byToken = new Map(ordered.map((mention) => [pluginMentionToken(mention), mention]));
-  const pattern = new RegExp(`(?:${[...byToken.keys()].map(escapeRegExp).join("|")})(?=$|[\\s.,!?;:)}\\]])`, "g");
-  return prompt.replace(pattern, (token) => {
-    const mention = byToken.get(token)!;
+  const tokens = pluginMentionTokens(mentions);
+  if (!tokens) return prompt;
+  return prompt.replace(tokens.pattern, (token) => {
+    const mention = tokens.byToken.get(token)!;
     return `[${token}](plugin://${encodeURIComponent(mention.name)}@${encodeURIComponent(mention.marketplaceId)})`;
   });
+}
+
+/** Where each plugin mention sits in the prompt, `end` exclusive. */
+export function pluginMentionRanges(prompt: string, mentions: readonly PluginMention[]): Array<{ start: number; end: number; mention: PluginMention }> {
+  const tokens = pluginMentionTokens(mentions);
+  if (!tokens) return [];
+  return [...prompt.matchAll(tokens.pattern)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+    mention: tokens.byToken.get(match[0])!,
+  }));
+}
+
+/** The prompt cut at its plugin mentions, for showing each as itself. */
+export function splitPluginMentions(prompt: string, mentions: readonly PluginMention[]): Array<string | PluginMention> {
+  const parts: Array<string | PluginMention> = [];
+  let end = 0;
+  for (const range of pluginMentionRanges(prompt, mentions)) {
+    if (range.start > end) parts.push(prompt.slice(end, range.start));
+    parts.push(range.mention);
+    end = range.end;
+  }
+  if (end < prompt.length) parts.push(prompt.slice(end));
+  return parts;
+}
+
+/** Longer names match first, so `@Foo Bar` is not read as `@Foo`. */
+function pluginMentionTokens(mentions: readonly PluginMention[]): { pattern: RegExp; byToken: Map<string, PluginMention> } | undefined {
+  const ordered = uniquePluginMentions(mentions)
+    .sort((left, right) => pluginMentionToken(right).length - pluginMentionToken(left).length);
+  if (ordered.length === 0) return undefined;
+  const byToken = new Map(ordered.map((mention) => [pluginMentionToken(mention), mention]));
+  return { pattern: new RegExp(`(?:${[...byToken.keys()].map(escapeRegExp).join("|")})(?=$|[\\s.,!?;:)}\\]])`, "g"), byToken };
 }
 
 export function hasPluginMentionToken(prompt: string, mention: Pick<PluginMention, "displayName">): boolean {

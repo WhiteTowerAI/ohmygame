@@ -614,6 +614,15 @@ drags by its top edge (double-click puts it back), folds to a pill at the
 bottom, which unfolds when something waits on an answer, and opens into the
 chat panel. The composer's draft carries between the bar and the panel.
 
+The composer's and Home's prompt field (`src/renderer/prompt-editor.tsx`, a
+plain-text Lexical editor) shows each plugin (`@Name`) and Skill (`$name`) the
+prompt names as a chip, which the caret steps over and Backspace removes
+whole. Picking one from `@`, `$`, `/` or the **+** menu puts it where it is
+typed, any number of each; the field's text is the prompt as sent. A name
+typed by hand stays text until the prompt is shown again, as from history.
+Drafts saved when a Skill or plugin sat in a slot before the text come back
+with it in the text.
+
 Design is the game design document, the Markdown the agent reads as the game's
 design (`src/renderer/design-document-panel.tsx`). Its toolbar picks one of the
 canvas documents, the main one first, and switches between reading it beside its

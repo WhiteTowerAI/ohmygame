@@ -1326,6 +1326,7 @@ export function ProjectShell({
               waitingForInput={Boolean(questionnaire || approval)}
               changeControls={turnChanges}
               workspaceRevision={workspaceRevision}
+              plugins={capabilities.plugins}
             />
           </ErrorBoundary>
         )}
@@ -1392,6 +1393,7 @@ export function ProjectShell({
                 onAddToChat={addToChat}
                 onBranch={branchChat}
                 branchDisabled={creatingConversation || state.connection !== "open"}
+                plugins={capabilities.plugins}
               />
               </ErrorBoundary>
             </Activity>
