@@ -706,10 +706,16 @@ describe("native plugin capabilities", () => {
     try {
       await session.bindExtensions({ mode: "rpc" });
       const event = { type: "tool_call", toolCallId: "echo-call", toolName: "mcp", input: {} } as never;
+      // Calls made inside a tool call, as a script's are, skip that hook; the adapter's approval asks instead.
+      const mcp = session.getToolDefinition("mcp")!;
+      const nested = async () => JSON.stringify(await mcp.execute("echo-call", { server: "local", tool: "local_echo", args: { value: "nested" } },
+        undefined, undefined, session.extensionRunner.createToolContext("echo-call", undefined)));
       expect(await session.extensionRunner.emitToolCall(event)).toBeUndefined();
+      expect(await nested()).toContain("nested");
       reason = "plugins changed";
       expect(await session.extensionRunner.emitToolCall(event)).toEqual({ block: true, reason: "plugins changed" });
       expect(await session.extensionRunner.emitToolCall({ ...(event as object), toolName: "read" } as never)).toBeUndefined();
+      expect(await nested()).toContain("approval_denied");
     } finally {
       await close();
     }

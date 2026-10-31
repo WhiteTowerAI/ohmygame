@@ -80,7 +80,11 @@ it in the call's progress.
   `$env:VAR`, `{env:VAR}`), in the manifest or once settings are filled in;
   `env` is passed as written. A session keeps the servers it started with,
   so once one of them is turned off or changed, the session's MCP calls are
-  refused until its next message (`McpGuard`).
+  refused until its next message (`McpGuard`). The guard is asked before
+  each of the adapter's tools runs and again by the adapter's approval
+  request before each MCP call, including calls a script makes. A script
+  already running can still start a server that hadn't started, but every
+  call to it is refused.
 - A typed project's preview follows the plugin version its `ohmygame.json`
   pins; the app updates what it recorded when that file changes and at
   startup.

@@ -39,6 +39,8 @@ export type McpGuard = () => Promise<string | undefined>;
 interface AdapterModule {
   createMcpAdapter(options: { config: EffectiveMcpConfig }): ExtensionFactory;
 }
+/** What pi-mcp-adapter emits on `pi.events` before every MCP tool call, whatever made it. */
+const MCP_TOOL_APPROVAL_REQUEST_EVENT = "pi-mcp-adapter:tool-approval-request";
 let adapterModule: Promise<AdapterModule> | undefined;
 function adapter(): Promise<AdapterModule> {
   return (adapterModule ??= createJiti(import.meta.url).import(
@@ -77,28 +79,35 @@ export class PluginMcpHost {
       const id = randomUUID(),
         statuses = new Map<string, McpStatus>();
       if (publishStatus) this.#runtimes.set(id, statuses);
-      const unsubscribe = pi.events.on(
-        "pi-mcp-adapter/status/v1",
-        (value: unknown) => {
+      const subscriptions = [
+        pi.events.on("pi-mcp-adapter/status/v1", (value: unknown) => {
           const snapshot = value as { servers?: McpStatus[] };
           if (!Array.isArray(snapshot.servers)) return;
           statuses.clear();
           for (const status of snapshot.servers)
             statuses.set(status.name, status);
-        },
-      );
+        }),
+      ];
+      const unsubscribe = () => subscriptions.forEach((stop) => stop());
       pi.on("session_shutdown", () => {
         unsubscribe();
         this.#runtimes.delete(id);
       });
-      // Every tool the adapter registers, its `mcp` proxy and direct tools, asks the guard first.
+      // Every tool the adapter registers, its `mcp` proxy and direct tools, asks the guard first,
+      // so nothing starts a server once its plugin changed.
       const tools = new Set<string>();
-      if (guard)
+      if (guard) {
         pi.on("tool_call", async (event) => {
           if (!tools.has(event.toolName)) return;
           const reason = await guard();
           return reason ? { block: true, reason } : undefined;
         });
+        // Each call the adapter makes asks too, including those a script makes
+        // within one tool call; abstaining leaves the decision to the adapter.
+        subscriptions.push(pi.events.on(MCP_TOOL_APPROVAL_REQUEST_EVENT, (request: unknown) => {
+          (request as { claim(handler: () => Promise<string>): boolean }).claim(async () => (await guard()) ? "deny" : "abstain");
+        }));
+      }
       const scoped = guard
         ? new Proxy(pi, {
             get: (target, key, receiver) =>
@@ -172,7 +181,7 @@ export class PluginMcpHost {
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
-      extensionFactories: [{ name: "plugin-mcp", factory: await this.extension(config) }],
+      extensionFactories: [{ name: "plugin-mcp", factory: await this.extension(config, { guard }) }],
     });
     await resourceLoader.reload();
     const { session } = await createAgentSession({
