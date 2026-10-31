@@ -7,6 +7,7 @@ import { matchingMentions, mentionQuery, slashCommandQuery, skillDisplayName, ty
 import { t } from "./i18n.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { DropdownMenu, type MenuEntry } from "./ui/index.js";
+import type { ProjectPluginCommand } from "../shared/plugins.js";
 
 type ContextAction = "plan" | "compact" | "publish";
 interface ContextMenuItem {
@@ -15,17 +16,28 @@ interface ContextMenuItem {
   label: string;
   description: string;
   source?: string;
-  command?: "plan" | "compact" | "publish";
+  /** What "/" types for it. */
+  command?: string;
   action?: ContextAction;
   mention?: ComposerMention;
+  pluginCommand?: ProjectPluginCommand;
 }
+
+/** The plugin commands the composer shows: in the "/" list and in the + menu. */
+export interface ComposerPluginCommands {
+  slash: ProjectPluginCommand[];
+  add: ProjectPluginCommand[];
+}
+
+/** A plugin command's "/" name: its `slash`, or its own id. */
+const slashName = (command: ProjectPluginCommand) => command.slash ?? command.id.slice(command.id.indexOf(":") + 1);
 
 /**
  * What a typed "/", "@" or "$" offers: "/" the commands and skills, "@" the
  * plugins and skills, "$" the skills. With no query it is the "/" list, as
  * the + menu opens it. Attaching files and the modes live in the + menu.
  */
-export function composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact = false, contextPercent, canPublish = false }: {
+export function composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact = false, contextPercent, canPublish = false, pluginCommands = [] }: {
   capabilities: ConversationCapabilities;
   query?: ComposerMentionQuery;
   planning: boolean;
@@ -33,12 +45,14 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
   showCompact?: boolean;
   contextPercent?: number;
   canPublish?: boolean;
+  pluginCommands?: ProjectPluginCommand[];
 }): ContextMenuItem[] {
   const trigger = query?.trigger ?? "/";
   const actions: ContextMenuItem[] = trigger !== "/" ? [] : [
     ...(canTogglePlanning ? [{ id: "plan", command: "plan" as const, section: "Commands" as const, label: t("planMode.mode"), description: planning ? t("planMode.turnOff") : t("planMode.turnOn"), action: "plan" as const }] : []),
     ...(showCompact ? [{ id: "compact", command: "compact" as const, section: "Commands" as const, label: t("planMode.compact"), description: `${t("planMode.compactHint")}${contextPercent === undefined ? "" : t("planMode.full", { percent: contextPercent })}`, action: "compact" as const }] : []),
     ...(canPublish ? [{ id: "publish", command: "publish" as const, section: "Commands" as const, label: t("contextMenu.publish"), description: t("contextMenu.publishHint"), action: "publish" as const }] : []),
+    ...pluginCommands.map((command): ContextMenuItem => ({ id: `command:${command.id}`, command: slashName(command), section: "Commands", label: command.title, description: command.title, source: command.plugin, pluginCommand: command })),
   ];
   const search = query?.query ?? "";
   return [
@@ -57,7 +71,7 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
   ];
 }
 
-export function useComposerContextMenu({ prompt, cursor, textarea, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onPublish, onMention, onChange, onSelectionChange, contextPercent, canPublish, usageLimits }: {
+export function useComposerContextMenu({ prompt, cursor, textarea, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onPublish, onMention, onChange, onSelectionChange, contextPercent, canPublish, usageLimits, pluginCommands, onPluginCommand }: {
   prompt: string;
   cursor: number;
   textarea: RefObject<HTMLTextAreaElement | null>;
@@ -77,6 +91,8 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
   canPublish?: boolean;
   /** A coding agent's account quota, shown under the commands when they are opened with "/". */
   usageLimits?: AgentUsageLimit[];
+  pluginCommands?: ComposerPluginCommands;
+  onPluginCommand?: (command: ProjectPluginCommand) => void;
 }) {
   const id = useId();
   const menu = useRef<HTMLDivElement>(null);
@@ -90,7 +106,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
   const typed = mentionKey === dismissed ? undefined : candidate;
   const query: ComposerMentionQuery | undefined = typed ?? (openedWith ? { start: cursor, end: cursor, trigger: openedWith, query: "" } : undefined);
   const open = !disabled && Boolean(query);
-  const items = composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact: Boolean(onCompact), contextPercent, canPublish });
+  const items = composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact: Boolean(onCompact), contextPercent, canPublish, pluginCommands: onPluginCommand ? pluginCommands?.slash : undefined });
   const selectedIndex = Math.min(selected, Math.max(0, items.length - 1));
 
   useEffect(() => setSelected(0), [query?.start, query?.trigger, query?.query]);
@@ -151,6 +167,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     }
     if (item.action === "plan") onTogglePlanning();
     else if (item.action === "publish") onPublish?.();
+    else if (item.pluginCommand) onPluginCommand?.(item.pluginCommand);
     textarea.current?.focus();
   }
 
@@ -188,6 +205,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     ...(onDesignReference ? [{ label: t("contextMenu.design"), icon: <FileText size={14} />, onSelect: onDesignReference }] : []),
     ...(canTogglePlanning ? ["separator" as const, { label: t("planMode.mode"), icon: <ClipboardList size={14} />, checked: planning, onSelect: onTogglePlanning }] : []),
     "separator",
+    ...(onPluginCommand && pluginCommands?.add.length ? pluginCommands.add.map((command): MenuEntry => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => onPluginCommand(command) })) : []),
     { label: t("contextMenu.commandsAndSkills"), icon: <Sparkles size={14} />, shortcut: "/", onSelect: () => openList("/") },
     ...(capabilities.plugins.length ? [{ label: t("contextMenu.mentionPlugin"), icon: <Plug size={14} />, shortcut: "@", onSelect: () => openList("@") }] : []),
   ];
@@ -308,7 +326,7 @@ function ComposerContextMenu({ id, menuRef, trigger, items, selected, onSelect, 
         onMouseEnter={() => onHover(index)}
         onClick={() => onSelect(item)}
       >
-        <span className="composer-context-menu-icon">{item.action === "plan" ? <ClipboardList size={14} /> : item.action === "compact" ? <FileText size={14} /> : item.action === "publish" ? <Share2 size={14} /> : item.mention?.type === "plugin" ? <PluginGlyph plugin={item.mention.value} size={14} /> : <WandSparkles size={14} />}</span>
+        <span className="composer-context-menu-icon">{item.action === "plan" ? <ClipboardList size={14} /> : item.action === "compact" ? <FileText size={14} /> : item.action === "publish" ? <Share2 size={14} /> : item.mention?.type === "plugin" ? <PluginGlyph plugin={item.mention.value} size={14} /> : item.pluginCommand ? <Plug size={14} /> : <WandSparkles size={14} />}</span>
         <span className={item.command ? "composer-context-menu-command" : undefined}>{item.command ? `/${item.command}` : item.label}</span>
         <small>{item.command ? item.label : item.description}</small>
       </button>

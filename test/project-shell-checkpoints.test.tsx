@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import path from "node:path";
-import { act, useEffect, type ComponentProps } from "react";
+import { act, useEffect, type ComponentProps, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopRuntimeState } from "../src/shared/desktop-runtime.js";
@@ -102,8 +102,9 @@ async function openProject(
       typeof import("../src/renderer/project-shell.js").ProjectShell
     >,
     "initialPrompt" | "onInitialPromptHandled" | "onOpenConversation" | "view"
-  >> = {},
+  >> & { wrap?: (shell: ReactNode) => ReactNode } = {},
 ) {
+  const { wrap = (shell: ReactNode) => shell, ...props } = shellProps;
   Object.defineProperty(window, "ohMyGameDesktop", {
     configurable: true,
     value: {
@@ -208,13 +209,13 @@ async function openProject(
   const render = (conversationId: string) => act(async () =>
     root.render(
       <AuthProvider>
-        <ProjectShell
+        {wrap(<ProjectShell
           projectId="project"
           conversationId={conversationId}
           onOpenConversation={() => {}}
           onNavigate={() => {}} onHome={() => {}}
-          {...shellProps}
-        />
+          {...props}
+        />)}
       </AuthProvider>,
     ),
   );
@@ -293,6 +294,73 @@ describe("project shell layout", () => {
     expect(tabs("left")).toEqual(["*Chat"]);
     expect(container.querySelector(".floating-chat")).toBeNull();
     expect(document.querySelector(".agent-pane .agent-body > .chat-input > .composer")).toBe(composer);
+  });
+});
+
+describe("format 2 plugins in the project shell", () => {
+  it("shows a plugin's panel where it asks, and runs its menu command with Undo", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    const { ToastProvider } = await import("../src/renderer/ui/index.js");
+    const daemon = await openProject((route, init) => {
+      if (route.startsWith("/projects/project/plugin-panels")) return Response.json([
+        { id: "preview", plugin: "acme/maker", version: "1.0.0", title: "Maker preview", area: "right", capabilities: {}, commands: ["upload"], url: "about:blank" },
+        { id: "hidden", plugin: "acme/maker", version: "1.0.0", title: "Hidden", area: "right", when: "project.type == 'web-game'", capabilities: {}, commands: [], url: "about:blank" },
+        // Shown because a plugin without panels or commands is active here.
+        { id: "tools", plugin: "acme/maker", version: "1.0.0", title: "Tool log", area: "bottom", when: "project.plugin('acme/tools')", capabilities: {}, commands: [], url: "about:blank" },
+      ]);
+      if (route.startsWith("/projects/project/plugins")) return Response.json({ global: [], plugins: [
+        { id: "acme/tools", displayName: "Tools", description: "", version: "1.0.0", used: "1.0.0", status: "active", providesType: false, capabilities: [], consented: true },
+      ] });
+      if (route.startsWith("/projects/project/plugin-commands") && init.method === "POST") return Response.json({ result: null, change: { id: "change-1", changed: ["build/index.html"] } });
+      if (route.startsWith("/projects/project/plugin-commands")) return Response.json([
+        { id: "acme/maker:upload", plugin: "acme/maker", title: "Upload build", slots: [{ slot: "project.menu" }], run: { native: "upload" } },
+        // The manifest only checks the prefix, so a link can still be malformed.
+        { id: "acme/maker:docs", plugin: "acme/maker", title: "Open docs", slots: [{ slot: "project.menu" }], run: { url: "https://[" } },
+      ]);
+      if (route === "/projects/project/plugin-changes/change-1/undo") return new Response(null, { status: 204 });
+    }, detail("live-turn"), { wrap: (shell) => <ToastProvider>{shell}</ToastProvider> });
+    await settle();
+    const tabs = (area: string) => [...container.querySelectorAll(`.dock-area-${area} .dock-tab-label`)].map((tab) => tab.textContent);
+    // A panel whose `when` doesn't hold here stays out.
+    expect(tabs("right")).toEqual(["Maker preview"]);
+    expect(tabs("bottom")).toEqual(["Tool log"]);
+    const frame = container.querySelector<HTMLIFrameElement>(".dock-area-right iframe.plugin-frame")!;
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+
+    // Moving or closing the panel keeps its page, as with the built-in panels.
+    const view = frame.closest(".dock-view");
+    expect(view).not.toBeNull();
+    const tab = [...container.querySelectorAll(".dock-area-right .dock-tab")].find((entry) => entry.textContent?.includes("Maker preview"))!;
+    await act(async () => tab.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 })));
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find((entry) => entry.textContent?.trim() === "Move to Bottom")!.click());
+    await settle();
+    expect(tabs("bottom")).toEqual(["Tool log", "Maker preview"]);
+    // happy-dom has no moveBefore, so the moved iframe reloads here; the view holding it is the same.
+    expect(container.querySelector(".dock-area-bottom iframe.plugin-frame[title='Maker preview']")?.closest(".dock-view")).toBe(view);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Maker preview"]')!.click());
+    expect(view!.isConnected).toBe(true);
+
+    await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find((entry) => entry.textContent?.trim() === "Open docs")!.click());
+    expect(document.querySelector(".ui-toasts")?.textContent).toContain("isn't a valid web address");
+    expect(container.querySelector(".project-name")).not.toBeNull();
+
+    await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
+    const item = [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find((entry) => entry.textContent?.trim() === "Upload build")!;
+    await act(async () => item.click());
+    await settle();
+    expect(daemon.requests.find((request) => request.route === "/projects/project/plugin-commands" && request.method === "POST")?.body).toBe(JSON.stringify({ command: "acme/maker:upload" }));
+    expect(document.querySelector(".ui-toasts")?.textContent).toContain("Upload build finished");
+    await act(async () => document.querySelector<HTMLButtonElement>(".ui-toast-action")!.click());
+    await settle();
+    expect(daemon.requests.some((request) => request.route === "/projects/project/plugin-changes/change-1/undo" && request.method === "POST")).toBe(true);
+
+    // An edit to ohmygame.json outside the app reaches the open project.
+    const reads = () => daemon.requests.filter((request) => request.route.startsWith("/projects/project/plugin-panels")).length;
+    const before = reads();
+    await act(async () => daemon.send(1, "project.plugins.changed", {}));
+    await settle();
+    expect(reads()).toBe(before + 1);
   });
 });
 

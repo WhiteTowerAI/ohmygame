@@ -36,9 +36,11 @@ import {
   type PluginInstallCandidate,
   type PluginSettings,
   type PluginSummary,
+  type StorePlugin,
 } from "../shared/plugins.js";
 import type { ProjectState } from "../shared/contracts.js";
-import { inspectPluginSource, installPlugin, listPlugins, listProjects, readPlugin, readPluginSkill, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
+import { inspectPluginSource, installPlugin, listPlugins, listProjects, listStorePlugins, readPlugin, readPluginSkill, setStorePluginEnabled, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
+import { groupStorePlugins, StorePluginCard, StorePluginDetail, storePluginSearchText } from "./plugin-store.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { PluginGlyph } from "./plugin-icons.js";
@@ -64,6 +66,9 @@ function pluginCategory(plugin: PluginSummary) {
   return PLUGIN_CATEGORIES.find(category => category.plugins.some(id => id === plugin.id))?.id ?? "other";
 }
 
+/** Format 2 ids are `publisher/name`; format 1 ids are `marketplace:name`. */
+const isStorePluginId = (id: string) => id.includes("/");
+
 function compareCatalogPlugins(left: PluginSummary, right: PluginSummary): number {
   const rank = (id: string) => {
     const index = PLUGIN_ORDER.indexOf(id);
@@ -81,6 +86,9 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
 }) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
+  // Format 2 plugins, turned on per project (plugin-store.tsx).
+  const [store, setStore] = useState<StorePlugin[]>([]);
+  const [storeError, setStoreError] = useState<string>();
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [catalogGeneration, setCatalogGeneration] = useState(0);
   const [detailResult, setDetailResult] = useState<{ pluginId: string; plugin?: PluginDetail; error?: string }>();
@@ -115,7 +123,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     setError(undefined);
     try {
       await waitForRuntime();
-      const catalog = await listPlugins();
+      const [catalog] = await Promise.all([listPlugins(), loadStore()]);
       setPlugins(catalog.plugins);
       setCatalogWarning(catalog.errors.map((entry) => entry.message).join("\n") || undefined);
       setCatalogGeneration(current => current + 1);
@@ -123,6 +131,30 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     } catch (cause) {
       setError(errorMessage(cause));
       setPhase("error");
+    }
+  }
+
+  /** The format 2 store; when it can't be read, the rest of the page still shows. */
+  async function loadStore(): Promise<void> {
+    try {
+      setStore(await listStorePlugins());
+      setStoreError(undefined);
+    } catch (cause) {
+      setStoreError(errorMessage(cause));
+    }
+  }
+
+  async function toggleStorePlugin(id: string, enabled: boolean): Promise<void> {
+    if (updating) return;
+    setUpdating(id);
+    setError(undefined);
+    try {
+      await setStorePluginEnabled(id, enabled);
+      await loadStore();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setUpdating(undefined);
     }
   }
 
@@ -134,7 +166,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     if (!explicitReload && detailResult?.plugin && detailResult.pluginId === pluginId) return;
     setDetailResult(undefined);
     setError(undefined);
-    if (!pluginId) return;
+    if (!pluginId || isStorePluginId(pluginId)) return;
     let disposed = false;
     void (async () => {
       try {
@@ -279,6 +311,15 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   }
 
   const normalizedQuery = query.trim().toLowerCase();
+  const storeGroups = groupStorePlugins(store);
+  const matchingStore = storeGroups.filter(group => storePluginSearchText(group.plugin).includes(normalizedQuery));
+  const storeSection = matchingStore.length ? <section className="plugins-section" aria-label={t("pluginStore.section")}>
+    <h2>{t("pluginStore.section")} <span className="plugins-count">{matchingStore.length}</span></h2>
+    <div className="plugins-grid">
+      {matchingStore.map(group => <StorePluginCard key={group.plugin.id} group={group} disabled={Boolean(updating)}
+        onToggle={enabled => void toggleStorePlugin(group.plugin.id, enabled)} onOpen={() => onPluginChange(group.plugin.id)} />)}
+    </div>
+  </section> : null;
   const matching = plugins.filter(plugin => pluginSearchText(plugin).includes(normalizedQuery)).sort(compareCatalogPlugins);
   const publicPlugins = matching.filter(plugin => pluginCollection(plugin) === "public");
   const personalPlugins = matching.filter(plugin => pluginCollection(plugin) === "personal");
@@ -314,13 +355,16 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const togglePluginCard = (plugin: PluginSummary, enabled: boolean) => void updatePlugin(plugin, { enabled, components: {} });
 
   const installedTab = normalizedQuery ? (
-    matching.length ? <PluginGrid plugins={matching} updating={Boolean(updating)} onOpen={onPluginChange} onToggle={togglePluginCard} />
-      : <Empty title={t("plugins.noMatch")} />
+    matching.length || matchingStore.length ? <>
+      {matching.length ? <PluginGrid plugins={matching} updating={Boolean(updating)} onOpen={onPluginChange} onToggle={togglePluginCard} /> : null}
+      {storeSection}
+    </> : <Empty title={t("plugins.noMatch")} />
   ) : <>
     {PLUGIN_CATEGORIES.map(category => ({ id: category.id, plugins: publicPlugins.filter(plugin => pluginCategory(plugin) === category.id) }))
       .filter(group => group.plugins.length)
       .map(group => <PluginGroup key={group.id} title={t(`plugins.categories.${group.id}`)} plugins={group.plugins}
         updating={Boolean(updating)} onOpen={onPluginChange} onToggle={togglePluginCard} />)}
+    {storeSection}
     <section className="plugins-section" aria-label={t("plugins.personal")}>
       <h2>{t("plugins.personal")} <span className="plugins-count">{personalPlugins.length}</span></h2>
       <div className="plugins-grid">
@@ -390,12 +434,18 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     </>}
   </>;
 
+  const storeDetail = pluginId && isStorePluginId(pluginId) ? storeGroups.find(group => group.plugin.id === pluginId) : undefined;
+
   return <section className="plugins-page">
     {pluginId ? <>
       <div className="plugins-back">
         <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={showCatalog}>{t("plugins.title")}</Button>
       </div>
-      <PluginDetailView
+      {isStorePluginId(pluginId) ? storeDetail
+        ? <StorePluginDetail key={pluginId} group={storeDetail} onChanged={loadStore} onRemoved={showCatalog} />
+        : phase === "loading" ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
+          : <PluginError message={storeError ?? t("pluginStore.notInstalled")} onRetry={() => void load()} />
+      : <PluginDetailView
         key={pluginId}
         phase={!currentDetail ? "loading" : currentDetail.error ? "error" : "ready"}
         plugin={detail}
@@ -414,7 +464,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
         onAssist={() => void openPluginBuilder(pluginId).catch(cause => setError(errorMessage(cause)))}
         onMcpToggle={(id, enabled) => detail && void updatePlugin(detail, { enabled: detail.enabled, components: { ...componentSettings(detail).components, [pluginComponentKey("mcp", id)]: enabled } })}
         onTry={onTryPlugin}
-      />
+      />}
     </> : <>
       <SidebarPageHeader title={t("plugins.title")} actions={<div className="plugins-toolbar">
         <SearchInput value={query} onChange={setQuery} placeholder={searchCopy.placeholder} label={searchCopy.label} />
@@ -423,12 +473,13 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
         )} />
       </div>} />
       <Tabs<CatalogTab> variant="pills" label={t("plugins.title")} value={tab} onChange={setTab} tabs={[
-        { value: "installed", label: t("plugins.installedTab"), count: phase === "ready" ? plugins.length : undefined },
+        { value: "installed", label: t("plugins.installedTab"), count: phase === "ready" ? plugins.length + storeGroups.length : undefined },
         { value: "browse", label: t("plugins.browseTab") },
         { value: "skills", label: t("plugins.skills"), count: skillCatalog ? skills.length : undefined },
       ]} />
       <div className="plugins-panel" role="tabpanel" aria-label={tab === "installed" ? t("plugins.installedTab") : tab === "browse" ? t("plugins.browseTab") : t("plugins.skills")}>
         {phase === "ready" && ((!gitDialogOpen && error) || catalogWarning) ? <Alert tone="danger" title={!gitDialogOpen && error ? error : catalogWarning} /> : null}
+        {phase === "ready" && tab === "installed" && storeError ? <Alert tone="danger" title={storeError} /> : null}
         {phase === "loading" ? <PluginState>{t("plugins.loading")}</PluginState> : null}
         {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
         {phase === "ready" ? tab === "browse" ? browseTab : tab === "skills" ? skillsTab : installedTab : null}

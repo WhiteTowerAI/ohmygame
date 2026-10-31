@@ -337,6 +337,70 @@ export function isPluginManifest(value: unknown): value is PluginManifest {
   });
 }
 
+/** A setting a format 2 plugin asks for, as its settings page shows it. */
+export interface StorePluginSetting {
+  name: string;
+  type: "text" | "secret" | "path" | "boolean" | "select";
+  title: string;
+  description?: string;
+  required?: boolean;
+  options?: string[];
+}
+
+/** One installed version of a format 2 plugin (GET /plugin-store/plugins). */
+export interface StorePlugin {
+  /** `publisher/name`. */
+  id: string;
+  version: string;
+  displayName: string;
+  description: string;
+  /** What it asks to be allowed, such as `network:api.example.com`. */
+  capabilities: string[];
+  /** The person's decisions; `null` before any. */
+  grants: { enabled: boolean; allowed: string[] } | null;
+  /** Ships with the app, so it can't be uninstalled. */
+  bundled: boolean;
+  settings: StorePluginSetting[];
+  /** What it adds, by title; tools and skills are counted. */
+  adds: { projectTypes: string[]; panels: string[]; commands: string[]; tools: number; skills: number };
+}
+
+/** What a format 2 plugin's settings page shows; secrets only say whether they are set. */
+export type StorePluginConfiguration = Record<
+  string,
+  | { type: Exclude<StorePluginSetting["type"], "secret">; value: string | boolean | null }
+  | { type: "secret"; configured: boolean }
+>;
+
+/** A format 2 plugin command a project offers (GET /projects/:id/plugin-commands). */
+export interface ProjectPluginCommand {
+  /** `publisher/name:command`. */
+  id: string;
+  plugin: string;
+  title: string;
+  slash?: string;
+  slots: Array<{ slot: string; when?: string }>;
+  run:
+    | { prompt: string; skill?: string; insert?: boolean }
+    | { tool: string; input?: unknown }
+    | { openPanel: string }
+    | { openSettings: true }
+    | { url: string }
+    | { native: string };
+}
+
+/** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */
+export interface ProjectPluginChange {
+  id: string;
+  plugin: string;
+  action: string;
+  title: string;
+  changed: string[];
+  at: string;
+  undone?: boolean;
+  failed?: string;
+}
+
 /** A plugin as one project sees it, for the project's Plugins sheet. */
 export interface ProjectPluginItem {
   id: string;

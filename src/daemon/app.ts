@@ -124,7 +124,7 @@ import { PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectKind, projectKindAt } from "./project-types.js";
 import { LegacyMcpConfiguration } from "./legacy-mcp.js";
-import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail, type ProjectPluginChoice, type ProjectPluginItem, type ProjectPluginsView } from "../shared/plugins.js";
+import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail, type ProjectPluginChoice, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { CORE_PROJECT_TYPES } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
@@ -1038,6 +1038,13 @@ export function createApp(options: AppOptions = {}) {
       void syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"));
     }
   });
+  // An open project reads its plugins' panels and commands again, as after an
+  // edit to its ohmygame.json. Those reads wait for the bundled plugins, so
+  // indexing them at startup isn't a change a project needs to hear about.
+  void bundledPluginsV2Indexed.then(() => pluginServices.onChange((folder) => {
+    for (const project of projects.list())
+      if (!folder || project.workspacePath === folder) events.publish(project.id, "project.plugins.changed", {});
+  }));
   const app = Fastify({
     logger: options.logger ? daemonLoggerOptions() : false,
     logController: new LogController({ disableRequestLogging: true }),
@@ -1145,17 +1152,43 @@ export function createApp(options: AppOptions = {}) {
   // The format 2 plugin store: what is installed, the person's decisions, and signed releases.
   const storeReply = (reply: { code(status: number): { send(body: unknown): unknown } }, cause: unknown) =>
     reply.code(cause instanceof PluginReleaseError || cause instanceof PluginConfigurationError ? 400 : 409).send({ error: cause instanceof Error ? cause.message : String(cause) });
-  app.get<{ Querystring: { locale?: string } }>("/plugin-store/plugins", async (request) => {
+  // Bundled plugins are indexed where the app keeps them and come back when it starts, so they only turn off.
+  const bundledPluginEntry = (root: string) => {
+    const inside = path.relative(bundledPluginsV2, root);
+    return !!inside && !inside.startsWith("..") && !path.isAbsolute(inside);
+  };
+  app.get<{ Querystring: { locale?: string } }>("/plugin-store/plugins", async (request): Promise<StorePlugin[]> => {
     await pluginServices.ready();
+    await bundledPluginsV2Indexed;
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
-    return pluginServices.index.entries().map((entry) => ({
-      id: entry.id,
-      version: entry.version,
-      displayName: localizePluginString(entry, entry.manifest.displayName, locale),
-      description: localizePluginString(entry, entry.manifest.description, locale),
-      capabilities: capabilityGrants(entry.manifest),
-      grants: pluginServices.grants.plugin(entry.id) ?? null,
-    }));
+    return pluginServices.index.entries().map((entry) => {
+      const text = (value: string) => localizePluginString(entry, value, locale);
+      const contributes = entry.manifest.contributes ?? {};
+      return {
+        id: entry.id,
+        version: entry.version,
+        displayName: text(entry.manifest.displayName),
+        description: text(entry.manifest.description),
+        capabilities: capabilityGrants(entry.manifest),
+        grants: pluginServices.grants.plugin(entry.id) ?? null,
+        bundled: bundledPluginEntry(entry.root),
+        settings: Object.entries(entry.manifest.configuration ?? {}).map(([name, field]) => ({
+          name,
+          type: field.type,
+          title: text(field.title),
+          ...(field.description ? { description: text(field.description) } : {}),
+          ...(field.required ? { required: true } : {}),
+          ...(field.options ? { options: field.options } : {}),
+        })),
+        adds: {
+          projectTypes: (contributes.projectTypes ?? []).map((type) => text(type.title)),
+          panels: (contributes.panels ?? []).map((panel) => text(panel.title)),
+          commands: (contributes.commands ?? []).map((command) => text(command.title)),
+          tools: contributes.tools?.length ?? 0,
+          skills: entry.skills.length,
+        },
+      };
+    });
   });
   app.post<{ Body: { release: unknown } }>("/plugin-store/releases", {
     schema: { body: { type: "object", required: ["release"], additionalProperties: false, properties: { release: { type: "object" } } } },
@@ -1195,6 +1228,9 @@ export function createApp(options: AppOptions = {}) {
     }
   });
   app.delete<{ Params: { publisher: string; name: string; version: string } }>("/plugin-store/:publisher/:name/:version", async (request, reply) => {
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(`${request.params.publisher}/${request.params.name}`, request.params.version);
+    if (entry && bundledPluginEntry(entry.root)) return reply.code(409).send({ error: "A plugin that ships with OhMyGame can only be turned off" });
     await pluginServices.uninstall(`${request.params.publisher}/${request.params.name}`, request.params.version);
     return reply.code(204).send();
   });
@@ -1288,6 +1324,7 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
+    await bundledPluginsV2Indexed;
     const panels = await pluginServices.panels(project.workspacePath, locale);
     if (!panels.length) return [];
     const server = await pluginUiServer();
@@ -1350,6 +1387,7 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-commands", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
+    await bundledPluginsV2Indexed;
     return pluginServices.commands(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
   });
   // A format 2 plugin's settings: values for its page, secrets only as set or not.

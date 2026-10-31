@@ -1299,6 +1299,8 @@ export interface RuntimeEventData {
   "conversation.model.changed": { item: Extract<ThreadItem, { type: "modelChange" }> };
   "project.renamed": { project: ProjectState };
   "project.updated": { project: ProjectState };
+  /** What the project's format 2 plugins offer may have changed: read their panels and commands again. */
+  "project.plugins.changed": Record<string, never>;
   "preview.updated": { preview: PreviewRuntimeState };
   /** Without a pick, the person cancelled. */
   "preview.picked": { client: string; pick?: PreviewPick };
@@ -1332,6 +1334,7 @@ export const RUNTIME_EVENT_TYPES = [
   "conversation.model.changed",
   "project.renamed",
   "project.updated",
+  "project.plugins.changed",
   "preview.updated",
   "preview.picked",
   "agent.started",
