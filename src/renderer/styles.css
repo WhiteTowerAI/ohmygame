@@ -13272,7 +13272,8 @@ summary.work-summary:hover {
   color: var(--text);
   font-size: 12px;
 }
-.external-project-preview > * { width: 100%; max-width: 720px; }
+/* The game runs in its own window; the page sits in the middle of the panel. */
+.external-project-preview > * { width: 100%; max-width: 720px; justify-self: center; }
 .external-project-preview .plugin-integration-panel { margin: 0; }
 .external-project-preview .plugin-integration-panel .plugin-mcp-row { min-height: 0; padding: 0; border: 0; }
 /* Icons share one 28px column and copy starts at the same edge in every block. */
@@ -13286,6 +13287,14 @@ summary.work-summary:hover {
 :is(.plugin-integration-connection, .plugin-dependencies) .plugin-mcp-row,
 .external-preview-row.plugin-mcp-row {
   grid-template-columns: 28px minmax(0, 1fr) auto;
+}
+/* The page is a panel, so its rows follow the panel's width, not the window's. */
+.external-project-preview { container: external-preview / inline-size; }
+@container external-preview (max-width: 600px) {
+  /* As narrow MCP rows do: the actions move under the copy. */
+  .external-preview-row.plugin-mcp-row { grid-template-columns: 28px minmax(0, 1fr); row-gap: 8px; }
+  .external-preview-row .plugin-mcp-actions { grid-column: 2 / -1; grid-row: 2; }
+  .external-preview-error, .external-preview-logs { padding-left: 0; }
 }
 .external-preview-state.is-running { color: var(--success); }
 .external-preview-state.is-error { color: var(--danger); }

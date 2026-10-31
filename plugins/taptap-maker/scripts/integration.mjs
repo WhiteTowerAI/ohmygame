@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { renameSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
-import { installed, maker, prepare, verifyDiagnostics } from "./runtime.mjs";
+import { installed, maker, prepare, redact, verifyDiagnostics } from "./runtime.mjs";
 
 const emit = (message) =>
   process.stdout.write(JSON.stringify({ version: 1, ...message }) + "\n");
@@ -127,18 +127,28 @@ async function status(directory, workspace) {
   }
 }
 
+/** Maker retires a preview whose window was closed; nothing failed, and it can start again. */
+const RETIRED = /no longer running|stale session/i;
+/** A download or connection that failed once; Maker downloads its sources on every start. */
+const TRANSIENT =
+  /network|download failed|remote manifest|网络|远端|ssl|tls|econnreset|etimedout|eai_again|socket hang up|timed? ?out/i;
+const RETRY_DELAYS = [2000, 5000];
+
 function previewResult(value, logs = false) {
   const missing = value.install_state !== "ready" && !value.executable;
+  const retired = !value.process_alive && RETIRED.test(String(value.error ?? ""));
   return {
     preview: {
       status: value.process_alive
         ? "running"
         : missing
           ? "missing"
-          : value.state === "failed"
+          : value.state === "failed" && !retired
             ? "error"
             : "stopped",
-      ...(value.error ? { message: String(value.error).slice(0, 4096) } : {}),
+      ...(value.error && !retired
+        ? { message: redact(value.error).slice(0, 4096) }
+        : {}),
       ...(logs
         ? {
             logs: (Array.isArray(value.logs)
@@ -254,27 +264,58 @@ async function main(request) {
       )
     )
       throw new Error("Unsupported preview action");
-    const value = await maker(directory, [
-      "preview",
-      command,
-      "--target-dir",
-      workspace,
-      ...(command === "logs" ? ["--tail", "--limit", "100"] : []),
-      "--json",
-    ]);
+    const preview = (name, options) =>
+      maker(
+        directory,
+        [
+          "preview",
+          name,
+          "--target-dir",
+          workspace,
+          ...(name === "logs" ? ["--tail", "--limit", "100"] : []),
+          "--json",
+        ],
+        undefined,
+        options,
+      );
+    if (["status", "logs"].includes(command))
+      return previewResult(
+        await preview(command, { report: true }),
+        command === "logs",
+      );
     // Mutation responses vary in shape. Status is the authoritative runtime
     // identity; the host never guesses PIDs or kills an external game window.
-    if (["status", "logs"].includes(command))
-      return previewResult(value, command === "logs");
-    return previewResult(
-      await maker(directory, [
-        "preview",
-        "status",
-        "--target-dir",
-        workspace,
-        "--json",
-      ]),
-    );
+    for (let attempt = 0; ; attempt++) {
+      let failure;
+      try {
+        await preview(command);
+      } catch (cause) {
+        if (/authorization/i.test(cause.message)) throw cause;
+        failure = cause;
+      }
+      const value = await preview("status", { report: true });
+      const failed = value.state === "failed" && !value.process_alive;
+      const transient =
+        command === "install"
+          ? failure && value.install_state !== "ready"
+          : failed && TRANSIENT.test(String(value.error ?? ""));
+      if (command === "stop" || !transient || attempt >= RETRY_DELAYS.length) {
+        if (failure) {
+          // Maker's own diagnosis says more than a generic failure.
+          if (value.error && command !== "install") return previewResult(value);
+          const unfinished =
+            command === "install"
+              ? value.install_state !== "ready"
+              : command === "stop"
+                ? value.process_alive
+                : !value.process_alive;
+          if (unfinished) throw failure;
+        }
+        return previewResult(value);
+      }
+      progress(`Maker couldn't reach its servers. Retrying (${attempt + 1}/${RETRY_DELAYS.length})…`);
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
+    }
   }
   throw new Error("Unsupported plugin action");
 }
