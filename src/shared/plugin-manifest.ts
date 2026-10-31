@@ -178,12 +178,16 @@ const ProjectType = Type.Object(
   { additionalProperties: false },
 );
 
+/** How long a native call or an MCP request may run before it is cancelled; 60 seconds when unset. */
+const TimeoutSeconds = Type.Integer({ minimum: 1, maximum: 3600 });
+
 const Tool = Type.Object(
   {
     name: SnakeId,
     description: Type.String({ minLength: 1, maxLength: 1000 }),
     input: RelativePath("\\.json"),
     output: Type.Optional(RelativePath("\\.json")),
+    timeoutSeconds: Type.Optional(TimeoutSeconds),
   },
   { additionalProperties: false },
 );
@@ -208,7 +212,11 @@ const CommandRun = Type.Union([
   ),
   Type.Object({ url: HttpsUrl }, { additionalProperties: false }),
   Type.Object(
-    { native: CamelId, input: Type.Optional(RelativePath("\\.json")) },
+    {
+      native: CamelId,
+      input: Type.Optional(RelativePath("\\.json")),
+      timeoutSeconds: Type.Optional(TimeoutSeconds),
+    },
     { additionalProperties: false },
   ),
 ]);
@@ -334,6 +342,7 @@ const McpServer = Type.Object(
       maxItems: 100,
       uniqueItems: true,
     }),
+    timeoutSeconds: Type.Optional(TimeoutSeconds),
   },
   { additionalProperties: false },
 );
@@ -600,6 +609,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       issue(`${path}/command`, `${server.command} must be listed in capabilities.processes`);
     const syntax = mcpServerSyntaxIssue(server);
     if (syntax) issue(path, syntax);
+    if (server.env && Object.keys(server.env).some((key) => key.toUpperCase() === PLUGIN_DATA_ENV))
+      issue(`${path}/env`, `${PLUGIN_DATA_ENV} is set by the app`);
     for (const name of configReferences(server)) {
       const field = manifest.configuration?.[name];
       if (!field) issue(path, `no configuration field ${name}`);
@@ -615,6 +626,9 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
 }
 
 /** What the MCP adapter would expand in a value: `${VAR}`, `$env:VAR` or `{env:VAR}`. */
+/** The environment variable that gives a plugin's MCP servers its data folder. */
+export const PLUGIN_DATA_ENV = "OHMYGAME_PLUGIN_DATA_DIR";
+
 const ADAPTER_SYNTAX = /\$\{\w+\}|\$env:\w+|\{env:\w+\}/;
 
 /**

@@ -401,6 +401,11 @@
                 "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.json$",
                 "minLength": 3,
                 "maxLength": 500
+              },
+              "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600
               }
             },
             "additionalProperties": false
@@ -535,6 +540,11 @@
                         "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.json$",
                         "minLength": 3,
                         "maxLength": 500
+                      },
+                      "timeoutSeconds": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 3600
                       }
                     },
                     "additionalProperties": false
@@ -1000,6 +1010,11 @@
                 "minItems": 1,
                 "maxItems": 100,
                 "uniqueItems": true
+              },
+              "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600
               }
             },
             "additionalProperties": false

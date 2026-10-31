@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -258,7 +259,7 @@ describe("project plugins", () => {
           capabilities: { processes: ["maker"], secrets: true },
           contributes: {
             mcpServers: [
-              { id: "local", title: "Local", command: "maker", args: ["mcp", "--region", "${config.region}"], env: { HOME_HINT: "${HOME}" }, tools: ["build"] },
+              { id: "local", title: "Local", command: "maker", args: ["mcp", "--region", "${config.region}"], env: { HOME_HINT: "${HOME}" }, tools: ["build"], timeoutSeconds: 600 },
               { id: "signed-in", title: "Signed in", command: "maker", args: ["mcp"], env: { MAKER_TOKEN: "${config.token}" }, cwd: "./bin", tools: ["publish"] },
             ],
           },
@@ -282,17 +283,19 @@ describe("project plugins", () => {
       expect(servers[name("local")]).toEqual({
         command: "maker",
         args: ["mcp", "--region", "eu"],
-        // The adapter passes env as written, never reading the app's own.
-        env: { HOME_HINT: "${HOME}" },
+        // The adapter passes env as written, never reading the app's own;
+        // the app adds the plugin's data folder.
+        env: { HOME_HINT: "${HOME}", OHMYGAME_PLUGIN_DATA_DIR: services.dataFolder("acme/maker") },
         cwd: added.ok ? added.entry.root : "",
         literalEnv: true,
         includeTools: ["build"],
+        requestTimeoutMs: 600_000,
         disabled: false,
       });
       expect(servers[name("signed-in")]).toEqual({
         command: "maker",
         args: ["mcp"],
-        env: { MAKER_TOKEN: "t0k" },
+        env: { MAKER_TOKEN: "t0k", OHMYGAME_PLUGIN_DATA_DIR: services.dataFolder("acme/maker") },
         cwd: added.ok ? path.join(added.entry.root, "bin") : "",
         literalEnv: true,
         includeTools: ["publish"],
@@ -301,6 +304,10 @@ describe("project plugins", () => {
       // A setting can't make the adapter read the app's environment into args.
       await services.values.update(entry, { region: "{env:HOME}" });
       expect(Object.keys(await services.mcpServers(folder))).toEqual([name("signed-in")]);
+      expect((await stat(services.dataFolder("acme/maker"))).isDirectory()).toBe(true);
+      // Uninstalling the last version deletes the data folder.
+      await services.uninstall("acme/maker");
+      await expect(stat(services.dataFolder("acme/maker"))).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await services.close();
     }

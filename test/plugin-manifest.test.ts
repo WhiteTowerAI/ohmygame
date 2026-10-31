@@ -181,6 +181,11 @@ describe("plugin manifest format 2", () => {
     expect(messages(server({ args: ["$env:HOME"] }))).toEqual([
       "/contributes/mcpServers/0 args and cwd can't name environment variables",
     ]);
+    // The app sets the data folder variable; a request may take up to an hour.
+    expect(messages(server({ env: { ohmygame_plugin_data_dir: "/tmp" }, timeoutSeconds: 3600 }))).toEqual([
+      "/contributes/mcpServers/0/env OHMYGAME_PLUGIN_DATA_DIR is set by the app",
+    ]);
+    expect(messages(server({ timeoutSeconds: 3601 }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/timeoutSeconds"));
     // HTTP servers wait for a guard on redirects.
     expect(messages(server({ url: "https://localhost/mcp" }))).toEqual([
       "/contributes/mcpServers/0 must not have additional properties",

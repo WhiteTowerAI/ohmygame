@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import { readdir, rm } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type {
   AgentToolResult,
@@ -8,7 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, mcpServerSyntaxIssue } from "../shared/plugin-manifest.js";
+import { agentToolName, configReferences, mcpServerSyntaxIssue, PLUGIN_DATA_ENV } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME } from "../shared/project-file.js";
@@ -114,6 +114,8 @@ export class PluginServices {
   readonly values: PluginValues;
   /** Where signed releases are unpacked; uninstalling deletes its folders. */
   readonly packagesDirectory: string;
+  /** Holds each plugin's data folder, `<publisher>/<name>`. */
+  readonly dataDirectory: string;
   readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError">;
   #files: Promise<void> | undefined;
   #loaded: Promise<void> | undefined;
@@ -129,12 +131,14 @@ export class PluginServices {
       path.join(options.directory, "configuration.json"),
     );
     this.packagesDirectory = path.join(options.directory, "packages");
+    this.dataDirectory = path.join(options.directory, "data");
     this.#bundled = options;
     this.native = new NativePlugins({
       index: this.index,
       grants: this.grants,
       hosts: this.hosts,
       configuration: (entry) => this.values.forNative(entry),
+      dataFolder: (id) => this.dataFolder(id),
     });
   }
 
@@ -223,6 +227,11 @@ export class PluginServices {
    * the plugin and server. A server is left out until the settings it names
    * are filled in.
    */
+  /** A plugin's data folder; ids are `publisher/name`, so it stays under `dataDirectory`. */
+  dataFolder(id: string): string {
+    return path.join(this.dataDirectory, ...id.split("/"));
+  }
+
   async mcpServers(folder: string): Promise<Record<string, McpServerDefinition>> {
     await this.ready();
     this.#watch(folder);
@@ -245,12 +254,21 @@ export class PluginServices {
             ? item.replace(/\$\{config\.([a-zA-Z0-9]+)\}/g, (_match, name: string) => String(values[name]))
             : item,
         ) as T;
-        const { id, title: _title, tools, cwd, ...launch } = fill(server);
+        const { id, title: _title, tools, cwd, timeoutSeconds, ...launch } = fill(server);
         const definition = { ...launch, cwd: path.resolve(entry.root, cwd ?? ".") };
         // A setting's value is checked as the manifest's own values were.
         if (mcpServerSyntaxIssue(definition)) continue;
+        const dataFolder = this.dataFolder(entry.id);
+        await mkdir(dataFolder, { recursive: true, mode: 0o700 });
         const name = `plugin-${createHash("sha256").update(entry.id).digest("hex").slice(0, 12)}-v2-${id}`;
-        servers[name] = { ...definition, literalEnv: true, includeTools: tools, disabled: false };
+        servers[name] = {
+          ...definition,
+          env: { ...definition.env, [PLUGIN_DATA_ENV]: dataFolder },
+          literalEnv: true,
+          includeTools: tools,
+          ...(timeoutSeconds ? { requestTimeoutMs: timeoutSeconds * 1000 } : {}),
+          disabled: false,
+        };
       }
     }
     return servers;
@@ -429,7 +447,8 @@ export class PluginServices {
       ? [this.index.get(id, version)].filter((entry) => entry !== undefined)
       : this.index.versions(id);
     await this.index.remove(id, version);
-    if (!this.index.versions(id).length) {
+    const last = !this.index.versions(id).length;
+    if (last) {
       await this.grants.forget(id);
       await this.values.forget(id);
     }
@@ -440,6 +459,7 @@ export class PluginServices {
       if (inside && !inside.startsWith("..") && !path.isAbsolute(inside))
         await rm(entry.root, { recursive: true, force: true });
     }
+    if (last) await rm(this.dataFolder(id), { recursive: true, force: true });
   }
 
   /** Records what the person allowed at install; a new plugin starts on. */

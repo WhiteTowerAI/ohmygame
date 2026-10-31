@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import type {
   ExtensionHostPlugin,
   PluginConfigurationValues,
@@ -16,6 +17,9 @@ import {
   type PluginGrants,
   type ProjectPluginStatus,
 } from "./project-plugins.js";
+
+const seconds = (value: number | undefined) =>
+  value === undefined ? undefined : value * 1000;
 
 // Runs plugins' native code for projects. Every call is checked against what
 // the project asks for and what the person allowed in its folder, and only
@@ -55,12 +59,13 @@ function qualified(value: string): [string, string] {
   return [value.slice(0, separator), value.slice(separator + 1)];
 }
 
-function hostPlugin(entry: PluginIndexEntry): ExtensionHostPlugin {
+function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostPlugin {
   const { manifest } = entry;
   return {
     id: entry.id,
     version: entry.version,
     root: entry.root,
+    dataFolder,
     entry: manifest.entrypoints!.native!,
     tools: (manifest.contributes?.tools ?? []).map((tool) => tool.name),
     commands: (manifest.contributes?.commands ?? []).flatMap((command) =>
@@ -81,17 +86,22 @@ export class NativePlugins {
     | ((entry: PluginIndexEntry) => PluginConfigurationValues)
     | undefined;
 
+  readonly #dataFolder: (id: string) => string;
+
   constructor(options: {
     index: PluginIndex;
     grants: PluginGrants;
     hosts: ExtensionHosts;
     /** The values a call carries for the plugin's `configuration`. */
     configuration?: (entry: PluginIndexEntry) => PluginConfigurationValues;
+    /** The plugin's data folder; made before each call. */
+    dataFolder: (id: string) => string;
   }) {
     this.#index = options.index;
     this.#grants = options.grants;
     this.#hosts = options.hosts;
     this.#configuration = options.configuration;
+    this.#dataFolder = options.dataFolder;
   }
 
   /** Calls a tool, named `publisher/name:tool`, in a project. */
@@ -102,10 +112,10 @@ export class NativePlugins {
       throw unavailable(
         `${id} is now ${entry.version}; this tool was for ${options.version}. Try again in a new turn.`,
       );
-    if (!entry.manifest.contributes?.tools?.some((item) => item.name === name))
-      throw unavailable(`${id} does not declare a tool named ${name}`);
+    const declared = entry.manifest.contributes?.tools?.find((item) => item.name === name);
+    if (!declared) throw unavailable(`${id} does not declare a tool named ${name}`);
     return this.#hosts.invoke({
-      ...this.#call(key, entry, options),
+      ...(await this.#call(key, entry, { ...options, timeoutMs: options.timeoutMs ?? seconds(declared.timeoutSeconds) })),
       tool: name,
     });
   }
@@ -127,7 +137,7 @@ export class NativePlugins {
     if (!run || !("native" in run))
       throw unavailable(`${id} has no native command named ${commandId}`);
     return this.#hosts.invoke({
-      ...this.#call(key, entry, options),
+      ...(await this.#call(key, entry, { ...options, timeoutMs: options.timeoutMs ?? seconds(run.timeoutSeconds) })),
       command: run.native,
     });
   }
@@ -149,7 +159,7 @@ export class NativePlugins {
     )
       throw unavailable(`${id} ${entry.version} has no project type ${typeId}`);
     return this.#hosts.invoke({
-      ...this.#call(key, entry, options),
+      ...(await this.#call(key, entry, options)),
       projectType: `${typeId}:${hook}`,
     });
   }
@@ -232,11 +242,13 @@ export class NativePlugins {
     return this.#hosts.dispose();
   }
 
-  #call(key: string, entry: PluginIndexEntry, options: PluginCallOptions) {
+  async #call(key: string, entry: PluginIndexEntry, options: PluginCallOptions) {
+    const dataFolder = this.#dataFolder(entry.id);
+    await mkdir(dataFolder, { recursive: true, mode: 0o700 });
     return {
       scope: key,
       project: key,
-      plugin: hostPlugin(entry),
+      plugin: hostPlugin(entry, dataFolder),
       input: options.input,
       signal: options.signal,
       timeoutMs: options.timeoutMs,

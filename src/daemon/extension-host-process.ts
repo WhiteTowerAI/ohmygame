@@ -104,6 +104,7 @@ async function activate(id: number, plugin: ExtensionHostPlugin) {
     pluginId: plugin.id,
     version: plugin.version,
     ...(project ? { project } : {}),
+    dataFolder: plugin.dataFolder,
     registerTool: (name, handler) =>
       register("tool", plugin.tools, loaded.tools, name, handler),
     registerCommand: (name, handler) =>

@@ -17,6 +17,8 @@ export interface ExtensionHostPlugin {
   version: string;
   root: string;
   entry: string;
+  /** The plugin's own data folder, shared by its versions and projects. */
+  dataFolder: string;
   /** Tools the manifest declares; the entry can register only these. */
   tools: string[];
   /** Native command handlers the manifest names, likewise. */
@@ -115,6 +117,12 @@ export interface PluginContext {
   version: string;
   /** The project this host serves; undefined in the app host. */
   project?: { folder: string };
+  /**
+   * A folder only this plugin uses, for downloads, caches and state it keeps
+   * between projects. Every version shares it; it is deleted when the last
+   * version is uninstalled.
+   */
+  dataFolder: string;
   /** Registers a tool the plugin declared in its manifest. */
   registerTool(name: string, handler: ToolHandler): Disposable;
   /** Registers the handler a manifest command names in `run.native`. */

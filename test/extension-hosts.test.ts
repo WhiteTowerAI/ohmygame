@@ -160,6 +160,7 @@ const plugin = (name: string, version = "1.0.0"): ExtensionHostPlugin => ({
   id: `test/${name}`,
   version,
   root: path.join(root, name),
+  dataFolder: path.join(root, "data", name),
   entry: "index.mjs",
   tools: TOOLS[name] ?? [],
   commands: name === "tools" ? ["greet"] : [],
@@ -727,6 +728,10 @@ async function nativePackage(
       });
       context.registerCommand("tidyUp", () => "tidy");
       context.registerCommand("rename", (input) => "renamed " + input.name);
+      context.registerCommand("dataFolder", async () => {
+        const { stat } = await import("node:fs/promises");
+        return { folder: context.dataFolder, made: (await stat(context.dataFolder)).isDirectory() };
+      });
     }`,
   );
   await writeManifest(dir, version, options.network);
@@ -761,6 +766,7 @@ async function writeManifest(dir: string, version: string, network?: string[]) {
         commands: [
           { id: "tidy-up", title: "Tidy up", run: { native: "tidyUp" } },
           { id: "rename", title: "Rename", run: { native: "rename", input: "./tools/rename.json" } },
+          { id: "data-folder", title: "Data folder", run: { native: "dataFolder", timeoutSeconds: 120 } },
         ],
       },
     }),
@@ -774,7 +780,7 @@ async function nativeSetup() {
   const grants = new PluginGrants(path.join(data, "plugin-grants.json"));
   await grants.load();
   const extensionHosts = hosts();
-  const runtime = new NativePlugins({ index, grants, hosts: extensionHosts });
+  const runtime = new NativePlugins({ index, grants, hosts: extensionHosts, dataFolder: (id) => path.join(data, "plugin-data", id) });
   const install = async (dir: string) => {
     const result = await index.add(dir);
     if (!result.ok) throw new Error(JSON.stringify(result.issues));
@@ -832,6 +838,16 @@ describe("native plugins", () => {
           folder: setup.folder,
         }),
       ).toBe("tidy");
+      // The plugin's data folder is made before the call, and a command's
+      // declared timeout replaces the default.
+      const invoke = vi.spyOn(setup.extensionHosts, "invoke");
+      expect(
+        await setup.runtime.runCommand("acme/tiles:data-folder", {
+          folder: setup.folder,
+        }),
+      ).toEqual({ folder: path.join(setup.data, "plugin-data", "acme/tiles"), made: true });
+      expect(invoke.mock.calls[0]![0]).toMatchObject({ timeoutMs: 120_000 });
+      invoke.mockRestore();
       // Only what the manifest declares, checked before the host is asked.
       for (const call of [
         () =>
