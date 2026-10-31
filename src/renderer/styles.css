@@ -2122,37 +2122,18 @@ select.settings-search-input {
   min-width: 0;
 }
 
+/* A type's icon where it is chosen, plain like the menus' other icons. */
 .project-type-mark {
   display: inline-grid;
   flex: none;
   place-items: center;
-  border-radius: 5px;
-  background: var(--color-text-tertiary);
-  color: #fff;
+  color: var(--color-text-secondary);
 }
 
-.project-type-mark.is-web-game { background: var(--hue-code); }
-.project-type-mark.is-interactive-story { background: var(--hue-video); }
-.project-type-mark.is-asset-canvas { background: var(--hue-image); }
-.project-type-mark.is-godot-game { background: #478cbf; }
-.project-type-mark.is-general { background: var(--hue-model); }
-.project-type-mark.is-plugin { background: var(--color-text-secondary); }
-
-/* A plugin that sets up its own projects shows its own icon on a plain tile. */
-.project-type-mark.is-own-icon {
-  width: 20px;
-  height: 20px;
-  box-shadow: inset 0 0 0 1px var(--color-border);
-  background: var(--color-surface-raised);
-}
-
-/* 更多类型… leads elsewhere, so its tile is an outline, not a type's colour. */
+.project-type-mark.is-own-icon,
 .project-type-mark.is-more {
   width: 20px;
   height: 20px;
-  box-shadow: inset 0 0 0 1px var(--color-border-strong);
-  background: none;
-  color: var(--color-text-secondary);
 }
 
 .project-type-godot-icon {
@@ -11335,6 +11316,20 @@ summary.work-summary:hover {
 
 .file-explorer-views nav button:hover,
 .file-explorer-views nav button[aria-pressed="true"] {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+/* Refresh sits beside the views as a plain icon, tinted only on hover. */
+.file-explorer-views > .icon-button {
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.file-explorer-views > .icon-button:hover:not(:disabled) {
   background: var(--color-hover);
   color: var(--color-text);
 }

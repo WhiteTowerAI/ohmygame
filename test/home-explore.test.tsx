@@ -26,9 +26,10 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
 vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({ PageFrame: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 // Stands in for the prompt box: sending hands its message to Home.
 vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({
-  ProjectPromptCreator: ({ onSubmit }: { onSubmit: (message: unknown) => void }) => (
+  ProjectPromptCreator: ({ onSubmit, starts }: { onSubmit: (message: unknown) => void; starts?: React.ReactNode }) => (<>
     <button type="button" onClick={() => onSubmit({ prompt: "Make a maze", mentions: [], attachments: [], mode: "normal" })}>Send prompt</button>
-  ),
+    {starts}
+  </>),
 }));
 
 const { Home } = await import("../src/renderer/home.js");

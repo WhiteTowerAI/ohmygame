@@ -106,11 +106,11 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onSta
               draftKey="home"
               placeholder={t("home.placeholder")}
               onSubmit={(firstMessage, clearDraft) => setCreating({ firstMessage, clearDraft })}
+              starts={<>
+                <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
+                {canImportFolder ? <Button variant="ghost" size="sm" icon={<Import size={14} />} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
+              </>}
             />
-            <div className="home-starts">
-              <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
-              {canImportFolder ? <Button variant="ghost" size="sm" icon={<Import size={14} />} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
-            </div>
             {importError ? <p className="home-notice" role="alert">{importError}</p> : null}
           </section>
 

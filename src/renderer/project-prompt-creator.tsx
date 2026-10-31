@@ -1,5 +1,5 @@
 import { Lightbulb, LoaderCircle, SendArrow } from "./icons.js";
-import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
@@ -52,11 +52,13 @@ type IdeaKey = (typeof IDEAS)[keyof typeof IDEAS][number] | (typeof GENERAL_IDEA
  * Home's prompt box. Sending hands the prompt to the new-project dialog as the
  * first message; the project is created there, and the dialog clears the draft.
  */
-export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating = false, onSubmit }: {
+export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating = false, starts, onSubmit }: {
   /** Each start page keeps its own unsent prompt while the user visits projects. */
   draftKey: string;
   placeholder: string;
   disabled?: boolean;
+  /** The page's other ways to start, in a row under the box with Ideas. */
+  starts?: ReactNode;
   /** `clearDraft` empties the prompt box once the project has been created. */
   onSubmit: (message: FirstMessage, clearDraft: () => void) => void;
 }) {
@@ -501,15 +503,15 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
           <Button size="sm" variant="ghost" onClick={retryPluginTypes}>{t("common.retry")}</Button>
         </p>
       ) : null}
-      {/* One button rather than a row of ideas, which changed width with the type and moved the page. */}
-      <div className="home-ideas">
+      {/* Ideas are one button beside the other ways to start, rather than a row
+          of ideas that changed width with the type and moved the page. */}
+      <div className="home-starts">
+        {starts}
         <DropdownMenu placement="bottom" items={ideas.map((key) => ({ label: t(key), onSelect: () => {
           changePrompt(t(key));
           focusAt(t(key).length);
         } }))} trigger={(props) => (
-          <button {...props} type="button" className="home-idea" disabled={creating}>
-            <Lightbulb size={14} aria-hidden="true" />{t("home.ideasButton")}
-          </button>
+          <Button {...props} variant="ghost" size="sm" icon={<Lightbulb size={14} />} disabled={creating}>{t("home.ideasButton")}</Button>
         )} />
       </div>
     </>
