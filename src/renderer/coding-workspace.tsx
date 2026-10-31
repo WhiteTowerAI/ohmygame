@@ -82,7 +82,6 @@ export function workspacePathAfterChange(selectedPath: string | undefined, chang
 }
 interface CodingWorkspaceProps {
   project?: ProjectState;
-  agentBusy: boolean;
   publishing: boolean;
   workspaceRevision: number;
   previewPaused?: boolean;

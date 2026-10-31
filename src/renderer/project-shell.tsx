@@ -1397,7 +1397,6 @@ export function ProjectShell({
       {!project ? null : coding ? (
         <CodingWorkspace
           project={project}
-          agentBusy={agentBusy}
           publishing={publishing}
           workspaceRevision={workspaceRevision}
           previewPaused={previewPaused}
@@ -1431,7 +1430,6 @@ export function ProjectShell({
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         onDesignSaveReady={registerDesignSave}
         onDesignContextChange={setDesignContext}
-        agentBusy={agentBusy}
         publishing={publishing}
         workspaceRevision={workspaceRevision}
         openFileRequest={openFileRequest}
