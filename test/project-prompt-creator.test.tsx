@@ -305,6 +305,7 @@ describe("Home prompt box", () => {
     await chooseType("TapTap Maker");
     expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: TapTap Maker");
     await act(async () => pluginButton().click());
+    expect(starterItems()[0]).toBe("TapTap Maker");
     expect(menuItem("TapTap Maker")!.getAttribute("aria-disabled")).toBe("true");
     await act(async () => menuItem("TapTap Maker")!.click());
     expect(menuItem("TapTap Maker")!.getAttribute("aria-checked")).toBe("true");

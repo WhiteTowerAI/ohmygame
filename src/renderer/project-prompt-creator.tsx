@@ -147,7 +147,10 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   }, [selectedModel, modelCatalog.defaultReasoningLevel, modelCatalog.defaultNativeReasoningLevel, reasoningLevel, nativeReasoningLevel]);
 
   // Another plugin that sets up its own projects would clash with the type's.
-  const starters = allStarters.filter((plugin) => fitsType(plugin, projectType) && (!plugin.integration?.createProject || plugin === typeStarter));
+  const starters = [
+    ...(typeStarter ? [typeStarter] : []),
+    ...allStarters.filter((plugin) => fitsType(plugin, projectType) && !plugin.integration?.createProject),
+  ];
   const starterOf = (mention?: PluginMention) => mention && allStarters.find((plugin) => plugin.name === mention.name && plugin.marketplaceId === mention.marketplaceId);
   const selectedStarter = starterOf(selectedPlugin);
   const starter = selectedStarter && starters.includes(selectedStarter) ? selectedStarter : undefined;
