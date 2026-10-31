@@ -4752,11 +4752,14 @@ button {
   grid-template-rows: minmax(0, 1fr) auto;
 }
 
+/* The light grey ramp peaks at white, so surface-raised there is an inset fill
+   for controls inside a white card, darker than the canvas behind it. Frames
+   on the canvas are white instead. */
 :root[data-appearance="light"] .viewer-pane.interactive-story-workspace {
   --interactive-story-grid: var(--color-grid-dot);
   --story-edge-color: var(--color-text-tertiary);
   --story-editor-surface: var(--surface);
-  --story-editor-stage: var(--color-surface-raised);
+  --story-editor-stage: var(--color-surface);
 }
 
 .interactive-story-workspace.is-node-editor-open {
@@ -5646,6 +5649,12 @@ button {
   border-radius: 12px;
   background: var(--surface-raised);
   box-shadow: var(--menu-shadow);
+}
+
+:root[data-appearance="light"] :is(.story-media-composer, .story-text-composer) {
+  border-color: transparent;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
 }
 
 .story-media-references {
