@@ -9785,14 +9785,6 @@ summary.work-summary:hover {
   font-size: var(--text-xs);
 }
 
-.composer-context-menu-foot kbd {
-  padding: 0 4px;
-  border-radius: 4px;
-  background: var(--color-hover);
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-}
-
 .composer-context-menu-foot kbd:not(:first-child) {
   margin-left: 6px;
 }

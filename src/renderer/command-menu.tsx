@@ -95,7 +95,7 @@ function isMac(): boolean {
 
 /** The platform's modifier before a key, as the menus show shortcuts. */
 export function shortcut(key: string): string {
-  return isMac() ? `⌘${key.toUpperCase()}` : `Ctrl+${key.toUpperCase()}`;
+  return shortcutKeys(key).join(isMac() ? "" : "+");
 }
 
 /** The same shortcut as its separate keys, each shown as a keycap. */
