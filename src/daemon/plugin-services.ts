@@ -8,7 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, mcpServerSyntaxIssue, PLUGIN_DATA_ENV } from "../shared/plugin-manifest.js";
+import { agentToolName, configReferences, isPluginId, mcpServerSyntaxIssue, PLUGIN_DATA_ENV } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
@@ -236,6 +236,8 @@ export class PluginServices {
    */
   /** A plugin's data folder; ids are `publisher/name`, so it stays under `dataDirectory`. */
   dataFolder(id: string): string {
+    // Ids come from routes too; only a real id names a folder inside the store.
+    if (!isPluginId(id)) throw new Error(`Not a plugin id: ${id}`);
     return path.join(this.dataDirectory, ...id.split("/"));
   }
 
@@ -495,6 +497,7 @@ export class PluginServices {
     const removed = version
       ? [this.index.get(id, version)].filter((entry) => entry !== undefined)
       : this.index.versions(id);
+    if (!removed.length) return;
     await this.index.remove(id, version);
     const last = !this.index.versions(id).length;
     if (last) {

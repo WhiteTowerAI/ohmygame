@@ -307,6 +307,12 @@ describe("project plugins", () => {
       await services.values.update(entry, { region: "{env:HOME}" });
       expect(Object.keys(await services.mcpServers(folder))).toEqual([name("signed-in")]);
       expect((await stat(services.dataFolder("acme/maker"))).isDirectory()).toBe(true);
+      // An id from a route that isn't a plugin's never reaches the file system.
+      const outside = path.join(services.dataFolder("acme/maker"), "..", "..", "..", "projects");
+      await mkdir(outside, { recursive: true });
+      await services.uninstall("../../projects");
+      expect(() => services.dataFolder("../../projects")).toThrow("Not a plugin id");
+      expect((await stat(outside)).isDirectory()).toBe(true);
       // Uninstalling the last version deletes the data folder.
       await services.uninstall("acme/maker");
       await expect(stat(services.dataFolder("acme/maker"))).rejects.toMatchObject({ code: "ENOENT" });
@@ -613,7 +619,8 @@ describe("format 1 TapTap Maker projects", () => {
     };
     const other = { id: "other", workspacePath: await folder({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": "1.0.0" } }), integration: { pluginId: LEGACY_MAKER_ID, preview: "external" as const } };
     const plain = { id: "plain", workspacePath: await folder() };
-    const records = [fresh, helper, other, plain] as unknown as ProjectState[];
+    const imported = { id: "imported", workspacePath: await folder(), integration: { pluginId: LEGACY_MAKER_ID, preview: "external" as const, imported: true as const } };
+    const records = [fresh, helper, other, plain, imported] as unknown as ProjectState[];
     const migrated: string[] = [];
     const warnings: string[] = [];
     await migrateLegacyMakerProjects({
@@ -628,14 +635,16 @@ describe("format 1 TapTap Maker projects", () => {
       legacyDataFolder: legacyData,
       warn: (message) => warnings.push(message),
     });
-    return { services, fresh, helper, other, migrated, warnings };
+    return { services, fresh, helper, other, imported, migrated, warnings };
   }
 
   it("moves them to the format 2 type, keeping other plugins' pins, and turns the plugin on for someone who used it", async () => {
-    const { services, fresh, helper, other, migrated, warnings } = await setup(true);
+    const { services, fresh, helper, other, imported, migrated, warnings } = await setup(true);
     try {
       const version = services.index.get(MAKER_PLUGIN)!.version;
-      expect(migrated).toEqual(["fresh", "helper"]);
+      expect(migrated).toEqual(["fresh", "helper", "imported"]);
+      // A project from an archive moves, but its folder waits for the person.
+      expect(services.grants.project(await projectFolderKey(imported.workspacePath), MAKER_PLUGIN)).toBeUndefined();
       const fresh_ = await readProjectFile(await projectFolderKey(fresh.workspacePath));
       expect(fresh_).toMatchObject({ ok: true, file: { type: MAKER_TYPE, plugins: { [MAKER_PLUGIN]: version } } });
       const helper_ = await readProjectFile(await projectFolderKey(helper.workspacePath));
@@ -651,10 +660,38 @@ describe("format 1 TapTap Maker projects", () => {
     }
   });
 
+  it("moves no project until every unfinished project record is copied", async () => {
+    const data = await temporary();
+    const services = new PluginServices({ directory: path.join(data, "store"), bundled: path.join(BUNDLED, "..", "plugins-v2") });
+    try {
+      const legacyData = path.join(data, "legacy");
+      // A record the app can't read stays behind, and so do the projects.
+      await mkdir(path.join(legacyData, "initializations", "broken.json"), { recursive: true });
+      const workspacePath = await temporary();
+      const migrated: string[] = [];
+      const warnings: string[] = [];
+      const run = () => migrateLegacyMakerProjects({
+        projects: { list: () => [{ id: "fresh", workspacePath, integration: { pluginId: LEGACY_MAKER_ID } }] as unknown as ProjectState[], migrateIntegration: async (id) => { migrated.push(id); } },
+        services, legacyEnabled: true, legacyDataFolder: legacyData, warn: (message) => warnings.push(message),
+      });
+      await run();
+      expect(migrated).toEqual([]);
+      expect(warnings).toEqual([expect.stringContaining("move at the next start")]);
+      expect(await readProjectFile(await projectFolderKey(workspacePath))).toBeUndefined();
+      // Once it can be read, the next start copies it and moves the project.
+      await rm(path.join(legacyData, "initializations", "broken.json"), { recursive: true });
+      await writeFile(path.join(legacyData, "initializations", "broken.json"), JSON.stringify({ projectId: "remote-2" }));
+      await run();
+      expect(migrated).toEqual(["fresh"]);
+    } finally {
+      await services.close();
+    }
+  });
+
   it("leaves the plugin off and the folders unapproved for someone who never turned format 1 Maker on", async () => {
     const { services, fresh, migrated } = await setup(false);
     try {
-      expect(migrated).toEqual(["fresh", "helper"]);
+      expect(migrated).toEqual(["fresh", "helper", "imported"]);
       expect(services.grants.plugin(MAKER_PLUGIN)).toEqual({ enabled: false, allowed: [] });
       expect(services.grants.project(await projectFolderKey(fresh.workspacePath), MAKER_PLUGIN)).toBeUndefined();
     } finally {

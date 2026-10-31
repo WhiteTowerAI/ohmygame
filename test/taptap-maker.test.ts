@@ -41,10 +41,21 @@ beforeEach(async () => {
     if (args[0] === "lua-lsp") console.log(JSON.stringify({ ready: true }));
     else if (args[0] === "apps") {
       if (await has("signed-out")) { console.error("JWT missing"); process.exit(1); }
+      if (await has("leave-running")) {
+        // Like the preview Runtime: started by Maker, it outlives the call and holds its output.
+        const { spawn } = await import("node:child_process");
+        const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit" });
+        child.unref();
+        await writeFile(file("child.pid"), String(child.pid));
+      }
       console.log(JSON.stringify([{ id: "selected", name: "Selected" }]));
     } else if (args[0] === "login") console.log(JSON.stringify({ message: "Open https://maker.example.com/device?code=AB12 to sign in" }));
     else if (args[0] === "init") {
       if (await has("hang-init")) {
+        // Something it started keeps running with its output.
+        const { spawn } = await import("node:child_process");
+        const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit" });
+        await writeFile(file("child.pid"), String(child.pid));
         await writeFile(file("init.pid"), String(process.pid));
         await new Promise(() => {});
       }
@@ -89,6 +100,15 @@ afterEach(async () => {
   delete process.env.MAKER_TEST_DIRECTORY;
   await rm(directory, { recursive: true, force: true });
 });
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 async function calls(): Promise<string[][]> {
   return (await readFile(path.join(directory, "calls.jsonl"), "utf8").catch(() => ""))
@@ -172,10 +192,31 @@ describe("TapTap Maker project setup", () => {
       pid = Number(await readFile(pidFile, "utf8").catch(() => "0"));
       if (!pid) await new Promise((resolve) => setTimeout(resolve, 50));
     }
+    const child = Number(await readFile(path.join(directory, "child.pid"), "utf8"));
     controller.abort();
     await expect(creating).rejects.toBeInstanceOf(Cancelled);
-    await expect.poll(() => { try { process.kill(pid, 0); return true; } catch { return false; } }).toBe(false);
+    await expect.poll(() => alive(pid)).toBe(false);
+    await expect.poll(() => alive(child)).toBe(false);
   }, 15_000);
+
+  it("ends a call once Maker exits, leaving running what Maker started", async () => {
+    await writeFile(path.join(directory, "leave-running"), "");
+    expect(await maker.projects(context())).toEqual({ projects: [{ id: "selected", name: "Selected" }] });
+    const child = Number(await readFile(path.join(directory, "child.pid"), "utf8"));
+    try {
+      expect(alive(child)).toBe(true);
+    } finally {
+      process.kill(child, "SIGKILL");
+    }
+  }, 15_000);
+
+  it("takes over a lock whose process is gone", async () => {
+    await writeFile(path.join(directory, "prepare.lock"), "999999999");
+    let ran = false;
+    await withLock(directory, "prepare", async () => { ran = true; });
+    expect(ran).toBe(true);
+    await expect(readFile(path.join(directory, "prepare.lock"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
 
   it("lets one project at a time hold the data folder's lock", async () => {
     const order: string[] = [];

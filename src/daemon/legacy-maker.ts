@@ -1,7 +1,8 @@
 // Moves projects that used the format 1 TapTap Maker integration to the
 // format 2 plugin's Maker type. Each project moves on its own; one that can't
 // keeps its record's `integration` and is tried again on the next start.
-import { cp, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { copyFile, mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState } from "../shared/contracts.js";
 import {
@@ -20,7 +21,10 @@ export const MAKER_TYPE = `${MAKER_PLUGIN}:maker`;
 export interface LegacyMakerMigration {
   projects: { list(): ProjectState[]; migrateIntegration(id: string, pluginType: NonNullable<ProjectState["pluginType"]>): Promise<unknown> };
   services: PluginServices;
-  /** Whether the person had turned the format 1 plugin on; that is their consent to the format 2 one. */
+  /**
+   * Whether the person had turned the format 1 plugin on; that is their
+   * consent to the format 2 one, though never for a project from an archive.
+   */
   legacyEnabled: boolean;
   /** The format 1 plugin's data folder, which holds the records of unfinished creates and binds. */
   legacyDataFolder: string;
@@ -41,13 +45,16 @@ export async function migrateLegacyMakerProjects(options: LegacyMakerMigration):
   const entry = services.index.get(MAKER_PLUGIN);
   if (!entry) return options.warn("The bundled TapTap Maker plugin is missing; Maker projects keep their format 1 record");
   // The records keep a remote project's id before checkout, so a retried
-  // create never makes a second one. Copied once, never over newer ones.
-  const records = path.join(options.legacyDataFolder, "initializations");
-  const copied = path.join(services.dataFolder(MAKER_PLUGIN), "initializations");
-  if ((await exists(records)) && !(await exists(copied)))
-    await cp(records, copied, { recursive: true, errorOnExist: false, force: false }).catch((error: unknown) =>
-      options.warn("Could not copy TapTap Maker's unfinished project records", error),
+  // create never makes a second one. Each is copied unless the plugin has its
+  // own already; until every one is, no project moves.
+  try {
+    await copyRecords(
+      path.join(options.legacyDataFolder, "initializations"),
+      path.join(services.dataFolder(MAKER_PLUGIN), "initializations"),
     );
+  } catch (error) {
+    return options.warn("Could not copy TapTap Maker's unfinished project records; Maker projects move at the next start", error);
+  }
   const grants = capabilityGrants(entry.manifest);
   // Someone who used format 1 Maker gets the format 2 plugin on, unless they
   // already decided about it themselves (consented or turned it on or off).
@@ -74,7 +81,7 @@ export async function migrateLegacyMakerProjects(options: LegacyMakerMigration):
         }),
         { type: MAKER_TYPE, plugins: {} },
       );
-      if (options.legacyEnabled) await services.grants.approve(folder, MAKER_PLUGIN, grants);
+      if (options.legacyEnabled && !project.integration?.imported) await services.grants.approve(folder, MAKER_PLUGIN, grants);
       await options.projects.migrateIntegration(project.id, { id: MAKER_TYPE, plugin: MAKER_PLUGIN, preview: "native" });
       await services.changed(folder);
       options.onMigrated?.(project);
@@ -84,6 +91,19 @@ export async function migrateLegacyMakerProjects(options: LegacyMakerMigration):
   }
 }
 
-async function exists(file: string): Promise<boolean> {
-  return stat(file).then(() => true, () => false);
+async function copyRecords(from: string, to: string): Promise<void> {
+  let names: string[];
+  try {
+    names = await readdir(from);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  await mkdir(to, { recursive: true, mode: 0o700 });
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    await copyFile(path.join(from, name), path.join(to, name), constants.COPYFILE_EXCL).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "EEXIST") throw error;
+    });
+  }
 }

@@ -443,6 +443,8 @@ export class ProjectManager {
     try {
       const candidate = {
         ...Object.fromEntries(PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => settings[key] !== undefined).map((key) => [key, settings[key]])),
+        // Recorded with the project, so a later try to move it can't allow its plugin either.
+        ...(settings.integration ? { integration: { ...settings.integration, imported: true } } : {}),
         version: 1, id, nameSource: "manual", updatedAt,
       };
       try {
@@ -1230,7 +1232,7 @@ function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): L
     validPreviewSettings(parsed) && parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
     (parsed.nameSource === undefined || ["default", "ai", "manual"].includes(parsed.nameSource)) &&
     (parsed.type === undefined || isProjectType(parsed.type)) &&
-    (parsed.integration === undefined || (typeof parsed.integration?.pluginId === "string" && !!parsed.integration.pluginId && (parsed.integration.preview === undefined || parsed.integration.preview === "external"))) &&
+    (parsed.integration === undefined || (typeof parsed.integration?.pluginId === "string" && !!parsed.integration.pluginId && (parsed.integration.preview === undefined || parsed.integration.preview === "external") && (parsed.integration.imported === undefined || parsed.integration.imported === true))) &&
     (parsed.pluginType === undefined || (typeof parsed.pluginType?.id === "string" && typeof parsed.pluginType.plugin === "string" && parsed.pluginType.id.startsWith(`${parsed.pluginType.plugin}:`) && ["web", "web-build", "native"].includes(parsed.pluginType.preview))) &&
     (parsed.webPreviewEnabled === undefined || typeof parsed.webPreviewEnabled === "boolean") &&
     (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&

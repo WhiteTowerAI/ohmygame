@@ -4,6 +4,7 @@
 import { spawn } from "node:child_process";
 import {
   access,
+  link,
   mkdir,
   readFile,
   realpath,
@@ -50,20 +51,41 @@ export class Cancelled extends Error {
   }
 }
 
-/** Stops a child and everything it started. */
+/** How long a stopped process group gets before it is killed. */
+const STOP_GRACE_MS = 5000;
+/** How long output may stay open after Maker exits, held by something it started. */
+const CLOSE_GRACE_MS = 2000;
+
+/** Process groups started by calls still running, stopped if the host exits first. */
+const running = new Set();
+process.once("exit", () => {
+  for (const child of running) signalGroup(child, "SIGKILL");
+});
+
+function signalGroup(child, signal) {
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // The group is gone.
+  }
+}
+
+/**
+ * Stops a child and everything it started. On POSIX the whole group is
+ * signalled even after its leader exited, and killed if it outlives the grace
+ * period. Windows can only follow the tree while its root is alive.
+ */
 function stopTree(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform === "win32")
+  if (process.platform === "win32") {
+    if (child.exitCode !== null || child.signalCode !== null) return;
     spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
       stdio: "ignore",
       windowsHide: true,
     }).once("error", () => child.kill());
-  else
-    try {
-      process.kill(-child.pid, "SIGTERM");
-    } catch {
-      child.kill("SIGTERM");
-    }
+    return;
+  }
+  signalGroup(child, "SIGTERM");
+  setTimeout(() => signalGroup(child, "SIGKILL"), STOP_GRACE_MS).unref();
 }
 
 export async function run(
@@ -86,6 +108,7 @@ export async function run(
     let failure;
     let diagnostic = "";
     let authorizationMissing = false;
+    if (process.platform !== "win32") running.add(child);
     const abort = () => {
       failure = new Cancelled();
       stopTree(child);
@@ -115,10 +138,22 @@ export async function run(
       authorizationMissing ||= AUTHORIZATION_MISSING.test(diagnostic);
     });
     child.once("error", (error) => {
+      running.delete(child);
       signal?.removeEventListener("abort", abort);
       reject(error);
     });
+    // Something Maker started, such as the preview Runtime, may keep its
+    // output open; the call ends shortly after Maker itself does. Only a
+    // cancelled or failed call stops what it started.
+    child.once("exit", () => {
+      if (failure) stopTree(child);
+      setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+      }, CLOSE_GRACE_MS).unref();
+    });
     child.once("close", (code) => {
+      running.delete(child);
       signal?.removeEventListener("abort", abort);
       if (onLine && pending.trim() && !failure) onLine(pending);
       if (failure) reject(failure);
@@ -250,23 +285,33 @@ export async function withLock(directory, name, work, { signal, onWait } = {}) {
   await mkdir(directory, { recursive: true });
   const file = path.join(directory, `${name}.lock`);
   let told = false;
-  for (;;) {
-    if (signal?.aborted) throw new Cancelled();
-    try {
-      await writeFile(file, String(process.pid), { flag: "wx", mode: 0o600 });
-      break;
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
+  // The lock appears with its pid already in it: written aside, then linked
+  // into place, which fails while another lock is there.
+  const own = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}`;
+  await writeFile(own, String(process.pid), { mode: 0o600 });
+  try {
+    for (;;) {
+      if (signal?.aborted) throw new Cancelled();
+      try {
+        await link(own, file);
+        break;
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error;
+      }
+      const holder = await stale(file);
+      if (holder === undefined) continue;
+      if (holder !== false) {
+        await reclaim(file, holder);
+        continue;
+      }
+      if (!told) {
+        told = true;
+        onWait?.();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    if (await stale(file)) {
-      await rm(file, { force: true });
-      continue;
-    }
-    if (!told) {
-      told = true;
-      onWait?.();
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+  } finally {
+    await rm(own, { force: true });
   }
   try {
     return await work();
@@ -275,21 +320,42 @@ export async function withLock(directory, name, work, { signal, onWait } = {}) {
   }
 }
 
+/**
+ * Moves a stale lock aside. When another waiter replaced it meanwhile, the
+ * moved lock is not the stale one and goes back.
+ */
+async function reclaim(file, holder) {
+  const aside = `${file}.stale.${process.pid}.${Math.random().toString(36).slice(2)}`;
+  try {
+    await rename(file, aside);
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  const moved = await readFile(aside, "utf8").catch(() => undefined);
+  if (moved !== holder) await link(aside, file).catch(() => {});
+  await rm(aside, { force: true });
+}
+
+/**
+ * A lock's text when it is stale (its process is gone, or it is older than
+ * LOCK_STALE_MS), false while it is held, and undefined once it is gone.
+ */
 async function stale(file) {
   try {
     const [text, info] = await Promise.all([readFile(file, "utf8"), stat(file)]);
-    if (Date.now() - info.mtimeMs > LOCK_STALE_MS) return true;
+    if (Date.now() - info.mtimeMs > LOCK_STALE_MS) return text;
     const pid = Number(text);
-    if (!Number.isSafeInteger(pid) || pid <= 0) return true;
+    if (!Number.isSafeInteger(pid) || pid <= 0) return text;
     try {
       process.kill(pid, 0);
       return false;
     } catch (error) {
-      return error.code === "ESRCH";
+      return error.code === "ESRCH" ? text : false;
     }
   } catch (error) {
-    // Let go meanwhile: try again.
-    return error.code === "ENOENT";
+    if (error.code === "ENOENT") return undefined;
+    throw error;
   }
 }
 

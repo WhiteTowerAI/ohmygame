@@ -1045,11 +1045,11 @@ export function createApp(options: AppOptions = {}) {
   // The app records each plugin-typed project's type when it is created; the
   // project file can later pin a version whose type previews differently.
   /** Moves format 1 TapTap Maker projects to the format 2 plugin; see legacy-maker.ts. */
-  function migrateMaker({ only, consented = true }: { only?: string; consented?: boolean } = {}): Promise<void> {
+  function migrateMaker(only?: string): Promise<void> {
     return migrateLegacyMakerProjects({
       projects,
       services: pluginServices,
-      legacyEnabled: consented && pluginSettings.storedEnabled(LEGACY_MAKER_ID) === true,
+      legacyEnabled: pluginSettings.storedEnabled(LEGACY_MAKER_ID) === true,
       legacyDataFolder: pluginCapabilities.dataPath(LEGACY_MAKER_ID),
       warn: (message, err) => app.log.warn({ err }, message),
       onMigrated: (project) => {
@@ -2197,8 +2197,8 @@ export function createApp(options: AppOptions = {}) {
     if (!upload) return reply.code(400).send({ error: "Choose a project archive to import." });
     try {
       const imported = await importProjectArchive(projects, upload, { name: request.query.name });
-      // An archive's settings are not the person's consent: its plugin waits for their approval.
-      if (imported.integration) await migrateMaker({ only: imported.id, consented: false });
+      // The project records that it came from an archive, so its folder waits for the person's approval.
+      if (imported.integration) await migrateMaker(imported.id);
       return reply.code(201).send(projects.get(imported.id) ?? imported);
     } catch (cause) {
       if (cause instanceof ProjectArchiveError) return reply.code(cause.statusCode).send({ error: cause.message });

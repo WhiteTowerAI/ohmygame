@@ -381,11 +381,18 @@ const Panel = Type.Object(
 const list = <T extends Parameters<typeof Type.Array>[0]>(item: T) =>
   Type.Optional(Type.Array(item, { minItems: 1, maxItems: 50 }));
 
+const PLUGIN_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$";
+
+/** Whether `id` is a format 2 plugin id, `publisher/name`, safe to use as a path. */
+export function isPluginId(id: string): boolean {
+  return id.length <= 129 && new RegExp(PLUGIN_ID_PATTERN).test(id);
+}
+
 export const PluginManifestV2Schema = Type.Object(
   {
     $schema: Type.Optional(Type.String()),
     id: Type.String({
-      pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$",
+      pattern: PLUGIN_ID_PATTERN,
       maxLength: 129,
       description: "publisher/name",
     }),
