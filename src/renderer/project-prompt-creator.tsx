@@ -369,9 +369,12 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
         ...pluginMentions.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId),
         selected,
       ];
+      // A plugin that followed the lead before moves up rather than show twice.
+      const others = (extraPlugins ?? []).filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId);
       setPrompt(nextPrompt);
       setSelectedPlugin(selected);
-      setPluginMentions(activePluginMentions(invocation(nextPrompt, selected), [...candidates, ...extraMentions]));
+      setExtraPlugins(others.length ? others : undefined);
+      setPluginMentions(activePluginMentions(invocation(nextPrompt, selected, others), [...candidates, ...others]));
       setMentionCursor(0);
       focusAt(0);
       return;

@@ -260,6 +260,31 @@ describe("Home prompt box", () => {
     }), expect.any(Function));
   });
 
+  it("moves a following plugin up when a mention makes it the lead", async () => {
+    capabilities.plugins.push(plugin("threejs-world", "Three.js World", ["web-game"]));
+    await render();
+    await act(async () => pluginButton().click());
+    await act(async () => menuItem("Three.js World")!.click());
+    await act(async () => pluginButton().click());
+    const textarea = container.querySelector("textarea")!;
+    const backspace = async () => {
+      textarea.setSelectionRange(0, 0);
+      await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true })); });
+    };
+    await backspace();
+    await type("@Three");
+    textarea.setSelectionRange(6, 6);
+    await act(async () => { textarea.dispatchEvent(new Event("select", { bubbles: true })); });
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"], [role="menuitem"]')].find((item) => item.textContent?.includes("Three.js World"))!;
+    await act(async () => option.click());
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Three.js World");
+    await type("Make an island");
+    await backspace();
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Make an island", mentions: [] }), expect.any(Function));
+  });
+
   it("hands the prompt with its type and starting plugin to the dialog instead of creating a project", async () => {
     await render();
     // The plugin alone is not a message.
