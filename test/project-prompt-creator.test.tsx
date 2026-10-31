@@ -163,6 +163,19 @@ describe("Home prompt box", () => {
     );
   });
 
+  it("brings back every starting plugin of a prompt from history", async () => {
+    capabilities.plugins.push(plugin("threejs-world", "Three.js World", ["web-game"]));
+    const mentions = [capabilities.plugins[2], capabilities.plugins[3]].map((item) => ({ name: item.name, displayName: item.displayName, marketplaceId: item.marketplaceId }));
+    localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Web Game Studio @Three.js World Make an island", mentions }]));
+    await render();
+    const textarea = container.querySelector("textarea")!;
+    await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })); });
+    expect(textarea.value).toBe("Make an island");
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Web Game Studio, Three.js World");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio @Three.js World Make an island" }), expect.any(Function));
+  });
+
   it("starts with several plugins, keeps them when Home mounts again, and sends them in order", async () => {
     capabilities.plugins.push(plugin("threejs-world", "Three.js World", ["web-game"]));
     await render();
@@ -315,6 +328,33 @@ describe("Home prompt box", () => {
       prompt: "@TapTap Maker Make a puzzle",
       type: "general",
     }), expect.any(Function));
+  });
+
+  it("keeps a type's own plugin when the prompt is cleared, for plugins outside the starter list too", async () => {
+    capabilities.plugins.push({ ...plugin("island-maker", "Island Maker", ["general"]), integration: { createProject: true } as never });
+    await render();
+    await chooseType("Island Maker");
+    // /plan clears the prompt and its plugins; the type's plugin comes back.
+    await type("/plan");
+    await send();
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Island Maker");
+    await type("Make an island");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Island Maker Make an island", type: "general" }), expect.any(Function));
+  });
+
+  it("drops a remembered plugin type's plugin once that plugin is gone", async () => {
+    capabilities.plugins.push({ ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never });
+    await render();
+    await chooseType("TapTap Maker");
+    await type("Make a puzzle");
+    await act(async () => root.unmount());
+    capabilities.plugins.pop();
+    root = createRoot(container);
+    await render();
+    expect(typePicker().textContent).toBe("Web Game");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio Make a puzzle", type: "web-game" }), expect.any(Function));
   });
 
   it("waits for plugins before sending a plugin's own type it remembered", async () => {

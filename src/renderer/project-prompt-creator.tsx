@@ -84,7 +84,9 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const allStarters = capabilities.plugins
     .filter((plugin) => STARTERS.includes(plugin.name))
     .sort((left, right) => STARTERS.indexOf(left.name) - STARTERS.indexOf(right.name));
-  const typeStarters = allStarters.filter((plugin) => plugin.integration?.createProject);
+  // Any enabled plugin that sets up its own projects is offered as a type.
+  const typeStarters = capabilities.plugins.filter((plugin) => plugin.integration?.createProject);
+  const pickable = [...allStarters, ...typeStarters.filter((plugin) => !allStarters.includes(plugin))];
   const { types: loadedPluginTypes, failed: pluginTypesFailed, retry: retryPluginTypes } = usePluginProjectTypes();
   const pluginTypes = loadedPluginTypes ?? [];
   // A plugin's type stays chosen only while its plugin is installed and enabled;
@@ -151,7 +153,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     ...(typeStarter ? [typeStarter] : []),
     ...allStarters.filter((plugin) => fitsType(plugin, projectType) && !plugin.integration?.createProject),
   ];
-  const starterOf = (mention?: PluginMention) => mention && allStarters.find((plugin) => plugin.name === mention.name && plugin.marketplaceId === mention.marketplaceId);
+  const starterOf = (mention?: PluginMention) => mention && pickable.find((plugin) => plugin.name === mention.name && plugin.marketplaceId === mention.marketplaceId);
   const selectedStarter = starterOf(selectedPlugin);
   const starter = selectedStarter && starters.includes(selectedStarter) ? selectedStarter : undefined;
   const extras = (extraPlugins ?? []).map(starterOf)
@@ -164,16 +166,20 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const invocation = (text: string, lead = selectedPlugin, others = extraMentions) =>
     formatComposerInvocation(selectedSkill, lead, others.reduceRight((rest, mention) => formatPluginInvocation(mention, rest), text));
 
+  // The plugin a type comes from always leads, also after the prompt is cleared.
   useEffect(() => {
-    // The plugin a type comes from always leads.
-    if (typeStarter) {
-      if (starter !== typeStarter) chooseStarters([typeStarter.id, ...extras.map((plugin) => plugin.id)]);
-      return;
-    }
+    if (typeStarter && starter !== typeStarter) chooseStarters([typeStarter.id, ...extras.map((plugin) => plugin.id)]);
+  }, [typeStarter, starter]);
+
+  useEffect(() => {
+    if (typeStarter) return;
+    // A remembered plugin type that is gone takes its plugin with it.
+    const lost = savedType.startsWith(STARTER_TYPE) && !typePending && selectedPlugin
+      && !capabilities.plugins.some((plugin) => plugin.name === selectedPlugin.name && plugin.marketplaceId === selectedPlugin.marketplaceId);
     // A plugin put first in the prompt by hand is kept, and so is a starter that works in the type.
-    if (starterChosen || (selectedPlugin && (!selectedStarter || starter))) return;
+    if (!lost && (starterChosen || (selectedPlugin && (!selectedStarter || starter)))) return;
     const next = defaultStarter(starters, type);
-    if (next || selectedStarter) chooseStarters(next ? [next.id] : []);
+    if (next || selectedStarter || lost) chooseStarters(next ? [next.id] : []);
   }, [capabilities, type]);
 
   /** A new type brings its own starting plugin. */
@@ -193,7 +199,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   /** The first plugin leads the prompt; the others follow it. */
   function chooseStarters(ids: readonly string[]): void {
     const [lead, ...others] = ids.flatMap((id) => {
-      const plugin = allStarters.find((item) => item.id === id);
+      const plugin = pickable.find((item) => item.id === id);
       return plugin ? [toPluginMention(plugin)] : [];
     });
     setExtraPlugins(others.length ? others : undefined);
@@ -292,11 +298,18 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     const skill = parseSkillInvocation(result.prompt);
     const historicalMentions = mentionHistory.get(result.prompt) ?? [];
     const plugin = extractLeadingPluginMention(skill?.prompt ?? result.prompt, historicalMentions);
+    // Starting plugins that followed the first come back checked too.
+    const others: PluginMention[] = [];
+    for (let next = extractLeadingPluginMention(plugin.prompt, historicalMentions); next.mention && starterOf(next.mention);
+      next = extractLeadingPluginMention(next.prompt, historicalMentions)) {
+      others.push(next.mention);
+      plugin.prompt = next.prompt;
+    }
     setHistory(result.history);
     setPrompt(plugin.prompt);
     setSelectedSkill(skill?.name);
     setSelectedPlugin(plugin.mention);
-    setExtraPlugins(undefined);
+    setExtraPlugins(others.length ? others : undefined);
     setPluginMentions(historicalMentions);
     const cursor = plugin.prompt.length;
     setMentionCursor(cursor);
