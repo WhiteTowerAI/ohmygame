@@ -288,7 +288,8 @@ async function main(request) {
     for (let attempt = 0; ; attempt++) {
       let failure;
       try {
-        await preview(command);
+        // A refresh stops the runtime before preparing, so after a failed one only Start brings it back.
+        await preview(attempt && command === "refresh" ? "start" : command);
       } catch (cause) {
         if (/authorization/i.test(cause.message)) throw cause;
         failure = cause;
@@ -301,15 +302,14 @@ async function main(request) {
           : failed && TRANSIENT.test(String(value.error ?? ""));
       if (command === "stop" || !transient || attempt >= RETRY_DELAYS.length) {
         if (failure) {
-          // Maker's own diagnosis says more than a generic failure.
-          if (value.error && command !== "install") return previewResult(value);
-          const unfinished =
-            command === "install"
-              ? value.install_state !== "ready"
-              : command === "stop"
-                ? value.process_alive
-                : !value.process_alive;
-          if (unfinished) throw failure;
+          // The status explains the failure only with a diagnosis of its own,
+          // not a retired session's; install metadata may predate the attempt.
+          const diagnosed = command !== "install" && value.error && !RETIRED.test(String(value.error));
+          const done =
+            command === "stop"
+              ? !value.process_alive
+              : command !== "install" && value.process_alive;
+          if (!diagnosed && !done) throw failure;
         }
         return previewResult(value);
       }

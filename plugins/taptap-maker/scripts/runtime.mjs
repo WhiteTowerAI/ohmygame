@@ -154,11 +154,28 @@ function parseReport(output) {
   }
 }
 
-/** Takes credentials out of a CLI message before it is shown: a URL's user and password, and token-like query values. */
+const SENSITIVE = /token|key|secret|signature|sig|auth|password|credential|session/i;
+
+/**
+ * Takes credentials out of a CLI message before it is shown: a URL's user
+ * and password, and the values of query parameters whose decoded names look
+ * like credentials. A URL that can't be parsed loses its query.
+ */
 export function redact(message) {
-  return String(message)
-    .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1")
-    .replace(/([?&](?:token|access_token|key|signature|sig|auth)=)[^&\s]+/gi, "$1***");
+  return String(message).replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi, (text) => {
+    let url;
+    try {
+      url = new URL(text);
+    } catch {
+      return text.replace(/^([^:]+:\/\/)[^/?#]*@/, "$1").replace(/[?#].*$/, "");
+    }
+    const names = [...url.searchParams.keys()].filter((name) => SENSITIVE.test(name));
+    if (!url.username && !url.password && !names.length) return text;
+    url.username = "";
+    url.password = "";
+    for (const name of names) url.searchParams.set(name, "***");
+    return url.href;
+  });
 }
 
 async function npmEntry() {
