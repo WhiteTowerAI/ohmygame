@@ -191,6 +191,7 @@ it("collapses to icons and resizes from its edge, remembering both", async () =>
   // Collapsed, an item's name shows in a tooltip beside its icon.
   const library = button("Library")!;
   expect(library.title).toBe("");
+  expect(library.getAttribute("aria-label")).toBe("Library");
   await act(async () => library.focus());
   expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Library");
   await act(async () => library.blur());

@@ -247,7 +247,10 @@ function SidebarItem({ icon, label, shortcut: keys, dot, active = false, onClick
 // expanded, a long name cut off by the width shows in full the same way.
 function SidebarTip({ label, children }: { label: string; children: ReactElement<Record<string, unknown>> }) {
   const { collapsed } = useSidebarPreferences();
-  return collapsed ? <Tooltip content={label} placement="right">{children}</Tooltip> : cloneElement(children, { title: label });
+  // Collapsed, the label is hidden, so the button carries its name itself.
+  return collapsed
+    ? <Tooltip content={label} placement="right">{cloneElement(children, { "aria-label": label })}</Tooltip>
+    : cloneElement(children, { title: label });
 }
 
 // The expanded sidebar's right edge: drag or use the arrow keys to resize,
