@@ -31,6 +31,7 @@ let pluginChoices: ProjectPluginChoice[] = [];
 const listProjectPluginChoices = vi.fn(async () => pluginChoices);
 const consentToPlugin = vi.fn(async () => {});
 const setProjectPluginVersion = vi.fn(async () => {});
+const getProjectLocation = vi.fn(async (): Promise<{ location?: string; storage?: string }> => ({ storage: "/data/projects" }));
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   getHomeComposerCapabilities,
@@ -41,6 +42,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   setProjectPluginVersion,
   createProject,
   createConversation,
+  getProjectLocation,
 }));
 const { ProjectCreateDialog } =
   await import("../src/renderer/project-create-dialog.js");
@@ -364,6 +366,21 @@ describe("new project dialog", () => {
     expect(button("Create and start").disabled).toBe(false);
   });
 
+  it("shows where the project's folder goes as text: the default location by name, or the folder set or chosen", async () => {
+    const location = () => document.querySelector('[role="dialog"] output');
+    const hint = () => document.querySelector('[role="dialog"] .new-project-location')?.closest(".ui-field")?.textContent;
+    const render = () => act(async () => root.render(<ProjectCreateDialog key={crypto.randomUUID()} onClose={() => {}} onCreated={() => {}} />));
+    await render();
+    expect(location()?.textContent).toBe("Default location");
+    expect(location()?.getAttribute("title")).toBe("/data/projects");
+    expect(hint()).not.toContain("A new folder named after the project is made here.");
+    expect(document.querySelector('[role="dialog"] input[readonly]')).toBeNull();
+    getProjectLocation.mockResolvedValueOnce({ location: "/Users/me/Games", storage: "/data/projects" });
+    await render();
+    expect(location()?.textContent).toBe("/Users/me/Games");
+    expect(hint()).toContain("A new folder named after the project is made here.");
+  });
+
   it("opens a blank project without a conversation", async () => {
     const onCreated = vi.fn();
     await act(async () =>
@@ -376,11 +393,8 @@ describe("new project dialog", () => {
         />,
       ),
     );
-    expect(
-      document.querySelector<HTMLInputElement>(
-        '[role="dialog"] input[readonly]',
-      )!.value,
-    ).toBe("/Users/me/Games/story");
+    expect(document.querySelector('[role="dialog"] output')?.textContent).toBe("/Users/me/Games/story");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("The project uses this folder as it is.");
     await act(async () => button("Create").click());
     expect(createProject).toHaveBeenCalledWith({
       type: "interactive-story",
