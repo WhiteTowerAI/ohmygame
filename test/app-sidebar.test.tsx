@@ -155,7 +155,7 @@ it("lists recent projects newest first, folds them, and opens one", async () => 
   expect(window.location.hash).toBe("#/projects/old");
 });
 
-it("keeps five recent projects and links to the rest", async () => {
+it("keeps five recent projects", async () => {
   await render("library");
   await act(async () =>
     publishRecentProjects(Array.from({ length: 7 }, (_, index) => ({
@@ -163,9 +163,8 @@ it("keeps five recent projects and links to the rest", async () => {
     }))),
   );
   const recent = [...sidebar().querySelectorAll(".sidebar-recent .sidebar-item")].map((item) => item.textContent);
-  expect(recent).toEqual(["Project 6", "Project 5", "Project 4", "Project 3", "Project 2", "All projects"]);
-  button("All projects")!.click();
-  expect(onNavigate).toHaveBeenCalledWith("projects");
+  // Projects in the sections above lists the rest.
+  expect(recent).toEqual(["Project 6", "Project 5", "Project 4", "Project 3", "Project 2"]);
 });
 
 it("collapses to icons and resizes from its edge, remembering both", async () => {
@@ -189,6 +188,12 @@ it("collapses to icons and resizes from its edge, remembering both", async () =>
   expect(frame().classList.contains("is-sidebar-collapsed")).toBe(true);
   expect(edge()).toBeNull();
   expect(localStorage.getItem("ohmygame-sidebar-collapsed")).toBe("true");
+  // Collapsed, an item's name shows in a tooltip beside its icon.
+  const library = button("Library")!;
+  expect(library.title).toBe("");
+  await act(async () => library.focus());
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Library");
+  await act(async () => library.blur());
   // Another page's frame opens the same way.
   await act(async () =>
     root.render(

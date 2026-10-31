@@ -899,7 +899,6 @@ const zhCN: typeof en = {
     community: "社区",
     plugins: "插件",
     recent: "最近项目",
-    allProjects: "全部项目",
     newProject: "新建项目",
     projectConversations: "{{name}} 的对话",
     editedAgo: "编辑于{{time}}",

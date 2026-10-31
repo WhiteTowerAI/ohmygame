@@ -504,7 +504,8 @@ preserves its type filter, search (`q`), and name sorting (`sort=name`) when
 returning or refreshing.
 
 Pages outside a project share one sidebar: Search, Home, Projects, Library,
-Community, Plugins, the eight most recently edited projects, and the account.
+Community, Plugins, the five most recently edited projects (Projects lists the
+rest), and the account.
 Its menu opens Settings (also **⌘,** or **Ctrl+,**), Account and About;
 signed out, it leads with **Sign in…**.
 
@@ -517,7 +518,8 @@ project, most recently edited first, the Settings sections, and switching
 between dark and light. Leaving an open project from the menu or a shortcut
 saves its design first, as the rail does. While a dialog is open, the menu and
 these shortcuts wait for it to close. A pending desktop update shows above the account until
-it needs a restart. The sidebar collapses to icons and its edge drags between
+it needs a restart. The sidebar collapses to icons, each naming itself in a
+tooltip on hover or focus, and its edge drags between
 200 and 360px (double-click restores 232px); both stay across pages and
 restarts. Settings is a page in this frame, with its sections beside the
 content in four groups: General and Appearance; AI (Agents, Providers, Web
