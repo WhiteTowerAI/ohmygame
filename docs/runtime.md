@@ -519,7 +519,9 @@ between dark and light. Leaving an open project from the menu or a shortcut
 saves its design first, as the rail does. While a dialog is open, the menu and
 these shortcuts wait for it to close. A pending desktop update shows above the account until
 it needs a restart. The sidebar collapses to icons, each naming itself in a
-tooltip on hover or focus, and its edge drags between
+tooltip on hover or focus. As everywhere in the app, the first tooltip waits a
+moment and the next ones show at once while the pointer moves along the icons.
+Its edge drags between
 200 and 360px (double-click restores 232px); both stay across pages and
 restarts. Settings is a page in this frame, with its sections beside the
 content in four groups: General and Appearance; AI (Agents, Providers, Web

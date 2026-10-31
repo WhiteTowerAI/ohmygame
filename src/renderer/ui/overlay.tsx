@@ -170,6 +170,13 @@ export function Popover({
 // ---------- Tooltip ----------
 
 /** Shows `content` after a short hover or on keyboard focus. The child must accept a ref and event props. */
+// A tooltip waits before showing, so passing over a control shows nothing. Once
+// one has shown, the next shows at once while the pointer moves along a row of
+// controls; after a short rest away from them, the wait comes back.
+const TOOLTIP_DELAY = 350;
+const TOOLTIP_WARM = 300;
+let tooltipsWarmUntil = 0;
+
 export function Tooltip({
   content,
   placement = "top",
@@ -187,13 +194,21 @@ export function Tooltip({
   const style = useAnchoredPosition(open, anchor, tip, placement);
   const show = () => {
     window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setOpen(true), 350);
+    if (Date.now() < tooltipsWarmUntil) setOpen(true);
+    else timer.current = window.setTimeout(() => setOpen(true), TOOLTIP_DELAY);
   };
   const hide = () => {
     window.clearTimeout(timer.current);
+    if (open) tooltipsWarmUntil = Date.now() + TOOLTIP_WARM;
     setOpen(false);
   };
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  // A tooltip that goes away while showing, as when the page changes, warms the next too.
+  const shown = useRef(false);
+  shown.current = open;
+  useEffect(() => () => {
+    window.clearTimeout(timer.current);
+    if (shown.current) tooltipsWarmUntil = Date.now() + TOOLTIP_WARM;
+  }, []);
   if (!isValidElement(children)) return children;
   return (
     <>
