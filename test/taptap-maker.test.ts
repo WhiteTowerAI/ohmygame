@@ -43,11 +43,14 @@ beforeEach(async () => {
       if (await has("signed-out")) { console.error("JWT missing"); process.exit(1); }
       if (await has("leave-running")) {
         // Like the preview Runtime: started by Maker, it outlives the call and holds its output.
+        // On Windows a child outlives its parent only when detached; a failed
+        // start leaves one that isn't, which Windows ends with its parent.
         const { spawn } = await import("node:child_process");
-        const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit" });
+        const failing = await has("fail-after-start");
+        const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit", detached: process.platform === "win32" && !failing });
         child.unref();
         await writeFile(file("child.pid"), String(child.pid));
-        if (await has("fail-after-start")) process.exit(1);
+        if (failing) process.exit(1);
       }
       console.log(JSON.stringify([{ id: "selected", name: "Selected" }]));
     } else if (args[0] === "login") console.log(JSON.stringify({ message: "Open https://maker.example.com/device?code=AB12 to sign in" }));
@@ -207,7 +210,7 @@ describe("TapTap Maker project setup", () => {
     try {
       expect(alive(child)).toBe(true);
     } finally {
-      process.kill(child, "SIGKILL");
+      if (alive(child)) process.kill(child, "SIGKILL");
     }
   }, 15_000);
 
