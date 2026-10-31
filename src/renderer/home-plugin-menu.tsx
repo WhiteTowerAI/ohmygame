@@ -10,15 +10,19 @@ import { Button, Dialog, Popover } from "./ui/index.js";
 type Plugin = ConversationCapabilities["plugins"][number];
 
 /**
- * The plugins of the project Home is about to create: the plugin it starts
- * with, whose skills write the first answer, and plugins turned on for this
- * project alone. A plugin that asks for more than files is allowed here,
- * before it is chosen, as in the project's own Plugins sheet.
+ * The plugins of the project Home is about to create: plugins whose skills
+ * write the first answer, any number of them, and plugins turned on for this
+ * project alone. The plugin a type comes from stays on while that type is
+ * chosen. A plugin that asks for more than files is allowed here, before it is
+ * chosen, as in the project's own Plugins sheet.
  */
-export function HomePluginMenu({ starters, starter, onStarter, choices, selected, onSelected, failed = false, onRetry, disabled }: {
+export function HomePluginMenu({ starters, chosen, locked, onChosen, choices, selected, onSelected, failed = false, onRetry, disabled }: {
   starters: readonly Plugin[];
-  starter?: Plugin;
-  onStarter: (id: string | undefined) => void;
+  /** The chosen starters' ids; the first one leads the prompt. */
+  chosen: readonly string[];
+  /** The starter the chosen type comes from. */
+  locked?: string;
+  onChosen: (ids: string[]) => void;
   choices: readonly ProjectPluginChoice[];
   selected: readonly string[];
   onSelected: (ids: string[]) => void;
@@ -30,10 +34,16 @@ export function HomePluginMenu({ starters, starter, onStarter, choices, selected
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [consent, setConsent] = useState<ProjectPluginChoice>();
-  const count = selected.length;
-  const label = starter
-    ? t("home.pluginsWith", { name: starter.displayName })
-    : t("home.plugins");
+  const on = starters.filter((plugin) => chosen.includes(plugin.id))
+    .sort((left, right) => chosen.indexOf(left.id) - chosen.indexOf(right.id));
+  const names = [...on.map((plugin) => plugin.displayName), ...choices.filter((choice) => selected.includes(choice.id)).map((choice) => choice.displayName)];
+  const others = names.length - (on.length ? 1 : 0);
+  const label = names.length ? t("home.pluginsWith", { names: names.join(", ") }) : t("home.plugins");
+
+  function toggleStarter(plugin: Plugin): void {
+    if (plugin.id === locked) return;
+    onChosen(chosen.includes(plugin.id) ? chosen.filter((id) => id !== plugin.id) : [...chosen, plugin.id]);
+  }
 
   function toggle(choice: ProjectPluginChoice): void {
     if (selected.includes(choice.id)) {
@@ -53,24 +63,23 @@ export function HomePluginMenu({ starters, starter, onStarter, choices, selected
       <button ref={trigger} type="button" className="home-plugin-trigger" disabled={disabled}
         aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open}
         onClick={() => setOpen((value) => !value)}>
-        {starter ? <PluginGlyph plugin={starter} size={16} /> : <Package size={15} />}
-        {count ? <span className="home-plugin-count" aria-hidden="true">+{count}</span> : null}
+        {on[0] ? <PluginGlyph plugin={on[0]} size={16} /> : <Package size={15} />}
+        {others > 0 ? <span className="home-plugin-count" aria-hidden="true">+{others}</span> : null}
       </button>
-      <Popover open={open} onClose={() => setOpen(false)} anchor={trigger} placement="bottom-end" className="home-plugin-menu" label={t("home.plugins")}>
+      <Popover open={open} onClose={() => setOpen(false)} anchor={trigger} placement="bottom-start" className="home-plugin-menu" label={t("home.plugins")}>
         <div role="menu" aria-label={t("home.plugins")}>
-          <div className="home-plugin-section" role="group" aria-label={t("home.starter")}>
+          {starters.length ? <div className="home-plugin-section" role="group" aria-label={t("home.starter")}>
             <div className="home-plugin-heading">{t("home.starter")}</div>
             {starters.map((plugin) => (
-              <PluginRow key={plugin.id} role="menuitemradio" checked={starter?.id === plugin.id} title={plugin.displayName} detail={plugin.description}
-                icon={<PluginGlyph plugin={plugin} size={18} />} onClick={() => { onStarter(plugin.id); setOpen(false); }} />
+              <PluginRow key={plugin.id} checked={chosen.includes(plugin.id)} disabled={plugin.id === locked} title={plugin.displayName}
+                detail={plugin.id === locked ? t("home.typePlugin") : plugin.description}
+                icon={<PluginGlyph plugin={plugin} size={18} />} onClick={() => toggleStarter(plugin)} />
             ))}
-            <PluginRow role="menuitemradio" checked={!starter} title={t("home.noStarter")} detail={t("home.noStarterHint")}
-              icon={<Package size={16} />} onClick={() => { onStarter(undefined); setOpen(false); }} />
-          </div>
+          </div> : null}
           <div className="home-plugin-section" role="group" aria-label={t("home.projectPlugins")}>
             <div className="home-plugin-heading">{t("home.projectPlugins")}</div>
             {choices.map((choice) => (
-              <PluginRow key={choice.id} role="menuitemcheckbox" checked={selected.includes(choice.id)} title={choice.displayName} detail={choice.description}
+              <PluginRow key={choice.id} checked={selected.includes(choice.id)} title={choice.displayName} detail={choice.description}
                 icon={<Package size={16} />} onClick={() => toggle(choice)} />
             ))}
             {failed ? <p className="home-plugin-empty" role="alert">
@@ -100,22 +109,23 @@ export function HomePluginMenu({ starters, starter, onStarter, choices, selected
   );
 }
 
-function PluginRow({ role, checked, title, detail, icon, onClick }: {
-  role: "menuitemradio" | "menuitemcheckbox";
+function PluginRow({ checked, disabled = false, title, detail, icon, onClick }: {
   checked: boolean;
+  disabled?: boolean;
   title: string;
   detail?: string;
   icon: React.ReactNode;
   onClick: () => void;
 }) {
   return (
-    <button type="button" role={role} aria-checked={checked} className="home-plugin-row" onClick={onClick}>
+    <button type="button" role="menuitemcheckbox" aria-checked={checked} aria-disabled={disabled || undefined}
+      className={`home-plugin-row${disabled ? " is-locked" : ""}`} onClick={onClick}>
       <span className="home-plugin-icon">{icon}</span>
       <span className="home-plugin-text">
         <span>{title}</span>
         {detail ? <small>{detail}</small> : null}
       </span>
-      <span className="home-plugin-check">{checked ? <Check size={14} /> : null}</span>
+      <span className={`home-plugin-check${checked ? " is-on" : ""}`} aria-hidden="true">{checked ? <Check size={12} /> : null}</span>
     </button>
   );
 }

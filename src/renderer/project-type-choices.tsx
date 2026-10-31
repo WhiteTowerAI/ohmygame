@@ -58,11 +58,12 @@ export function useProjectPluginChoices(): { choices?: ProjectPluginChoice[]; fa
   return { choices, failed, retry: () => setAttempt((value) => value + 1) };
 }
 
-/** The type menu's options: the app's types, plugins' types, then 更多类型…. */
-export function projectTypeOptions(appTypes: readonly ProjectType[], pluginTypes: readonly AvailableProjectType[]): SelectOption<string>[] {
+/** The type menu's options: the app's types, plugins' types, any others the caller adds, then 更多类型…. */
+export function projectTypeOptions(appTypes: readonly ProjectType[], pluginTypes: readonly AvailableProjectType[], others: readonly SelectOption<string>[] = []): SelectOption<string>[] {
   return [
     ...appTypes.map((type) => ({ value: type, label: projectTypeLabel(type), description: projectTypeDescription(type), icon: <ProjectTypeMark type={type} /> })),
     ...pluginTypes.map((type) => ({ value: type.id, label: type.title, ...(type.description ? { description: type.description } : {}), icon: <PluginTypeMark /> })),
+    ...others,
     { value: MORE_TYPES, label: t("projectTypeChoice.more"), description: t("projectTypeChoice.moreHint"), icon: <span className="project-type-mark is-more" aria-hidden="true"><Plus size={13} /></span> },
   ];
 }
