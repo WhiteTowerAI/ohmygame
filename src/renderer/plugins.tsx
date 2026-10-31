@@ -72,8 +72,10 @@ function compareCatalogPlugins(left: PluginSummary, right: PluginSummary): numbe
   return rank(left.id) - rank(right.id) || left.displayName.localeCompare(right.displayName) || left.id.localeCompare(right.id);
 }
 
-export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
+export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, onTryPlugin }: {
   pluginId?: string;
+  /** Opens the marketplace filtered to plugins that add this, as 更多类型… in the new-project dialog does. */
+  adds?: PluginContribution;
   onPluginChange: (pluginId?: string) => void;
   onTryPlugin: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }) {
@@ -88,10 +90,15 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   const [mcpOpen, setMcpOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [catalogRetry, setCatalogRetry] = useState(0);
-  const [tab, setTab] = useState<CatalogTab>("installed");
+  const [tab, setTab] = useState<CatalogTab>(initialAdds ? "browse" : "installed");
   const [query, setQuery] = useState("");
   const [source, setSource] = useState<BrowseSource>("all");
-  const [adds, setAdds] = useState<PluginContribution | "all">("all");
+  const [adds, setAdds] = useState<PluginContribution | "all">(initialAdds ?? "all");
+  useEffect(() => {
+    if (!initialAdds) return;
+    setTab("browse");
+    setAdds(initialAdds);
+  }, [initialAdds]);
   const [updating, setUpdating] = useState<string>();
   const [adding, setAdding] = useState<"install">();
   const [gitDialogOpen, setGitDialogOpen] = useState(false);

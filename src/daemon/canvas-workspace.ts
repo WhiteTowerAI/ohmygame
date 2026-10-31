@@ -19,6 +19,7 @@ import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
 import { CanvasError, canvasPath, parseCanvasJson, readCanvasFile, writeCanvasFile as writeAtomic, writeCanvasJson as writeJson } from "./canvas-files.js";
 import { canvasAssetCatalog, canvasLibraryAsset, ensureCanvasAssets, inspectCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
+import { sameJson } from "../shared/same-json.js";
 export { CanvasError } from "./canvas-files.js";
 
 const locks = new Map<string, Promise<unknown>>();
@@ -182,10 +183,14 @@ export async function inspectCanvasBoard(workspace: string, id: string): Promise
   if (board.id !== id) throw new CanvasError(`canvas/${name}: board ID does not match its file name`);
   return { detail: { board, revision: revision([text, layoutText ?? ""]) }, issues };
 }
+/** A board as its file stores it, without the editor's layout and view. */
+function canvasBoardContent({ editorLayout: _editorLayout, ...content }: CanvasBoard) {
+  return { ...content, nodes: content.nodes.map(canvasNodeContent) };
+}
 async function writeCanvasBoard(workspace: string, board: CanvasBoard): Promise<CanvasBoardDetail> {
   if (!isCanvasBoard(board)) throw new CanvasError("Invalid canvas board");
-  const { editorLayout, ...content } = board;
-  const persisted = { ...content, nodes: board.nodes.map(canvasNodeContent) };
+  const { editorLayout } = board;
+  const persisted = canvasBoardContent(board);
   const text = `${JSON.stringify(persisted, null, 2)}\n`;
   if (Buffer.byteLength(text) > 4 * 1024 * 1024) throw new CanvasError("Canvas board is too large");
   await writeAtomic(workspace, `boards/${validId(board.id)}.json`, text);
@@ -393,7 +398,8 @@ export class CanvasStore {
       if (board.nodes.some((node) => node.type === "document" && !existingDocuments.has(node.data.documentId) && !documents.some((document) => document.id === node.data.documentId))) throw new CanvasError("Document reference not found", 404);
       await ensureCanvasAssets(project, this.projects, this.library, canvasNodeAssetIds(board.nodes), canvasNodeAssetIds(current.board.nodes));
       const detail = await writeCanvasBoard(workspace, board);
-      await this.projects.touch(id);
+      // Moving the view is not editing the project.
+      if (!sameJson(canvasBoardContent(current.board), canvasBoardContent(board))) await this.projects.touch(id);
       return detail;
     });
   }

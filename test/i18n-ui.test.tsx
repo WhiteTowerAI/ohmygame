@@ -60,8 +60,8 @@ it("renders the saved Simplified Chinese preference", async () => {
   await act(async () =>
     root!.render(<ProviderResponsesTransport providerId="relay" />),
   );
-  expect(host.querySelector("label")?.textContent).toBe("Responses 连接方式");
-  expect(host.querySelector('option[value="auto"]')?.textContent).toBe("自动");
+  expect(host.querySelector(".settings-row-text strong")?.textContent).toBe("Responses 连接方式");
+  expect(host.querySelector(".ui-select")?.textContent).toBe("自动");
 });
 
 it("fills message placeholders with text or React nodes", async () => {

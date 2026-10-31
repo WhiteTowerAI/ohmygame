@@ -61,17 +61,115 @@
 }
 
 /* Choices inside a composer read as quiet buttons, not as fields. */
-.home-starter .ui-select {
+.home-project-type .ui-select {
   max-width: 220px;
   background: transparent;
   box-shadow: none;
   color: var(--color-text-secondary);
 }
 
-.home-starter .ui-select:hover,
-.home-starter .ui-select[aria-expanded="true"] {
+.home-project-type .ui-select:hover,
+.home-project-type .ui-select[aria-expanded="true"] {
   background: var(--color-hover);
   color: var(--color-text);
+}
+
+.home-plugin-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.home-plugin-trigger:hover:not(:disabled),
+.home-plugin-trigger[aria-expanded="true"] {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.home-plugin-trigger:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.home-plugin-count {
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.home-plugin-menu {
+  width: 300px;
+}
+
+.home-plugin-section + .home-plugin-section {
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--color-border);
+}
+
+.home-plugin-heading {
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.home-plugin-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-plugin-row:hover,
+.home-plugin-row:focus-visible {
+  outline: none;
+  background: var(--color-hover);
+}
+
+.home-plugin-icon,
+.home-plugin-check {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  color: var(--color-text-secondary);
+}
+
+.home-plugin-text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  font-size: var(--text-md);
+}
+
+.home-plugin-text small {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-plugin-empty {
+  margin: 0;
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
 }
 
 .home-hero .home-notice {

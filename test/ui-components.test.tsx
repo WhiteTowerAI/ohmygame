@@ -26,6 +26,7 @@ afterEach(async () => {
   container.remove();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function key(target: EventTarget, key: string, init: KeyboardEventInit = {}) {
@@ -214,6 +215,105 @@ it("picks a segment and a select option from the keyboard", async () => {
   await key(select, "Enter");
   expect(onSelect).toHaveBeenCalledWith("large");
   expect(document.querySelector('[role="listbox"]')).toBeNull();
+});
+
+it("tells screen readers a select's value and the option the keyboard is on", async () => {
+  await act(async () =>
+    root.render(
+      <Select
+        label="Size"
+        value="medium"
+        onChange={vi.fn()}
+        options={[
+          { value: "small", label: "Small" },
+          { value: "medium", label: "Medium" },
+          { value: "large", label: "Large" },
+        ]}
+      />,
+    ),
+  );
+  const select = container.querySelector<HTMLButtonElement>(
+    '[role="combobox"]',
+  )!;
+  const target = (attribute: string) =>
+    document.getElementById(select.getAttribute(attribute)!);
+  expect(target("aria-describedby")?.textContent).toBe("Medium");
+  // Opening starts on the saved option; arrows move from there.
+  await key(select, "ArrowDown");
+  expect(target("aria-controls")?.getAttribute("role")).toBe("listbox");
+  expect(target("aria-activedescendant")?.textContent).toBe("Medium");
+  await key(select, "ArrowDown");
+  expect(target("aria-activedescendant")?.textContent).toBe("Large");
+});
+
+it("scrolls the option the keyboard is on into view", async () => {
+  // Each option is 60px tall in a popover that shows 100px.
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: HTMLElement) {
+      const scroller = this.closest<HTMLElement>(".ui-popover");
+      const index = [...(this.parentElement?.children ?? [])].indexOf(this);
+      const top = this.classList.contains("ui-popover")
+        ? 0
+        : index * 60 - (scroller?.scrollTop ?? 0);
+      const height = this.classList.contains("ui-popover") ? 100 : 60;
+      return { top, bottom: top + height } as DOMRect;
+    },
+  );
+  await act(async () =>
+    root.render(
+      <Select
+        label="Size"
+        value="large"
+        onChange={vi.fn()}
+        options={[
+          { value: "small", label: "Small" },
+          { value: "medium", label: "Medium" },
+          { value: "large", label: "Large" },
+        ]}
+      />,
+    ),
+  );
+  const select = container.querySelector<HTMLButtonElement>(
+    '[role="combobox"]',
+  )!;
+  await key(select, "ArrowDown");
+  const popover = document.querySelector<HTMLElement>(".ui-popover")!;
+  expect(popover.scrollTop).toBe(80);
+  // Hovering a clipped option leaves the list where it is.
+  const small = document.querySelector<HTMLElement>('[role="option"]')!;
+  await act(async () =>
+    small.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })),
+  );
+  expect(small.classList.contains("is-active")).toBe(true);
+  expect(popover.scrollTop).toBe(80);
+  // The keyboard scrolls again: Medium is 20px above the top.
+  await key(select, "ArrowDown");
+  expect(popover.scrollTop).toBe(60);
+});
+
+it("points a combobox at no list when nothing matches", async () => {
+  await act(async () =>
+    root.render(
+      <Combobox
+        label="Voice"
+        onChange={vi.fn()}
+        options={[{ value: "open", label: "Open" }]}
+      />,
+    ),
+  );
+  const input = container.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  await act(async () => input.focus());
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    set.call(input, "zzz");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(document.querySelector(".ui-listbox-empty")).not.toBeNull();
+  expect(input.getAttribute("aria-controls")).toBeNull();
+  expect(input.getAttribute("aria-activedescendant")).toBeNull();
 });
 
 it("shows a toast and removes it after a few seconds", async () => {

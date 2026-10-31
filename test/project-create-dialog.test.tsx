@@ -7,6 +7,7 @@ import type {
   ConversationCapabilities,
   ProjectState,
 } from "../src/shared/contracts.js";
+import type { ProjectPluginChoice } from "../src/shared/plugins.js";
 
 const created: ProjectState = {
   id: "maze",
@@ -20,9 +21,24 @@ let capabilities: ConversationCapabilities = { plugins: [], skills: [] };
 const createProject = vi.fn(async () => created);
 const createConversation = vi.fn(async () => ({ id: "first" }));
 const getHomeComposerCapabilities = vi.fn(async () => capabilities);
+// Godot's type is the app's own, so only the other plugin type is added to the menu.
+const listProjectTypes = vi.fn(async () => [
+  { id: "general", title: "General" },
+  { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: { id: "ohmygame/godot", version: "1.0.0" } },
+  { id: "acme/tiles:map", title: "Tile Map", description: "A Tiled map game", plugin: { id: "acme/tiles", version: "2.1.0" } },
+]);
+let pluginChoices: ProjectPluginChoice[] = [];
+const listProjectPluginChoices = vi.fn(async () => pluginChoices);
+const consentToPlugin = vi.fn(async () => {});
+const setProjectPluginVersion = vi.fn(async () => {});
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   getHomeComposerCapabilities,
+  listProjectTypes,
+  listProjectPluginChoices,
+  waitForRuntime: async () => undefined,
+  consentToPlugin,
+  setProjectPluginVersion,
   createProject,
   createConversation,
 }));
@@ -47,8 +63,11 @@ let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   capabilities = { plugins: [], skills: [] };
+  pluginChoices = [];
   createProject.mockClear();
   createConversation.mockClear();
+  consentToPlugin.mockClear();
+  setProjectPluginVersion.mockClear();
   getHomeComposerCapabilities.mockClear();
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -93,6 +112,8 @@ describe("new project dialog", () => {
       "Asset Canvas",
       "Godot",
       "General Game",
+      "Tile Map",
+      "More types…",
     ]);
     const dialog = document.querySelector('[role="dialog"]')!.textContent;
     // Examples are played and remixed from Explore, and a story's format is set in its settings.
@@ -140,7 +161,8 @@ describe("new project dialog", () => {
         .placeholder,
     ).toBe("Named from the first message");
     expect(typeSelect().textContent).toBe("Godot");
-    expect(await typeOptions()).toEqual(["Godot", "General Game"]);
+    // A plugin that works only in some of the app's types leaves plugins' own types out.
+    expect(await typeOptions()).toEqual(["Godot", "General Game", "More types…"]);
 
     await act(async () => button("Create and start").click());
     expect(createProject).toHaveBeenCalledWith({ type: "godot-game" });
@@ -152,6 +174,111 @@ describe("new project dialog", () => {
       mode: "planning",
       attachments: [],
     });
+  });
+
+  it("creates the type chosen on Home, a plugin's included, and turns on the plugins chosen for it", async () => {
+    const onCreated = vi.fn();
+    const tools = { id: "acme/tools", displayName: "Tools", description: "", version: "1.2.0", capabilities: ["network:tools.example.com"], consented: false, providesTypes: [] };
+    const tiles = { id: "acme/tiles", displayName: "Tiles", description: "", version: "2.1.0", capabilities: [], consented: true, providesTypes: ["acme/tiles:map"] };
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map", projectPlugins: [tools, tiles] }}
+        onClose={() => {}} onCreated={onCreated} />,
+    ));
+    expect(typeSelect().textContent).toBe("Tile Map");
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+    // What the person allowed on Home is granted now; the type's own plugin is on already.
+    expect(consentToPlugin).toHaveBeenCalledWith("acme/tools", ["network:tools.example.com"]);
+    expect(setProjectPluginVersion.mock.calls).toEqual([["maze", "acme/tools", "1.2.0"]]);
+    expect(onCreated).toHaveBeenCalled();
+  });
+
+  it("allows what a type's plugin asks for when creating the type, once its types have loaded", async () => {
+    let types!: (value: Awaited<ReturnType<typeof listProjectTypes>>) => void;
+    listProjectTypes.mockImplementationOnce(() => new Promise((resolve) => { types = resolve; }));
+    pluginChoices = [{ id: "acme/tiles", displayName: "Tiles", description: "", version: "2.1.0", capabilities: ["processes:tiled"], consented: false, providesTypes: ["acme/tiles:map"] }];
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    // Home's plugin type is not in the menu yet, so creating would make another type.
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => types([{ id: "acme/tiles:map", title: "Tile Map", plugin: { id: "acme/tiles", version: "2.1.0" } }]));
+    expect(typeSelect().textContent).toBe("Tile Map");
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:tiled");
+    await act(async () => button("Create and start").click());
+    expect(consentToPlugin).toHaveBeenCalledWith("acme/tiles", ["processes:tiled"]);
+    expect(consentToPlugin.mock.invocationCallOrder[0]!).toBeLessThan(createProject.mock.invocationCallOrder[0]!);
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+  });
+
+  it("allows a type's plugin that asks for nothing, and offers a retry when types fail to load", async () => {
+    listProjectTypes.mockRejectedValueOnce(new Error("offline"));
+    pluginChoices = [{ id: "acme/tiles", displayName: "Tiles", description: "", version: "2.1.0", capabilities: [], consented: false, providesTypes: ["acme/tiles:map"] }];
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    // Creating would make another type than Home's.
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => button("Retry").click());
+    expect(typeSelect().textContent).toBe("Tile Map");
+    await act(async () => button("Create and start").click());
+    expect(consentToPlugin).toHaveBeenCalledWith("acme/tiles", []);
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+  });
+
+  it("waits for what a type's plugin asks for, with a retry when that fails to load", async () => {
+    listProjectPluginChoices.mockRejectedValueOnce(new Error("offline"));
+    pluginChoices = [{ id: "acme/tiles", displayName: "Tiles", description: "", version: "2.1.0", capabilities: ["processes:tiled"], consented: false, providesTypes: ["acme/tiles:map"] }];
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => button("Retry").click());
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:tiled");
+    expect(button("Create and start").disabled).toBe(false);
+  });
+
+  it("creates an app type chosen here even when plugins' types failed to load", async () => {
+    listProjectTypes.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    expect(button("Create and start").disabled).toBe(true);
+    await act(async () => typeSelect().click());
+    const web = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.startsWith("Web Game"))!;
+    await act(async () => web.click());
+    expect(button("Create and start").disabled).toBe(false);
+    // Plugins' types stay one retry away while an app type is chosen.
+    expect(button("Retry")).toBeDefined();
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalledWith({ type: "web-game" });
+  });
+
+  it("turns on the Godot plugin chosen on Home in the app's Godot type, which does not turn it on", async () => {
+    capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] };
+    const godotV2 = { id: "ohmygame/godot", displayName: "Godot", description: "", version: "1.0.0", capabilities: [], consented: true, providesTypes: ["ohmygame/godot:godot-game"] };
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "Make a maze", mentions: [], attachments: [], mode: "normal", type: "godot-game", projectPlugins: [godotV2] }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalledWith({ type: "godot-game" });
+    expect(setProjectPluginVersion).toHaveBeenCalledWith("maze", "ohmygame/godot", "1.0.0");
+  });
+
+  it("leaves for the plugins that add project types from More types…", async () => {
+    const onClose = vi.fn();
+    await act(async () => root.render(<ProjectCreateDialog onClose={onClose} onCreated={() => {}} />));
+    await act(async () => typeSelect().click());
+    const more = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("More types…"))!;
+    await act(async () => more.click());
+    expect(onClose).toHaveBeenCalled();
+    expect(window.location.hash).toBe("#/plugins?adds=projectType");
+    expect(createProject).not.toHaveBeenCalled();
   });
 
   it("waits for the plugins before creating, so the type follows the starting plugin", async () => {

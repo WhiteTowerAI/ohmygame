@@ -319,6 +319,11 @@
 }
 
 /* select and combobox */
+.ui-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .ui-select {
   display: flex;
   align-items: center;

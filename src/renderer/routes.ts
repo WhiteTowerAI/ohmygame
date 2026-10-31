@@ -1,4 +1,5 @@
 import type { ProjectType } from "../shared/contracts.js";
+import { PLUGIN_CONTRIBUTIONS, type PluginContribution } from "../shared/plugins.js";
 import { isProjectType } from "../shared/project-runtime.js";
 
 export type SidebarPage =
@@ -29,7 +30,8 @@ export type AppRoute =
   | ({ page: "projects" } & ProjectListFilters)
   | { page: "community" }
   | { page: "community-profile"; authorId: string }
-  | { page: "plugins"; pluginId?: string }
+  /** `adds` opens the marketplace filtered to plugins that add that. */
+  | { page: "plugins"; pluginId?: string; adds?: PluginContribution }
   | { page: "settings"; section: SettingsSection; agent?: string }
   | { page: "plugin-builder"; sessionId: string }
   | { page: "game"; gameId: string }
@@ -41,6 +43,10 @@ export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
   const builderMatch = /^#\/plugins\/builder\/([0-9a-f-]{36})$/.exec(hash);
   if (builderMatch?.[1]) return { page: "plugin-builder", sessionId: builderMatch[1] };
+  const browseMatch = /^#\/plugins\?adds=([a-zA-Z]+)$/.exec(hash);
+  if (browseMatch?.[1] && (PLUGIN_CONTRIBUTIONS as readonly string[]).includes(browseMatch[1])) {
+    return { page: "plugins", adds: browseMatch[1] as PluginContribution };
+  }
   const pluginMatch = /^#\/(?:settings\/)?plugins(?:\/([^/]+))?$/.exec(hash);
   if (pluginMatch) {
     try {
@@ -144,6 +150,11 @@ export function projectsHash({ projectType, query, sort }: ProjectListFilters = 
 
 export function pluginHash(pluginId?: string): string {
   return `#/plugins${pluginId ? `/${encodeURIComponent(pluginId)}` : ""}`;
+}
+
+/** The marketplace, showing the plugins that add `adds`. */
+export function pluginBrowseHash(adds: PluginContribution): string {
+  return `#/plugins?adds=${adds}`;
 }
 
 export function pluginBuilderHash(sessionId: string): string {

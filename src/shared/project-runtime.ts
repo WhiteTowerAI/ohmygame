@@ -38,6 +38,11 @@ export function supportsProjectPreview(project?: Pick<ProjectState, "type" | "we
 
 /** Only an unambiguous compatibility intersection may change a new workspace's
  * type. Asset/helper plugins with no restriction never choose its engine. */
+/** App project kinds that are plugin types now; the app's own routing still names them. */
+export const PLUGIN_PROJECT_KINDS = {
+  "godot-game": "ohmygame/godot:godot-game",
+} as const satisfies Record<string, string>;
+
 export function pluginProjectType(current: ProjectType, plugins: readonly { projectTypes?: ProjectType[] }[]): ProjectType | undefined {
   const compatible = PROJECT_TYPE_IDS.filter((type) => plugins.every((plugin) => !plugin.projectTypes?.length || plugin.projectTypes.includes(type)));
   return compatible.includes(current) ? current : compatible.length === 1 ? compatible[0] : undefined;

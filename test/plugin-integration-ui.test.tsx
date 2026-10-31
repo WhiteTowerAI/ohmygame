@@ -39,6 +39,8 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url, init: RequestInit = {}) => {
+      // No format 2 plugins or types are installed.
+      if (/\/project-(plugins|types)\b/.test(String(url))) return Response.json([]);
       if (String(url).endsWith("/plugins/fixture"))
         return Response.json({
           id: "fixture",
@@ -127,7 +129,7 @@ describe("plugin connection UI", () => {
   it("restores the opening button's focus when the project window closes", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ plugins: [], skills: [] })),
+      vi.fn(async (url) => Response.json(/\/project-(plugins|types)\b/.test(String(url)) ? [] : { plugins: [], skills: [] })),
     );
     function Creator() {
       const [open, setOpen] = useState(false);

@@ -2632,6 +2632,16 @@ describe("Asset Canvas projects", () => {
     expect((await getCanvas(app, project.id)).board.nodes).toEqual([
       expect.objectContaining({ id: "image", type: "image", data: expect.objectContaining({ prompt: "A lantern" }) }),
     ]);
+
+    // Saving the board unchanged, or only moving the view, is not editing the project.
+    const edited = (await app.inject(`/projects/${project.id}`)).json().updatedAt;
+    expect(edited).toEqual(expect.any(String));
+    const reordered = Object.fromEntries(Object.entries((await getCanvas(app, project.id)).board).reverse());
+    expect((await saveCanvas(app, project.id, reordered as { id: string })).statusCode).toBe(200);
+    const panned = (await getCanvas(app, project.id)).board;
+    panned.editorLayout.viewport = { x: 300, y: 200, zoom: 2 };
+    expect((await saveCanvas(app, project.id, panned)).statusCode).toBe(200);
+    expect((await app.inject(`/projects/${project.id}`)).json().updatedAt).toBe(edited);
   });
 
   it("rejects canvas documents with unknown node types", async () => {
