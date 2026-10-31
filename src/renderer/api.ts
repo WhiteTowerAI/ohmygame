@@ -1772,6 +1772,6 @@ export async function undoProjectPluginChange(projectId: string, changeId: strin
 }
 
 /** Runs a format 2 plugin command, `publisher/name:command`, whose code runs in its plugin. */
-export async function runPluginCommand(projectId: string, command: string): Promise<{ result: unknown; change?: { id: string; changed: string[] } }> {
-  return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands`, { method: "POST", body: JSON.stringify({ command }) });
+export async function runPluginCommand(projectId: string, command: string, input?: unknown): Promise<{ result: unknown; change?: { id: string; changed: string[] } }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands`, { method: "POST", body: JSON.stringify({ command, input }) });
 }

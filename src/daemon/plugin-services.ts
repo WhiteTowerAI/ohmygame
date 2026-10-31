@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
@@ -7,7 +8,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName } from "../shared/plugin-manifest.js";
+import { isLoopbackHostname } from "../shared/local-debug.js";
+import { agentToolName, configReferences } from "../shared/plugin-manifest.js";
+import type { McpServerDefinition } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME } from "../shared/project-file.js";
 import {
@@ -63,7 +66,13 @@ export class PluginToolSchemaError extends Error {
   }
 }
 
+/** A command was asked to run in a way it can't. */
+export class PluginCommandInputError extends Error {
+  readonly statusCode = 400;
+}
+
 type Contributions = NonNullable<PluginIndexEntry["manifest"]["contributes"]>;
+type PluginCommand = NonNullable<Contributions["commands"]>[number];
 
 export interface ProjectCommand {
   /** `publisher/name:command`. */
@@ -91,6 +100,10 @@ export interface PluginServicesOptions {
   /** The folder for the index and decisions, inside the app's data folder. */
   directory: string;
   hosts?: ExtensionHostOptions;
+  /** The format 2 plugins that ship with the app, indexed by `ready()` before anything is served. */
+  bundled?: string;
+  /** Told when the bundled plugins can't be indexed; everything else still loads. */
+  onBundledError?: (error: unknown) => void;
 }
 
 export class PluginServices {
@@ -102,6 +115,8 @@ export class PluginServices {
   readonly values: PluginValues;
   /** Where signed releases are unpacked; uninstalling deletes its folders. */
   readonly packagesDirectory: string;
+  readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError">;
+  #files: Promise<void> | undefined;
   #loaded: Promise<void> | undefined;
   readonly #listeners = new Set<(folder?: string) => void>();
   /** Project folders whose `ohmygame.json` is watched, for edits made outside OhMyGame. */
@@ -115,6 +130,7 @@ export class PluginServices {
       path.join(options.directory, "configuration.json"),
     );
     this.packagesDirectory = path.join(options.directory, "packages");
+    this.#bundled = options;
     this.native = new NativePlugins({
       index: this.index,
       grants: this.grants,
@@ -123,15 +139,28 @@ export class PluginServices {
     });
   }
 
-  /** Loads the index and the decisions once; later calls wait for the same load. */
+  /**
+   * Loads the index and the decisions, then indexes the bundled plugins,
+   * once; later calls wait for the same load, so no caller misses a bundled
+   * plugin on a fresh start.
+   */
   ready(): Promise<void> {
-    this.#loaded ??= Promise.all([
+    const { bundled, onBundledError } = this.#bundled;
+    this.#loaded ??= this.#load().then(async () => {
+      if (bundled) await this.addBundled(bundled).catch((error: unknown) => onBundledError?.(error));
+    });
+    this.#loaded.catch(() => (this.#loaded = undefined));
+    return this.#loaded;
+  }
+
+  #load(): Promise<void> {
+    this.#files ??= Promise.all([
       this.index.load(),
       this.grants.load(),
       this.values.load(),
     ]).then(() => {});
-    this.#loaded.catch(() => (this.#loaded = undefined));
-    return this.#loaded;
+    this.#files.catch(() => (this.#files = undefined));
+    return this.#files;
   }
 
   /**
@@ -187,6 +216,49 @@ export class PluginServices {
         marketplaceDisplayName: skill.plugin.split("/")[0]!,
       };
     });
+  }
+
+  /**
+   * The MCP servers of a project's active plugins, for agent sessions to
+   * start beside the format 1 plugins' servers, keyed by a name unique to
+   * the plugin and server. A server is left out until the settings it names
+   * are filled in, and an endpoint must be on this machine or on a host the
+   * plugin was allowed to reach.
+   */
+  async mcpServers(folder: string): Promise<Record<string, McpServerDefinition>> {
+    await this.ready();
+    this.#watch(folder);
+    const resolved = await resolveProjectPlugins({
+      folder,
+      index: this.index,
+      grants: this.grants,
+    }).catch(() => undefined);
+    if (!resolved?.ok) return {};
+    const servers: Record<string, McpServerDefinition> = {};
+    for (const plugin of resolved.plugins) {
+      const entry = plugin.entry;
+      if (plugin.status !== "active" || !entry) continue;
+      const values = this.values.forNative(entry);
+      for (const server of entry.manifest.contributes?.mcpServers ?? []) {
+        if (configReferences(server).some((name) => values[name] === undefined)) continue;
+        const fill = <T>(value: T): T => JSON.parse(
+          JSON.stringify(value),
+          (_key, item: unknown) => typeof item === "string"
+            ? item.replace(/\$\{config\.([a-zA-Z0-9]+)\}/g, (_match, name: string) => String(values[name]))
+            : item,
+        ) as T;
+        const { id, title: _title, tools, cwd, ...transport } = fill(server);
+        if (transport.url && !reachable(transport.url, entry.manifest.capabilities?.network ?? [])) continue;
+        const name = `plugin-${createHash("sha256").update(entry.id).digest("hex").slice(0, 12)}-v2-${id}`;
+        servers[name] = {
+          ...transport,
+          ...(transport.command ? { cwd: path.resolve(entry.root, cwd ?? ".") } : { auth: false }),
+          includeTools: tools,
+          disabled: false,
+        };
+      }
+    }
+    return servers;
   }
 
   /**
@@ -308,6 +380,10 @@ export class PluginServices {
    */
   async changed(folder?: string): Promise<void> {
     await this.ready();
+    await this.#notify(folder);
+  }
+
+  async #notify(folder?: string): Promise<void> {
     await (folder ? this.native.refreshProject(folder) : this.native.refresh());
     for (const listener of this.#listeners) {
       try {
@@ -331,7 +407,8 @@ export class PluginServices {
    * person turned one off; each project still allows them in its folder.
    */
   async addBundled(directory: string): Promise<PluginPackageResult[]> {
-    await this.ready();
+    // `ready()` runs this, so it waits only for the files.
+    await this.#load();
     const folders = await readdir(directory, { withFileTypes: true }).catch(
       () => [],
     );
@@ -347,7 +424,7 @@ export class PluginServices {
         capabilityGrants(result.entry.manifest),
       );
     }
-    await this.changed();
+    await this.#notify();
     return results;
   }
 
@@ -488,10 +565,10 @@ export class PluginServices {
           folder,
           input,
           signal,
-          onProgress: (message) =>
+          onProgress: (message, url) =>
             onUpdate?.({
-              content: [{ type: "text", text: message }],
-              details: { plugin: entry.id, tool: tool.name, progress: message },
+              content: [{ type: "text", text: url ? `${message}\n${url}` : message }],
+              details: { plugin: entry.id, tool: tool.name, progress: message, ...(url ? { url } : {}) },
             }),
           turn: turn?.() ?? toolCallId,
         });
@@ -538,6 +615,30 @@ export class PluginServices {
     return value;
   }
 
+  /**
+   * Runs a command that runs plugin code. A tool command's `input`, from a
+   * page or the manifest, is checked by the tool; a native command takes
+   * input only when it declares a schema for it.
+   */
+  async runCommand(
+    entry: PluginIndexEntry,
+    command: PluginCommand,
+    options: Pick<PluginCallOptions, "folder" | "input" | "onProgress">,
+  ): Promise<unknown> {
+    const { run } = command;
+    const id = `${entry.id}:${command.id}`;
+    if ("tool" in run) return this.callTool(entry, run.tool, { ...options, input: options.input ?? run.input ?? {} });
+    if (!("native" in run)) throw new PluginCommandInputError(`${id} runs in the app`);
+    if (!run.input) {
+      if (options.input !== undefined) throw new PluginCommandInputError(`${id} takes no input`);
+      return this.native.runCommand(id, { ...options, version: entry.version });
+    }
+    const schema = this.#schema(entry, run.input);
+    const input = options.input ?? {};
+    if (!Check(schema, input)) throw new PluginToolSchemaError(id, "input", schema, input);
+    return this.native.runCommand(id, { ...options, version: entry.version, input });
+  }
+
   /** A tool whose schema can't be read still shows, and says why it can't run. */
   #broken(
     entry: PluginIndexEntry,
@@ -562,4 +663,16 @@ export class PluginServices {
     if (!schema) throw new Error(`${file} was not indexed`);
     return structuredClone(schema) as unknown as TSchema;
   }
+}
+
+/** Whether an MCP endpoint is on this machine or on a host the plugin may reach. */
+function reachable(url: string, network: readonly string[]): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  return isLoopbackHostname(parsed.hostname) || network.includes(parsed.host) || network.includes(parsed.hostname);
 }

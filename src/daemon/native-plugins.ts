@@ -29,7 +29,7 @@ export interface PluginCallOptions {
   input?: unknown;
   signal?: AbortSignal;
   timeoutMs?: number;
-  onProgress?: (message: string) => void;
+  onProgress?: (message: string, url?: string) => void;
   /** The agent turn the call belongs to. */
   turn?: string;
   /** The version the caller expects; the call is refused if the project moved on. */

@@ -65,7 +65,7 @@ export interface PluginIndexEntry {
   /** `%key%` strings by locale; `en` holds every key the manifest uses. */
   strings: Partial<Record<PluginLocale, Record<string, string>>>;
   skills: PluginSkillSummary[];
-  /** Tool input and output schemas by package path, from the indexed bytes. */
+  /** Tool and native command schemas by package path, from the indexed bytes. */
   toolSchemas: Record<string, Record<string, unknown>>;
 }
 
@@ -267,34 +267,39 @@ function checkPackage(
     file(`/contributes/panels/${index}/icon`, panel.icon);
   });
   const toolSchemas: Record<string, Record<string, unknown>> = {};
-  contributes.tools?.forEach((tool, index) => {
-    for (const key of ["input", "output"] as const) {
-      const schema = tool[key];
-      if (!schema) continue;
-      const at = `/contributes/tools/${index}/${key}`;
-      const bytes = files.get(schema);
-      if (!bytes) {
-        issue(at, `${schema} is not in the package`);
-        continue;
-      }
-      if (bytes.length > PLUGIN_TOOL_SCHEMA_MAX_BYTES) {
-        issue(
-          at,
-          `${schema} is larger than ${PLUGIN_TOOL_SCHEMA_MAX_BYTES / 1024} KB`,
-        );
-        continue;
-      }
-      const value = parseJson(bytes);
-      if (value === undefined) {
-        issue(at, `${schema} is not JSON`);
-        continue;
-      }
-      const problems = toolSchemaIssues(value);
-      for (const problem of problems) issue(at, `${schema}: ${problem}`);
-      if (!problems.length)
-        toolSchemas[schema] = value as Record<string, unknown>;
+  const schemas = [
+    ...(contributes.tools ?? []).flatMap((tool, index) =>
+      (["input", "output"] as const).map((key) => ({ at: `/contributes/tools/${index}/${key}`, schema: tool[key] })),
+    ),
+    ...(contributes.commands ?? []).map((command, index) => ({
+      at: `/contributes/commands/${index}/run/input`,
+      schema: "native" in command.run ? command.run.input : undefined,
+    })),
+  ];
+  for (const { at, schema } of schemas) {
+    if (!schema) continue;
+    const bytes = files.get(schema);
+    if (!bytes) {
+      issue(at, `${schema} is not in the package`);
+      continue;
     }
-  });
+    if (bytes.length > PLUGIN_TOOL_SCHEMA_MAX_BYTES) {
+      issue(
+        at,
+        `${schema} is larger than ${PLUGIN_TOOL_SCHEMA_MAX_BYTES / 1024} KB`,
+      );
+      continue;
+    }
+    const value = parseJson(bytes);
+    if (value === undefined) {
+      issue(at, `${schema} is not JSON`);
+      continue;
+    }
+    const problems = toolSchemaIssues(value);
+    for (const problem of problems) issue(at, `${schema}: ${problem}`);
+    if (!problems.length)
+      toolSchemas[schema] = value as Record<string, unknown>;
+  }
 
   // Skills: every `<folder>/<name>/SKILL.md`, named after its folder.
   const skills: PluginSkillSummary[] = [];

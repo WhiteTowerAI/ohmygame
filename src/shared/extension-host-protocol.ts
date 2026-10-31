@@ -67,7 +67,8 @@ export type HostMessage =
   | { type: "ready"; protocol: number }
   | { type: "result"; id: number; value: unknown }
   | { type: "error"; id: number; message: string; cancelled?: boolean }
-  | { type: "progress"; id: number; message: string }
+  /** `url` is an https link the person may open, such as a device sign-in page. */
+  | { type: "progress"; id: number; message: string; url?: string }
   | {
       type: "activated";
       id: number;
@@ -88,7 +89,12 @@ export type PluginConfigurationValues = Record<string, string | boolean>;
 export interface ToolCall {
   /** Aborted when the caller cancels or the call times out. */
   signal: AbortSignal;
-  progress(message: string): void;
+  /**
+   * Says how the call is going. With `url`, an https link the person needs,
+   * such as a sign-in page, the app offers to open it once they see its
+   * host; those updates are never dropped.
+   */
+  progress(message: string, options?: { url?: string }): void;
   /** The agent turn the call belongs to, when it comes from one. */
   turn?: string;
   /** The plugin's configuration as it is for this call, defaults filled in. */
@@ -145,7 +151,7 @@ export function isHostMessage(value: unknown): value is HostMessage {
           typeof message.cancelled === "boolean")
       );
     case "progress":
-      return typeof message.message === "string";
+      return typeof message.message === "string" && (message.url === undefined || typeof message.url === "string");
     case "activated":
       return (
         isStrings(message.tools) &&

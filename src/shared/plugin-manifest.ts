@@ -207,7 +207,10 @@ const CommandRun = Type.Union([
     { additionalProperties: false },
   ),
   Type.Object({ url: HttpsUrl }, { additionalProperties: false }),
-  Type.Object({ native: CamelId }, { additionalProperties: false }),
+  Type.Object(
+    { native: CamelId, input: Type.Optional(RelativePath("\\.json")) },
+    { additionalProperties: false },
+  ),
 ]);
 
 const Command = Type.Object(
@@ -305,6 +308,43 @@ const Provider = Type.Object(
   { additionalProperties: false },
 );
 
+/** A string that may name configuration values as `${config.field}`. */
+const Template = (maxLength = 2000) => Type.String({ maxLength });
+
+/**
+ * An MCP server the plugin brings: a process (`command`, run from the
+ * plugin's folder unless `cwd` says otherwise) or an HTTP endpoint (`url`).
+ * Agents see only the `tools` it names.
+ */
+const McpServer = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    command: Type.Optional(
+      Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }),
+    ),
+    args: Type.Optional(Type.Array(Template(), { maxItems: 50 })),
+    env: Type.Optional(
+      Type.Record(Type.String({ pattern: "^[A-Za-z_][A-Za-z0-9_]{0,63}$" }), Template(), {
+        additionalProperties: false,
+      }),
+    ),
+    cwd: Type.Optional(RelativePath("/?")),
+    url: Type.Optional(Template(500)),
+    headers: Type.Optional(
+      Type.Record(Type.String({ pattern: "^[A-Za-z0-9-]{1,100}$" }), Template(), {
+        additionalProperties: false,
+      }),
+    ),
+    tools: Type.Array(Type.String({ pattern: "^[A-Za-z0-9_.-]{1,100}$" }), {
+      minItems: 1,
+      maxItems: 100,
+      uniqueItems: true,
+    }),
+  },
+  { additionalProperties: false },
+);
+
 const Panel = Type.Object(
   {
     id: Slug,
@@ -388,6 +428,7 @@ export const PluginManifestV2Schema = Type.Object(
           themes: list(Theme),
           providers: list(Provider),
           panels: list(Panel),
+          mcpServers: list(McpServer),
         },
         { additionalProperties: false },
       ),
@@ -469,6 +510,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     "themes",
     "providers",
     "panels",
+    "mcpServers",
   ] as const) {
     const seen = new Set<string>();
     contributes[key]?.forEach((item, index) => {
@@ -558,10 +600,33 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       issue(path, "list models or discover them");
   });
 
+  const processes = new Set(capabilities.processes);
+  contributes.mcpServers?.forEach((server, index) => {
+    const path = `/contributes/mcpServers/${index}`;
+    if (!server.command === !server.url)
+      issue(path, "an MCP server needs a command or a url, not both");
+    if (server.command && !processes.has(server.command))
+      issue(`${path}/command`, `${server.command} must be listed in capabilities.processes`);
+    if (!server.command && (server.args || server.env || server.cwd))
+      issue(path, "args, env and cwd are for a command");
+    if (!server.url && server.headers) issue(`${path}/headers`, "headers are for a url");
+    for (const name of configReferences(server)) {
+      const field = manifest.configuration?.[name];
+      if (!field) issue(path, `no configuration field ${name}`);
+      else if (field.type === "secret" && !capabilities.secrets)
+        issue(path, `${name} is a secret, which needs capabilities.secrets`);
+    }
+  });
+
   if (contributes.panels && !manifest.icon)
     issue("/icon", "a plugin with panels needs an icon for their tabs");
 
   return issues.length ? { ok: false, issues } : { ok: true, manifest };
+}
+
+/** The configuration fields a value names as `${config.field}`, anywhere inside it. */
+export function configReferences(value: unknown): string[] {
+  return [...new Set([...JSON.stringify(value ?? null).matchAll(/\$\{config\.([a-zA-Z0-9]+)\}/g)].map((match) => match[1]!))];
 }
 
 function semver(value: string) {

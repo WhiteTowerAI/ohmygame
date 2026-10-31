@@ -25,7 +25,8 @@ ship, so format 2 plugins come bundled or from a folder.
 - **Project data,** in the project's storage folder: `plugin-changes.json`
   (changes plugins made outside a turn) and `plugin-storage/` (plugin pages'
   storage).
-- **Bundled:** `plugins-v2/` ships with the app and is indexed in place;
+- **Bundled:** `plugins-v2/` ships with the app and is indexed in place by
+  `PluginServices.ready()`, which every service method and route waits for;
   `packages/plugin-ui/` is `@ohmygame/plugin-ui`.
 
 ## Native code
@@ -36,6 +37,11 @@ Node child process per project (`src/daemon/extension-hosts.ts`), never in
 the daemon. `context.project.folder` is the project; each call gets
 `signal`, `progress`, `turn` and `configuration`. Only tools, commands and
 project type hooks the manifest declares can be registered.
+`progress(message, { url })` carries an https link the person needs, such
+as a device sign-in page; it is never dropped as frequent updates are. For a
+command the app runs, the link arrives as `plugin.command.progress` and the
+project offers to open it after showing its host; an agent's tool call shows
+it in the call's progress.
 
 ## Modules
 
@@ -61,10 +67,20 @@ project type hooks the manifest declares can be registered.
   checks the input and the result against the manifest's schemas.
 - Skills of a project's active plugins load in its agent sessions, both
   OhMyGame's agent and the coding agents, beside format 1 plugins' Skills.
+- MCP servers (`contributes.mcpServers`) of a project's active plugins start
+  in its agent sessions beside format 1 plugins' servers, through the same
+  MCP host (`PluginServices.mcpServers`). A server runs a `command` listed
+  in `capabilities.processes`, from the plugin's folder or its `cwd`, or
+  reaches a `url` on this machine or on a host in `capabilities.network`.
+  Its `args`, `env`, `url` and `headers` may name settings as
+  `${config.field}`; a server waits until those are filled in, and a secret
+  needs `capabilities.secrets`. Agents see only the `tools` it lists. Servers
+  start lazily, on a session's first call to one of them.
 - A typed project's preview follows the plugin version its `ohmygame.json`
   pins; the app updates what it recorded when that file changes and at
   startup.
-- Commands and changes: `GET`/`POST /projects/:id/plugin-commands`,
+- Commands and changes: `GET`/`POST /projects/:id/plugin-commands`
+  (`{ command, input? }`; `PluginServices.runCommand` runs it),
   `GET /projects/:id/plugin-changes`,
   `POST /projects/:id/plugin-changes/:changeId/undo`.
 - Pages: `GET /projects/:id/plugin-panels`,
@@ -99,7 +115,7 @@ project type hooks the manifest declares can be registered.
 - **Plugins page:** Installed lists format 2 plugins under **Turned on per
   project**, from `GET /plugin-store/plugins` (one row per installed
   version, newest first, with the plugin's settings fields and what it
-  adds). A plugin's page switches it off everywhere, asks for what it
+  adds, MCP services included). A plugin's page switches it off everywhere, asks for what it
   hasn't been allowed, fills its `configuration` fields (a secret is only
   replaced or cleared), and uninstalls one version at a time. A plugin in
   `plugins-v2/` only switches off; uninstalling it is refused.
@@ -113,6 +129,10 @@ project type hooks the manifest declares can be registered.
   `openSettings` opens the plugin's page; a `url` opens after the person
   sees its host; tool and native commands run in the plugin, and a toast
   offers Undo when they changed files. The other slots are not shown yet.
+  A plugin page's `command.run` may send `input`: a tool command passes it
+  to the tool instead of the manifest's `input`, and a native command takes
+  it only when its `run.input` names a JSON Schema for it. Both are checked
+  before the plugin runs.
 - **Plugin changes…** in the project menu lists `GET
   /projects/:id/plugin-changes`, each with its own Undo.
 

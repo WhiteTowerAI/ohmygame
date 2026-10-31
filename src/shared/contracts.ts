@@ -1301,6 +1301,8 @@ export interface RuntimeEventData {
   "project.updated": { project: ProjectState };
   /** What the project's format 2 plugins offer may have changed: read their panels and commands again. */
   "project.plugins.changed": Record<string, never>;
+  /** A plugin command the app runs needs the person to open an https link, such as a sign-in page. */
+  "plugin.command.progress": { command: string; message: string; url: string };
   "preview.updated": { preview: PreviewRuntimeState };
   /** Without a pick, the person cancelled. */
   "preview.picked": { client: string; pick?: PreviewPick };
@@ -1335,6 +1337,7 @@ export const RUNTIME_EVENT_TYPES = [
   "project.renamed",
   "project.updated",
   "project.plugins.changed",
+  "plugin.command.progress",
   "preview.updated",
   "preview.picked",
   "agent.started",

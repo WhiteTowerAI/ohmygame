@@ -13,6 +13,7 @@ import { previewPageUrl } from "../shared/preview-page.js";
 import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
 import { registerPluginIconRoutes } from "./plugin-icons.js";
 import { PluginCapabilities } from "./plugin-capabilities.js";
+import type { EffectiveMcpConfig } from "./plugin-mcp-host.js";
 import { registerPluginCapabilityRoutes } from "./plugin-capability-routes.js";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -112,7 +113,7 @@ import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settin
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { registerPluginPortabilityRoutes } from "./plugin-portability.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
-import { PluginServices, PluginToolSchemaError } from "./plugin-services.js";
+import { PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
 import { localizePluginString } from "./plugin-index.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
@@ -793,11 +794,15 @@ export function createApp(options: AppOptions = {}) {
   );
   const pluginSettings = new PluginSettingsStore(dataDirectory);
   /** Format 2 plugins: their index, the person's decisions, and the hosts that run native code. */
-  const pluginServices = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
   // Format 2 plugins that ship with the app sit next to the format 1 ones.
   const bundledPluginsV2 = path.join(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"), "..", "plugins-v2");
-  // Routes that list what is installed wait for this, so a fresh start doesn't miss the bundled ones.
-  const bundledPluginsV2Indexed = pluginServices.addBundled(bundledPluginsV2).then(() => {}, (err: unknown) => app.log.warn({ err }, "Could not index the bundled format 2 plugins"));
+  const pluginServices = new PluginServices({
+    directory: path.join(dataDirectory, "plugin-store"),
+    bundled: bundledPluginsV2,
+    onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled format 2 plugins"),
+  });
+  // Indexing the bundled plugins starts now; every use of the plugin services waits for it.
+  const pluginServicesReady = pluginServices.ready().catch((err: unknown) => app.log.warn({ err }, "Could not load the format 2 plugins"));
   const legacyMcp = new LegacyMcpConfiguration(piAgentDirectory);
   const bundledPlugins = new BundledPluginStore(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"));
   const preinstalledPlugins = new PreinstalledPluginManager(
@@ -936,6 +941,14 @@ export function createApp(options: AppOptions = {}) {
     ...await resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type),
     ...await pluginServices.skills(project.workspacePath).catch(() => []),
   ];
+  /** The MCP servers a project's sessions start: format 1 plugins' for its type, then its format 2 plugins'. */
+  const projectMcp = async (project: ProjectState): Promise<EffectiveMcpConfig> => {
+    const [legacy, servers] = await Promise.all([
+      pluginCapabilities.effective(project.type),
+      pluginServices.mcpServers(project.workspacePath).catch(() => ({})),
+    ]);
+    return { ...legacy, mcpServers: { ...legacy.mcpServers, ...servers } };
+  };
   /** A conversation run by a coding agent CLI, kept in the same session file and checkpoints as Pi's. */
   const createNativeSession = async (project: ProjectState, conversation: StoredConversation, runtime: AgentRuntimeId, modelId: string) => {
     const resolvePlugins = () => projectPluginSkills(project);
@@ -943,7 +956,7 @@ export function createApp(options: AppOptions = {}) {
       resolvePlugins(),
       skillFolders(path.join(piAgentDirectory, "skills")),
       loadPiSkills(project.workspacePath, piAgentDirectory, resolvePlugins).catch(() => []),
-      pluginCapabilities.effective(project.type),
+      projectMcp(project),
       conversations.nativeReasoningLevel(project, conversation, { provider: runtime, id: modelId }),
     ]);
     const profileId = isAccountRuntimeId(runtime) ? await conversations.accountProfileId(project, conversation, runtime) : undefined;
@@ -990,7 +1003,7 @@ export function createApp(options: AppOptions = {}) {
       if (!model || !modelRuntime.hasConfiguredAuth(selected.provider)) {
         throw new Error(`The selected model ${selected.provider}/${selected.id} is not available`);
       }
-      const effectiveMcp = await pluginCapabilities.effective(project.type);
+      const effectiveMcp = await projectMcp(project);
       return createPiSession(
         project,
         conversations.open(project, conversation),
@@ -1041,7 +1054,7 @@ export function createApp(options: AppOptions = {}) {
   // An open project reads its plugins' panels and commands again, as after an
   // edit to its ohmygame.json. Those reads wait for the bundled plugins, so
   // indexing them at startup isn't a change a project needs to hear about.
-  void bundledPluginsV2Indexed.then(() => pluginServices.onChange((folder) => {
+  void pluginServicesReady.then(() => pluginServices.onChange((folder) => {
     for (const project of projects.list())
       if (!folder || project.workspacePath === folder) events.publish(project.id, "project.plugins.changed", {});
   }));
@@ -1159,7 +1172,6 @@ export function createApp(options: AppOptions = {}) {
   };
   app.get<{ Querystring: { locale?: string } }>("/plugin-store/plugins", async (request): Promise<StorePlugin[]> => {
     await pluginServices.ready();
-    await bundledPluginsV2Indexed;
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     return pluginServices.index.entries().map((entry) => {
       const text = (value: string) => localizePluginString(entry, value, locale);
@@ -1184,6 +1196,7 @@ export function createApp(options: AppOptions = {}) {
           projectTypes: (contributes.projectTypes ?? []).map((type) => text(type.title)),
           panels: (contributes.panels ?? []).map((panel) => text(panel.title)),
           commands: (contributes.commands ?? []).map((command) => text(command.title)),
+          mcpServers: (contributes.mcpServers ?? []).map((server) => text(server.title)),
           tools: contributes.tools?.length ?? 0,
           skills: entry.skills.length,
         },
@@ -1239,7 +1252,6 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     await pluginServices.ready();
-    await bundledPluginsV2Indexed;
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     const catalog = await plugins.list();
     const global = catalog.plugins
@@ -1269,7 +1281,6 @@ export function createApp(options: AppOptions = {}) {
   // What Home offers to turn on for the project it is about to create.
   app.get<{ Querystring: { locale?: string } }>("/project-plugins", async (request): Promise<ProjectPluginChoice[]> => {
     await pluginServices.ready();
-    await bundledPluginsV2Indexed;
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
     return [...new Set(pluginServices.index.entries().map((entry) => entry.id))].flatMap((id): ProjectPluginChoice[] => {
       const entry = pluginServices.index.get(id);
@@ -1295,7 +1306,7 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish first" });
     try {
-      await bundledPluginsV2Indexed;
+      await pluginServices.ready();
       // A project made before plugins could be per project gets its `ohmygame.json` now.
       const initialType = (CORE_PROJECT_TYPES as readonly string[]).includes(project.type) ? project.type : "general";
       await pluginServices.setProjectPlugin(project.workspacePath, `${request.params.publisher}/${request.params.name}`, request.body.version, initialType);
@@ -1324,7 +1335,6 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
-    await bundledPluginsV2Indexed;
     const panels = await pluginServices.panels(project.workspacePath, locale);
     if (!panels.length) return [];
     const server = await pluginUiServer();
@@ -1359,12 +1369,12 @@ export function createApp(options: AppOptions = {}) {
 
   // Format 2 plugin commands, and the history of what plugins changed outside a turn.
   const pluginChangeReply = (reply: { code(status: number): { send(body: unknown): unknown } }, cause: unknown) => {
-    if (cause instanceof PluginChangeError || cause instanceof ProjectWriteError || cause instanceof PluginToolSchemaError) return reply.code(cause.statusCode).send({ error: cause.message });
+    if (cause instanceof PluginChangeError || cause instanceof ProjectWriteError || cause instanceof PluginToolSchemaError || cause instanceof PluginCommandInputError) return reply.code(cause.statusCode).send({ error: cause.message });
     if (cause instanceof ExtensionHostError) return reply.code(cause.code === "unavailable" ? 409 : 503).send({ error: cause.message, code: cause.code });
     throw cause;
   };
-  app.post<{ Params: { projectId: string }; Body: { command: string } }>("/projects/:projectId/plugin-commands", {
-    schema: { body: { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string", minLength: 3, maxLength: 512 } } } },
+  app.post<{ Params: { projectId: string }; Body: { command: string; input?: unknown } }>("/projects/:projectId/plugin-commands", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string", minLength: 3, maxLength: 512 }, input: {} } } },
   }, async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
@@ -1372,13 +1382,15 @@ export function createApp(options: AppOptions = {}) {
       const found = await pluginServices.projectCommand(project.workspacePath, request.body.command);
       if (!found) return reply.code(409).send({ error: `${request.body.command} isn't a command of a plugin this project uses` });
       const { entry, command } = found;
-      const { run } = command;
       // Prompts, links, panels and settings run in the app; these run plugin code.
-      if (!("native" in run) && !("tool" in run)) return reply.code(400).send({ error: "This command runs in the app" });
+      if (!("native" in command.run) && !("tool" in command.run)) return reply.code(400).send({ error: "This command runs in the app" });
       const { result, change } = await pluginWrites.run(project, { plugin: entry.id, action: `command:${command.id}`, title: localizePluginString(entry, command.title, "en") }, () =>
-        "native" in run
-          ? pluginServices.native.runCommand(request.body.command, { folder: project.workspacePath, version: entry.version })
-          : pluginServices.callTool(entry, run.tool, { folder: project.workspacePath, input: run.input ?? {} }));
+        pluginServices.runCommand(entry, command, {
+          folder: project.workspacePath,
+          input: request.body.input,
+          // A link the person needs, such as a sign-in page, reaches the app while the command runs.
+          onProgress: (message, url) => url && events.publish(project.id, "plugin.command.progress", { command: request.body.command, message, url }),
+        }));
       return { result: result ?? null, ...(change ? { change } : {}) };
     } catch (cause) {
       return pluginChangeReply(reply, cause);
@@ -1387,7 +1399,6 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-commands", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    await bundledPluginsV2Indexed;
     return pluginServices.commands(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
   });
   // A format 2 plugin's settings: values for its page, secrets only as set or not.
@@ -3752,7 +3763,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.addHook("onClose", async () => {
     // Indexing writes to the plugin store and restarts sessions; it finishes before they close.
-    await bundledPluginsV2Indexed;
+    await pluginServicesReady;
     catalogRefresh.close();
     await pluginIntegrations.close();
     await externalMcp.close();

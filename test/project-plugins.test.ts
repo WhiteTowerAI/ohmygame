@@ -238,6 +238,67 @@ describe("project plugins", () => {
     }
   });
 
+  it("starts the MCP servers of plugins the project allows, once their settings are filled in", async () => {
+    const services = new PluginServices({ directory: await temporary() });
+    try {
+      const root = path.join(await temporary(), "maker");
+      await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
+      await writeFile(
+        path.join(root, ".ohmygame-plugin/plugin.json"),
+        JSON.stringify({
+          id: "acme/maker",
+          version: "1.0.0",
+          engines: { "ohmygame-api": "^2.0.0" },
+          displayName: "Maker",
+          description: "Maker games.",
+          configuration: {
+            region: { type: "text", title: "Region" },
+            token: { type: "secret", title: "Token" },
+          },
+          capabilities: { processes: ["maker"], network: ["api.example.com"], secrets: true },
+          contributes: {
+            mcpServers: [
+              { id: "local", title: "Local", command: "maker", args: ["mcp", "--region", "${config.region}"], tools: ["build"] },
+              { id: "cloud", title: "Cloud", url: "https://api.example.com/mcp", headers: { Authorization: "Bearer ${config.token}" }, tools: ["publish"] },
+              { id: "elsewhere", title: "Elsewhere", url: "https://other.example.com/mcp", tools: ["publish"] },
+            ],
+          },
+        }),
+      );
+      const added = await services.index.add(root);
+      expect(added.ok).toBe(true);
+      const folder = await temporary();
+      await writeProjectFile(folder, (file) => file, { type: "general", plugins: { "acme/maker": "1.0.0" } });
+      expect(await services.mcpServers(folder)).toEqual({});
+      const grants = ["network:api.example.com", "process:maker", "secrets"];
+      await services.grants.consent("acme/maker", grants);
+      await services.grants.approve(await projectFolderKey(folder), "acme/maker", grants);
+      // Neither setting is filled in yet; the third server's host wasn't allowed.
+      expect(await services.mcpServers(folder)).toEqual({});
+      const entry = services.index.get("acme/maker", "1.0.0")!;
+      await services.values.update(entry, { region: "eu", token: "t0k" });
+      const servers = await services.mcpServers(folder);
+      const name = (id: string) => Object.keys(servers).find((key) => key.endsWith(`-v2-${id}`))!;
+      expect(Object.keys(servers)).toHaveLength(2);
+      expect(servers[name("local")]).toEqual({
+        command: "maker",
+        args: ["mcp", "--region", "eu"],
+        cwd: added.ok ? added.entry.root : "",
+        includeTools: ["build"],
+        disabled: false,
+      });
+      expect(servers[name("cloud")]).toEqual({
+        url: "https://api.example.com/mcp",
+        headers: { Authorization: "Bearer t0k" },
+        auth: false,
+        includeTools: ["publish"],
+        disabled: false,
+      });
+    } finally {
+      await services.close();
+    }
+  });
+
   it("asks again when a version wants more, and only for what is new", async () => {
     const { index, grants, folder } = await setup();
     expect(
