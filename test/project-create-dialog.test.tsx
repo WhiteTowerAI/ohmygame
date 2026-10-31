@@ -229,6 +229,23 @@ describe("new project dialog", () => {
     await act(async () => root.render(<ProjectCreateDialog direct firstMessage={message} onClose={() => {}} onCreated={() => {}} />));
     expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:tiled");
     expect(createProject).not.toHaveBeenCalled();
+
+    // A type that is gone is not swapped for another without asking.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    listProjectTypes.mockResolvedValueOnce([]);
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={message} onClose={() => {}} onCreated={() => {}} />));
+    expect(typeSelect().textContent).toBe("Web Game");
+    expect(createProject).not.toHaveBeenCalled();
+
+    // Nor does it wait unseen when the types fail to load, even when a mention leaves plugins' types out.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    capabilities = { plugins: [godotPlugin], skills: [] };
+    listProjectTypes.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={{ ...message, prompt: "@Godot Make a map", mentions: [godot] }} onClose={() => {}} onCreated={() => {}} />));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Retry");
+    expect(createProject).not.toHaveBeenCalled();
   });
 
   it("allows a type's plugin that asks for nothing, and offers a retry when types fail to load", async () => {

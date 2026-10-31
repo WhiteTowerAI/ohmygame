@@ -543,8 +543,9 @@ Every project starts from Home. Sending its prompt creates the project at once,
 with the prompt as its first message: the type and plugins come from the prompt
 box, the name from the prompt, and the folder from Settings → General → Project
 location. The new-project dialog (name, type and folder) opens only when
-something needs the person: a type's plugin asking for access, plugins that
-fail to load, or creating failing or being cancelled. **Blank project** opens
+something needs the person: a type's plugin asking for access, a chosen type
+that is no longer available, plugins that fail to load, or creating failing or
+being cancelled. **Blank project** and **Import folder** wait while it is made. **Blank project** opens
 the dialog empty, and **Import folder** (desktop app) picks an existing folder,
 opening its project if it already has one. The dialog offers every project
 type, narrowed to those the prompt's plugins support. The prompt

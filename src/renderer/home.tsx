@@ -108,9 +108,10 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onSta
               disabled={!!creating?.firstMessage}
               onSubmit={(firstMessage, clearDraft) => setCreating({ firstMessage, clearDraft })}
             />
+            {/* A project being made from the prompt keeps the other ways to start waiting. */}
             <div className="home-starts">
-              <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
-              {canImportFolder ? <Button variant="ghost" size="sm" icon={<Import size={14} />} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
+              <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} disabled={!!creating} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
+              {canImportFolder ? <Button variant="ghost" size="sm" icon={<Import size={14} />} disabled={!!creating} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
             </div>
             {importError ? <p className="home-notice" role="alert">{importError}</p> : null}
           </section>

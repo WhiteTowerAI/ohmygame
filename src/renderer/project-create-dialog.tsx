@@ -141,7 +141,9 @@ export function ProjectCreateDialog({
   const integrations = firstMessage
     ? []
     : isAppProjectType(type) ? plugins.filter((plugin) => plugin.integration && (!plugin.projectTypes?.length || plugin.projectTypes.includes(kind))) : [];
-  const loadFailed = pluginsPhase === "error" || (installedPluginTypes.failed && offersPluginTypes) || (pluginChoicesFailed && !isAppProjectType(type));
+  // Types are waited for when offered or when Home asked for a plugin's type.
+  const typesFailed = installedPluginTypes.failed && (offersPluginTypes || !isAppProjectType(wanted));
+  const loadFailed = pluginsPhase === "error" || typesFailed || (pluginChoicesFailed && !isAppProjectType(type));
   const [shown, setShown] = useState(!direct);
 
   useEffect(() => {
@@ -162,12 +164,13 @@ export function ProjectCreateDialog({
   const started = useRef(false);
   useEffect(() => {
     if (shown) return;
-    if (loadFailed || typePluginConsent?.capabilities.length) setShown(true);
+    // The type Home asked for may be gone; the person picks another rather than get the first.
+    if (loadFailed || typePluginConsent?.capabilities.length || (ready && type !== preferred)) setShown(true);
     else if (ready && !started.current) {
       started.current = true;
       void submit();
     }
-  }, [shown, ready, loadFailed, typePluginConsent]);
+  }, [shown, ready, loadFailed, typePluginConsent, type]);
 
   // State updates too late to stop a second click in the same tick.
   const submitting = useRef(false);
@@ -316,7 +319,7 @@ export function ProjectCreateDialog({
             {onOpenProject ? <Button size="sm" onClick={() => onOpenProject(existingProject.id)}>{t("creator.openProject")}</Button> : null}
           </p>
         ) : null}
-        {(installedPluginTypes.failed && offersPluginTypes) || (pluginChoicesFailed && !isAppProjectType(type)) ? (
+        {typesFailed || (pluginChoicesFailed && !isAppProjectType(type)) ? (
           <p className="new-project-error" role="alert">
             {t("createDialog.pluginsFailed")}
             <Button size="sm" onClick={() => {

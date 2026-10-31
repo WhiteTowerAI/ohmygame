@@ -75,6 +75,14 @@ it("creates the project from the prompt at once, and opens the new-project dialo
   expect(createProject).toHaveBeenCalledWith({ type: "web-game" });
   expect(onCreate).toHaveBeenCalledWith(created, "first", "Make a maze", [], [], "normal", []);
 
+  // While it is being made, the other ways to start wait.
+  let finish!: (value: typeof created) => void;
+  createProject.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  await act(async () => button("Send prompt").click());
+  expect(button("Blank project").disabled).toBe(true);
+  await act(async () => finish(created));
+  expect(button("Blank project").disabled).toBe(false);
+
   // A failure shows the dialog with the error, so the person can try again.
   createProject.mockRejectedValueOnce(new Error("Disk full"));
   await act(async () => button("Send prompt").click());
