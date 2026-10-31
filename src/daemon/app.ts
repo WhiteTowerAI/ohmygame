@@ -1036,10 +1036,15 @@ export function createApp(options: AppOptions = {}) {
     for (const project of projects.list()) {
       if (folder && project.workspacePath !== folder) continue;
       void syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"));
-      // An open project reads its plugins' panels and commands again, as after an edit to its ohmygame.json.
-      events.publish(project.id, "project.plugins.changed", {});
     }
   });
+  // An open project reads its plugins' panels and commands again, as after an
+  // edit to its ohmygame.json. Those reads wait for the bundled plugins, so
+  // indexing them at startup isn't a change a project needs to hear about.
+  void bundledPluginsV2Indexed.then(() => pluginServices.onChange((folder) => {
+    for (const project of projects.list())
+      if (!folder || project.workspacePath === folder) events.publish(project.id, "project.plugins.changed", {});
+  }));
   const app = Fastify({
     logger: options.logger ? daemonLoggerOptions() : false,
     logController: new LogController({ disableRequestLogging: true }),
@@ -1319,6 +1324,7 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
+    await bundledPluginsV2Indexed;
     const panels = await pluginServices.panels(project.workspacePath, locale);
     if (!panels.length) return [];
     const server = await pluginUiServer();
@@ -1381,6 +1387,7 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugin-commands", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
+    await bundledPluginsV2Indexed;
     return pluginServices.commands(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
   });
   // A format 2 plugin's settings: values for its page, secrets only as set or not.

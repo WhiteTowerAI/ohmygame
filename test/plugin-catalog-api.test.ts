@@ -84,10 +84,36 @@ describe("plugin catalog API", () => {
   });
 
   it("lists format 2 plugins with their settings, switches them, and keeps bundled ones installed", async () => {
+    // Indexing the bundled plugins finishes after a project is made, as on a slow machine.
+    let indexBundled!: () => void;
+    const gate = new Promise<void>((resolve) => { indexBundled = resolve; });
+    const addBundled = PluginServices.prototype.addBundled;
+    vi.spyOn(PluginServices.prototype, "addBundled").mockImplementation(async function (this: PluginServices, directory) {
+      await gate;
+      return addBundled.call(this, directory);
+    });
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-store-api-"));
     const app = createApp({ dataDirectory });
     apps.push(app);
-    await app.ready();
+    const address = await app.listen({ host: "127.0.0.1", port: 0 });
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    indexBundled();
+    /** What the project's event stream replays. */
+    const replayed = async () => {
+      const controller = new AbortController();
+      const response = await fetch(`${address}/projects/${project.id}/events`, { signal: controller.signal });
+      const reader = response.body!.getReader();
+      let text = "";
+      setTimeout(() => controller.abort(), 300);
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          text += new TextDecoder().decode(value);
+        }
+      } catch { /* Aborted. */ }
+      return text;
+    };
     const listed = async (locale = "en") => (await app.inject({ method: "GET", url: `/plugin-store/plugins?locale=${locale}` })).json()
       .find((plugin: { id: string }) => plugin.id === "ohmygame/godot");
     expect(await listed()).toMatchObject({
@@ -99,6 +125,8 @@ describe("plugin catalog API", () => {
       adds: { projectTypes: ["Godot game"], tools: expect.any(Number), skills: expect.any(Number) },
     });
     expect((await listed("zh-CN")).settings[0].title).toBe("Godot 可执行文件");
+    // The project reads its panels after indexing, so indexing tells it nothing.
+    expect(await replayed()).not.toContain("project.plugins.changed");
 
     // A plugin that ships with the app only turns off.
     const removed = await app.inject({ method: "DELETE", url: "/plugin-store/ohmygame/godot/1.0.0" });
@@ -107,6 +135,7 @@ describe("plugin catalog API", () => {
     const off = await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/godot/enabled", payload: { enabled: false } });
     expect(off.statusCode).toBe(204);
     expect((await listed()).grants.enabled).toBe(false);
+    expect(await replayed()).toContain("project.plugins.changed");
 
     const saved = await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/godot/configuration", payload: { godotPath: "/opt/godot" } });
     expect(saved.json()).toEqual({ godotPath: { type: "path", value: "/opt/godot" } });
