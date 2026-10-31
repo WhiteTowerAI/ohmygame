@@ -109,6 +109,8 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const [storedHistory] = useState(() => loadHomePromptHistory());
   const [history, setHistory] = useState(() => createPromptHistory(storedHistory.map((entry) => entry.prompt)));
   const mentionHistory = new Map(storedHistory.map((entry) => [entry.prompt, entry.mentions]));
+  // The unsent prompt's plugins, for coming back to it from history.
+  const draftMentions = useRef<PluginMention[]>([]);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const modelCatalog = useAgentModels({ agentRuntimes: true });
   const selectedModel = preferredAgentModel(modelCatalog.models, model, modelCatalog.defaultModel);
@@ -131,9 +133,13 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     let disposed = false;
     void waitForRuntime()
       .then(() => getHomeComposerCapabilities())
-      .then((result) => { if (!disposed) setCapabilities(result); })
-      .catch((cause) => { if (!disposed) setError(errorMessage(cause)); })
-      .finally(() => { if (!disposed) setCapabilitiesLoaded(true); });
+      .then((result) => {
+        if (disposed) return;
+        setCapabilities(result);
+        setCapabilitiesLoaded(true);
+      })
+      // Without the list, a remembered plugin type stays pending rather than look disabled.
+      .catch((cause) => { if (!disposed) setError(errorMessage(cause)); });
     return () => { disposed = true; };
   }, []);
 
@@ -295,12 +301,15 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   function browseHistory(direction: "previous" | "next"): void {
     const result = direction === "previous" ? previousPrompt(history, invocation(prompt)) : nextPrompt(history);
     if (!result) return;
+    if (history.index === history.entries.length) draftMentions.current = [...pluginMentions, ...(selectedPlugin ? [selectedPlugin] : []), ...extraMentions];
     const skill = parseSkillInvocation(result.prompt);
-    const historicalMentions = mentionHistory.get(result.prompt) ?? [];
+    const historicalMentions = mentionHistory.get(result.prompt)
+      ?? (result.history.index === result.history.entries.length ? draftMentions.current : []);
     const plugin = extractLeadingPluginMention(skill?.prompt ?? result.prompt, historicalMentions);
-    // Starting plugins that followed the first come back checked too.
+    // Starting plugins that followed the first come back checked too, while they fit the type.
+    const fits = (mention: PluginMention) => starters.some((item) => item === starterOf(mention));
     const others: PluginMention[] = [];
-    for (let next = extractLeadingPluginMention(plugin.prompt, historicalMentions); next.mention && starterOf(next.mention);
+    for (let next = extractLeadingPluginMention(plugin.prompt, historicalMentions); next.mention && fits(next.mention);
       next = extractLeadingPluginMention(next.prompt, historicalMentions)) {
       others.push(next.mention);
       plugin.prompt = next.prompt;

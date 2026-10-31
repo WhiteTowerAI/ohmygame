@@ -124,6 +124,12 @@ async function chooseIdea(text: string) {
   const idea = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent?.includes(text))!;
   await act(async () => idea.click());
 }
+async function historyKey(key: "ArrowUp" | "ArrowDown") {
+  const textarea = container.querySelector("textarea")!;
+  const at = key === "ArrowUp" ? 0 : textarea.value.length;
+  textarea.setSelectionRange(at, at);
+  await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })); });
+}
 const menuItem = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>(".home-plugin-row")]
     .find((item) => item.querySelector(".home-plugin-text > span")?.textContent === label);
@@ -168,10 +174,20 @@ describe("Home prompt box", () => {
     const mentions = [capabilities.plugins[2], capabilities.plugins[3]].map((item) => ({ name: item.name, displayName: item.displayName, marketplaceId: item.marketplaceId }));
     localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Web Game Studio @Three.js World Make an island", mentions }]));
     await render();
-    const textarea = container.querySelector("textarea")!;
-    await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })); });
-    expect(textarea.value).toBe("Make an island");
+    await historyKey("ArrowUp");
+    expect(container.querySelector("textarea")!.value).toBe("Make an island");
     expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Web Game Studio, Three.js World");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio @Three.js World Make an island" }), expect.any(Function));
+
+    // A plugin that does not fit the type now stays in the prompt instead.
+    onSubmit.mockReset();
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    await chooseType("Godot");
+    await historyKey("ArrowUp");
+    expect(container.querySelector("textarea")!.value).toBe("@Three.js World Make an island");
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio @Three.js World Make an island" }), expect.any(Function));
   });
@@ -339,6 +355,15 @@ describe("Home prompt box", () => {
     await send();
     expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Island Maker");
     await type("Make an island");
+    // Browsing history and coming back keeps the plugin once.
+    localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "Make a maze", mentions: [] }]));
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    await historyKey("ArrowUp");
+    expect(container.querySelector("textarea")!.value).toBe("Make a maze");
+    await historyKey("ArrowDown");
+    expect(container.querySelector("textarea")!.value).toBe("Make an island");
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Island Maker Make an island", type: "general" }), expect.any(Function));
   });
@@ -355,6 +380,16 @@ describe("Home prompt box", () => {
     expect(typePicker().textContent).toBe("Web Game");
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio Make a puzzle", type: "web-game" }), expect.any(Function));
+  });
+
+  it("keeps a remembered plugin type pending when plugins fail to load", async () => {
+    localStorage.setItem("ohmygame.home.projectType", "starter:taptap-maker@bundled");
+    pendingCapabilities = Promise.reject(new Error("Plugins unavailable"));
+    pendingCapabilities.catch(() => {});
+    await render();
+    await type("Make a puzzle");
+    expect(container.textContent).toContain("Plugins unavailable");
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
   });
 
   it("waits for plugins before sending a plugin's own type it remembered", async () => {
