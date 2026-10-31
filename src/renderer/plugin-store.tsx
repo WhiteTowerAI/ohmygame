@@ -218,9 +218,11 @@ function StorePluginSettings({ plugin }: { plugin: StorePlugin }): ReactNode {
     setBusy(true);
     setError(undefined);
     setNotice(undefined);
+    const submitted = values;
     try {
-      setConfig(await saveStorePluginConfiguration(plugin.id, values));
-      setValues({});
+      setConfig(await saveStorePluginConfiguration(plugin.id, submitted));
+      // Fields changed again while saving keep their new values.
+      setValues((current) => Object.fromEntries(Object.entries(current).filter(([name, value]) => !(name in submitted) || submitted[name] !== value)));
       setNotice(t("common.saved"));
     } catch (cause) {
       setError(message(cause));
