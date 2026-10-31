@@ -99,7 +99,8 @@ The agents sit in one row: OhMyGame (Pi) first, then the CLIs. Each tile
 shows its status (ready, built in, installed, signed out, or not detected),
 which screen readers hear with the name. The chosen agent's configuration
 fills the panel below the row; choosing it again keeps its model selection.
-When discovery fails, a **Rescan** tile takes the CLIs' place. OhMyGame cannot be
+When discovery fails, a **Rescan** tile takes the CLIs' place, or follows them
+when a later check fails. OhMyGame cannot be
 disabled, and selecting it does not disable any CLI. Sign-in, API key, and
 configuration actions use icons with accessible labels and tooltips. Connected
 providers show a check; disabled connections offer an enable icon without

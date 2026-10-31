@@ -1211,6 +1211,11 @@ describe("three-step setup with coding agents", () => {
     expect(agentButton("Codex")).toBeDefined();
     expect(container.textContent).not.toContain("Discovery unavailable");
     expect(api.updateAgentRuntime).not.toHaveBeenCalled();
+    // A later refresh that fails keeps the agents and offers the scan again.
+    api.listAgentRuntimes.mockRejectedValueOnce(new Error("Discovery unavailable"));
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(agentButton("Codex")).toBeDefined();
+    expect(container.querySelector('[aria-label="Rescan"]')).not.toBeNull();
   });
 
   it.each(["failed", "pending"])(

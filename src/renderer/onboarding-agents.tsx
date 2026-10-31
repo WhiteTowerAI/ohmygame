@@ -406,9 +406,9 @@ export function OnboardingAgents({
             </span>
           </span>
         ) : null}
-        {/* Each CLI's own setup checks it again; a failed scan offers the
-            whole scan again in their place. */}
-        {!agents && displayedError ? (
+        {/* A failed scan, or a later refresh that fails, offers the whole
+            scan again beside the agents it still shows. */}
+        {displayedError ? (
           <button
             type="button"
             className="onboarding-agent-option is-placeholder"
