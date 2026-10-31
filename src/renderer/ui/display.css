@@ -41,17 +41,20 @@
   color: var(--color-text-secondary);
 }
 
+/* An outline rather than a fill, so the keycap holds on any surface,
+   including a hovered row. The system font draws ⌘ as the menus do. */
 .ui-kbd {
   display: inline-grid;
   place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
-  border-radius: 5px;
-  background: var(--color-hover);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
   color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--text-xs);
+  line-height: 1;
 }
 
 /* avatar */

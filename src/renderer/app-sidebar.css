@@ -316,10 +316,9 @@
 }
 
 .sidebar-item-shortcut {
+  display: inline-flex;
   flex: none;
-  color: var(--color-text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  gap: 2px;
 }
 
 .is-sidebar-collapsed .sidebar-brand span,

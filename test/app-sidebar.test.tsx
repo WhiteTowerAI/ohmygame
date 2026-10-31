@@ -250,7 +250,7 @@ it("opens the command menu from Search, which shows its shortcut", async () => {
   const opened = vi.fn();
   window.addEventListener("ohmygame:command-menu", opened);
   await render();
-  expect(button("Search")!.querySelector("kbd")?.textContent).toMatch(/^(⌘K|Ctrl\+K)$/);
+  expect([...button("Search")!.querySelectorAll("kbd")].map((key) => key.textContent).join(" ")).toMatch(/^(⌘ K|Ctrl K)$/);
   button("Search")!.click();
   window.removeEventListener("ohmygame:command-menu", opened);
   expect(opened).toHaveBeenCalledOnce();
