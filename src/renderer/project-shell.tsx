@@ -245,6 +245,7 @@ export function ProjectShell({
   const pickingRef = useRef(pickingClient);
   pickingRef.current = pickingClient;
   const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [playSlot, setPlaySlot] = useState<HTMLSpanElement | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
   // The chat takes the request once its conversation is open.
@@ -1162,8 +1163,10 @@ export function ProjectShell({
         {toggleMenu.length ? <DropdownMenu placement="bottom-end" items={toggleMenu} trigger={(props) => (
           <IconButton {...props} size="sm" label={t("panels.menu")}><LayoutGrid size={16} /></IconButton>
         )} /> : null}
-        {project && offered.includes("game") && !visible.includes("game") ? <Button size="sm" variant="ghost" icon={<Play size={14} />}
-          onClick={() => revealPanel("game")}>{t("workspace.play")}</Button> : null}
+        {/* Play stays in place from every view. A Web preview fills the slot
+            with Play in its own window; an external preview can only be shown. */}
+        {project && offered.includes("game") ? previewSupported ? <span className="project-top-play" ref={setPlaySlot} />
+          : <Button size="sm" variant="ghost" icon={<Play size={14} />} onClick={() => revealPanel("game")}>{t("workspace.play")}</Button> : null}
         {project && publishButton ? <DropdownMenu placement="bottom-end" items={[
           { label: t("workspace.publishToCommunity"), icon: <Globe2 size={14} />, disabled: exporting === "web", onSelect: () => setPublishDialog({ projectId: project.id, status: "open" }) },
           "separator",
@@ -1293,6 +1296,7 @@ export function ProjectShell({
             nodes: { preview: nodes.game, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
             visible: codingVisible,
             onShow: (view) => revealPanel(view === "preview" ? "game" : view),
+            play: playSlot,
           }}
         />
       ) : story ? <PlayableEditorWorkspace

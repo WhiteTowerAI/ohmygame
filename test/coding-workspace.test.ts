@@ -215,7 +215,7 @@ describe("coding workspace", () => {
     const runnable = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project: { ...project, webPreviewEnabled: true, preview: previewProject.preview } }));
     expect(runnable).toContain('data-active-tab="preview"');
     expect(runnable).toContain(`src="${previewProject.preview.url}/?__ohmygame_client=`);
-    expect(runnable).toContain('aria-label="Play"');
+    expect(runnable).toMatch(/preview-play-button[^>]*>.*Play<\/button>/);
     expect(runnable).not.toContain("Publishing requires a Web build");
   });
 

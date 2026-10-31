@@ -126,6 +126,8 @@ export interface CodingPanels {
   visible: ReadonlySet<CodingView>;
   /** Brings a view forward, opening its panel if it was closed. */
   onShow: (view: CodingView) => void;
+  /** The top bar's slot for Play, which opens the game in its own window from any view. */
+  play?: HTMLElement | null;
 }
 
 export function CodingWorkspace({
@@ -364,6 +366,15 @@ export function CodingWorkspace({
   }, [picking]);
 
   const canPlay = !player.open && (!project || preview?.status === "waiting" || preview?.status === "starting");
+  const playButton = supportsPreview ? <Button
+    size="sm"
+    variant="ghost"
+    className={`preview-play-button${player.open ? " is-active" : ""}`}
+    icon={player.pending ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
+    data-tooltip={player.pending ? t("workspace.openingGame") : player.open ? undefined : t("workspace.playInWindow")}
+    disabled={player.pending || (player.checking && !player.error) || canPlay}
+    onClick={playGame}
+  >{player.open ? t("workspace.returnToGame") : t("workspace.play")}</Button> : null;
   const settingsButton = project && !project.integration && isWebRuntimeProjectType(project.type) ? <button
     className="icon-button pane-header-action"
     type="button"
@@ -400,14 +411,7 @@ export function CodingWorkspace({
           onToggleAgentPlaytestWatch={() => void toggleAgentPlaytestWatch()}
           onViewportChange={setViewport}
         />
-        <button
-          className={`icon-button pane-header-action preview-play-button${player.open ? " is-active" : ""}`}
-          type="button"
-          aria-label={player.open ? t("workspace.returnToGame") : t("workspace.play")}
-          data-tooltip={player.pending ? t("workspace.openingGame") : player.open ? t("workspace.returnToGame") : t("workspace.playInWindow")}
-          disabled={player.pending || (player.checking && !player.error) || canPlay}
-          onClick={playGame}
-        >{player.pending ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}</button>
+        {panels ? null : playButton}
       </> : undefined,
       body: <>
         {project?.integration?.preview === "external" ? <ExternalProjectPreview key={project.id} project={project} onProjectUpdated={onProjectUpdated} /> : null}
@@ -489,6 +493,7 @@ export function CodingWorkspace({
       {supportsPreview && logsOpen && view === logsView ? <PreviewLogs project={project} onClose={() => setLogsOpen(false)} /> : null}
     </section>
   );
+  const topPlay = panels?.play && playButton ? createPortal(playButton, panels.play) : null;
   const placed = (Object.keys(views) as CodingView[]).map((view) => {
     const content = views[view];
     if (!content) return null;
@@ -507,6 +512,7 @@ export function CodingWorkspace({
   return (
     <>
       {placed}
+      {topPlay}
       {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
       {project && projectSettingsOpen ? <ProjectSettingsDialog
         project={project}
