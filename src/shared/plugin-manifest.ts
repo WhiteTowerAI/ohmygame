@@ -207,7 +207,10 @@ const CommandRun = Type.Union([
     { additionalProperties: false },
   ),
   Type.Object({ url: HttpsUrl }, { additionalProperties: false }),
-  Type.Object({ native: CamelId }, { additionalProperties: false }),
+  Type.Object(
+    { native: CamelId, input: Type.Optional(RelativePath("\\.json")) },
+    { additionalProperties: false },
+  ),
 ]);
 
 const Command = Type.Object(
@@ -305,6 +308,36 @@ const Provider = Type.Object(
   { additionalProperties: false },
 );
 
+/** A string that may name configuration values as `${config.field}`. */
+const Template = (maxLength = 2000) => Type.String({ maxLength });
+
+/**
+ * An MCP server the plugin brings: a process (`command`, run from the
+ * plugin's folder unless `cwd` says otherwise). Agents see only the `tools`
+ * it names. HTTP servers wait for a way to keep redirects within
+ * `capabilities.network`, which the MCP adapter doesn't offer.
+ */
+const McpServer = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    command: Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }),
+    args: Type.Optional(Type.Array(Template(), { maxItems: 50 })),
+    env: Type.Optional(
+      Type.Record(Type.String({ pattern: "^[A-Za-z_][A-Za-z0-9_]{0,63}$" }), Template(), {
+        additionalProperties: false,
+      }),
+    ),
+    cwd: Type.Optional(RelativePath("/?")),
+    tools: Type.Array(Type.String({ pattern: "^[A-Za-z0-9_.-]{1,100}$" }), {
+      minItems: 1,
+      maxItems: 100,
+      uniqueItems: true,
+    }),
+  },
+  { additionalProperties: false },
+);
+
 const Panel = Type.Object(
   {
     id: Slug,
@@ -388,6 +421,7 @@ export const PluginManifestV2Schema = Type.Object(
           themes: list(Theme),
           providers: list(Provider),
           panels: list(Panel),
+          mcpServers: list(McpServer),
         },
         { additionalProperties: false },
       ),
@@ -469,6 +503,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     "themes",
     "providers",
     "panels",
+    "mcpServers",
   ] as const) {
     const seen = new Set<string>();
     contributes[key]?.forEach((item, index) => {
@@ -558,10 +593,46 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       issue(path, "list models or discover them");
   });
 
+  const processes = new Set(capabilities.processes);
+  contributes.mcpServers?.forEach((server, index) => {
+    const path = `/contributes/mcpServers/${index}`;
+    if (!processes.has(server.command))
+      issue(`${path}/command`, `${server.command} must be listed in capabilities.processes`);
+    const syntax = mcpServerSyntaxIssue(server);
+    if (syntax) issue(path, syntax);
+    for (const name of configReferences(server)) {
+      const field = manifest.configuration?.[name];
+      if (!field) issue(path, `no configuration field ${name}`);
+      else if (field.type === "secret" && !capabilities.secrets)
+        issue(path, `${name} is a secret, which needs capabilities.secrets`);
+    }
+  });
+
   if (contributes.panels && !manifest.icon)
     issue("/icon", "a plugin with panels needs an icon for their tabs");
 
   return issues.length ? { ok: false, issues } : { ok: true, manifest };
+}
+
+/** What the MCP adapter would expand in a value: `${VAR}`, `$env:VAR` or `{env:VAR}`. */
+const ADAPTER_SYNTAX = /\$\{\w+\}|\$env:\w+|\{env:\w+\}/;
+
+/**
+ * Why an MCP server's values can't be handed to the adapter as they are, or
+ * undefined. The adapter reads environment variables into `args` and `cwd`,
+ * so a plugin, or a setting filled into one, could read the app's secrets.
+ * `env` is passed literally, so its values may start with `!` or name
+ * variables without the adapter acting on them.
+ */
+export function mcpServerSyntaxIssue(server: { args?: string[]; cwd?: string }): string | undefined {
+  return [...(server.args ?? []), server.cwd].some((value) => value !== undefined && ADAPTER_SYNTAX.test(value))
+    ? "args and cwd can't name environment variables"
+    : undefined;
+}
+
+/** The configuration fields a value names as `${config.field}`, anywhere inside it. */
+export function configReferences(value: unknown): string[] {
+  return [...new Set([...JSON.stringify(value ?? null).matchAll(/\$\{config\.([a-zA-Z0-9]+)\}/g)].map((match) => match[1]!))];
 }
 
 function semver(value: string) {

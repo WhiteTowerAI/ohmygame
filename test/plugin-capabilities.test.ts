@@ -666,6 +666,61 @@ describe("native plugin capabilities", () => {
     expect(service.host.status("shared-local")).toBeUndefined();
   });
 
+  it("stops a session's MCP calls once its plugins change", async () => {
+    const { service, directory } = await environment();
+    const config = { mcpServers: { local: { command: process.execPath, args: [path.resolve("test/fixtures/plugin-mcp-server.mjs")] } } };
+    let reason: string | undefined;
+    const guard = async () => reason;
+    // A coding agent calls the mcp tool directly.
+    const native = await service.host.tool(config, directory, guard);
+    try {
+      const call = () => native.tool.execute("echo-call", { server: "local", tool: "local_echo", args: { value: "still on" } }, undefined, undefined, undefined as never);
+      expect(JSON.stringify(await call())).toContain("still on");
+      reason = "plugins changed";
+      await expect(call()).rejects.toThrow("plugins changed");
+    } finally {
+      await native.close();
+    }
+    // Pi asks the session's tool_call hook first, for the adapter's tools only.
+    reason = undefined;
+    const settingsManager = SettingsManager.inMemory({ packages: [] });
+    const loader = new DefaultResourceLoader({
+      cwd: directory,
+      agentDir: directory,
+      settingsManager,
+      noExtensions: true,
+      noSkills: true,
+      noContextFiles: true,
+      extensionFactories: [{ name: "plugin-mcp", factory: await service.host.extension(config, { guard }) }],
+    });
+    await loader.reload();
+    const { session } = await createAgentSession({
+      cwd: directory,
+      agentDir: directory,
+      settingsManager,
+      resourceLoader: loader,
+      noTools: "builtin",
+      sessionManager: SessionManager.inMemory(directory),
+    });
+    const close = service.host.manage(session);
+    try {
+      await session.bindExtensions({ mode: "rpc" });
+      const event = { type: "tool_call", toolCallId: "echo-call", toolName: "mcp", input: {} } as never;
+      // Calls made inside a tool call, as a script's are, skip that hook; the adapter's approval asks instead.
+      const mcp = session.getToolDefinition("mcp")!;
+      const nested = async () => JSON.stringify(await mcp.execute("echo-call", { server: "local", tool: "local_echo", args: { value: "nested" } },
+        undefined, undefined, session.extensionRunner.createToolContext("echo-call", undefined)));
+      expect(await session.extensionRunner.emitToolCall(event)).toBeUndefined();
+      expect(await nested()).toContain("nested");
+      reason = "plugins changed";
+      expect(await session.extensionRunner.emitToolCall(event)).toEqual({ block: true, reason: "plugins changed" });
+      expect(await session.extensionRunner.emitToolCall({ ...(event as object), toolName: "read" } as never)).toBeUndefined();
+      expect(await nested()).toContain("approval_denied");
+    } finally {
+      await close();
+    }
+  });
+
   it("runs a persistent plugin assistant through a model tool call without a game project", async () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "ohmygame-setup-model-"),

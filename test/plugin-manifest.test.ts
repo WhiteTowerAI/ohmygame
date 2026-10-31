@@ -160,6 +160,33 @@ describe("plugin manifest format 2", () => {
     ]);
   });
 
+  it("checks MCP servers against what the plugin may run and read", () => {
+    const server = (fields: object) => ({
+      ...minimal,
+      configuration: {
+        region: { type: "text", title: "Region" },
+        token: { type: "secret", title: "Token" },
+      },
+      capabilities: { processes: ["maker"] },
+      contributes: { mcpServers: [{ id: "maker", title: "Maker", command: "maker", tools: ["build"], ...fields }] },
+    });
+    // env is passed as written, so it may name variables.
+    expect(messages(server({ args: ["--region", "${config.region}"], env: { HOME_HINT: "${HOME}" } }))).toEqual([]);
+    expect(messages(server({ command: "node", env: { TOKEN: "${config.token}", MODE: "${config.mode}" } }))).toEqual([
+      "/contributes/mcpServers/0/command node must be listed in capabilities.processes",
+      "/contributes/mcpServers/0 token is a secret, which needs capabilities.secrets",
+      "/contributes/mcpServers/0 no configuration field mode",
+    ]);
+    // The adapter would read the app's environment into args and cwd.
+    expect(messages(server({ args: ["$env:HOME"] }))).toEqual([
+      "/contributes/mcpServers/0 args and cwd can't name environment variables",
+    ]);
+    // HTTP servers wait for a guard on redirects.
+    expect(messages(server({ url: "https://localhost/mcp" }))).toEqual([
+      "/contributes/mcpServers/0 must not have additional properties",
+    ]);
+  });
+
   it("closes keyed records and never throws on bad values", () => {
     for (const configuration of [
       { "bad-key": { type: "made-up", title: 42 } },

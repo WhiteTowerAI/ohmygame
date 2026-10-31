@@ -1087,6 +1087,7 @@ const zhCN: typeof en = {
     addsType: "项目类型",
     addsPanel: "面板",
     addsCommand: "命令",
+    addsMcpServer: "MCP 服务",
     tools: "工具",
     toolCount_one: "{{count}} 个工具",
     toolCount_other: "{{count}} 个工具",

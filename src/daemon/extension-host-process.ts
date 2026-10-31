@@ -4,6 +4,7 @@ import {
   EXTENSION_HOST_PROTOCOL_VERSION,
   PROJECT_TYPE_HOOKS,
   HOST_MESSAGE_MAX_CHARS,
+  isProgressLink,
   HOST_PROGRESS_INTERVAL_MS,
   HOST_RESULT_MAX_BYTES,
   type ExtensionHostPlugin,
@@ -193,12 +194,14 @@ async function invoke(
   let lastProgress = -Infinity;
   const value = await handler(request.input, {
     signal: controller.signal,
-    progress: (message) => {
-      // Progress is a hint: frequent updates are dropped, long ones cut.
+    progress: (message, options) => {
+      // Progress is a hint: frequent updates are dropped, long ones cut. A
+      // link the person needs always goes through.
+      const url = isProgressLink(options?.url) ? options?.url : undefined;
       const now = performance.now();
-      if (now - lastProgress < HOST_PROGRESS_INTERVAL_MS) return;
+      if (!url && now - lastProgress < HOST_PROGRESS_INTERVAL_MS) return;
       lastProgress = now;
-      send({ type: "progress", id: request.id, message: cut(String(message)) });
+      send({ type: "progress", id: request.id, message: cut(String(message)), ...(url ? { url } : {}) });
     },
     ...(request.turn ? { turn: request.turn } : {}),
     configuration: Object.freeze({ ...request.configuration }),
@@ -294,3 +297,4 @@ async function leave() {
 process.on("disconnect", () => void leave());
 
 send({ type: "ready", protocol: EXTENSION_HOST_PROTOCOL_VERSION });
+

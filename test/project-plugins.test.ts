@@ -238,6 +238,74 @@ describe("project plugins", () => {
     }
   });
 
+  it("starts the MCP servers of plugins the project allows, once their settings are filled in", async () => {
+    const services = new PluginServices({ directory: await temporary() });
+    try {
+      const root = path.join(await temporary(), "maker");
+      await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
+      await writeFile(
+        path.join(root, ".ohmygame-plugin/plugin.json"),
+        JSON.stringify({
+          id: "acme/maker",
+          version: "1.0.0",
+          engines: { "ohmygame-api": "^2.0.0" },
+          displayName: "Maker",
+          description: "Maker games.",
+          configuration: {
+            region: { type: "text", title: "Region" },
+            token: { type: "secret", title: "Token" },
+          },
+          capabilities: { processes: ["maker"], secrets: true },
+          contributes: {
+            mcpServers: [
+              { id: "local", title: "Local", command: "maker", args: ["mcp", "--region", "${config.region}"], env: { HOME_HINT: "${HOME}" }, tools: ["build"] },
+              { id: "signed-in", title: "Signed in", command: "maker", args: ["mcp"], env: { MAKER_TOKEN: "${config.token}" }, cwd: "./bin", tools: ["publish"] },
+            ],
+          },
+        }),
+      );
+      const added = await services.index.add(root);
+      expect(added.ok).toBe(true);
+      const folder = await temporary();
+      await writeProjectFile(folder, (file) => file, { type: "general", plugins: { "acme/maker": "1.0.0" } });
+      expect(await services.mcpServers(folder)).toEqual({});
+      const grants = ["process:maker", "secrets"];
+      await services.grants.consent("acme/maker", grants);
+      await services.grants.approve(await projectFolderKey(folder), "acme/maker", grants);
+      // Neither setting is filled in yet.
+      expect(await services.mcpServers(folder)).toEqual({});
+      const entry = services.index.get("acme/maker", "1.0.0")!;
+      await services.values.update(entry, { region: "eu", token: "t0k" });
+      const servers = await services.mcpServers(folder);
+      const name = (id: string) => Object.keys(servers).find((key) => key.endsWith(`-v2-${id}`))!;
+      expect(Object.keys(servers)).toHaveLength(2);
+      expect(servers[name("local")]).toEqual({
+        command: "maker",
+        args: ["mcp", "--region", "eu"],
+        // The adapter passes env as written, never reading the app's own.
+        env: { HOME_HINT: "${HOME}" },
+        cwd: added.ok ? added.entry.root : "",
+        literalEnv: true,
+        includeTools: ["build"],
+        disabled: false,
+      });
+      expect(servers[name("signed-in")]).toEqual({
+        command: "maker",
+        args: ["mcp"],
+        env: { MAKER_TOKEN: "t0k" },
+        cwd: added.ok ? path.join(added.entry.root, "bin") : "",
+        literalEnv: true,
+        includeTools: ["publish"],
+        disabled: false,
+      });
+      // A setting can't make the adapter read the app's environment into args.
+      await services.values.update(entry, { region: "{env:HOME}" });
+      expect(Object.keys(await services.mcpServers(folder))).toEqual([name("signed-in")]);
+    } finally {
+      await services.close();
+    }
+  });
+
   it("asks again when a version wants more, and only for what is new", async () => {
     const { index, grants, folder } = await setup();
     expect(

@@ -35,7 +35,7 @@ import {
   setProjectPlugin,
   writeProjectFile,
 } from "../src/daemon/project-plugins.js";
-import type { ExtensionHostPlugin } from "../src/shared/extension-host-protocol.js";
+import { isHostMessage, type ExtensionHostPlugin } from "../src/shared/extension-host-protocol.js";
 
 // Plugins that behave, and plugins that hang, crash or fail to activate.
 const SOURCES: Record<string, string> = {
@@ -45,6 +45,9 @@ const SOURCES: Record<string, string> = {
       activations += 1;
       context.registerTool("echo", async (input, call) => {
         call.progress("halfway");
+        call.progress("too soon");
+        call.progress("Sign in", { url: "https://example.com/device" });
+        call.progress("too soon", { url: "javascript:alert(1)" });
         return { input, activations };
       });
       context.registerTool("pid", () => process.pid);
@@ -206,13 +209,13 @@ describe("extension hosts", () => {
   it("starts a host on the first call and activates each plugin once", async () => {
     const extensionHosts = hosts();
     expect(await extensionHosts.status()).toEqual([]);
-    const progress: string[] = [];
+    const progress: [string, string?][] = [];
     const first = await extensionHosts.invoke({
       scope: "app",
       plugin: plugin("tools"),
       tool: "echo",
       input: { a: 1 },
-      onProgress: (message) => progress.push(message),
+      onProgress: (message, url) => progress.push(url ? [message, url] : [message]),
     });
     const second = await extensionHosts.invoke({
       scope: "app",
@@ -222,7 +225,12 @@ describe("extension hosts", () => {
     });
     expect(first).toEqual({ input: { a: 1 }, activations: 1 });
     expect(second).toEqual({ input: 2, activations: 1 });
-    expect(progress).toEqual(["halfway"]);
+    // Updates close together are dropped, except one with an https link.
+    expect(progress).toEqual([["halfway"], ["Sign in", "https://example.com/device"]]);
+    // Native code can send its own messages, so the daemon checks links too.
+    for (const url of ["http://example.com/login", "javascript:alert(1)", "file:///etc/passwd"])
+      expect(isHostMessage({ type: "progress", id: 1, message: "Sign in", url })).toBe(false);
+    expect(isHostMessage({ type: "progress", id: 1, message: "Sign in", url: "https://example.com/device" })).toBe(true);
     const [status] = await extensionHosts.status();
     expect(status.scope).toBe("app");
     expect(status.plugins["test/tools"].tools).toContain("echo");
@@ -689,6 +697,14 @@ async function nativePackage(
     }),
   );
   await writeFile(
+    path.join(dir, "tools/rename.json"),
+    JSON.stringify({
+      type: "object",
+      properties: { name: { type: "string" } },
+      required: ["name"],
+    }),
+  );
+  await writeFile(
     path.join(dir, "tools/count-output.json"),
     JSON.stringify({
       type: "object",
@@ -710,6 +726,7 @@ async function nativePackage(
         return { n: input.wrong ? "many" : 3 };
       });
       context.registerCommand("tidyUp", () => "tidy");
+      context.registerCommand("rename", (input) => "renamed " + input.name);
     }`,
   );
   await writeManifest(dir, version, options.network);
@@ -743,6 +760,7 @@ async function writeManifest(dir: string, version: string, network?: string[]) {
         ],
         commands: [
           { id: "tidy-up", title: "Tidy up", run: { native: "tidyUp" } },
+          { id: "rename", title: "Rename", run: { native: "rename", input: "./tools/rename.json" } },
         ],
       },
     }),
@@ -1007,6 +1025,15 @@ describe("plugin tools", () => {
         services.callTool(entry, "count", { folder, input: { wrong: true } }),
       ).rejects.toMatchObject({ statusCode: 502 });
       expect(await services.callTool(entry, "count", { folder })).toEqual({ n: 3 });
+      // A page's input reaches a native command only through the schema it declares.
+      const command = (id: string) => entry.manifest.contributes!.commands!.find((item) => item.id === id)!;
+      expect(await services.runCommand(entry, command("rename"), { folder, input: { name: "map" } })).toBe("renamed map");
+      await expect(services.runCommand(entry, command("rename"), { folder })).rejects.toMatchObject({ statusCode: 400 });
+      await expect(services.runCommand(entry, command("tidy-up"), { folder, input: {} })).rejects.toMatchObject({
+        statusCode: 400,
+        message: expect.stringContaining("takes no input"),
+      });
+      expect(await services.runCommand(entry, command("tidy-up"), { folder })).toBe("tidy");
 
       // The coding agents and external agents get the same definitions.
       const bridge = new ToolBridge(tools);

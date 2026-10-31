@@ -362,7 +362,7 @@ export interface StorePlugin {
   bundled: boolean;
   settings: StorePluginSetting[];
   /** What it adds, by title; tools and skills are counted. */
-  adds: { projectTypes: string[]; panels: string[]; commands: string[]; tools: number; skills: number };
+  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; tools: number; skills: number };
 }
 
 /** What a format 2 plugin's settings page shows; secrets only say whether they are set. */
