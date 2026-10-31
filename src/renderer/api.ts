@@ -756,6 +756,29 @@ export async function consentToPlugin(id: string, allowed: string[]): Promise<vo
   await request(`/plugin-store/${pluginPath(id)}/consent`, { method: "POST", body: JSON.stringify({ allowed }) });
 }
 
+/** Installed format 2 plugins, one row per version. */
+export async function listStorePlugins(): Promise<import("../shared/plugins.js").StorePlugin[]> {
+  return request(`/plugin-store/plugins?locale=${encodeURIComponent(language)}`);
+}
+
+/** The app switch for a format 2 plugin: off, it runs in no project. */
+export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
+}
+
+export async function uninstallStorePlugin(id: string, version: string): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}`, { method: "DELETE" });
+}
+
+export async function readStorePluginConfiguration(id: string): Promise<import("../shared/plugins.js").StorePluginConfiguration> {
+  return request(`/plugin-store/${pluginPath(id)}/configuration`);
+}
+
+/** Saves some settings; `null` puts one back to its default. */
+export async function saveStorePluginConfiguration(id: string, changes: Record<string, string | boolean | null>): Promise<import("../shared/plugins.js").StorePluginConfiguration> {
+  return request(`/plugin-store/${pluginPath(id)}/configuration`, { method: "PUT", body: JSON.stringify(changes) });
+}
+
 function pluginPath(id: string): string {
   return id.split("/").map(encodeURIComponent).join("/");
 }
@@ -1732,6 +1755,20 @@ export async function getPluginPageValue(projectId: string, plugin: string, key:
 
 export async function setPluginPageValue(projectId: string, plugin: string, key: string, value: unknown): Promise<void> {
   await request(`/projects/${encodeURIComponent(projectId)}/plugin-storage/${plugin}/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value }) });
+}
+
+/** The format 2 plugin commands a project offers. */
+export async function listProjectPluginCommands(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCommand[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands?locale=${encodeURIComponent(language)}`);
+}
+
+/** What plugins changed in a project outside a turn, newest first. */
+export async function listProjectPluginChanges(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginChange[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-changes`);
+}
+
+export async function undoProjectPluginChange(projectId: string, changeId: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-changes/${encodeURIComponent(changeId)}/undo`, { method: "POST" });
 }
 
 /** Runs a format 2 plugin command, `publisher/name:command`, whose code runs in its plugin. */

@@ -3,6 +3,7 @@ import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type Agent
 import {
   Play,
   Plug,
+  History,
   Palette,
   ArrowLeft,
   Download,
@@ -91,6 +92,11 @@ import {
   subscribeToProject,
   undoCheckpoint,
   waitForRuntime,
+  getPluginPageValue,
+  setPluginPageValue,
+  runPluginCommand,
+  undoProjectPluginChange,
+  type PluginPanel,
 } from "./api.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { ConversationMenu } from "./conversation-menu.js";
@@ -117,17 +123,21 @@ import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
-import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
+import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
+import { commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
+import { PluginFrame } from "./plugin-frame.js";
+import { pluginHash } from "./routes.js";
+import type { ProjectPluginCommand } from "../shared/plugins.js";
 import type { CodingView } from "./coding-workspace.js";
 import { ProjectRail, refreshRecentProject } from "./app-sidebar.js";
 import { desktopSave } from "./desktop-save.js";
 import { ProjectFrame, ProjectTop, publishAction } from "./project-frame.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
-import { Button, DropdownMenu, Empty, IconButton, type Command, type MenuEntry } from "./ui/index.js";
+import { Button, Dialog, DropdownMenu, Empty, IconButton, useToast, type Command, type MenuEntry } from "./ui/index.js";
 import { useCommands, useLeaveGuard } from "./command-menu.js";
 import type { IconComponent } from "./icons.js";
 import type { AppNavigationTarget } from "./routes.js";
-import { t } from "./i18n.js";
+import { language, t } from "./i18n.js";
 
 interface ProjectShellProps {
   projectId: string;
@@ -196,16 +206,28 @@ export function ProjectShell({
   // The workspace's panels, in the one layout every project shares (see
   // workspace-layout.ts). Each panel's view renders into nodes of its own,
   // which the panel shows.
-  const offered = state.project ? panelsOf(state.project) : [];
+  // Bumped when the project's plugins change, so the chat offers their skills
+  // and commands, and their panels come and go.
+  const [capabilitiesRevision, setCapabilitiesRevision] = useState(0);
+  // Format 2 plugins' panels follow the type's own, in the areas they name.
+  const plugins = useProjectPluginContributions(state.project, capabilitiesRevision);
+  const pluginPanels = new Map(plugins.panels.map((panel) => [pluginPanelId(panel), panel]));
+  const homes: PanelHomes = Object.fromEntries(plugins.panels.map((panel) => [pluginPanelId(panel), panel.area]));
+  const offered: PanelId[] = state.project ? [...panelsOf(state.project), ...pluginPanels.keys()] : [];
   const [saved, setSaved] = useState<SavedLayout | undefined>();
-  const opening = useMemo(() => state.project ? openingLayout(offered) : undefined, [!!state.project]);
+  const opening = useMemo(() => state.project ? openingLayout(offered, homes) : undefined, [!!state.project]);
   const current = saved ?? opening;
-  const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered)) : undefined;
+  const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered, homes)) : undefined;
   const visible = layout ? visiblePanels(layout, new Set(offered)) : [];
   const chatShown = !layout || visible.includes("chat");
   const [nodes] = useState(() => Object.fromEntries(Object.keys(PANELS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
-  const latestLayout = useRef({ current, offered, layout });
-  latestLayout.current = { current, offered, layout };
+  // A plugin page gets its nodes once its panel is first placed, and keeps
+  // them, so moving or closing the panel never reloads the page.
+  const pluginNodes = useRef(new Map<PanelId, PanelNodes>()).current;
+  for (const id of pluginPanels.keys())
+    if (layout && areaOf(layout, id) && !pluginNodes.has(id)) pluginNodes.set(id, createPanelNodes());
+  const latestLayout = useRef({ current, offered, layout, homes });
+  latestLayout.current = { current, offered, layout, homes };
   function changeLayout(next: Layout): void {
     const { current, offered, layout } = latestLayout.current;
     if (!offered.length || !layout) return;
@@ -215,9 +237,16 @@ export function ProjectShell({
     saveLayout(value);
   }
   /** Brings a panel forward, opening it where it belongs if it was closed. */
-  function revealPanel(id: WorkspacePanel): void {
-    const { layout, offered } = latestLayout.current;
-    if (layout && offered.includes(id)) changeLayout(showPanel(layout, id, homeOf(id)));
+  function revealPanel(id: PanelId): void {
+    const { layout, offered, homes } = latestLayout.current;
+    if (layout && offered.includes(id)) changeLayout(showPanel(layout, id, homeOf(id, homes)));
+  }
+  /** A panel's name and icon; a plugin's panel shows its title with the plugin icon. */
+  function panelInfo(id: PanelId): { title: string; icon: IconComponent; source?: string } {
+    const plugin = pluginPanels.get(id);
+    if (plugin) return { title: plugin.title, icon: Plug, source: plugin.plugin };
+    const builtIn = PANELS[id as WorkspacePanel];
+    return { title: builtIn.title(), icon: builtIn.icon };
   }
   const [publishing, setPublishing] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
@@ -230,8 +259,6 @@ export function ProjectShell({
   const [modelChanging, setModelChanging] = useState(false);
   const [accountProfiles, setAccountProfiles] = useState<AgentAccountProfileStatus[]>([]);
   const [capabilities, setCapabilities] = useState<ConversationCapabilities>(EMPTY_CAPABILITIES);
-  // Bumped when the project's plugins change, so the chat offers their skills and commands.
-  const [capabilitiesRevision, setCapabilitiesRevision] = useState(0);
   const [playableChat, setPlayableChat] = useState<PlayableChatState>();
   /** The Playable surface whose chip the user removed from the next message. */
   const [dismissedSurface, setDismissedSurface] = useState<string>();
@@ -245,6 +272,10 @@ export function ProjectShell({
   const pickingRef = useRef(pickingClient);
   pickingRef.current = pickingClient;
   const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [pluginChangesOpen, setPluginChangesOpen] = useState(false);
+  /** A plugin command's link, shown with its host before it opens. */
+  const [pluginLink, setPluginLink] = useState<URL>();
+  const toast = useToast();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
   // The chat takes the request once its conversation is open.
@@ -326,6 +357,7 @@ export function ProjectShell({
     const unsubscribe = subscribeToProject(projectId, cursor, {
       onEvent: (event) => {
         dispatch({ type: "runtime-event", event });
+        if (event.type === "project.plugins.changed") setCapabilitiesRevision((value) => value + 1);
         if (event.type === "workspace.restored") {
           observeWorkspaceVersion(projectId, event.data.version);
           setWorkspaceEpoch(event.data.version);
@@ -964,6 +996,84 @@ export function ProjectShell({
       dispatch({ type: "notice", message: errorMessage(cause) });
     }
   }
+  /** Runs a format 2 plugin command where its manifest says: the chat, a panel, a page, a link, or the plugin's code. */
+  async function runProjectPluginCommand(command: ProjectPluginCommand): Promise<void> {
+    if (!project) return;
+    const run = command.run;
+    if ("prompt" in run) {
+      const prompt = commandPrompt(run);
+      if (run.insert) requestPrompt(prompt);
+      else if (await submitPrompt(prompt, [], [], "normal")) revealPanel("chat");
+      return;
+    }
+    if ("openPanel" in run) return revealPanel(pluginPanelId({ plugin: command.plugin, id: run.openPanel }));
+    if ("openSettings" in run) {
+      window.location.hash = pluginHash(command.plugin);
+      return;
+    }
+    if ("url" in run) {
+      // The manifest only checks that it starts with https://.
+      const url = URL.canParse(run.url) ? new URL(run.url) : undefined;
+      if (url) setPluginLink(url);
+      else toast({ title: command.title, description: t("pluginCommands.badLink"), tone: "danger" });
+      return;
+    }
+    try {
+      const { change } = await runPluginCommand(project.id, command.id);
+      showPluginChange(command.title, change);
+    } catch (cause) {
+      toast({ title: command.title, description: errorMessage(cause), tone: "danger" });
+    }
+  }
+  /** Says a plugin's code ran, with Undo when it changed files. */
+  function showPluginChange(title: string, change: { id: string; changed: string[] } | undefined): void {
+    if (!project) return;
+    const projectId = project.id;
+    if (change?.changed.length) setWorkspaceRevision((value) => value + 1);
+    toast({
+      title: t("pluginCommands.done", { title }),
+      ...(change?.changed.length ? {
+        description: t("pluginChanges.files", { count: change.changed.length }),
+        action: { label: t("pluginChanges.undo"), onClick: () => void undoProjectPluginChange(projectId, change.id).then(
+          () => setWorkspaceRevision((value) => value + 1),
+          (cause: unknown) => toast({ title: t("pluginChanges.undo"), description: errorMessage(cause), tone: "danger" }),
+        ) },
+      } : {}),
+    });
+  }
+  /** Menu entries for the plugin commands a slot shows. */
+  function pluginCommandEntries(slot: string): MenuEntry[] {
+    const commands = commandsForSlot(plugins.commands, slot, plugins.when);
+    return commands.length ? ["separator", ...commands.map((command): MenuEntry => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => void runProjectPluginCommand(command) }))] : [];
+  }
+  /** A plugin's page in its panel, talking to the app through its frame. */
+  function pluginPanelContent(panel: PluginPanel, shown: boolean) {
+    const current = project!;
+    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} context={{
+      plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
+      locale: language,
+      capabilities: panel.capabilities,
+      commands: panel.commands,
+      project: () => ({ name: current.name, type: current.pluginType?.id ?? current.type }),
+      fillComposer: (text) => requestPrompt(text),
+      storage: {
+        get: (key) => getPluginPageValue(current.id, panel.plugin, key),
+        set: (key, value) => setPluginPageValue(current.id, panel.plugin, key, value),
+      },
+      runCommand: async (command) => {
+        const id = `${panel.plugin}:${command}`;
+        const found = plugins.commands.find((item) => item.id === id);
+        // Commands that run in the app run here; the page only gets back that they did.
+        const action = pageCommand(panel, found);
+        if (action.kind === "fill") requestPrompt(action.text);
+        else if (action.kind === "app") await runProjectPluginCommand(action.command);
+        if (action.kind !== "plugin") return null;
+        const { result, change } = await runPluginCommand(current.id, id);
+        if (change?.changed.length) showPluginChange(found?.title ?? command, change);
+        return result;
+      },
+    }} />;
+  }
   const projectMenu: MenuEntry[] = [
     { label: t("projectShell.renameProject"), icon: <Pencil size={14} />, disabled: !project, onSelect: () => setRenaming(true) },
     ...(openProjectFile && project ? [{ label: t("projectCard.openFolder"), icon: <FolderOpen size={14} />, onSelect: () => {
@@ -971,6 +1081,8 @@ export function ProjectShell({
     } }] : []),
     { label: exporting === "project" ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: !project || !!exporting, onSelect: () => void exportFile("project") },
     { label: t("projectPlugins.menu"), icon: <Plug size={14} />, disabled: !project, onSelect: () => setPluginsOpen(true) },
+    { label: t("pluginChanges.menu"), icon: <History size={14} />, disabled: !project, onSelect: () => setPluginChangesOpen(true) },
+    ...pluginCommandEntries("project.menu"),
     { label: t("projectAppearance.menu"), icon: <Palette size={14} />, disabled: !project, onSelect: () => setAppearanceOpen(true) },
     "separator",
     { label: homeLabel, icon: <ArrowLeft size={14} />, onSelect: requestHome },
@@ -1019,24 +1131,24 @@ export function ProjectShell({
 
   const toggleMenu: MenuEntry[] = offered.length ? [
     { heading: t("panels.layout") },
-    ...presetsFor(offered).map((preset) => ({ label: t(`panels.preset.${preset}`), onSelect: () => changeLayout(presetLayout(preset, offered)) })),
+    ...presetsFor(offered).map((preset) => ({ label: t(`panels.preset.${preset}`), onSelect: () => changeLayout(presetLayout(preset, offered, homes)) })),
     "separator",
     { heading: t("panels.list") },
     ...offered.map((id) => {
-      const Icon = PANELS[id].icon;
+      const { title, icon: Icon } = panelInfo(id);
       const open = !!layout && !!areaOf(layout, id);
-      return { label: PANELS[id].title(), icon: <Icon size={14} />, checked: open, onSelect: () => layout && changeLayout(open ? closePanel(layout, id) : showPanel(layout, id, homeOf(id))) };
+      return { label: title, icon: <Icon size={14} />, checked: open, onSelect: () => layout && changeLayout(open ? closePanel(layout, id) : showPanel(layout, id, homeOf(id, homes))) };
     }),
   ] : [];
   // The command menu shows this project's panels and applies its layouts.
   useCommands(() => offered.length ? [
     ...offered.map((id): Command => {
-      const Icon = PANELS[id].icon;
-      return { id: `panel-${id}`, group: t("commandMenu.panels"), label: t("commandMenu.showPanel", { panel: PANELS[id].title() }), keywords: id, icon: <Icon size={16} />, run: () => revealPanel(id) };
+      const { title, icon: Icon } = panelInfo(id);
+      return { id: `panel-${id}`, group: t("commandMenu.panels"), label: t("commandMenu.showPanel", { panel: title }), keywords: id, icon: <Icon size={16} />, run: () => revealPanel(id) };
     }),
     ...presetsFor(offered).map((preset): Command => ({
       id: `layout-${preset}`, group: t("commandMenu.panels"), label: t("commandMenu.layout", { preset: t(`panels.preset.${preset}`) }), keywords: `layout ${preset}`, icon: <LayoutGrid size={16} />,
-      run: () => changeLayout(presetLayout(preset, offered)),
+      run: () => changeLayout(presetLayout(preset, offered, homes)),
     })),
   ] : []);
   // The cards that wait on an answer and the composer: in the chat panel, or
@@ -1134,6 +1246,8 @@ export function ProjectShell({
       onEditPending={editFollowUp}
       canPublish={Boolean(project && (isWebRuntimeProjectType(project.type) || project.type === "interactive-story") && !publishing && !agentBusy)}
       onPublish={project ? () => setPublishDialog({ projectId: project.id, status: "open" }) : undefined}
+      pluginCommands={{ slash: slashCommands(plugins.commands, plugins.when), add: commandsForSlot(plugins.commands, "composer.add", plugins.when) }}
+      onPluginCommand={(command) => void runProjectPluginCommand(command)}
     /> : null}
   </>, chatInputNode);
   const codingVisible = new Set(visible.flatMap((id): CodingView[] => id === "game" ? ["preview"] : id === "design" || id === "canvas" || id === "code" || id === "assets" ? [id] : []));
@@ -1148,6 +1262,14 @@ export function ProjectShell({
     <>
     {integrationGate.dialog}
     {chatInput}
+    {project ? <PluginChangesSheet projectId={project.id} open={pluginChangesOpen} busy={agentBusy} onClose={() => setPluginChangesOpen(false)}
+      onUndone={() => setWorkspaceRevision((value) => value + 1)} /> : null}
+    {pluginLink ? <Dialog open title={t("pluginCommands.openLinkTitle")} onClose={() => setPluginLink(undefined)} footer={<>
+      <Button variant="ghost" onClick={() => setPluginLink(undefined)}>{t("common.cancel")}</Button>
+      <Button variant="primary" onClick={() => { openExternalLink(pluginLink.href); setPluginLink(undefined); }}>{t("pluginCommands.openLink")}</Button>
+    </>}>
+      <p>{t("pluginCommands.openLinkHint", { host: pluginLink.host })}</p>
+    </Dialog> : null}
     {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
     {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} /> : null}
     {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
@@ -1175,8 +1297,10 @@ export function ProjectShell({
       </ProjectTop>}>
     {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayout}
       panels={(project ? offered : ["chat" as const]).map((id) => {
-        const Icon = PANELS[id].icon;
-        return { id, title: PANELS[id].title(), icon: <Icon size={14} />, home: homeOf(id), content: <PanelMount nodes={nodes[id]} /> };
+        const { title, icon: Icon, source } = panelInfo(id);
+        const target = source ? pluginNodes.get(id) : nodes[id as WorkspacePanel];
+        return { id, title, icon: <Icon size={14} />, home: homeOf(id, homes), ...(source ? { source } : {}),
+          content: target ? <PanelMount nodes={target} /> : null };
       })}
       overlay={project && !chatShown ? <FloatingChat
         key={conversation?.id}
@@ -1199,7 +1323,7 @@ export function ProjectShell({
         onExpand={() => revealPanel("chat")}
         input={chatInputNode}
       /> : undefined}
-      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered))}>{t("panels.reset")}</Button>} /> : null} /> : null}
+      empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes))}>{t("panels.reset")}</Button>} /> : null} /> : null}
     {createPortal(<div className="pane-header-actions chat-header-actions">
             <ConversationMenu
               conversations={conversations}
@@ -1327,6 +1451,10 @@ export function ProjectShell({
         onContextChange={setDesignContext}
         headerActionsTarget={nodes.canvas.toolbar}
       /></Suspense>, nodes.canvas.body)}
+      {project ? [...pluginNodes].flatMap(([id, target]) => {
+        const panel = pluginPanels.get(id);
+        return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id)] : [];
+      }) : null}
       {project && canvasOnly && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={t("workspace.tab.code")}>
         <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />
       </main>, nodes.code.body) : null}
@@ -1419,6 +1547,12 @@ function FatalState({ message, onHome, homeLabel }: { message: string; onHome: (
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function openExternalLink(url: string): void {
+  const external = window.ohMyGameDesktop?.openExternal;
+  if (external) void external(url).catch(() => undefined);
+  else window.open(url, "_blank", "noopener,noreferrer");
 }
 
 /** Whether a restore or an undo failed part way and could not take back what it had already changed. */

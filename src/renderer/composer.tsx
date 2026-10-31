@@ -10,7 +10,8 @@ import { PlanStatus } from "./plan-status.js";
 import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 import { formatChatPrompt, PromptContextIcon, type ChatContextChip } from "./chat-reference.js";
-import { useComposerContextMenu } from "./composer-context-menu.js";
+import { useComposerContextMenu, type ComposerPluginCommands } from "./composer-context-menu.js";
+import type { ProjectPluginCommand } from "../shared/plugins.js";
 import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, parseSkillInvocation, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
 import { getCanvasDocument } from "./canvas-api.js";
@@ -65,6 +66,9 @@ interface ComposerProps {
   onRemoveContext?: (key: string) => void;
   canPublish?: boolean;
   onPublish?: () => void;
+  /** Format 2 plugin commands for the "/" list and the + menu; the project shell runs them. */
+  pluginCommands?: ComposerPluginCommands;
+  onPluginCommand?: (command: ProjectPluginCommand) => void;
 }
 
 export function Composer({
@@ -105,6 +109,8 @@ export function Composer({
   onRemoveContext,
   canPublish,
   onPublish,
+  pluginCommands,
+  onPluginCommand,
 }: ComposerProps) {
   const [draftSession] = useState(() => composerDrafts.get(
     projectId && conversationId ? { projectId, conversationId } : undefined,
@@ -316,6 +322,8 @@ export function Composer({
     contextPercent,
     canPublish: publishAvailable,
     usageLimits: isAgentRuntimeId(model?.provider) ? runtimeUsage?.limits : undefined,
+    pluginCommands,
+    onPluginCommand,
   });
 
   useEffect(() => {
