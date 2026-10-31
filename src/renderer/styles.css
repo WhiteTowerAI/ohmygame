@@ -1346,6 +1346,10 @@ select.settings-search-input {
   cursor: pointer;
 }
 
+.provider-model-row > label > input[type="checkbox"] {
+  accent-color: var(--color-accent);
+}
+
 .provider-models input[type="checkbox"],
 .provider-models input[type="radio"] {
   width: 14px;
