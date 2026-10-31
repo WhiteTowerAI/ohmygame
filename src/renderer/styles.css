@@ -13271,6 +13271,8 @@ summary.work-summary:hover {
   overflow: auto;
   color: var(--text);
   font-size: 12px;
+  /* The page is a panel, so its rows follow the panel's width, not the window's. */
+  container: external-preview / inline-size;
 }
 /* The game runs in its own window; the page sits in the middle of the panel. */
 .external-project-preview > * { width: 100%; max-width: 720px; justify-self: center; }
@@ -13288,8 +13290,6 @@ summary.work-summary:hover {
 .external-preview-row.plugin-mcp-row {
   grid-template-columns: 28px minmax(0, 1fr) auto;
 }
-/* The page is a panel, so its rows follow the panel's width, not the window's. */
-.external-project-preview { container: external-preview / inline-size; }
 @container external-preview (max-width: 600px) {
   /* As narrow MCP rows do: the actions move under the copy. */
   .external-project-preview :is(.plugin-integration-connection, .plugin-dependencies) .plugin-mcp-row,

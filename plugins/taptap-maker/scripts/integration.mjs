@@ -286,31 +286,22 @@ async function main(request) {
     // Mutation responses vary in shape. Status is the authoritative runtime
     // identity; the host never guesses PIDs or kills an external game window.
     for (let attempt = 0; ; attempt++) {
-      let failure;
-      try {
-        // A refresh stops the runtime before preparing, so after a failed one only Start brings it back.
-        await preview(attempt && command === "refresh" ? "start" : command);
-      } catch (cause) {
-        if (/authorization/i.test(cause.message)) throw cause;
-        failure = cause;
-      }
+      // A refresh stops the runtime first, so after a failed one only Start brings it back.
+      const name = attempt && command === "refresh" ? "start" : command;
+      const failure = await preview(name).then(() => undefined, (cause) => cause);
+      if (/authorization/i.test(failure?.message ?? "")) throw failure;
       const value = await preview("status", { report: true });
-      const failed = value.state === "failed" && !value.process_alive;
-      const transient =
-        command === "install"
-          ? failure && value.install_state !== "ready"
-          : failed && TRANSIENT.test(String(value.error ?? ""));
-      if (command === "stop" || !transient || attempt >= RETRY_DELAYS.length) {
-        if (failure) {
-          // The status explains the failure only with a diagnosis of its own,
-          // not a retired session's; install metadata may predate the attempt.
-          const diagnosed = command !== "install" && value.error && !RETIRED.test(String(value.error));
-          const done =
-            command === "stop"
-              ? !value.process_alive
-              : command !== "install" && value.process_alive;
-          if (!diagnosed && !done) throw failure;
-        }
+      if (!failure) return previewResult(value);
+      // A retired session's error and install metadata may predate this attempt.
+      const error = RETIRED.test(String(value.error ?? "")) ? "" : String(value.error ?? "");
+      const retry =
+        command !== "stop" &&
+        attempt < RETRY_DELAYS.length &&
+        (command === "install" ? value.install_state !== "ready" : TRANSIENT.test(error));
+      if (!retry) {
+        // The failure stands unless the status shows the work done or says why it failed.
+        const done = command === "stop" ? !value.process_alive : command !== "install" && value.process_alive;
+        if (!done && (command === "install" || !error)) throw failure;
         return previewResult(value);
       }
       progress(`Maker couldn't reach its servers. Retrying (${attempt + 1}/${RETRY_DELAYS.length})…`);
