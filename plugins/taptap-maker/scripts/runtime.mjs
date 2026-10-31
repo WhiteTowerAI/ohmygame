@@ -110,12 +110,19 @@ export async function installed(directory) {
   }
 }
 
-export async function maker(directory, args, onLine) {
+/**
+ * Runs the Maker CLI. With `report`, a failing command that still printed a
+ * JSON object with a `state` (as `preview status` does for a failed preview)
+ * returns it, so its own diagnosis can reach the person.
+ */
+export async function maker(directory, args, onLine, { report = false } = {}) {
   const result = await run(process.execPath, [makerPath(directory), ...args], {
     env: makerEnvironment(directory),
     onLine,
   });
   if (result.code !== 0) {
+    const reported = report && !result.authorizationMissing ? parseReport(result.output) : undefined;
+    if (reported) return reported;
     // Known recovery categories are useful; raw upstream errors can contain a
     // token-bearing Git URL or account credentials and stay out of the UI.
     if (
@@ -134,6 +141,42 @@ export async function maker(directory, args, onLine) {
   } catch {
     return undefined;
   } // init/login emit multiple progress records.
+}
+
+function parseReport(output) {
+  try {
+    const value = JSON.parse(output);
+    return value && typeof value === "object" && typeof value.state === "string"
+      ? value
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const SENSITIVE = /token|key|secret|signature|sig|auth|password|credential|session/i;
+
+/**
+ * Takes credentials out of a CLI message before it is shown: a URL's user
+ * and password, and the values of query parameters whose decoded names look
+ * like credentials. A URL that can't be parsed loses its query.
+ */
+export function redact(message) {
+  // A URL runs to whitespace or a character it can't hold; an apostrophe may be part of a value.
+  return String(message).replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"<>]+/gi, (text) => {
+    let url;
+    try {
+      url = new URL(text);
+    } catch {
+      return text.replace(/^([^:]+:\/\/)[^/?#]*@/, "$1").replace(/[?#].*$/, "");
+    }
+    const names = [...url.searchParams.keys()].filter((name) => SENSITIVE.test(name));
+    if (!url.username && !url.password && !names.length) return text;
+    url.username = "";
+    url.password = "";
+    for (const name of names) url.searchParams.set(name, "***");
+    return url.href;
+  });
 }
 
 async function npmEntry() {

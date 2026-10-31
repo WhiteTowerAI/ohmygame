@@ -865,7 +865,8 @@ export function ExternalProjectPreview({
             <button
               className="plugin-detail-primary"
               type="button"
-              disabled={busy || status === "error"}
+              // A failed preview can start again; Maker retires what is left of it.
+              disabled={busy}
               onClick={() =>
                 void run(running ? "preview-refresh" : "preview-start")
               }

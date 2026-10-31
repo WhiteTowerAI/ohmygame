@@ -737,6 +737,20 @@ describe("plugin connection UI", () => {
     await act(async () => root.render(null));
     expect(container.childElementCount).toBe(0);
   });
+  it("starts again after a failed preview and shows why it failed", async () => {
+    state.result = {
+      connection: { status: "ready" },
+      project: { id: "a" },
+      preview: { status: "error", message: "Local prepare failed; no Runtime was started." },
+    };
+    await act(async () =>
+      root.render(<ExternalProjectPreview project={project} />),
+    );
+    expect(container.textContent).toContain("Preview failed");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("no Runtime was started");
+    await click("Start preview");
+    expect(actions.map((item) => item.action)).toContain("preview-start");
+  });
   it("runs the adapter on a timer only while the native preview is running", async () => {
     vi.useFakeTimers();
     state.result = {

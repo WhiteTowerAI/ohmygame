@@ -43,6 +43,32 @@ beforeEach(async () => {
       await writeFile(path.join(workspace, ".maker-mcp/config.json"), JSON.stringify({ project_id: id }));
       if (failure) process.exit(1);
       console.log("{}");
+    } else if (args[0] === "preview") {
+      // The preview's state lives in preview.json; start fails while start-failures counts down.
+      const { readFile } = await import("node:fs/promises");
+      const file = (name) => path.join(process.env.MAKER_TEST_DIRECTORY, name);
+      const state = async () => JSON.parse(await readFile(file("preview.json"), "utf8"));
+      if (args[1] === "status") {
+        const value = await state();
+        console.log(JSON.stringify(value));
+        if (value.state === "failed") process.exitCode = 1;
+      } else if (args[1] === "install") {
+        // install-fails: the install fails and leaves the old install metadata.
+        if (await readFile(file("install-fails"), "utf8").catch(() => "")) process.exitCode = 1;
+      } else if (args[1] === "start" || args[1] === "refresh") {
+        // Like Maker, a refresh stops the runtime first and has nothing to refresh once it is gone.
+        const left = Number(await readFile(file("start-failures"), "utf8").catch(() => "0"));
+        if (args[1] === "refresh" && !(await state()).process_alive) {
+          await writeFile(file("preview.json"), JSON.stringify({ state: "failed", process_alive: false, install_state: "ready", error: "No running preview to refresh" }));
+          process.exitCode = 1;
+        // start-silent: the start fails before Maker records anything.
+        } else if (await readFile(file("start-silent"), "utf8").catch(() => "")) process.exitCode = 1;
+        else if (left > 0) {
+          await writeFile(file("start-failures"), String(left - 1));
+          await writeFile(file("preview.json"), JSON.stringify({ state: "failed", process_alive: false, install_state: "ready", error: await readFile(file("start-error"), "utf8") }));
+          process.exitCode = 1;
+        } else await writeFile(file("preview.json"), JSON.stringify({ state: "running", process_alive: true, install_state: "ready" }));
+      } else process.exitCode = 1;
     } else process.exitCode = 1;
   `,
   );
@@ -51,7 +77,7 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
-async function run(action: "bind" | "create" | "status", projectId?: string) {
+async function run(action: "bind" | "create" | "status" | `preview-${string}`, projectId?: string) {
   const child = spawn(
     "node",
     [path.resolve("plugins/taptap-maker/scripts/integration.mjs")],
@@ -191,5 +217,74 @@ describe("Maker binding adapter", () => {
       message: "This directory is already bound to another Maker project",
     });
     expect(await calls()).toEqual(before);
+  });
+});
+
+describe("Maker preview adapter", () => {
+  beforeEach(async () => {
+    await mkdir(path.join(workspace, ".maker-mcp"), { recursive: true });
+    await writeFile(path.join(workspace, ".maker-mcp/config.json"), JSON.stringify({ project_id: "selected" }));
+  });
+  const preview = (value: object) => writeFile(path.join(directory, "preview.json"), JSON.stringify({ install_state: "ready", ...value }));
+  const failStart = async (times: number, error: string) => {
+    await writeFile(path.join(directory, "start-failures"), String(times));
+    await writeFile(path.join(directory, "start-error"), error);
+  };
+  const starts = async () => (await calls()).filter((args) => args[0] === "preview" && args[1] === "start").length;
+
+  it("tries again when Maker couldn't download its sources, then reports the running preview", async () => {
+    await preview({ state: "stopped", process_alive: false });
+    await failStart(1, "Local prepare failed; Public source index download failed (network). Log: /tmp/prepare.log");
+    const result = await run("preview-start");
+    expect(result.messages.some((message) => message.type === "progress" && /Retrying/.test(message.message))).toBe(true);
+    expect(result.messages.at(-1)).toMatchObject({ type: "result", result: { preview: { status: "running" } } });
+    expect(await starts()).toBe(2);
+  }, 15_000);
+
+  it("shows Maker's own diagnosis of a failed preview instead of a generic error, without retrying it", async () => {
+    await preview({ state: "stopped", process_alive: false });
+    await failStart(1, "Local prepare failed; no Runtime was started. Log: https://user:secret@example.com/log?token=abc");
+    const result = await run("preview-start");
+    expect(result.code).toBe(0);
+    const message = (result.messages.at(-1) as { result: { preview: { status: string; message: string } } }).result.preview;
+    expect(message.status).toBe("error");
+    expect(message.message).toContain("no Runtime was started");
+    // Credentials in a URL never reach the page.
+    expect(message.message).not.toContain("secret");
+    expect(message.message).not.toContain("abc");
+    expect(await starts()).toBe(1);
+  });
+
+  it("starts the preview again when a refresh failed after Maker stopped it", async () => {
+    await preview({ state: "running", process_alive: true });
+    await failStart(1, "Local prepare failed; Public source index download failed (network).");
+    const result = await run("preview-refresh");
+    expect(result.messages.at(-1)).toMatchObject({ type: "result", result: { preview: { status: "running" } } });
+    expect((await calls()).filter((args) => args[0] === "preview" && args[1] !== "status").map((args) => args[1])).toEqual(["refresh", "start"]);
+  }, 15_000);
+
+  it("reports a failed start or install that the status still describes from before", async () => {
+    const retired = "Previous preview processes are no longer running. The stale session was retired safely.";
+    await preview({ state: "failed", process_alive: false, error: retired });
+    await writeFile(path.join(directory, "start-silent"), "1");
+    expect((await run("preview-start")).code).not.toBe(0);
+
+    // install_state "ready" is left from an earlier install.
+    await writeFile(path.join(directory, "install-fails"), "1");
+    expect((await run("preview-install")).code).not.toBe(0);
+  });
+
+  it("hides credentials in query names Maker printed encoded", async () => {
+    await preview({ state: "stopped", process_alive: false });
+    await failStart(1, "Local prepare failed; no Runtime was started. Log: https://example.com/log?to%6Ben=abc&client_se%63ret=x'yz&page=2");
+    const message = (await run("preview-start")).messages.at(-1) as { result: { preview: { message: string } } };
+    expect(message.result.preview.message).not.toContain("abc");
+    expect(message.result.preview.message).not.toContain("yz");
+    expect(message.result.preview.message).toContain("page=2");
+  });
+
+  it("treats a preview whose window was closed as stopped, so it can start again", async () => {
+    await preview({ state: "failed", process_alive: false, error: "Previous preview processes are no longer running. The stale session was retired safely." });
+    expect((await run("preview-status")).messages.at(-1)).toEqual({ version: 1, type: "result", result: { preview: { status: "stopped" } } });
   });
 });
