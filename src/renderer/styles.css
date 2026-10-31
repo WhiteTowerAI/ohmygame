@@ -10136,17 +10136,20 @@ summary.work-summary:hover {
   margin-left: auto;
 }
 
+/* the kit's small icon button, as the type and model buttons beside it */
 .composer-attach-button {
-  width: 32px;
-  height: 32px;
-  border-color: transparent;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: #cdd0d5;
+  color: var(--color-text-secondary);
 }
 
-.composer-attach-button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text);
+.composer-attach-button:hover:not(:disabled),
+.composer-attach-button[aria-expanded="true"] {
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 
 .composer-images {
@@ -10444,23 +10447,6 @@ summary.work-summary:hover {
   color: var(--text-muted);
 }
 
-.model-selector-trigger {
-  display: flex;
-  min-width: 0;
-  max-width: 240px;
-  height: 30px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 7px 0 8px;
-  border: 0;
-  border-radius: 16px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-  font-size: 10px;
-}
-
 .model-selector-name {
   min-width: 0;
   overflow: hidden;
@@ -10469,33 +10455,10 @@ summary.work-summary:hover {
   white-space: nowrap;
 }
 
-.model-selector-trigger svg {
-  flex: 0 0 auto;
-}
-
-.model-selector-trigger:hover:not(:disabled),
-.model-selector-trigger[aria-expanded="true"] {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.model-selector-trigger:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
 .model-selector-reasoning-value {
   flex: 0 0 auto;
   color: color-mix(in srgb, var(--text-muted) 75%, var(--text-faint));
   font-weight: 400;
-}
-
-.prompt-box-home .model-selector-trigger,
-.prompt-box-project .model-selector-trigger {
-  padding: 0 3px 0 10px;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 500;
 }
 
 .visually-hidden {
@@ -12206,8 +12169,6 @@ summary.work-summary:hover {
 
 :root[data-appearance="light"]
   :is(
-    .prompt-box-home .model-selector-trigger,
-    .prompt-box-project .model-selector-trigger,
     .quiet-button,
     .viewport-trigger,
     .preview-location-trigger,
