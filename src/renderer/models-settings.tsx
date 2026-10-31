@@ -14,6 +14,9 @@ import type {
 import {
   getCustomProvider,
   getVolcengineTtsSettings,
+  getGptSovitsSettings,
+  listGptSovitsVoices,
+  previewGptSovitsSpeech,
   previewSeedAudio,
   removeProvider,
   setProviderEnabled,
@@ -26,6 +29,7 @@ import {
   updateMinimaxApiKey,
   updateSeedanceApiKey,
   updateVolcengineTtsApiKey,
+  updateGptSovitsSettings,
   updateVolcengineSeedAudioApiKey,
   saveVolcengineTtsDefaultVoiceId,
   previewVolcengineTtsSpeech,
@@ -34,6 +38,7 @@ import {
   loginAgentRuntime,
   recheckCodexImages,
 } from "./api.js";
+import type { GptSovitsVoiceEntry } from "./api.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, findVolcengineTtsVoice, type AudioModel } from "../shared/audio.js";
 import { DoubaoVoiceOptions, DoubaoVoiceSample } from "./doubao-voices.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
@@ -274,6 +279,7 @@ export function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (MINIMAX_PROVIDER_IDS.has(provider.id)) return <MinimaxAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (provider.id === "volcengine-tts" || provider.id === "volcengine-seed-audio") return <AudioProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
+  if (provider.id === "gpt-sovits") return <GptSovitsAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
   if (provider.configured || provider.id === "openai") return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
@@ -686,6 +692,187 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
       </form>
       {provider.configured ? <AudioModels providerId={provider.id} /> : null}
     </>
+  );
+}
+
+function GptSovitsAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  const deletion = useProviderDeletion(provider.id, onCompleted);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [tokenConfigured, setTokenConfigured] = useState(false);
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const [voices, setVoices] = useState<GptSovitsVoiceEntry[]>();
+  const [voiceError, setVoiceError] = useState<string>();
+  const [defaultVoiceId, setDefaultVoiceId] = useState("");
+  const [savingVoice, setSavingVoice] = useState(false);
+  const [previewText, setPreviewText] = useState(t("providers.gsvPreviewSample"));
+  const [previewUrl, setPreviewUrl] = useState<string>();
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewError, setPreviewError] = useState<string>();
+  useEffect(() => {
+    let active = true;
+    void getGptSovitsSettings().then((settings) => {
+      if (!active) return;
+      setBaseUrl(settings.baseUrl ?? "");
+      setDefaultVoiceId(settings.defaultVoiceId ?? "");
+      setTokenConfigured(settings.tokenConfigured);
+    }).catch((cause) => { if (active) setError(errorMessage(cause)); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!provider.configured) return;
+    let active = true;
+    void listGptSovitsVoices().then((result) => { if (active) setVoices(result.voices); }).catch((cause) => { if (active) setVoiceError(errorMessage(cause)); });
+    return () => { active = false; };
+  }, [provider.configured, revision]);
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+
+  async function saveConnection(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setSaving(true);
+    setError(undefined);
+    try {
+      await updateGptSovitsSettings({ baseUrl: baseUrl.trim(), ...(token.trim() ? { token: token.trim() } : {}) });
+      setToken("");
+      setRevision((value) => value + 1);
+      onCompleted();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveVoice(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setSavingVoice(true);
+    setVoiceError(undefined);
+    try {
+      const settings = await updateGptSovitsSettings({ defaultVoiceId: defaultVoiceId.trim() || null });
+      setDefaultVoiceId(settings.defaultVoiceId ?? "");
+    } catch (cause) {
+      setVoiceError(errorMessage(cause));
+    } finally {
+      setSavingVoice(false);
+    }
+  }
+
+  async function runPreview(): Promise<void> {
+    if (previewBusy) return;
+    setPreviewBusy(true);
+    setPreviewError(undefined);
+    try {
+      const blob = await previewGptSovitsSpeech(previewText.trim(), defaultVoiceId.trim() || undefined);
+      setPreviewUrl(URL.createObjectURL(blob));
+    } catch (cause) {
+      setPreviewError(errorMessage(cause));
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
+
+  async function clearToken(): Promise<void> {
+    setError(undefined);
+    try {
+      const settings = await updateGptSovitsSettings({ token: null });
+      setTokenConfigured(settings.tokenConfigured);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  }
+
+  const availableVoices = voices?.filter((voice) => voice.available) ?? [];
+  const urlId = "gpt-sovits-base-url";
+  const tokenId = "gpt-sovits-token";
+  return (
+    <section className="settings-panel settings-provider-detail">
+      <ProviderDetailHeader provider={provider} onBack={onBack}>
+        {provider.configured ? <><ProviderDeleteButton deletion={deletion} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setRevision((value) => value + 1)} /></> : null}
+      </ProviderDetailHeader>
+      <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} />
+      <form className="settings-detail-field" onSubmit={(event) => void saveConnection(event)}>
+        <label className="settings-search-field-label" htmlFor={urlId}>{t("providers.gsvBaseUrlLabel")}</label>
+        <div className="settings-detail-inline">
+          <input
+            id={urlId}
+            className="settings-search-input"
+            value={baseUrl}
+            onChange={(event) => setBaseUrl(event.target.value)}
+            placeholder={t("providers.gsvBaseUrlPlaceholder")}
+            disabled={saving || deletion.busy}
+            required
+          />
+          <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !baseUrl.trim()}>
+            {saving ? t("common.saving") : t("common.save")}
+          </button>
+        </div>
+        <label className="settings-search-field-label" htmlFor={tokenId}>{t("providers.gsvTokenLabel")}</label>
+        <div className="settings-detail-inline">
+          <input
+            id={tokenId}
+            className="settings-search-input"
+            type="password"
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            placeholder={tokenConfigured ? t("providers.gsvTokenConfiguredPlaceholder") : t("providers.gsvTokenPlaceholder")}
+            disabled={saving || deletion.busy}
+          />
+          {tokenConfigured
+            ? <button className="settings-secondary-button" type="button" disabled={saving || deletion.busy} onClick={() => void clearToken()}>
+                {t("providers.gsvClearToken")}
+              </button>
+            : null}
+        </div>
+        <p className="settings-detail-hint">{t("providers.gsvTokenHint")}</p>
+        {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      </form>
+      {provider.configured ? (
+        <form className="settings-detail-field" onSubmit={(event) => void saveVoice(event)}>
+          <label className="settings-search-field-label" htmlFor="gpt-sovits-voice-select">{t("providers.defaultVoiceId")}</label>
+          <div className="settings-detail-inline">
+            <select
+              id="gpt-sovits-voice-select"
+              className="settings-search-input"
+              value={defaultVoiceId}
+              onChange={(event) => setDefaultVoiceId(event.target.value)}
+              disabled={savingVoice}
+            >
+              <option value="">{t("providers.voiceNone")}</option>
+              {availableVoices.map((voice) => <option key={voice.id} value={voice.id}>{voice.label}</option>)}
+            </select>
+            <button className="settings-primary-button" type="submit" disabled={savingVoice}>
+              {savingVoice ? t("common.saving") : t("common.save")}
+            </button>
+          </div>
+          {voices && !availableVoices.length ? <p className="settings-detail-hint">{t("providers.gsvVoicesUnavailable")}</p> : null}
+          {voiceError ? <p className="settings-error" role="alert">{voiceError}</p> : null}
+        </form>
+      ) : null}
+      {provider.configured ? (
+        <section className="settings-detail-field" aria-label={t("providers.previewTitle")}>
+          <label className="settings-search-field-label" htmlFor="gpt-sovits-preview">{t("providers.previewTextLabel")}</label>
+          <div className="settings-detail-inline">
+            <input
+              id="gpt-sovits-preview"
+              className="settings-search-input"
+              value={previewText}
+              onChange={(event) => setPreviewText(event.target.value)}
+              maxLength={20}
+              disabled={previewBusy}
+            />
+            <button className="settings-primary-button" type="button" title={t("providers.gsvPreviewHint")} disabled={previewBusy || !previewText.trim() || provider.enabled === false} onClick={() => void runPreview()}>
+              {previewBusy ? <span className="settings-loading-inline"><LoaderCircle className="spin" size={14} />{t("common.loading")}</span> : t("providers.previewAction")}
+            </button>
+          </div>
+          <p className="settings-detail-hint">{t("providers.gsvPreviewHint")}</p>
+          {previewUrl ? <audio controls src={previewUrl} className="settings-audio-preview" /> : null}
+          {previewError ? <p className="settings-error" role="alert">{previewError}</p> : null}
+        </section>
+      ) : null}
+      {provider.configured ? <AudioModels providerId={provider.id} key={`gsv-models-${revision}`} /> : null}
+    </section>
   );
 }
 

@@ -23,6 +23,8 @@ import { normalizeCustomProvider, normalizeCustomProviderModel, type ProviderMod
 import { isSeedanceProviderId } from "./seedance-models.js";
 import type { SeedanceSettingsStore } from "./seedance-settings.js";
 import type { DoubaoService, DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
+import { GptSovitsProvider, type GsvVoiceEntry } from "./gpt-sovits-provider.js";
+import type { GptSovitsSettingsStore } from "./gpt-sovits-settings.js";
 import type { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
 import type { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
 
@@ -79,6 +81,8 @@ export interface ProviderSettingsRouteOptions {
   seedanceSettings: SeedanceSettingsStore;
   minimaxSettings: MinimaxSettingsStore;
   doubaoVoiceSettings: DoubaoVoiceSettingsStore;
+  gptSovitsSettings: GptSovitsSettingsStore;
+  gptSovitsProvider: GptSovitsProvider;
   syncOpenAIEndpoint: (runtime: ModelRuntime) => Promise<void>;
   openAIImages: OpenAIImageSettingsStore;
   volcengineTtsProvider: VolcengineTtsProvider;
@@ -103,6 +107,8 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     seedanceSettings,
     minimaxSettings,
     doubaoVoiceSettings,
+    gptSovitsSettings,
+    gptSovitsProvider,
     syncOpenAIEndpoint,
     openAIImages,
     volcengineTtsProvider,
@@ -184,7 +190,8 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     const minimax = isMinimaxProviderId(providerId);
     const volcengineTts = providerId === "volcengine-tts";
     const volcengineSeedAudio = providerId === "volcengine-seed-audio";
-    if (!native && !seedance && !minimax && !volcengineTts && !volcengineSeedAudio && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
+    const gptSovits = providerId === "gpt-sovits";
+    if (!native && !seedance && !minimax && !volcengineTts && !volcengineSeedAudio && !gptSovits && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
     catalogRefresh.invalidate(providerId);
     const previousEndpoint = providerId === "openai" ? openAIEndpoint.override() : undefined;
     try {
@@ -195,6 +202,7 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
         else if (seedance) await seedanceSettings.clear(providerId);
         else if (minimax) await minimaxSettings.clear(providerId);
         else if (volcengineTts || volcengineSeedAudio) await doubaoVoiceSettings.setService(providerId as DoubaoService, null);
+        else if (gptSovits) await gptSovitsSettings.clear();
         else await runtime.logout(providerId);
         await syncOpenAIEndpoint(runtime);
         if (providerId === "openai") await openAIImages.clear(false);
@@ -323,6 +331,59 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
       reply.header("content-type", generated.mediaType); reply.header("cache-control", "no-store"); return reply.send(Buffer.from(generated.bytes));
     } catch (cause) { if (cause instanceof AudioGenerationError) return reply.code(cause.statusCode).send({ error: cause.message }); throw cause; }
   });
+
+  app.get("/settings/models/providers/gpt-sovits", async () => gptSovitsSettings.get());
+  app.put<{ Body: { baseUrl?: string; token?: string | null; defaultVoiceId?: string | null } }>("/settings/models/providers/gpt-sovits", { schema: { body: {
+    type: "object", additionalProperties: false, minProperties: 1,
+    properties: {
+      baseUrl: { type: "string", minLength: 1, maxLength: 2_000 },
+      token: { anyOf: [{ type: "string", maxLength: 10_000 }, { type: "null" }] },
+      defaultVoiceId: { anyOf: [{ type: "string", minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN }, { type: "null" }] },
+    },
+  } } }, async (request, reply) => {
+    try {
+      await gptSovitsSettings.update(request.body);
+      return gptSovitsSettings.get();
+    }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.get("/settings/models/providers/gpt-sovits/voices", async (_request, reply) => {
+    try {
+      const voices: GsvVoiceEntry[] = await gptSovitsProvider.voices();
+      return { voices };
+    } catch (cause) {
+      if (cause instanceof AudioGenerationError) return reply.code(cause.statusCode).send({ error: cause.message });
+      return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+  app.post<{ Body: { text: string; voiceId?: string } }>(
+    "/settings/models/providers/gpt-sovits/preview",
+    { schema: { body: {
+      type: "object", additionalProperties: false, required: ["text"],
+      properties: {
+        text: { type: "string", minLength: 1, maxLength: 20 },
+        voiceId: { type: "string", minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN },
+      },
+    } } },
+    async (request, reply) => {
+      if (!providerEnabled("gpt-sovits")) return reply.code(409).send({ error: "The speech service is disabled" });
+      try {
+        const generated = await gptSovitsProvider.generate({
+          operation: "speech",
+          model: { provider: "gpt-sovits", id: "gpt-sovits" },
+          text: request.body.text,
+          voiceId: request.body.voiceId,
+          output: { format: "wav" },
+        });
+        reply.header("content-type", generated.mediaType);
+        reply.header("cache-control", "no-store");
+        return reply.send(Buffer.from(generated.bytes));
+      } catch (cause) {
+        if (cause instanceof AudioGenerationError) return reply.code(cause.statusCode).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
 
   app.get("/settings/models/providers/openai/endpoint", async () => openAIEndpoint.get());
 

@@ -1739,6 +1739,7 @@ describe("daemon", () => {
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", configured: false, state: "not_configured" }),
         expect.objectContaining({ provider: "volcengine-seed-audio", configured: false, state: "not_configured" }),
+        expect.objectContaining({ provider: "gpt-sovits", configured: false, state: "not_configured" }),
       ],
     });
     expect((await app.inject({
@@ -1771,6 +1772,7 @@ describe("daemon", () => {
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", state: "ready" }),
         expect.objectContaining({ provider: "volcengine-seed-audio", state: "not_configured" }),
+        expect.objectContaining({ provider: "gpt-sovits", state: "not_configured" }),
       ],
     });
 
@@ -1787,8 +1789,47 @@ describe("daemon", () => {
       providers: [
         expect.objectContaining({ provider: "volcengine-tts", state: "not_configured" }),
         expect.objectContaining({ provider: "volcengine-seed-audio", state: "not_configured" }),
+        expect.objectContaining({ provider: "gpt-sovits", state: "not_configured" }),
       ],
     });
+  });
+
+  it("stores the GPT-SoVITS gateway settings without exposing the token", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-gpt-sovits-settings-")) });
+    apps.push(app);
+
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/gpt-sovits" })).json())
+      .toEqual({ configured: false, tokenConfigured: false });
+
+    const saved = (await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/gpt-sovits",
+      payload: { baseUrl: "http://192.0.2.10:9880/", token: "gsv-secret" },
+    })).json();
+    expect(saved).toEqual({ configured: true, tokenConfigured: true, baseUrl: "http://192.0.2.10:9880" });
+
+    const settings = (await app.inject({ method: "GET", url: "/settings/models/providers/gpt-sovits" })).json();
+    expect(JSON.stringify(settings)).not.toContain("gsv-secret");
+
+    const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json();
+    expect(providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "gpt-sovits", configured: true, capabilities: ["audio"] }),
+    ]));
+    expect(JSON.stringify(providers)).not.toContain("gsv-secret");
+
+    expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
+      models: [expect.objectContaining({ provider: "gpt-sovits", id: "gpt-sovits" })],
+      providers: expect.arrayContaining([
+        expect.objectContaining({ provider: "gpt-sovits", state: "ready" }),
+      ]),
+    });
+
+    expect((await app.inject({ method: "PUT", url: "/settings/models/providers/gpt-sovits", payload: { baseUrl: "http://gateway:9880?x=1" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PUT", url: "/settings/models/providers/gpt-sovits", payload: { token: "spaces token" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: "/settings/models/providers/gpt-sovits/preview", payload: { text: "x".repeat(21) } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/gpt-sovits" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/gpt-sovits" })).json())
+      .toEqual({ configured: false, tokenConfigured: false });
   });
 
   it("stores the Doubao Seed Audio key independently and exposes compatible models", async () => {
@@ -1826,6 +1867,51 @@ describe("daemon", () => {
     expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/volcengine-seed-audio" })).statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-seed-audio" })).json())
       .toEqual({ configured: false });
+  });
+
+  it("serves GPT-SoVITS voices and preview through the gateway", async () => {
+    const audioFetch = vi.fn<typeof fetch>();
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-gpt-sovits-preview-")),
+      audioFetch,
+    });
+    apps.push(app);
+
+    const voicesUrl = "http://192.0.2.10:9880/voices";
+    const refFile = "/voice-packs/narrator/refs/chinese/calm.wav";
+    const voicesBody = { voices: [{ voice: "narrator", refs: [{ file: refFile, emotion: "calm", prompt_text: "今天的天气很好。" }] }] };
+    const wav = wavFixture(1, 48_000);
+
+    const unconfigured = await app.inject({ method: "GET", url: "/settings/models/providers/gpt-sovits/voices" });
+    expect(unconfigured.statusCode).toBe(503);
+
+    await app.inject({ method: "PUT", url: "/settings/models/providers/gpt-sovits", payload: { baseUrl: "http://192.0.2.10:9880", token: "gsv-token" } });
+
+    audioFetch.mockImplementation(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === voicesUrl) return new Response(JSON.stringify(voicesBody), { status: 200, headers: { "content-type": "application/json" } });
+      if (url.startsWith("http://192.0.2.10:9880/tts/async")) {
+        expect(url).toContain("text=");
+        expect(url).toContain(`ref_audio_path=${encodeURIComponent(refFile)}`);
+        expect(url).toContain("prompt_text=");
+        expect(url).toContain("media_type=wav");
+        return new Response(JSON.stringify({ task_id: "preview-task" }), { status: 200 });
+      }
+      if (url.endsWith("/task/preview-task")) return new Response(JSON.stringify({ status: "done" }), { status: 200 });
+      if (url.endsWith("/task/preview-task/audio")) return new Response(new Uint8Array(wav), { status: 200, headers: { "content-type": "audio/wav" } });
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const voices = await app.inject({ method: "GET", url: "/settings/models/providers/gpt-sovits/voices" });
+    expect(voices.statusCode).toBe(200);
+    expect(voices.json().voices).toHaveLength(1);
+    expect(voices.json().voices[0]).toMatchObject({ voice: "narrator", emotion: "calm", available: true, promptLang: "zh" });
+    expect(voices.json().voices[0].id).toMatch(/^gsv-[a-f0-9]{10}$/);
+
+    const preview = await app.inject({ method: "POST", url: "/settings/models/providers/gpt-sovits/preview", payload: { text: "你好。" } });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.headers["content-type"]).toBe("audio/wav");
+    expect(preview.rawPayload.length).toBe(wav.byteLength);
   });
 
   it("previews Doubao Speech audio through the saved connection", async () => {
