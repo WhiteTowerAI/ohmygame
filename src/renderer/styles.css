@@ -13292,8 +13292,9 @@ summary.work-summary:hover {
 .external-project-preview { container: external-preview / inline-size; }
 @container external-preview (max-width: 600px) {
   /* As narrow MCP rows do: the actions move under the copy. */
+  .external-project-preview :is(.plugin-integration-connection, .plugin-dependencies) .plugin-mcp-row,
   .external-preview-row.plugin-mcp-row { grid-template-columns: 28px minmax(0, 1fr); row-gap: 8px; }
-  .external-preview-row .plugin-mcp-actions { grid-column: 2 / -1; grid-row: 2; }
+  .external-project-preview .plugin-mcp-row > .plugin-mcp-actions { grid-column: 2 / -1; grid-row: 2; }
   .external-preview-error, .external-preview-logs { padding-left: 0; }
 }
 .external-preview-state.is-running { color: var(--success); }
