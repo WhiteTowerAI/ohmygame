@@ -69,18 +69,18 @@ it in the call's progress.
   OhMyGame's agent and the coding agents, beside format 1 plugins' Skills.
 - MCP servers (`contributes.mcpServers`) of a project's active plugins start
   in its agent sessions beside format 1 plugins' servers, through the same
-  MCP host (`PluginServices.mcpServers`). A server runs a `command` listed
-  in `capabilities.processes`, from the plugin's folder or its `cwd`, or
-  reaches a `url` on this machine or on a host in `capabilities.network`.
-  Its `args`, `env`, `url` and `headers` may name settings as
-  `${config.field}`; a server waits until those are filled in, and a secret
-  needs `capabilities.secrets`. Agents see only the `tools` it lists. Servers
-  start lazily, on a session's first call to one of them. The adapter would
-  read the app's environment variables and run commands, so `args`, `url`,
-  `cwd` and `headers` can't name an environment variable (`${VAR}`,
-  `$env:VAR`, `{env:VAR}`) and a header can't start with `!`. This holds
-  both in the manifest and once settings are filled in; `env` is passed as
-  written.
+  MCP host (`PluginServices.mcpServers`). A server runs a `command` listed in
+  `capabilities.processes`, from the plugin's folder or its `cwd`; HTTP
+  servers wait for a way to keep redirects within `capabilities.network`.
+  Its `args` and `env` may name settings as `${config.field}`; a server waits
+  until those are filled in, and a secret needs `capabilities.secrets`.
+  Agents see only the `tools` it lists. Servers start lazily, on a session's
+  first call to one of them. The adapter would read the app's environment
+  variables into `args` and `cwd`, so those can't name one (`${VAR}`,
+  `$env:VAR`, `{env:VAR}`), in the manifest or once settings are filled in;
+  `env` is passed as written. A session keeps the servers it started with,
+  so once one of them is turned off or changed, the session's MCP calls are
+  refused until its next message (`McpGuard`).
 - A typed project's preview follows the plugin version its `ohmygame.json`
   pins; the app updates what it recorded when that file changes and at
   startup.

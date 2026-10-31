@@ -255,12 +255,11 @@ describe("project plugins", () => {
             region: { type: "text", title: "Region" },
             token: { type: "secret", title: "Token" },
           },
-          capabilities: { processes: ["maker"], network: ["api.example.com"], secrets: true },
+          capabilities: { processes: ["maker"], secrets: true },
           contributes: {
             mcpServers: [
               { id: "local", title: "Local", command: "maker", args: ["mcp", "--region", "${config.region}"], env: { HOME_HINT: "${HOME}" }, tools: ["build"] },
-              { id: "cloud", title: "Cloud", url: "https://api.example.com/mcp", headers: { Authorization: "Bearer ${config.token}" }, tools: ["publish"] },
-              { id: "elsewhere", title: "Elsewhere", url: "https://other.example.com/mcp", tools: ["publish"] },
+              { id: "signed-in", title: "Signed in", command: "maker", args: ["mcp"], env: { MAKER_TOKEN: "${config.token}" }, cwd: "./bin", tools: ["publish"] },
             ],
           },
         }),
@@ -270,10 +269,10 @@ describe("project plugins", () => {
       const folder = await temporary();
       await writeProjectFile(folder, (file) => file, { type: "general", plugins: { "acme/maker": "1.0.0" } });
       expect(await services.mcpServers(folder)).toEqual({});
-      const grants = ["network:api.example.com", "process:maker", "secrets"];
+      const grants = ["process:maker", "secrets"];
       await services.grants.consent("acme/maker", grants);
       await services.grants.approve(await projectFolderKey(folder), "acme/maker", grants);
-      // Neither setting is filled in yet; the third server's host wasn't allowed.
+      // Neither setting is filled in yet.
       expect(await services.mcpServers(folder)).toEqual({});
       const entry = services.index.get("acme/maker", "1.0.0")!;
       await services.values.update(entry, { region: "eu", token: "t0k" });
@@ -290,20 +289,18 @@ describe("project plugins", () => {
         includeTools: ["build"],
         disabled: false,
       });
-      expect(servers[name("cloud")]).toEqual({
-        url: "https://api.example.com/mcp",
-        headers: { Authorization: "Bearer t0k" },
-        auth: false,
+      expect(servers[name("signed-in")]).toEqual({
+        command: "maker",
+        args: ["mcp"],
+        env: { MAKER_TOKEN: "t0k" },
+        cwd: added.ok ? path.join(added.entry.root, "bin") : "",
+        literalEnv: true,
         includeTools: ["publish"],
         disabled: false,
       });
-      // A setting can't make the adapter read the app's environment or run a command.
-      for (const token of ["${OPENAI_API_KEY}", "x $env:HOME"]) {
-        await services.values.update(entry, { token });
-        expect(Object.keys(await services.mcpServers(folder))).toEqual([name("local")]);
-      }
+      // A setting can't make the adapter read the app's environment into args.
       await services.values.update(entry, { region: "{env:HOME}" });
-      expect(await services.mcpServers(folder)).toEqual({});
+      expect(Object.keys(await services.mcpServers(folder))).toEqual([name("signed-in")]);
     } finally {
       await services.close();
     }

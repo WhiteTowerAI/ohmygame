@@ -160,7 +160,7 @@ describe("plugin manifest format 2", () => {
     ]);
   });
 
-  it("checks MCP servers against what the plugin may run, reach and read", () => {
+  it("checks MCP servers against what the plugin may run and read", () => {
     const server = (fields: object) => ({
       ...minimal,
       configuration: {
@@ -168,32 +168,22 @@ describe("plugin manifest format 2", () => {
         token: { type: "secret", title: "Token" },
       },
       capabilities: { processes: ["maker"] },
-      contributes: { mcpServers: [{ id: "maker", title: "Maker", tools: ["build"], ...fields }] },
+      contributes: { mcpServers: [{ id: "maker", title: "Maker", command: "maker", tools: ["build"], ...fields }] },
     });
-    expect(messages(server({ command: "maker", args: ["--region", "${config.region}"] }))).toEqual([]);
-    expect(messages(server({}))).toEqual([
-      "/contributes/mcpServers/0 an MCP server needs a command or a url, not both",
-    ]);
-    expect(messages(server({ command: "node", url: "http://localhost:1/mcp" }))).toEqual([
-      "/contributes/mcpServers/0 an MCP server needs a command or a url, not both",
+    // env is passed as written, so it may name variables.
+    expect(messages(server({ args: ["--region", "${config.region}"], env: { HOME_HINT: "${HOME}" } }))).toEqual([]);
+    expect(messages(server({ command: "node", env: { TOKEN: "${config.token}", MODE: "${config.mode}" } }))).toEqual([
       "/contributes/mcpServers/0/command node must be listed in capabilities.processes",
-    ]);
-    expect(
-      messages(server({ url: "http://localhost:1/mcp", cwd: "./bin", headers: { Authorization: "Bearer ${config.token}" } })),
-    ).toEqual([
-      "/contributes/mcpServers/0 args, env and cwd are for a command",
       "/contributes/mcpServers/0 token is a secret, which needs capabilities.secrets",
-    ]);
-    expect(messages(server({ command: "maker", headers: {}, env: { MODE: "${config.mode}" } }))).toEqual([
-      "/contributes/mcpServers/0/headers headers are for a url",
       "/contributes/mcpServers/0 no configuration field mode",
     ]);
-    // The adapter would read the app's environment or run a header as a command; env is passed as written.
-    expect(messages(server({ command: "maker", args: ["${HOME}"], env: { HOME_HINT: "${HOME}" } }))).toEqual([
-      "/contributes/mcpServers/0 args, url, cwd and headers can't name environment variables",
+    // The adapter would read the app's environment into args and cwd.
+    expect(messages(server({ args: ["$env:HOME"] }))).toEqual([
+      "/contributes/mcpServers/0 args and cwd can't name environment variables",
     ]);
-    expect(messages(server({ url: "https://localhost/mcp", headers: { "X-Test": "!printf hi" } }))).toEqual([
-      "/contributes/mcpServers/0 a header can't start with !",
+    // HTTP servers wait for a guard on redirects.
+    expect(messages(server({ url: "https://localhost/mcp" }))).toEqual([
+      "/contributes/mcpServers/0 must not have additional properties",
     ]);
   });
 

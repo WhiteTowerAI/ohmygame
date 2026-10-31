@@ -30,6 +30,12 @@ export interface EffectiveMcpConfig {
   mcpServers: Record<string, McpServerDefinition>;
   settings?: Record<string, unknown>;
 }
+/**
+ * Says why a session may no longer use its MCP servers, such as a plugin
+ * turned off since it started, or undefined while it may. The adapter keeps
+ * the servers a session started with until the session ends.
+ */
+export type McpGuard = () => Promise<string | undefined>;
 interface AdapterModule {
   createMcpAdapter(options: { config: EffectiveMcpConfig }): ExtensionFactory;
 }
@@ -58,7 +64,7 @@ export class PluginMcpHost {
   #closed = false;
   async extension(
     config: EffectiveMcpConfig,
-    publishStatus = true,
+    { publishStatus = true, guard }: { publishStatus?: boolean; guard?: McpGuard } = {},
   ): Promise<ExtensionFactory> {
     const factory = (await adapter()).createMcpAdapter({
       config: {
@@ -85,8 +91,27 @@ export class PluginMcpHost {
         unsubscribe();
         this.#runtimes.delete(id);
       });
+      // Every tool the adapter registers, its `mcp` proxy and direct tools, asks the guard first.
+      const tools = new Set<string>();
+      if (guard)
+        pi.on("tool_call", async (event) => {
+          if (!tools.has(event.toolName)) return;
+          const reason = await guard();
+          return reason ? { block: true, reason } : undefined;
+        });
+      const scoped = guard
+        ? new Proxy(pi, {
+            get: (target, key, receiver) =>
+              key === "registerTool"
+                ? (tool: ToolDefinition) => {
+                    tools.add(tool.name);
+                    target.registerTool(tool);
+                  }
+                : Reflect.get(target, key, receiver),
+          })
+        : pi;
       try {
-        await factory(pi);
+        await factory(scoped);
       } catch (cause) {
         unsubscribe();
         this.#runtimes.delete(id);
@@ -134,6 +159,7 @@ export class PluginMcpHost {
   async tool(
     config: EffectiveMcpConfig,
     agentDir: string,
+    guard?: McpGuard,
   ): Promise<{ tool: ToolDefinition; close: () => Promise<void> }> {
     if (this.#closed) throw new Error("MCP host is closed");
     const settingsManager = SettingsManager.inMemory({ packages: [] });
@@ -171,13 +197,18 @@ export class PluginMcpHost {
     }
     const tool: ToolDefinition = {
       ...definition,
-      execute: (toolCallId, params, signal, onUpdate) => definition.execute(
-        toolCallId,
-        params,
-        signal,
-        onUpdate,
-        session.extensionRunner.createToolContext("coding-agent", undefined),
-      ),
+      // The coding agent calls the tool directly, past the session's tool_call hook.
+      execute: async (toolCallId, params, signal, onUpdate) => {
+        const reason = await guard?.();
+        if (reason) throw new Error(reason);
+        return definition.execute(
+          toolCallId,
+          params,
+          signal,
+          onUpdate,
+          session.extensionRunner.createToolContext("coding-agent", undefined),
+        );
+      },
     };
     return { tool, close };
   }
@@ -253,7 +284,7 @@ export class PluginMcpHost {
         noThemes: true,
         noContextFiles: true,
         extensionFactories: [
-          { name: "plugin-mcp", factory: await this.extension(config, false) },
+          { name: "plugin-mcp", factory: await this.extension(config, { publishStatus: false }) },
         ],
       });
       await resourceLoader.reload();

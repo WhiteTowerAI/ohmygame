@@ -8,7 +8,6 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { isLoopbackHostname } from "../shared/local-debug.js";
 import { agentToolName, configReferences, mcpServerSyntaxIssue } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
@@ -222,8 +221,7 @@ export class PluginServices {
    * The MCP servers of a project's active plugins, for agent sessions to
    * start beside the format 1 plugins' servers, keyed by a name unique to
    * the plugin and server. A server is left out until the settings it names
-   * are filled in, and an endpoint must be on this machine or on a host the
-   * plugin was allowed to reach.
+   * are filled in.
    */
   async mcpServers(folder: string): Promise<Record<string, McpServerDefinition>> {
     await this.ready();
@@ -247,18 +245,12 @@ export class PluginServices {
             ? item.replace(/\$\{config\.([a-zA-Z0-9]+)\}/g, (_match, name: string) => String(values[name]))
             : item,
         ) as T;
-        const { id, title: _title, tools, cwd, ...transport } = fill(server);
-        const launch = transport.command ? { cwd: path.resolve(entry.root, cwd ?? "."), literalEnv: true } : { auth: false };
+        const { id, title: _title, tools, cwd, ...launch } = fill(server);
+        const definition = { ...launch, cwd: path.resolve(entry.root, cwd ?? ".") };
         // A setting's value is checked as the manifest's own values were.
-        if (mcpServerSyntaxIssue({ ...transport, ...launch })) continue;
-        if (transport.url && !reachable(transport.url, entry.manifest.capabilities?.network ?? [])) continue;
+        if (mcpServerSyntaxIssue(definition)) continue;
         const name = `plugin-${createHash("sha256").update(entry.id).digest("hex").slice(0, 12)}-v2-${id}`;
-        servers[name] = {
-          ...transport,
-          ...launch,
-          includeTools: tools,
-          disabled: false,
-        };
+        servers[name] = { ...definition, literalEnv: true, includeTools: tools, disabled: false };
       }
     }
     return servers;
@@ -666,16 +658,4 @@ export class PluginServices {
     if (!schema) throw new Error(`${file} was not indexed`);
     return structuredClone(schema) as unknown as TSchema;
   }
-}
-
-/** Whether an MCP endpoint is on this machine or on a host the plugin may reach. */
-function reachable(url: string, network: readonly string[]): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-  return isLoopbackHostname(parsed.hostname) || network.includes(parsed.host) || network.includes(parsed.hostname);
 }

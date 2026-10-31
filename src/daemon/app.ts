@@ -13,7 +13,7 @@ import { previewPageUrl } from "../shared/preview-page.js";
 import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
 import { registerPluginIconRoutes } from "./plugin-icons.js";
 import { PluginCapabilities } from "./plugin-capabilities.js";
-import type { EffectiveMcpConfig } from "./plugin-mcp-host.js";
+import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { registerPluginCapabilityRoutes } from "./plugin-capability-routes.js";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -24,6 +24,7 @@ import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
 import path from "node:path";
 import { isWebStory } from "./story-web-project.js";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { ModelRuntime, SettingsManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import Fastify, { LogController, type FastifyReply, type FastifyRequest } from "fastify";
 import { daemonLoggerOptions, logFailedRequests } from "./request-log.js";
@@ -949,6 +950,13 @@ export function createApp(options: AppOptions = {}) {
     ]);
     return { ...legacy, mcpServers: { ...legacy.mcpServers, ...servers } };
   };
+  /** Stops a session's MCP calls once one of the servers it started with is turned off or changed. */
+  const projectMcpGuard = (project: ProjectState, started: EffectiveMcpConfig): McpGuard => async () => {
+    const now = (await projectMcp(project)).mcpServers;
+    return Object.entries(started.mcpServers).some(([name, definition]) => !isDeepStrictEqual(now[name], definition))
+      ? "The project's plugins changed during this turn, so their MCP tools are unavailable until the next message."
+      : undefined;
+  };
   /** A conversation run by a coding agent CLI, kept in the same session file and checkpoints as Pi's. */
   const createNativeSession = async (project: ProjectState, conversation: StoredConversation, runtime: AgentRuntimeId, modelId: string) => {
     const resolvePlugins = () => projectPluginSkills(project);
@@ -972,7 +980,7 @@ export function createApp(options: AppOptions = {}) {
       sessionManager: conversations.open(project, conversation),
       tools: [...projectAgentTools(project, conversation), ...await pluginServices.agentTools(project.workspacePath)],
       saveGeneratedImage: (fileName, bytes, prompt) => projects.addGeneratedAsset(project.id, fileName, bytes, { prompt }),
-      pluginMcp: { config: effectiveMcp, host: pluginCapabilities.host, agentDir: piAgentDirectory },
+      pluginMcp: { config: effectiveMcp, host: pluginCapabilities.host, agentDir: piAgentDirectory, guard: projectMcpGuard(project, effectiveMcp) },
       skillDirectories: [...pluginSkillFolders(pluginSkills), ...ownSkills],
       instructions: appendSystemPromptForProject(project).join("\n\n"),
       snapshotBeforeMessage: () => snapshotWorkspace(project),
@@ -1012,7 +1020,7 @@ export function createApp(options: AppOptions = {}) {
         model,
         piAgentDirectory,
         () => projectPluginSkills(project),
-        Object.keys(effectiveMcp.mcpServers).length ? { factory: await pluginCapabilities.host.extension(effectiveMcp), host: pluginCapabilities.host } : undefined,
+        Object.keys(effectiveMcp.mcpServers).length ? { factory: await pluginCapabilities.host.extension(effectiveMcp, { guard: projectMcpGuard(project, effectiveMcp) }), host: pluginCapabilities.host } : undefined,
         (provider) => providerModelSettings.responsesTransport(provider),
         () => snapshotWorkspace(project),
       );

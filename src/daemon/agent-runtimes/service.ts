@@ -23,7 +23,7 @@ import {
   type AgentAccountProfileStatus,
 } from "../../shared/agent-runtimes.js";
 import type { SkillCatalogItem } from "../agent.js";
-import type { EffectiveMcpConfig, PluginMcpHost } from "../plugin-mcp-host.js";
+import type { EffectiveMcpConfig, McpGuard, PluginMcpHost } from "../plugin-mcp-host.js";
 import { AGENT_RUNTIME_DEFINITIONS } from "./definitions.js";
 import {
   AgentRuntimeCompatibilityError,
@@ -104,6 +104,7 @@ export interface NativeSessionRequest {
     config: EffectiveMcpConfig;
     host: PluginMcpHost;
     agentDir: string;
+    guard?: McpGuard;
   };
   skillDirectories: string[];
   instructions: string;
@@ -495,6 +496,7 @@ export class AgentRuntimeService {
         pluginTool = await request.pluginMcp.host.tool(
           request.pluginMcp.config,
           request.pluginMcp.agentDir,
+          request.pluginMcp.guard,
         );
       }
     } catch {

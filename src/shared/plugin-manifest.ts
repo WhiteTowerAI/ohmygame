@@ -313,16 +313,15 @@ const Template = (maxLength = 2000) => Type.String({ maxLength });
 
 /**
  * An MCP server the plugin brings: a process (`command`, run from the
- * plugin's folder unless `cwd` says otherwise) or an HTTP endpoint (`url`).
- * Agents see only the `tools` it names.
+ * plugin's folder unless `cwd` says otherwise). Agents see only the `tools`
+ * it names. HTTP servers wait for a way to keep redirects within
+ * `capabilities.network`, which the MCP adapter doesn't offer.
  */
 const McpServer = Type.Object(
   {
     id: Slug,
     title: Text(),
-    command: Type.Optional(
-      Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }),
-    ),
+    command: Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }),
     args: Type.Optional(Type.Array(Template(), { maxItems: 50 })),
     env: Type.Optional(
       Type.Record(Type.String({ pattern: "^[A-Za-z_][A-Za-z0-9_]{0,63}$" }), Template(), {
@@ -330,12 +329,6 @@ const McpServer = Type.Object(
       }),
     ),
     cwd: Type.Optional(RelativePath("/?")),
-    url: Type.Optional(Template(500)),
-    headers: Type.Optional(
-      Type.Record(Type.String({ pattern: "^[A-Za-z0-9-]{1,100}$" }), Template(), {
-        additionalProperties: false,
-      }),
-    ),
     tools: Type.Array(Type.String({ pattern: "^[A-Za-z0-9_.-]{1,100}$" }), {
       minItems: 1,
       maxItems: 100,
@@ -603,13 +596,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   const processes = new Set(capabilities.processes);
   contributes.mcpServers?.forEach((server, index) => {
     const path = `/contributes/mcpServers/${index}`;
-    if (!server.command === !server.url)
-      issue(path, "an MCP server needs a command or a url, not both");
-    if (server.command && !processes.has(server.command))
+    if (!processes.has(server.command))
       issue(`${path}/command`, `${server.command} must be listed in capabilities.processes`);
-    if (!server.command && (server.args || server.env || server.cwd))
-      issue(path, "args, env and cwd are for a command");
-    if (!server.url && server.headers) issue(`${path}/headers`, "headers are for a url");
     const syntax = mcpServerSyntaxIssue(server);
     if (syntax) issue(path, syntax);
     for (const name of configReferences(server)) {
@@ -631,18 +619,15 @@ const ADAPTER_SYNTAX = /\$\{\w+\}|\$env:\w+|\{env:\w+\}/;
 
 /**
  * Why an MCP server's values can't be handed to the adapter as they are, or
- * undefined. The adapter reads environment variables into `args`, `url`,
- * `cwd` and `headers` and runs a header starting with `!` as a shell command,
- * so a plugin, or a setting filled into one, could read the app's secrets or
- * run commands it wasn't allowed. `env` is passed literally.
+ * undefined. The adapter reads environment variables into `args` and `cwd`,
+ * so a plugin, or a setting filled into one, could read the app's secrets.
+ * `env` is passed literally, so its values may start with `!` or name
+ * variables without the adapter acting on them.
  */
-export function mcpServerSyntaxIssue(server: { args?: string[]; url?: string; cwd?: string; headers?: Record<string, string> }): string | undefined {
-  const values = [...(server.args ?? []), server.url, server.cwd, ...Object.values(server.headers ?? {})];
-  if (values.some((value) => value !== undefined && ADAPTER_SYNTAX.test(value)))
-    return "args, url, cwd and headers can't name environment variables";
-  if (Object.values(server.headers ?? {}).some((value) => value.startsWith("!")))
-    return "a header can't start with !";
-  return undefined;
+export function mcpServerSyntaxIssue(server: { args?: string[]; cwd?: string }): string | undefined {
+  return [...(server.args ?? []), server.cwd].some((value) => value !== undefined && ADAPTER_SYNTAX.test(value))
+    ? "args and cwd can't name environment variables"
+    : undefined;
 }
 
 /** The configuration fields a value names as `${config.field}`, anywhere inside it. */

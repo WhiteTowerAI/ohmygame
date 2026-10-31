@@ -948,6 +948,7 @@
             "required": [
               "id",
               "title",
+              "command",
               "tools"
             ],
             "properties": {
@@ -989,20 +990,6 @@
                 "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+/?$",
                 "minLength": 3,
                 "maxLength": 500
-              },
-              "url": {
-                "type": "string",
-                "maxLength": 500
-              },
-              "headers": {
-                "type": "object",
-                "patternProperties": {
-                  "^[A-Za-z0-9-]{1,100}$": {
-                    "type": "string",
-                    "maxLength": 2000
-                  }
-                },
-                "additionalProperties": false
               },
               "tools": {
                 "type": "array",
