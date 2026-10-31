@@ -11,6 +11,7 @@ import {
   SegmentedControl,
   Select,
   ToastProvider,
+  Tooltip,
   useToast,
 } from "../src/renderer/ui/index.js";
 
@@ -314,6 +315,34 @@ it("points a combobox at no list when nothing matches", async () => {
   expect(document.querySelector(".ui-listbox-empty")).not.toBeNull();
   expect(input.getAttribute("aria-controls")).toBeNull();
   expect(input.getAttribute("aria-activedescendant")).toBeNull();
+});
+
+it("waits before the first tooltip, then shows the next ones at once until the pointer rests", async () => {
+  vi.useFakeTimers();
+  await act(async () => root.render(<>
+    <Tooltip content="Bold"><button type="button">B</button></Tooltip>
+    <Tooltip content="Italic"><button type="button">I</button></Tooltip>
+  </>));
+  const [bold, italic] = [...container.querySelectorAll("button")];
+  const tip = () => document.querySelector('[role="tooltip"]')?.textContent;
+  const enter = (target: Element) => act(async () => { target.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })); });
+  const leave = (target: Element) => act(async () => { target.dispatchEvent(new MouseEvent("pointerout", { bubbles: true })); });
+
+  await enter(bold!);
+  expect(tip()).toBeUndefined();
+  await act(async () => vi.advanceTimersByTime(350));
+  expect(tip()).toBe("Bold");
+  // Moving along the row shows the next one without the wait.
+  await leave(bold!);
+  await enter(italic!);
+  expect(tip()).toBe("Italic");
+  // After a rest, the wait comes back.
+  await leave(italic!);
+  await act(async () => vi.advanceTimersByTime(1_000));
+  await enter(bold!);
+  expect(tip()).toBeUndefined();
+  await act(async () => vi.advanceTimersByTime(350));
+  expect(tip()).toBe("Bold");
 });
 
 it("shows a toast and removes it after a few seconds", async () => {
