@@ -99,6 +99,26 @@
   opacity: 0.5;
 }
 
+.home-plugin-icons {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Overlapping icons stay apart by a ring of the box's own colour. */
+.home-plugin-trigger-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--color-surface-raised);
+  box-shadow: 0 0 0 1.5px var(--color-surface-raised);
+}
+
+.home-plugin-trigger-icon + .home-plugin-trigger-icon {
+  margin-left: -5px;
+}
+
 .home-plugin-count {
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;

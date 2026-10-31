@@ -36,8 +36,15 @@ export function HomePluginMenu({ starters, chosen, locked, onChosen, choices, se
   const [consent, setConsent] = useState<ProjectPluginChoice>();
   const on = starters.filter((plugin) => chosen.includes(plugin.id))
     .sort((left, right) => chosen.indexOf(left.id) - chosen.indexOf(right.id));
-  const names = [...on.map((plugin) => plugin.displayName), ...choices.filter((choice) => selected.includes(choice.id)).map((choice) => choice.displayName)];
-  const others = names.length - (on.length ? 1 : 0);
+  const turnedOn = choices.filter((choice) => selected.includes(choice.id));
+  const names = [...on.map((plugin) => plugin.displayName), ...turnedOn.map((choice) => choice.displayName)];
+  // A few chosen plugins show side by side; more show the first and how many follow it.
+  const icons = [
+    ...on.map((plugin) => ({ id: plugin.id, icon: <PluginGlyph plugin={plugin} size={16} /> })),
+    ...turnedOn.map((choice) => ({ id: choice.id, icon: <Package size={14} /> })),
+  ];
+  const shown = icons.length <= 3 ? icons : icons.slice(0, 1);
+  const others = icons.length - shown.length;
   const label = names.length ? t("home.pluginsWith", { names: names.join(", ") }) : t("home.plugins");
 
   function toggleStarter(plugin: Plugin): void {
@@ -63,7 +70,9 @@ export function HomePluginMenu({ starters, chosen, locked, onChosen, choices, se
       <button ref={trigger} type="button" className="home-plugin-trigger" disabled={disabled}
         aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open}
         onClick={() => setOpen((value) => !value)}>
-        {on[0] ? <PluginGlyph plugin={on[0]} size={16} /> : <Package size={15} />}
+        {shown.length ? <span className="home-plugin-icons">
+          {shown.map((item) => <span key={item.id} className="home-plugin-trigger-icon">{item.icon}</span>)}
+        </span> : <Package size={15} />}
         {others > 0 ? <span className="home-plugin-count" aria-hidden="true">+{others}</span> : null}
       </button>
       <Popover open={open} onClose={() => setOpen(false)} anchor={trigger} placement="bottom-start" className="home-plugin-menu" label={t("home.plugins")}>

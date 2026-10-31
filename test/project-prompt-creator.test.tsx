@@ -200,7 +200,9 @@ describe("Home prompt box", () => {
     await act(async () => pluginButton().click());
     await act(async () => menuItem("Three.js World")!.click());
     expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Web Game Studio, Three.js World");
-    expect(pluginButton().textContent).toBe("+1");
+    // A few chosen plugins show side by side, without a count.
+    expect(pluginButton().querySelectorAll(".home-plugin-trigger-icon")).toHaveLength(2);
+    expect(pluginButton().textContent).toBe("");
     await act(async () => root.unmount());
     root = createRoot(container);
     await render();
@@ -238,6 +240,19 @@ describe("Home prompt box", () => {
       prompt: "@Web Game Studio @Three.js World Make a reef",
       mentions: expect.arrayContaining([expect.objectContaining({ name: "threejs-world" })]),
     }), expect.any(Function));
+  });
+
+  it("shows the first chosen plugin and how many follow it once more than three are chosen", async () => {
+    capabilities.plugins.push(...[["threejs-world", "Three.js World"], ["wechat-minigame", "WeChat Mini Game"], ["douyin-minigame", "Douyin Mini Game"]]
+      .map(([name, displayName]) => plugin(name!, displayName!, ["web-game"])));
+    await render();
+    await act(async () => pluginButton().click());
+    await act(async () => menuItem("Three.js World")!.click());
+    await act(async () => menuItem("WeChat Mini Game")!.click());
+    expect(pluginButton().querySelectorAll(".home-plugin-trigger-icon")).toHaveLength(3);
+    await act(async () => menuItem("Douyin Mini Game")!.click());
+    expect(pluginButton().querySelectorAll(".home-plugin-trigger-icon")).toHaveLength(1);
+    expect(pluginButton().textContent).toBe("+3");
   });
 
   it("keeps the other plugins when the lead is replaced by a mention", async () => {
@@ -332,7 +347,7 @@ describe("Home prompt box", () => {
     expect(document.body.textContent).toContain("network:tiles.example.com");
     const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow and turn on")!;
     await act(async () => allow.click());
-    expect(pluginButton().textContent).toBe("+1");
+    expect(pluginButton().querySelectorAll(".home-plugin-trigger-icon")).toHaveLength(2);
     await type("Make a maze");
     await send();
     expect(onSubmit.mock.calls[0]![0].projectPlugins.map((plugin: ProjectPluginChoice) => plugin.id)).toEqual(["acme/tiles"]);
