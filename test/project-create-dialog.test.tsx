@@ -241,7 +241,7 @@ describe("new project dialog", () => {
     // Nor does it wait unseen when the types fail to load, even when a mention leaves plugins' types out.
     await act(async () => root.unmount());
     root = createRoot(container);
-    capabilities = { plugins: [godotPlugin], skills: [] };
+    capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] };
     listProjectTypes.mockRejectedValueOnce(new Error("offline"));
     await act(async () => root.render(<ProjectCreateDialog direct firstMessage={{ ...message, prompt: "@Godot Make a map", mentions: [godot] }} onClose={() => {}} onCreated={() => {}} />));
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Retry");
