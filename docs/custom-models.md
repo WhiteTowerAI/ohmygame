@@ -151,6 +151,24 @@ The Gemini preset uses Google's API-key header. Gemini image models reached
 through an OpenAI-compatible relay use bearer authentication. Services with
 **No API key** receive generation requests without an authorization header.
 
+### OpenAI Images with third-party relays
+
+The **OpenAI Images** protocol also fits OpenAI-compatible relays. For model IDs
+outside the gpt-image family the request omits gpt-image-only fields (`quality`,
+`output_format`) that relays may reject. Two verified examples:
+
+| Relay | Base URL | Model ID | Notes |
+| --- | --- | --- | --- |
+| zhipu | `https://open.bigmodel.cn/api/paas/v4` | `cogview-3-flash` | Text-to-image only; rejects `quality`, ignores `output_format`. Free tier outputs are watermarked, and zhipu's user agreement limits free-tier usage to non-commercial purposes |
+| Agnes | `https://apihub.agnes-ai.com/v1` | `agnes-image-2.1-flash` | Text-to-image only; rejects both `quality` and `output_format` |
+
+Generation with reference images (`/images/edits`) is not supported by these
+relays: configure the model without reference images and keep the provider's
+image editing on official endpoints. Relay size rules also differ from
+OpenAI's: zhipu accepts 512-2800px sizes in multiples of 16 up to about two
+megapixels, so 1K images (and the 2K 21:9 size) pass while most 2K and all 4K
+sizes are rejected with the provider's own error.
+
 ## Generation settings
 
 Image settings include resolutions, aspect ratios, reference-image limits and
