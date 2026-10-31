@@ -800,6 +800,8 @@ export function createApp(options: AppOptions = {}) {
   const pluginServices = new PluginServices({
     directory: path.join(dataDirectory, "plugin-store"),
     bundled: bundledPluginsV2,
+    // TapTap Maker is in beta: it starts off, as its format 1 plugin did.
+    bundledOff: ["ohmygame/taptap-maker"],
     onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled format 2 plugins"),
   });
   // Indexing the bundled plugins starts now; every use of the plugin services waits for it.

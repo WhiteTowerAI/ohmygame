@@ -106,6 +106,8 @@ export interface PluginServicesOptions {
   bundled?: string;
   /** Told when the bundled plugins can't be indexed; everything else still loads. */
   onBundledError?: (error: unknown) => void;
+  /** Bundled plugins that start off, such as one in beta, until the person turns them on. */
+  bundledOff?: readonly string[];
 }
 
 export class PluginServices {
@@ -117,6 +119,7 @@ export class PluginServices {
   readonly values: PluginValues;
   /** Where signed releases are unpacked; uninstalling deletes its folders. */
   readonly packagesDirectory: string;
+  readonly #bundledOff: ReadonlySet<string>;
   /** Holds each plugin's data folder, `<publisher>/<name>`. */
   readonly dataDirectory: string;
   readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError">;
@@ -134,6 +137,7 @@ export class PluginServices {
       path.join(options.directory, "configuration.json"),
     );
     this.packagesDirectory = path.join(options.directory, "packages");
+    this.#bundledOff = new Set(options.bundledOff);
     this.dataDirectory = path.join(options.directory, "data");
     this.#bundled = options;
     this.native = new NativePlugins({
@@ -470,7 +474,13 @@ export class PluginServices {
       const result = await this.index.add(path.join(directory, folder.name));
       results.push(result);
       if (!result.ok || !result.entry.id.startsWith("ohmygame/")) continue;
-      if (this.grants.plugin(result.entry.id)?.enabled === false) continue;
+      const decided = this.grants.plugin(result.entry.id);
+      if (decided?.enabled === false) continue;
+      // One that starts off asks for consent when the person turns it on.
+      if (!decided && this.#bundledOff.has(result.entry.id)) {
+        await this.grants.setEnabled(result.entry.id, false);
+        continue;
+      }
       await this.grants.consent(
         result.entry.id,
         capabilityGrants(result.entry.manifest),
