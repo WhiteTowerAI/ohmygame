@@ -164,7 +164,8 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const starter = selectedStarter && starters.includes(selectedStarter) ? selectedStarter : undefined;
   const extras = (extraPlugins ?? []).map(starterOf)
     .filter((plugin): plugin is Plugin => plugin !== undefined && plugin !== starter && starters.includes(plugin));
-  const extraMentions = extras.map(toPluginMention);
+  // Until plugins load, the draft's own extras stand, so neither sending nor editing drops them.
+  const extraMentions = capabilitiesLoaded ? extras.map(toPluginMention) : extraPlugins ?? [];
   const ideas: readonly IdeaKey[] = (starter && starter.name in IDEAS ? IDEAS[starter.name as keyof typeof IDEAS] : undefined) ?? GENERAL_IDEAS;
   // A plugin that adds the chosen type is on in its projects already.
   const projectPlugins = projectPluginChoices.filter((plugin) => !plugin.providesTypes.includes(type));
@@ -353,7 +354,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
       ];
       setPrompt(nextPrompt);
       setSelectedPlugin(selected);
-      setPluginMentions(activePluginMentions(formatComposerInvocation(selectedSkill, selected, nextPrompt), candidates));
+      setPluginMentions(activePluginMentions(invocation(nextPrompt, selected), [...candidates, ...extraMentions]));
       setMentionCursor(0);
       focusAt(0);
       return;

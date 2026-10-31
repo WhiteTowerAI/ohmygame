@@ -212,6 +212,41 @@ describe("Home prompt box", () => {
         { name: "threejs-world", displayName: "Three.js World", marketplaceId: "bundled" },
       ],
     }), expect.any(Function));
+
+    // While plugins load, the draft's plugins are still sent.
+    onSubmit.mockReset();
+    await act(async () => root.unmount());
+    pendingCapabilities = new Promise(() => {});
+    root = createRoot(container);
+    await render();
+    await type("Make a reef");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "@Web Game Studio @Three.js World Make a reef",
+      mentions: expect.arrayContaining([expect.objectContaining({ name: "threejs-world" })]),
+    }), expect.any(Function));
+  });
+
+  it("keeps the other plugins when the lead is replaced by a mention", async () => {
+    capabilities.plugins.push(plugin("threejs-world", "Three.js World", ["web-game"]));
+    await render();
+    await act(async () => pluginButton().click());
+    await act(async () => menuItem("Three.js World")!.click());
+    await act(async () => pluginButton().click());
+    const textarea = container.querySelector("textarea")!;
+    textarea.setSelectionRange(0, 0);
+    await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true })); });
+    await type("@Blen");
+    textarea.setSelectionRange(5, 5);
+    await act(async () => { textarea.dispatchEvent(new Event("select", { bubbles: true })); });
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"], [role="menuitem"]')].find((item) => item.textContent?.includes("Blender"))!;
+    await act(async () => option.click());
+    await type("Make an island");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "@Blender @Three.js World Make an island",
+      mentions: expect.arrayContaining([expect.objectContaining({ name: "blender" }), expect.objectContaining({ name: "threejs-world" })]),
+    }), expect.any(Function));
   });
 
   it("hands the prompt with its type and starting plugin to the dialog instead of creating a project", async () => {
