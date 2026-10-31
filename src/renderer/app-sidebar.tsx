@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { cloneElement, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import {
   ArrowDownToLine,
   ArrowLeft,
@@ -232,13 +232,25 @@ function SidebarItem({ icon, label, shortcut: keys, dot, active = false, onClick
   onClick: () => void;
 }) {
   return (
-    <button type="button" className={`sidebar-item${active ? " is-active" : ""}`} title={label}
-      aria-current={active ? "page" : undefined} onClick={onClick}>
-      <span className="sidebar-item-icon" aria-hidden="true">{icon}{dot ? <span className={`sidebar-dot is-${dot}`} /> : null}</span>
-      <span className="sidebar-item-label">{label}</span>
-      {keys ? <kbd className="sidebar-item-shortcut">{keys}</kbd> : null}
-    </button>
+    <SidebarTip label={label}>
+      <button type="button" className={`sidebar-item${active ? " is-active" : ""}`}
+        aria-current={active ? "page" : undefined} onClick={onClick}>
+        <span className="sidebar-item-icon" aria-hidden="true">{icon}{dot ? <span className={`sidebar-dot is-${dot}`} /> : null}</span>
+        <span className="sidebar-item-label">{label}</span>
+        {keys ? <kbd className="sidebar-item-shortcut">{keys}</kbd> : null}
+      </button>
+    </SidebarTip>
   );
+}
+
+// Collapsed, an item is only its icon, so its name shows beside it on hover;
+// expanded, a long name cut off by the width shows in full the same way.
+function SidebarTip({ label, children }: { label: string; children: ReactElement<Record<string, unknown>> }) {
+  const { collapsed } = useSidebarPreferences();
+  // Collapsed, the label is hidden, so the button carries its name itself.
+  return collapsed
+    ? <Tooltip content={label} placement="right">{cloneElement(children, { "aria-label": label })}</Tooltip>
+    : cloneElement(children, { title: label });
 }
 
 // The expanded sidebar's right edge: drag or use the arrow keys to resize,
@@ -345,16 +357,15 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
             {recentOpen ? projects.slice(0, SIDEBAR_RECENT).map((project) => {
               const open = () => { window.location.hash = projectHash(project.id); };
               return collapsed ? (
-                <button key={project.id} type="button" className="sidebar-app" title={project.name} aria-label={project.name} onClick={open}>
-                  <SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />
-                </button>
+                <SidebarTip key={project.id} label={project.name}>
+                  <button type="button" className="sidebar-app" aria-label={project.name} onClick={open}>
+                    <SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />
+                  </button>
+                </SidebarTip>
               ) : (
                 <SidebarItem key={project.id} icon={<SidebarCover project={project} className="sidebar-cover" iconSize={12} />} label={project.name} onClick={open} />
               );
             }) : null}
-            {recentOpen && !collapsed && projects.length > SIDEBAR_RECENT ? (
-              <SidebarItem icon={<ArrowRight size={14} />} label={t("sidebar.allProjects")} onClick={() => onNavigate("projects")} />
-            ) : null}
           </div>
         ) : null}
         <span className="sidebar-spacer" />

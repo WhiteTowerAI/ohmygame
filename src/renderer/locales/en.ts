@@ -914,7 +914,6 @@ const en = {
     community: "Community",
     plugins: "Plugins",
     recent: "Recent projects",
-    allProjects: "All projects",
     newProject: "New project",
     projectConversations: "{{name}} conversations",
     editedAgo: "Edited {{time}}",

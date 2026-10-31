@@ -27,6 +27,7 @@ type Placement =
   | "top-start"
   | "top"
   | "bottom"
+  | "right"
   | "right-start";
 
 /** Fixed-position coordinates for a floating element next to an anchor, flipped when it would leave the window. */
@@ -47,9 +48,11 @@ function useAnchoredPosition(
     const { width, height } = f.getBoundingClientRect();
     let top = placement.startsWith("top")
       ? a.top - height - offset
-      : placement.startsWith("right")
-        ? a.top
-        : a.bottom + offset;
+      : placement === "right"
+        ? a.top + a.height / 2 - height / 2
+        : placement === "right-start"
+          ? a.top
+          : a.bottom + offset;
     let left = placement.endsWith("end")
       ? a.right - width
       : placement === "top" || placement === "bottom"
