@@ -1,5 +1,5 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Check, Copy, LoaderCircle, Maximize, RefreshCw, Share2 } from "./icons.js";
+import { Check, Copy, Globe2, LoaderCircle, Maximize, Share2 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import type { CommunityGameStats } from "../shared/publish-v1.js";
@@ -14,6 +14,8 @@ import { Button, Dialog, IconButton, Input } from "./ui/index.js";
 import { language, t } from "./i18n.js";
 
 const RELATED_GAMES_LIMIT = 10;
+/** How old the list may get before the window coming back reloads it. */
+export const COMMUNITY_REFRESH_AFTER_MS = 60_000;
 
 export function GamesPage({
   onNavigate,
@@ -27,17 +29,21 @@ export function GamesPage({
   const [filters, setFilters] = useState({ ...DEFAULT_COMMUNITY_FILTERS });
   const [openingProfile, setOpeningProfile] = useState(false);
   const loadVersion = useRef(0);
+  const loadedAt = useRef<number | undefined>(undefined);
   const pendingStats = useRef<Map<string, CommunityGameStats> | undefined>(undefined);
   const [games, setGames] = useState<CommunityGame[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
 
-  async function load() {
+  // A background load keeps the grid in place, and keeps it when it fails.
+  async function load(background = false) {
     const version = ++loadVersion.current;
     const changes = new Map<string, CommunityGameStats>();
     pendingStats.current = changes;
-    setPhase("loading");
-    setError(undefined);
+    if (!background) {
+      setPhase("loading");
+      setError(undefined);
+    }
     try {
       await waitForRuntime();
       const token = auth.state.status === "signed-in" ? await auth.requestAccessToken() : undefined;
@@ -46,14 +52,35 @@ export function GamesPage({
       // Keep likes made while the list request was in flight.
       setGames(loaded.map(game => changes.has(game.id) ? { ...game, stats: changes.get(game.id) } : game));
       setPhase("ready");
+      setError(undefined);
+      loadedAt.current = Date.now();
     } catch (cause) {
-      if (version !== loadVersion.current) return;
+      if (version !== loadVersion.current || background) return;
       setError(cause instanceof Error ? cause.message : String(cause));
       setPhase("error");
     } finally {
       if (pendingStats.current === changes) pendingStats.current = undefined;
     }
   }
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
+  // New games and counts arrive when the window comes back after a while.
+  useEffect(() => {
+    const refreshIfStale = () => {
+      // pendingStats is set while a load is in flight; that load brings fresh games.
+      if (document.visibilityState === "visible" && !pendingStats.current && loadedAt.current !== undefined && Date.now() - loadedAt.current >= COMMUNITY_REFRESH_AFTER_MS) {
+        loadedAt.current = Date.now();
+        void loadRef.current(true);
+      }
+    };
+    window.addEventListener("focus", refreshIfStale);
+    document.addEventListener("visibilitychange", refreshIfStale);
+    return () => {
+      window.removeEventListener("focus", refreshIfStale);
+      document.removeEventListener("visibilitychange", refreshIfStale);
+    };
+  }, []);
 
   useEffect(() => {
     setGames(previous => previous.map(game => game.stats ? { ...game, stats: { ...game.stats, liked: undefined } } : game));
@@ -72,16 +99,13 @@ export function GamesPage({
     <CommunityPage onNavigate={onNavigate} title={t("community.title")} actions={(
       <>
         <CommunitySearch value={filters} onChange={setFilters} />
-        <Button disabled={openingProfile || auth.state.status === "loading"} onClick={() => {
+        <Button variant="ghost" icon={<Globe2 size={14} />} disabled={openingProfile || auth.state.status === "loading"} onClick={() => {
           if (auth.state.status === "signed-in") window.location.hash = communityProfileHash(auth.state.user.id);
           else {
             setOpeningProfile(true);
             void auth.requestAccessToken().then(token => { if (!token) setOpeningProfile(false); });
           }
-        }}>{t("community.myProfile")}</Button>
-        <IconButton label={t("common.refresh")} onClick={() => void load()} disabled={phase === "loading"}>
-          <RefreshCw className={phase === "loading" ? "spin" : undefined} size={16} />
-        </IconButton>
+        }}>{t("community.myGames")}</Button>
       </>
     )}>
       <CommunityToolbar value={filters} onChange={setFilters} />

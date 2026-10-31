@@ -27,7 +27,7 @@ import { useAuth } from "./auth.js";
 import { BrandLogo } from "./brand-logo.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
-import { conversationHash, createdProjectView, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
+import { communityProfileHash, conversationHash, createdProjectView, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { DropdownMenu, IconButton, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
 import { useDesktopUpdate } from "./use-desktop-update.js";
@@ -605,6 +605,8 @@ function AccountMenu({ active, avatarSize, onNavigate }: { active: boolean; avat
   const items: MenuEntry[] = signedIn ? [
     settings,
     { label: t("sidebar.account"), icon: <UserRound size={16} />, onSelect: () => openSettings("account") },
+    // The games you published, to edit or unpublish.
+    { label: t("community.myGames"), icon: <Globe2 size={16} />, onSelect: () => { window.location.hash = communityProfileHash(signedIn.id); } },
     "separator",
     about,
   ] : [

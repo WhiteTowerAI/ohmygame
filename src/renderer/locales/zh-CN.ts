@@ -1418,6 +1418,7 @@ const zhCN: typeof en = {
   },
   community: {
     myProfile: "我的主页",
+    myGames: "我的游戏",
     search: "搜索",
     searchPlaceholder: "游戏或创作者",
     sortBy: "排序方式",
