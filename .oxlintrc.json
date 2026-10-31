@@ -14,7 +14,7 @@
     // `new Request(request, { body })` keeps the method of the request it copies, which this rule cannot see.
     "unicorn/no-invalid-fetch-options": "off",
     // The code base uses `condition ? a() : b()` as a statement.
-    "no-unused-expressions": "off",
+    "no-unused-expressions": ["error", { "allowTernary": true }],
     // Result arrays are allocated at their final length, and one test builds a sparse array on purpose.
     "unicorn/no-new-array": "off",
     // Copying a Map or Set before a loop that changes it is a deliberate snapshot.

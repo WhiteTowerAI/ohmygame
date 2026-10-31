@@ -1334,7 +1334,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     // A render can arrive before React Flow publishes its first dimensions.
     // An empty measurement keeps it from clearing freshly measured handle bounds.
     const node = { ...original, measured: original.measured ?? {}, ...(size ? { style: { ...original.style, width: original.width ?? size.width, height: original.height ?? size.height } } : {}), data: { ...original.data,
-      audioAsset: libraryAssets.find((asset) => asset.id === original.data.assetId)?.audio,
       ...(size ? { resizeRuntime: {
         start: beginHistoryGesture, end: finishHistoryGesture,
         reset: () => { beginHistoryGesture(); setNodes((current) => current.map((node) => { if (node.id !== original.id) return node; const { width: _width, height: _height, ...rest } = node; return rest; })); finishHistoryGesture(); },
@@ -1493,7 +1492,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             },
             models: audioModels.filter((model) => model.capabilities.operations.includes(operation)),
             providers: audioProviders,
-            audio: node.data.audioAsset,
           } satisfies AudioNodeRuntime,
         },
       };
