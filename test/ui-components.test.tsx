@@ -343,6 +343,12 @@ it("waits before the first tooltip, then shows the next ones at once until the p
   expect(tip()).toBeUndefined();
   await act(async () => vi.advanceTimersByTime(350));
   expect(tip()).toBe("Bold");
+
+  // A showing tooltip that goes away with its page warms the next one too.
+  await act(async () => root.render(<Tooltip key="next" content="Italic"><button type="button">I</button></Tooltip>));
+  expect(tip()).toBeUndefined();
+  await enter(container.querySelector("button")!);
+  expect(tip()).toBe("Italic");
 });
 
 it("shows a toast and removes it after a few seconds", async () => {

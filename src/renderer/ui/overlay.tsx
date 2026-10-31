@@ -202,7 +202,13 @@ export function Tooltip({
     if (open) tooltipsWarmUntil = Date.now() + TOOLTIP_WARM;
     setOpen(false);
   };
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  // A tooltip that goes away while showing, as when the page changes, warms the next too.
+  const shown = useRef(false);
+  shown.current = open;
+  useEffect(() => () => {
+    window.clearTimeout(timer.current);
+    if (shown.current) tooltipsWarmUntil = Date.now() + TOOLTIP_WARM;
+  }, []);
   if (!isValidElement(children)) return children;
   return (
     <>
