@@ -99,7 +99,7 @@ export function GamesPage({
     <CommunityPage onNavigate={onNavigate} title={t("community.title")} actions={(
       <>
         <CommunitySearch value={filters} onChange={setFilters} />
-        <Button variant="ghost" icon={<Globe2 size={14} />} disabled={openingProfile || auth.state.status === "loading"} onClick={() => {
+        <Button icon={<Globe2 size={14} />} disabled={openingProfile || auth.state.status === "loading"} onClick={() => {
           if (auth.state.status === "signed-in") window.location.hash = communityProfileHash(auth.state.user.id);
           else {
             setOpeningProfile(true);

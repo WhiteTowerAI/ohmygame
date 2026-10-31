@@ -30,11 +30,6 @@
   min-height: 32px;
 }
 
-/* A ghost button ending the row lines its content up with the grid's edge. */
-.community-page-head > .ui-button-ghost:last-child {
-  margin-right: calc(-1 * var(--space-3));
-}
-
 .community-page-head h1 {
   margin: 0;
   font-size: var(--text-xl);
