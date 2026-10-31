@@ -4,7 +4,7 @@ import { addCustomProviderModel, getCloudQuotas, getProviderModels, refreshProvi
 import { ProviderModel3DForm } from "./provider-model3d-form.js";
 import { Check, ChevronDown, ExternalLink, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
 import { SegmentedControl } from "./segmented-control.js";
-import { Button, Switch } from "./ui/index.js";
+import { Button } from "./ui/index.js";
 import { hyper3DCredits } from "../shared/cloud-models.js";
 import { language, t } from "./i18n.js";
 
@@ -26,6 +26,9 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
   const [editingModel, setEditingModel] = useState<ModelRef>();
   const [defaultModel, setDefaultModel] = useState<ModelRef>();
   const [hiddenOpen, setHiddenOpen] = useState(false);
+  // Where a model switched on or off while browsing stays listed until the page changes, so it does not jump away.
+  const [placed, setPlaced] = useState<ReadonlyMap<string, boolean>>(new Map());
+  useEffect(() => setPlaced(new Map()), [providerId, additionalProviderId]);
   const providerRef = useRef(providerId);
   const loadSequence = useRef(0);
   const updating = useRef(false);
@@ -104,12 +107,14 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
   const isDefault = (model: ModelRef) => model.provider === defaultModel?.provider && model.id === defaultModel.id;
   // A custom provider lists its models as a built-in one does; its Edit opens the provider's own form.
   const browsing = !editing;
+  const modelKey = (model: ModelRef) => `${model.provider}/${model.id}`;
+  const listedAsShown = (model: ProviderModelSettings["models"][number]) => placed.get(modelKey(model)) ?? model.visible;
   const listed = settings?.models.filter((model) => (
-    (editing ? filter === "all" || (filter === "shown" ? model.visible : model.custom) : model.visible) && matches(model)
+    (editing ? filter === "all" || (filter === "shown" ? model.visible : model.custom) : listedAsShown(model)) && matches(model)
   )) ?? [];
   // While browsing, the default model leads the list; editing keeps the catalog order.
   const models = browsing ? [...listed.filter(isDefault), ...listed.filter((model) => !isDefault(model))] : listed;
-  const hiddenModels = browsing ? settings?.models.filter((model) => !model.visible && matches(model)) ?? [] : [];
+  const hiddenModels = browsing ? settings?.models.filter((model) => !listedAsShown(model) && matches(model)) ?? [] : [];
   const shown = settings?.models.filter((model) => model.visible).length ?? 0;
   function toggleEditing(): void {
     setEditing((value) => !value);
@@ -119,6 +124,11 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
     setEditingModel(undefined);
     setQuery("");
     setFilter("all");
+    setPlaced(new Map());
+  }
+  function toggleModel(model: ProviderModelSettings["models"][number], visible: boolean): void {
+    if (browsing) setPlaced((current) => current.has(modelKey(model)) ? current : new Map(current).set(modelKey(model), model.visible));
+    changeVisibility([model], visible);
   }
   function changeVisibility(models: ProviderModelSettings["models"], visible: boolean): void {
     const owners = [...new Set(models.map((model) => model.provider))];
@@ -177,7 +187,10 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
           const copy = <span className="provider-model-copy"><strong title={model.name}>{model.name}</strong>{isDefault(model) ? <small className="provider-model-default">{t("models.default")}</small> : null}{description ? <small title={description}>{description}</small> : null}</span>;
           const selected = (ref?: ModelRef) => ref?.provider === model.provider && ref.id === model.id;
           return <div className={`provider-model-row${model.visible ? "" : " is-hidden"}${description === model.id ? " is-compact" : ""}`} key={`${model.provider}/${model.id}`} role="listitem">
-            <div className="provider-model-readonly">{copy}</div>
+            <label>
+              <input type="checkbox" checked={model.visible} disabled={busy || model.capabilities?.length === 0} onChange={(event) => toggleModel(model, event.target.checked)} aria-label={t("plugins.enableName", { name: model.name })} />
+              {copy}
+            </label>
             {model.capabilities ? <span className="custom-model-usage-badges">{model.capabilities.length ? model.capabilities.map((usage) => <small key={usage}>{t(`capability.${usage}`)}</small>) : <small>{t("models.unassigned")}</small>}</span> : model.custom ? <small className="provider-model-custom">{t("models.filter.custom")}</small> : null}
             {sourceLabels?.[model.provider] || model.source ? <small className="provider-model-custom">{sourceLabels?.[model.provider] ?? (model.source === "preset" ? t("models.source.official") : model.source === "cloud" ? t("models.source.cloud") : t("models.filter.custom"))}</small> : null}
             {editing && model.model3d ? <button className="icon-button" type="button" disabled={busy || adding} aria-label={t("common.editName", { name: model.name })} title={t("common.editName", { name: model.name })} aria-expanded={selected(editingModel)} onClick={() => { setEditingModel((ref) => selected(ref) ? undefined : model); setError(undefined); setDeleting(undefined); }}><Pencil size={14} /></button> : null}
@@ -185,8 +198,6 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
               <button type="button" className="settings-danger-button" disabled={busy} onClick={() => void update(() => removeCustomProviderModel(model.provider, model.id), model.provider).then((removed) => { if (removed) setDeleting(undefined); })}>{t("common.delete")}</button>
               <button type="button" className="icon-button" title={t("models.cancelDeletion")} aria-label={t("models.cancelDeletion")} disabled={busy} onClick={() => setDeleting(undefined)}><X size={13} /></button>
             </div> : <button className="icon-button provider-model-delete" type="button" disabled={busy} title={t("common.deleteName", { name: model.name })} aria-label={t("common.deleteName", { name: model.name })} onClick={() => setDeleting(model)}><Trash2 size={14} /></button> : null}
-            {/* Every provider shows or hides a model from its row, built in or custom. */}
-            <Switch size="sm" checked={model.visible} disabled={busy || model.capabilities?.length === 0} label={t("plugins.enableName", { name: model.name })} onChange={(visible) => changeVisibility([model], visible)} />
           </div>;
         })}
         {!models.length ? <p className="settings-empty">{!settings.models.length ? t("models.empty.none") : !editing && !shown ? t("models.empty.noneShown") : t("models.empty.noMatch")}</p> : null}
