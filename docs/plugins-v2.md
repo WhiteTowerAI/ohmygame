@@ -84,7 +84,9 @@ it in the call's progress.
   each of the adapter's tools runs and again by the adapter's approval
   request before each MCP call, including calls a script makes. A script
   already running can still start a server that hadn't started, but every
-  call to it is refused.
+  call to it is refused. When a format 1 HTTP server reports an expired
+  session, the adapter reconnects and resends a call it already approved
+  without asking again, so that one call can still finish after the change.
 - A typed project's preview follows the plugin version its `ohmygame.json`
   pins; the app updates what it recorded when that file changes and at
   startup.
