@@ -95,8 +95,9 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onSta
   // Two rows, so every example type has room; Home scrolls when the window is short.
   const visibleExamples = examples.slice(0, columns * 2);
 
+  // While a prompt's project is being made, the page waits for it rather than lose it.
   return (
-    <PageFrame active="home" inert={inert} onNavigate={onNavigate}>
+    <PageFrame active="home" inert={inert || !!creating?.firstMessage} onNavigate={onNavigate}>
       <main className="home-page">
         <WindowDragRegion />
         <div className="home-body">
@@ -107,12 +108,11 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onSta
               placeholder={t("home.placeholder")}
               disabled={!!creating?.firstMessage}
               onSubmit={(firstMessage, clearDraft) => setCreating({ firstMessage, clearDraft })}
+              starts={<>
+                <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} disabled={!!creating} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
+                {canImportFolder ? <Button variant="ghost" size="sm" icon={<Import size={14} />} disabled={!!creating} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
+              </>}
             />
-            {/* A project being made from the prompt keeps the other ways to start waiting. */}
-            <div className="home-starts">
-              <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} disabled={!!creating} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
-              {canImportFolder ? <Button variant="ghost" size="sm" icon={<Import size={14} />} disabled={!!creating} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
-            </div>
             {importError ? <p className="home-notice" role="alert">{importError}</p> : null}
           </section>
 

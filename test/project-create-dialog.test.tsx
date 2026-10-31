@@ -238,6 +238,19 @@ describe("new project dialog", () => {
     expect(typeSelect().textContent).toBe("Web Game");
     expect(createProject).not.toHaveBeenCalled();
 
+    // Leaving while it is created does not pull the person back to it.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    const left = vi.fn();
+    let made!: (project: ProjectState) => void;
+    createProject.mockImplementationOnce(() => new Promise((resolve) => { made = resolve; }));
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={{ ...message, type: "web-game" }} onClose={() => {}} onCreated={left} />));
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => made(created));
+    expect(left).not.toHaveBeenCalled();
+    createProject.mockClear();
+
     // Nor does it wait unseen when the types fail to load, even when a mention leaves plugins' types out.
     await act(async () => root.unmount());
     root = createRoot(container);

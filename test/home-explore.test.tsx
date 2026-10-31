@@ -28,12 +28,15 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
 }));
 const created = { id: "maze", name: "Maze", type: "web-game", updatedAt: "2026-10-31T00:00:00Z", workspacePath: "/tmp/maze", preview: { status: "waiting" } };
 const createProject = vi.fn(async (_input: unknown): Promise<typeof created> => created);
-vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({ PageFrame: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({
+  PageFrame: ({ children, inert }: { children: React.ReactNode; inert?: boolean }) => <div className="page-frame" inert={inert}>{children}</div>,
+}));
 // Stands in for the prompt box: sending hands its message to Home.
 vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({
-  ProjectPromptCreator: ({ onSubmit }: { onSubmit: (message: unknown) => void }) => (
+  ProjectPromptCreator: ({ onSubmit, starts }: { onSubmit: (message: unknown) => void; starts?: React.ReactNode }) => (<>
     <button type="button" onClick={() => onSubmit({ prompt: "Make a maze", mentions: [], attachments: [], mode: "normal" })}>Send prompt</button>
-  ),
+    {starts}
+  </>),
 }));
 
 const { Home } = await import("../src/renderer/home.js");
@@ -80,8 +83,11 @@ it("creates the project from the prompt at once, and opens the new-project dialo
   createProject.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
   await act(async () => button("Send prompt").click());
   expect(button("Blank project").disabled).toBe(true);
+  // The page waits too, so a click elsewhere cannot leave the new project behind.
+  expect(container!.querySelector(".page-frame")!.hasAttribute("inert")).toBe(true);
   await act(async () => finish(created));
   expect(button("Blank project").disabled).toBe(false);
+  expect(container!.querySelector(".page-frame")!.hasAttribute("inert")).toBe(false);
 
   // A failure shows the dialog with the error, so the person can try again.
   createProject.mockRejectedValueOnce(new Error("Disk full"));

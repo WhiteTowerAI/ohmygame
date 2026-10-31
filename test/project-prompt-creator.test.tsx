@@ -119,8 +119,10 @@ async function chooseType(label: string) {
 const starterItems = () =>
   [...document.querySelectorAll('[role="group"][aria-label="Start with plugins"] [role="menuitemcheckbox"]')]
     .map((item) => item.querySelector(".home-plugin-text > span")?.textContent);
+const ideasButton = () =>
+  [...container.querySelectorAll<HTMLButtonElement>(".home-starts button")].find((item) => item.textContent === "Ideas")!;
 async function chooseIdea(text: string) {
-  await act(async () => container.querySelector<HTMLButtonElement>(".home-idea")!.click());
+  await act(async () => ideasButton().click());
   const idea = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent?.includes(text))!;
   await act(async () => idea.click());
 }
@@ -139,8 +141,8 @@ describe("Home prompt box", () => {
     await render();
     expect(typePicker().textContent).toBe("Web Game");
     expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Web Game Studio");
-    // Its ideas sit behind one button and fill the prompt.
-    expect(container.querySelectorAll(".home-idea")).toHaveLength(1);
+    // Its ideas sit behind one button in the row of ways to start, and fill the prompt.
+    expect(ideasButton()).toBeDefined();
     await chooseIdea("dungeon");
     expect(container.querySelector("textarea")!.value).toBe(
       "Make a pixel-art dungeon roguelike with turn-based combat",

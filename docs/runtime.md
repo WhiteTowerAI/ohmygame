@@ -519,7 +519,9 @@ between dark and light. Leaving an open project from the menu or a shortcut
 saves its design first, as the rail does. While a dialog is open, the menu and
 these shortcuts wait for it to close. A pending desktop update shows above the account until
 it needs a restart. The sidebar collapses to icons, each naming itself in a
-tooltip on hover or focus, and its edge drags between
+tooltip on hover or focus. As everywhere in the app, the first tooltip waits a
+moment and the next ones show at once while the pointer moves along the icons.
+Its edge drags between
 200 and 360px (double-click restores 232px); both stay across pages and
 restarts. Settings is a page in this frame, with its sections beside the
 content in four groups: General and Appearance; AI (Agents, Providers, Web
@@ -545,7 +547,7 @@ box, the name from the prompt, and the folder from Settings → General → Proj
 location. The new-project dialog (name, type and folder) opens only when
 something needs the person: a type's plugin asking for access, a chosen type
 that is no longer available, plugins that fail to load, or creating failing or
-being cancelled. **Blank project** and **Import folder** wait while it is made. **Blank project** opens
+being cancelled. Home waits while it is made. **Blank project** opens
 the dialog empty, and **Import folder** (desktop app) picks an existing folder,
 opening its project if it already has one. The dialog offers every project
 type, narrowed to those the prompt's plugins support. The prompt
@@ -553,8 +555,9 @@ box's type menu adds the enabled plugins that set up their own projects, such
 as TapTap Maker. Beside it, a plugin menu chooses any number of plugins to
 start with, from the enabled plugins that start projects (Web Game Studio,
 Game Studio, Godot, Three.js World and the engine and mini-game plugins); their
-mentions lead the first message in the order chosen. **Ideas** under the box
-lists a few prompts for the type that fill the box. The former studio pages are gone; their
+mentions lead the first message in the order chosen. **Ideas**, in the row under
+the box with **Blank project** and **Import folder**, lists a few prompts for
+the type that fill the box. The former studio pages are gone; their
 links (`#/web-game`, `#/interactive-story`, `#/godot`, `#/asset-canvas`,
 `#/general`) open Home.
 

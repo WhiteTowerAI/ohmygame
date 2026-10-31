@@ -162,6 +162,12 @@ export function ProjectCreateDialog({
   }
 
   const started = useRef(false);
+  // Leaving the page by other means while creating does not pull the person back.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   useEffect(() => {
     if (shown) return;
     // The type Home asked for may be gone; the person picks another rather than get the first.
@@ -226,6 +232,7 @@ export function ProjectCreateDialog({
       created.current.conversationId ??= (await createConversation(project.id)).id;
       const attachments = await uploadAttachments(project.id, crypto.randomUUID(), firstMessage.attachments);
       saveHomePrompt({ prompt: text, mentions });
+      if (!mounted.current) return;
       onCreated(project, { conversationId: created.current.conversationId, prompt: text, mentions, mode: firstMessage.mode, attachments });
     } catch (cause) {
       setError(errorMessage(cause));
