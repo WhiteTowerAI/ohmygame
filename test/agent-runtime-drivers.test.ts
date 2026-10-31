@@ -420,6 +420,30 @@ describe("Claude Code adapter", () => {
     ]);
   });
 
+  it("asks Claude Code for the named Skills, staged ones by their names in the session's plugin", async () => {
+    const skill = await mkdtemp(path.join(tmpdir(), "ohmygame-skill-"));
+    cleanup.push(() => rm(skill, { recursive: true, force: true }));
+    await writeFile(path.join(skill, "SKILL.md"), "---\nname: fixture\n---\n");
+    const name = path.basename(skill);
+    const sent: unknown[] = [];
+    fakeCli((message, cli) => {
+      if (message.type === "control_request")
+        cli.send({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
+      if (message.type === "user") {
+        sent.push((message.message as { content: unknown }).content);
+        cli.send({ type: "result", subtype: "success" });
+      }
+    });
+    const driver = new ClaudeCodeDriver(await context({ skillDirectories: [skill] }));
+    cleanup.push(() => driver.dispose());
+    for (const skills of [[name, "project-skill"], undefined])
+      await driver.runTurn({ text: "work", images: [], readOnly: false, ...(skills ? { skills } : {}) }, recordingSink().sink, new AbortController().signal);
+    expect(sent).toEqual([
+      [{ type: "text", text: `Load and follow these Skills before you answer: ohmygame:${name}, project-skill.\n\nwork` }],
+      [{ type: "text", text: "work" }],
+    ]);
+  });
+
   it("works in the Claude Code mode the person chose and plans in default mode", async () => {
     const skill = await mkdtemp(path.join(tmpdir(), "ohmygame-skill-"));
     cleanup.push(() => rm(skill, { recursive: true, force: true }));
@@ -1045,6 +1069,32 @@ describe("Codex adapter", () => {
       details: { artifact: { type: "image", path: "assets/generated/cat.png", mediaType: "image/png" } },
     } });
     expect(recorded.calls.filter((call) => call.startsWith("toolResult:cat:"))).toHaveLength(1);
+  });
+
+  it("sends each named Skill as Codex's own Skill item, and asks in words for one it was not given", async () => {
+    const skill = await mkdtemp(path.join(tmpdir(), "ohmygame-skill-"));
+    cleanup.push(() => rm(skill, { recursive: true, force: true }));
+    await writeFile(path.join(skill, "SKILL.md"), "---\nname: fixture\n---\n");
+    let input: unknown;
+    fakeCli((message, cli) => {
+      if (typeof message.method !== "string" || message.id === undefined) return;
+      const params = message.params as Record<string, unknown>;
+      cli.send({ id: message.id, result: message.method === "thread/start"
+        ? { thread: { id: "skill-thread" }, activePermissionProfile: { id: params.permissions } }
+        : {} });
+      if (message.method !== "turn/start") return;
+      input = params.input;
+      setTimeout(() => cli.send({ method: "turn/completed", params: { turn: { status: "completed" } } }));
+    });
+    const ctx = await context({ skillDirectories: [skill] });
+    const driver = new CodexDriver(ctx);
+    cleanup.push(() => driver.dispose());
+    const name = path.basename(skill);
+    await driver.runTurn({ text: "work", images: [], readOnly: false, skills: [name, "elsewhere"] }, recordingSink().sink, new AbortController().signal);
+    expect(input).toEqual([
+      { type: "text", text: "Load and follow these Skills before you answer: elsewhere.\n\nwork", text_elements: [] },
+      { type: "skill", name, path: path.join(stagedSkillsRoot("codex-cli", ctx.privateDirectory), name, "SKILL.md") },
+    ]);
   });
 
   it.each(["failed", "invalid", "save", "planning"])("surfaces %s native image delivery failures", async (failure) => {
@@ -2117,7 +2167,7 @@ describe("OpenCode adapter", () => {
     }
   });
 
-  it("drives v2 messages, images, thinking, tools, usage and planning permissions", async () => {
+  it("drives v2 messages, images, named Skills, thinking, tools, usage and planning permissions", async () => {
     const f = await openCodeFixture();
     const recorded = recordingSink();
     f.onPrompt(() => {
@@ -2171,6 +2221,7 @@ describe("OpenCode adapter", () => {
         text: "go",
         images: [{ type: "image", mimeType: "image/png", data: "aGVsbG8=" }],
         readOnly: true,
+        skills: ["review", "map-design"],
       },
       recorded.sink,
       new AbortController().signal,
@@ -2219,7 +2270,7 @@ describe("OpenCode adapter", () => {
       method: "POST",
       route: "/api/session/ses_1/prompt",
       body: {
-        text: "go",
+        text: "Load and follow these Skills before you answer: review, map-design.\n\ngo",
         files: [{ name: "image-1", uri: "data:image/png;base64,aGVsbG8=" }],
       },
     });

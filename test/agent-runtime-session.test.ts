@@ -909,6 +909,25 @@ describe("coding agent sessions", () => {
   });
 });
 
+it("hands the agent the Skills a message names, leaving the message as written", async () => {
+  const driver = new ScriptedDriver([], undefined);
+  const session = new NativeCodingSession({
+    runtime: "codex-cli",
+    model: "model",
+    sessionManager: SessionManager.inMemory("/tmp/native-skills"),
+    toolNames: [],
+    requestApproval: async () => "deny",
+    skills: () => [{ name: "review", description: "" }, { name: "map-design", description: "" }],
+    createDriver: () => driver,
+  });
+  await session.prompt("Use $map-design, then $review. It costs $5 and $unknown");
+  await session.prompt("No Skills here");
+  expect(driver.inputs.map(({ text, skills }) => ({ text, skills }))).toEqual([
+    { text: "Use $map-design, then $review. It costs $5 and $unknown", skills: ["map-design", "review"] },
+    { text: "No Skills here", skills: undefined },
+  ]);
+});
+
 it("does not duplicate delayed native text completions after a tool flushes the assistant", async () => {
   const store = SessionManager.inMemory("/tmp/native-events");
   const session = new NativeCodingSession({
