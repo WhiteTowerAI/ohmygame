@@ -433,7 +433,10 @@ export interface ProjectState extends ProjectPreviewSettings {
   type: ProjectType;
   updatedAt: string;
   workspacePath: string;
-  /** The plugin owns the binding file; OhMyGame stores only its identity and presentation. */
+  /**
+   * A format 1 plugin integration the project used, kept only until the app
+   * moves the project to that plugin's format 2 type; nothing else reads it.
+   */
   integration?: { pluginId: string; preview?: "external" };
   /**
    * A format 2 plugin project type, `publisher/name:type`, and how its game is
@@ -1003,7 +1006,6 @@ export interface ConversationCapabilities {
     icon?: import("./plugins.js").PluginIcon;
     iconRevision?: string;
     projectTypes?: ProjectType[];
-    integration?: import("./plugin-integration.js").PluginIntegrationDefinition;
   }>;
   skills: Array<{
     name: string;

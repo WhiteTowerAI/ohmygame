@@ -2,7 +2,6 @@ import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { PROJECT_TYPE_IDS, type PluginMention, type ProjectType } from "./contracts.js";
 import { PLUGIN_ICON_PRESETS, type PluginIconPresetId } from "./plugin-icons.js";
-import type { PluginIntegrationDefinition } from "./plugin-integration.js";
 
 export type PluginOrigin =
   | { type: "github"; repository: string; commit: string; release?: string }
@@ -111,7 +110,6 @@ export interface PluginSummary {
   displayName: string;
   description: string;
   projectTypes?: ProjectType[];
-  integration?: PluginIntegrationDefinition;
   icon?: PluginIcon;
   iconRevision?: string;
   version?: string;
@@ -131,13 +129,10 @@ export interface PluginSummary {
 export type PluginContribution = "projectType" | "skills" | "mcp" | "service";
 export const PLUGIN_CONTRIBUTIONS: readonly PluginContribution[] = ["projectType", "skills", "mcp", "service"];
 
-/** An integration that creates projects adds a project type; any other connects to a service. */
-export function pluginContributions(plugin: Pick<PluginSummary, "skillCount" | "mcpServerCount" | "integration">): PluginContribution[] {
+/** What a format 1 plugin adds; project types and services come from format 2 plugins. */
+export function pluginContributions(plugin: Pick<PluginSummary, "skillCount" | "mcpServerCount">): PluginContribution[] {
   return PLUGIN_CONTRIBUTIONS.filter((kind) =>
-    kind === "projectType" ? Boolean(plugin.integration?.createProject)
-      : kind === "skills" ? Boolean(plugin.skillCount)
-        : kind === "mcp" ? Boolean(plugin.mcpServerCount)
-          : Boolean(plugin.integration && !plugin.integration.createProject));
+    kind === "skills" ? Boolean(plugin.skillCount) : kind === "mcp" ? Boolean(plugin.mcpServerCount) : false);
 }
 
 export function pluginCollection(plugin: Pick<PluginSummary, "source" | "marketplace">): "public" | "personal" {
@@ -279,12 +274,6 @@ export const PluginManifestSchema = Type.Object({
   skills: Type.Optional(Type.Union([RelativePathSchema, Type.Array(RelativePathSchema, { minItems: 1, uniqueItems: true })])),
   connections: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
   mcpServers: Type.Optional(RelativePathSchema),
-  integration: Type.Optional(Type.Object({
-    entry: RelativePathSchema,
-    createProject: Type.Optional(Type.Boolean()),
-    projectFiles: Type.Optional(Type.Array(RelativePathSchema, { minItems: 1, maxItems: 20, uniqueItems: true })),
-    preview: Type.Optional(Type.Literal("external")),
-  }, { additionalProperties: false })),
   configuration: Type.Optional(Type.Record(IdentifierSchema, ConfigurationFieldSchema)),
   interface: Type.Optional(InterfaceSchema),
 }, { additionalProperties: false });

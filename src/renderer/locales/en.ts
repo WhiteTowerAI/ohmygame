@@ -953,6 +953,7 @@ const en = {
     projectType: "Project type",
   },
   createDialog: {
+    incompatiblePlugins: "The referenced plugins need different project types. Choose compatible plugins.",
     pluginsFailed: "Couldn't load plugins, so the project type can't be chosen yet.",
     restartForFolders:
       "Restart the OhMyGame desktop app to enable folder selection.",
@@ -1538,6 +1539,7 @@ const en = {
     moreSharing: "More sharing options",
   },
   projectShell: {
+    promptNotSent: "Your initial message has not been sent.",
     folderMissing: "The selected workspace folder is no longer available.",
     runtimeUnreachable: "Could not reach the local runtime.",
     newConversation: "New conversation",
@@ -3409,26 +3411,6 @@ const en = {
     recheckDetail: "Recheck {{name}}: {{error}}",
     recheck: "Recheck {{name}}",
     detailsFor: "Node details: {{label}}",
-  },
-  integration: {
-    createTitle: "Create a project with {{plugin}}",
-    connectingProject: "Connecting project…",
-    projectName: "Project name", accountOptions: "Account options", connectAndStart: "Connect and start", preparingProject: "Creating project…",
-    plugin: "Project plugin", noPlugin: "None", projectSource: "Project source",
-    newProject: "New project", existingProject: "Existing project", createAndConnect: "Create project",
-    promptNotSent: "Your initial message has not been sent.", title: "Plugin connection", description: "Prepare the local environment and connect your account before development.",
-    candidate: "Continuing switches this project to the plugin's native preview and publishing workflow; Web preview and Community publishing turn off. You can disconnect it later from the Preview tab.",
-    disconnect: "Disconnect plugin", disconnectConfirm: "Disconnect",
-    disconnectNotice: "OhMyGame stops using this plugin for the project and stops a running native preview. The plugin's binding files stay in the workspace. Web preview stays off until you turn it on in Project settings.",
-    working: "Working…", openAuthorization: "Open authorization page", prepare: "Prepare environment", connect: "Connect account", reconnect: "Reconnect", connected: "Account connected",
-    refresh: "Refresh status", bound: "Connected project: {{id}}", chooseProject: "Select an existing project. An unbound local directory must be empty.",
-    loadProjects: "Load projects", project: "Project", selectProject: "Select a project…", noProjects: "Create a project on the service, then refresh this list.",
-    bind: "Connect this directory", continue: "Continue", conflict: "A workspace can use one integration plugin. Create a separate project for another integration.", incompatible: "The referenced plugins need different project types. Choose compatible plugins.",
-    preview: "Local preview", externalWindow: "The game opens in its own native window. Refresh restarts it and resets game state.",
-    installRuntime: "Install Runtime", start: "Start preview", restart: "Refresh preview", stop: "Stop", logs: "Load logs",
-    account: "Local setup and account", needsSetup: "Prepare the local environment to continue", needsAuth: "Connect your account to continue", unchecked: "Not checked yet",
-    logsTitle: "Runtime logs", logsHint: "Load logs to see the latest Runtime output.", noLogs: "No log output yet.",
-    previewStatus: { missing: "Runtime is not installed", stopped: "Preview stopped", running: "Preview running", error: "Preview failed. Start it again once the problem below is fixed." },
   },
   textComposer: {
     label: "Text generation instruction",

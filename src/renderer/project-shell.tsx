@@ -1,4 +1,3 @@
-import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
 import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
 import {
   Play,
@@ -473,7 +472,6 @@ export function ProjectShell({
     };
   }, [projectId, runtime.generation, runtime.status]);
 
-  const integrationGate = usePluginIntegrationGate(project => dispatch({ type: "project-updated", project }));
   const previewSupported = supportsWebPreview(state.project);
   useEffect(() => {
     if (!previewSupported || unfinishedRestore || runtime.status !== "ready") return;
@@ -531,12 +529,8 @@ export function ProjectShell({
     initialPromptAttempted.current = true;
     setSendingInitialPrompt(true);
     setInitialPromptDeferred(false);
-    let sent = false;
-    void integrationGate.ensure(project).then(ready => {
-      if (!ready) return;
-      sent = true;
-      return sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments);
-    }).then(() => {
+    let sent = true;
+    void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments).then(() => {
       if (sent && (initialPrompt.images.length || initialPrompt.attachments?.length)) setWorkspaceRevision((value) => value + 1);
     }).catch((error) => {
       // The message waits, as when it was paused, until the project is set up.
@@ -618,8 +612,6 @@ export function ProjectShell({
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
-      const pluginId = referencedIntegration(mentions, capabilities.plugins);
-      if (!await integrationGate.ensure(project, pluginId)) return false;
       await saveDesign.current?.();
       const surface = playableSurface;
       const previewContexts = storyShown ? playableChat?.attachments ?? [] : [];
@@ -1202,7 +1194,7 @@ export function ProjectShell({
     ) : null}
 
     {initialPrompt && (initialPromptDeferred || (initialPrompt.generation !== runtime.generation && !initialPromptAttempted.current)) ? <div className="paused-initial-prompt" role="status">
-      <p>{t(initialPromptDeferred ? "integration.promptNotSent" : "projectShell.promptPaused")}</p>
+      <p>{t(initialPromptDeferred ? "projectShell.promptNotSent" : "projectShell.promptPaused")}</p>
       <details><summary>{t("projectShell.reviewMessage")}</summary><pre>{initialPrompt.prompt}</pre>
         {initialPrompt.images.length || initialPrompt.attachments?.length ? <p>{t("projectShell.attachmentsRetained", { count: initialPrompt.images.length + (initialPrompt.attachments?.length ?? 0) })}</p> : null}
       </details>
@@ -1279,7 +1271,6 @@ export function ProjectShell({
 
   return (
     <>
-    {integrationGate.dialog}
     {chatInput}
     {project ? <PluginChangesSheet projectId={project.id} open={pluginChangesOpen} busy={agentBusy} onClose={() => setPluginChangesOpen(false)}
       onUndone={() => setWorkspaceRevision((value) => value + 1)} /> : null}

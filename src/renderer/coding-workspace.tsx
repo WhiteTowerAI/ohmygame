@@ -1,4 +1,3 @@
-import { ExternalProjectPreview } from "./plugin-integration.js";
 import { previewPageUrl as isolatedPreviewUrl } from "../shared/preview-page.js";
 import {
   Check,
@@ -46,7 +45,7 @@ import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { isWebRuntimeProjectType, supportsWebPreview, supportsProjectPreview } from "../shared/project-runtime.js";
+import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetThumbnail, WorkspaceAssetDialog, fileExtension, fileName, filterAssets, hasMediaType, libraryAssetOriginLabel, mediaTypeLabel, type BrowsableAsset, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
@@ -153,7 +152,7 @@ export function CodingWorkspace({
   panels,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
-  const hasPreview = supportsProjectPreview(project);
+  const hasPreview = supportsWebPreview(project);
   const visible = panels?.visible ?? new Set<CodingView>([canvasOpen ? "canvas" : hasPreview ? "preview" : "code"]);
   const shows = (view: CodingView) => visible.has(view);
   const show = (view: CodingView) => panels?.onShow(view);
@@ -410,7 +409,6 @@ export function CodingWorkspace({
         >{player.pending ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}</button>
       </> : undefined,
       body: <>
-        {project?.integration?.preview === "external" ? <ExternalProjectPreview key={project.id} project={project} onProjectUpdated={onProjectUpdated} /> : null}
         {supportsPreview ? (
           <div className="coding-workspace-preview-panel">
             <ErrorBoundary label={t("errorBoundary.label.preview")} resetKey={previewPageUrl}>

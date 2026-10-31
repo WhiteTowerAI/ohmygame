@@ -1,4 +1,3 @@
-import { PluginIntegrationPanel } from "./plugin-integration.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { AddMcpPluginDialog, PluginConfigurationPanel, PluginMcpPanel, PluginUninstallButton } from "./plugin-controls.js";
 import { PluginBuilderSessions } from "./plugin-builder.js";
@@ -52,7 +51,7 @@ import "./plugins.css";
 
 const PLUGIN_CATEGORIES = [
   { id: "creation", plugins: ["ohmygame:game-studio", "ohmygame:web-game-studio", "ohmygame:threejs-world"] },
-  { id: "engines", plugins: ["ohmygame:godot", "ohmygame:taptap-maker", "ohmygame:cocos-creator", "ohmygame:unity", "ohmygame:unreal-engine", "ohmygame:wechat-minigame", "ohmygame:douyin-minigame"] },
+  { id: "engines", plugins: ["ohmygame:godot", "ohmygame:cocos-creator", "ohmygame:unity", "ohmygame:unreal-engine", "ohmygame:wechat-minigame", "ohmygame:douyin-minigame"] },
   { id: "assets", plugins: ["ohmygame:blender", "ohmygame:img2threejs", "ohmygame:aseprite", "ohmygame:tiled"] },
   { id: "other", plugins: [] },
 ] as const;
@@ -206,7 +205,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
       setDetailResult((current) => current?.pluginId === updated.id ? { pluginId: updated.id, plugin: updated } : current);
       setPlugins((items) => items.map((item) => item.id === updated.id ? pluginSummary(updated) : item));
       setSkillCatalog((current) => current && { ...current, plugins: current.plugins.map((item) => item.id === updated.id ? updated : item) });
-      if (updated.enabled && updated.integration) onPluginChange(updated.id);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -785,7 +783,6 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         </div>
         <div className="plugin-tab plugin-settings" role="tabpanel" aria-label={t("common.settings")} hidden={shown !== "settings"}>
           <PluginConfigurationPanel plugin={plugin} onChanged={onCapabilitiesChanged} />
-          {plugin.enabled && plugin.integration ? <PluginIntegrationPanel key={plugin.id} pluginId={plugin.id} /> : null}
           <PluginMcpPanel plugin={plugin} onToggle={onMcpToggle} onAssist={onAssist} onChanged={onCapabilitiesChanged} />
           <PluginDependencyPanel plugin={plugin} />
         </div>

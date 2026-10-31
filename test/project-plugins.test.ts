@@ -25,6 +25,8 @@ import {
   writeProjectFile,
 } from "../src/daemon/project-plugins.js";
 import { validateProjectFile } from "../src/shared/project-file.js";
+import type { ProjectState } from "../src/shared/contracts.js";
+import { LEGACY_MAKER_ID, MAKER_PLUGIN, MAKER_TYPE, migrateLegacyMakerProjects } from "../src/daemon/legacy-maker.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins-v2");
 const BUNDLED = path.join(import.meta.dirname, "../plugins");
@@ -583,6 +585,80 @@ describe("project plugin writes", () => {
       expect(grants.project("/project", "ohmygame/godot")).toBeUndefined();
     } finally {
       await chmod(data, 0o700);
+    }
+  });
+});
+
+describe("format 1 TapTap Maker projects", () => {
+  async function setup(legacyEnabled: boolean) {
+    const data = await temporary();
+    const services = new PluginServices({
+      directory: path.join(data, "store"),
+      bundled: path.join(BUNDLED, "..", "plugins-v2"),
+      bundledOff: [MAKER_PLUGIN],
+    });
+    const legacyData = path.join(data, "legacy");
+    await mkdir(path.join(legacyData, "initializations"), { recursive: true });
+    await writeFile(path.join(legacyData, "initializations", "abc.json"), JSON.stringify({ projectId: "remote-1" }));
+    const folder = async (file?: object) => {
+      const dir = await temporary();
+      if (file) await writeFile(path.join(dir, "ohmygame.json"), JSON.stringify(file));
+      return dir;
+    };
+    const fresh = { id: "fresh", workspacePath: await folder(), integration: { pluginId: LEGACY_MAKER_ID, preview: "external" as const } };
+    const helper = {
+      id: "helper",
+      workspacePath: await folder({ type: "general", plugins: { "acme/tiles": "1.0.0" }, note: "kept" }),
+      integration: { pluginId: LEGACY_MAKER_ID, preview: "external" as const },
+    };
+    const other = { id: "other", workspacePath: await folder({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": "1.0.0" } }), integration: { pluginId: LEGACY_MAKER_ID, preview: "external" as const } };
+    const plain = { id: "plain", workspacePath: await folder() };
+    const records = [fresh, helper, other, plain] as unknown as ProjectState[];
+    const migrated: string[] = [];
+    const warnings: string[] = [];
+    await migrateLegacyMakerProjects({
+      projects: {
+        list: () => records,
+        migrateIntegration: async (id) => {
+          migrated.push(id);
+        },
+      },
+      services,
+      legacyEnabled,
+      legacyDataFolder: legacyData,
+      warn: (message) => warnings.push(message),
+    });
+    return { services, fresh, helper, other, migrated, warnings };
+  }
+
+  it("moves them to the format 2 type, keeping other plugins' pins, and turns the plugin on for someone who used it", async () => {
+    const { services, fresh, helper, other, migrated, warnings } = await setup(true);
+    try {
+      const version = services.index.get(MAKER_PLUGIN)!.version;
+      expect(migrated).toEqual(["fresh", "helper"]);
+      const fresh_ = await readProjectFile(await projectFolderKey(fresh.workspacePath));
+      expect(fresh_).toMatchObject({ ok: true, file: { type: MAKER_TYPE, plugins: { [MAKER_PLUGIN]: version } } });
+      const helper_ = await readProjectFile(await projectFolderKey(helper.workspacePath));
+      expect(helper_).toMatchObject({ ok: true, file: { type: MAKER_TYPE, note: "kept", plugins: { "acme/tiles": "1.0.0", [MAKER_PLUGIN]: version } } });
+      // Another type's file is left alone, and the project keeps its record for the next start.
+      expect(await readProjectFile(await projectFolderKey(other.workspacePath))).toMatchObject({ ok: true, file: { type: "ohmygame/godot:godot-game" } });
+      expect(warnings).toEqual([expect.stringContaining("other")]);
+      expect(services.grants.plugin(MAKER_PLUGIN)).toMatchObject({ enabled: true, allowed: expect.arrayContaining(["native"]) });
+      expect(services.grants.project(await projectFolderKey(fresh.workspacePath), MAKER_PLUGIN)).toBeDefined();
+      expect(JSON.parse(await readFile(path.join(services.dataFolder(MAKER_PLUGIN), "initializations", "abc.json"), "utf8"))).toEqual({ projectId: "remote-1" });
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("leaves the plugin off and the folders unapproved for someone who never turned format 1 Maker on", async () => {
+    const { services, fresh, migrated } = await setup(false);
+    try {
+      expect(migrated).toEqual(["fresh", "helper"]);
+      expect(services.grants.plugin(MAKER_PLUGIN)).toEqual({ enabled: false, allowed: [] });
+      expect(services.grants.project(await projectFolderKey(fresh.workspacePath), MAKER_PLUGIN)).toBeUndefined();
+    } finally {
+      await services.close();
     }
   });
 });

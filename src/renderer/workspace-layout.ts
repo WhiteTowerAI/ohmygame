@@ -1,6 +1,6 @@
 import { movePanel, type AreaId, type AreaState, type Layout } from "./panel-layout.js";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
-import { supportsProjectPreview } from "../shared/project-runtime.js";
+import { supportsWebPreview } from "../shared/project-runtime.js";
 
 // One layout for every project. A project type only names the panels it
 // offers, in the order they open (the shape of a format 2 plugin's
@@ -32,8 +32,8 @@ const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
 };
 
 /** The panels a project offers: its type's, less the game where it has no preview. */
-export function panelsOf(project: Pick<ProjectState, "type"> & Parameters<typeof supportsProjectPreview>[0]): WorkspacePanel[] {
-  return TYPE_PANELS[project.type].filter((panel) => panel !== "game" || supportsProjectPreview(project));
+export function panelsOf(project: Pick<ProjectState, "type"> & Parameters<typeof supportsWebPreview>[0]): WorkspacePanel[] {
+  return TYPE_PANELS[project.type].filter((panel) => panel !== "game" || supportsWebPreview(project));
 }
 
 /** Where a panel opens when it isn't in the layout. */

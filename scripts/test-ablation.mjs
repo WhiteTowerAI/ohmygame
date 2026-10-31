@@ -33,7 +33,6 @@ const explicitTestGroups = {
   "desktop-runtime-packaging.test.ts": "desktop",
   "playable-vite.test.ts": "renderer",
   "blender-export.test.ts": "daemon",
-  "taptap-maker-integration.test.ts": "daemon",
   "desktop-typebox.test.ts": "desktop",
   "readme-translations.test.ts": "shared",
   "desktop-release-notes.test.ts": "desktop",
