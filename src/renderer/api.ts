@@ -1711,9 +1711,6 @@ export async function inspectProjectPreview(projectId: string, settings: Project
   return request(`/projects/${projectId}/preview/inspect`, { method: "POST", body: JSON.stringify(settings) });
 }
 
-export function setProjectIntegration(projectId: string, pluginId: string): Promise<ProjectState> {
-  return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "PUT", body: JSON.stringify({ pluginId }) });
-}
 
 export function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
 export async function previewSeedAudio(prompt: string): Promise<Blob> {

@@ -363,7 +363,7 @@ export function CodingWorkspace({
   }, [picking]);
 
   const canPlay = !player.open && (!project || preview?.status === "waiting" || preview?.status === "starting");
-  const settingsButton = project && !project.integration && isWebRuntimeProjectType(project.type) ? <button
+  const settingsButton = project && !project.integration && project.pluginType?.preview !== "native" && isWebRuntimeProjectType(project.type) ? <button
     className="icon-button pane-header-action"
     type="button"
     aria-label={t("projectSettings.title")}

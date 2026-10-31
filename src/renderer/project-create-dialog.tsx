@@ -86,7 +86,7 @@ export function ProjectCreateDialog({
   const [prompt, setPrompt] = useState(firstMessage?.prompt ?? "");
   const [name, setName] = useState("");
   const [plugins, setPlugins] = useState<Plugin[]>([]);
-  // The type and integration come from the plugins, so creating waits for them.
+  // The types come from the plugins, so creating waits for them.
   const [pluginsPhase, setPluginsPhase] = useState<"loading" | "ready" | "error">("loading");
   const [pluginsRetry, setPluginsRetry] = useState(0);
   const mentions = activePluginMentions(prompt, firstMessage?.mentions ?? []);

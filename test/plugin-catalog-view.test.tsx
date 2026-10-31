@@ -37,7 +37,6 @@ beforeEach(() => {
     plugin("web-game-studio", "Web Game Studio"),
     plugin("threejs-world", "Three.js World"),
     plugin("godot", "Godot"),
-    plugin("taptap-maker", "TapTap Maker", false),
     plugin("cocos-creator", "Cocos Creator", false),
     plugin("unity", "Unity", false),
     plugin("unreal-engine", "Unreal Engine", false),
@@ -51,13 +50,12 @@ beforeEach(() => {
     plugin("zebra", "Zebra", true, true),
     plugin("alpha", "Alpha", false, true),
   ].reverse();
-  Object.assign(catalog.find((item) => item.id === "ohmygame:taptap-maker")!, {
+  Object.assign(catalog.find((item) => item.id === "ohmygame:wechat-minigame")!, {
     projectTypes: ["web-game"], skillCount: 1, mcpServerCount: 1,
-    integration: { entry: "./scripts/integration.mjs" },
   });
   skills = {
     "ohmygame:game-studio": [{ id: "skills/plan/SKILL.md", name: "plan-game", description: "Plan a game", enabled: true }],
-    "ohmygame:taptap-maker": [{ id: "skills/publish/SKILL.md", name: "publish-taptap", enabled: true }],
+    "ohmygame:wechat-minigame": [{ id: "skills/publish/SKILL.md", name: "publish-wechat", enabled: true }],
     "personal:zebra": [{ id: "skills/stripes/SKILL.md", name: "stripes", enabled: false }],
   };
   vi.stubGlobal(
@@ -156,7 +154,7 @@ describe("plugin catalog browsing", () => {
       sections.map((section) => section.querySelector("h2")?.textContent),
     ).toEqual([
       "Game creation 3",
-      "Engines & platforms 7",
+      "Engines & platforms 6",
       "Art & assets 4",
       "Other plugins 1",
       "Personal 2",
@@ -168,11 +166,11 @@ describe("plugin catalog browsing", () => {
     ]);
     expect(cards(sections[1])).toEqual([
       "Godot",
-      "TapTap Maker",
       "Cocos Creator",
       "Unity",
       "Unreal Engine",
       "WeChat Mini Games",
+      "Douyin Mini Games",
     ]);
     expect(cards(sections[2])).toEqual([
       "Blender",
@@ -186,11 +184,14 @@ describe("plugin catalog browsing", () => {
   });
 
   it("expands and collapses an individual group", async () => {
+    catalog.push(...["one", "two", "three", "four", "five", "six"].map((name) => plugin(`extra-${name}`, `Extra ${name}`)));
     await renderCatalog();
+    const other = () => [...container.querySelectorAll(".plugins-section")].find((section) => section.querySelector("h2")?.textContent?.startsWith("Other plugins"))!;
+    expect(cards(other())).toHaveLength(6);
     await click("View all (7)");
-    expect(cards()).toContain("Douyin Mini Games");
+    expect(cards(other())).toHaveLength(7);
     await click("Show less");
-    expect(cards()).not.toContain("Douyin Mini Games");
+    expect(cards(other())).toHaveLength(6);
     expect(cards()).toContain("Tiled");
   });
 
@@ -266,7 +267,7 @@ describe("plugin catalog browsing", () => {
     const tabs = [
       ...container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
     ];
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Installed17", "Browse", "Skills"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Installed16", "Browse", "Skills"]);
     tabs[0].focus();
     await act(async () =>
       tabs[0].dispatchEvent(
@@ -275,7 +276,7 @@ describe("plugin catalog browsing", () => {
     );
     expect(document.activeElement).toBe(tabs[1]);
     expect(tabs[1].getAttribute("aria-selected")).toBe("true");
-    expect(cards()).toHaveLength(17);
+    expect(cards()).toHaveLength(16);
     expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
 
     await pick("Source", "Other sources");
@@ -285,13 +286,13 @@ describe("plugin catalog browsing", () => {
     const category = container.querySelector<HTMLButtonElement>('[aria-label="Category"]')!;
     await act(async () => category.click());
     expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent))
-      .toEqual(["All categories", "Skills", "MCP", "Service connection"]);
+      .toEqual(["All categories", "Skills", "MCP"]);
     await act(async () => category.click());
     expect(container.querySelector('[aria-label="Works with"]')).toBeNull();
     await pick("Category", "MCP");
-    expect(cards()).toEqual(["TapTap Maker"]);
-    const card = [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes("TapTap Maker"))!;
-    expect([...card.querySelectorAll(".plugins-tag")].map((tag) => tag.textContent)).toEqual(["Web Game", "1 skill", "MCP", "Service connection"]);
+    expect(cards()).toEqual(["WeChat Mini Games"]);
+    const card = [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes("WeChat Mini Games"))!;
+    expect([...card.querySelectorAll(".plugins-tag")].map((tag) => tag.textContent)).toEqual(["Web Game", "1 skill", "MCP"]);
   });
 
   it("lists every plugin's skills and switches them through their plugin", async () => {
@@ -306,7 +307,7 @@ describe("plugin catalog browsing", () => {
     expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Skills3");
     expect(container.querySelector<HTMLInputElement>('[aria-label="Search skills"]')).not.toBeNull();
     // A disabled plugin's skills cannot be switched on their own.
-    expect(container.querySelector<HTMLButtonElement>('[aria-label="Disable publish-taptap"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="Disable publish-wechat"]')?.disabled).toBe(true);
     await click("Disable plan-game");
     expect(skills["ohmygame:game-studio"]![0]!.enabled).toBe(false);
     expect(container.querySelector('[aria-label="Enable plan-game"]')?.getAttribute("aria-checked")).toBe("false");
