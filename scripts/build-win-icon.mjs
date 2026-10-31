@@ -1,6 +1,6 @@
 // Converts build/icon-windows.svg into build/icon.ico with multiple sizes.
 // Run with: npm run build:win-icon
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import sharp from "sharp";

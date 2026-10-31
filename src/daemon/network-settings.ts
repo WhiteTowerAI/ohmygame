@@ -160,7 +160,7 @@ export class NetworkSettingsService {
     } = {},
   ) {
     this.store = new NetworkSettingsStore(dataDirectory);
-    this.#environment = { ...(options.environment ?? {}) };
+    this.#environment = { ...options.environment };
     this.#systemProxy = options.initialSystemProxy;
   }
 

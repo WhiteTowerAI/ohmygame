@@ -42,7 +42,7 @@ import {
 } from "react";
 import { previewElementContext } from "../shared/playable-chat-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
-import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
@@ -1397,7 +1397,6 @@ export function ProjectShell({
       {!project ? null : coding ? (
         <CodingWorkspace
           project={project}
-          agentBusy={agentBusy}
           publishing={publishing}
           workspaceRevision={workspaceRevision}
           previewPaused={previewPaused}
@@ -1431,7 +1430,6 @@ export function ProjectShell({
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         onDesignSaveReady={registerDesignSave}
         onDesignContextChange={setDesignContext}
-        agentBusy={agentBusy}
         publishing={publishing}
         workspaceRevision={workspaceRevision}
         openFileRequest={openFileRequest}

@@ -3,14 +3,12 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   validateNodeGraph,
-  type NodeGraphValidationIssue,
   type NodeGraphValidationMode,
 } from "../shared/playable-graph-validation.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import { checkPlayableSources } from "./playable-sources.js";
 import type {
-  PlayableProjectValidationIssue,
   PlayableProjectValidationResult,
 } from "../shared/playable-editor.js";
 import { listWorkspaceFiles } from "./workspace.js";
