@@ -213,6 +213,17 @@ describe("Home prompt box", () => {
       ],
     }), expect.any(Function));
 
+    // Removing the lead keeps the others, also once Home brings the type's starter back.
+    onSubmit.mockReset();
+    const textarea = () => container.querySelector("textarea")!;
+    textarea().setSelectionRange(0, 0);
+    await act(async () => { textarea().dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true })); });
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render();
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio @Three.js World Make an island" }), expect.any(Function));
+
     // While plugins load, the draft's plugins are still sent.
     onSubmit.mockReset();
     await act(async () => root.unmount());
@@ -401,6 +412,21 @@ describe("Home prompt box", () => {
     expect(container.querySelector("textarea")!.value).toBe("Make an island");
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Island Maker Make an island", type: "general" }), expect.any(Function));
+  });
+
+  it("keeps a lead plugin from history after the type's own plugin", async () => {
+    capabilities.plugins.push({ ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never });
+    const mention = { name: "godot", displayName: "Godot", marketplaceId: "bundled" };
+    localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Godot Make a maze", mentions: [mention] }]));
+    await render();
+    await chooseType("TapTap Maker");
+    await historyKey("ArrowUp");
+    expect(container.querySelector("textarea")!.value).toBe("@Godot Make a maze");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "@TapTap Maker @Godot Make a maze",
+      mentions: expect.arrayContaining([expect.objectContaining({ name: "taptap-maker" }), expect.objectContaining({ name: "godot" })]),
+    }), expect.any(Function));
   });
 
   it("drops a remembered plugin type's plugin once that plugin is gone", async () => {

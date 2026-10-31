@@ -173,9 +173,15 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const invocation = (text: string, lead = selectedPlugin, others = extraMentions) =>
     formatComposerInvocation(selectedSkill, lead, others.reduceRight((rest, mention) => formatPluginInvocation(mention, rest), text));
 
-  // The plugin a type comes from always leads, also after the prompt is cleared.
+  // The plugin a type comes from always leads, also after the prompt is cleared;
+  // a plugin that led instead, as from history, follows it in the prompt.
   useEffect(() => {
-    if (typeStarter && starter !== typeStarter) chooseStarters([typeStarter.id, ...extras.map((plugin) => plugin.id)]);
+    if (!typeStarter || starter === typeStarter) return;
+    const lead = toPluginMention(typeStarter);
+    const text = selectedPlugin ? formatPluginInvocation(selectedPlugin, prompt) : prompt;
+    setPrompt(text);
+    setSelectedPlugin(lead);
+    setPluginMentions((current) => activePluginMentions(invocation(text, lead), [...current, lead]));
   }, [typeStarter, starter]);
 
   useEffect(() => {
@@ -186,7 +192,9 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     // A plugin put first in the prompt by hand is kept, and so is a starter that works in the type.
     if (!lost && (starterChosen || (selectedPlugin && (!selectedStarter || starter)))) return;
     const next = defaultStarter(starters, type);
-    if (next || selectedStarter || lost) chooseStarters(next ? [next.id] : []);
+    // The plugins chosen after the lead stay.
+    const kept = extras.filter((plugin) => plugin !== next).map((plugin) => plugin.id);
+    if (next || selectedStarter || lost) chooseStarters(next ? [next.id, ...kept] : kept);
   }, [capabilities, type]);
 
   /** A new type brings its own starting plugin. */
