@@ -212,6 +212,25 @@ describe("new project dialog", () => {
     expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
   });
 
+  it("creates at once when asked to, and shows itself only for what the person must allow", async () => {
+    const onCreated = vi.fn();
+    const message = { prompt: "Make a map", mentions: [], attachments: [], mode: "normal" as const, type: "acme/tiles:map" };
+    pluginChoices = [{ id: "acme/tiles", displayName: "Tiles", description: "", version: "2.1.0", capabilities: [], consented: true, providesTypes: ["acme/tiles:map"] }];
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={message} onClose={() => {}} onCreated={onCreated} />));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+    expect(onCreated).toHaveBeenCalled();
+
+    // A type's plugin that asks for access waits for the person.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    createProject.mockClear();
+    pluginChoices = [{ ...pluginChoices[0]!, capabilities: ["processes:tiled"], consented: false }];
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={message} onClose={() => {}} onCreated={() => {}} />));
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:tiled");
+    expect(createProject).not.toHaveBeenCalled();
+  });
+
   it("allows a type's plugin that asks for nothing, and offers a retry when types fail to load", async () => {
     listProjectTypes.mockRejectedValueOnce(new Error("offline"));
     pluginChoices = [{ id: "acme/tiles", displayName: "Tiles", description: "", version: "2.1.0", capabilities: [], consented: false, providesTypes: ["acme/tiles:map"] }];

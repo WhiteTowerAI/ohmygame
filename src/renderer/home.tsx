@@ -36,9 +36,9 @@ interface CreateRequest {
   workspacePath?: string;
 }
 
-// Home is where every project starts: the prompt opens the new-project dialog
-// with the prompt as the first message; Start blank and Import folder open it
-// without one.
+// Home is where every project starts: the prompt creates the project at once,
+// with the prompt as its first message, and opens the new-project dialog only
+// when something needs the person; Start blank and Import folder open it.
 export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onStartHandled }: HomeProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
@@ -105,6 +105,7 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onSta
             <ProjectPromptCreator
               draftKey="home"
               placeholder={t("home.placeholder")}
+              disabled={!!creating?.firstMessage}
               onSubmit={(firstMessage, clearDraft) => setCreating({ firstMessage, clearDraft })}
             />
             <div className="home-starts">
@@ -155,6 +156,7 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onSta
       {projectActions.dialogs}
       {creating ? <ProjectCreateDialog
         firstMessage={creating.firstMessage}
+        direct={!!creating.firstMessage}
         initialWorkspacePath={creating.workspacePath}
         onClose={() => setCreating(undefined)}
         onOpenProject={(projectId) => { setCreating(undefined); onOpen(projectId); }}

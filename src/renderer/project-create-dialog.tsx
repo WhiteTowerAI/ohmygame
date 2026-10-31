@@ -67,6 +67,7 @@ export function ProjectCreateDialog({
   initialType = "web-game",
   initialWorkspacePath,
   firstMessage,
+  direct = false,
   onClose,
   onCreated,
   onOpenProject,
@@ -74,6 +75,12 @@ export function ProjectCreateDialog({
   initialType?: ProjectType;
   initialWorkspacePath?: string;
   firstMessage?: FirstMessage;
+  /**
+   * Creates the project as soon as it can, with nothing to fill in. The dialog
+   * shows only for what needs the person: a type's plugin asking for access,
+   * plugins that fail to load, or a failure or cancel while creating.
+   */
+  direct?: boolean;
   onClose: () => void;
   onCreated: (project: ProjectState, start?: ProjectStart) => void;
   onOpenProject?: (projectId: string) => void;
@@ -134,6 +141,8 @@ export function ProjectCreateDialog({
   const integrations = firstMessage
     ? []
     : isAppProjectType(type) ? plugins.filter((plugin) => plugin.integration && (!plugin.projectTypes?.length || plugin.projectTypes.includes(kind))) : [];
+  const loadFailed = pluginsPhase === "error" || (installedPluginTypes.failed && offersPluginTypes) || (pluginChoicesFailed && !isAppProjectType(type));
+  const [shown, setShown] = useState(!direct);
 
   useEffect(() => {
     let active = true;
@@ -149,6 +158,16 @@ export function ProjectCreateDialog({
   function close(): void {
     if (!creating) onClose();
   }
+
+  const started = useRef(false);
+  useEffect(() => {
+    if (shown) return;
+    if (loadFailed || typePluginConsent?.capabilities.length) setShown(true);
+    else if (ready && !started.current) {
+      started.current = true;
+      void submit();
+    }
+  }, [shown, ready, loadFailed, typePluginConsent]);
 
   // State updates too late to stop a second click in the same tick.
   const submitting = useRef(false);
@@ -185,6 +204,7 @@ export function ProjectCreateDialog({
       );
       if (!project) {
         setCreating(false);
+        setShown(true);
         return;
       }
       created.current.project = project;
@@ -207,6 +227,7 @@ export function ProjectCreateDialog({
     } catch (cause) {
       setError(errorMessage(cause));
       setCreating(false);
+      setShown(true);
     }
   }
 
@@ -228,6 +249,7 @@ export function ProjectCreateDialog({
 
   // Creating with a plugin that makes its own project (TapTap Maker) continues in its panel.
   if (integrationGate.creation) return <IntegrationStep label={integrationGate.creationTitle} onCancel={integrationGate.cancelCreation}>{integrationGate.creation}</IntegrationStep>;
+  if (!shown) return null;
 
   const location = workspacePath ?? (defaultLocation ? t("createDialog.inLocation", { path: defaultLocation }) : t("createDialog.managedFolder"));
   return (
