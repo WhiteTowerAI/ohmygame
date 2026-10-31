@@ -78,6 +78,17 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
     loginCommand: "opencode auth login",
     installUrl: "https://opencode.ai/v2/docs/",
   },
+  "codebuddy-cli": {
+    id: "codebuddy-cli",
+    name: "CodeBuddy Code",
+    // The package installs the same program as `codebuddy` and as its short alias `cbc`.
+    binaries: ["codebuddy", "cbc"],
+    versionArgs: ["--version"],
+    testedVersion: "2.155.0",
+    // CodeBuddy signs in from its own interface: this starts it, and /login completes the sign-in.
+    loginCommand: "codebuddy",
+    installUrl: "https://cnb.cool/codebuddy/codebuddy-code",
+  },
 };
 
 /** The first dotted version number a CLI prints, such as `2.1.301` from `2.1.301 (Claude Code)`. */

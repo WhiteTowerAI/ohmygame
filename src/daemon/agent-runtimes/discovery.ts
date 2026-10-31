@@ -43,6 +43,8 @@ import {
 import { OpenCodeDriver } from "./opencode.js";
 
 const PROBE_TIMEOUT_MS = 15_000;
+/** A help page that lists the account's models waits on that list, which CodeBuddy limits to ten seconds itself. */
+const MODEL_HELP_TIMEOUT_MS = 30_000;
 
 export interface ResolvedBinary {
   path: string;
@@ -345,7 +347,8 @@ export async function probeAuth(
       return { status: "signed-in", billing: "api-key" };
     return { status: "unknown", billing: "unknown" };
   }
-  // OpenCode signs in per model provider; the model a conversation picks says who bills it.
+  // OpenCode and CodeBuddy sign in per model provider, and neither has a
+  // command that reports who that is; the model a conversation picks says who bills it.
   return { status: "unknown", billing: "provider" };
 }
 
@@ -383,6 +386,14 @@ export async function probeModels(
           entry.supportsEffort ? (entry.supportedEffortLevels ?? []) : [],
         ),
       ),
+    };
+  }
+  if (id === "codebuddy-cli") {
+    // CodeBuddy names no reasoning levels per model, so a conversation sends
+    // none: the CLI's own effort setting decides, as it does in its editor.
+    const listed = await codebuddyModels(binaryPath, env, privateDirectory);
+    return {
+      models: listed.map((entry) => model(entry.id, entry.name, [])),
     };
   }
   if (id === "codex-cli") {
@@ -586,6 +597,62 @@ async function claudeModels(
       },
     });
   });
+}
+
+/**
+ * CodeBuddy's models, which only its help text lists: the `--model` option
+ * ends with the models the account may use, the same list its own model
+ * picker shows, including the endpoints the person added themselves. Its
+ * control channel has no operation that returns a catalog.
+ */
+async function codebuddyModels(
+  binaryPath: string,
+  env: Record<string, string>,
+  cwd: string,
+): Promise<Array<{ id: string; name: string }>> {
+  // Asking for help makes CodeBuddy read its model list, which it gives up on
+  // after ten seconds of its own; allow for that and for starting up.
+  const { stdout, stderr } = await runCli(
+    binaryPath,
+    ["--help"],
+    env,
+    cwd,
+    MODEL_HELP_TIMEOUT_MS,
+  );
+  const models = parseCodeBuddyModels(`${stdout}\n${stderr}`);
+  if (!models.length)
+    throw cliProbeError(
+      "CodeBuddy Code",
+      "CodeBuddy did not list the models its account can use",
+    );
+  return models;
+}
+
+/**
+ * The models named after "Currently supported:" in CodeBuddy's help, which is
+ * the catalog its own picker shows, including the endpoints a person added.
+ * The help may be wrapped, so whitespace is cleared before reading it.
+ */
+export function parseCodeBuddyModels(
+  help: string,
+): Array<{ id: string; name: string }> {
+  const listed = help
+    .replace(/\s+/g, " ")
+    .match(/Currently supported: \(([^)]*)\)/)?.[1];
+  if (!listed) return [];
+  const ids = new Set(
+    listed
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value && !/\s/.test(value)),
+  );
+  return [...ids].map((id) => ({
+    id,
+    // An endpoint the person added is named by the name they gave it.
+    name: id.startsWith("custom-local:")
+      ? id.slice("custom-local:".length)
+      : id,
+  }));
 }
 
 /** OpenCode v2's structured /api/model catalog. */

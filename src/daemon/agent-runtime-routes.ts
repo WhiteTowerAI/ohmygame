@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { AGENT_PERMISSION_MODES, isAccountRuntimeId, isAgentRuntimeId, type UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
+import { AGENT_PERMISSION_MODES, AGENT_RUNTIME_IDS, isAccountRuntimeId, isAgentRuntimeId, type UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import type { AgentManager } from "./agent.js";
 import type { AgentRuntimeService } from "./agent-runtimes/service.js";
 import type { ProjectManager } from "./projects.js";
@@ -45,7 +45,7 @@ export function registerAgentRuntimeRoutes(app: FastifyInstance, { agentRuntimes
       }
       const profile = await agentRuntimes.addAccountProfile(request.params.runtimeId, request.body.name, configDirectory);
       // All native agents must protect every connected credential directory in their next session.
-      for (const runtime of ["claude-code-cli", "codex-cli", "opencode-cli"] as const) agents.releaseRuntimeSessions(runtime);
+      for (const runtime of AGENT_RUNTIME_IDS) agents.releaseRuntimeSessions(runtime);
       return reply.code(201).send(profile);
     } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });

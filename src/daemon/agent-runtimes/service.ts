@@ -51,6 +51,7 @@ import { ToolBridge } from "./tool-bridge.js";
 import type { DriverContext, HttpBridgeHandlers, SaveGeneratedImage } from "./driver-context.js";
 import { AgentRuntimeSettingsStore } from "./settings.js";
 import { ClaudeCodeDriver } from "./claude-code.js";
+import { CodeBuddyDriver } from "./codebuddy.js";
 import { CodexAppServer } from "./codex-app-server.js";
 import { CodexDriver } from "./codex.js";
 import { codexServerIdentity } from "./codex-server-pool.js";
@@ -565,6 +566,8 @@ export class AgentRuntimeService {
         return new ClaudeCodeDriver(driverContext);
       if (request.runtime === "codex-cli")
         return new CodexDriver(driverContext);
+      if (request.runtime === "codebuddy-cli")
+        return new CodeBuddyDriver(driverContext);
       return new OpenCodeDriver(driverContext);
     };
     return new NativeCodingSession({

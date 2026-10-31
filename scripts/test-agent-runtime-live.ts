@@ -184,6 +184,7 @@ try {
       "claude-code-cli": "acceptEdits",
       "codex-cli": ":workspace",
       "opencode-cli": "default",
+      "codebuddy-cli": "default",
     }[runtime],
     ...(process.argv[4] ? { binaryPath: path.resolve(process.argv[4]) } : {}),
   });

@@ -127,6 +127,9 @@ async function start(source = FAKE_CLAUDE) {
   await call("PATCH", "/agent-runtimes/opencode-cli", {
     binaryPath: path.join(dataDirectory, "missing-opencode"),
   });
+  await call("PATCH", "/agent-runtimes/codebuddy-cli", {
+    binaryPath: path.join(dataDirectory, "missing-codebuddy"),
+  });
   return { app, call, claude, dataDirectory };
 }
 
@@ -757,6 +760,7 @@ describe("coding agent routes", () => {
       ["claude-code-cli", true],
       ["codex-cli", false],
       ["opencode-cli", false],
+      ["codebuddy-cli", false],
     ]);
     expect(statuses.body[1]!.diagnostics[0]).toMatchObject({
       code: "invalid-executable",
