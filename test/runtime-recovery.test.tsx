@@ -378,6 +378,7 @@ describe("renderer service recovery", () => {
       }
       if (route === "/plugins") { catalogReads++; return Response.json({ plugins: [], errors: [] }); }
       if (route === "/plugins/test/configuration") return Response.json(configuration);
+      if (route === "/plugin-store/plugins") return Response.json([]);
       return Response.json({ status: "ok" });
     }));
     await act(async () => root.render(<PluginsSettings pluginId="test" onPluginChange={() => {}} onTryPlugin={async () => {}} />));

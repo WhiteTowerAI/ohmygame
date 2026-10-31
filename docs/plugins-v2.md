@@ -1,10 +1,11 @@
 # Plugin format 2
 
 Format 2 is the next plugin contract. It runs beside format 1 ([plugins.md](plugins.md)),
-which the app's plugin screens, integrations and format 1 Godot projects
-still use. The daemon side of format 2 is complete and tested; its screens
-are not built yet, so people can't install or allow format 2 plugins from
-the app.
+which integrations, the Browse tab and format 1 Godot projects still use.
+The app lists installed format 2 plugins on the Plugins page, turns them on
+per project, and shows their panels and commands in a project. Installing a
+signed release from the app is not built yet: no catalog or release keys
+ship, so format 2 plugins come bundled or from a folder.
 
 ## Files
 
@@ -47,6 +48,8 @@ project type hooks the manifest declares can be registered.
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts` |
+| Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 
 ## Routes
@@ -90,6 +93,28 @@ project type hooks the manifest declares can be registered.
   and lists `GET /project-plugins`, the enabled format 2 plugins a new project
   can turn on for itself; the type's own plugin is left out. Creating the project posts each one's consent, if still needed, and
   turns it on once the project exists.
+
+## In the app
+
+- **Plugins page:** Installed lists format 2 plugins under **Turned on per
+  project**, from `GET /plugin-store/plugins` (one row per installed
+  version, newest first, with the plugin's settings fields and what it
+  adds). A plugin's page switches it off everywhere, asks for what it
+  hasn't been allowed, fills its `configuration` fields (a secret is only
+  replaced or cleared), and uninstalls one version at a time. A plugin in
+  `plugins-v2/` only switches off; uninstalling it is refused.
+- **Panels** of a project's active plugins sit beside its own, in the area
+  the manifest names, when their `when` holds. A panel opens the first time
+  it is offered and stays closed once the person closes it, like the
+  built-in ones.
+- **Commands** show in the slots `composer.slash` (and every command with a
+  `slash` name), `composer.add` and `project.menu`. A prompt is sent, or
+  put in the composer with `insert`; `openPanel` brings the panel forward;
+  `openSettings` opens the plugin's page; a `url` opens after the person
+  sees its host; tool and native commands run in the plugin, and a toast
+  offers Undo when they changed files. The other slots are not shown yet.
+- **Plugin changes…** in the project menu lists `GET
+  /projects/:id/plugin-changes`, each with its own Undo.
 
 Releases install only when they are signed by a key the app trusts for
 their publisher (`AppOptions.pluginReleaseKeys`). The app ships with none

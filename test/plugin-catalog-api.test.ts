@@ -83,6 +83,37 @@ describe("plugin catalog API", () => {
     });
   });
 
+  it("lists format 2 plugins with their settings, switches them, and keeps bundled ones installed", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-store-api-"));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    await app.ready();
+    const listed = async (locale = "en") => (await app.inject({ method: "GET", url: `/plugin-store/plugins?locale=${locale}` })).json()
+      .find((plugin: { id: string }) => plugin.id === "ohmygame/godot");
+    expect(await listed()).toMatchObject({
+      version: "1.0.0",
+      displayName: "Godot",
+      bundled: true,
+      grants: { enabled: true },
+      settings: [{ name: "godotPath", type: "path", title: "Godot executable", description: expect.stringContaining("GODOT_PATH") }],
+      adds: { projectTypes: ["Godot game"], tools: expect.any(Number), skills: expect.any(Number) },
+    });
+    expect((await listed("zh-CN")).settings[0].title).toBe("Godot 可执行文件");
+
+    // A plugin that ships with the app only turns off.
+    const removed = await app.inject({ method: "DELETE", url: "/plugin-store/ohmygame/godot/1.0.0" });
+    expect(removed.statusCode).toBe(409);
+    expect(await listed()).toBeDefined();
+    const off = await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/godot/enabled", payload: { enabled: false } });
+    expect(off.statusCode).toBe(204);
+    expect((await listed()).grants.enabled).toBe(false);
+
+    const saved = await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/godot/configuration", payload: { godotPath: "/opt/godot" } });
+    expect(saved.json()).toEqual({ godotPath: { type: "path", value: "/opt/godot" } });
+    const cleared = await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/godot/configuration", payload: { godotPath: null } });
+    expect(cleared.json()).toEqual({ godotPath: { type: "path", value: null } });
+  });
+
   it("offers a project only the plugin mentions its prompts accept", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-types-"));
     const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-source-"));
