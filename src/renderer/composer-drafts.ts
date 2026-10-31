@@ -173,7 +173,7 @@ function sameMessage(left: SavedComposerDraft, right: SavedComposerDraft): boole
 }
 
 function serializeDraft(draft: SavedComposerDraft): string | null {
-  if (!draft.prompt && !draft.selectedSkill && !draft.selectedPlugin && !draft.reference && !draft.designReference && !draft.planning) return null;
+  if (!draft.prompt && !draft.selectedSkill && !draft.selectedPlugin && !draft.extraPlugins?.length && !draft.reference && !draft.designReference && !draft.planning) return null;
   const { prompt, mentions, selectedSkill, selectedPlugin, extraPlugins, reference, designReference, planning } = draft;
   return JSON.stringify({ version: 1, prompt, mentions, selectedSkill, selectedPlugin, extraPlugins, reference, designReference, planning });
 }

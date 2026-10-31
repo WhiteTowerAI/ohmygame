@@ -48,6 +48,11 @@ describe("conversation composer drafts", () => {
     expect(restored.submitting).toBe(false);
     expect(restored.focusRequestId).toBeUndefined();
     expect([...storage.values.values()][0]).not.toContain("attachment");
+
+    // Plugins chosen after a removed lead are a draft of their own.
+    const extras = createComposerDraftStore(storage).get({ ...scope, conversationId: "chat-b" });
+    extras.update({ extraPlugins: [plugin] });
+    expect(createComposerDraftStore(storage).get({ ...scope, conversationId: "chat-b" }).getSnapshot().extraPlugins).toEqual([plugin]);
   });
 
   it("preserves an initial capability draft without requiring a first keystroke", () => {

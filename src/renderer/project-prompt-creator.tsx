@@ -170,18 +170,27 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   // A plugin that adds the chosen type is on in its projects already.
   const projectPlugins = projectPluginChoices.filter((plugin) => !plugin.providesTypes.includes(type));
   /** The prompt as sent: the skill, the chosen plugins in order, then the text. */
+  const withExtras = (text: string, others = extraMentions) =>
+    others.reduceRight((rest, mention) => formatPluginInvocation(mention, rest), text);
   const invocation = (text: string, lead = selectedPlugin, others = extraMentions) =>
-    formatComposerInvocation(selectedSkill, lead, others.reduceRight((rest, mention) => formatPluginInvocation(mention, rest), text));
+    formatComposerInvocation(selectedSkill, lead, withExtras(text, others));
 
-  // The plugin a type comes from always leads, also after the prompt is cleared;
-  // a plugin that led instead, as from history, follows it in the prompt.
+  // The plugin a type comes from always leads, also after the prompt is cleared.
+  // A plugin that led instead, as from history, follows it in the same order:
+  // checked when it starts projects of the type, otherwise in the prompt with the rest.
   useEffect(() => {
     if (!typeStarter || starter === typeStarter) return;
+    if (selectedStarter && starters.includes(selectedStarter)) {
+      chooseStarters([typeStarter.id, selectedStarter.id, ...extras.map((plugin) => plugin.id)]);
+      return;
+    }
     const lead = toPluginMention(typeStarter);
-    const text = selectedPlugin ? formatPluginInvocation(selectedPlugin, prompt) : prompt;
+    const text = selectedPlugin ? formatPluginInvocation(selectedPlugin, withExtras(prompt)) : prompt;
+    const others = selectedPlugin ? [] : extraMentions;
     setPrompt(text);
     setSelectedPlugin(lead);
-    setPluginMentions((current) => activePluginMentions(invocation(text, lead), [...current, lead]));
+    setExtraPlugins(others.length ? others : undefined);
+    setPluginMentions((current) => activePluginMentions(invocation(text, lead, others), [...current, lead]));
   }, [typeStarter, starter]);
 
   useEffect(() => {
@@ -338,7 +347,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
 
   function clearSelectedPlugin(): void {
     setSelectedPlugin(undefined);
-    setPluginMentions((current) => activePluginMentions(invocation(prompt, undefined), current));
+    setPluginMentions((current) => activePluginMentions(formatComposerInvocation(selectedSkill, undefined, withExtras(prompt)), current));
   }
 
   function selectMention(mention: ComposerMention, query?: ComposerMentionQuery): void {

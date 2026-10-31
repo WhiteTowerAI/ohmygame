@@ -414,19 +414,34 @@ describe("Home prompt box", () => {
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Island Maker Make an island", type: "general" }), expect.any(Function));
   });
 
-  it("keeps a lead plugin from history after the type's own plugin", async () => {
+  it("keeps a lead plugin from history in the prompt after the type's own plugin", async () => {
     capabilities.plugins.push({ ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never });
-    const mention = { name: "godot", displayName: "Godot", marketplaceId: "bundled" };
-    localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Godot Make a maze", mentions: [mention] }]));
+    const mention = { name: "blender", displayName: "Blender", marketplaceId: "bundled" };
+    localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Blender Make a maze", mentions: [mention] }]));
     await render();
     await chooseType("TapTap Maker");
     await historyKey("ArrowUp");
-    expect(container.querySelector("textarea")!.value).toBe("@Godot Make a maze");
+    expect(container.querySelector("textarea")!.value).toBe("@Blender Make a maze");
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: "@TapTap Maker @Godot Make a maze",
-      mentions: expect.arrayContaining([expect.objectContaining({ name: "taptap-maker" }), expect.objectContaining({ name: "godot" })]),
+      prompt: "@TapTap Maker @Blender Make a maze",
+      mentions: expect.arrayContaining([expect.objectContaining({ name: "taptap-maker" }), expect.objectContaining({ name: "blender" })]),
     }), expect.any(Function));
+  });
+
+  it("keeps the order of plugins from history after the type's own plugin", async () => {
+    capabilities.plugins.push(
+      { ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never },
+      plugin("game-studio", "Game Studio", ["general"]),
+    );
+    const mentions = [{ name: "game-studio", displayName: "Game Studio", marketplaceId: "bundled" }, { name: "godot", displayName: "Godot", marketplaceId: "bundled" }];
+    localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Game Studio @Godot Make a maze", mentions }]));
+    await render();
+    await chooseType("TapTap Maker");
+    await historyKey("ArrowUp");
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: TapTap Maker, Game Studio, Godot");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@TapTap Maker @Game Studio @Godot Make a maze" }), expect.any(Function));
   });
 
   it("drops a remembered plugin type's plugin once that plugin is gone", async () => {
