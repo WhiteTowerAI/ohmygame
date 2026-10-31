@@ -190,8 +190,8 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding-connect .onboarding-footer {
   margin-top: 12px;
 }
-/* Step 1: the launch. The mark pops in, the pieces of a game drop in under it,
-   and the words follow, over a dot grid like the canvas. */
+/* Step 1: the launch. The mark pops in and the words follow, over a dot grid
+   like the canvas. */
 .onboarding-welcome::before {
   content: "";
   position: absolute;
@@ -254,10 +254,12 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding-welcome .onboarding-primary-button {
   min-width: 140px;
 }
+/* The grid grows into place from a little smaller; growing from larger would
+   overflow the window and flash a scroll bar. */
 @keyframes onboarding-launch-grid {
   from {
     opacity: 0;
-    transform: scale(1.04);
+    transform: scale(0.96);
   }
 }
 @keyframes onboarding-launch-mark {
