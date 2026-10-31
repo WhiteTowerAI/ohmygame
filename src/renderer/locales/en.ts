@@ -3428,7 +3428,7 @@ const en = {
     installRuntime: "Install Runtime", start: "Start preview", restart: "Refresh preview", stop: "Stop", logs: "Load logs",
     account: "Local setup and account", needsSetup: "Prepare the local environment to continue", needsAuth: "Connect your account to continue", unchecked: "Not checked yet",
     logsTitle: "Runtime logs", logsHint: "Load logs to see the latest Runtime output.", noLogs: "No log output yet.",
-    previewStatus: { missing: "Runtime is not installed", stopped: "Preview stopped", running: "Preview running", error: "Check the preview state before retrying" },
+    previewStatus: { missing: "Runtime is not installed", stopped: "Preview stopped", running: "Preview running", error: "Preview failed. Start it again once the problem below is fixed." },
   },
   textComposer: {
     label: "Text generation instruction",
