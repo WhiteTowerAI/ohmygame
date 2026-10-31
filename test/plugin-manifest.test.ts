@@ -188,6 +188,13 @@ describe("plugin manifest format 2", () => {
       "/contributes/mcpServers/0/headers headers are for a url",
       "/contributes/mcpServers/0 no configuration field mode",
     ]);
+    // The adapter would read the app's environment or run a header as a command; env is passed as written.
+    expect(messages(server({ command: "maker", args: ["${HOME}"], env: { HOME_HINT: "${HOME}" } }))).toEqual([
+      "/contributes/mcpServers/0 args, url, cwd and headers can't name environment variables",
+    ]);
+    expect(messages(server({ url: "https://localhost/mcp", headers: { "X-Test": "!printf hi" } }))).toEqual([
+      "/contributes/mcpServers/0 a header can't start with !",
+    ]);
   });
 
   it("closes keyed records and never throws on bad values", () => {

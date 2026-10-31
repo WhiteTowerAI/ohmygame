@@ -35,7 +35,7 @@ import {
   setProjectPlugin,
   writeProjectFile,
 } from "../src/daemon/project-plugins.js";
-import type { ExtensionHostPlugin } from "../src/shared/extension-host-protocol.js";
+import { isHostMessage, type ExtensionHostPlugin } from "../src/shared/extension-host-protocol.js";
 
 // Plugins that behave, and plugins that hang, crash or fail to activate.
 const SOURCES: Record<string, string> = {
@@ -227,6 +227,10 @@ describe("extension hosts", () => {
     expect(second).toEqual({ input: 2, activations: 1 });
     // Updates close together are dropped, except one with an https link.
     expect(progress).toEqual([["halfway"], ["Sign in", "https://example.com/device"]]);
+    // Native code can send its own messages, so the daemon checks links too.
+    for (const url of ["http://example.com/login", "javascript:alert(1)", "file:///etc/passwd"])
+      expect(isHostMessage({ type: "progress", id: 1, message: "Sign in", url })).toBe(false);
+    expect(isHostMessage({ type: "progress", id: 1, message: "Sign in", url: "https://example.com/device" })).toBe(true);
     const [status] = await extensionHosts.status();
     expect(status.scope).toBe("app");
     expect(status.plugins["test/tools"].tools).toContain("echo");

@@ -132,6 +132,11 @@ export interface PluginContext {
   onDispose(dispose: () => void | Promise<void>): void;
 }
 
+/** Whether a progress update's link is one the app may offer to open: https, of a bounded length. */
+export function isProgressLink(value: unknown): value is string {
+  return typeof value === "string" && value.length <= HOST_MESSAGE_MAX_CHARS && URL.canParse(value) && new URL(value).protocol === "https:";
+}
+
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string");
 
@@ -151,7 +156,8 @@ export function isHostMessage(value: unknown): value is HostMessage {
           typeof message.cancelled === "boolean")
       );
     case "progress":
-      return typeof message.message === "string" && (message.url === undefined || typeof message.url === "string");
+      // Checked here too: native code can send its own messages to the daemon.
+      return typeof message.message === "string" && (message.url === undefined || isProgressLink(message.url));
     case "activated":
       return (
         isStrings(message.tools) &&

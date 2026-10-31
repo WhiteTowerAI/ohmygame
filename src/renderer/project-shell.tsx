@@ -41,6 +41,7 @@ import {
   Suspense,
 } from "react";
 import { previewElementContext } from "../shared/playable-chat-context.js";
+import { isProgressLink } from "../shared/extension-host-protocol.js";
 import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
@@ -359,7 +360,7 @@ export function ProjectShell({
       onEvent: (event) => {
         dispatch({ type: "runtime-event", event });
         if (event.type === "project.plugins.changed") setCapabilitiesRevision((value) => value + 1);
-        if (event.type === "plugin.command.progress" && URL.canParse(event.data.url)) setPluginLink({ url: new URL(event.data.url), message: event.data.message });
+        if (event.type === "plugin.command.progress" && isProgressLink(event.data.url)) setPluginLink({ url: new URL(event.data.url), message: event.data.message });
         if (event.type === "workspace.restored") {
           observeWorkspaceVersion(projectId, event.data.version);
           setWorkspaceEpoch(event.data.version);

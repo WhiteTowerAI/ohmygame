@@ -9,7 +9,7 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { isLoopbackHostname } from "../shared/local-debug.js";
-import { agentToolName, configReferences } from "../shared/plugin-manifest.js";
+import { agentToolName, configReferences, mcpServerSyntaxIssue } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME } from "../shared/project-file.js";
@@ -248,11 +248,14 @@ export class PluginServices {
             : item,
         ) as T;
         const { id, title: _title, tools, cwd, ...transport } = fill(server);
+        const launch = transport.command ? { cwd: path.resolve(entry.root, cwd ?? "."), literalEnv: true } : { auth: false };
+        // A setting's value is checked as the manifest's own values were.
+        if (mcpServerSyntaxIssue({ ...transport, ...launch })) continue;
         if (transport.url && !reachable(transport.url, entry.manifest.capabilities?.network ?? [])) continue;
         const name = `plugin-${createHash("sha256").update(entry.id).digest("hex").slice(0, 12)}-v2-${id}`;
         servers[name] = {
           ...transport,
-          ...(transport.command ? { cwd: path.resolve(entry.root, cwd ?? ".") } : { auth: false }),
+          ...launch,
           includeTools: tools,
           disabled: false,
         };

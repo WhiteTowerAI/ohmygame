@@ -610,6 +610,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     if (!server.command && (server.args || server.env || server.cwd))
       issue(path, "args, env and cwd are for a command");
     if (!server.url && server.headers) issue(`${path}/headers`, "headers are for a url");
+    const syntax = mcpServerSyntaxIssue(server);
+    if (syntax) issue(path, syntax);
     for (const name of configReferences(server)) {
       const field = manifest.configuration?.[name];
       if (!field) issue(path, `no configuration field ${name}`);
@@ -622,6 +624,25 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     issue("/icon", "a plugin with panels needs an icon for their tabs");
 
   return issues.length ? { ok: false, issues } : { ok: true, manifest };
+}
+
+/** What the MCP adapter would expand in a value: `${VAR}`, `$env:VAR` or `{env:VAR}`. */
+const ADAPTER_SYNTAX = /\$\{\w+\}|\$env:\w+|\{env:\w+\}/;
+
+/**
+ * Why an MCP server's values can't be handed to the adapter as they are, or
+ * undefined. The adapter reads environment variables into `args`, `url`,
+ * `cwd` and `headers` and runs a header starting with `!` as a shell command,
+ * so a plugin, or a setting filled into one, could read the app's secrets or
+ * run commands it wasn't allowed. `env` is passed literally.
+ */
+export function mcpServerSyntaxIssue(server: { args?: string[]; url?: string; cwd?: string; headers?: Record<string, string> }): string | undefined {
+  const values = [...(server.args ?? []), server.url, server.cwd, ...Object.values(server.headers ?? {})];
+  if (values.some((value) => value !== undefined && ADAPTER_SYNTAX.test(value)))
+    return "args, url, cwd and headers can't name environment variables";
+  if (Object.values(server.headers ?? {}).some((value) => value.startsWith("!")))
+    return "a header can't start with !";
+  return undefined;
 }
 
 /** The configuration fields a value names as `${config.field}`, anywhere inside it. */

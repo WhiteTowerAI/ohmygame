@@ -258,7 +258,7 @@ describe("project plugins", () => {
           capabilities: { processes: ["maker"], network: ["api.example.com"], secrets: true },
           contributes: {
             mcpServers: [
-              { id: "local", title: "Local", command: "maker", args: ["mcp", "--region", "${config.region}"], tools: ["build"] },
+              { id: "local", title: "Local", command: "maker", args: ["mcp", "--region", "${config.region}"], env: { HOME_HINT: "${HOME}" }, tools: ["build"] },
               { id: "cloud", title: "Cloud", url: "https://api.example.com/mcp", headers: { Authorization: "Bearer ${config.token}" }, tools: ["publish"] },
               { id: "elsewhere", title: "Elsewhere", url: "https://other.example.com/mcp", tools: ["publish"] },
             ],
@@ -283,7 +283,10 @@ describe("project plugins", () => {
       expect(servers[name("local")]).toEqual({
         command: "maker",
         args: ["mcp", "--region", "eu"],
+        // The adapter passes env as written, never reading the app's own.
+        env: { HOME_HINT: "${HOME}" },
         cwd: added.ok ? added.entry.root : "",
+        literalEnv: true,
         includeTools: ["build"],
         disabled: false,
       });
@@ -294,6 +297,13 @@ describe("project plugins", () => {
         includeTools: ["publish"],
         disabled: false,
       });
+      // A setting can't make the adapter read the app's environment or run a command.
+      for (const token of ["${OPENAI_API_KEY}", "x $env:HOME"]) {
+        await services.values.update(entry, { token });
+        expect(Object.keys(await services.mcpServers(folder))).toEqual([name("local")]);
+      }
+      await services.values.update(entry, { region: "{env:HOME}" });
+      expect(await services.mcpServers(folder)).toEqual({});
     } finally {
       await services.close();
     }

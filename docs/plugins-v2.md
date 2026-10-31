@@ -75,7 +75,12 @@ it in the call's progress.
   Its `args`, `env`, `url` and `headers` may name settings as
   `${config.field}`; a server waits until those are filled in, and a secret
   needs `capabilities.secrets`. Agents see only the `tools` it lists. Servers
-  start lazily, on a session's first call to one of them.
+  start lazily, on a session's first call to one of them. The adapter would
+  read the app's environment variables and run commands, so `args`, `url`,
+  `cwd` and `headers` can't name an environment variable (`${VAR}`,
+  `$env:VAR`, `{env:VAR}`) and a header can't start with `!`. This holds
+  both in the manifest and once settings are filled in; `env` is passed as
+  written.
 - A typed project's preview follows the plugin version its `ohmygame.json`
   pins; the app updates what it recorded when that file changes and at
   startup.

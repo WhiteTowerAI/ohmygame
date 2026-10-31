@@ -356,7 +356,9 @@ describe("format 2 plugins in the project shell", () => {
     expect(daemon.requests.some((request) => request.route === "/projects/project/plugin-changes/change-1/undo" && request.method === "POST")).toBe(true);
 
     // A running command's sign-in link opens only once the person sees its host.
-    await act(async () => daemon.send(1, "plugin.command.progress", { command: "acme/maker:upload", message: "Sign in to Maker", url: "https://maker.example.com/device?code=AB12" }));
+    await act(async () => daemon.send(1, "plugin.command.progress", { command: "acme/maker:upload", message: "Plain link", url: "http://maker.example.com/device" }));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => daemon.send(2, "plugin.command.progress", { command: "acme/maker:upload", message: "Sign in to Maker", url: "https://maker.example.com/device?code=AB12" }));
     const dialog = document.querySelector('[role="dialog"]')!;
     expect(dialog.textContent).toContain("Sign in to Maker");
     expect(dialog.textContent).toContain("maker.example.com");
@@ -364,7 +366,7 @@ describe("format 2 plugins in the project shell", () => {
     // An edit to ohmygame.json outside the app reaches the open project.
     const reads = () => daemon.requests.filter((request) => request.route.startsWith("/projects/project/plugin-panels")).length;
     const before = reads();
-    await act(async () => daemon.send(2, "project.plugins.changed", {}));
+    await act(async () => daemon.send(3, "project.plugins.changed", {}));
     await settle();
     expect(reads()).toBe(before + 1);
   });

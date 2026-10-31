@@ -4,6 +4,7 @@ import {
   EXTENSION_HOST_PROTOCOL_VERSION,
   PROJECT_TYPE_HOOKS,
   HOST_MESSAGE_MAX_CHARS,
+  isProgressLink,
   HOST_PROGRESS_INTERVAL_MS,
   HOST_RESULT_MAX_BYTES,
   type ExtensionHostPlugin,
@@ -196,7 +197,7 @@ async function invoke(
     progress: (message, options) => {
       // Progress is a hint: frequent updates are dropped, long ones cut. A
       // link the person needs always goes through.
-      const url = linkFor(options?.url);
+      const url = isProgressLink(options?.url) ? options?.url : undefined;
       const now = performance.now();
       if (!url && now - lastProgress < HOST_PROGRESS_INTERVAL_MS) return;
       lastProgress = now;
@@ -297,8 +298,3 @@ process.on("disconnect", () => void leave());
 
 send({ type: "ready", protocol: EXTENSION_HOST_PROTOCOL_VERSION });
 
-/** An https link a progress update may carry, or undefined. */
-function linkFor(value: unknown): string | undefined {
-  if (typeof value !== "string" || value.length > HOST_MESSAGE_MAX_CHARS || !URL.canParse(value)) return undefined;
-  return new URL(value).protocol === "https:" ? value : undefined;
-}
