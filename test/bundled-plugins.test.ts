@@ -11,7 +11,7 @@ describe("bundled plugins", () => {
     await store.load();
     expect(store.list().filter(plugin => plugin.beta).map(plugin => plugin.name)).toEqual([
       "aseprite", "blender", "cocos-creator", "douyin-minigame", "godot",
-      "taptap-maker", "tiled", "unity", "unreal-engine", "wechat-minigame",
+      "tiled", "unity", "unreal-engine", "wechat-minigame",
     ]);
     for (const plugin of store.list().filter(plugin => plugin.beta)) {
       expect(plugin.icon?.type, plugin.name).toBe("asset");
@@ -30,12 +30,6 @@ describe("bundled plugins", () => {
       skills: [{ id: "skills/godot-game/SKILL.md" }],
       mcpServers: [{ id: "godot" }],
       configuration: { "godot-path": { default: "godot" } },
-    });
-    expect(store.read("ohmygame:taptap-maker")).toMatchObject({
-      enabled: false,
-      skills: [{ id: "skills/taptap-maker/SKILL.md" }, { id: "skills/taptap-release/SKILL.md" }],
-      mcpServers: [{ id: "taptap-maker" }],
-      projectTypes: ["general"],
     });
     for (const [name, skill] of [
       ["aseprite", "aseprite-assets"],

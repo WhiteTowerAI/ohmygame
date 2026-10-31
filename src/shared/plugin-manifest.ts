@@ -168,6 +168,19 @@ const ProjectType = Type.Object(
     ),
     preview: Literals(["web", "web-build", "native"]),
     playtest: Type.Optional(Literals(["web"])),
+    ready: Type.Optional(
+      Type.Object(
+        {
+          command: Slug,
+          panel: Slug,
+        },
+        {
+          additionalProperties: false,
+          description:
+            "Before a prompt is sent in a project of this type, the app runs this native command (no input), which returns { ready, message? }; when not ready, the prompt waits and the panel opens",
+        },
+      ),
+    ),
     panels: Type.Optional(
       Type.Array(Type.String({ minLength: 1, maxLength: 100 }), {
         minItems: 1,
@@ -178,12 +191,16 @@ const ProjectType = Type.Object(
   { additionalProperties: false },
 );
 
+/** How long a native call or an MCP request may run before it is cancelled; 60 seconds when unset. */
+const TimeoutSeconds = Type.Integer({ minimum: 1, maximum: 3600 });
+
 const Tool = Type.Object(
   {
     name: SnakeId,
     description: Type.String({ minLength: 1, maxLength: 1000 }),
     input: RelativePath("\\.json"),
     output: Type.Optional(RelativePath("\\.json")),
+    timeoutSeconds: Type.Optional(TimeoutSeconds),
   },
   { additionalProperties: false },
 );
@@ -208,7 +225,17 @@ const CommandRun = Type.Union([
   ),
   Type.Object({ url: HttpsUrl }, { additionalProperties: false }),
   Type.Object(
-    { native: CamelId, input: Type.Optional(RelativePath("\\.json")) },
+    {
+      native: CamelId,
+      input: Type.Optional(RelativePath("\\.json")),
+      timeoutSeconds: Type.Optional(TimeoutSeconds),
+      changesFiles: Type.Optional(
+        Type.Boolean({
+          description:
+            "false when the command never changes project files, such as a status check: it then runs during a turn and keeps no Undo",
+        }),
+      ),
+    },
     { additionalProperties: false },
   ),
 ]);
@@ -334,6 +361,7 @@ const McpServer = Type.Object(
       maxItems: 100,
       uniqueItems: true,
     }),
+    timeoutSeconds: Type.Optional(TimeoutSeconds),
   },
   { additionalProperties: false },
 );
@@ -353,11 +381,18 @@ const Panel = Type.Object(
 const list = <T extends Parameters<typeof Type.Array>[0]>(item: T) =>
   Type.Optional(Type.Array(item, { minItems: 1, maxItems: 50 }));
 
+const PLUGIN_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$";
+
+/** Whether `id` is a format 2 plugin id, `publisher/name`, safe to use as a path. */
+export function isPluginId(id: string): boolean {
+  return id.length <= 129 && new RegExp(PLUGIN_ID_PATTERN).test(id);
+}
+
 export const PluginManifestV2Schema = Type.Object(
   {
     $schema: Type.Optional(Type.String()),
     id: Type.String({
-      pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$",
+      pattern: PLUGIN_ID_PATTERN,
       maxLength: 129,
       description: "publisher/name",
     }),
@@ -531,6 +566,15 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   const slashes = new Set<string>();
   const panels = new Set(contributes.panels?.map((panel) => panel.id));
   const commands = new Set(contributes.commands?.map((command) => command.id));
+  contributes.projectTypes?.forEach((type, index) => {
+    if (!type.ready) return;
+    const path = `/contributes/projectTypes/${index}/ready`;
+    const run = contributes.commands?.find((command) => command.id === type.ready!.command)?.run;
+    if (!run || !("native" in run) || run.input)
+      issue(`${path}/command`, `must name a native command without input`);
+    if (!panels.has(type.ready.panel))
+      issue(`${path}/panel`, `no panel named ${type.ready.panel}`);
+  });
   contributes.commands?.forEach((command, index) => {
     const path = `/contributes/commands/${index}`;
     const run = command.run;
@@ -600,6 +644,8 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       issue(`${path}/command`, `${server.command} must be listed in capabilities.processes`);
     const syntax = mcpServerSyntaxIssue(server);
     if (syntax) issue(path, syntax);
+    if (server.env && Object.keys(server.env).some((key) => key.toUpperCase() === PLUGIN_DATA_ENV))
+      issue(`${path}/env`, `${PLUGIN_DATA_ENV} is set by the app`);
     for (const name of configReferences(server)) {
       const field = manifest.configuration?.[name];
       if (!field) issue(path, `no configuration field ${name}`);
@@ -615,6 +661,9 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
 }
 
 /** What the MCP adapter would expand in a value: `${VAR}`, `$env:VAR` or `{env:VAR}`. */
+/** The environment variable that gives a plugin's MCP servers its data folder. */
+export const PLUGIN_DATA_ENV = "OHMYGAME_PLUGIN_DATA_DIR";
+
 const ADAPTER_SYNTAX = /\$\{\w+\}|\$env:\w+|\{env:\w+\}/;
 
 /**

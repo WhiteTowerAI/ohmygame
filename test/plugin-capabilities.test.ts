@@ -81,7 +81,7 @@ describe("native plugin capabilities", () => {
     expect(await resolvePluginSkillPaths([bundled], settings, "general")).not.toContain(path.resolve("plugins/unreal-engine/skills/unreal-game/SKILL.md"));
   });
 
-  it("resolves Godot configuration and scopes Maker to General projects", async () => {
+  it("resolves Godot configuration", async () => {
     const { service, bundled, settings } = await environment();
     const godot = bundled.read("ohmygame:godot")!;
     const godotName = service.runtimeName(godot.id, "godot");
@@ -103,20 +103,6 @@ describe("native plugin capabilities", () => {
     expect(service.runtimeName(godot.id, "godot")).toBe(godotName);
     await service.configuration.setLegacyOwner("ohmygame-godot", godot.id, "godot");
     expect(service.runtimeName(godot.id, "godot")).toBe("ohmygame-godot");
-    const maker = bundled.read("ohmygame:taptap-maker")!;
-    const makerName = service.runtimeName(maker.id, "taptap-maker");
-    expect((await service.effective()).mcpServers).not.toHaveProperty(makerName);
-    expect((await service.effective("general")).mcpServers).not.toHaveProperty(makerName);
-    await settings.update(maker, { enabled: true, components: {} });
-    expect((await service.effective("general")).mcpServers[makerName]).toMatchObject({
-      args: ["./scripts/mcp.mjs"],
-      env: { OHMYGAME_PLUGIN_DATA_DIR: service.dataPath(maker.id) },
-      lifecycle: "lazy",
-      requestTimeoutMs: 3600000,
-      cwd: path.resolve("plugins/taptap-maker"),
-    });
-    expect((await service.effective("godot-game")).mcpServers).not.toHaveProperty(makerName);
-    expect((await service.effective("web-game")).mcpServers).not.toHaveProperty(makerName);
   });
 
   it("reads credential masks without writes and preserves them on an explicit save", async () => {

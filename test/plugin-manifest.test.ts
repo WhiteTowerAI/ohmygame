@@ -181,6 +181,11 @@ describe("plugin manifest format 2", () => {
     expect(messages(server({ args: ["$env:HOME"] }))).toEqual([
       "/contributes/mcpServers/0 args and cwd can't name environment variables",
     ]);
+    // The app sets the data folder variable; a request may take up to an hour.
+    expect(messages(server({ env: { ohmygame_plugin_data_dir: "/tmp" }, timeoutSeconds: 3600 }))).toEqual([
+      "/contributes/mcpServers/0/env OHMYGAME_PLUGIN_DATA_DIR is set by the app",
+    ]);
+    expect(messages(server({ timeoutSeconds: 3601 }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/timeoutSeconds"));
     // HTTP servers wait for a guard on redirects.
     expect(messages(server({ url: "https://localhost/mcp" }))).toEqual([
       "/contributes/mcpServers/0 must not have additional properties",
@@ -898,13 +903,19 @@ describe("plugin releases", () => {
     }
   });
 
-  it("indexes the app's own format 2 plugins and allows what they ask for", async () => {
+  it("indexes the app's own format 2 plugins and allows what they ask for, except one that starts off", async () => {
     const dir = await temporary();
-    const services = new PluginServices({ directory: path.join(dir, "store") });
+    const services = new PluginServices({ directory: path.join(dir, "store"), bundledOff: ["ohmygame/taptap-maker"] });
     try {
       const results = await services.addBundled(path.join(BUNDLED, "..", "plugins-v2"));
-      expect(results.every((result) => result.ok)).toBe(true);
+      expect(results.map((result) => (result.ok ? [] : result.issues))).toEqual(results.map(() => []));
       expect(services.grants.plugin("ohmygame/godot")?.allowed).toEqual(expect.arrayContaining(["native"]));
+      // It asks for consent when the person turns it on, and stays as they leave it.
+      expect(services.grants.plugin("ohmygame/taptap-maker")).toEqual({ enabled: false, allowed: [] });
+      await services.consent("ohmygame/taptap-maker", ["native"]);
+      await services.grants.setEnabled("ohmygame/taptap-maker", true);
+      await services.addBundled(path.join(BUNDLED, "..", "plugins-v2"));
+      expect(services.grants.plugin("ohmygame/taptap-maker")?.enabled).toBe(true);
     } finally {
       await services.close();
     }

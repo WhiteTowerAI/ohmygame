@@ -348,6 +348,27 @@
                   }
                 ]
               },
+              "ready": {
+                "type": "object",
+                "required": [
+                  "command",
+                  "panel"
+                ],
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "maxLength": 64
+                  },
+                  "panel": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "maxLength": 64
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Before a prompt is sent in a project of this type, the app runs this native command (no input), which returns { ready, message? }; when not ready, the prompt waits and the panel opens"
+              },
               "panels": {
                 "type": "array",
                 "items": {
@@ -401,6 +422,11 @@
                 "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.json$",
                 "minLength": 3,
                 "maxLength": 500
+              },
+              "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600
               }
             },
             "additionalProperties": false
@@ -535,6 +561,15 @@
                         "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.json$",
                         "minLength": 3,
                         "maxLength": 500
+                      },
+                      "timeoutSeconds": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 3600
+                      },
+                      "changesFiles": {
+                        "type": "boolean",
+                        "description": "false when the command never changes project files, such as a status check: it then runs during a turn and keeps no Undo"
                       }
                     },
                     "additionalProperties": false
@@ -1000,6 +1035,11 @@
                 "minItems": 1,
                 "maxItems": 100,
                 "uniqueItems": true
+              },
+              "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600
               }
             },
             "additionalProperties": false

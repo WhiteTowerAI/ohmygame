@@ -1,5 +1,3 @@
-import { PluginIntegrationHost } from "./plugin-integration.js";
-import { matchesPluginProject, requireIntegrationPlugin, registerPluginIntegrationRoutes, projectPreviewTool } from "./plugin-integration-routes.js";
 import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
 import { inspectPreviewConfiguration } from "./preview-configuration.js";
 import { CheckpointConflictError, CheckpointStore } from "./checkpoints.js";
@@ -132,6 +130,7 @@ import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorksp
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { exportProjectArchive, importProjectArchive, ProjectArchiveError } from "./project-archive.js";
+import { LEGACY_MAKER_ID, migrateLegacyMakerProjects } from "./legacy-maker.js";
 import { MAX_PROJECT_COVER_BYTES, MAX_PROJECT_LOGO_BYTES } from "./project-covers.js";
 import { PROJECT_ICONS, PROJECT_TONES } from "../shared/project-appearance.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE, PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
@@ -800,6 +799,8 @@ export function createApp(options: AppOptions = {}) {
   const pluginServices = new PluginServices({
     directory: path.join(dataDirectory, "plugin-store"),
     bundled: bundledPluginsV2,
+    // TapTap Maker is in beta: it starts off, as its format 1 plugin did.
+    bundledOff: ["ohmygame/taptap-maker"],
     onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled format 2 plugins"),
   });
   // Indexing the bundled plugins starts now; every use of the plugin services waits for it.
@@ -823,11 +824,6 @@ export function createApp(options: AppOptions = {}) {
     new LocalPluginAdapter(localPlugins, summarizePlugin),
   ], pluginSettings, (plugin) => preinstalledPlugins.decorate(plugin));
   const withPluginCapabilities = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => plugin ? pluginCapabilities.decorate(plugin) : plugin;
-  const pluginIntegrations = new PluginIntegrationHost(pluginCapabilities, (project) => project ? agents.invalidateProjectSessions(project.id) : invalidatePluginSessions(), (project, operation) => projectWrites.exclusive(project.id, async () => {
-    if (agents.isProjectBusy(project.id)) throw new Error("Wait for the agent to finish before connecting the project");
-    if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before connecting the project");
-    return operation();
-  }));
   let agents: AgentManager;
   const snapshotWorkspace = (project: ProjectState) => projectWrites.snapshot(project.id, async () => {
     if (!projects.get(project.id)) throw new Error("Project not found");
@@ -882,7 +878,7 @@ export function createApp(options: AppOptions = {}) {
       playtest ? { driver: playtest, resolveOpenTarget: () => playtestTarget(project) } : undefined,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
-    ), ...(project.integration?.preview === "external" ? [projectPreviewTool(project, plugins, pluginIntegrations)] : [])];
+    )];
   };
   const playtestTarget = async (project: ProjectState): Promise<GameUseOpenTarget> => {
     // A story plays its own page, which one made before web stories has once the editor upgrades it.
@@ -1048,6 +1044,21 @@ export function createApp(options: AppOptions = {}) {
   pluginServices.onChange(invalidatePluginSessions);
   // The app records each plugin-typed project's type when it is created; the
   // project file can later pin a version whose type previews differently.
+  /** Moves format 1 TapTap Maker projects to the format 2 plugin; see legacy-maker.ts. */
+  function migrateMaker(only?: string): Promise<void> {
+    return migrateLegacyMakerProjects({
+      projects,
+      services: pluginServices,
+      legacyEnabled: pluginSettings.storedEnabled(LEGACY_MAKER_ID) === true,
+      legacyDataFolder: pluginCapabilities.dataPath(LEGACY_MAKER_ID),
+      warn: (message, err) => app.log.warn({ err }, message),
+      onMigrated: (project) => {
+        agents.invalidateProjectSessions(project.id);
+        events.publish(project.id, "project.updated", { project: structuredClone(projects.get(project.id) ?? project) });
+      },
+      ...(only ? { only } : {}),
+    }).catch((err: unknown) => app.log.warn({ err }, "Could not move TapTap Maker projects to the format 2 plugin"));
+  }
   async function syncPluginType(project: ProjectState): Promise<void> {
     if (!project.pluginType) return;
     const recorded = await projectKindAt(project.workspacePath, pluginServices).catch(() => undefined);
@@ -1081,27 +1092,6 @@ export function createApp(options: AppOptions = {}) {
   }
   projectWrites.install(app);
   const canvasStore = registerCanvasRoutes(app, { projects, library, tools });
-  // Selecting or clearing an integration changes the project's preview, tools and prompt.
-  const changeProjectIntegration = async (project: ProjectState, change: () => Promise<ProjectState>): Promise<ProjectState> => {
-    if (agents.isProjectBusy(project.id)) throw new LocalPluginError("Wait for the agent to finish before changing the project integration", 409);
-    const updated = await change();
-    if (!supportsWebPreview(updated)) await previews.stop(updated, "settings");
-    agents.invalidateProjectSessions(updated.id);
-    events.publish(updated.id, "project.updated", { project: structuredClone(updated) });
-    return updated;
-  };
-  const selectProjectIntegration = (project: ProjectState, plugin: PluginDetail) => changeProjectIntegration(project,
-    () => projects.setIntegration(project.id, { pluginId: plugin.id, preview: plugin.integration!.preview }));
-  const clearProjectIntegration = (project: ProjectState) => changeProjectIntegration(project, async () => {
-    const { pluginId } = project.integration!;
-    const running = pluginIntegrations.state(pluginId, project.id)?.result?.preview?.status === "running";
-    await pluginIntegrations.forget(pluginId, project.id);
-    // Its controls leave with the integration, so stop a native preview it started.
-    const plugin = running ? await plugins.read(pluginId) : undefined;
-    if (plugin?.enabled) await pluginIntegrations.execute(plugin, "preview-stop", project).catch(() => {});
-    return projects.clearIntegration(project.id);
-  });
-  registerPluginIntegrationRoutes(app, { host: pluginIntegrations, plugins, projects, select: selectProjectIntegration, clear: clearProjectIntegration });
   registerPluginCapabilityRoutes(app, { capabilities: pluginCapabilities, plugins, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginCapabilities, plugins, localPlugins, invalidatePluginSessions, async ref => {
     const runtime = await getModelRuntime();
@@ -1140,6 +1130,7 @@ export function createApp(options: AppOptions = {}) {
     }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
+    await migrateMaker();
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
@@ -1392,13 +1383,15 @@ export function createApp(options: AppOptions = {}) {
       const { entry, command } = found;
       // Prompts, links, panels and settings run in the app; these run plugin code.
       if (!("native" in command.run) && !("tool" in command.run)) return reply.code(400).send({ error: "This command runs in the app" });
-      const { result, change } = await pluginWrites.run(project, { plugin: entry.id, action: `command:${command.id}`, title: localizePluginString(entry, command.title, "en") }, () =>
-        pluginServices.runCommand(entry, command, {
-          folder: project.workspacePath,
-          input: request.body.input,
-          // A link the person needs, such as a sign-in page, reaches the app while the command runs.
-          onProgress: (message, url) => url && events.publish(project.id, "plugin.command.progress", { command: request.body.command, message, url }),
-        }));
+      const run = () => pluginServices.runCommand(entry, command, {
+        folder: project.workspacePath,
+        input: request.body.input,
+        // Progress reaches the plugin's page; a link the person needs, such as a sign-in page, reaches the app too.
+        onProgress: (message, url) => events.publish(project.id, "plugin.command.progress", { command: request.body.command, message, ...(url ? { url } : {}) }),
+      });
+      // A command that never changes files, such as a status check, also runs during a turn and keeps no Undo.
+      if ("native" in command.run && command.run.changesFiles === false) return { result: (await run()) ?? null };
+      const { result, change } = await pluginWrites.run(project, { plugin: entry.id, action: `command:${command.id}`, title: localizePluginString(entry, command.title, "en") }, run);
       return { result: result ?? null, ...(change ? { change } : {}) };
     } catch (cause) {
       return pluginChangeReply(reply, cause);
@@ -1626,7 +1619,6 @@ export function createApp(options: AppOptions = {}) {
     if (!plugin || !plugin.installed) return reply.code(404).send({ error: "Installed plugin not found" });
     try {
       await pluginSettings.update(plugin, request.body);
-      if (!request.body.enabled) await pluginIntegrations.forget(plugin.id);
       invalidatePluginSessions();
       return withPluginCapabilities(await plugins.read(plugin.id));
     } catch (cause) {
@@ -1639,7 +1631,6 @@ export function createApp(options: AppOptions = {}) {
     const plugin = await localPlugins.read(request.params.pluginId);
     if (!plugin) return reply.code(404).send({ error: "Installed plugin not found" });
     try {
-      await pluginIntegrations.forget(plugin.id);
       await preinstalledPlugins.markRemoved(plugin);
       await localPlugins.remove(request.params.pluginId);
       await rm(pluginCapabilities.dataPath(plugin.id), { recursive: true, force: true });
@@ -1706,7 +1697,6 @@ export function createApp(options: AppOptions = {}) {
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
     try {
       if (request.body?.exampleId) {
-        if (request.body.pluginId) return reply.code(400).send({ error: "Examples define their own project integration" });
         if (request.body.viewport) {
           return reply.code(400).send({ error: "Examples define their own viewport" });
         }
@@ -1725,7 +1715,7 @@ export function createApp(options: AppOptions = {}) {
       const existing = request.body?.workspacePath ? await projects.findByWorkspace(request.body.workspacePath) : undefined;
       if (existing) return reply.code(200).send(existing);
       if (request.body?.projectType) {
-        if (request.body.pluginId || request.body.viewport) return reply.code(400).send({ error: "A plugin project type defines its own plugin and viewport" });
+        if (request.body.viewport) return reply.code(400).send({ error: "A plugin project type defines its own viewport" });
         const selected = (await availableProjectTypes(pluginServices)).find((type) => type.id === request.body.projectType);
         if (!selected?.plugin) return reply.code(400).send({ error: `${request.body.projectType} is not an installed plugin project type` });
         // A chosen folder that already holds files is taken on as it is; an empty one starts from the type.
@@ -1739,7 +1729,7 @@ export function createApp(options: AppOptions = {}) {
         }
         // An adopted folder keeps the version it pins, so the record comes from that version.
         const { kind, pluginType } = (adopting ? await projectKindAt(request.body.workspacePath!, pluginServices) : undefined) ?? projectKind(selected);
-        const project = await projects.create(request.body.name, kind, request.body.workspacePath, undefined, pluginType);
+        const project = await projects.create(request.body.name, kind, request.body.workspacePath, pluginType);
         if (!adopting) {
           try {
             await createTypedProject({ folder: project.workspacePath, type: selected.id, name: project.name, services: pluginServices, plugins: { [selected.plugin.id]: selected.plugin.version } });
@@ -1751,20 +1741,8 @@ export function createApp(options: AppOptions = {}) {
         }
         return reply.code(201).send(project);
       }
-      let plugin = request.body?.pluginId ? await requireIntegrationPlugin(plugins, request.body.pluginId) : undefined;
-      if (!plugin && request.body?.workspacePath) {
-        const matches = [];
-        for (const summary of (await plugins.list()).plugins) {
-          if (summary.enabled && await matchesPluginProject(summary, request.body.workspacePath)) matches.push(summary);
-        }
-        if (matches.length > 1) throw new LocalPluginError("Several plugins recognize this workspace. Select one explicitly.", 409);
-        if (matches[0]) plugin = await requireIntegrationPlugin(plugins, matches[0].id);
-      }
-      const type = plugin && !request.body?.pluginId ? pluginProjectType(request.body?.type ?? "web-game", [plugin]) : request.body?.type ?? plugin?.projectTypes?.[0] ?? "web-game";
-      if (!type) throw new LocalPluginError("Select a compatible project type", 400);
-      if (plugin?.projectTypes?.length && !plugin.projectTypes.includes(type)) throw new LocalPluginError("Plugin does not support the selected project type", 400);
-      const integration = plugin ? { pluginId: plugin.id, preview: plugin.integration!.preview } : undefined;
-      const project = await projects.create(request.body?.name, type, request.body?.workspacePath, integration);
+      const type = request.body?.type ?? "web-game";
+      const project = await projects.create(request.body?.name, type, request.body?.workspacePath);
       if (project.type === "interactive-story") {
         try {
           await createNodeCodebase(
@@ -2218,7 +2196,10 @@ export function createApp(options: AppOptions = {}) {
         : undefined;
     if (!upload) return reply.code(400).send({ error: "Choose a project archive to import." });
     try {
-      return reply.code(201).send(await importProjectArchive(projects, upload, { name: request.query.name }));
+      const imported = await importProjectArchive(projects, upload, { name: request.query.name });
+      // The project records that it came from an archive, so its folder waits for the person's approval.
+      if (imported.integration) await migrateMaker(imported.id);
+      return reply.code(201).send(projects.get(imported.id) ?? imported);
     } catch (cause) {
       if (cause instanceof ProjectArchiveError) return reply.code(cause.statusCode).send({ error: cause.message });
       if (cause instanceof ProjectWorkspaceError) return reply.code(400).send({ error: cause.message });
@@ -2241,7 +2222,6 @@ export function createApp(options: AppOptions = {}) {
     // A project reads as idle from the end of a run, a little before its turn is closed; what is asked of it then waits.
     await agents.turnsClosed(project.id);
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before deleting this project" });
-    if (project.integration) await pluginIntegrations.forget(project.integration.pluginId, project.id);
     return projectWrites.exclusive(project.id, async () => {
     await previews.forget(project);
     agents.forgetProject(project.id);
@@ -3291,24 +3271,15 @@ export function createApp(options: AppOptions = {}) {
         for (const mention of mentions) {
           const plugin = catalog!.plugins.find(item => item.name === mention.name && item.marketplace.id === mention.marketplaceId);
           if (plugin?.projectTypes?.length && !plugin.projectTypes.includes(project.type)) throw new LocalPluginError("A referenced plugin requires a different project type", 409);
-          if (plugin?.integration && project.integration?.pluginId !== plugin.id) throw new LocalPluginError("Connect this plugin to the project before sending a prompt", 409);
-        }
-        if (project.integration) {
-          const plugin = await requireIntegrationPlugin(plugins, project.integration.pluginId, project);
-          if (plugin.integration!.projectFiles?.length && !await matchesPluginProject(plugin, project.workspacePath)) throw new LocalPluginError("Connect the project in its plugin setup before sending a prompt", 409);
-          let status = pluginIntegrations.state(plugin.id, project.id);
-          if (status?.running && ["prepare", "connect", "bind"].includes(status.action)) throw new LocalPluginError("Wait for plugin setup to finish", 409);
-          // Recheck an old connection when idle. A failed recheck keeps the last
-          // result, so an unreachable service does not block local work.
-          if (!status?.result?.connection || (!status.running && Date.now() - (status.connectionCheckedAt ?? 0) > PLUGIN_CONNECTION_MAX_AGE_MS)) {
-            await pluginIntegrations.execute(plugin, "status", project).catch(() => {});
-            status = pluginIntegrations.state(plugin.id, project.id);
-          }
-          if (status?.result?.connection?.status !== "ready" || !status.result.project) throw new LocalPluginError("Complete the project's plugin connection before sending a prompt", 409);
         }
       } catch (cause) {
         if (cause instanceof LocalPluginError) return reply.code(cause.statusCode).send({ error: cause.message });
         throw cause;
+      }
+      // A plugin type can hold prompts back until its project is set up, such as signed in and bound.
+      if (project.pluginType) {
+        const ready = await pluginServices.projectReady(project.workspacePath, project.pluginType.id);
+        if (!ready.ready) return reply.code(409).send({ error: ready.message ?? "Finish setting up this project in its panel first", code: "project-not-ready", panel: ready.panel });
       }
       let references;
       try {
@@ -3652,7 +3623,7 @@ export function createApp(options: AppOptions = {}) {
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
-      if (project.integration) return reply.code(409).send({ error: "This project uses plugin publishing. Follow its plugin's publishing workflow." });
+      if (project.pluginType?.preview === "native") return reply.code(409).send({ error: "This project runs outside OhMyGame. Follow its plugin's publishing workflow." });
       if (!localPublisher && request.body.accessToken === LOCAL_DEBUG_ACCESS_TOKEN) {
         return reply.code(401).send({ error: "Local debug sign-in is unavailable outside local development" });
       }
@@ -3773,7 +3744,6 @@ export function createApp(options: AppOptions = {}) {
     // Indexing writes to the plugin store and restarts sessions; it finishes before they close.
     await pluginServicesReady;
     catalogRefresh.close();
-    await pluginIntegrations.close();
     await externalMcp.close();
     codexImages.close();
     await projectNaming.close();
@@ -3806,13 +3776,13 @@ function firstHeader(value: string | string[] | undefined): string | undefined {
 function enabledPluginMentions(plugins: readonly PluginSummary[], projectType?: ProjectType): ConversationCapabilities["plugins"] {
   return plugins
     .filter((plugin) => plugin.enabled && (!projectType || !plugin.projectTypes?.length || plugin.projectTypes.includes(projectType)))
-    .map(({ id, name, displayName, description, marketplace, icon, iconRevision, projectTypes, integration }) => ({
+    .map(({ id, name, displayName, description, marketplace, icon, iconRevision, projectTypes }) => ({
       id,
       name,
       displayName,
       description,
       icon, iconRevision,
-      projectTypes, integration,
+      projectTypes,
       marketplaceId: marketplace.id,
       marketplaceDisplayName: marketplace.displayName,
     }));

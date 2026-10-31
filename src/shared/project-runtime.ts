@@ -19,7 +19,8 @@ export function supportsWebPreview(
 ): boolean {
   return (
     buildsWebPreview(project) ||
-    (project?.integration?.preview !== "external" &&
+    (!project?.integration &&
+      project?.pluginType?.preview !== "native" &&
       (project?.type === "web-game" ||
         (project?.type === "general" && project.webPreviewEnabled === true)))
   );
@@ -32,9 +33,6 @@ export function buildsWebPreview(
   return project?.pluginType?.preview === "web-build";
 }
 
-export function supportsProjectPreview(project?: Pick<ProjectState, "type" | "webPreviewEnabled" | "integration" | "pluginType">): boolean {
-  return supportsWebPreview(project) || project?.integration?.preview === "external";
-}
 
 /** Only an unambiguous compatibility intersection may change a new workspace's
  * type. Asset/helper plugins with no restriction never choose its engine. */

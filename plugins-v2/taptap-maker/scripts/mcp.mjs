@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
-import { installed, makerEnvironment, makerPath } from "./runtime.mjs";
+import { installed, makerEnvironment, makerPath } from "../native/runtime.mjs";
 
 const directory = process.env.OHMYGAME_PLUGIN_DATA_DIR;
 if (!directory || !(await installed(directory))) {
   process.stderr.write(
-    "Prepare TapTap Maker in OhMyGame Plugins before connecting its MCP.\n",
+    "Prepare TapTap Maker in its panel before using its MCP tools.\n",
   );
   process.exitCode = 1;
 } else {

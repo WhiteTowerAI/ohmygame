@@ -298,6 +298,48 @@ describe("project shell layout", () => {
 });
 
 describe("format 2 plugins in the project shell", () => {
+  it("holds the initial message until a plugin type's project is set up, opening the panel that sets it up", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    let ready = false;
+    const handled = vi.fn();
+    const daemon = await openProject(
+      (route, init) => {
+        if (route === "/projects/project")
+          return Response.json({
+            id: "project", name: "Native", type: "general", webPreviewEnabled: false, workspacePath: "/tmp/project",
+            updatedAt: new Date(0).toISOString(), preview: { status: "stopped" },
+            pluginType: { id: "acme/maker:maker", plugin: "acme/maker", preview: "native" },
+          });
+        if (route.startsWith("/projects/project/plugin-panels")) return Response.json([
+          { id: "setup", plugin: "acme/maker", version: "1.0.0", title: "Maker setup", area: "right", capabilities: {}, commands: [], url: "about:blank" },
+        ]);
+        if (route.endsWith("/turns") && init.method === "POST" && !ready)
+          return Response.json({ error: "Connect a Maker project first", code: "project-not-ready", panel: "acme/maker:setup" }, { status: 409 });
+        return undefined;
+      },
+      detail("live-turn"),
+      { initialPrompt: { generation: 1, prompt: "Build my Maker game", mentions: [], images: [], mode: "normal" }, onInitialPromptHandled: handled },
+    );
+    await settle();
+    expect(handled).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Your initial message has not been sent.");
+    expect(container.textContent).toContain("Connect a Maker project first");
+    expect(container.querySelector(".paused-initial-prompt pre")?.textContent).toBe("Build my Maker game");
+    const tabs = () => [...container.querySelectorAll(".dock-area-right .dock-tab-label")].map((tab) => tab.textContent);
+    // Closed, the panel comes back when the message is refused again.
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Maker setup"]')!.click());
+    expect(tabs()).not.toContain("Maker setup");
+    await click("Send original message");
+    expect(tabs()).toContain("Maker setup");
+    expect(handled).not.toHaveBeenCalled();
+    ready = true;
+    await click("Send original message");
+    expect(handled).toHaveBeenCalledOnce();
+    const sent = daemon.requests.filter((request) => request.method === "POST" && request.route.endsWith("/turns"));
+    expect(sent).toHaveLength(3);
+    expect(JSON.parse(sent[2]!.body!).prompt).toBe("Build my Maker game");
+  });
+
   it("shows a plugin's panel where it asks, and runs its menu command with Undo", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const { ToastProvider } = await import("../src/renderer/ui/index.js");
@@ -444,77 +486,6 @@ describe("checkpoints in the project shell", () => {
     expect(daemon.requests.some((request) => request.route.endsWith("/account-profile") && request.method === "PUT")).toBe(false);
   });
 
-  it("retains the initial message after cancelling plugin setup and allows sending it after connection", async () => {
-    let ready = false;
-    const handled = vi.fn();
-    const daemon = await openProject(
-      (route) => {
-        if (route === "/projects/project")
-          return Response.json({
-            id: "project",
-            name: "Native",
-            type: "general",
-            webPreviewEnabled: false,
-            workspacePath: "/tmp/project",
-            updatedAt: new Date(0).toISOString(),
-            preview: { status: "stopped" },
-            integration: { pluginId: "fixture", preview: "external" },
-          });
-        if (route.startsWith("/plugins/fixture/integration"))
-          return Response.json({
-            pluginId: "fixture",
-            action: "status",
-            running: false,
-            result: {
-              connection: { status: ready ? "ready" : "needs-setup" },
-              project: ready ? { id: "existing" } : null,
-            },
-          });
-        return undefined;
-      },
-      detail("live-turn"),
-      {
-        initialPrompt: {
-          generation: 1,
-          prompt: "Build my Maker game",
-          mentions: [],
-          images: [],
-          mode: "normal",
-        },
-        onInitialPromptHandled: handled,
-      },
-    );
-    expect(container.querySelector('[role="dialog"]')).toBeTruthy();
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>(
-          '[role="dialog"] [aria-label="Close"]',
-        )!
-        .click(),
-    );
-    expect(handled).not.toHaveBeenCalled();
-    expect(container.textContent).toContain(
-      "Your initial message has not been sent.",
-    );
-    expect(
-      container.querySelector(".paused-initial-prompt pre")?.textContent,
-    ).toBe("Build my Maker game");
-    expect(
-      daemon.requests.some(
-        (request) =>
-          request.method === "POST" && request.route.endsWith("/turns"),
-      ),
-    ).toBe(false);
-    ready = true;
-    await click("Send original message");
-    expect(handled).toHaveBeenCalledOnce();
-    const sent = daemon.requests.filter(
-      (request) =>
-        request.method === "POST" && request.route.endsWith("/turns"),
-    );
-    expect(sent).toHaveLength(1);
-    expect(JSON.parse(sent[0]!.body!).prompt).toBe("Build my Maker game");
-  });
   it("undoes a turn through the conflict choice and marks it without reading the conversation again", async () => {
     const daemon = await openProject((route, init) => {
       if (route === `${BASE}/changes`)

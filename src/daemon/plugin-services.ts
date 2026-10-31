@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import { readdir, rm } from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type {
   AgentToolResult,
@@ -8,10 +8,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, mcpServerSyntaxIssue } from "../shared/plugin-manifest.js";
+import { agentToolName, configReferences, isPluginId, mcpServerSyntaxIssue, PLUGIN_DATA_ENV } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
-import { PROJECT_FILE_NAME } from "../shared/project-file.js";
+import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import {
   ExtensionHosts,
   type ExtensionHostOptions,
@@ -66,6 +66,9 @@ export class PluginToolSchemaError extends Error {
 }
 
 /** A command was asked to run in a way it can't. */
+/** How long a project type's `ready` command may take before the prompt goes ahead. */
+const READY_TIMEOUT_MS = 20_000;
+
 export class PluginCommandInputError extends Error {
   readonly statusCode = 400;
 }
@@ -103,6 +106,8 @@ export interface PluginServicesOptions {
   bundled?: string;
   /** Told when the bundled plugins can't be indexed; everything else still loads. */
   onBundledError?: (error: unknown) => void;
+  /** Bundled plugins that start off, such as one in beta, until the person turns them on. */
+  bundledOff?: readonly string[];
 }
 
 export class PluginServices {
@@ -114,6 +119,9 @@ export class PluginServices {
   readonly values: PluginValues;
   /** Where signed releases are unpacked; uninstalling deletes its folders. */
   readonly packagesDirectory: string;
+  readonly #bundledOff: ReadonlySet<string>;
+  /** Holds each plugin's data folder, `<publisher>/<name>`. */
+  readonly dataDirectory: string;
   readonly #bundled: Pick<PluginServicesOptions, "bundled" | "onBundledError">;
   #files: Promise<void> | undefined;
   #loaded: Promise<void> | undefined;
@@ -129,12 +137,15 @@ export class PluginServices {
       path.join(options.directory, "configuration.json"),
     );
     this.packagesDirectory = path.join(options.directory, "packages");
+    this.#bundledOff = new Set(options.bundledOff);
+    this.dataDirectory = path.join(options.directory, "data");
     this.#bundled = options;
     this.native = new NativePlugins({
       index: this.index,
       grants: this.grants,
       hosts: this.hosts,
       configuration: (entry) => this.values.forNative(entry),
+      dataFolder: (id) => this.dataFolder(id),
     });
   }
 
@@ -223,6 +234,13 @@ export class PluginServices {
    * the plugin and server. A server is left out until the settings it names
    * are filled in.
    */
+  /** A plugin's data folder; ids are `publisher/name`, so it stays under `dataDirectory`. */
+  dataFolder(id: string): string {
+    // Ids come from routes too; only a real id names a folder inside the store.
+    if (!isPluginId(id)) throw new Error(`Not a plugin id: ${id}`);
+    return path.join(this.dataDirectory, ...id.split("/"));
+  }
+
   async mcpServers(folder: string): Promise<Record<string, McpServerDefinition>> {
     await this.ready();
     this.#watch(folder);
@@ -245,12 +263,21 @@ export class PluginServices {
             ? item.replace(/\$\{config\.([a-zA-Z0-9]+)\}/g, (_match, name: string) => String(values[name]))
             : item,
         ) as T;
-        const { id, title: _title, tools, cwd, ...launch } = fill(server);
+        const { id, title: _title, tools, cwd, timeoutSeconds, ...launch } = fill(server);
         const definition = { ...launch, cwd: path.resolve(entry.root, cwd ?? ".") };
         // A setting's value is checked as the manifest's own values were.
         if (mcpServerSyntaxIssue(definition)) continue;
+        const dataFolder = this.dataFolder(entry.id);
+        await mkdir(dataFolder, { recursive: true, mode: 0o700 });
         const name = `plugin-${createHash("sha256").update(entry.id).digest("hex").slice(0, 12)}-v2-${id}`;
-        servers[name] = { ...definition, literalEnv: true, includeTools: tools, disabled: false };
+        servers[name] = {
+          ...definition,
+          env: { ...definition.env, [PLUGIN_DATA_ENV]: dataFolder },
+          literalEnv: true,
+          includeTools: tools,
+          ...(timeoutSeconds ? { requestTimeoutMs: timeoutSeconds * 1000 } : {}),
+          disabled: false,
+        };
       }
     }
     return servers;
@@ -345,6 +372,42 @@ export class PluginServices {
     return command ? { entry: plugin.entry, command } : undefined;
   }
 
+  /**
+   * Whether a project of a plugin type may take a prompt, from the type's
+   * `ready` command. Only an answer of `{ ready: false }` holds a prompt back:
+   * a plugin that is off, missing or failing never locks the project.
+   */
+  async projectReady(
+    folder: string,
+    type: string,
+  ): Promise<{ ready: true } | { ready: false; message?: string; panel: string }> {
+    const owner = projectTypePlugin(type);
+    if (!owner) return { ready: true };
+    await this.ready();
+    const resolved = await resolveProjectPlugins({ folder, index: this.index, grants: this.grants }).catch(() => undefined);
+    const plugin = resolved?.ok ? resolved.plugins.find((item) => item.id === owner) : undefined;
+    const entry = plugin?.status === "active" ? plugin.entry : undefined;
+    const check = entry?.manifest.contributes?.projectTypes?.find((item) => `${owner}:${item.id}` === type)?.ready;
+    if (!entry || !check) return { ready: true };
+    let answer: unknown;
+    try {
+      answer = await this.native.runCommand(`${owner}:${check.command}`, {
+        folder,
+        version: entry.version,
+        timeoutMs: READY_TIMEOUT_MS,
+      });
+    } catch {
+      return { ready: true };
+    }
+    if (!answer || typeof answer !== "object" || (answer as { ready?: unknown }).ready !== false) return { ready: true };
+    const message = (answer as { message?: unknown }).message;
+    return {
+      ready: false,
+      ...(typeof message === "string" && message.trim() ? { message: message.slice(0, 500) } : {}),
+      panel: `${owner}:${check.panel}`,
+    };
+  }
+
   /** Sets some of a plugin's configuration; the next call to its native code sees them. */
   async configure(
     id: string,
@@ -413,7 +476,13 @@ export class PluginServices {
       const result = await this.index.add(path.join(directory, folder.name));
       results.push(result);
       if (!result.ok || !result.entry.id.startsWith("ohmygame/")) continue;
-      if (this.grants.plugin(result.entry.id)?.enabled === false) continue;
+      const decided = this.grants.plugin(result.entry.id);
+      if (decided?.enabled === false) continue;
+      // One that starts off asks for consent when the person turns it on.
+      if (!decided && this.#bundledOff.has(result.entry.id)) {
+        await this.grants.setEnabled(result.entry.id, false);
+        continue;
+      }
       await this.grants.consent(
         result.entry.id,
         capabilityGrants(result.entry.manifest),
@@ -428,8 +497,10 @@ export class PluginServices {
     const removed = version
       ? [this.index.get(id, version)].filter((entry) => entry !== undefined)
       : this.index.versions(id);
+    if (!removed.length) return;
     await this.index.remove(id, version);
-    if (!this.index.versions(id).length) {
+    const last = !this.index.versions(id).length;
+    if (last) {
       await this.grants.forget(id);
       await this.values.forget(id);
     }
@@ -440,6 +511,7 @@ export class PluginServices {
       if (inside && !inside.startsWith("..") && !path.isAbsolute(inside))
         await rm(entry.root, { recursive: true, force: true });
     }
+    if (last) await rm(this.dataFolder(id), { recursive: true, force: true });
   }
 
   /** Records what the person allowed at install; a new plugin starts on. */

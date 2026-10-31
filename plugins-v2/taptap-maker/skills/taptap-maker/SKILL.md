@@ -9,11 +9,11 @@ Maker games use UrhoX and Lua. Pass the workspace's absolute path as `target_dir
 
 ## Setup and binding
 
-The plugin's connection panel prepares the pinned CLI and diagnostics, signs in, and binds the directory. When setup, sign-in, or binding is missing, direct the user there. Do not ask for tokens, run Maker installers, upgrade the CLI, run `init`, or create remote projects yourself. Keep the existing binding, Git history, and dev-kit files.
+The TapTap Maker panel prepares the pinned CLI and diagnostics, signs in, and creates or connects the Maker project. When setup, sign-in, or binding is missing, or a Maker tool reports missing authorization, direct the user to that panel. Do not ask for tokens, run Maker installers, upgrade the CLI, run `init`, or create remote projects yourself. Keep the existing binding, Git history, and dev-kit files.
 
 ## Preview
 
-Use `project_preview` with `status`, `start`, `refresh`, `stop`, or `logs`; a missing Runtime is installed from View. The game opens in its own window, and a running process does not prove gameplay. Refresh after relevant edits, which resets game state. Never restart a preview the user stopped, and stop one you started for a test. CLI 0.0.36 has no `preview validate` or screenshots; validate Lua with the project's validation Skill and read its reports.
+Use `ohmygame__taptap-maker__maker_preview` with `status`, `install`, `start`, `refresh`, `stop`, or `logs`; the panel has the same controls. The game opens in its own window, and a running process does not prove gameplay. Refresh after relevant edits, which resets game state. Never restart a preview the user stopped, and stop one you started for a test. CLI 0.0.36 has no `preview validate` or screenshots; validate Lua with the project's validation Skill and read its reports.
 
 ## Submit
 

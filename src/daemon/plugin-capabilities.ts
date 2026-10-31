@@ -111,9 +111,6 @@ export class PluginCapabilities {
       );
     const values = this.configuration.resolved(plugin);
     const resolved = substitute(template, values) as McpServerDefinition;
-    if (plugin.integration && resolved.command) {
-      resolved.env = { ...(resolved.env as Record<string, string> | undefined), OHMYGAME_PLUGIN_DATA_DIR: this.dataPath(plugin.id) };
-    }
     if (!isMcpServerDefinition(resolved))
       throw new PluginConfigurationError("Resolved MCP definition is invalid");
     if (typeof resolved.cwd === "string" && !path.isAbsolute(resolved.cwd))

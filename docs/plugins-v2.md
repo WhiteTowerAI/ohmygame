@@ -1,7 +1,7 @@
 # Plugin format 2
 
 Format 2 is the next plugin contract. It runs beside format 1 ([plugins.md](plugins.md)),
-which integrations, the Browse tab and format 1 Godot projects still use.
+which the Browse tab and format 1 Godot projects still use.
 The app lists installed format 2 plugins on the Plugins page, turns them on
 per project, and shows their panels and commands in a project. Installing a
 signed release from the app is not built yet: no catalog or release keys
@@ -21,27 +21,37 @@ ship, so format 2 plugins come bundled or from a folder.
   - `grants.json`: install consent, the app switch per plugin, and what each
     project folder allows (by real path);
   - `configuration.json`: settings values, readable only by the person;
-  - `packages/<publisher>/<name>/<version>/`: installed releases.
+  - `packages/<publisher>/<name>/<version>/`: installed releases;
+  - `data/<publisher>/<name>/`: the plugin's data folder, shared by its
+    versions and projects, made private on first use and deleted with its
+    last version.
 - **Project data,** in the project's storage folder: `plugin-changes.json`
   (changes plugins made outside a turn) and `plugin-storage/` (plugin pages'
   storage).
 - **Bundled:** `plugins-v2/` ships with the app and is indexed in place by
   `PluginServices.ready()`, which every service method and route waits for;
-  `packages/plugin-ui/` is `@ohmygame/plugin-ui`.
+  `packages/plugin-ui/` is `@ohmygame/plugin-ui`. A bundled plugin starts
+  on unless it is in `bundledOff` (TapTap Maker), which leaves it off until
+  the person turns it on.
 
 ## Native code
 
 A native entry exports `activate(context)` (types in
 `src/shared/extension-host-protocol.ts`). It runs in an extension host, a
 Node child process per project (`src/daemon/extension-hosts.ts`), never in
-the daemon. `context.project.folder` is the project; each call gets
-`signal`, `progress`, `turn` and `configuration`. Only tools, commands and
-project type hooks the manifest declares can be registered.
+the daemon. `context.project.folder` is the project and
+`context.dataFolder` the plugin's data folder; each call gets `signal`,
+`progress`, `turn` and `configuration`. Only tools, commands and project
+type hooks the manifest declares can be registered. A tool, native command
+or MCP server may set `timeoutSeconds` (up to 3600) for calls that
+download or build. A native command with `changesFiles: false` runs
+without the project's write lock and leaves no change to undo.
 `progress(message, { url })` carries an https link the person needs, such
 as a device sign-in page; it is never dropped as frequent updates are. For a
-command the app runs, the link arrives as `plugin.command.progress` and the
-project offers to open it after showing its host; an agent's tool call shows
-it in the call's progress.
+command the app runs, every message arrives as `plugin.command.progress`;
+the project offers to open a link after showing its host, and the plugin's
+own pages get the message as their `progress` event. An agent's tool call
+shows it in the call's progress.
 
 ## Modules
 
@@ -50,6 +60,7 @@ it in the call's progress.
 | Manifest, index, `when` | `src/shared/plugin-manifest.ts`, `src/shared/plugin-when.ts`, `src/daemon/plugin-index.ts` | `test/plugin-manifest.test.ts` |
 | Project file and decisions | `src/daemon/project-plugins.ts` | `test/project-plugins.test.ts` |
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
+| TapTap Maker and format 1 Maker projects | `plugins-v2/taptap-maker/`, `src/daemon/legacy-maker.ts` | `test/taptap-maker.test.ts`, `test/project-plugins.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
@@ -72,6 +83,8 @@ it in the call's progress.
   MCP host (`PluginServices.mcpServers`). A server runs a `command` listed in
   `capabilities.processes`, from the plugin's folder or its `cwd`; HTTP
   servers wait for a way to keep redirects within `capabilities.network`.
+  The app sets `OHMYGAME_PLUGIN_DATA_DIR` in its `env` to the plugin's data
+  folder; the manifest can't set that name itself.
   Its `args` and `env` may name settings as `${config.field}`; a server waits
   until those are filled in, and a secret needs `capabilities.secrets`.
   Agents see only the `tools` it lists. Servers start lazily, on a session's
@@ -89,7 +102,14 @@ it in the call's progress.
   without asking again, so that one call can still finish after the change.
 - A typed project's preview follows the plugin version its `ohmygame.json`
   pins; the app updates what it recorded when that file changes and at
-  startup.
+  startup. A `native` preview runs outside the app, so the project has no
+  web preview and can't be published to Community.
+- A project type's `ready` names a native command without input and a panel.
+  Before each prompt the app runs the command (up to 20 seconds); when it
+  answers `{ ready: false, message? }`, the prompt route answers 409 with
+  `code: "project-not-ready"` and the panel, which the project opens, and a
+  new project's first message waits there. A failed or missing check lets the
+  prompt through.
 - Commands and changes: `GET`/`POST /projects/:id/plugin-commands`
   (`{ command, input? }`; `PluginServices.runCommand` runs it),
   `GET /projects/:id/plugin-changes`,
@@ -111,11 +131,8 @@ it in the call's progress.
   person allowed that. Turning on one never allowed asks first, then posts
   the consent. The type's plugin stays on.
 - Home: the composer's type menu lists the app's types, then plugins' types
-  from `GET /project-types`, then enabled format 1 plugins that set up their
-  own projects (`integration.createProject`, such as TapTap Maker), then a
-  link to the plugins that add types (`#/plugins?adds=projectType`). The type
-  picks the starting plugin; a format 1 plugin's own type keeps that plugin on
-  and makes the app type it names first. The plugin menu beside the type
+  from `GET /project-types`, then a link to the plugins that add types
+  (`#/plugins?adds=projectType`). The type picks the starting plugin. The plugin menu beside the type
   takes any number of starting plugins, sent as mentions in the order chosen,
   and lists `GET /project-plugins`, the enabled format 2 plugins a new project
   can turn on for itself; the type's own plugin is left out. Creating the project posts each one's consent, if still needed, and

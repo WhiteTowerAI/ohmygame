@@ -210,7 +210,7 @@ export class ProjectManager {
     }
   }
 
-  async create(name?: string, type: ProjectType = "web-game", selectedWorkspacePath?: string, integration?: ProjectState["integration"], pluginType?: ProjectState["pluginType"]): Promise<ProjectState> {
+  async create(name?: string, type: ProjectType = "web-game", selectedWorkspacePath?: string, pluginType?: ProjectState["pluginType"]): Promise<ProjectState> {
     const id = randomUUID();
     const projectDirectory = path.join(this.#projectsDirectory, id);
     if (selectedWorkspacePath === undefined && this.#location) {
@@ -226,9 +226,8 @@ export class ProjectManager {
       name: name?.trim() || defaultProjectName(type),
       nameSource: name?.trim() ? "manual" : "default",
       type,
-      ...(integration ? { integration } : {}),
       ...(pluginType ? { pluginType } : {}),
-      ...(type === "general" ? { webPreviewEnabled: pluginType ? pluginType.preview === "web" : integration?.preview !== "external" } : {}),
+      ...(type === "general" ? { webPreviewEnabled: pluginType ? pluginType.preview === "web" : true } : {}),
       updatedAt: new Date().toISOString(),
       ...(hasExternalWorkspace ? { workspacePath } : {}),
     };
@@ -305,7 +304,7 @@ export class ProjectManager {
     if (input.webPreviewEnabled !== undefined && typeof input.webPreviewEnabled !== "boolean") throw new ProjectWorkspaceError("Web preview enabled must be a boolean");
     try { validatePreviewSettings(input); } catch (cause) { throw new ProjectWorkspaceError((cause as Error).message); }
     const webPreviewEnabled = project.type === "general" ? input.webPreviewEnabled ?? project.webPreviewEnabled ?? false : true;
-    if (webPreviewEnabled && project.integration?.preview === "external") throw new ProjectWorkspaceError("This project uses its plugin preview");
+    if (webPreviewEnabled && (project.integration || project.pluginType?.preview === "native")) throw new ProjectWorkspaceError("This project uses its plugin preview");
     if (!isValidStartupDirectory(input.startupDirectory)) throw new ProjectWorkspaceError("Startup directory must be a relative path inside the project workspace");
     const startupDirectory = normalizeStartupDirectory(input.startupDirectory) ?? ".";
     const startupScript = normalizeStartupScript(input.startupScript);
@@ -351,14 +350,6 @@ export class ProjectManager {
     return project;
   }
 
-  async setIntegration(id: string, integration: NonNullable<ProjectState["integration"]>): Promise<ProjectState> {
-    const project = this.#projects.get(id);
-    if (!project) throw new ProjectWorkspaceError("Project not found");
-    if (project.integration && project.integration.pluginId !== integration.pluginId) throw new ProjectWorkspaceError("This workspace is connected through another plugin");
-    await this.#save(project, { integration, ...(integration.preview === "external" && project.type === "general" ? { webPreviewEnabled: false } : {}) });
-    return project;
-  }
-
   /**
    * The plugin type recorded for the project, after its project file moved to
    * another version of the plugin. A General Game's Web preview follows the type.
@@ -372,11 +363,15 @@ export class ProjectManager {
     return project;
   }
 
-  /** Web preview stays off; the user re-enables it in Project settings. */
-  async clearIntegration(id: string): Promise<ProjectState> {
+  /**
+   * Moves a project that used a format 1 integration to the format 2 plugin
+   * type that replaced it, once its project file names that type. Web preview
+   * stays off, as it was.
+   */
+  async migrateIntegration(id: string, pluginType: NonNullable<ProjectState["pluginType"]>): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new ProjectWorkspaceError("Project not found");
-    if (project.integration) await this.#save(project, { integration: undefined });
+    await this.#save(project, { integration: undefined, pluginType, ...(project.type === "general" ? { webPreviewEnabled: false } : {}) });
     return project;
   }
 
@@ -448,6 +443,8 @@ export class ProjectManager {
     try {
       const candidate = {
         ...Object.fromEntries(PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => settings[key] !== undefined).map((key) => [key, settings[key]])),
+        // Recorded with the project, so a later try to move it can't allow its plugin either.
+        ...(settings.integration ? { integration: { ...settings.integration, imported: true } } : {}),
         version: 1, id, nameSource: "manual", updatedAt,
       };
       try {
@@ -1235,7 +1232,7 @@ function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): L
     validPreviewSettings(parsed) && parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
     (parsed.nameSource === undefined || ["default", "ai", "manual"].includes(parsed.nameSource)) &&
     (parsed.type === undefined || isProjectType(parsed.type)) &&
-    (parsed.integration === undefined || (typeof parsed.integration?.pluginId === "string" && !!parsed.integration.pluginId && (parsed.integration.preview === undefined || parsed.integration.preview === "external"))) &&
+    (parsed.integration === undefined || (typeof parsed.integration?.pluginId === "string" && !!parsed.integration.pluginId && (parsed.integration.preview === undefined || parsed.integration.preview === "external") && (parsed.integration.imported === undefined || parsed.integration.imported === true))) &&
     (parsed.pluginType === undefined || (typeof parsed.pluginType?.id === "string" && typeof parsed.pluginType.plugin === "string" && parsed.pluginType.id.startsWith(`${parsed.pluginType.plugin}:`) && ["web", "web-build", "native"].includes(parsed.pluginType.preview))) &&
     (parsed.webPreviewEnabled === undefined || typeof parsed.webPreviewEnabled === "boolean") &&
     (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
