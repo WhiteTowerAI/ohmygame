@@ -59,10 +59,14 @@ const STOP_GRACE_MS = 1000;
 /** How long output may stay open after Maker exits, held by something it started. */
 const CLOSE_GRACE_MS = 2000;
 
-/** Process groups started by calls still running, stopped if the host exits first. */
+/**
+ * Process groups of calls still running, and of stopped calls until they are
+ * killed: the host kills them all if it exits first.
+ */
 const running = new Set();
+const stopping = new Set();
 process.once("exit", () => {
-  for (const child of running) signalGroup(child, "SIGKILL");
+  for (const child of [...running, ...stopping]) signalGroup(child, "SIGKILL");
 });
 
 function signalGroup(child, signal) {
@@ -87,8 +91,13 @@ function stopTree(child) {
     }).once("error", () => child.kill());
     return;
   }
+  if (stopping.has(child)) return;
+  stopping.add(child);
   signalGroup(child, "SIGTERM");
-  setTimeout(() => signalGroup(child, "SIGKILL"), STOP_GRACE_MS).unref();
+  setTimeout(() => {
+    signalGroup(child, "SIGKILL");
+    stopping.delete(child);
+  }, STOP_GRACE_MS).unref();
 }
 
 export async function run(
