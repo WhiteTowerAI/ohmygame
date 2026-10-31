@@ -162,7 +162,8 @@ const SENSITIVE = /token|key|secret|signature|sig|auth|password|credential|sessi
  * like credentials. A URL that can't be parsed loses its query.
  */
 export function redact(message) {
-  return String(message).replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi, (text) => {
+  // A URL runs to whitespace or a character it can't hold; an apostrophe may be part of a value.
+  return String(message).replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"<>]+/gi, (text) => {
     let url;
     try {
       url = new URL(text);

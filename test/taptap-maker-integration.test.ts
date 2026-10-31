@@ -276,9 +276,10 @@ describe("Maker preview adapter", () => {
 
   it("hides credentials in query names Maker printed encoded", async () => {
     await preview({ state: "stopped", process_alive: false });
-    await failStart(1, "Local prepare failed; no Runtime was started. Log: https://example.com/log?to%6Ben=abc&page=2");
+    await failStart(1, "Local prepare failed; no Runtime was started. Log: https://example.com/log?to%6Ben=abc&client_se%63ret=x'yz&page=2");
     const message = (await run("preview-start")).messages.at(-1) as { result: { preview: { message: string } } };
     expect(message.result.preview.message).not.toContain("abc");
+    expect(message.result.preview.message).not.toContain("yz");
     expect(message.result.preview.message).toContain("page=2");
   });
 
