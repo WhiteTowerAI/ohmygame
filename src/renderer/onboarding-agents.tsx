@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { AgentModel } from "../shared/contracts.js";
-import type {
-  AgentRuntimeId,
-  AgentRuntimeStatus,
+import {
+  isAgentRuntimeId,
+  type AgentRuntimeId,
+  type AgentRuntimeStatus,
 } from "../shared/agent-runtimes.js";
 import {
   listAgentRuntimes,
@@ -262,12 +263,11 @@ export function OnboardingAgents({
     </>
   );
 
-  const card = ({
+  // One row of agents, all in sight, then the chosen one's setup below it.
+  const tile = ({
     id,
     name,
     icon,
-    hint,
-    badge,
     status,
     tone,
     disabled,
@@ -275,65 +275,42 @@ export function OnboardingAgents({
   }: {
     id: "pi" | AgentRuntimeId;
     name: string;
-    icon?: { src: string; tone: string };
-    hint: string;
-    badge?: string;
-    status?: ReactNode;
+    icon: { src: string; tone: string };
+    status: ReactNode;
     tone?: "ready" | "muted";
     disabled: boolean;
     onClick: () => void;
   }) => {
-    const chosen = selectedAgent === id;
-    // The name alone labels the card; the hint and status describe it.
-    const hintId = `${describedBy}-${id}-hint`;
+    // The name labels the tile; its status describes it.
     const statusId = `${describedBy}-${id}-status`;
     return (
-      <div
+      <button
         key={id}
-        className={`onboarding-agent-card${chosen ? " is-selected" : ""}`}
+        type="button"
+        className={`onboarding-agent-option${selectedAgent === id ? " is-selected" : ""}`}
+        aria-label={name}
+        aria-describedby={statusId}
+        aria-pressed={selectedAgent === id}
+        disabled={disabled}
+        onClick={onClick}
       >
-        <button
-          type="button"
-          className="onboarding-agent-option"
-          aria-label={name}
-          aria-describedby={status ? `${hintId} ${statusId}` : hintId}
-          aria-pressed={chosen}
-          disabled={disabled}
-          onClick={onClick}
+        <span
+          className={`settings-provider-mark is-${icon.tone}`}
+          aria-hidden="true"
         >
-          {icon ? (
-            <span
-              className={`settings-provider-mark is-${icon.tone}`}
-              aria-hidden="true"
-            >
-              <img src={icon.src} alt="" />
-            </span>
-          ) : null}
-          <span className="onboarding-agent-text">
-            <span>
-              {name}
-              {badge ? (
-                <span className="onboarding-agent-badge">{badge}</span>
-              ) : null}
-            </span>
-            <small id={hintId}>{hint}</small>
-          </span>
-          {status ? (
-            <span
-              id={statusId}
-              className={`onboarding-agent-status${tone ? ` is-${tone}` : ""}`}
-            >
-              {status}
-            </span>
-          ) : null}
-          <span className="onboarding-agent-radio" aria-hidden="true" />
-        </button>
-        {chosen ? (
-          <div className="onboarding-agent-config">{agentSetup}</div>
-        ) : null}
-      </div>
+          <img src={icon.src} alt="" />
+        </span>
+        <span className="onboarding-agent-name">{name}</span>
+        <span
+          id={statusId}
+          className={`onboarding-agent-status${tone ? ` is-${tone}` : ""}`}
+        >
+          {status}
+        </span>
+      </button>
     );
   };
+  const piReady = models.some((model) => !isAgentRuntimeId(model.provider));
 
   return (
     <section
@@ -341,47 +318,25 @@ export function OnboardingAgents({
       aria-label={t("onboarding.localAgents")}
     >
       <div className="onboarding-agent-options">
-        {card({
+        {tile({
           id: "pi",
           name: "OhMyGame",
           icon: { src: brandMark, tone: "brand" },
-          hint: t("onboarding.builtInHint"),
-          badge: t("onboarding.recommended"),
+          status: piReady ? (
+            <>
+              <Check size={12} aria-hidden="true" />
+              {t("onboarding.agentReady")}
+            </>
+          ) : (
+            t("onboarding.builtIn")
+          ),
+          tone: piReady ? "ready" : undefined,
           disabled: locked,
           onClick: () => {
             setError(undefined);
             onSelectAgent("pi");
           },
         })}
-        <div className="onboarding-section-heading">
-          <span>{t("onboarding.cliAgents")}</span>
-          <button
-            type="button"
-            className="onboarding-text-button onboarding-icon-button"
-            aria-label={t("agents.rescan")}
-            title={t("agents.rescan")}
-            disabled={locked}
-            onClick={() =>
-              void run("scan", async () => {
-                setAgents(await listAgentRuntimes(true));
-                setLoadError(undefined);
-                notifyAgentModelsChanged();
-              })
-            }
-          >
-            <RefreshCw
-              size={13}
-              className={pending === "scan" ? "spin" : undefined}
-              aria-hidden="true"
-            />
-          </button>
-        </div>
-        {!agents && !displayedError ? (
-          <p className="onboarding-status" role="status">
-            <LoaderCircle className="spin" size={14} />
-            {t("codingAgents.checking")}
-          </p>
-        ) : null}
         {(agents ?? []).map((agent) => {
           const ready =
             agent.installed &&
@@ -404,15 +359,14 @@ export function OnboardingAgents({
                 : ready
                   ? t("onboarding.agentReady")
                   : t("onboarding.agentDetected");
-          return card({
+          return tile({
             id: agent.id,
             name: agent.name,
-            icon: PROVIDER_ICONS[agent.id],
-            hint: t("onboarding.cliHint"),
+            icon: PROVIDER_ICONS[agent.id] ?? { src: brandMark, tone: "brand" },
             status:
               pending === agent.id || checking ? (
                 <LoaderCircle
-                  size={13}
+                  size={12}
                   className="spin"
                   aria-label={t("common.loading")}
                 />
@@ -441,7 +395,45 @@ export function OnboardingAgents({
             },
           });
         })}
+        {!agents && !displayedError ? (
+          <span
+            className="onboarding-agent-option is-placeholder"
+            role="status"
+          >
+            <LoaderCircle className="spin" size={14} aria-hidden="true" />
+            <span className="onboarding-agent-status">
+              {t("codingAgents.checking")}
+            </span>
+          </span>
+        ) : null}
+        {/* Each CLI's own setup checks it again; a failed scan offers the
+            whole scan again in their place. */}
+        {!agents && displayedError ? (
+          <button
+            type="button"
+            className="onboarding-agent-option is-placeholder"
+            aria-label={t("agents.rescan")}
+            disabled={locked}
+            onClick={() =>
+              void run("scan", async () => {
+                setAgents(await listAgentRuntimes(true));
+                setLoadError(undefined);
+                notifyAgentModelsChanged();
+              })
+            }
+          >
+            <RefreshCw
+              size={16}
+              className={pending === "scan" ? "spin" : undefined}
+              aria-hidden="true"
+            />
+            <span className="onboarding-agent-status">
+              {t("agents.rescan")}
+            </span>
+          </button>
+        ) : null}
       </div>
+      <div className="onboarding-agent-config">{agentSetup}</div>
       {displayedError ? (
         <p className="onboarding-error" role="alert">
           {displayedError}

@@ -95,11 +95,11 @@ requiring another selection. Failed sign-in can be retried in place.
 can return a browser URL or a terminal command,
 with a recheck after sign-in. Advanced CLI configuration stays in Settings → Agents.
 
-OhMyGame (Pi) is the first card, marked **Recommended**. The CLIs follow under
-a heading with a rescan action, as cards in the same vertical list. Each card
-shows its status (ready, installed, signed out, or not detected), which
-screen readers hear with the name. Selecting a card opens its configuration
-below it; selecting it again keeps its model selection. OhMyGame cannot be
+The agents sit in one row: OhMyGame (Pi) first, then the CLIs. Each tile
+shows its status (ready, built in, installed, signed out, or not detected),
+which screen readers hear with the name. The chosen agent's configuration
+fills the panel below the row; choosing it again keeps its model selection.
+When discovery fails, a **Rescan** tile takes the CLIs' place. OhMyGame cannot be
 disabled, and selecting it does not disable any CLI. Sign-in, API key, and
 configuration actions use icons with accessible labels and tooltips. Connected
 providers show a check; disabled connections offer an enable icon without
@@ -165,13 +165,12 @@ connection step with **Next** saves a pending preference again. The three bottom
 step indicators switch between the welcome, choosing the AI, and where to
 start. Selecting the AI step also returns from its inline forms to the agent
 list. Step navigation is disabled while saving. The welcome is a short launch
-animation (the app mark, the category pieces dropping in under it, and a dot
-grid) with **Get started**; it asks nothing. Language and appearance follow the
+animation (the app mark and a dot grid) with **Get started**; it asks
+nothing. Language and appearance follow the
 system until changed in Settings, and reduced motion shows it still. The AI
-step lists the agents as cards: OhMyGame first, with its model providers open
-below it, then the Claude Code, Codex, and OpenCode CLIs found on the machine.
-Choosing a card opens its setup in place, and **Next** stays in view while the
-list scrolls. The connection screen reuses
+step shows OhMyGame and the Claude Code, Codex, and OpenCode CLIs in one row,
+with the chosen one's setup (OhMyGame's model providers by default) below it;
+**Next** stays in view while the setup scrolls. The connection screen reuses
 the daemon's provider authentication flow and custom-provider form; it does
 not require an OhMyGame cloud account. The add button beside provider search
 opens that form inline. Settings uses the same form in its existing dialog.

@@ -58,8 +58,6 @@ type Connection = { provider: ProviderSummary; method: ModelAuthMethod };
 /** Where the last step sends people: Home's prompt, a blank project, or a folder they already have. */
 export type OnboardingStart = "prompt" | "blank" | "import";
 
-/** The category hues that drop in under the mark: the pieces a game is made of. */
-const LAUNCH_PIECES = ["doc", "image", "audio", "model", "code"] as const;
 const STEPS: readonly OnboardingStep[] = ["welcome", "connect", "start"];
 
 export function Onboarding({
@@ -348,7 +346,6 @@ export function Onboarding({
       <h1 ref={heading} tabIndex={-1}>
         {t("onboarding.chooseProvider")}
       </h1>
-      <p className="onboarding-lede">{t("onboarding.chooseProviderHint")}</p>
       <OnboardingAgents
         busy={busy}
         models={catalog.models}
@@ -417,19 +414,6 @@ export function Onboarding({
           <>
             <div className="onboarding-launch-mark" aria-hidden="true">
               <BrandLogo size={88} />
-              <span className="onboarding-launch-pieces">
-                {LAUNCH_PIECES.map((hue, index) => (
-                  <i
-                    key={hue}
-                    style={
-                      {
-                        "--piece-hue": `var(--hue-${hue})`,
-                        "--piece-index": index,
-                      } as CSSProperties
-                    }
-                  />
-                ))}
-              </span>
             </div>
             <h1 ref={heading} tabIndex={-1}>
               {t("onboarding.welcome")}
@@ -484,19 +468,14 @@ export function Onboarding({
       {!adding && (step === "welcome" || !connection) ? (
         <footer key={`footer-${step}`} className="onboarding-footer">
           {step === "welcome" ? (
-            <>
-              <button
-                className="onboarding-primary-button"
-                type="button"
-                disabled={busy}
-                onClick={() => navigate("connect")}
-              >
-                {t("onboarding.getStarted")}
-              </button>
-              <p className="onboarding-launch-note">
-                {t("onboarding.systemDefaults")}
-              </p>
-            </>
+            <button
+              className="onboarding-primary-button"
+              type="button"
+              disabled={busy}
+              onClick={() => navigate("connect")}
+            >
+              {t("onboarding.getStarted")}
+            </button>
           ) : step === "connect" ? (
             <>
               <button

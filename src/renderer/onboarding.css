@@ -231,9 +231,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 }
 .onboarding-launch-mark {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
+  justify-content: center;
   margin-bottom: 28px;
 }
 .onboarding-launch-mark .brand-logo {
@@ -243,19 +241,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
     0 10px 30px rgb(0 0 0 / 18%),
     0 0 0 1px rgb(255 255 255 / 8%);
   animation: onboarding-launch-mark 640ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
-}
-.onboarding-launch-pieces {
-  display: flex;
-  gap: 6px;
-}
-.onboarding-launch-pieces > i {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  background: var(--piece-hue);
-  animation: onboarding-launch-piece 420ms cubic-bezier(0.34, 1.56, 0.64, 1)
-    both;
-  animation-delay: calc(360ms + var(--piece-index) * 70ms);
 }
 .onboarding-welcome h1 {
   animation: onboarding-launch-rise 480ms var(--ease-out) 640ms both;
@@ -269,11 +254,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding-welcome .onboarding-primary-button {
   min-width: 140px;
 }
-.onboarding-launch-note {
-  margin: 4px 0 0;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-sm);
-}
 @keyframes onboarding-launch-grid {
   from {
     opacity: 0;
@@ -284,12 +264,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   from {
     opacity: 0;
     transform: scale(0.6) rotate(-6deg);
-  }
-}
-@keyframes onboarding-launch-piece {
-  from {
-    opacity: 0;
-    transform: translateY(-18px) scale(0.6);
   }
 }
 @keyframes onboarding-launch-rise {
@@ -342,90 +316,76 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   font-size: var(--text-sm);
   line-height: 1.5;
 }
-/* Step 2: the agents as cards; the chosen one opens its setup. */
+/* Step 2: every agent in one row, all in sight, then the chosen one's setup. */
 .onboarding-agents {
   display: flex;
   flex-direction: column;
-  width: min(100%, 440px);
-  margin-top: 24px;
+  width: min(100%, 480px);
+  margin-top: 28px;
   text-align: left;
 }
 .onboarding-agent-options {
   display: flex;
-  flex-direction: column;
+  align-items: stretch;
   gap: var(--space-2);
 }
-.onboarding-agent-card {
+.onboarding .onboarding-agent-option {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 92px;
+  padding: 12px 6px 10px;
+  border: 0;
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   box-shadow: inset 0 0 0 1px transparent;
-  transition: box-shadow var(--duration-fast) ease;
-}
-:root[data-appearance="light"] .onboarding-agent-card {
-  background: var(--color-app);
-}
-.onboarding-agent-card.is-selected {
-  box-shadow: inset 0 0 0 1px var(--color-border-strong);
-}
-.onboarding .onboarding-agent-option {
-  justify-content: flex-start;
-  gap: 12px;
-  width: 100%;
-  min-height: 56px;
-  padding: 10px 14px;
-  border: 0;
-  border-radius: var(--radius-lg);
-  background: transparent;
   color: var(--color-text);
   font-size: var(--text-md);
-  text-align: left;
+  text-align: center;
+  transition:
+    background var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
 }
-.onboarding-agent-card:not(.is-selected)
-  .onboarding-agent-option:hover:not(:disabled) {
+:root[data-appearance="light"] .onboarding .onboarding-agent-option {
+  background: var(--color-app);
+}
+.onboarding .onboarding-agent-option:hover:not(:disabled, .is-selected) {
   background: var(--color-hover);
+}
+.onboarding .onboarding-agent-option.is-selected {
+  box-shadow: inset 0 0 0 1.5px var(--color-ink);
+}
+.onboarding-agent-option.is-placeholder {
+  color: var(--color-text-tertiary);
 }
 .onboarding-agent-option:focus-visible {
   outline: 2px solid var(--color-focus);
-  outline-offset: -2px;
+  outline-offset: 2px;
 }
 .onboarding-agent-option .settings-provider-mark {
   width: 28px;
   height: 28px;
   border-radius: 7px;
 }
-.onboarding-agent-text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.onboarding-agent-text > span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.onboarding-agent-name {
+  max-width: 100%;
+  overflow: hidden;
   font-weight: var(--weight-medium);
-}
-.onboarding-agent-badge {
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  background: var(--color-hover);
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-regular);
-}
-.onboarding-agent-text small {
-  color: var(--color-text-tertiary);
-  font-size: var(--text-sm);
-  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .onboarding-agent-status {
   display: inline-flex;
-  flex: none;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
+  max-width: 100%;
   color: var(--color-text-secondary);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
 .onboarding-agent-status.is-ready {
   color: var(--color-success);
@@ -433,35 +393,20 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding-agent-status.is-muted {
   color: var(--color-text-tertiary);
 }
-.onboarding-agent-radio {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 1.5px var(--color-border-strong);
-  transition: box-shadow var(--duration-fast) ease;
-}
-.is-selected .onboarding-agent-radio {
-  box-shadow: inset 0 0 0 5px var(--color-ink);
-}
 .onboarding-agent-config {
   display: flex;
   flex-direction: column;
-  padding: 0 14px 14px 54px;
+  margin-top: var(--space-3);
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
   animation: onboarding-step-enter 200ms var(--ease-out) both;
 }
-.onboarding-agent-config > .onboarding-agent-hint:first-child {
-  margin-top: 2px;
+:root[data-appearance="light"] .onboarding-agent-config {
+  background: var(--color-app);
 }
-.onboarding-section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 32px;
-  margin-top: var(--space-3);
-  padding-left: 4px;
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
+.onboarding-agent-config:empty {
+  display: none;
 }
 .onboarding-agents .onboarding-status {
   justify-content: flex-start;
@@ -834,8 +779,8 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
     margin-top: 16px;
   }
   .onboarding .onboarding-agent-option {
-    min-height: 48px;
-    padding-block: 6px;
+    min-height: 76px;
+    padding-block: 8px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -845,7 +790,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   .onboarding-welcome::before,
   .onboarding-welcome
     :is(h1, .onboarding-lede, .onboarding-footer, .brand-logo),
-  .onboarding-launch-pieces > i,
   .onboarding-agent-config {
     animation: none;
   }

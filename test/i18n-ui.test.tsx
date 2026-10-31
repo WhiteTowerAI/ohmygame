@@ -117,11 +117,10 @@ it("translates all three onboarding steps and preserves provider names", async (
   await act(async () => root!.render(<Onboarding step="welcome" {...props} />));
   expect(host.querySelector("h1")?.textContent).toBe("欢迎使用 OhMyGame");
   expect(host.querySelector(".onboarding-lede")?.textContent).toBe("描述一个游戏，看它一步步成形。");
-  expect(host.querySelector("footer")?.textContent).toBe("开始使用语言和外观跟随系统，可随时在设置中更改。");
+  expect(host.querySelector("footer")?.textContent).toBe("开始使用");
   await act(async () => root!.render(<Onboarding step="connect" {...props} />));
   expect(host.querySelector("h1")?.textContent).toBe("选择你的 AI。");
-  expect(host.querySelector(".onboarding-section-heading")?.textContent).toBe("或使用你已有的编程智能体");
-  expect(host.querySelector(".onboarding-agent-badge")?.textContent).toBe("推荐");
+  expect(host.querySelector('[aria-label="OhMyGame"]')?.textContent).toBe("OhMyGame内置");
   expect(host.querySelector(".onboarding-provider-heading")?.textContent).toBe("连接一个模型服务商");
   expect(host.querySelector('[aria-label="DeepSeek"]')?.textContent).toBe(
     "DeepSeek",

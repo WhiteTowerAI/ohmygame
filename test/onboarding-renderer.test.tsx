@@ -441,7 +441,7 @@ describe("first-run screens", () => {
     expect(stepButton("welcome").hasAttribute("aria-current")).toBe(false);
   });
 
-  it("opens on the launch screen and leaves language and appearance to the system", async () => {
+  it("opens on the launch screen without asking for language or appearance", async () => {
     await act(async () =>
       root.render(
         <Onboarding step="welcome" onStepChange={vi.fn()} onFinish={vi.fn()} />,
@@ -450,8 +450,9 @@ describe("first-run screens", () => {
     expect(container.querySelector(".onboarding-launch-mark .brand-logo")).not.toBeNull();
     expect(container.querySelector('[aria-label="Interface language"]')).toBeNull();
     expect(container.querySelector('[role="radio"]')).toBeNull();
-    expect(container.textContent).toContain(
-      "Language and appearance follow your system.",
+    // Only the welcome and the way on: nothing about settings it leaves alone.
+    expect(container.querySelector(".onboarding-content")?.textContent).toBe(
+      "Welcome to OhMyGameDescribe a game, and watch it come together.",
     );
     expect(button("Get started").disabled).toBe(false);
   });
@@ -1559,9 +1560,7 @@ describe("built-in agent", () => {
       false,
     );
     const row = container.querySelector('[aria-label="OhMyGame"]')!;
-    expect(row.textContent).toBe(
-      "OhMyGameRecommendedBuilt in. Uses a model provider you connect.",
-    );
+    expect(row.textContent).toBe("OhMyGameBuilt in");
     expect(row.querySelector('[role="switch"]')).toBeNull();
     expect(row.getAttribute("aria-pressed")).toBe("true");
     expect(button("Next").disabled).toBe(true);
@@ -1651,9 +1650,12 @@ describe("onboarding interactions", () => {
     expect(button("Next").disabled).toBe(false);
     await chooseAgent("Codex");
     expect(container.querySelector(".onboarding-picker")).toBeNull();
+    // Every agent stays in sight; only the chosen one is marked.
     expect(
-      container.querySelectorAll(".onboarding-agent-card.is-selected"),
-    ).toHaveLength(1);
+      [...container.querySelectorAll(".onboarding-agent-option.is-selected")].map(
+        (item) => item.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Codex"]);
     expect(button("Next").disabled).toBe(true);
     await chooseAgent("OhMyGame");
     expect(container.querySelector(".onboarding-ready")?.textContent).toContain(
