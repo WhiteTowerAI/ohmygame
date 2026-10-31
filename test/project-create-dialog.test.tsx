@@ -212,6 +212,55 @@ describe("new project dialog", () => {
     expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
   });
 
+  it("creates at once when asked to, and shows itself only for what the person must allow", async () => {
+    const onCreated = vi.fn();
+    const message = { prompt: "Make a map", mentions: [], attachments: [], mode: "normal" as const, type: "acme/tiles:map" };
+    pluginChoices = [{ id: "acme/tiles", displayName: "Tiles", description: "", version: "2.1.0", capabilities: [], consented: true, providesTypes: ["acme/tiles:map"] }];
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={message} onClose={() => {}} onCreated={onCreated} />));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+    expect(onCreated).toHaveBeenCalled();
+
+    // A type's plugin that asks for access waits for the person.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    createProject.mockClear();
+    pluginChoices = [{ ...pluginChoices[0]!, capabilities: ["processes:tiled"], consented: false }];
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={message} onClose={() => {}} onCreated={() => {}} />));
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:tiled");
+    expect(createProject).not.toHaveBeenCalled();
+
+    // A type that is gone is not swapped for another without asking.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    listProjectTypes.mockResolvedValueOnce([]);
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={message} onClose={() => {}} onCreated={() => {}} />));
+    expect(typeSelect().textContent).toBe("Web Game");
+    expect(createProject).not.toHaveBeenCalled();
+
+    // Leaving while it is created does not pull the person back to it.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    const left = vi.fn();
+    let made!: (project: ProjectState) => void;
+    createProject.mockImplementationOnce(() => new Promise((resolve) => { made = resolve; }));
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={{ ...message, type: "web-game" }} onClose={() => {}} onCreated={left} />));
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => made(created));
+    expect(left).not.toHaveBeenCalled();
+    createProject.mockClear();
+
+    // Nor does it wait unseen when the types fail to load, even when a mention leaves plugins' types out.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] };
+    listProjectTypes.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => root.render(<ProjectCreateDialog direct firstMessage={{ ...message, prompt: "@Godot Make a map", mentions: [godot] }} onClose={() => {}} onCreated={() => {}} />));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Retry");
+    expect(createProject).not.toHaveBeenCalled();
+  });
+
   it("allows a type's plugin that asks for nothing, and offers a retry when types fail to load", async () => {
     listProjectTypes.mockRejectedValueOnce(new Error("offline"));
     pluginChoices = [{ id: "acme/tiles", displayName: "Tiles", description: "", version: "2.1.0", capabilities: [], consented: false, providesTypes: ["acme/tiles:map"] }];

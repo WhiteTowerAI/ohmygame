@@ -67,6 +67,7 @@ export function ProjectCreateDialog({
   initialType = "web-game",
   initialWorkspacePath,
   firstMessage,
+  direct = false,
   onClose,
   onCreated,
   onOpenProject,
@@ -74,6 +75,12 @@ export function ProjectCreateDialog({
   initialType?: ProjectType;
   initialWorkspacePath?: string;
   firstMessage?: FirstMessage;
+  /**
+   * Creates the project as soon as it can, with nothing to fill in. The dialog
+   * shows only for what needs the person: a type's plugin asking for access,
+   * plugins that fail to load, or a failure or cancel while creating.
+   */
+  direct?: boolean;
   onClose: () => void;
   onCreated: (project: ProjectState, start?: ProjectStart) => void;
   onOpenProject?: (projectId: string) => void;
@@ -134,6 +141,10 @@ export function ProjectCreateDialog({
   const integrations = firstMessage
     ? []
     : isAppProjectType(type) ? plugins.filter((plugin) => plugin.integration && (!plugin.projectTypes?.length || plugin.projectTypes.includes(kind))) : [];
+  // Types are waited for when offered or when Home asked for a plugin's type.
+  const typesFailed = installedPluginTypes.failed && (offersPluginTypes || !isAppProjectType(wanted));
+  const loadFailed = pluginsPhase === "error" || typesFailed || (pluginChoicesFailed && !isAppProjectType(type));
+  const [shown, setShown] = useState(!direct);
 
   useEffect(() => {
     let active = true;
@@ -149,6 +160,23 @@ export function ProjectCreateDialog({
   function close(): void {
     if (!creating) onClose();
   }
+
+  const started = useRef(false);
+  // Leaving the page by other means while creating does not pull the person back.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  useEffect(() => {
+    if (shown) return;
+    // The type Home asked for may be gone; the person picks another rather than get the first.
+    if (loadFailed || typePluginConsent?.capabilities.length || (ready && type !== preferred)) setShown(true);
+    else if (ready && !started.current) {
+      started.current = true;
+      void submit();
+    }
+  }, [shown, ready, loadFailed, typePluginConsent, type]);
 
   // State updates too late to stop a second click in the same tick.
   const submitting = useRef(false);
@@ -185,6 +213,7 @@ export function ProjectCreateDialog({
       );
       if (!project) {
         setCreating(false);
+        setShown(true);
         return;
       }
       created.current.project = project;
@@ -203,10 +232,12 @@ export function ProjectCreateDialog({
       created.current.conversationId ??= (await createConversation(project.id)).id;
       const attachments = await uploadAttachments(project.id, crypto.randomUUID(), firstMessage.attachments);
       saveHomePrompt({ prompt: text, mentions });
+      if (!mounted.current) return;
       onCreated(project, { conversationId: created.current.conversationId, prompt: text, mentions, mode: firstMessage.mode, attachments });
     } catch (cause) {
       setError(errorMessage(cause));
       setCreating(false);
+      setShown(true);
     }
   }
 
@@ -228,6 +259,7 @@ export function ProjectCreateDialog({
 
   // Creating with a plugin that makes its own project (TapTap Maker) continues in its panel.
   if (integrationGate.creation) return <IntegrationStep label={integrationGate.creationTitle} onCancel={integrationGate.cancelCreation}>{integrationGate.creation}</IntegrationStep>;
+  if (!shown) return null;
 
   const location = workspacePath ?? (defaultLocation ? t("createDialog.inLocation", { path: defaultLocation }) : t("createDialog.managedFolder"));
   return (
@@ -294,7 +326,7 @@ export function ProjectCreateDialog({
             {onOpenProject ? <Button size="sm" onClick={() => onOpenProject(existingProject.id)}>{t("creator.openProject")}</Button> : null}
           </p>
         ) : null}
-        {(installedPluginTypes.failed && offersPluginTypes) || (pluginChoicesFailed && !isAppProjectType(type)) ? (
+        {typesFailed || (pluginChoicesFailed && !isAppProjectType(type)) ? (
           <p className="new-project-error" role="alert">
             {t("createDialog.pluginsFailed")}
             <Button size="sm" onClick={() => {
