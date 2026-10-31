@@ -123,6 +123,8 @@ export function StorePluginDetail({ group, onChanged, onRemoved }: {
     ...plugin.adds.projectTypes.map((title) => ({ kind: t("pluginStore.addsType"), title })),
     ...plugin.adds.panels.map((title) => ({ kind: t("pluginStore.addsPanel"), title })),
     ...plugin.adds.commands.map((title) => ({ kind: t("pluginStore.addsCommand"), title })),
+    ...plugin.adds.skills ? [{ kind: t("plugins.skills"), title: t("plugins.skillCount", { count: plugin.adds.skills }) }] : [],
+    ...plugin.adds.tools ? [{ kind: t("pluginStore.tools"), title: t("pluginStore.toolCount", { count: plugin.adds.tools }) }] : [],
   ];
 
   return <div className="plugin-page">
@@ -146,12 +148,10 @@ export function StorePluginDetail({ group, onChanged, onRemoved }: {
     <div className="plugin-layout">
       <div className="plugin-main">
         <p className="plugin-long">{t("pluginStore.perProjectHint")}</p>
-        {adds.length || plugin.adds.skills || plugin.adds.tools ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
+        {adds.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
           <h2>{t("pluginStore.adds")}</h2>
           <ul className="plugin-store-adds">
             {adds.map((item) => <li key={`${item.kind}:${item.title}`}><span>{item.kind}</span>{item.title}</li>)}
-            {plugin.adds.skills ? <li><span>{t("plugins.skills")}</span>{t("plugins.skillCount", { count: plugin.adds.skills })}</li> : null}
-            {plugin.adds.tools ? <li><span>{t("pluginStore.tools")}</span>{t("pluginStore.toolCount", { count: plugin.adds.tools })}</li> : null}
           </ul>
         </section> : null}
         {plugin.capabilities.length ? <section className="plugins-section" aria-label={t("pluginStore.asksFor")}>

@@ -59,7 +59,7 @@ export function slashCommands(commands: readonly ProjectPluginCommand[], context
 export function useProjectPluginContributions(project: Pick<ProjectState, "id" | "type" | "pluginType"> | undefined, revision: number): {
   panels: PluginPanel[];
   commands: ProjectPluginCommand[];
-  when?: WhenContext;
+  when: WhenContext;
 } {
   const generation = useReadyRuntimeGeneration();
   const [loaded, setLoaded] = useState<{ projectId: string; panels: PluginPanel[]; commands: ProjectPluginCommand[]; active: string[] }>();
@@ -80,7 +80,7 @@ export function useProjectPluginContributions(project: Pick<ProjectState, "id" |
     });
     return () => { disposed = true; };
   }, [projectId, revision, generation]);
-  if (!project || loaded?.projectId !== project.id) return { panels: [], commands: [] };
+  if (!project || loaded?.projectId !== project.id) return { panels: [], commands: [], when: { values: {}, plugins: new Set() } };
   const when = projectWhenContext(project, [...loaded.active, ...[...loaded.panels, ...loaded.commands].map((item) => item.plugin)]);
   return {
     // A page needs its address; one without it can't be shown.

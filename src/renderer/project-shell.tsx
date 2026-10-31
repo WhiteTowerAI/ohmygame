@@ -1043,7 +1043,6 @@ export function ProjectShell({
   }
   /** Menu entries for the plugin commands a slot shows. */
   function pluginCommandEntries(slot: string): MenuEntry[] {
-    if (!plugins.when) return [];
     const commands = commandsForSlot(plugins.commands, slot, plugins.when);
     return commands.length ? ["separator", ...commands.map((command): MenuEntry => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => void runProjectPluginCommand(command) }))] : [];
   }
@@ -1247,7 +1246,7 @@ export function ProjectShell({
       onEditPending={editFollowUp}
       canPublish={Boolean(project && (isWebRuntimeProjectType(project.type) || project.type === "interactive-story") && !publishing && !agentBusy)}
       onPublish={project ? () => setPublishDialog({ projectId: project.id, status: "open" }) : undefined}
-      pluginCommands={plugins.when ? { slash: slashCommands(plugins.commands, plugins.when), add: commandsForSlot(plugins.commands, "composer.add", plugins.when) } : undefined}
+      pluginCommands={{ slash: slashCommands(plugins.commands, plugins.when), add: commandsForSlot(plugins.commands, "composer.add", plugins.when) }}
       onPluginCommand={(command) => void runProjectPluginCommand(command)}
     /> : null}
   </>, chatInputNode);
@@ -1299,9 +1298,9 @@ export function ProjectShell({
     {layout || !project ? <PanelLayout layout={layout ?? loadingLayout()} onChange={changeLayout}
       panels={(project ? offered : ["chat" as const]).map((id) => {
         const { title, icon: Icon, source } = panelInfo(id);
-        const plugin = pluginPanels.get(id);
+        const target = source ? pluginNodes.get(id) : nodes[id as WorkspacePanel];
         return { id, title, icon: <Icon size={14} />, home: homeOf(id, homes), ...(source ? { source } : {}),
-          content: plugin ? pluginNodes.has(id) ? <PanelMount nodes={pluginNodes.get(id)!} /> : null : <PanelMount nodes={nodes[id as WorkspacePanel]} /> };
+          content: target ? <PanelMount nodes={target} /> : null };
       })}
       overlay={project && !chatShown ? <FloatingChat
         key={conversation?.id}
