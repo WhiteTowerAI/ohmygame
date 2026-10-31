@@ -1,4 +1,4 @@
-import { LoaderCircle, SendArrow } from "./icons.js";
+import { Lightbulb, LoaderCircle, SendArrow } from "./icons.js";
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
@@ -14,9 +14,10 @@ import type { FirstMessage } from "./project-create-dialog.js";
 import { HomePluginMenu } from "./home-plugin-menu.js";
 import { PROJECT_TYPES } from "./project-types.js";
 import { isAppProjectType, MORE_TYPES, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes, useProjectPluginChoices } from "./project-type-choices.js";
-import { Button, Select } from "./ui/index.js";
+import { Button, DropdownMenu, Select } from "./ui/index.js";
+import { PluginGlyph } from "./plugin-icons.js";
 import { useComposerContextMenu } from "./composer-context-menu.js";
-import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, parseSkillInvocation, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
+import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatPluginInvocation, insertMention, parseSkillInvocation, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { createPromptHistory, loadHomePromptHistory, nextPrompt, previousPrompt } from "./prompt-history.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
 import { t } from "./i18n.js";
@@ -29,6 +30,9 @@ const STARTERS = [
   "douyin-minigame", "cocos-creator", "unity", "unreal-engine", "taptap-maker",
 ];
 const DEFAULT_TYPE = "web-game";
+// A plugin that sets up its own projects (TapTap Maker) is a type of its own,
+// chosen as `starter:<plugin id>`.
+const STARTER_TYPE = "starter:";
 const TYPE_KEY = "ohmygame.home.projectType";
 type Plugin = ConversationCapabilities["plugins"][number];
 
@@ -70,16 +74,27 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const setPluginMentions = draftSetter("mentions");
   const setPlanning = draftSetter("planning");
   const setAttachments = draftSetter("attachments");
+  const { extraPlugins } = draft;
+  const setExtraPlugins = draftSetter("extraPlugins");
   const [capabilities, setCapabilities] = useState(EMPTY_CAPABILITIES);
-  // A starter the person picked for this type, No plugin included, stays put.
+  const [capabilitiesLoaded, setCapabilitiesLoaded] = useState(false);
+  // Starters the person picked for this type, none included, stay put.
   const [starterChosen, setStarterChosen] = useState(false);
   const [savedType, setSavedType] = useState(loadType);
+  const allStarters = capabilities.plugins
+    .filter((plugin) => STARTERS.includes(plugin.name))
+    .sort((left, right) => STARTERS.indexOf(left.name) - STARTERS.indexOf(right.name));
+  const typeStarters = allStarters.filter((plugin) => plugin.integration?.createProject);
   const { types: loadedPluginTypes, failed: pluginTypesFailed, retry: retryPluginTypes } = usePluginProjectTypes();
   const pluginTypes = loadedPluginTypes ?? [];
   // A plugin's type stays chosen only while its plugin is installed and enabled;
-  // until plugins' types load, sending waits rather than sending another type.
-  const typePending = !isAppProjectType(savedType) && loadedPluginTypes === undefined;
-  const type = isAppProjectType(savedType) || typePending || pluginTypes.some((option) => option.id === savedType) ? savedType : DEFAULT_TYPE;
+  // until plugins and their types load, sending waits rather than sending another type.
+  const typePending = savedType.startsWith(STARTER_TYPE) ? !capabilitiesLoaded : !isAppProjectType(savedType) && loadedPluginTypes === undefined;
+  const type = isAppProjectType(savedType) || typePending || pluginTypes.some((option) => option.id === savedType)
+    || typeStarters.some((plugin) => starterType(plugin) === savedType) ? savedType : DEFAULT_TYPE;
+  const typeStarter = typeStarters.find((plugin) => starterType(plugin) === type);
+  // A plugin's own setup makes the app's type it names.
+  const projectType = typeStarter ? typeStarter.projectTypes?.[0] ?? "general" : type;
   const { choices: loadedPluginChoices, failed: pluginChoicesFailed, retry: retryPluginChoices } = useProjectPluginChoices();
   const projectPluginChoices = loadedPluginChoices ?? [];
   const [projectPluginIds, setProjectPluginIds] = useState<string[]>([]);
@@ -115,7 +130,8 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     void waitForRuntime()
       .then(() => getHomeComposerCapabilities())
       .then((result) => { if (!disposed) setCapabilities(result); })
-      .catch((cause) => { if (!disposed) setError(errorMessage(cause)); });
+      .catch((cause) => { if (!disposed) setError(errorMessage(cause)); })
+      .finally(() => { if (!disposed) setCapabilitiesLoaded(true); });
     return () => { disposed = true; };
   }, []);
 
@@ -130,21 +146,31 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     if (next && next !== reasoningLevel) setReasoningLevel(next);
   }, [selectedModel, modelCatalog.defaultReasoningLevel, modelCatalog.defaultNativeReasoningLevel, reasoningLevel, nativeReasoningLevel]);
 
-  const allStarters = capabilities.plugins
-    .filter((plugin) => STARTERS.includes(plugin.name))
-    .sort((left, right) => STARTERS.indexOf(left.name) - STARTERS.indexOf(right.name));
-  const starters = allStarters.filter((plugin) => fitsType(plugin, type));
-  const selectedStarter = selectedPlugin && allStarters.find((plugin) => plugin.name === selectedPlugin.name && plugin.marketplaceId === selectedPlugin.marketplaceId);
-  const starter = selectedStarter && fitsType(selectedStarter, type) ? selectedStarter : undefined;
+  // Another plugin that sets up its own projects would clash with the type's.
+  const starters = allStarters.filter((plugin) => fitsType(plugin, projectType) && (!plugin.integration?.createProject || plugin === typeStarter));
+  const starterOf = (mention?: PluginMention) => mention && allStarters.find((plugin) => plugin.name === mention.name && plugin.marketplaceId === mention.marketplaceId);
+  const selectedStarter = starterOf(selectedPlugin);
+  const starter = selectedStarter && starters.includes(selectedStarter) ? selectedStarter : undefined;
+  const extras = (extraPlugins ?? []).map(starterOf)
+    .filter((plugin): plugin is Plugin => plugin !== undefined && plugin !== starter && starters.includes(plugin));
+  const extraMentions = extras.map(toPluginMention);
   const ideas: readonly IdeaKey[] = (starter && starter.name in IDEAS ? IDEAS[starter.name as keyof typeof IDEAS] : undefined) ?? GENERAL_IDEAS;
   // A plugin that adds the chosen type is on in its projects already.
   const projectPlugins = projectPluginChoices.filter((plugin) => !plugin.providesTypes.includes(type));
+  /** The prompt as sent: the skill, the chosen plugins in order, then the text. */
+  const invocation = (text: string, lead = selectedPlugin, others = extraMentions) =>
+    formatComposerInvocation(selectedSkill, lead, others.reduceRight((rest, mention) => formatPluginInvocation(mention, rest), text));
 
   useEffect(() => {
+    // The plugin a type comes from always leads.
+    if (typeStarter) {
+      if (starter !== typeStarter) chooseStarters([typeStarter.id, ...extras.map((plugin) => plugin.id)]);
+      return;
+    }
     // A plugin put first in the prompt by hand is kept, and so is a starter that works in the type.
     if (starterChosen || (selectedPlugin && (!selectedStarter || starter))) return;
     const next = defaultStarter(starters, type);
-    if (next || selectedStarter) chooseStarter(next?.id);
+    if (next || selectedStarter) chooseStarters(next ? [next.id] : []);
   }, [capabilities, type]);
 
   /** A new type brings its own starting plugin. */
@@ -156,20 +182,27 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     setSavedType(value);
     setStarterChosen(false);
     try { localStorage.setItem(TYPE_KEY, value); } catch { /* The type is remembered only when storage works. */ }
-    chooseStarter(defaultStarter(allStarters.filter((plugin) => fitsType(plugin, value)), value)?.id);
+    const own = typeStarters.find((plugin) => starterType(plugin) === value);
+    const next = own ?? defaultStarter(allStarters.filter((plugin) => fitsType(plugin, value) && !plugin.integration?.createProject), value);
+    chooseStarters(next ? [next.id] : []);
   }
 
-  function chooseStarter(id: string | undefined): void {
-    const plugin = allStarters.find((item) => item.id === id);
-    if (!plugin) {
+  /** The first plugin leads the prompt; the others follow it. */
+  function chooseStarters(ids: readonly string[]): void {
+    const [lead, ...others] = ids.flatMap((id) => {
+      const plugin = allStarters.find((item) => item.id === id);
+      return plugin ? [toPluginMention(plugin)] : [];
+    });
+    setExtraPlugins(others.length ? others : undefined);
+    if (!lead) {
       clearSelectedPlugin();
       return;
     }
-    const mention = toPluginMention(plugin);
-    setSelectedPlugin(mention);
-    setPluginMentions((current) => activePluginMentions(formatComposerInvocation(selectedSkill, mention, prompt), [
-      ...current.filter((item) => item.name !== mention.name || item.marketplaceId !== mention.marketplaceId),
-      mention,
+    setSelectedPlugin(lead);
+    const chosen = [lead, ...others];
+    setPluginMentions((current) => activePluginMentions(invocation(prompt, lead, others), [
+      ...current.filter((item) => !chosen.some((mention) => mention.name === item.name && mention.marketplaceId === item.marketplaceId)),
+      ...chosen,
     ]));
   }
 
@@ -180,14 +213,14 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     }
     // The starting plugin alone is not a message.
     if ((!prompt.trim() && !selectedSkill && attachments.length === 0) || creating || typePending) return;
-    const submittedPrompt = formatComposerInvocation(selectedSkill, selectedPlugin, prompt.trim());
+    const submittedPrompt = invocation(prompt.trim());
     const submittedDraft = draft;
     onSubmit({
       prompt: submittedPrompt,
       mentions: activePluginMentions(submittedPrompt, pluginMentions),
       attachments,
       mode: planning ? "planning" : "normal",
-      type,
+      type: projectType,
       projectPlugins: projectPlugins.filter((plugin) => projectPluginIds.includes(plugin.id)),
     }, () => { draftSession.clearSubmitted(submittedDraft); });
   }
@@ -234,6 +267,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
       setPrompt("");
       setSelectedSkill(undefined);
       setSelectedPlugin(undefined);
+      setExtraPlugins(undefined);
       setPluginMentions([]);
       setMentionCursor(0);
     }
@@ -243,14 +277,14 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
 
   function changePrompt(value: string): void {
     setPrompt(value);
-    setPluginMentions((current) => activePluginMentions(formatComposerInvocation(selectedSkill, selectedPlugin, value), current));
+    setPluginMentions((current) => activePluginMentions(invocation(value), current));
     setHistory((current) => current.index === current.entries.length
       ? current
-      : { ...current, index: current.entries.length, draft: formatComposerInvocation(selectedSkill, selectedPlugin, value) });
+      : { ...current, index: current.entries.length, draft: invocation(value) });
   }
 
   function browseHistory(direction: "previous" | "next"): void {
-    const result = direction === "previous" ? previousPrompt(history, formatComposerInvocation(selectedSkill, selectedPlugin, prompt)) : nextPrompt(history);
+    const result = direction === "previous" ? previousPrompt(history, invocation(prompt)) : nextPrompt(history);
     if (!result) return;
     const skill = parseSkillInvocation(result.prompt);
     const historicalMentions = mentionHistory.get(result.prompt) ?? [];
@@ -259,6 +293,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     setPrompt(plugin.prompt);
     setSelectedSkill(skill?.name);
     setSelectedPlugin(plugin.mention);
+    setExtraPlugins(undefined);
     setPluginMentions(historicalMentions);
     const cursor = plugin.prompt.length;
     setMentionCursor(cursor);
@@ -269,7 +304,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
 
   function clearSelectedPlugin(): void {
     setSelectedPlugin(undefined);
-    setPluginMentions((current) => activePluginMentions(formatSkillInvocation(selectedSkill, prompt), current));
+    setPluginMentions((current) => activePluginMentions(invocation(prompt, undefined), current));
   }
 
   function selectMention(mention: ComposerMention, query?: ComposerMentionQuery): void {
@@ -336,17 +371,6 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
       <PromptBox
         actions={(
           <>
-            <HomePluginMenu
-              starters={starters}
-              starter={starter}
-              onStarter={(id) => { setStarterChosen(true); chooseStarter(id); }}
-              choices={projectPlugins}
-              selected={projectPluginIds.filter((id) => projectPlugins.some((plugin) => plugin.id === id))}
-              onSelected={setProjectPluginIds}
-              failed={pluginChoicesFailed}
-              onRetry={retryPluginChoices}
-              disabled={creating}
-            />
             <ModelSelector
               placement="below"
               models={modelCatalog.models}
@@ -389,8 +413,23 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
             {contextMenu.button}
             <span className="home-project-type">
               <Select<string> size="sm" label={t("home.projectType")} value={type} onChange={chooseType}
-                options={projectTypeOptions(PROJECT_TYPES.map((option) => option.value), pluginTypes)} />
+                options={projectTypeOptions(PROJECT_TYPES.map((option) => option.value), pluginTypes, typeStarters.map((plugin) => ({
+                  value: starterType(plugin), label: plugin.displayName, description: plugin.description,
+                  icon: <span className="project-type-mark is-own-icon" aria-hidden="true"><PluginGlyph plugin={plugin} size={14} /></span>,
+                })))} />
             </span>
+            <HomePluginMenu
+              starters={starters}
+              chosen={[...(starter ? [starter.id] : []), ...extras.map((plugin) => plugin.id)]}
+              locked={typeStarter?.id}
+              onChosen={(ids) => { setStarterChosen(true); chooseStarters(ids); }}
+              choices={projectPlugins}
+              selected={projectPluginIds.filter((id) => projectPlugins.some((plugin) => plugin.id === id))}
+              onSelected={setProjectPluginIds}
+              failed={pluginChoicesFailed}
+              onRetry={retryPluginChoices}
+              disabled={creating}
+            />
             {planning ? <PlanModeIndicator disabled={creating} onExit={() => togglePlanning()} /> : null}
           </>
         )}
@@ -416,16 +455,23 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
           <Button size="sm" variant="ghost" onClick={retryPluginTypes}>{t("common.retry")}</Button>
         </p>
       ) : null}
+      {/* One button rather than a row of ideas, which changed width with the type and moved the page. */}
       <div className="home-ideas">
-        {ideas.map((key) => (
-          <button key={key} type="button" className="home-idea" disabled={creating} onClick={() => {
-            changePrompt(t(key));
-            focusAt(t(key).length);
-          }}>{t(key)}</button>
-        ))}
+        <DropdownMenu placement="bottom" items={ideas.map((key) => ({ label: t(key), onSelect: () => {
+          changePrompt(t(key));
+          focusAt(t(key).length);
+        } }))} trigger={(props) => (
+          <button {...props} type="button" className="home-idea" disabled={creating}>
+            <Lightbulb size={14} aria-hidden="true" />{t("home.ideasButton")}
+          </button>
+        )} />
       </div>
     </>
   );
+}
+
+function starterType(plugin: Plugin): string {
+  return `${STARTER_TYPE}${plugin.id}`;
 }
 
 function loadType(): string {

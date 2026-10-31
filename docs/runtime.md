@@ -541,11 +541,13 @@ Every project starts from Home. Sending its prompt opens the new-project dialog
 (name, type and folder) with the prompt as the project's first message; **Blank
 project** opens the dialog empty, and **Import folder** (desktop app) picks an
 existing folder, opening its project if it already has one. The dialog offers
-every project type, narrowed to those the prompt's plugins support. A picker in
-the prompt box chooses the plugin to start with, from the enabled plugins that
-start projects (Web Game Studio, Game Studio, Godot, Three.js World and the
-engine and mini-game plugins); its plugin mention leads the first message.
-Ideas under the box fill the prompt. The former studio pages are gone; their
+every project type, narrowed to those the prompt's plugins support. The prompt
+box's type menu adds the enabled plugins that set up their own projects, such
+as TapTap Maker. Beside it, a plugin menu chooses any number of plugins to
+start with, from the enabled plugins that start projects (Web Game Studio,
+Game Studio, Godot, Three.js World and the engine and mini-game plugins); their
+mentions lead the first message in the order chosen. **Ideas** under the box
+lists a few prompts for the type that fill the box. The former studio pages are gone; their
 links (`#/web-game`, `#/interactive-story`, `#/godot`, `#/asset-canvas`,
 `#/general`) open Home.
 

@@ -2134,6 +2134,14 @@ select.settings-search-input {
 .project-type-mark.is-general { background: var(--hue-model); }
 .project-type-mark.is-plugin { background: var(--color-text-secondary); }
 
+/* A plugin that sets up its own projects shows its own icon on a plain tile. */
+.project-type-mark.is-own-icon {
+  width: 20px;
+  height: 20px;
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  background: var(--color-surface-raised);
+}
+
 /* 更多类型… leads elsewhere, so its tile is an outline, not a type's colour. */
 .project-type-mark.is-more {
   width: 20px;

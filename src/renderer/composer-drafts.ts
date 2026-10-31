@@ -16,6 +16,8 @@ export interface ComposerDraftScope {
 export interface SavedComposerDraft extends ComposerDraft {
   selectedSkill?: string;
   selectedPlugin?: PluginMention;
+  /** Home's other chosen plugins, sent as mentions after `selectedPlugin`. */
+  extraPlugins?: PluginMention[];
   attachments: ComposerAttachment[];
   reference?: ChatReference;
   designReference?: { references: PromptReference[]; context: PromptContext };
@@ -92,7 +94,7 @@ export function createComposerDraftStore(storage?: DraftStorage) {
         // Mode and sending status can change while the server accepts a prompt.
         // Only clear the message that was sent, never a newer message or reference.
         if (!active || !sameMessage(snapshot, submitted)) return false;
-        session.update({ prompt: "", mentions: [], selectedSkill: undefined, selectedPlugin: undefined,
+        session.update({ prompt: "", mentions: [], selectedSkill: undefined, selectedPlugin: undefined, extraPlugins: undefined,
           attachments: [], reference: undefined, designReference: undefined, focusRequestId: undefined });
         return true;
       },
@@ -165,14 +167,15 @@ function scopeKey(scope: ComposerDraftScope): string {
 function sameMessage(left: SavedComposerDraft, right: SavedComposerDraft): boolean {
   return left.prompt === right.prompt && left.mentions === right.mentions
     && left.selectedSkill === right.selectedSkill && left.selectedPlugin === right.selectedPlugin
+    && left.extraPlugins === right.extraPlugins
     && left.attachments === right.attachments && left.reference === right.reference
     && left.designReference === right.designReference;
 }
 
 function serializeDraft(draft: SavedComposerDraft): string | null {
   if (!draft.prompt && !draft.selectedSkill && !draft.selectedPlugin && !draft.reference && !draft.designReference && !draft.planning) return null;
-  const { prompt, mentions, selectedSkill, selectedPlugin, reference, designReference, planning } = draft;
-  return JSON.stringify({ version: 1, prompt, mentions, selectedSkill, selectedPlugin, reference, designReference, planning });
+  const { prompt, mentions, selectedSkill, selectedPlugin, extraPlugins, reference, designReference, planning } = draft;
+  return JSON.stringify({ version: 1, prompt, mentions, selectedSkill, selectedPlugin, extraPlugins, reference, designReference, planning });
 }
 
 function saveDraft(storage: DraftStorage | undefined, key: string | undefined, serialized: string | null): void {
@@ -195,6 +198,7 @@ function readDraft(storage: DraftStorage | undefined, key: string | undefined): 
       mentions: value.mentions.filter(isPluginMention),
       selectedSkill: typeof value.selectedSkill === "string" ? value.selectedSkill : undefined,
       selectedPlugin: isPluginMention(value.selectedPlugin) ? value.selectedPlugin : undefined,
+      extraPlugins: Array.isArray(value.extraPlugins) ? value.extraPlugins.filter(isPluginMention) : undefined,
       planning: value.planning,
       reference: isRecord(value.reference) && typeof value.reference.text === "string" ? { text: value.reference.text } : undefined,
       designReference: isRecord(design) && Array.isArray(design.references)

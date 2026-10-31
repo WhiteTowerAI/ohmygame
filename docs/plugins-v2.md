@@ -81,11 +81,14 @@ project type hooks the manifest declares can be registered.
   person allowed that. Turning on one never allowed asks first, then posts
   the consent. The type's plugin stays on.
 - Home: the composer's type menu lists the app's types, then plugins' types
-  from `GET /project-types`, then a link to the plugins that add types
-  (`#/plugins?adds=projectType`). The type picks the starting plugin. Its
-  plugin menu also lists `GET /project-plugins`, the enabled format 2
-  plugins a new project can turn on for itself; the type's own plugin is left
-  out. The new-project dialog posts each one's consent, if still needed, and
+  from `GET /project-types`, then enabled format 1 plugins that set up their
+  own projects (`integration.createProject`, such as TapTap Maker), then a
+  link to the plugins that add types (`#/plugins?adds=projectType`). The type
+  picks the starting plugin; a format 1 plugin's own type keeps that plugin on
+  and makes the app type it names first. The plugin menu beside the type
+  takes any number of starting plugins, sent as mentions in the order chosen,
+  and lists `GET /project-plugins`, the enabled format 2 plugins a new project
+  can turn on for itself; the type's own plugin is left out. The new-project dialog posts each one's consent, if still needed, and
   turns it on once the project exists.
 
 Releases install only when they are signed by a key the app trusts for
