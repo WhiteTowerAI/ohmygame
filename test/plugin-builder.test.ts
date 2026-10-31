@@ -420,7 +420,7 @@ describe("Plugin Builder", () => {
   });
 
   it("deletes conversation history across restart while retaining the draft and its credentials", async () => {
-    const { setup, directory, app, manager } = await environment();
+    const { setup, directory, manager } = await environment();
     const state = await setup.create();
     const draft = await setup.prepare(state.id, await writeDraft(directory, state.id, true));
     await setup.configuration(state.id, { key: "draft-key" });

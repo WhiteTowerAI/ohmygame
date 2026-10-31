@@ -28,7 +28,6 @@ import {
   type MediaModelDefaults,
   type ImageModel,
   type ImageModelCatalog,
-  type ImageModelRef,
   type ModelAuthEvent,
   type ModelAuthMethod,
   type ModelProviderEndpointSettings,

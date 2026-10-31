@@ -35,7 +35,6 @@ import {
   Smartphone,
   Tablet,
   Trash2,
-  Video,
   Wrench,
   X,
   type IconComponent,
@@ -70,7 +69,6 @@ import type { PanelNodes } from "./panel-layout.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
 import { Button, CategoryMark, DropdownMenu, Empty, IconButton, MediaTile, SearchInput, Tabs } from "./ui/index.js";
 
-type WorkspaceTab = "preview" | "code" | "assets";
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 const DesignDocumentPanel = lazy(() => import("./design-document-panel.js").then((module) => ({ default: module.DesignDocumentPanel })));
 type WorkspaceContextMenu = { path: string; directory: boolean; x: number; y: number };
@@ -130,7 +128,6 @@ export interface CodingPanels {
 
 export function CodingWorkspace({
   project,
-  agentBusy,
   publishing,
   workspaceRevision,
   previewPaused = false,

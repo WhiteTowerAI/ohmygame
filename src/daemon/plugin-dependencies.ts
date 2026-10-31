@@ -160,7 +160,7 @@ export async function inspectPluginDependencies(
     const content = await capabilities.skillContent(plugin, skill.id);
     if (
       content &&
-      /(?:\/(?:Users|home|tmp|private|var)\/|[A-Z]:\\)[^\s]*plugin-setup[\/\\]/i.test(
+      /(?:\/(?:Users|home|tmp|private|var)\/|[A-Z]:\\)[^\s]*plugin-setup[/\\]/i.test(
         content,
       )
     )

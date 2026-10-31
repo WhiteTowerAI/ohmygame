@@ -13,7 +13,6 @@ import {
   FileText,
   Gamepad2,
   Image,
-  LoaderCircle,
   Pencil,
   Plug,
   Search,

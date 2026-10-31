@@ -43,6 +43,7 @@
     "test:agent-runtimes:live": "node --import tsx scripts/test-agent-runtime-live.ts",
     "test:publish-contract": "bun --bun node_modules/vitest/vitest.mjs run test/publish.test.ts test/publish-client.test.ts",
     "typecheck": "node node_modules/tsgo/bin/tsc --noEmit",
+    "lint": "oxlint --deny-warnings",
     "test:node-runtime": "bun run build:daemon && node scripts/test-node-runtime.mjs",
     "test:installer-progress": "node scripts/test-installer-progress.mjs",
     "test:desktop-game": "bun run build:host && bun run build:renderer && node scripts/test-web-game-runtime.mjs"
@@ -87,6 +88,7 @@
     "electron-builder": "26.15.3",
     "happy-dom": "20.14.6",
     "i18next": "26.4.2",
+    "oxlint": "1.90.0",
     "posthog-js": "^1.434.11",
     "prettier": "3.9.7",
     "react": "19.3.1",
