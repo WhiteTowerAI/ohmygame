@@ -41,6 +41,17 @@ export const PLUGIN_PROJECT_KINDS = {
   "godot-game": "ohmygame/godot:godot-game",
 } as const satisfies Record<string, string>;
 
+/**
+ * Whether a format 2 plugin suits a project type, by its `appliesTo` (none
+ * means every type). An app kind that is a plugin type now matches either name.
+ */
+export function pluginAppliesTo(appliesTo: readonly string[] | undefined, type: string): boolean {
+  if (!appliesTo) return true;
+  const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
+  const names = [type, kinds[type], ...Object.keys(kinds).filter((kind) => kinds[kind] === type)];
+  return names.some((name) => name !== undefined && appliesTo.includes(name));
+}
+
 export function pluginProjectType(current: ProjectType, plugins: readonly { projectTypes?: ProjectType[] }[]): ProjectType | undefined {
   const compatible = PROJECT_TYPE_IDS.filter((type) => plugins.every((plugin) => !plugin.projectTypes?.length || plugin.projectTypes.includes(type)));
   return compatible.includes(current) ? current : compatible.length === 1 ? compatible[0] : undefined;

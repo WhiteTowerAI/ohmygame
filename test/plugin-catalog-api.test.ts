@@ -61,11 +61,20 @@ describe("plugin catalog API", () => {
     const app = createApp({ dataDirectory });
     apps.push(app);
     await app.ready();
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
-    const view = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins?locale=en` })).json();
+    const web = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
+    const webView = (await app.inject({ method: "GET", url: `/projects/${web.id}/plugins?locale=en` })).json();
     // Plugins from the Plugins page that work with web games are on, for every such project.
-    expect(view.global.map((plugin: { id: string }) => plugin.id)).toContain("ohmygame:web-game-studio");
-    expect(view.global.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame:godot");
+    expect(webView.global.map((plugin: { id: string }) => plugin.id)).toContain("ohmygame:web-game-studio");
+    expect(webView.global.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame:godot");
+    // Godot and Unreal suit General projects (appliesTo), so a Web game neither lists nor turns them on.
+    expect(webView.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/godot");
+    expect(webView.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/unreal-engine");
+    expect((await app.inject({ method: "PUT", url: `/projects/${web.id}/plugins/ohmygame/godot`, payload: { version: "1.0.0" } })).json())
+      .toEqual({ error: "ohmygame/godot doesn't work in web-game projects" });
+
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
+    const view = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins?locale=en` })).json();
+    expect(view.plugins.map((plugin: { id: string }) => plugin.id)).toEqual(expect.arrayContaining(["ohmygame/godot", "ohmygame/unreal-engine"]));
     const godot = view.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/godot");
     expect(godot).toMatchObject({ displayName: "Godot", version: "1.0.0", providesType: false });
     expect(godot.used).toBeUndefined();
@@ -80,6 +89,7 @@ describe("plugin catalog API", () => {
     const choices = (await app.inject({ method: "GET", url: "/project-plugins?locale=en" })).json();
     expect(choices.find((plugin: { id: string }) => plugin.id === "ohmygame/godot")).toMatchObject({
       displayName: "Godot", version: "1.0.0", providesTypes: ["ohmygame/godot:godot-game"], consented: expect.any(Boolean),
+      appliesTo: ["general", "ohmygame/godot:godot-game"],
     });
   });
 

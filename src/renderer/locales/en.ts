@@ -1143,6 +1143,7 @@ const en = {
       disabled: "Turned off for the whole app",
       "needs-consent": "Waiting for you to allow what it asks for",
       "needs-approval": "Not yet allowed in this project",
+      "not-applicable": "Doesn't work in this type of project",
     },
   },
   conversations: {

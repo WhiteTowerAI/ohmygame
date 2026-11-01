@@ -120,6 +120,12 @@ async function clonedProject(folder: string) {
   );
 }
 
+/** A project's plugins and their statuses, as the services see them. */
+const stateOf = async (folder: string, services: PluginServices) => {
+  const resolved = await resolveProjectPlugins({ folder, index: services.index, grants: services.grants });
+  return resolved?.ok ? resolved.plugins.map((plugin) => [plugin.id, plugin.status]) : resolved;
+};
+
 const statuses = (
   resolved: Awaited<ReturnType<typeof resolveProjectPlugins>>,
 ) =>
@@ -299,6 +305,41 @@ describe("project plugins", () => {
       for (const endpoint of ["http://192.168.1.5:8000/mcp", "https://example.com/mcp", "http://user:secret@127.0.0.1:8000/mcp"])
         await expect(services.configure(UNREAL_PLUGIN, { endpoint })).rejects.toThrow(endpoint);
       expect(Object.values(await services.mcpServers(folder))).toMatchObject([{ url: "http://localhost:8100/mcp" }]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("runs a plugin only in the project types its appliesTo names", async () => {
+    const services = new PluginServices({ directory: await temporary(), bundled: BUNDLED });
+    try {
+      await services.ready();
+      const unreal = services.index.get(UNREAL_PLUGIN)!;
+      const godot = services.index.get(GODOT_PLUGIN)!;
+      expect(unreal.manifest.appliesTo).toEqual(["general"]);
+      // A Web game project, whose file says general, can't turn on Unreal, which suits General projects.
+      const web = await temporary();
+      await expect(services.setProjectPlugin(web, UNREAL_PLUGIN, unreal.version, "general", "web-game")).rejects.toThrow("doesn't work in web-game projects");
+      // An Interactive Story says so in its file.
+      await writeProjectFile(web, (file) => file, { type: "interactive-story" });
+      await expect(services.setProjectPlugin(web, UNREAL_PLUGIN, unreal.version)).rejects.toThrow("doesn't work in interactive-story projects");
+      // One the file asks for anyway (an older app, or by hand) doesn't run there, and can still be turned off.
+      await writeProjectFile(web, (file) => ({ ...file, plugins: { [UNREAL_PLUGIN]: unreal.version } }));
+      await services.grants.approve(await projectFolderKey(web), UNREAL_PLUGIN, capabilityGrants(unreal.manifest));
+      expect(await stateOf(web, services)).toEqual([[UNREAL_PLUGIN, "not-applicable"]]);
+      expect(await services.mcpServers(web)).toEqual({});
+      await services.setProjectPlugin(web, UNREAL_PLUGIN, null);
+      expect(await stateOf(web, services)).toEqual([]);
+      // Godot names its own type, so a Godot project keeps it and can't add Unreal.
+      const typed = await temporary();
+      await createProjectPlugins({ folder: typed, type: GODOT_TYPE, plugins: { [GODOT_PLUGIN]: godot.version }, index: services.index, grants: services.grants });
+      expect(await stateOf(typed, services)).toEqual([[GODOT_PLUGIN, "active"]]);
+      await expect(services.setProjectPlugin(typed, UNREAL_PLUGIN, unreal.version)).rejects.toThrow("doesn't work in");
+      // A General project can turn on both.
+      const general = await temporary();
+      await services.setProjectPlugin(general, UNREAL_PLUGIN, unreal.version, "general");
+      await services.setProjectPlugin(general, GODOT_PLUGIN, godot.version);
+      expect(await stateOf(general, services)).toEqual([[GODOT_PLUGIN, "active"], [UNREAL_PLUGIN, "active"]]);
     } finally {
       await services.close();
     }

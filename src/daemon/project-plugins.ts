@@ -10,6 +10,7 @@ import {
 import path from "node:path";
 import type { PluginManifestV2 } from "../shared/plugin-manifest.js";
 import { pluginApiIssue } from "../shared/plugin-manifest.js";
+import { pluginAppliesTo } from "../shared/project-runtime.js";
 import {
   PROJECT_FILE_NAME,
   PROJECT_FILE_SCHEMA_URL,
@@ -301,6 +302,8 @@ export type ProjectPluginStatus =
   | "incompatible"
   /** Turned off for the whole app. */
   | "disabled"
+  /** Its `appliesTo` leaves out the project's type. */
+  | "not-applicable"
   /** This version wants capabilities that weren't allowed at install. */
   | "needs-consent"
   /** Not yet allowed in this project folder, or this version wants more. */
@@ -359,6 +362,9 @@ export async function resolveProjectPlugins({
       }
       if (pluginApiIssue(entry.manifest))
         return { ...base, status: "incompatible", entry };
+      // The type's own plugin always suits it.
+      if (!base.providesType && !pluginAppliesTo(entry.manifest.appliesTo, read.file.type))
+        return { ...base, status: "not-applicable", entry };
       const plugin = grants.plugin(id);
       const requested = capabilityGrants(entry.manifest);
       if (!plugin)
@@ -462,6 +468,7 @@ export async function setProjectPlugin({
   index,
   grants,
   initialType,
+  appKind,
 }: {
   folder: string;
   id: string;
@@ -470,6 +477,11 @@ export async function setProjectPlugin({
   grants: PluginGrants;
   /** The type to write when the folder has no `ohmygame.json` yet. */
   initialType?: string;
+  /**
+   * The app's kind for a project whose file says `general`, such as
+   * `web-game`, which a plugin's `appliesTo` may leave out.
+   */
+  appKind?: string;
 }): Promise<ProjectFile> {
   const key = await projectFolderKey(folder);
   if (version === null) {
@@ -486,10 +498,12 @@ export async function setProjectPlugin({
   }
   const entry = index.get(id, version);
   if (!entry) throw new Error(`${id}@${version} is not installed`);
-  const file = await writeProjectFileAt(key, (current) => ({
-    ...current,
-    plugins: { ...current.plugins, [id]: version },
-  }), initialType ? { type: initialType } : undefined);
+  const file = await writeProjectFileAt(key, (current) => {
+    const type = current.type === "general" && appKind ? appKind : current.type;
+    if (projectTypePlugin(current.type) !== id && !pluginAppliesTo(entry.manifest.appliesTo, type))
+      throw new Error(`${id} doesn't work in ${type} projects`);
+    return { ...current, plugins: { ...current.plugins, [id]: version } };
+  }, initialType ? { type: initialType } : undefined);
   await grants.approve(key, id, capabilityGrants(entry.manifest));
   return file;
 }
