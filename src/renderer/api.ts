@@ -752,14 +752,16 @@ export async function setProjectPluginVersion(projectId: string, id: string, ver
 
 /**
  * Turns a format 2 plugin on in a project and allows it for its folder,
- * keeping the version the project already uses. False when the project isn't
- * offered it, because it doesn't suit the project's type.
+ * keeping the version the project already uses. Says why it can't run there:
+ * `not-offered` when it doesn't suit the project's type, or the status of a
+ * version the project asks for that isn't running; undefined once it runs.
  */
-export async function turnOnProjectPlugin(projectId: string, id: string): Promise<boolean> {
+export async function turnOnProjectPlugin(projectId: string, id: string): Promise<"not-offered" | NonNullable<import("../shared/plugins.js").ProjectPluginItem["status"]> | undefined> {
   const item = (await getProjectPlugins(projectId)).plugins.find((plugin) => plugin.id === id);
-  if (!item) return false;
-  if (!item.used || item.status === "needs-approval") await setProjectPluginVersion(projectId, id, item.used ?? item.version);
-  return true;
+  if (!item) return "not-offered";
+  if (item.used && item.status !== "needs-approval") return item.status && item.status !== "active" ? item.status : undefined;
+  await setProjectPluginVersion(projectId, id, item.used ?? item.version);
+  return undefined;
 }
 
 /** Allows what a plugin asks for, as the person agreed in the app. */

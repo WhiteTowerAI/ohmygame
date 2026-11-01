@@ -133,7 +133,8 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
 
   async function tryPlugin({ mention, turnOn, newProjectType }: PluginTryTarget, prompt: string, projectId?: string): Promise<void> {
     const project = projectId ? await getProject(projectId) : await createProject({ type: newProjectType ?? "general" });
-    if (turnOn && !await turnOnProjectPlugin(project.id, turnOn)) throw new Error(t("pluginStore.doesNotSuitProject"));
+    const blocked = turnOn ? await turnOnProjectPlugin(project.id, turnOn) : undefined;
+    if (blocked) throw new Error(blocked === "not-offered" ? t("pluginStore.doesNotSuitProject") : t(`projectPlugins.status.${blocked}`));
     const conversation = await createConversation(project.id);
     setInitialPrompt(undefined);
     setInitialDraft({

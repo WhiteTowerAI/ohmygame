@@ -190,6 +190,9 @@ describe("plugin catalog API", () => {
     // Only the Skills it lists can be read, and its folder is the app's own.
     expect((await app.inject({ method: "GET", url: `/plugins/${id}/skill-content?id=${encodeURIComponent("../../package.json")}` })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: `/plugins/${id}/directory` })).statusCode).toBe(404);
+    // The longest id a plugin can have reaches the routes.
+    const longest = encodeURIComponent(`${"a".repeat(64)}/${"b".repeat(64)}`);
+    expect((await app.inject({ method: "GET", url: `/plugins/${longest}/icon` })).statusCode).toBe(404);
     // The project reads its panels after indexing, so indexing tells it nothing.
     expect(await replayed()).not.toContain("project.plugins.changed");
 

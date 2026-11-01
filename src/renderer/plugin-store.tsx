@@ -53,8 +53,7 @@ export function storePluginContributions({ adds }: StorePlugin): PluginContribut
 
 /** The app's project type a new project to try it in gets, if any suits it. */
 function newProjectType(plugin: StorePlugin): ProjectType | undefined {
-  if (!plugin.appliesTo) return "general";
-  return PROJECT_TYPE_IDS.find((type) => plugin.appliesTo!.includes(type));
+  return PROJECT_TYPE_IDS.find((type) => pluginAppliesTo(plugin.appliesTo, projectFileTypeFor(type)));
 }
 
 function StoreTile({ plugin, large = false }: { plugin: StorePlugin; large?: boolean }): ReactNode {
@@ -152,7 +151,7 @@ export function StorePluginDetail({ group, onChanged, onRemoved, onTry }: {
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
   const [removing, setRemoving] = useState<StorePlugin>();
-  const [tab, setTab] = useState<StoreDetailTab>("about");
+  const [selectedTab, setTab] = useState<StoreDetailTab>("about");
   const enabled = storePluginEnabled(plugin);
   const missing = storePluginMissing(plugin);
   const tryIt = usePluginTry({
@@ -173,6 +172,8 @@ export function StorePluginDetail({ group, onChanged, onRemoved, onTry }: {
     ...(plugin.skills.length ? [{ value: "skills" as const, label: t("plugins.skills"), count: plugin.skills.length }] : []),
     ...(plugin.settings.length ? [{ value: "settings" as const, label: t("common.settings") }] : []),
   ];
+  // Uninstalling the newest version can take away the tab that was open.
+  const tab = tabs.some((item) => item.value === selectedTab) ? selectedTab : "about";
 
   async function act(key: string, work: () => Promise<void>): Promise<void> {
     if (busy) return;

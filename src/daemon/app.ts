@@ -1069,6 +1069,8 @@ export function createApp(options: AppOptions = {}) {
     logController: new LogController({ disableRequestLogging: true }),
     // First-run plugin extraction can exceed Fastify's default 10s on Windows.
     pluginTimeout: 60_000,
+    // A format 2 plugin's id, up to 129 characters, is one encoded route parameter.
+    routerOptions: { maxParamLength: 300 },
     ajv: { customOptions: { coerceTypes: false } },
   });
   if (options.logger) {

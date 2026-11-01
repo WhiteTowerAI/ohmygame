@@ -187,6 +187,25 @@ it("holds Try back until what the plugin asks for is allowed, and offers no new 
   expect(document.querySelector(".project-switcher-footer")).toBeNull();
 });
 
+it("offers a new project of the app's type a plugin's own type goes with", async () => {
+  const onTry = vi.fn(async () => {});
+  const [group] = groupStorePlugins([row("1.0.0", { examples: ["Build a level"], appliesTo: ["ohmygame/godot:godot-game"], grants: { enabled: true, allowed: ["native", "network:api.example.com"] } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} onTry={onTry} />));
+  await act(async () => button("Build a level").click());
+  await act(async () => document.querySelector<HTMLButtonElement>(".project-switcher-footer button")!.click());
+  expect(onTry).toHaveBeenCalledWith({ turnOn: "acme/maker", newProjectType: "godot-game" }, "Build a level", undefined);
+});
+
+it("goes back to About when the open tab goes away with the newest version", async () => {
+  const props = { onChanged: async () => {}, onRemoved: () => {} };
+  const [both] = groupStorePlugins([row("2.0.0"), row("1.0.0", { skills: [] })]);
+  await act(async () => root.render(<StorePluginDetail group={both!} {...props} />));
+  await act(async () => [...document.querySelectorAll<HTMLElement>("[role=tab]")].find((item) => item.textContent?.startsWith("Skills"))!.click());
+  const [older] = groupStorePlugins([row("1.0.0", { skills: [], settings: [] })]);
+  await act(async () => root.render(<StorePluginDetail group={older!} {...props} />));
+  expect(document.querySelector<HTMLElement>('[role=tabpanel][aria-label="About"]')!.hidden).toBe(false);
+});
+
 it("offers format 2 plugins and their Skills for browsing by what they add", () => {
   expect(storePluginContributions(row("1.0.0"))).toEqual(["projectType", "skills", "mcp"]);
   expect(storePluginContributions(row("1.0.0", { skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 } }))).toEqual([]);
