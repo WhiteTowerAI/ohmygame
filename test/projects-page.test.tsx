@@ -113,6 +113,52 @@ describe("Projects page", () => {
     expect(names()).toEqual(["Arcade Runner", "Forest Adventure"]);
   });
 
+  it("selects several projects and removes them at once, keeping any that fail selected", async () => {
+    const onOpenProject = vi.fn();
+    await act(async () => root.render(<ProjectsPage onNavigate={() => {}} onOpenProject={onOpenProject} onFiltersChange={onFiltersChange} />));
+    const mark = (name: string) => container.querySelector<HTMLButtonElement>(`[aria-label="Select ${name}"]`)!;
+    const card = (name: string) => container.querySelector<HTMLButtonElement>(`[aria-label="Open ${name}"]`)!;
+    const count = () => document.querySelector(".projects-selection-count")?.textContent;
+
+    // A cover's checkbox starts selecting; Shift-click selects the range up to it.
+    const cover = card("Forest Adventure");
+    await act(async () => mark("Arcade Runner").click());
+    expect(count()).toBe("1 selected");
+    // Cards stay mounted, so their covers don't reload and flash.
+    expect(card("Forest Adventure")).toBe(cover);
+    await act(async () => card("Forest Adventure").dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true })));
+    expect(count()).toBe("3 selected");
+    // While selecting, a click toggles instead of opening, and the project's own menu is gone.
+    await act(async () => card("Garden Keepers").click());
+    expect(count()).toBe("2 selected");
+    expect(onOpenProject).not.toHaveBeenCalled();
+    expect(container.querySelector('[aria-label="Project actions for Arcade Runner"]')).toBeNull();
+
+    deleteProject.mockImplementation(async (id) => { if (id === "forest") throw new Error("busy"); });
+    listProjects.mockResolvedValue(PROJECTS.filter(({ id }) => id !== "arcade"));
+    await act(async () => button("Remove").click());
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Remove 2 projects from OhMyGame?");
+    expect(dialog.textContent).toContain("2 projects' files will be deleted permanently.");
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((item) => item.textContent === "Delete")!.click());
+    expect(deleteProject.mock.calls.map(([id]) => id)).toEqual(["arcade", "forest"]);
+    expect(names()).toEqual(["Garden Keepers", "Forest Adventure"]);
+    expect(count()).toBe("1 selected");
+    expect(mark("Forest Adventure").getAttribute("aria-checked")).toBe("true");
+
+    // Unticking the last one ends selecting; there is no separate mode to leave.
+    await act(async () => mark("Forest Adventure").click());
+    expect(document.querySelector(".projects-selection-bar")).toBeNull();
+    expect(container.querySelector('[aria-label="Project actions for Arcade Runner"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Project actions for Garden Keepers"]')).not.toBeNull();
+    await act(async () => card("Garden Keepers").click());
+    expect(onOpenProject).toHaveBeenCalledWith("garden");
+
+    await act(async () => mark("Garden Keepers").click());
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(document.querySelector(".projects-selection-bar")).toBeNull();
+  });
+
   it("puts a project's files in the Trash in the desktop app", async () => {
     vi.stubGlobal("ohMyGameDesktop", { platform: "darwin", removeProject: vi.fn() });
     try {
