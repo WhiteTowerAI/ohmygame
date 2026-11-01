@@ -223,7 +223,7 @@ it("leads the signed-out menu with sign in and keeps settings and about", async 
   expect(window.location.hash).toBe("#/settings/about");
 });
 
-it("opens settings and account from the signed-in menu", async () => {
+it("opens settings, account and my games from the signed-in menu", async () => {
   auth.state = {
     status: "signed-in",
     user: { id: "u", name: "Ada Lovelace", email: "ada@example.com" },
@@ -237,10 +237,14 @@ it("opens settings and account from the signed-in menu", async () => {
   expect(menuLabels()).toEqual([
     "Settings",
     "Account",
+    "My games",
     "About OhMyGame",
   ]);
   await act(async () => button("Account")!.click());
   expect(window.location.hash).toBe("#/settings/account");
+  await act(async () => account.click());
+  await act(async () => button("My games")!.click());
+  expect(window.location.hash).toBe("#/community/creators/u");
   await act(async () => account.click());
   await act(async () => button("Settings")!.click());
   expect(onNavigate).toHaveBeenCalledWith("settings");
@@ -250,7 +254,7 @@ it("opens the command menu from Search, which shows its shortcut", async () => {
   const opened = vi.fn();
   window.addEventListener("ohmygame:command-menu", opened);
   await render();
-  expect(button("Search")!.querySelector("kbd")?.textContent).toMatch(/^(⌘K|Ctrl\+K)$/);
+  expect([...button("Search")!.querySelectorAll("kbd")].map((key) => key.textContent).join(" ")).toMatch(/^(⌘ K|Ctrl K)$/);
   button("Search")!.click();
   window.removeEventListener("ohmygame:command-menu", opened);
   expect(opened).toHaveBeenCalledOnce();

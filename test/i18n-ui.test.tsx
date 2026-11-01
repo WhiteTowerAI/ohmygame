@@ -165,7 +165,11 @@ it("localizes the model picker's thinking depth", async () => {
   root = createRoot(host);
   await act(async () => root!.render(<ModelSelector models={[model]} value={model} reasoningLevel="medium" onChange={() => {}} onReasoningChange={() => {}} />));
   await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
-  expect(document.querySelector('[role="radiogroup"]')?.getAttribute("aria-label")).toBe("思考深度");
+  const entry = document.querySelector<HTMLButtonElement>(".model-picker-depth")!;
+  expect(entry.textContent).toBe("思考深度中");
+  await act(async () => entry.click());
+  expect(document.querySelector('[role="menu"]')?.getAttribute("aria-label")).toBe("思考深度");
+  expect(document.querySelector(".model-picker-back")?.getAttribute("aria-label")).toBe("返回模型列表");
 });
 
 it("localizes all Scene templates in the dialog and canvas menu without changing preset IDs", async () => {

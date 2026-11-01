@@ -1,0 +1,10 @@
+{
+  "displayName": "Unreal Engine",
+  "description": "通过 Unreal MCP 检查场景并编辑 Actor。",
+  "longDescription": "通过 Unreal Engine 5.8 文档中的官方实验性 Unreal MCP 检查场景并编辑 Actor。需要 Editor 已启用该插件，并在本机运行其 MCP 服务；可用操作取决于已启用的工具集。在需要它的项目中分别开启。",
+  "example.1": "在不做修改的前提下，检查已连接 Unreal 项目的标识、关卡和可用工具集。",
+  "example.2": "在测试关卡中添加一个命名的立方体 Actor，保存并报告验证结果。",
+  "config.endpoint": "本地 Unreal MCP 地址",
+  "config.endpoint.description": "所选 Unreal Editor 的实验性 MCP 服务在本机的地址（127.0.0.1 或 localhost，端口不限）。测试前先在该 Editor 中启动服务。",
+  "mcp.title": "Unreal MCP"
+}

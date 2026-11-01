@@ -3,15 +3,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
+import { BUNDLED_PLUGINS_OFF, BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 
 describe("bundled plugins", () => {
   it("loads beta plugins with their native skills and connections", async () => {
-    const store = new BundledPluginStore(path.resolve("plugins"));
+    const store = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
     await store.load();
     expect(store.list().filter(plugin => plugin.beta).map(plugin => plugin.name)).toEqual([
-      "aseprite", "blender", "cocos-creator", "douyin-minigame", "godot",
-      "taptap-maker", "tiled", "unity", "unreal-engine", "wechat-minigame",
+      "aseprite", "blender", "cocos-creator", "douyin-minigame",
+      "tiled", "unity", "wechat-minigame",
     ]);
     for (const plugin of store.list().filter(plugin => plugin.beta)) {
       expect(plugin.icon?.type, plugin.name).toBe("asset");
@@ -25,25 +25,15 @@ describe("bundled plugins", () => {
       skills: [{ id: "skills/blender-assets/SKILL.md" }],
       mcpServers: [],
     });
-    expect(store.read("ohmygame:godot")).toMatchObject({
-      enabled: true,
-      skills: [{ id: "skills/godot-game/SKILL.md" }],
-      mcpServers: [{ id: "godot" }],
-      configuration: { "godot-path": { default: "godot" } },
-    });
-    expect(store.read("ohmygame:taptap-maker")).toMatchObject({
-      enabled: false,
-      skills: [{ id: "skills/taptap-maker/SKILL.md" }, { id: "skills/taptap-release/SKILL.md" }],
-      mcpServers: [{ id: "taptap-maker" }],
-      projectTypes: ["general"],
-    });
+    // Godot and Unreal are format 2 plugins with their own tools or MCP, turned on per project.
+    expect(store.read("ohmygame:godot")).toBeUndefined();
+    expect(store.read("ohmygame:unreal-engine")).toBeUndefined();
     for (const [name, skill] of [
       ["aseprite", "aseprite-assets"],
       ["cocos-creator", "cocos-creator"],
       ["douyin-minigame", "douyin-minigame"],
       ["tiled", "tiled-maps"],
       ["unity", "unity-game"],
-      ["unreal-engine", "unreal-game"],
       ["wechat-minigame", "wechat-minigame"],
     ]) {
       const plugin = store.read(`ohmygame:${name}`)!;
@@ -55,8 +45,49 @@ describe("bundled plugins", () => {
           ? ["general", "web-game", "godot-game", "asset-canvas"]
           : ["general"],
       });
-      expect(plugin.mcpServers?.map(server => server.id)).toEqual(name === "unreal-engine" ? ["unreal"] : []);
+      expect(plugin.mcpServers).toEqual([]);
     }
+  });
+
+  it("shows a bundled format 2 plugin that only adds Skills, and leaves out one that asks for more", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-format-2-"));
+    const write = async (name: string, manifest: object) => {
+      const plugin = path.join(root, name);
+      await mkdir(path.join(plugin, ".ohmygame-plugin"), { recursive: true });
+      await mkdir(path.join(plugin, "skills", name), { recursive: true });
+      await mkdir(path.join(plugin, "locales"), { recursive: true });
+      await writeFile(path.join(plugin, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+        id: `ohmygame/${name}`, version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" },
+        displayName: "%name%", description: "%description%", contributes: { skills: "./skills/" }, ...manifest,
+      }));
+      await writeFile(path.join(plugin, "locales", "en.json"), JSON.stringify({ name: `${name} title`, description: "Does things", example: "Try this" }));
+      await writeFile(path.join(plugin, "skills", name, "SKILL.md"), `---\nname: ${name}\ndescription: A skill\n---\n`);
+      return plugin;
+    };
+    const tiles = await write("tiles", { beta: true, examples: ["%example%"], appliesTo: ["general", "ohmygame/godot:godot-game"] });
+    await write("runner", { capabilities: { processes: ["node"] } });
+    // Only plugin types: the catalog can't say so, so it isn't shown.
+    await write("maker-help", { appliesTo: ["ohmygame/taptap-maker:maker"] });
+    await write("broken", { engines: { "ohmygame-api": "^9.0.0" }, displayName: "%missing%" });
+    const errors: unknown[] = [];
+    const store = new BundledPluginStore(path.join(root, "none"), { formatTwoDirectory: root, off: ["ohmygame/tiles"], onError: (error) => errors.push(error) });
+
+    await store.load();
+
+    expect(store.list()).toMatchObject([{
+      id: "ohmygame:tiles",
+      name: "tiles",
+      displayName: "tiles title",
+      description: "Does things",
+      beta: true,
+      enabled: false,
+      defaultPrompts: ["Try this"],
+      projectTypes: ["general"],
+      source: { type: "builtIn" },
+      skills: [{ id: "skills/tiles/SKILL.md" }],
+    }]);
+    expect(store.installedPath("ohmygame:tiles")).toBe(tiles);
+    expect(errors).toHaveLength(1);
   });
 
   it("loads a standard skill-only OhMyGame plugin directory", async () => {
@@ -91,7 +122,7 @@ describe("bundled plugins", () => {
   });
 
   it("loads the built-in Web Game Studio skill suite", async () => {
-    const store = new BundledPluginStore(path.resolve("plugins"));
+    const store = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
 
     await store.load();
 
@@ -113,7 +144,7 @@ describe("bundled plugins", () => {
   });
 
   it("loads Game Studio independently of the Web Game Studio suite", async () => {
-    const store = new BundledPluginStore(path.resolve("plugins"));
+    const store = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
     await store.load();
 
     expect(store.read("ohmygame:game-studio")).toMatchObject({
@@ -130,7 +161,7 @@ describe("bundled plugins", () => {
   });
 
   it("loads the built-in Three.js World skill", async () => {
-    const store = new BundledPluginStore(path.resolve("plugins"));
+    const store = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
 
     await store.load();
 
@@ -139,5 +170,44 @@ describe("bundled plugins", () => {
       projectTypes: ["web-game"],
       skills: [{ id: "skills/threejs-world/SKILL.md", name: "Threejs World" }],
     });
+  });
+});
+
+describe("format 1 to format 2 conversion", () => {
+  const format1 = {
+    name: "tiles",
+    version: "0.2.0",
+    description: "Long manifest description",
+    enabledByDefault: false,
+    skills: "./skills/",
+    interface: {
+      beta: true,
+      displayName: "Tiles",
+      shortDescription: "Make tile maps",
+      longDescription: "Make tile maps and export them.",
+      icon: { type: "asset" as const, path: "./assets/icon.png" },
+      defaultPrompt: ["Make a map", "Export the map"],
+      projectTypes: ["general", "web-game"] as ("general" | "web-game")[],
+    },
+  };
+
+  it("keeps what the catalog shows when a plugin goes to format 2 and back", async () => {
+    const { catalogManifest, convertFormat1Manifest } = await import("../src/daemon/plugin-conversion.js");
+    const converted = convertFormat1Manifest(format1 as never, { publisher: "ohmygame", categories: ["art"] });
+    expect(converted.manifest).toMatchObject({ id: "ohmygame/tiles", version: "0.2.0", beta: true, icon: "./assets/icon.png", appliesTo: ["general", "web-game"], categories: ["art"], contributes: { skills: "./skills/" } });
+    const back = catalogManifest({ manifest: converted.manifest as never, strings: { en: converted.strings } }, { enabledByDefault: false });
+    expect(back).toEqual({
+      name: "tiles",
+      version: "0.2.0",
+      description: "Make tile maps",
+      skills: "./skills/",
+      enabledByDefault: false,
+      interface: { ...format1.interface },
+    });
+  });
+
+  it("refuses a plugin that adds more than Skills", async () => {
+    const { convertFormat1Manifest } = await import("../src/daemon/plugin-conversion.js");
+    expect(() => convertFormat1Manifest({ ...format1, mcpServers: "./mcp.json" } as never, { publisher: "ohmygame" })).toThrow("only plugins that add Skills convert");
   });
 });

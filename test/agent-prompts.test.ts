@@ -49,10 +49,10 @@ describe("OhMyGame system prompt", () => {
     expect(text).not.toContain("playable_add_node");
   });
 
-  it("uses the selected plugin's native preview without Web setup guidance", () => {
-    const text = appendSystemPromptForProject({ type: "general", integration: { pluginId: "ohmygame:taptap-maker", preview: "external" } }).join("\n");
-    expect(text).toContain("project_preview or View");
-    expect(text).toContain("Preserve its engine and project binding");
+  it("leaves a plugin type that runs outside OhMyGame to its plugin, without Web setup guidance", () => {
+    const text = appendSystemPromptForProject({ type: "general", pluginType: { id: "ohmygame/taptap-maker:maker", plugin: "ohmygame/taptap-maker", preview: "native" } }).join("\n");
+    expect(text).toContain("comes from the ohmygame/taptap-maker plugin");
+    expect(text).toContain("use its tools to preview and build");
     expect(text).not.toContain("Web preview switch in Project settings");
     expect(text).not.toContain("Web publishing is independent");
   });

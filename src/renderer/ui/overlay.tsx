@@ -19,6 +19,7 @@ import { createPortal } from "react-dom";
 import { Check, Search, X } from "../icons.js";
 import { t } from "../i18n.js";
 import { IconButton } from "./button.js";
+import { Kbd } from "./display.js";
 import "./overlay.css";
 
 type Placement =
@@ -264,6 +265,8 @@ function MenuList({
   onClose: () => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
+  // Labels line up past an icon column only when some item has an icon.
+  const hasIcons = items.some((item) => typeof item === "object" && "label" in item && item.icon);
   useEffect(() => {
     list.current
       ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
@@ -305,9 +308,11 @@ function MenuList({
               onClose();
             }}
           >
-            <span className="ui-menu-icon" aria-hidden="true">
-              {item.icon}
-            </span>
+            {hasIcons ? (
+              <span className="ui-menu-icon" aria-hidden="true">
+                {item.icon}
+              </span>
+            ) : null}
             <span className="ui-menu-label">
               {item.label}
               {item.description ? (
@@ -637,7 +642,7 @@ export function CommandMenu({
               }
             }}
           />
-          <kbd>Esc</kbd>
+          <Kbd>Esc</Kbd>
         </div>
         <div ref={list} id={`${id}-list`} className="ui-command-list" role="listbox" aria-label={t("commandMenu.label")}>
           {filtered.length ? filtered.map((command, index) => (

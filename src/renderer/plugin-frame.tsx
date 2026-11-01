@@ -33,7 +33,7 @@ export interface PluginPageContext {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
   };
-  runCommand(command: string): Promise<unknown>;
+  runCommand(command: string, input?: unknown): Promise<unknown>;
 }
 
 /** The app's current colour tokens and appearance, as a page sees them. */
@@ -81,8 +81,14 @@ export async function handlePluginUiRequest(
     case "command.run":
       if (!context.commands.includes(params.command as string))
         throw new Error(`${context.plugin.id} has no command ${String(params.command)}`);
-      return context.runCommand(params.command as string);
+      return context.runCommand(params.command as string, params.input);
   }
+}
+
+/** A `plugin.command.progress` update; a new object for each one. */
+export interface CommandProgress {
+  command: string;
+  message: string;
 }
 
 /** Connects a loaded frame; returns how to send it events and how to disconnect. */
@@ -131,11 +137,14 @@ export function PluginFrame({
   title,
   context,
   visible = true,
+  progress,
 }: {
   url: string;
   title: string;
   context: PluginPageContext;
   visible?: boolean;
+  /** The latest progress of a plugin command; the page hears its own plugin's. */
+  progress?: CommandProgress;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [mount, setMount] = useState(0);
@@ -158,7 +167,7 @@ export function PluginFrame({
       get: (key) => latest.current.storage.get(key),
       set: (key, value) => latest.current.storage.set(key, value),
     },
-    runCommand: (command) => latest.current.runCommand(command),
+    runCommand: (command, input) => latest.current.runCommand(command, input),
   };
 
   useEffect(() => {
@@ -190,6 +199,12 @@ export function PluginFrame({
   useEffect(() => {
     connection.current?.send({ event: "visibility", visible });
   }, [visible]);
+
+  useEffect(() => {
+    const prefix = `${latest.current.plugin.id}:`;
+    if (progress?.command.startsWith(prefix))
+      connection.current?.send({ event: "progress", command: progress.command.slice(prefix.length), message: progress.message });
+  }, [progress]);
 
   return (
     <iframe

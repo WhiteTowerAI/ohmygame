@@ -65,7 +65,7 @@ export interface PluginIndexEntry {
   /** `%key%` strings by locale; `en` holds every key the manifest uses. */
   strings: Partial<Record<PluginLocale, Record<string, string>>>;
   skills: PluginSkillSummary[];
-  /** Tool input and output schemas by package path, from the indexed bytes. */
+  /** Tool and native command schemas by package path, from the indexed bytes. */
   toolSchemas: Record<string, Record<string, unknown>>;
 }
 
@@ -165,6 +165,8 @@ function localizedKeys(manifest: PluginManifestV2): Set<string> {
   const texts = [
     manifest.displayName,
     manifest.description,
+    manifest.longDescription,
+    ...(manifest.examples ?? []),
     ...Object.values(manifest.configuration ?? {}).flatMap((field) => [
       field.title,
       field.description,
@@ -267,34 +269,39 @@ function checkPackage(
     file(`/contributes/panels/${index}/icon`, panel.icon);
   });
   const toolSchemas: Record<string, Record<string, unknown>> = {};
-  contributes.tools?.forEach((tool, index) => {
-    for (const key of ["input", "output"] as const) {
-      const schema = tool[key];
-      if (!schema) continue;
-      const at = `/contributes/tools/${index}/${key}`;
-      const bytes = files.get(schema);
-      if (!bytes) {
-        issue(at, `${schema} is not in the package`);
-        continue;
-      }
-      if (bytes.length > PLUGIN_TOOL_SCHEMA_MAX_BYTES) {
-        issue(
-          at,
-          `${schema} is larger than ${PLUGIN_TOOL_SCHEMA_MAX_BYTES / 1024} KB`,
-        );
-        continue;
-      }
-      const value = parseJson(bytes);
-      if (value === undefined) {
-        issue(at, `${schema} is not JSON`);
-        continue;
-      }
-      const problems = toolSchemaIssues(value);
-      for (const problem of problems) issue(at, `${schema}: ${problem}`);
-      if (!problems.length)
-        toolSchemas[schema] = value as Record<string, unknown>;
+  const schemas = [
+    ...(contributes.tools ?? []).flatMap((tool, index) =>
+      (["input", "output"] as const).map((key) => ({ at: `/contributes/tools/${index}/${key}`, schema: tool[key] })),
+    ),
+    ...(contributes.commands ?? []).map((command, index) => ({
+      at: `/contributes/commands/${index}/run/input`,
+      schema: "native" in command.run ? command.run.input : undefined,
+    })),
+  ];
+  for (const { at, schema } of schemas) {
+    if (!schema) continue;
+    const bytes = files.get(schema);
+    if (!bytes) {
+      issue(at, `${schema} is not in the package`);
+      continue;
     }
-  });
+    if (bytes.length > PLUGIN_TOOL_SCHEMA_MAX_BYTES) {
+      issue(
+        at,
+        `${schema} is larger than ${PLUGIN_TOOL_SCHEMA_MAX_BYTES / 1024} KB`,
+      );
+      continue;
+    }
+    const value = parseJson(bytes);
+    if (value === undefined) {
+      issue(at, `${schema} is not JSON`);
+      continue;
+    }
+    const problems = toolSchemaIssues(value);
+    for (const problem of problems) issue(at, `${schema}: ${problem}`);
+    if (!problems.length)
+      toolSchemas[schema] = value as Record<string, unknown>;
+  }
 
   // Skills: every `<folder>/<name>/SKILL.md`, named after its folder.
   const skills: PluginSkillSummary[] = [];
@@ -367,7 +374,7 @@ function checkPackage(
     else strings[locale] = value as Record<string, string>;
   }
   for (const key of localizedKeys(manifest))
-    if (!strings.en?.[key]) issue("./locales/en.json", `missing %${key}%`);
+    if (!localeText(strings.en, key)) issue("./locales/en.json", `missing %${key}%`);
 
   if (issues.length) return { ok: false, issues };
   return {
@@ -393,7 +400,12 @@ export function localizePluginString(
 ): string {
   const key = /^%([A-Za-z0-9_.-]+)%$/.exec(value)?.[1];
   if (!key) return value;
-  return entry.strings[locale]?.[key] ?? entry.strings.en?.[key] ?? value;
+  return localeText(entry.strings[locale], key) ?? localeText(entry.strings.en, key) ?? value;
+}
+
+/** A locale file's own string for a key: `%toString%` names nothing. */
+function localeText(table: Record<string, string> | undefined, key: string): string | undefined {
+  return table && Object.hasOwn(table, key) ? table[key] : undefined;
 }
 
 type ContributionKind = Exclude<
