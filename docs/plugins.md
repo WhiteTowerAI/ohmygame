@@ -31,7 +31,9 @@ A plugin's page has **About** (the long description and Try it prompts),
 **Skills**, and **Settings** (configuration, MCP services, and
 dependencies) tabs, beside a **Management** card with the plugin's switch,
 version, source, and actions. It opens on Settings while required
-configuration is missing.
+configuration is missing. A format 2 plugin's page has the same tabs, without a
+switch per Skill; a Try it prompt turns the plugin on in the project it starts
+in, and waits until what the plugin asks for is allowed.
 
 ## Package format
 

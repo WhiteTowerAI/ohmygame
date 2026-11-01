@@ -1102,6 +1102,9 @@ const en = {
   pluginStore: {
     section: "Turned on per project",
     perProject: "Per project",
+    homepage: "Homepage",
+    allowToTry: "Allow what it asks for to try it.",
+    doesNotSuitProject: "This plugin doesn't work in that project.",
     perProjectHint: "Turn this plugin on in a project from the project's Plugins sheet, or pick it when you create one. Switched off here, it stops in every project.",
     needsConsent: "Needs your OK",
     consentTitle: "Allow what this plugin asks for",

@@ -145,6 +145,12 @@ shows it in the call's progress.
   the version the project uses, its status, what it asks for, and whether the
   person allowed that. Turning on one never allowed asks first, then posts
   the consent. The type's plugin stays on.
+- A plugin's page reads `GET /plugin-store/plugins`: its icon, long
+  description, `examples` (Try it), `appliesTo`, Skills and homepage. Its icon,
+  Skill contents and folder come through the same routes as a format 1 plugin's
+  (`/plugins/:id/icon`, `/skill-content`, `/skill-file`, `/directory`), with the
+  id `publisher/name` encoded and its newest version read; a bundled plugin's
+  folder isn't offered.
 - A plugin's `appliesTo` names the project types it works in (none means
   all); the type's own plugin always works in it. For a plugin turned on per
   project, that is the type `ohmygame.json` says: `general` (which a Web

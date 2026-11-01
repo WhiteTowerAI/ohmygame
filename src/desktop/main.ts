@@ -200,7 +200,7 @@ handle("ohmygame:popup-window-menu", (event, label: unknown, x: unknown, y: unkn
 });
 handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
-  if (!validRouteId(pluginId) || !daemon) throw new Error("Invalid plugin");
+  if (!validPluginId(pluginId) || !daemon) throw new Error("Invalid plugin");
   const response = await fetch(`${daemon.runtime.url}/plugins/${encodeURIComponent(pluginId)}/directory`, {
     headers: { authorization: `Bearer ${daemon.runtime.token}` },
   });
@@ -226,7 +226,7 @@ handle("ohmygame:open-project-file", async (event, projectId: unknown, filePath:
 });
 handle("ohmygame:reveal-plugin-skill", async (event, pluginId: unknown, skillId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
-  if (!validRouteId(pluginId) || typeof skillId !== "string" || !skillId || skillId.length > 1_000 || !daemon) {
+  if (!validPluginId(pluginId) || typeof skillId !== "string" || !skillId || skillId.length > 1_000 || !daemon) {
     throw new Error("Invalid Plugin Skill");
   }
   const response = await fetch(`${daemon.runtime.url}/plugins/${encodeURIComponent(pluginId)}/skill-file?id=${encodeURIComponent(skillId)}`, {
@@ -801,6 +801,11 @@ async function captureNodeThumbnail(projectId: string, nodeId: string, viewport:
 function isSceneHashes(value: unknown): value is Record<string, string> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     && Object.values(value).every((hash) => typeof hash === "string" && /^[0-9a-f]{8,64}$/.test(hash));
+}
+
+/** Format 1 ids are one route segment; format 2's are `publisher/name`. Both are encoded into the route. */
+function validPluginId(value: unknown): value is string {
+  return typeof value === "string" && /^[^/]{1,200}(?:\/[^/]{1,200})?$/.test(value);
 }
 
 function validRouteId(value: unknown): value is string {

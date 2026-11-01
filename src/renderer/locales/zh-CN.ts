@@ -1084,6 +1084,9 @@ const zhCN: typeof en = {
   pluginStore: {
     section: "按项目开启",
     perProject: "按项目开启",
+    homepage: "主页",
+    allowToTry: "允许它请求的权限后才能试用。",
+    doesNotSuitProject: "这个插件不能用于那个项目。",
     perProjectHint: "在项目的插件面板里为项目开启这个插件，或在新建项目时选择它。在这里关闭后，所有项目都会停用它。",
     needsConsent: "需要你同意",
     consentTitle: "允许这个插件请求的权限",

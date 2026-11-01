@@ -19,10 +19,13 @@ export class PluginSkillContentError extends Error {
   readonly statusCode = 413;
 }
 
+/** A plugin as reading its Skills needs it; format 2 plugins fit this too. */
+export type PluginWithSkills = { id: string; skills: ReadonlyArray<{ id: string }> };
+
 export async function readPluginSkillContent(
-  plugin: PluginDetail,
+  plugin: PluginWithSkills,
   skillId: string,
-  sources: readonly PluginSkillSource[],
+  sources: readonly Pick<PluginSkillSource, "installedPath">[],
 ): Promise<string | undefined> {
   const target = await resolvePluginSkillFile(plugin, skillId, sources);
   if (!target) return undefined;
@@ -39,9 +42,9 @@ export async function readPluginSkillContent(
 }
 
 export async function resolvePluginSkillFile(
-  plugin: PluginDetail,
+  plugin: PluginWithSkills,
   skillId: string,
-  sources: readonly PluginSkillSource[],
+  sources: readonly Pick<PluginSkillSource, "installedPath">[],
 ): Promise<string | undefined> {
   if (path.basename(skillId) !== "SKILL.md" || !plugin.skills.some((skill) => skill.id === skillId)) return undefined;
   for (const source of sources) {

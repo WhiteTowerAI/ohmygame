@@ -9,7 +9,7 @@ import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
 import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
-import { registerPluginIconRoutes } from "./plugin-icons.js";
+import { readPluginIconAsset, registerPluginIconRoutes } from "./plugin-icons.js";
 import { PluginCapabilities } from "./plugin-capabilities.js";
 import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { registerPluginCapabilityRoutes } from "./plugin-capability-routes.js";
@@ -114,6 +114,7 @@ import { registerPluginPortabilityRoutes } from "./plugin-portability.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
 import { PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
+import { isPluginId } from "../shared/plugin-manifest.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
@@ -1087,7 +1088,14 @@ export function createApp(options: AppOptions = {}) {
     return { runtime, model };
   });
   registerPluginSetupRoutes(app, pluginSetup);
-  registerPluginIconRoutes(app, [bundledPlugins, localPlugins]);
+  registerPluginIconRoutes(app, [bundledPlugins, localPlugins, {
+    readIcon: async (id) => {
+      if (!isPluginId(id)) return undefined;
+      await pluginServices.ready();
+      const entry = pluginServices.index.get(id);
+      return entry?.manifest.icon ? readPluginIconAsset(entry.root, { type: "asset", path: entry.manifest.icon }) : undefined;
+    },
+  }]);
   registerPluginPortabilityRoutes(app, { local: localPlugins, plugins, capabilities: pluginCapabilities, settings: pluginSettings, invalidate: invalidatePluginSessions });
 
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {
@@ -1154,6 +1162,15 @@ export function createApp(options: AppOptions = {}) {
     const inside = path.relative(bundledPluginsV2, root);
     return !!inside && !inside.startsWith("..") && !path.isAbsolute(inside);
   };
+  /** A format 2 plugin's Skills, by the same ids format 1's have: their path in the package. */
+  const storeSkills = (entry: PluginIndexEntry) => entry.skills.map(({ name, description, path: file }) => ({ id: path.posix.normalize(file), name, description }));
+  /** A format 2 plugin (`publisher/name`, its newest version) as the routes that read Skills need it. */
+  const storeSkillOwner = async (id: string) => {
+    if (!isPluginId(id)) return undefined;
+    await pluginServices.ready();
+    const entry = pluginServices.index.get(id);
+    return entry && { plugin: { id, skills: storeSkills(entry) }, sources: [{ installedPath: () => entry.root }] };
+  };
   app.get<{ Querystring: { locale?: string } }>("/plugin-store/plugins", async (request): Promise<StorePlugin[]> => {
     await pluginServices.ready();
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
@@ -1168,6 +1185,14 @@ export function createApp(options: AppOptions = {}) {
         capabilities: capabilityGrants(entry.manifest),
         grants: pluginServices.grants.plugin(entry.id) ?? null,
         bundled: bundledPluginEntry(entry.root),
+        ...(entry.manifest.beta ? { beta: true } : {}),
+        // The digest changes with the package, which holds the icon.
+        ...(entry.manifest.icon ? { icon: { type: "asset" as const, path: entry.manifest.icon }, iconRevision: entry.digest } : {}),
+        ...(entry.manifest.longDescription ? { longDescription: text(entry.manifest.longDescription) } : {}),
+        examples: (entry.manifest.examples ?? []).map(text),
+        ...(entry.manifest.appliesTo ? { appliesTo: entry.manifest.appliesTo } : {}),
+        ...(entry.manifest.links?.homepage ? { homepage: entry.manifest.links.homepage } : {}),
+        skills: storeSkills(entry),
         settings: Object.entries(entry.manifest.configuration ?? {}).map(([name, field]) => ({
           name,
           type: field.type,
@@ -1570,11 +1595,12 @@ export function createApp(options: AppOptions = {}) {
   } as const;
 
   app.get<{ Params: { pluginId: string }; Querystring: { id: string } }>("/plugins/:pluginId/skill-content", pluginSkillQuerySchema, async (request, reply) => {
-    const plugin = await plugins.read(request.params.pluginId);
+    const owner = await storeSkillOwner(request.params.pluginId);
+    const plugin = owner?.plugin ?? await plugins.read(request.params.pluginId);
     if (!plugin) return reply.code(404).send({ error: "Plugin not found" });
     try {
-      if (!plugin.installed) return reply.code(404).send({ error: "Installed plugin not found" });
-      const content = await readPluginSkillContent(plugin, request.query.id, [bundledPlugins, localPlugins]);
+      if ("installed" in plugin && !plugin.installed) return reply.code(404).send({ error: "Installed plugin not found" });
+      const content = await readPluginSkillContent(plugin, request.query.id, owner?.sources ?? [bundledPlugins, localPlugins]);
       return content === undefined
         ? reply.code(404).send({ error: "Plugin Skill not found" })
         : { id: request.query.id, content };
@@ -1585,13 +1611,20 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get<{ Params: { pluginId: string }; Querystring: { id: string } }>("/plugins/:pluginId/skill-file", pluginSkillQuerySchema, async (request, reply) => {
-    const plugin = await plugins.read(request.params.pluginId);
-    if (!plugin?.installed) return reply.code(404).send({ error: "Installed plugin not found" });
-    const filePath = await resolvePluginSkillFile(plugin, request.query.id, [bundledPlugins, localPlugins]);
+    const owner = await storeSkillOwner(request.params.pluginId);
+    const plugin = owner?.plugin ?? await plugins.read(request.params.pluginId);
+    if (!plugin || ("installed" in plugin && !plugin.installed)) return reply.code(404).send({ error: "Installed plugin not found" });
+    const filePath = await resolvePluginSkillFile(plugin, request.query.id, owner?.sources ?? [bundledPlugins, localPlugins]);
     return filePath ? { path: filePath } : reply.code(404).send({ error: "Plugin Skill not found" });
   });
 
   app.get<{ Params: { pluginId: string } }>("/plugins/:pluginId/directory", async (request, reply) => {
+    // A bundled plugin's folder is the app's own, as format 1's is; only what the person installed opens.
+    if (isPluginId(request.params.pluginId)) {
+      await pluginServices.ready();
+      const entry = pluginServices.index.get(request.params.pluginId);
+      return entry && !bundledPluginEntry(entry.root) ? { path: entry.root } : reply.code(404).send({ error: "Local plugin not found" });
+    }
     const directoryPath = await localPlugins.directoryPath(request.params.pluginId);
     return directoryPath ? { path: directoryPath } : reply.code(404).send({ error: "Local plugin not found" });
   });
