@@ -3,7 +3,7 @@
 // that only adds Skills is shown in the catalog as format 1 bundled plugins
 // are, until the two catalogs merge.
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
-import { isAppWidePlugin, type PluginCategory, type PluginManifestV2 } from "../shared/plugin-manifest.js";
+import { isAppWidePlugin, type PluginCategory } from "../shared/plugin-manifest.js";
 import type { PluginManifest, ResolvedPluginManifest } from "../shared/plugins.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 
