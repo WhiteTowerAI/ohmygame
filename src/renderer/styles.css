@@ -7477,6 +7477,34 @@ button {
   white-space: pre-wrap;
 }
 
+.user-message-plugin {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  margin: 0 1px;
+  padding: 0 6px 0 4px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  line-height: 1.6;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.user-message-plugin > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-message-plugin > img,
+.user-message-plugin > svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
 .user-message-actions {
   display: flex;
   align-self: flex-end;
@@ -10020,95 +10048,78 @@ summary.work-summary:hover {
   min-width: 0;
 }
 
-.prompt-box-list-mirror {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
+.prompt-editor {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  max-height: 132px;
+  overflow: auto;
   padding: 3px 2px;
+  outline: 0;
   color: var(--text);
   font: inherit;
   font-size: 13px;
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-  pointer-events: none;
+  cursor: text;
 }
 
-.prompt-box-list-bullet {
-  position: relative;
-  color: transparent;
+.prompt-editor p {
+  margin: 0;
 }
 
-.prompt-box-list-bullet::after {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0.3em;
-  height: 0.3em;
-  border-radius: 50%;
-  background: var(--text);
-  content: "";
-  transform: translate(-50%, -50%);
+.prompt-editor[contenteditable="false"] {
+  cursor: default;
+  opacity: 0.6;
 }
 
-.prompt-box-editor.has-list-mirror textarea {
-  position: relative;
-  color: transparent;
-  caret-color: var(--text);
-}
-
-.prompt-box textarea {
-  display: block;
-  width: 100%;
-  flex: 1;
-  min-width: 0;
-  min-height: 32px;
-  max-height: 132px;
-  resize: none;
-  overflow: auto;
-  padding: 3px 2px;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.prompt-box-home textarea {
+.prompt-box-home .prompt-editor {
   min-height: 64px;
 }
 
-.prompt-box textarea::placeholder {
+.prompt-editor-placeholder {
+  position: absolute;
+  top: 3px;
+  left: 2px;
+  right: 2px;
+  overflow: hidden;
   color: #a8adb7;
+  font-size: 13px;
+  line-height: 1.55;
   opacity: 0.72;
+  pointer-events: none;
+  user-select: none;
 }
 
-.composer-capability-references {
+/* A plugin or Skill the prompt names, edited as one piece. */
+.prompt-mention {
   display: inline-flex;
-  flex: none;
+  max-width: 100%;
   align-items: center;
   gap: 4px;
-}
-
-.composer-capability-reference {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 5px 3px 2px;
-  border: 0;
-  background: transparent;
+  margin: 0 1px;
+  padding: 0 6px 0 4px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.5;
+  vertical-align: bottom;
+  white-space: nowrap;
+  user-select: none;
 }
 
-.composer-capability-reference:hover {
-  color: color-mix(in srgb, var(--accent) 78%, white);
+.prompt-mention > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prompt-mention > img,
+.prompt-mention > svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
 }
 
 .prompt-box-toolbar {

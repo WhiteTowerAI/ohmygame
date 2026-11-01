@@ -1,7 +1,7 @@
 import type { PluginMention, PromptContext, PromptReference } from "../shared/contracts.js";
 import type { ChatReference } from "./chat-reference.js";
 import type { ComposerAttachment } from "./composer-attachments.js";
-import { extractLeadingPluginMention, parseSkillInvocation } from "./composer-mentions.js";
+import { formatSkillInvocation } from "./composer-mentions.js";
 
 export interface ComposerDraft {
   prompt: string;
@@ -14,7 +14,7 @@ export interface ComposerDraftScope {
 }
 
 export interface SavedComposerDraft extends ComposerDraft {
-  selectedSkill?: string;
+  /** Home's starter plugin, which leads the message without showing in it. */
   selectedPlugin?: PluginMention;
   /** Home's other chosen plugins, sent as mentions after `selectedPlugin`. */
   extraPlugins?: PluginMention[];
@@ -54,14 +54,10 @@ export function createComposerDraftStore(storage?: DraftStorage) {
     const existing = key ? sessions.get(key) : undefined;
     if (existing) return existing.session;
 
-    const skill = parseSkillInvocation(initialDraft?.prompt ?? "");
-    const plugin = extractLeadingPluginMention(skill?.prompt ?? initialDraft?.prompt ?? "", initialDraft?.mentions ?? []);
     const restored = readDraft(storage, key);
     let snapshot: SavedComposerDraft = {
-      prompt: plugin.prompt,
+      prompt: initialDraft?.prompt ?? "",
       mentions: initialDraft?.mentions ?? [],
-      selectedSkill: skill?.name,
-      selectedPlugin: plugin.mention,
       planning,
       ...restored,
       attachments: [],
@@ -94,7 +90,7 @@ export function createComposerDraftStore(storage?: DraftStorage) {
         // Mode and sending status can change while the server accepts a prompt.
         // Only clear the message that was sent, never a newer message or reference.
         if (!active || !sameMessage(snapshot, submitted)) return false;
-        session.update({ prompt: "", mentions: [], selectedSkill: undefined, selectedPlugin: undefined, extraPlugins: undefined,
+        session.update({ prompt: "", mentions: [], selectedPlugin: undefined, extraPlugins: undefined,
           attachments: [], reference: undefined, designReference: undefined, focusRequestId: undefined });
         return true;
       },
@@ -166,16 +162,16 @@ function scopeKey(scope: ComposerDraftScope): string {
 
 function sameMessage(left: SavedComposerDraft, right: SavedComposerDraft): boolean {
   return left.prompt === right.prompt && left.mentions === right.mentions
-    && left.selectedSkill === right.selectedSkill && left.selectedPlugin === right.selectedPlugin
+    && left.selectedPlugin === right.selectedPlugin
     && left.extraPlugins === right.extraPlugins
     && left.attachments === right.attachments && left.reference === right.reference
     && left.designReference === right.designReference;
 }
 
 function serializeDraft(draft: SavedComposerDraft): string | null {
-  if (!draft.prompt && !draft.selectedSkill && !draft.selectedPlugin && !draft.extraPlugins?.length && !draft.reference && !draft.designReference && !draft.planning) return null;
-  const { prompt, mentions, selectedSkill, selectedPlugin, extraPlugins, reference, designReference, planning } = draft;
-  return JSON.stringify({ version: 1, prompt, mentions, selectedSkill, selectedPlugin, extraPlugins, reference, designReference, planning });
+  if (!draft.prompt && !draft.selectedPlugin && !draft.extraPlugins?.length && !draft.reference && !draft.designReference && !draft.planning) return null;
+  const { prompt, mentions, selectedPlugin, extraPlugins, reference, designReference, planning } = draft;
+  return JSON.stringify({ version: 1, prompt, mentions, selectedPlugin, extraPlugins, reference, designReference, planning });
 }
 
 function saveDraft(storage: DraftStorage | undefined, key: string | undefined, serialized: string | null): void {
@@ -194,9 +190,9 @@ function readDraft(storage: DraftStorage | undefined, key: string | undefined): 
     const design = value.designReference;
     const context = isRecord(design) ? design.context : undefined;
     return {
-      prompt: value.prompt,
+      // Skills used to sit in a slot of their own; they are now part of the text.
+      prompt: formatSkillInvocation(typeof value.selectedSkill === "string" ? value.selectedSkill : undefined, value.prompt),
       mentions: value.mentions.filter(isPluginMention),
-      selectedSkill: typeof value.selectedSkill === "string" ? value.selectedSkill : undefined,
       selectedPlugin: isPluginMention(value.selectedPlugin) ? value.selectedPlugin : undefined,
       extraPlugins: Array.isArray(value.extraPlugins) ? value.extraPlugins.filter(isPluginMention) : undefined,
       planning: value.planning,

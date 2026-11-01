@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { AgentUsageLimit, ConversationCapabilities } from "../shared/contracts.js";
 import { AgentUsageInline } from "./agent-usage.js";
 import { ClipboardList, FileText, Paperclip, Plug, Plus, Share2, Sparkles, WandSparkles } from "./icons.js";
@@ -8,6 +8,7 @@ import { t } from "./i18n.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { DropdownMenu, Kbd, type MenuEntry } from "./ui/index.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
+import type { PromptInput } from "./prompt-editor.js";
 
 type ContextAction = "plan" | "compact" | "publish";
 interface ContextMenuItem {
@@ -71,10 +72,10 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
   ];
 }
 
-export function useComposerContextMenu({ prompt, cursor, textarea, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onPublish, onMention, onChange, onSelectionChange, contextPercent, canPublish, usageLimits, pluginCommands, onPluginCommand }: {
+export function useComposerContextMenu({ prompt, cursor, input, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onPublish, onMention, onChange, onSelectionChange, contextPercent, canPublish, usageLimits, pluginCommands, onPluginCommand }: {
   prompt: string;
   cursor: number;
-  textarea: RefObject<HTMLTextAreaElement | null>;
+  input: RefObject<PromptInput | null>;
   disabled: boolean;
   capabilities: ConversationCapabilities;
   planning: boolean;
@@ -124,7 +125,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     if (!open) return;
     const closeOutside = (event: Event) => {
       const target = event.target as Node;
-      if (target === textarea.current || menu.current?.contains(target)) return;
+      if (input.current?.contains(target) || menu.current?.contains(target)) return;
       close();
     };
     document.addEventListener("pointerdown", closeOutside);
@@ -145,7 +146,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     setSelected(0);
     setOpenedWith(trigger);
     // The menu hands focus back to its button as it closes; the list belongs to the field.
-    requestAnimationFrame(() => textarea.current?.focus());
+    requestAnimationFrame(() => input.current?.focus());
   }
 
   function select(item: ContextMenuItem): void {
@@ -156,19 +157,19 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     }
     if (item.action === "compact") {
       onCompact?.();
-      textarea.current?.focus();
+      input.current?.focus();
       return;
     }
     // Actions consume the search token, leaving the message draft intact.
     if (query && query.end > query.start) {
       onChange(`${prompt.slice(0, query.start)}${prompt.slice(query.end).replace(/^\s+/, "")}`);
       onSelectionChange(query.start);
-      requestAnimationFrame(() => textarea.current?.setSelectionRange(query.start, query.start));
+      requestAnimationFrame(() => input.current?.focus(query.start));
     }
     if (item.action === "plan") onTogglePlanning();
     else if (item.action === "publish") onPublish?.();
     else if (item.pluginCommand) onPluginCommand?.(item.pluginCommand);
-    textarea.current?.focus();
+    input.current?.focus();
   }
 
   function handleKeyDown(event: KeyboardEvent): boolean {
@@ -196,7 +197,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     event.preventDefault();
     event.stopPropagation();
     close();
-    textarea.current?.focus();
+    input.current?.focus();
     return true;
   }
 
@@ -228,7 +229,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
         const files = attachmentFiles([...(event.target.files ?? [])]);
         if (files.length) onFiles(files);
         event.target.value = "";
-        textarea.current?.focus();
+        input.current?.focus();
       }} />
     </>,
     overlay: open ? <ComposerContextMenu id={id} menuRef={menu} trigger={query?.trigger ?? "/"} items={items} selected={selectedIndex} onSelect={select} onHover={setSelected} usageLimits={query?.trigger === "/" ? usageLimits : undefined} /> : null,

@@ -6,6 +6,7 @@ import {
   isPluginVersion,
   parsePluginMentions,
   serializePluginMentions,
+  splitPluginMentions,
   type PluginSummary,
 } from "../src/shared/plugins.js";
 
@@ -129,6 +130,16 @@ describe("plugin protocol", () => {
     expect(serializePluginMentions("Use @Foo Bar, then @Foo", mentions)).toBe(
       "Use [@Foo Bar](plugin://foo-bar@personal), then [@Foo](plugin://foo@personal)",
     );
+  });
+
+  it("splits a prompt at its Plugin mentions, longer names first", () => {
+    const foo = { name: "foo", displayName: "Foo", marketplaceId: "personal" };
+    const fooBar = { name: "foo-bar", displayName: "Foo Bar", marketplaceId: "personal" };
+
+    expect(splitPluginMentions("@Foo Bar hi, then @Foo. @Food stays", [foo, fooBar])).toEqual([
+      fooBar, " hi, then ", foo, ". @Food stays",
+    ]);
+    expect(splitPluginMentions("No mentions", [])).toEqual(["No mentions"]);
   });
 
   it("leaves malformed Plugin references untouched", () => {

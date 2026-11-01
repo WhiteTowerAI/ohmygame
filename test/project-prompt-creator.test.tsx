@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationCapabilities } from "../src/shared/contracts.js";
 import type { ProjectPluginChoice } from "../src/shared/plugins.js";
+import { placeCaret, pressKey, promptChips, promptText, typePrompt } from "./prompt-field.js";
 
 const plugin = (
   name: string,
@@ -89,16 +90,7 @@ async function render() {
     ),
   );
 }
-async function type(value: string) {
-  const textarea = container.querySelector("textarea")!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(
-      HTMLTextAreaElement.prototype,
-      "value",
-    )!.set!.call(textarea, value);
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
+const type = (value: string) => typePrompt(value, container);
 const send = () =>
   act(async () =>
     container
@@ -128,10 +120,12 @@ async function chooseIdea(text: string) {
   await act(async () => idea.click());
 }
 async function historyKey(key: "ArrowUp" | "ArrowDown") {
-  const textarea = container.querySelector("textarea")!;
-  const at = key === "ArrowUp" ? 0 : textarea.value.length;
-  textarea.setSelectionRange(at, at);
-  await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })); });
+  await placeCaret(key === "ArrowUp" ? 0 : promptText(container).length, container);
+  await pressKey(key, {}, container);
+}
+async function backspaceAtStart() {
+  await placeCaret(0, container);
+  await pressKey("Backspace", {}, container);
 }
 const menuItem = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>(".home-plugin-row")]
@@ -145,7 +139,7 @@ describe("Home prompt box", () => {
     // Its ideas sit behind one button in the row of ways to start, and fill the prompt.
     expect(ideasButton()).toBeDefined();
     await chooseIdea("dungeon");
-    expect(container.querySelector("textarea")!.value).toBe(
+    expect(promptText(container)).toBe(
       "Make a pixel-art dungeon roguelike with turn-based combat",
     );
 
@@ -162,7 +156,7 @@ describe("Home prompt box", () => {
     await act(async () => pluginButton().click());
     // Godot's type has Godot's ideas, though Godot is no starter.
     await chooseIdea("third-person");
-    expect(container.querySelector("textarea")!.value).toBe("Make a third-person 3D scene in Godot you can walk around");
+    expect(promptText(container)).toBe("Make a third-person 3D scene in Godot you can walk around");
 
     // A type no starter names starts with no plugin, and sends none.
     await chooseType("Tile Map");
@@ -181,19 +175,20 @@ describe("Home prompt box", () => {
     localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Web Game Studio @Three.js World Make an island", mentions }]));
     await render();
     await historyKey("ArrowUp");
-    expect(container.querySelector("textarea")!.value).toBe("Make an island");
+    expect(promptText(container)).toBe("Make an island");
     expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Web Game Studio, Three.js World");
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio @Three.js World Make an island" }), expect.any(Function));
 
-    // A plugin that does not fit the type now stays in the prompt instead.
+    // Plugins that do not fit the type now stay in the prompt instead, as chips.
     onSubmit.mockReset();
     await act(async () => root.unmount());
     root = createRoot(container);
     await render();
     await chooseType("Godot");
     await historyKey("ArrowUp");
-    expect(container.querySelector("textarea")!.value).toBe("@Three.js World Make an island");
+    expect(promptText(container)).toBe("@Web Game Studio @Three.js World Make an island");
+    expect(promptChips(container)).toEqual(["Web Game Studio", "Three.js World"]);
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio @Three.js World Make an island" }), expect.any(Function));
   });
@@ -223,9 +218,7 @@ describe("Home prompt box", () => {
 
     // Removing the lead keeps the others, also once Home brings the type's starter back.
     onSubmit.mockReset();
-    const textarea = () => container.querySelector("textarea")!;
-    textarea().setSelectionRange(0, 0);
-    await act(async () => { textarea().dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true })); });
+    await backspaceAtStart();
     await act(async () => root.unmount());
     root = createRoot(container);
     await render();
@@ -259,26 +252,43 @@ describe("Home prompt box", () => {
     expect(pluginButton().textContent).toBe("+3");
   });
 
-  it("keeps the other plugins when the lead is replaced by a mention", async () => {
+  it("keeps a plugin that starts no project in the text, after the chosen plugins", async () => {
     capabilities.plugins.push(plugin("threejs-world", "Three.js World", ["web-game"]));
     await render();
     await act(async () => pluginButton().click());
     await act(async () => menuItem("Three.js World")!.click());
     await act(async () => pluginButton().click());
-    const textarea = container.querySelector("textarea")!;
-    textarea.setSelectionRange(0, 0);
-    await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true })); });
+    await backspaceAtStart();
     await type("@Blen");
-    textarea.setSelectionRange(5, 5);
-    await act(async () => { textarea.dispatchEvent(new Event("select", { bubbles: true })); });
+    await placeCaret(5, container);
     const option = [...document.querySelectorAll<HTMLElement>('[role="option"], [role="menuitem"]')].find((item) => item.textContent?.includes("Blender"))!;
     await act(async () => option.click());
-    await type("Make an island");
+    expect(promptText(container)).toBe("@Blender ");
+    expect(promptChips(container)).toEqual(["Blender"]);
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Three.js World");
+    await type("@Blender Make an island");
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: "@Blender @Three.js World Make an island",
+      prompt: "@Three.js World @Blender Make an island",
       mentions: expect.arrayContaining([expect.objectContaining({ name: "blender" }), expect.objectContaining({ name: "threejs-world" })]),
     }), expect.any(Function));
+  });
+
+  it("puts any number of Skills in the text where they are picked, after the starting plugin", async () => {
+    capabilities.skills = [{ name: "game-design", description: "Write a brief" }, { name: "review", description: "Review a change" }];
+    await render();
+    const pick = async (text: string, name: string) => {
+      await type(text);
+      await placeCaret(text.length, container);
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent?.includes(name))!;
+      await act(async () => option.click());
+    };
+    await pick("$game", "Game Design");
+    await pick(`${promptText(container)}then $rev`, "Review");
+    expect(promptText(container)).toBe("$game-design then $review ");
+    expect(promptChips(container)).toEqual(["Game Design", "Review"]);
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio $game-design then $review" }), expect.any(Function));
   });
 
   it("moves a following plugin up when a mention makes it the lead", async () => {
@@ -287,15 +297,10 @@ describe("Home prompt box", () => {
     await act(async () => pluginButton().click());
     await act(async () => menuItem("Three.js World")!.click());
     await act(async () => pluginButton().click());
-    const textarea = container.querySelector("textarea")!;
-    const backspace = async () => {
-      textarea.setSelectionRange(0, 0);
-      await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true })); });
-    };
+    const backspace = backspaceAtStart;
     await backspace();
     await type("@Three");
-    textarea.setSelectionRange(6, 6);
-    await act(async () => { textarea.dispatchEvent(new Event("select", { bubbles: true })); });
+    await placeCaret(6, container);
     const option = [...document.querySelectorAll<HTMLElement>('[role="option"], [role="menuitem"]')].find((item) => item.textContent?.includes("Three.js World"))!;
     await act(async () => option.click());
     expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Three.js World");
@@ -452,15 +457,15 @@ describe("Home prompt box", () => {
     await act(async () => root.unmount());
     root = createRoot(container);
     await render();
-    expect(container.querySelector("textarea")!.value).toBe("A tiny racing game");
+    expect(promptText(container)).toBe("A tiny racing game");
   });
 
   it("clears the prompt once the dialog has created the project", async () => {
     await render();
     await type("Make a maze");
     await send();
-    expect(container.querySelector("textarea")!.value).toBe("Make a maze");
+    expect(promptText(container)).toBe("Make a maze");
     await act(async () => onSubmit.mock.calls[0]![1]());
-    expect(container.querySelector("textarea")!.value).toBe("");
+    expect(promptText(container)).toBe("");
   });
 });

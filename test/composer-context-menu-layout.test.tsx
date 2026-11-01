@@ -3,6 +3,7 @@ import { act, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useComposerContextMenu } from "../src/renderer/composer-context-menu.js";
+import type { PromptInput } from "../src/renderer/prompt-editor.js";
 
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -18,11 +19,11 @@ function Composer({
   agent?: boolean;
   home?: boolean;
 }) {
-  const textarea = useRef<HTMLTextAreaElement>(null);
+  const input = useRef<PromptInput>(null);
   const menu = useComposerContextMenu({
     prompt,
     cursor: prompt.length,
-    textarea,
+    input,
     disabled: false,
     capabilities: { plugins: [], skills: [] },
     planning: false,
@@ -37,7 +38,6 @@ function Composer({
     <div className="desktop-window-content">
       <div className={agent ? "agent-body" : "home-content"}>
         <div className={home ? "prompt-box prompt-box-home" : "prompt-box"}>
-          <textarea ref={textarea} />
           {menu.button}
           {menu.overlay}
         </div>

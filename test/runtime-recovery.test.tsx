@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopRuntimeState } from "../src/shared/desktop-runtime.js";
 import type { ProjectState, RuntimeEvent } from "../src/shared/contracts.js";
+import { promptField, promptText, typePrompt } from "./prompt-field.js";
 
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
@@ -251,14 +252,8 @@ describe("renderer service recovery", () => {
         </AuthProvider>,
       ),
     );
-    const input = container.querySelector("textarea")!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!.call(input, "My unsent game idea");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    const input = promptField(container);
+    await typePrompt("My unsent game idea", container);
     await act(async () =>
       updateRuntimeConnection({
         status: "recovering",
@@ -267,8 +262,8 @@ describe("renderer service recovery", () => {
       }),
     );
     await act(async () => updateRuntimeConnection(ready(2)));
-    expect(container.querySelector("textarea")).toBe(input);
-    expect(input.value).toBe("My unsent game idea");
+    expect(promptField(container)).toBe(input);
+    expect(promptText(container)).toBe("My unsent game idea");
   });
 
   it("uses new credentials and rejects mutations while offline without replaying them", async () => {
