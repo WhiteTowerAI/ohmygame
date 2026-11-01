@@ -47,14 +47,18 @@ export class OpenAIImageGenerator implements ImageGenerator {
 
     let response: Response;
     try {
+      const model = input.model ?? "gpt-image-2.5-flare";
       const body = images.length
         ? editForm({ ...input, images }, size)
         : JSON.stringify({
-            model: input.model ?? "gpt-image-2.5-flare",
+            model,
             prompt: input.prompt,
             size,
-            quality: "medium",
-            output_format: "webp",
+            // gpt-image-only dialect: OpenAI-compatible relays (zhipu CogView, Agnes, ...)
+            // reject these fields. Mirrors the gpt-image family patterns in image-models.ts.
+            ...(isOpenAiImageModel(model)
+              ? { quality: "medium", output_format: "webp" }
+              : {}),
             n: 1,
           });
       response = await this.request(endpoint, {
@@ -125,6 +129,13 @@ function imageEndpoint(baseUrl: string, edit: boolean): string {
   } catch {
     throw new ImageGenerationError("OpenAI base URL is not valid", 503);
   }
+}
+
+// gpt-image models accept the full OpenAI Images dialect (quality, output_format).
+// Keep in sync with the gpt-image family patterns in image-models.ts: other model ids
+// belong to OpenAI-compatible relays that reject those fields.
+function isOpenAiImageModel(model: string): boolean {
+  return model.startsWith("gpt-image-");
 }
 
 const OPENAI_IMAGE_SIZES: Record<Exclude<ImageResolution, "512">, Record<ImageAspectRatio, string>> = {

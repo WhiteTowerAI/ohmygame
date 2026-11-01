@@ -36,6 +36,31 @@ describe("OpenAI image generator", () => {
     });
   });
 
+  it("sends a lean body without gpt-image dialect for OpenAI-compatible relay models", async () => {
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [{ url: "https://relay.example/generated.png", b64_json: "" }],
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      }));
+    const generator = new OpenAIImageGenerator("relay-key", "https://open.bigmodel.cn/api/paas/v4", request);
+
+    const result = await generator.generate({ prompt: "A game icon", size: "1024x1024", model: "cogview-3-flash" });
+
+    expect(result.bytes).toEqual(Buffer.from([1, 2, 3]));
+    expect(result.mediaType).toBe("image/png");
+    const [url, init] = request.mock.calls[0];
+    expect(url).toBe("https://open.bigmodel.cn/api/paas/v4/images/generations");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      model: "cogview-3-flash",
+      prompt: "A game icon",
+      size: "1024x1024",
+      n: 1,
+    });
+  });
+
   it("maps authentication and moderation errors without exposing provider details", async () => {
     const unauthorized = new OpenAIImageGenerator("bad-key", undefined, async () => new Response(JSON.stringify({
       error: { message: "Incorrect API key" },
