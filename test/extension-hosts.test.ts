@@ -1071,11 +1071,12 @@ describe("plugin tools", () => {
         true,
       );
       expect(changes).toContain(undefined);
-      changes.length = 0;
-      // Stop the folder watcher, and the report it may still owe for an
-      // earlier write, so only the method itself can report this one. Asking
-      // for the project's tools below watches the folder again.
+      // Stop the folder watcher, which drops a report it still owes for an
+      // earlier write and waits for one already sent, so only the method
+      // itself can report this one. Asking for the project's tools below
+      // watches the folder again.
       await services.closeProject(folder);
+      changes.length = 0;
       await services.setProjectPlugin(folder, "acme/tiles", "1.1.0");
       expect(changes).toEqual([folder]);
       await expect(
