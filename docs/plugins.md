@@ -493,7 +493,7 @@ that starts off; turn it on from **Plugins** in the main sidebar. It adds the
 Maker project type, whose game runs in Maker's own native Runtime window, so
 the project has no web preview and isn't published to Community.
 
-- **Maker panel:** prepares the pinned `@taptap/maker@0.0.36` CLI and its
+- **Maker panel:** prepares the pinned `@taptap/maker@0.0.39` CLI and its
   Python/Lua diagnostics once in the plugin's data folder (Python 3.8+ with
   venv/pip and Git are required), opens Maker's browser sign-in, creates or
   connects the Maker project, and starts, refreshes and stops the preview,
@@ -502,8 +502,12 @@ the project has no web preview and isn't published to Community.
   processes.
 - **Creating:** a new Maker project starts empty apart from `ohmygame.json`.
   Until it is connected, the type's `ready` check holds the first message and
-  opens the panel. Creating and connecting refuse a folder with files of its
-  own. A failed checkout resumes the created project instead of creating
+  opens the panel. Creating and connecting keep the folder's files, unless
+  the Maker project has files at the same paths, and refuse a folder that is
+  already a Git repository, since Maker would replace its remote and branch.
+  `ohmygame.json`, `.ohmygame/` and `canvas/` go in the repository's
+  `.git/info/exclude`, so Maker's commits leave them out unless the
+  project's own `.gitignore` un-ignores them. A failed checkout resumes the created project instead of creating
   another; when a create's outcome is unknown, the panel asks the person to
   connect the project instead. Connecting the same project again only checks
   it.
@@ -512,10 +516,10 @@ the project has no web preview and isn't published to Community.
   take the project's absolute `target_dir`. The `maker_preview` tool controls
   the same preview as the panel. Local previews never submit remotely;
   `maker_build_current_directory` commits, pushes and builds the bound branch,
-  which may include `ohmygame.json`. The TapTap Release Skill uses the
-  person's signed-in `taptap-cli` for the store page, Spark version binding
-  and review, and asks before installing it and before each approval-gated
-  write.
+  leaving out the excluded files unless they are already tracked. The TapTap
+  Release Skill uses the person's signed-in `taptap-cli` for the store page,
+  Spark version binding and review, and asks before installing it and before
+  each approval-gated write.
 
 See the [TapTap Maker](../plugins-v2/taptap-maker/skills/taptap-maker/SKILL.md)
 and [TapTap Release](../plugins-v2/taptap-maker/skills/taptap-release/SKILL.md)

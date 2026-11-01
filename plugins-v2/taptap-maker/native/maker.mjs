@@ -3,11 +3,12 @@
 // folder, the call's signal and its progress.
 import { createHash } from "node:crypto";
 import {
+  appendFile,
   mkdir,
   readFile,
-  readdir,
   realpath,
   rename,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -19,8 +20,11 @@ import {
   verifyDiagnostics,
 } from "./runtime.mjs";
 
-/** Files the app keeps in a project; a folder holding only these counts as empty. */
-const APP_FILES = new Set(["ohmygame.json", ".ohmygame", ".DS_Store"]);
+/**
+ * What OhMyGame keeps in a project, which Maker's builds must not commit:
+ * Maker stages everything Git doesn't ignore.
+ */
+const APP_FILES = ["/ohmygame.json", "/.ohmygame/", "/canvas/"];
 
 /** The Maker project the folder is bound to, from `.maker-mcp/config.json`; null when unbound. */
 export async function binding(workspace) {
@@ -73,20 +77,75 @@ async function saveInitialization(filename, state) {
   await rename(`${filename}.tmp`, filename);
 }
 
-async function assertEmpty(workspace) {
-  const items = (await readdir(workspace)).filter((item) => !APP_FILES.has(item));
-  if (items.length)
+const exists = (filename) =>
+  stat(filename).then(
+    () => true,
+    () => false,
+  );
+
+/**
+ * Maker sets up its repository in the folder, keeping the files already
+ * there unless the Maker project has files at the same paths. A folder that
+ * is already some other Git repository is refused: Maker would replace its
+ * `origin` and its branch.
+ */
+async function assertNotARepository(workspace) {
+  if (await exists(path.join(workspace, ".git")))
     throw new Error(
-      "Choose an empty project or import an existing Maker workspace",
+      "This project's folder is already a Git repository. Maker would replace its remote and branch, so connect Maker from a folder that isn't one.",
     );
+}
+
+/**
+ * The repository's `info/exclude`. A worktree or submodule has a `.git` file
+ * naming its Git folder, and a worktree shares the main repository's
+ * `info/`, which its Git folder's `commondir` names.
+ */
+async function excludeFile(workspace) {
+  const dotGit = path.join(workspace, ".git");
+  const info = await stat(dotGit).catch(() => null);
+  if (!info) return null;
+  let gitDirectory = dotGit;
+  if (info.isFile()) {
+    const pointer = /^gitdir:\s*(.+?)\s*$/m.exec(await readFile(dotGit, "utf8"));
+    if (!pointer) return null;
+    gitDirectory = path.resolve(workspace, pointer[1]);
+    const common = await readFile(path.join(gitDirectory, "commondir"), "utf8").catch(() => "");
+    if (common.trim()) gitDirectory = path.resolve(gitDirectory, common.trim());
+  } else if (!info.isDirectory()) return null;
+  return path.join(gitDirectory, "info", "exclude");
+}
+
+/** Keeps OhMyGame's own files out of Maker's commits; adds only what is missing. */
+async function excludeAppFiles(workspace) {
+  const filename = await excludeFile(workspace);
+  if (!filename) return;
+  const current = await readFile(filename, "utf8").catch((cause) => {
+    if (cause.code === "ENOENT") return "";
+    throw cause;
+  });
+  // Git drops a pattern's unescaped trailing spaces; leading spaces and tabs
+  // are part of it.
+  const lines = current.split(/\r?\n/).map((line) => line.replace(/(?<!\\) +$/, ""));
+  // An entry holds when no negation follows it: Git's last matching rule wins.
+  const missing = APP_FILES.filter((entry) => {
+    const at = lines.lastIndexOf(entry);
+    return at < 0 || lines.slice(at + 1).some((line) => line.startsWith("!"));
+  });
+  if (!missing.length) return;
+  await mkdir(path.dirname(filename), { recursive: true });
+  await appendFile(
+    filename,
+    `${current && !current.endsWith("\n") ? "\n" : ""}# OhMyGame's own files, kept out of Maker builds\n${missing.join("\n")}\n`,
+  );
 }
 
 async function initialize(context, selection, record) {
   const { directory, workspace, signal, progress } = context;
   await mkdir(path.dirname(record.filename), { recursive: true });
   await saveInitialization(record.filename, {
-    projectId:
-      selection[0] === "--app-id" ? selection[1] : record.state?.projectId,
+    // A create starts with no identity; Maker reports it before checkout.
+    projectId: selection[0] === "--app-id" ? selection[1] : undefined,
   });
   let saving = Promise.resolve();
   await maker(
@@ -125,6 +184,7 @@ async function initialize(context, selection, record) {
   const project = await binding(workspace);
   if (!project)
     throw new Error("Maker initialization did not bind the workspace");
+  await excludeAppFiles(workspace);
   await saveInitialization(record.filename, {
     projectId: project.id,
     completed: true,
@@ -132,11 +192,12 @@ async function initialize(context, selection, record) {
   return status(context);
 }
 
-/** The account's state and the folder's Maker project. */
+/** The account's state and the folder's Maker project, with its name when the account has it. */
 export async function status({ directory, workspace, signal }) {
   let project = await binding(workspace);
   const pending = (await initialization(directory, workspace)).state;
   if (pending && !pending.completed) project = null;
+  if (project) await excludeAppFiles(workspace);
   const result = (connection) => ({ connection, project });
   if (!(await installed(directory))) return result("needs-setup");
   try {
@@ -145,7 +206,11 @@ export async function status({ directory, workspace, signal }) {
     return result("needs-setup");
   }
   try {
-    await maker(directory, ["apps", "--json"], { signal });
+    const available = projectList(
+      await maker(directory, ["apps", "--json"], { signal }),
+    );
+    const name = project && available.find((item) => item.id === project.id)?.name;
+    if (name && name !== project.id) project = { ...project, name };
     return result("ready");
   } catch (cause) {
     if (/authorization is missing/.test(cause.message))
@@ -156,7 +221,8 @@ export async function status({ directory, workspace, signal }) {
 
 /**
  * Whether the agent can work here: Maker is prepared and the folder is bound.
- * Reads files only, since it runs before every prompt.
+ * Reads files only, apart from keeping OhMyGame's files out of Maker's
+ * commits, since it runs before every prompt.
  */
 export async function ready({ directory, workspace }) {
   if (!(await installed(directory)))
@@ -171,6 +237,7 @@ export async function ready({ directory, workspace }) {
       message:
         "Connect this project to a Maker project in the TapTap Maker panel before sending a message.",
     };
+  await excludeAppFiles(workspace);
   return { ready: true };
 }
 
@@ -213,12 +280,15 @@ export async function create(context, { name }) {
   const record = await initialization(directory, workspace);
   if (current && (!record.state || record.state.completed))
     return status(context);
-  const remoteId = current?.id ?? record.state?.projectId;
-  if (record.state && !remoteId)
+  // Only a setup that stopped partway is resumed; a finished one whose
+  // binding is gone tells nothing about the folder now.
+  const pending = record.state?.completed ? undefined : record.state;
+  const remoteId = current?.id ?? pending?.projectId;
+  if (pending && !remoteId)
     throw new Error(
       "Project creation outcome is unknown. Refresh the project list and connect the created project instead of creating another one.",
     );
-  if (!remoteId) await assertEmpty(workspace);
+  if (!remoteId) await assertNotARepository(workspace);
   if (!name?.trim()) throw new Error("Enter a project name");
   await verifyDiagnostics(directory, signal);
   progress(
@@ -227,7 +297,7 @@ export async function create(context, { name }) {
       : "Creating a new Maker project…",
   );
   // Checked again just before init: the folder may have changed meanwhile.
-  if (!remoteId) await assertEmpty(workspace);
+  if (!remoteId) await assertNotARepository(workspace);
   return initialize(
     context,
     remoteId ? ["--app-id", remoteId] : ["--create", "--name", name.trim()],
@@ -251,7 +321,10 @@ export async function bind(context, { projectId }) {
     await verifyDiagnostics(directory, signal);
     return initialize(context, ["--app-id", current.id], record);
   }
-  await assertEmpty(workspace);
+  // A connect that stopped partway resumes in the repository it began.
+  const resuming =
+    !record.state?.completed && record.state?.projectId === projectId;
+  if (!resuming) await assertNotARepository(workspace);
   await verifyDiagnostics(directory, signal); // Prevent init's multi-editor LSP installer.
   const available = projectList(
     await maker(directory, ["apps", "--json"], { signal }),
@@ -259,7 +332,7 @@ export async function bind(context, { projectId }) {
   if (!available.some((item) => item.id === projectId))
     throw new Error("Selected Maker project is unavailable to this account");
   progress("Connecting the selected Maker project…");
-  await assertEmpty(workspace);
+  if (!resuming) await assertNotARepository(workspace);
   return initialize(context, ["--app-id", projectId], record);
 }
 
