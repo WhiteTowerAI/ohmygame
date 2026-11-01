@@ -28,6 +28,7 @@ const { groupStorePlugins, storePluginContributions, StorePluginDetail } = await
 const row = (version: string, overrides: Partial<StorePlugin> = {}): StorePlugin => ({
   id: "acme/maker",
   version,
+  revision: "a".repeat(64),
   displayName: "Maker",
   description: "Make games.",
   capabilities: ["native", "network:api.example.com"],

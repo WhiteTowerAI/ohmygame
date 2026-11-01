@@ -1225,6 +1225,7 @@ export function createApp(options: AppOptions = {}) {
         displayName: text(entry.manifest.displayName),
         description: text(entry.manifest.description),
         capabilities: capabilityGrants(entry.manifest),
+        revision: entry.digest,
         grants: pluginServices.grants.plugin(entry.id) ?? null,
         bundled: bundledPluginEntry(entry.root),
         ...preinstalledFields(entry),

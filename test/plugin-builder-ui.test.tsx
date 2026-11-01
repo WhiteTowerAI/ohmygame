@@ -75,7 +75,7 @@ beforeEach(() => {
       hasConversation = false;
       return Response.json({ ...currentState, turns: [] });
     }
-    if (route === "/plugin-store/plugins") return Response.json(installed ? [{ ...stored, ...(hasSettings ? { settings: [{ name: "token", type: "text", title: "Token", required: false }] } : {}), grants: { enabled, allowed: [] } }] : []);
+    if (route === "/plugin-store/plugins") return Response.json(installed ? [{ ...stored, revision: updated ? "new" : "old", ...(hasSettings ? { settings: [{ name: "token", type: "text", title: "Token", required: false }] } : {}), grants: { enabled, allowed: [] } }] : []);
     if (route === `/plugin-store/${storeId}/configuration`) return Response.json({ token: { type: "text", value: null } });
     if (route === `/plugin-store/${storeId}/enabled` && method === "PUT") {
       enabled = JSON.parse(init.body as string).enabled;
@@ -200,6 +200,19 @@ describe("Plugin Builder removal controls", () => {
     expect(reads()).toBe(1);
     const update = [...container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Update plugin")!;
     await act(async () => update.click());
+    expect(reads()).toBe(2);
+  });
+
+  it("reloads the settings form on Refresh only when the installed package changed", async () => {
+    hasSettings = true;
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Plugin preview"] button')].find(item => /Setup/.test(item.getAttribute("aria-label") ?? item.textContent ?? ""))!.click());
+    const reads = () => requests.filter(request => request === `GET /plugin-store/${storeId}/configuration`).length;
+    const refresh = container.querySelector<HTMLButtonElement>('button[aria-label="Refresh plugin preview"]')!;
+    await act(async () => refresh.click());
+    expect(reads()).toBe(1);
+    updated = true;
+    await act(async () => refresh.click());
     expect(reads()).toBe(2);
   });
 
