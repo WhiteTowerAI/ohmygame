@@ -246,19 +246,18 @@ describe("conversation handoff", () => {
       expect(handoffSummary(session.getBranch())).not.toContain("stopped the last turn");
     });
 
-    it("keeps recent tool failures with what they were about and drops older ones", () => {
+    it("keeps only the tool failures the earlier agent did not get to respond to", () => {
       const session = SessionManager.inMemory("/tmp/p");
-      user(session, "old turn");
+      user(session, "first");
       assistant(session, [toolCall("old", "bash", { command: "old-command" })]);
       toolResult(session, "old", "bash", "old failure", true);
-      for (const turn of ["a", "b"]) {
-        user(session, `turn ${turn}`);
-        assistant(session, [{ type: "text", text: "ok" }]);
-      }
-      user(session, "last turn");
+      assistant(session, [{ type: "text", text: "Trying another way" }]);
+      user(session, "second");
       assistant(session, [toolCall("new", "bash", { command: "npm run build" }), toolCall("fine", "bash", { command: "ls" })]);
       toolResult(session, "new", "bash", `TS2304 ${"x".repeat(1_000)}`, true);
       toolResult(session, "fine", "bash", "listing");
+      // How a native turn is stored when it is cut off: an empty closing message.
+      assistant(session, [], { stopReason: "error", errorMessage: "You've hit your session limit" });
 
       const summary = handoffSummary(session.getBranch())!;
       expect(summary).toContain("- bash (npm run build): TS2304");
@@ -268,44 +267,41 @@ describe("conversation handoff", () => {
       expect(summary).not.toContain("x".repeat(401));
     });
 
-    it("keeps the state and errors of the last playtest, not its element list", () => {
-      const session = SessionManager.inMemory("/tmp/p");
-      user(session, "playtest");
-      assistant(session, [toolCall("g1", "game_use", { operation: "act" }), toolCall("g2", "game_use", { operation: "act" }), toolCall("g3", "game_use", { operation: "capture" })]);
-      toolResult(session, "g1", "game_use", JSON.stringify({ url: "http://x/", gameState: { score: 1 }, logs: [] }));
-      toolResult(session, "g2", "game_use", JSON.stringify({
-        url: "http://x/level-2",
-        gameState: { score: 42 },
-        elements: [{ name: "Start button" }],
-        logs: [{ level: "info", message: "loaded" }, { level: "error", message: "Boss sprite missing" }],
-        failedRequests: [{ url: "boss.png" }],
-      }));
-      toolResult(session, "g3", "game_use", JSON.stringify({ sessionId: "s", width: 1, height: 1 }));
+    it("drops a failure once a later turn went on, or the turn finished after it", () => {
+      const later = SessionManager.inMemory("/tmp/p");
+      user(later, "first");
+      assistant(later, [toolCall("a", "bash", { command: "one" })]);
+      toolResult(later, "a", "bash", "first failure", true);
+      assistant(later, [], { stopReason: "aborted" });
+      user(later, "second");
+      assistant(later, [{ type: "text", text: "Done" }]);
+      expect(handoffSummary(later.getBranch())).not.toContain("first failure");
 
-      const summary = handoffSummary(session.getBranch())!;
-      expect(summary).toContain('"score":42');
-      expect(summary).toContain("Boss sprite missing");
-      expect(summary).toContain("Failed requests: 1");
-      expect(summary).not.toContain('"score":1');
-      expect(summary).not.toContain("Start button");
-      expect(summary).not.toContain("loaded");
+      // A native loop may finish after a denied tool without final text.
+      const finished = SessionManager.inMemory("/tmp/p");
+      user(finished, "go");
+      assistant(finished, [toolCall("b", "bash", { command: "two" })]);
+      toolResult(finished, "b", "bash", "denied", true);
+      assistant(finished, []);
+      expect(handoffSummary(finished.getBranch())).not.toContain("denied");
     });
 
-    it("keeps errors when the game state is too large to fit", () => {
+    it("leaves out playtest state, which the next agent can look at again", () => {
       const session = SessionManager.inMemory("/tmp/p");
       user(session, "playtest");
       assistant(session, [toolCall("g", "game_use", { operation: "act" })]);
-      toolResult(session, "g", "game_use", JSON.stringify({
-        gameState: { map: "x".repeat(20_000) },
-        logs: [{ level: "error", message: "Boss sprite missing" }],
-        failedRequests: [{ url: "boss.png" }],
-      }));
+      toolResult(session, "g", "game_use", JSON.stringify({ gameState: { score: 42 }, logs: [{ level: "error", message: "Boss sprite missing" }] }));
 
       const summary = handoffSummary(session.getBranch())!;
-      expect(summary).toContain("Boss sprite missing");
-      expect(summary).toContain("Failed requests: 1");
-      expect(summary).toContain("State: ");
-      expect(summary).not.toContain("x".repeat(1_501));
+      expect(summary).not.toContain("score");
+      expect(summary).not.toContain("Boss sprite missing");
+    });
+
+    it("shortens the error of a turn that ended early", () => {
+      const session = SessionManager.inMemory("/tmp/p");
+      user(session, "go");
+      assistant(session, [], { stopReason: "error", errorMessage: "e".repeat(1_000) });
+      expect(handoffSummary(session.getBranch())).not.toContain("e".repeat(301));
     });
 
     it("names only files whose change succeeded as changed", () => {
