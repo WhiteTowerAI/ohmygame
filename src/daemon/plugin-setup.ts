@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  cp,
   mkdir,
   readdir,
   readFile,
@@ -28,31 +29,29 @@ import type {
   PluginIconUpdate,
   PluginSetupMode,
 } from "../shared/plugin-setup.js";
-import type {
-  CreateMcpPluginRequest,
-  PluginConfigurationValues,
-} from "../shared/plugins.js";
+import type { PluginConfigurationValues, PluginMcpResult } from "../shared/plugins.js";
 import { compatibleRuntimeModel, conversationItems, lastAssistantError } from "./agent.js";
 import type { ThreadItem, Turn } from "../shared/contracts.js";
 import type { RuntimeModel } from "./agent.js";
 import type { PluginCapabilities } from "./plugin-capabilities.js";
 import type { PluginCatalogService } from "./plugin-catalog.js";
-import type { LocalPluginStore, PluginAuthoringSource } from "./local-plugins.js";
-import { mcpPluginPackage } from "./plugin-capabilities.js";
-import { inspectPluginDraft, pluginDraftPath, readPluginDraftFile } from "./plugin-draft.js";
+import type { PluginServices } from "./plugin-services.js";
+import { inspectPluginDraft, inspectPluginFiles, pluginDraftPath, readPluginDraftFile } from "./plugin-draft.js";
 import { PLUGIN_AUTHORING_RULES } from "./plugin-authoring.js";
 import { openRouterAttributionExtension } from "./openrouter-attribution.js";
-import { isPluginIcon, isPluginManifest, pluginCollection, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
+import { isPluginIcon, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
+import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
+import { localizePluginString } from "./plugin-index.js";
 import { PLUGIN_ICON_MAX_BYTES, PLUGIN_ICON_MEDIA_TYPES } from "../shared/plugin-icons.js";
 import { readPluginIconAsset, validatePluginIconImage } from "./plugin-icons.js";
 
 const SETUP_PROMPT = `You create and edit native OhMyGame plugins in this Plugin Builder workspace.
 ${PLUGIN_AUTHORING_RULES}
-Read existing files before editing. Use read/write/edit/bash to author files, then plugin_manage prepare with input {path: "relative/plugin-directory"} to validate and refresh the preview; correct reported errors. Omit id in plugin_manage to read, configure or test the current draft. Never modify credentials or session files. The user installs or updates the reviewed draft from the preview. Report its actual state and required input, concisely and in the user's language.`;
+Read existing files before editing. Use read/write/edit/bash to author files, then plugin_manage prepare with input {path: "relative/plugin-directory"} to validate and refresh the preview; correct reported errors. Use plugin_manage read and test on the current draft. Never modify credentials or session files. The user installs or updates the reviewed draft from the preview, then fills in any settings on the plugin's page. Report its actual state and required input, concisely and in the user's language.`;
 
 const CONFIGURE_PROMPT = `You help users understand, configure and diagnose the selected OhMyGame plugin. Use plugin_manage read and read-skill to inspect it before suggesting changes. Configure only this plugin's nonsecret fields and MCP templates, and test its connections. Explain changes and required input. Never ask for secrets in chat; direct the user to the configuration form or OAuth controls. Do not author or install packages. Match the user's language.`;
 
-type SetupRuntimeState = PluginSetupSummary & { busy: boolean; configurationId: string; error?: string; draftPath?: string; installedRevision?: string; baseRevision?: string; editSource?: PluginAuthoringSource; checks?: PluginDraft["checks"] };
+type SetupRuntimeState = PluginSetupSummary & { busy: boolean; error?: string; draftPath?: string; installedRevision?: string; baseRevision?: string; checks?: PluginDraft["checks"] };
 
 export class PluginSetupManager {
   #states = new Map<string, SetupRuntimeState>();
@@ -63,12 +62,13 @@ export class PluginSetupManager {
   #runs = new Set<Promise<void>>();
   #aborted = new Set<string>();
   #live = new Map<string, ThreadItem[]>();
+  #installs: Promise<unknown> = Promise.resolve();
   constructor(
     private readonly dataDirectory: string,
     private readonly agentDirectory: string,
     private readonly capabilities: PluginCapabilities,
     private readonly plugins: PluginCatalogService,
-    private readonly localPlugins: LocalPluginStore,
+    private readonly services: PluginServices,
     private readonly invalidate: () => void,
     private readonly model: (
       ref: PluginSetupPrompt["model"],
@@ -79,31 +79,33 @@ export class PluginSetupManager {
   }
   async create(pluginId?: string, mode: PluginSetupMode = pluginId ? "configure" : "create"): Promise<PluginSetupState> {
     if (this.#closed) throw new Error("Plugin assistant is closed");
-    const plugin = pluginId ? await this.plugins.read(pluginId) : undefined;
-    if (pluginId && !plugin) throw new Error("Plugin not found");
-    if (mode !== "create" && !plugin?.installed) throw new Error("Select an installed plugin");
     if (mode === "create" && pluginId) throw new Error("Create a new plugin without an installed target");
-    if (mode === "edit" && plugin && pluginCollection(plugin) === "public") throw new Error("Public plugins cannot be edited in place");
+    const plugin = mode === "configure" && pluginId ? await this.plugins.read(pluginId) : undefined;
+    if (mode === "configure" && !plugin?.installed) throw new Error("Select an installed plugin");
+    await this.services.ready();
+    const editing = mode === "edit" && pluginId ? this.services.index.get(pluginId) : undefined;
+    if (mode === "edit" && !editing) throw new Error("Select an installed plugin");
+    if (editing && !editing.id.startsWith(`${PERSONAL_PUBLISHER}/`)) throw new Error("Only a plugin you made can be edited");
     const id = randomUUID();
     const state: SetupRuntimeState = {
       id,
       mode,
       pluginId,
-      configurationId: pluginId ?? `draft:${id}`,
       busy: false,
-      title: plugin?.displayName ?? "New plugin",
+      title: plugin?.displayName ?? (editing ? localizePluginString(editing, editing.manifest.displayName, "en") : "New plugin"),
       createdAt: Date.now(), updatedAt: Date.now(), status: "idle",
     };
     await mkdir(this.#directory(state.id), { recursive: true });
     const workspace = path.join(this.#directory(state.id), "workspace");
     await mkdir(workspace, { recursive: true });
     try {
-      if (mode === "edit" && plugin) {
-        const copied = await this.localPlugins.copyForAuthoring(plugin.id, path.join(workspace, plugin.name));
-        state.baseRevision = copied.revision;
-        state.editSource = copied.source;
-        state.draftPath = plugin.name;
-        state.installedRevision = (await inspectPluginDraft(path.join(workspace, plugin.name))).revision;
+      if (editing) {
+        const name = editing.id.slice(editing.id.indexOf("/") + 1);
+        const root = path.join(workspace, name);
+        await cp(editing.root, root, { recursive: true, verbatimSymlinks: true });
+        state.baseRevision = editing.digest;
+        state.draftPath = name;
+        state.installedRevision = (await inspectPluginFiles(root)).revision;
         state.status = "installed";
       }
     } catch (cause) {
@@ -130,7 +132,6 @@ export class PluginSetupManager {
         id,
         mode: stored.mode ?? (stored.draftPath ? "create" : stored.pluginId ? "configure" : "create"),
         pluginId: stored.pluginId,
-        configurationId: stored.configurationId ?? stored.pluginId ?? `draft:${id}`,
         error: stored.error,
         busy: false,
         title: stored.title ?? "Plugin workspace",
@@ -138,7 +139,7 @@ export class PluginSetupManager {
         status: stored.status === "working" ? "interrupted" : stored.status ?? "idle",
         model: stored.model, reasoningLevel: stored.reasoningLevel,
         draftPath: stored.draftPath, installedRevision: stored.installedRevision,
-        baseRevision: stored.baseRevision ?? stored.installedRevision, editSource: stored.editSource,
+        baseRevision: stored.baseRevision,
         checks: stored.checks,
       };
       // Keep the first concurrent reader's state so a prompt cannot be hidden
@@ -149,8 +150,8 @@ export class PluginSetupManager {
     }
     if (state.pluginId && !state.busy) {
       const pluginId = state.pluginId;
-      const plugin = await this.plugins.read(pluginId);
-      if (!plugin?.installed && state.pluginId === pluginId && !state.busy) {
+      const installed = await this.#installed(state);
+      if (!installed && state.pluginId === pluginId && !state.busy) {
         state.pluginId = undefined;
         state.installedRevision = undefined;
         state.baseRevision = undefined;
@@ -163,6 +164,12 @@ export class PluginSetupManager {
       }
     }
     return state;
+  }
+  /** A configuration session looks after a format 1 plugin; the others make format 2 ones. */
+  async #installed(state: SetupRuntimeState): Promise<boolean> {
+    if (state.mode === "configure") return Boolean((await this.plugins.read(state.pluginId!))?.installed);
+    await this.services.ready();
+    return this.services.index.versions(state.pluginId!).length > 0;
   }
   async list(): Promise<PluginSetupSummary[]> {
     const directory = path.join(this.dataDirectory, "plugin-setup");
@@ -185,12 +192,6 @@ export class PluginSetupManager {
       const directory = this.#directory(id);
       const removed = `${directory}.removed-${randomUUID()}`;
       await rename(directory, removed);
-      try {
-        await this.capabilities.configuration.remove(`draft:${id}`);
-      } catch (cause) {
-        await rename(removed, directory);
-        throw cause;
-      }
       this.#states.delete(id);
       this.#history.delete(id);
       this.#writes.delete(id);
@@ -242,9 +243,9 @@ export class PluginSetupManager {
     if (!state.draftPath) return { files: [], errors: [] };
     const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
     const draft = await inspectPluginDraft(root, state.installedRevision);
-    if (draft.plugin && state.editSource) {
-      if (draft.plugin.name !== state.editSource.name) draft.errors.push("An editing draft must keep the original plugin name");
-      draft.plugin = { ...draft.plugin, id: state.configurationId, marketplace: state.editSource.marketplace };
+    if (draft.plugin && state.pluginId && draft.plugin.id !== state.pluginId) {
+      draft.errors.push(`This draft updates ${state.pluginId}, so it must keep that id`);
+      draft.plugin = undefined;
     }
     return { ...draft, path: state.draftPath, checks: state.checks };
   }
@@ -273,8 +274,8 @@ export class PluginSetupManager {
     const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
     if (requested) return readPluginIconAsset(root, { type: "asset", path: requested });
     const { content } = await readPluginDraftFile(root, PLUGIN_MANIFEST_PATH);
-    const manifest: unknown = JSON.parse(content);
-    return readPluginIconAsset(root, isPluginManifest(manifest) ? manifest.interface?.icon : undefined);
+    const { icon } = JSON.parse(content) as { icon?: unknown };
+    return readPluginIconAsset(root, typeof icon === "string" ? { type: "asset", path: icon } : undefined);
   }
   async updateIcon(id: string, input: PluginIconUpdate): Promise<PluginDraft> {
     const state = await this.#loadState(id);
@@ -302,13 +303,11 @@ export class PluginSetupManager {
         });
         icon = { type: "asset", path: `./assets/${filename}` };
       }
-      if (icon && !isPluginIcon(icon)) throw new Error("Choose a supported preset ID or a PNG/WebP/SVG path inside the plugin");
+      if (icon && (icon.type !== "asset" || !isPluginIcon(icon))) throw new Error("Choose a PNG/WebP/SVG path inside the plugin");
       await readPluginIconAsset(root, icon ?? undefined);
       const file = path.join(root, PLUGIN_MANIFEST_PATH);
-      const manifest = JSON.parse(await readFile(file, "utf8"));
-      if (!isPluginManifest(manifest)) throw new Error("Plugin manifest is invalid");
-      manifest.interface = { ...manifest.interface };
-      if (icon) manifest.interface.icon = icon; else delete manifest.interface.icon;
+      const manifest = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+      if (icon?.type === "asset") manifest.icon = icon.path; else delete manifest.icon;
       const temporary = `${file}.${randomUUID()}.tmp`;
       try {
         await writeFile(temporary, `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx" });
@@ -319,29 +318,6 @@ export class PluginSetupManager {
       state.updatedAt = Date.now();
       return await this.draft(id);
     } finally { state.busy = false; await this.#save(state); }
-  }
-  async configuration(id: string, values?: PluginConfigurationValues) {
-    const state = await this.#loadState(id);
-    if (!values) return this.#configureDraft(state);
-    if (state.busy) throw new Error("Wait for the builder to finish before changing configuration");
-    state.busy = true;
-    try { return await this.#configureDraft(state, values); }
-    finally { state.busy = false; await this.#save(state); }
-  }
-  async #configureDraft(state: SetupRuntimeState, values?: PluginConfigurationValues, allowSecrets = true) {
-    const draft = await this.draft(state.id);
-    if (!draft.plugin || draft.errors.length) throw new Error("Prepare a valid draft before configuring it");
-    const existing = await this.localPlugins.read(draft.plugin.id);
-    if (existing && state.pluginId !== existing.id) throw new Error("A plugin with this name is already installed. Choose another name");
-    const configurable = this.#configurationPlugin(state, draft.plugin);
-    if (!values) return this.capabilities.configuration.view(configurable);
-    const result = await this.capabilities.configuration.update(configurable, values, allowSecrets);
-    state.checks = {}; state.updatedAt = Date.now();
-    if (state.pluginId) this.invalidate();
-    return result;
-  }
-  #configurationPlugin(state: SetupRuntimeState, plugin: import("../shared/plugins.js").PluginDetail) {
-    return state.configurationId === plugin.id ? plugin : { ...plugin, id: `draft:${state.id}` };
   }
   async testDraft(id: string, server: string, revision: string) {
     const state = await this.#loadState(id);
@@ -355,7 +331,12 @@ export class PluginSetupManager {
     if (!draft.plugin || draft.errors.length || !state.draftPath || !draft.revision) throw new Error("Prepare a valid draft before testing");
     if (revision !== undefined && draft.revision !== revision) throw new Error("The draft changed. Refresh the preview before testing");
     const root = await pluginDraftPath(path.join(this.#directory(state.id), "workspace"), state.draftPath);
-    const result = await this.capabilities.testDraft(this.#configurationPlugin(state, draft.plugin), root, server, state.id);
+    const { definition, secrets } = await this.services.draftMcpServer(root, server, {
+      withSaved: draft.plugin.id === state.pluginId && draft.revision === state.installedRevision,
+    });
+    const result: PluginMcpResult = definition
+      ? await this.capabilities.testDefinition(`draft:${state.id}:${server}`, `draft-${state.id}-${server}`, definition, secrets)
+      : { status: "failed", toolCount: 0, message: "Install this draft and fill in its settings, then test this server" };
     state.checks = { ...state.checks, [server]: { revision: draft.revision, result } };
     return result;
   }
@@ -370,20 +351,17 @@ export class PluginSetupManager {
       if (draft.errors.length || !draft.plugin || !state.draftPath) throw new Error(draft.errors.join("\n") || "No valid plugin draft yet");
       if (draft.revision !== revision) throw new Error("The draft changed. Review it again before installing");
       const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
-      const configurable = this.#configurationPlugin(state, draft.plugin);
-      const plugin = state.editSource || state.pluginId
-        ? await this.localPlugins.updateFromDraft(state.pluginId ?? state.configurationId, root, state.baseRevision ?? state.installedRevision, state.editSource)
-        : await this.localPlugins.installAuthored(root);
+      // Workspaces install one at a time, so none passes these checks while another replaces the package.
+      const entry = await this.#oneInstallAtATime(async () => {
+        await this.services.ready();
+        const current = this.services.index.get(draft.plugin!.id);
+        if (current && state.pluginId !== current.id) throw new Error("A plugin with this name is already installed. Choose another name");
+        if (current && current.digest !== state.baseRevision) throw new Error("The installed plugin changed. Start a new editing workspace");
+        return this.services.installPersonal(root, { consent: true });
+      });
       packageInstalled = true;
-      state.pluginId = plugin.id;
-      state.baseRevision = revision;
-      // Record the installed package before migrating configuration. A failed
-      // migration must still expose uninstall and allow a retry after restart.
-      await this.#save(state);
-      if (configurable.id !== plugin.id) {
-        await this.capabilities.configuration.promoteDraft(configurable, plugin);
-        state.configurationId = plugin.id;
-      }
+      state.pluginId = entry.id;
+      state.baseRevision = entry.digest;
       state.installedRevision = revision;
       state.status = "installed"; state.error = undefined; state.updatedAt = Date.now();
     } catch (cause) {
@@ -396,6 +374,11 @@ export class PluginSetupManager {
       await this.#save(state);
     }
     return this.read(id);
+  }
+  #oneInstallAtATime<T>(install: () => Promise<T>): Promise<T> {
+    const run = this.#installs.then(install, install);
+    this.#installs = run.catch(() => {});
+    return run;
   }
   #sessionManager(id: string): SessionManager {
     let history = this.#history.get(id);
@@ -533,13 +516,12 @@ export class PluginSetupManager {
       name: "plugin_manage",
       label: "Manage plugin",
       description:
-        "Omit id for the current draft (create/edit) or selected installed plugin (configure). Explicit id targets an installed plugin; configuration sessions are limited to the selected one. Actions: list, read (package and configuration state), read-skill (server: skill ID), create-mcp (input: name,displayName,description,servers,configuration) creates a new MCP draft, prepare (input: path) validates files and refreshes the preview, configure (input: nonsecret values), test (server). For installed plugins only: definition (server), configure-server (server,input: complete MCP template). Edit draft definitions with file tools and prepare again. Users install drafts from the preview.",
+        "Omit id. An authoring session works on its draft: list (installed plugins), read (the draft), read-skill (server: skill ID), prepare (input: path) validates files and refreshes the preview, test (server). Edit the draft's files and prepare again; users install drafts from the preview. A configuration session looks after the selected plugin: list, read (package and configuration state), read-skill (server: skill ID), configure (input: nonsecret values), test (server), definition (server), configure-server (server,input: complete MCP template).",
       parameters: Type.Object({
         action: Type.Union([
           Type.Literal("list"),
           Type.Literal("read"),
           Type.Literal("read-skill"),
-          Type.Literal("create-mcp"),
           Type.Literal("prepare"),
           Type.Literal("configure"),
           Type.Literal("definition"),
@@ -559,43 +541,30 @@ export class PluginSetupManager {
         };
         try {
           const id = params.id ?? (state.mode === "configure" ? state.pluginId : undefined);
-          if (state.mode === "configure" && (["prepare", "create-mcp"].includes(params.action) || (params.action !== "list" && id !== state.pluginId)))
+          if (state.mode === "configure" && (params.action === "prepare" || (params.action !== "list" && id !== state.pluginId)))
             throw new Error("This session can only configure the selected plugin");
+          if (state.mode !== "configure" && params.id) throw new Error("This session works on its own draft; omit id");
           let result: unknown;
-          if (params.action === "list") result = await this.plugins.list();
-          else if (params.action === "create-mcp") {
-            const { manifest, servers } = mcpPluginPackage(params.input as CreateMcpPluginRequest);
-            const source = path.join(cwd, manifest.name);
-            await mkdir(source).catch((cause: NodeJS.ErrnoException) => {
-              if (cause.code === "EEXIST") throw new Error("The draft directory already exists. Edit its files and call prepare");
-              throw cause;
-            });
-            await mkdir(path.join(source, ".ohmygame-plugin"));
-            await pluginDraftPath(cwd, source);
-            await writeFile(path.join(source, ".ohmygame-plugin/plugin.json"), JSON.stringify(manifest, null, 2));
-            await writeFile(path.join(source, "mcp.json"), JSON.stringify({ mcpServers: servers }, null, 2));
-            result = await this.prepare(state.id, source);
+          if (params.action === "list") {
+            if (state.mode === "configure") result = await this.plugins.list();
+            else {
+              await this.services.ready();
+              result = this.services.index.entries().map((entry) => ({ id: entry.id, version: entry.version, displayName: localizePluginString(entry, entry.manifest.displayName, "en") }));
+            }
           } else if (params.action === "prepare") {
             const input = params.input as { path?: string } | undefined;
             if (!input?.path) throw new Error("Specify the plugin draft directory");
             result = await this.prepare(state.id, input.path);
           } else if (!id) {
-            if (params.action === "read") {
-              const draft = await this.draft(state.id);
-              result = { ...draft, configuration: draft.plugin && !draft.errors.length
-                ? this.capabilities.configuration.view(this.#configurationPlugin(state, draft.plugin)) : undefined };
-            } else if (params.action === "read-skill") {
+            if (params.action === "read") result = await this.draft(state.id);
+            else if (params.action === "read-skill") {
               const draft = await this.draft(state.id);
               if (!draft.plugin?.skills.some(skill => skill.id === params.server)) throw new Error("Skill not found in this draft");
               result = await this.file(state.id, params.server!);
-            } else if (params.action === "configure") {
-              if (!params.input) throw new Error("Specify nonsecret configuration values");
-              result = await this.#configureDraft(state, params.input as PluginConfigurationValues, false);
-              await this.#save(state);
             } else if (params.action === "test") {
               result = await this.#testDraft(state, params.server ?? "");
               await this.#save(state);
-            } else throw new Error("Edit draft MCP definitions with file tools and call prepare");
+            } else throw new Error("Edit the draft's files and call prepare. The person fills in settings on the plugin's page once it is installed");
           } else {
             const plugin = await this.plugins.read(id);
             if (!plugin) throw new Error("Plugin not found");
@@ -803,18 +772,6 @@ export function registerPluginSetupRoutes(
   }, async (request, reply) => {
     try { return await manager.installDraft(request.params.id, request.body.revision); }
     catch (cause) { return reply.code(409).send({ error: String(cause) }); }
-  });
-  app.get<{ Params: { id: string } }>("/plugins/setup-sessions/:id/configuration", async (request, reply) => {
-    try { return await manager.configuration(request.params.id); }
-    catch (cause) { return reply.code(400).send({ error: String(cause) }); }
-  });
-  app.put<{ Params: { id: string }; Body: { values: PluginConfigurationValues } }>("/plugins/setup-sessions/:id/configuration", {
-    schema: { body: { type: "object", required: ["values"], additionalProperties: false, properties: { values: {
-      type: "object", additionalProperties: { anyOf: [{ type: "string" }, { type: "boolean" }, { type: "null" }] },
-    } } } },
-  }, async (request, reply) => {
-    try { return await manager.configuration(request.params.id, request.body.values); }
-    catch (cause) { return reply.code(400).send({ error: String(cause) }); }
   });
   app.post<{ Params: { id: string; server: string }; Body: { revision: string } }>("/plugins/setup-sessions/:id/test/:server", {
     schema: { body: { type: "object", required: ["revision"], additionalProperties: false, properties: { revision: { type: "string", pattern: "^[0-9a-f]{64}$" } } } },

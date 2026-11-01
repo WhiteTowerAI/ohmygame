@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { PluginDraft } from "../shared/plugin-setup.js";
-import { PERSONAL_MARKETPLACE, PLUGIN_SKILL_CONTENT_MAX_BYTES } from "../shared/plugins.js";
-import { inspectPluginBundle, readPluginManifest, validatePluginBundle } from "./local-plugins.js";
+import { isAppWidePlugin, PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
+import { PLUGIN_SKILL_CONTENT_MAX_BYTES } from "../shared/plugins.js";
+import { validatePluginBundle } from "./local-plugins.js";
 import { readPluginIconAsset } from "./plugin-icons.js";
-import { parseSkillMetadata } from "./skill-metadata.js";
+import { indexPluginPackage, localizePluginString } from "./plugin-index.js";
+import { capabilityGrants } from "./project-plugins.js";
 
 export async function pluginDraftPath(workspace: string, requested: string): Promise<string> {
   const [root, target] = await Promise.all([realpath(workspace), realpath(path.resolve(workspace, requested))]);
@@ -18,17 +20,30 @@ export async function inspectPluginDraft(root: string, installedRevision?: strin
   const draft: PluginDraft = { files: [], errors: [], installedRevision };
   try {
     Object.assign(draft, await inspectPluginFiles(root));
-    const manifest = await readPluginManifest(root);
-    await readPluginIconAsset(root, manifest.interface?.icon);
-    const plugin = await inspectPluginBundle(root, {
-      idPrefix: "personal:", marketplace: PERSONAL_MARKETPLACE, source: { type: "directory" },
-    }, manifest);
-    for (const skill of plugin.skills) {
-      const metadata = parseSkillMetadata(await readFile(path.join(root, skill.id), "utf8"));
-      if (!metadata.name || !metadata.description)
-        throw new Error(`${skill.id}: name and description frontmatter are required`);
+    const result = await indexPluginPackage(root);
+    if (!result.ok) {
+      draft.errors.push(...result.issues.map((issue) => `${issue.path} ${issue.message}`));
+      return draft;
     }
-    draft.plugin = { ...plugin, installed: false };
+    const { entry } = result;
+    if (!entry.id.startsWith(`${PERSONAL_PUBLISHER}/`)) {
+      draft.errors.push(`The plugin's id must be ${PERSONAL_PUBLISHER}/<name>, not ${entry.id}`);
+      return draft;
+    }
+    const icon = entry.manifest.icon ? { type: "asset" as const, path: entry.manifest.icon } : undefined;
+    await readPluginIconAsset(root, icon);
+    draft.plugin = {
+      id: entry.id,
+      version: entry.version,
+      displayName: localizePluginString(entry, entry.manifest.displayName, "en"),
+      description: localizePluginString(entry, entry.manifest.description, "en"),
+      ...(icon ? { icon } : {}),
+      appWide: isAppWidePlugin(entry.manifest),
+      asks: capabilityGrants(entry.manifest),
+      skills: entry.skills.map((skill) => ({ id: skill.path.replace(/^\.\//, ""), name: skill.name, description: skill.description })),
+      mcpServers: (entry.manifest.contributes?.mcpServers ?? []).map((server) => ({ id: server.id, title: localizePluginString(entry, server.title, "en") })),
+      settings: Boolean(entry.manifest.configuration),
+    };
   } catch (cause) {
     draft.errors.push(cause instanceof Error ? cause.message : String(cause));
   }

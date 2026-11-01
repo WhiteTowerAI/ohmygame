@@ -31,6 +31,7 @@ function storePlugin(name: string, displayName: string, overrides: Partial<Store
   return {
     id: `ohmygame/${name}`,
     version: "1.0.0",
+    revision: "a".repeat(64),
     displayName,
     description: "Fixture tool",
     capabilities: [],

@@ -371,6 +371,8 @@ export interface StorePlugin {
   /** `publisher/name`. */
   id: string;
   version: string;
+  /** Changes with the installed package, even at the same version. */
+  revision: string;
   displayName: string;
   description: string;
   /** What it asks to be allowed, such as `network:api.example.com`. */

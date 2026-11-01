@@ -1,5 +1,5 @@
 import type { AgentModelRef, AgentReasoningLevel, Turn } from "./contracts.js";
-import type { PluginDetail, PluginMcpResult, PluginIcon } from "./plugins.js";
+import type { PluginMcpResult, PluginIcon } from "./plugins.js";
 import type { PluginIconMediaType } from "./plugin-icons.js";
 export type PluginIconChange =
   | { icon: PluginIcon | null }
@@ -28,11 +28,27 @@ export interface PluginSetupPrompt {
   reasoningLevel?: AgentReasoningLevel;
 }
 
+/** What a valid draft would install. */
+export interface PluginDraftPlugin {
+  id: string;
+  version: string;
+  displayName: string;
+  description: string;
+  icon?: PluginIcon;
+  /** It only adds Skills, so it applies by itself to the projects it suits. */
+  appWide: boolean;
+  /** What it asks the person to allow. */
+  asks: string[];
+  skills: Array<{ id: string; name: string; description: string }>;
+  mcpServers: Array<{ id: string; title: string }>;
+  settings: boolean;
+}
+
 export interface PluginDraft {
   path?: string;
   revision?: string;
   installedRevision?: string;
-  plugin?: PluginDetail;
+  plugin?: PluginDraftPlugin;
   files: Array<{ path: string; size: number }>;
   errors: string[];
   checks?: Record<string, { revision: string; result: PluginMcpResult }>;

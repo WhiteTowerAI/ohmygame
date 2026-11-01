@@ -15,7 +15,7 @@ Create or update a plugin directory inside the current workspace. Read existing 
 
 ${PLUGIN_AUTHORING_RULES}
 
-Call \`install_plugin\` with the directory relative to the workspace to validate and install the completed package. Correct reported validation errors before retrying. Summarize the installed capabilities, checks and source directory.
+Call \`install_plugin\` with the directory relative to the workspace to validate and install the completed package. Correct reported validation errors before retrying. Summarize what it adds, the checks and the source directory, and pass on what the tool says the person still has to do.
 `;
 const pendingConfiguration = new Map<string, Promise<void>>();
 

@@ -9,6 +9,7 @@ import {
   type PluginConfigurationField,
   type PluginConfigurationValues,
   type PluginDetail,
+  type PluginMcpResult,
   type PluginManifest,
 } from "../shared/plugins.js";
 import type { ProjectType } from "../shared/contracts.js";
@@ -207,10 +208,16 @@ export class PluginCapabilities {
     const definition = await this.definition(plugin, serverId);
     return this.#testDefinition(plugin, serverId, definition, await this.template(plugin, serverId), `${plugin.id}:${serverId}`, action, input);
   }
-  async testDraft(plugin: PluginDetail, root: string, serverId: string, scope: string) {
-    const definitions = plugin.mcpConfigPath ? await readPluginMcpServers(root, plugin.mcpConfigPath) : {};
-    const definition = this.#resolve(plugin, serverId, { root, definitions });
-    return this.#testDefinition(plugin, serverId, definition, definitions[serverId]!, `draft:${scope}:${serverId}`, "test");
+  /** Tries an MCP server that isn't installed, keeping its secrets out of what comes back. */
+  async testDefinition(key: string, name: string, definition: McpServerDefinition, secrets: readonly string[]): Promise<PluginMcpResult> {
+    const redact = (text: string) => secrets.reduce((result, secret) => result.split(secret).join("[redacted]"), text);
+    try {
+      const result = await this.host.probe(key, name, definition, this.agentDirectory, "test");
+      if (result.message) result.message = redact(result.message);
+      return result;
+    } catch (cause) {
+      throw new Error(redact(cause instanceof Error ? cause.message : String(cause)));
+    }
   }
   async #testDefinition(plugin: PluginDetail, serverId: string, definition: McpServerDefinition, template: McpServerDefinition, key: string,
     action: "test" | "auth-start" | "auth-complete", input?: string) {

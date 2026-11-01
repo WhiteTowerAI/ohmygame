@@ -8,7 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue } from "../shared/plugin-manifest.js";
+import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
@@ -300,44 +300,71 @@ export class PluginServices {
     for (const plugin of resolved.plugins) {
       const entry = plugin.entry;
       if (plugin.status !== "active" || !entry) continue;
-      const values = this.values.forNative(entry);
       for (const server of entry.manifest.contributes?.mcpServers ?? []) {
-        if (configReferences(server).some((name) => values[name] === undefined)) continue;
-        const name = `plugin-${createHash("sha256").update(entry.id).digest("hex").slice(0, 12)}-v2-${server.id}`;
-        const filled = fillConfigReferences(server, values);
-        const timeout = filled.timeoutSeconds ? { requestTimeoutMs: filled.timeoutSeconds * 1000 } : {};
-        if ("url" in filled) {
-          // A setting can move the endpoint, but not past what the person allowed.
-          if (mcpUrlIssue(filled.url, entry.manifest.capabilities?.network)) continue;
-          servers[name] = {
-            url: filled.url,
-            ...(filled.headers ? { headers: filled.headers } : {}),
-            // The adapter keeps every request on this origin, uses the URL and
-            // headers as written, and turns off OAuth and redirects.
-            allowedOrigins: [new URL(filled.url).origin],
-            includeTools: filled.tools,
-            ...timeout,
-            disabled: false,
-          };
-          continue;
-        }
-        const { id: _id, title: _title, tools, cwd, timeoutSeconds: _timeout, ...launch } = filled;
-        const definition = { ...launch, cwd: path.resolve(entry.root, cwd ?? ".") };
-        // A setting's value is checked as the manifest's own values were.
-        if (mcpServerSyntaxIssue(definition)) continue;
-        const dataFolder = this.dataFolder(entry.id);
-        await mkdir(dataFolder, { recursive: true, mode: 0o700 });
-        servers[name] = {
-          ...definition,
-          env: { ...definition.env, [PLUGIN_DATA_ENV]: dataFolder },
-          literalEnv: true,
-          includeTools: tools,
-          ...timeout,
-          disabled: false,
-        };
+        const definition = await this.#mcpDefinition(entry, server);
+        if (definition) servers[`plugin-${createHash("sha256").update(entry.id).digest("hex").slice(0, 12)}-v2-${server.id}`] = definition;
       }
     }
     return servers;
+  }
+
+  /** How to start one of a plugin's MCP servers, unless a setting is missing or a value breaks a rule. */
+  async #mcpDefinition(
+    entry: PluginIndexEntry,
+    server: NonNullable<NonNullable<PluginManifestV2["contributes"]>["mcpServers"]>[number],
+    values: ReturnType<PluginValues["forNative"]> = this.values.forNative(entry),
+  ): Promise<McpServerDefinition | undefined> {
+    if (configReferences(server).some((name) => values[name] === undefined)) return undefined;
+    const filled = fillConfigReferences(server, values);
+    const timeout = filled.timeoutSeconds ? { requestTimeoutMs: filled.timeoutSeconds * 1000 } : {};
+    if ("url" in filled) {
+      // A setting can move the endpoint, but not past what the person allowed.
+      if (mcpUrlIssue(filled.url, entry.manifest.capabilities?.network)) return undefined;
+      return {
+        url: filled.url,
+        ...(filled.headers ? { headers: filled.headers } : {}),
+        // The adapter keeps every request on this origin, uses the URL and
+        // headers as written, and turns off OAuth and redirects.
+        allowedOrigins: [new URL(filled.url).origin],
+        includeTools: filled.tools,
+        ...timeout,
+        disabled: false,
+      };
+    }
+    const { id: _id, title: _title, tools, cwd, timeoutSeconds: _timeout, ...launch } = filled;
+    const definition = { ...launch, cwd: path.resolve(entry.root, cwd ?? ".") };
+    // A setting's value is checked as the manifest's own values were.
+    if (mcpServerSyntaxIssue(definition)) return undefined;
+    const dataFolder = this.dataFolder(entry.id);
+    await mkdir(dataFolder, { recursive: true, mode: 0o700 });
+    return {
+      ...definition,
+      env: { ...definition.env, [PLUGIN_DATA_ENV]: dataFolder },
+      literalEnv: true,
+      includeTools: tools,
+      ...timeout,
+      disabled: false,
+    };
+  }
+
+  /**
+   * One MCP server of a draft, to try it. Saved settings, secrets included, are
+   * only for `withSaved`: a package the person installed, and so reviewed. Any
+   * other draft could name an installed plugin to send them somewhere else, so
+   * it gets the manifest's defaults.
+   */
+  async draftMcpServer(root: string, serverId: string, { withSaved }: { withSaved: boolean }): Promise<{ definition?: McpServerDefinition; secrets: string[] }> {
+    await this.ready();
+    const checked = await indexPluginPackage(root);
+    if (!checked.ok) throw new Error("Prepare a valid draft before testing");
+    const server = checked.entry.manifest.contributes?.mcpServers?.find((item) => item.id === serverId);
+    if (!server) throw new Error("MCP server not found in this draft");
+    const fields = Object.entries(checked.entry.manifest.configuration ?? {});
+    const values = withSaved
+      ? this.values.forNative(checked.entry)
+      : Object.fromEntries(fields.flatMap(([name, field]) => field.default === undefined ? [] : [[name, field.default]]));
+    const secrets = fields.flatMap(([name, field]) => field.type === "secret" && typeof values[name] === "string" ? [values[name] as string] : []);
+    return { definition: await this.#mcpDefinition(checked.entry, server, values), secrets };
   }
 
   /**
@@ -556,11 +583,11 @@ export class PluginServices {
   }
 
   /**
-   * Copies a package into the store and allows what it asks for; the caller
-   * vouches for it. The same version replaces its older copy, and a choice to
-   * turn the plugin off stays.
+   * Copies a package into the store and, unless told not to, allows what it
+   * asks for; the caller vouches for it. The same version replaces its older
+   * copy, and a choice to turn the plugin off stays.
    */
-  async installManaged(source: string): Promise<PluginIndexEntry> {
+  async installManaged(source: string, { consent = true }: { consent?: boolean } = {}): Promise<PluginIndexEntry> {
     await this.ready();
     const checked = await indexPluginPackage(source);
     if (!checked.ok) throw new Error(`Not a valid plugin: ${checked.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`).join("; ")}`);
@@ -593,8 +620,25 @@ export class PluginServices {
       await rm(staging, { recursive: true, force: true });
       await rm(previous, { recursive: true, force: true });
     }
-    await this.grants.consent(id, capabilityGrants(entry.manifest));
+    if (consent) await this.grants.consent(id, capabilityGrants(entry.manifest));
     await this.changed();
+    return entry;
+  }
+
+  /**
+   * Installs a package the person made. These are all `personal/<name>`, so
+   * one can't replace what the app or a publisher ships. A new version of one
+   * that only adds Skills replaces its older versions; any other keeps them
+   * for the projects that name them.
+   */
+  async installPersonal(source: string, options: { consent: boolean }): Promise<PluginIndexEntry> {
+    const checked = await indexPluginPackage(source);
+    if (checked.ok && !checked.entry.id.startsWith(`${PERSONAL_PUBLISHER}/`))
+      throw new Error(`The plugin's id must be ${PERSONAL_PUBLISHER}/<name>, not ${checked.entry.id}`);
+    const entry = await this.installManaged(source, options);
+    if (isAppWidePlugin(entry.manifest))
+      for (const older of this.index.versions(entry.id))
+        if (older.version !== entry.version && isAppWidePlugin(older.manifest)) await this.uninstall(entry.id, older.version);
     return entry;
   }
 

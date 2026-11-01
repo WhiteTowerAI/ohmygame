@@ -6,8 +6,6 @@ import type {
   PluginMcpResult,
 } from "../shared/plugins.js";
 import {
-  readPluginDraftConfiguration,
-  savePluginDraftConfiguration,
   readPluginConfiguration,
   readPluginMcpDefinition,
   savePluginConfiguration,
@@ -43,14 +41,12 @@ export function PluginUninstallButton({ plugin, disabled, compact = false, onUni
 
 export function PluginConfigurationPanel({
   plugin,
-  setupId,
   compact = false,
   load,
   store,
   onChanged,
 }: {
   plugin: Pick<PluginDetail, "id" | "configuration">;
-  setupId?: string;
   compact?: boolean;
   /** Reads and saves someone else's configuration, such as a connection's. */
   load?: () => Promise<PluginConfigurationView>;
@@ -64,7 +60,7 @@ export function PluginConfigurationPanel({
   const [notice, setNotice] = useState<string>();
   useEffect(() => {
     let active = true;
-    void (load ? load() : setupId ? readPluginDraftConfiguration(setupId) : readPluginConfiguration(plugin.id))
+    void (load ? load() : readPluginConfiguration(plugin.id))
       .then((value) => {
         if (active) {
           setConfig(value);
@@ -77,7 +73,7 @@ export function PluginConfigurationPanel({
     return () => {
       active = false;
     };
-  }, [plugin.id, setupId]);
+  }, [plugin.id]);
   if (config && !Object.keys(config.fields).length) return null;
   if (!config && !Object.keys(plugin.configuration ?? {}).length) return null;
   return (
@@ -185,10 +181,10 @@ export function PluginConfigurationPanel({
     setBusy(true);
     setError(undefined);
     try {
-      setConfig(await (store ? store(values) : setupId ? savePluginDraftConfiguration(setupId, values) : savePluginConfiguration(plugin.id, values)));
+      setConfig(await (store ? store(values) : savePluginConfiguration(plugin.id, values)));
       setValues({});
       setNotice(
-        compact ? t("common.saved") : setupId ? t("pluginControls.savedDraft") : t("pluginControls.savedActive"),
+        compact ? t("common.saved") : t("pluginControls.savedActive"),
       );
       onChanged();
     } catch (cause) {
