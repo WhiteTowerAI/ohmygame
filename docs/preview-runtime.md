@@ -130,9 +130,16 @@ Page reload and server restart are separate controls. The Game panel's toolbar
 leads with the preview's address, like a browser's: a dot for the preview's state
 (running, starting, failed or not started), the current page, which opens the page
 picker, and reload. The device, element picking, **AI playtest** and a **More**
-menu (open in browser, restart the preview, project settings) follow, then Play;
+menu (open in browser, restart the preview, project settings) follow;
 in a narrow panel the address shrinks to its dot, the page picker's chevron and
 reload.
+The project's top bar keeps **Play** in the same place across views. For Web
+previews it opens the game window directly, or focuses it with **Return to game**.
+External previews instead reveal the Game panel. In Fit mode, Play requests
+1280 × 720 independently of the preview panel's size or visibility. Device presets
+keep their requested dimensions. Desktop windows scale down proportionally when
+needed to fit within 85% of the editor display's work area (or the cursor's display
+when no editor preview is attached). Window sizes are not remembered across closes.
 Internal navigation updates the address without reloading the game. The desktop editor owns one human game
 WebContentsView per project. Play moves that view into a separate native window;
 closing Play returns it to Preview. Both directions preserve the same document,

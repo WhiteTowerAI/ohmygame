@@ -122,6 +122,8 @@ export interface CodingPanels {
   visible: ReadonlySet<CodingView>;
   /** Brings a view forward, opening its panel if it was closed. */
   onShow: (view: CodingView) => void;
+  /** The top bar's slot for Play, which opens the game in its own window from any view. */
+  play?: HTMLElement | null;
 }
 
 export function CodingWorkspace({
@@ -324,8 +326,7 @@ export function CodingWorkspace({
   }
 
   function playGame(): void {
-    const bounds = previewStage.current?.getBoundingClientRect();
-    void player.play({ path: actualPreviewPath, viewport: playerViewport(viewport, bounds) });
+    void player.play({ path: actualPreviewPath, viewport: playerViewport(viewport) });
   }
 
   async function toggleAgentPlaytestWatch(): Promise<void> {
@@ -359,6 +360,15 @@ export function CodingWorkspace({
   }, [picking]);
 
   const canPlay = !player.open && (!project || preview?.status === "waiting" || preview?.status === "starting");
+  const playButton = supportsPreview ? <Button
+    size="sm"
+    variant="ghost"
+    className={`preview-play-button${player.open ? " is-active" : ""}`}
+    icon={player.pending ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
+    data-tooltip={player.pending ? t("workspace.openingGame") : player.open ? undefined : t("workspace.playInWindow")}
+    disabled={player.pending || (player.checking && !player.error) || canPlay}
+    onClick={playGame}
+  >{player.open ? t("workspace.returnToGame") : t("workspace.play")}</Button> : null;
   const settingsButton = project && project.pluginType?.preview !== "native" && isWebRuntimeProjectType(project.type) ? <button
     className="icon-button pane-header-action"
     type="button"
@@ -395,14 +405,7 @@ export function CodingWorkspace({
           onToggleAgentPlaytestWatch={() => void toggleAgentPlaytestWatch()}
           onViewportChange={setViewport}
         />
-        <button
-          className={`icon-button pane-header-action preview-play-button${player.open ? " is-active" : ""}`}
-          type="button"
-          aria-label={player.open ? t("workspace.returnToGame") : t("workspace.play")}
-          data-tooltip={player.pending ? t("workspace.openingGame") : player.open ? t("workspace.returnToGame") : t("workspace.playInWindow")}
-          disabled={player.pending || (player.checking && !player.error) || canPlay}
-          onClick={playGame}
-        >{player.pending ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}</button>
+        {panels ? null : playButton}
       </> : undefined,
       body: <>
         {supportsPreview ? (
@@ -483,6 +486,7 @@ export function CodingWorkspace({
       {supportsPreview && logsOpen && view === logsView ? <PreviewLogs project={project} onClose={() => setLogsOpen(false)} /> : null}
     </section>
   );
+  const topPlay = panels?.play && playButton ? createPortal(playButton, panels.play) : null;
   const placed = (Object.keys(views) as CodingView[]).map((view) => {
     const content = views[view];
     if (!content) return null;
@@ -501,6 +505,7 @@ export function CodingWorkspace({
   return (
     <>
       {placed}
+      {topPlay}
       {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
       {project && projectSettingsOpen ? <ProjectSettingsDialog
         project={project}
@@ -792,12 +797,11 @@ function viewportLabel(viewport: PreviewViewport): string {
   return t("projectSettings.device.fit");
 }
 
-export function playerViewport(viewport: PreviewViewport, bounds?: { width: number; height: number }): { width: number; height: number } {
+export function playerViewport(viewport: PreviewViewport): { width: number; height: number } {
   if (viewport === "mobile") return { width: 375, height: 667 };
   if (viewport === "mobile-landscape") return { width: 667, height: 375 };
   if (viewport === "tablet") return { width: 768, height: 1024 };
-  const size = (value: number | undefined, fallback: number) => Math.min(8192, Math.max(240, Math.round(value || fallback)));
-  return { width: size(bounds?.width, 1280), height: size(bounds?.height, 720) };
+  return { width: 1280, height: 720 };
 }
 
 export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, reload, revision, url, viewport, active = true, playerOpen = false, suspended = false, pending = false, pausedAfterRecovery = false, error, onPlay, onRetry, onSettings, stageRef }: {
