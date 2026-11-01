@@ -260,7 +260,8 @@ package was installed and allows the import to be retried.
 Installed packages do not depend on the original AI workspace or source
 directory. Bundled package contents follow application updates, while their
 user switches and configuration remain separate. Versioned preinstalled
-packages use the release prepared by the current app; Personal packages update
+packages use the release prepared by the current app (Image to Three.js
+ships as a format 2 package; see [Plugins format 2](plugins-v2.md)); Personal packages update
 only through explicit editing, reinstalling, or importing. Per-turn editing
 snapshots will reuse the shared workspace checkpoint system once it is
 available to Plugin Builder; this change adds no separate snapshot store.

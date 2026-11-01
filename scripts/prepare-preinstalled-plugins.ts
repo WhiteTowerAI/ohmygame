@@ -4,6 +4,8 @@ import path from "node:path";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 import { discoverPlugins } from "../src/daemon/plugin-discovery.js";
 import { inspectPluginBundle } from "../src/daemon/local-plugins.js";
+import { catalogManifest, convertFormat1Package } from "../src/daemon/plugin-conversion.js";
+import type { PluginCategory } from "../src/shared/plugin-manifest.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
 import type { ResolvedPluginManifest } from "../src/shared/plugins.js";
 import { git, replaceDirectory } from "./runtime-directory.js";
@@ -19,6 +21,7 @@ interface LockedPlugin {
   candidate: string;
   assets?: string;
   interface?: NonNullable<ResolvedPluginManifest["interface"]>;
+  categories?: PluginCategory[];
 }
 
 interface LockFile {
@@ -63,17 +66,30 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
       const candidates = await discoverPlugins(source);
       const selected = candidates.find((candidate) => candidate.key === entry.candidate);
       if (!selected) throw new Error(`Plugin candidate ${entry.candidate} was not found in ${entry.repository}`);
-      const manifest = {
+      const original = {
         ...selected.manifest,
         version: entry.version,
         interface: { ...selected.manifest.interface, ...entry.interface },
       } satisfies ResolvedPluginManifest;
-      await inspectPluginBundle(source, {
+      const identity = {
         idPrefix: "ohmygame:",
         marketplace: { id: "ohmygame", displayName: "OhMyGame" },
-        source: { type: "preinstalled", pluginId: entry.pluginId, releaseId: entry.releaseId },
-      }, manifest);
-      const archive = await createPluginArchive(source);
+        source: { type: "preinstalled" as const, pluginId: entry.pluginId, releaseId: entry.releaseId },
+      };
+      await inspectPluginBundle(source, identity, original);
+      // It ships as a format 2 package; the catalog shows it as it shows the
+      // bundled format 2 plugins that only add Skills, under the same id.
+      const converted = path.join(temporary, `${entry.pluginId}-format-2`);
+      const conversion = await convertFormat1Package({ root: source, manifest: original }, converted, {
+        id: `ohmygame/${original.name}`,
+        ...(entry.categories ? { categories: entry.categories } : {}),
+      });
+      if (conversion.left.length) throw new Error(`${entry.repository} has ${conversion.left.join(", ")}, which a preinstalled plugin can't carry`);
+      const view = catalogManifest(conversion.entry, { enabledByDefault: original.enabledByDefault ?? true });
+      if (!view) throw new Error(`${entry.repository} doesn't convert to a plugin that only adds Skills`);
+      const manifest = { ...view, version: conversion.entry.version };
+      await inspectPluginBundle(converted, identity, manifest);
+      const archive = await createPluginArchive(converted);
       const artifactSha256 = createHash("sha256").update(archive).digest("hex");
       if (artifactSha256 !== entry.artifactSha256) {
         throw new Error(`Plugin archive checksum mismatch for ${entry.repository}: ${artifactSha256}`);
