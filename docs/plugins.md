@@ -56,7 +56,7 @@ starts in, and waits until what the plugin asks for is allowed.
 - **Project data,** in the project's storage folder: `plugin-changes.json`
   (changes plugins made outside a turn) and `plugin-storage/` (plugin pages'
   storage).
-- **Bundled:** `plugins-v2/` ships with the app and is indexed in place by
+- **Bundled:** `plugins/` ships with the app and is indexed in place by
   `PluginServices.ready()`, which every service method and route waits for;
   `packages/plugin-ui/` is `@ohmygame/plugin-ui`. A bundled plugin starts
   on unless it is in `bundledOff` (TapTap Maker), which leaves it off until
@@ -89,8 +89,8 @@ shows it in the call's progress.
 | Project file and decisions | `src/daemon/project-plugins.ts` | `test/project-plugins.test.ts` |
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
 | Plugins for every project, preinstalled packages, packaging Skills | `src/daemon/plugin-services.ts`, `src/daemon/preinstalled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/prepare-preinstalled-plugins.ts` | `test/bundled-plugins.test.ts`, `test/preinstalled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
-| Godot | `plugins-v2/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts` |
-| TapTap Maker | `plugins-v2/taptap-maker/` | `test/taptap-maker.test.ts` |
+| Godot | `plugins/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts` |
+| TapTap Maker | `plugins/taptap-maker/` | `test/taptap-maker.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
@@ -233,7 +233,7 @@ keeps running it, in place of the newest.
 `config/preinstalled-plugins.json` through `PluginServices.installManaged`, the
 same path that checks a package with `indexPluginPackage` and copies it under
 `packages/<publisher>/<name>/<version>`. A package the person removes stays
-removed, later releases included. Bundled plugins are indexed from `plugins-v2/`
+removed, later releases included. Bundled plugins are indexed from `plugins/`
 and can't be uninstalled.
 
 ## Making a plugin
@@ -325,7 +325,7 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   adds, MCP services included. A plugin's page switches it off everywhere, asks for what it
   hasn't been allowed, fills its `configuration` fields (a secret is only
   replaced or cleared), and uninstalls one version at a time. A plugin in
-  `plugins-v2/` only switches off; uninstalling it is refused.
+  `plugins/` only switches off; uninstalling it is refused.
 - **Panels** of a project's active plugins sit beside its own, in the area
   the manifest names, when their `when` holds. A panel opens the first time
   it is offered and stays closed once the person closes it, like the
@@ -446,7 +446,7 @@ project, or only in the project types a connection is limited to.
 
 ## Bundled engine workflows
 
-Bundled plugins live in `plugins-v2/`. Blender and Godot are marked Beta while
+Bundled plugins live in `plugins/`. Blender and Godot are marked Beta while
 their platform workflows are being validated, and default to enabled. Blender,
 like the other bundled plugins that only add Skills (Game Studio, Web Game Studio,
 Three.js World and the Beta workflows below), applies to every project it suits;
@@ -488,7 +488,7 @@ Godot.
 
 ## TapTap Maker
 
-TapTap Maker (`plugins-v2/taptap-maker/`, Beta) is a bundled plugin
+TapTap Maker (`plugins/taptap-maker/`, Beta) is a bundled plugin
 that starts off; turn it on from **Plugins** in the main sidebar. It adds the
 Maker project type, whose game runs in Maker's own native Runtime window, so
 the project has no web preview and isn't published to Community.
@@ -521,8 +521,8 @@ the project has no web preview and isn't published to Community.
   Spark version binding and review, and asks before installing it and before
   each approval-gated write.
 
-See the [TapTap Maker](../plugins-v2/taptap-maker/skills/taptap-maker/SKILL.md)
-and [TapTap Release](../plugins-v2/taptap-maker/skills/taptap-release/SKILL.md)
+See the [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
+and [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md)
 Skills. Authenticated Maker creation, preview, build and publication still
 need a Maker account to check by hand.
 

@@ -48,7 +48,7 @@
 "area: plugins":
   - changed-files:
       - any-glob-to-any-file:
-          - "plugins-v2/**"
+          - "plugins/**"
           - "src/**/{*plugin*,*mcp*,skill-metadata,connections*}.{ts,tsx}"
           - "scripts/prepare-preinstalled-plugins.ts"
           - "docs/plugins.md"

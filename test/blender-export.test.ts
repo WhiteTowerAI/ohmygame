@@ -44,7 +44,7 @@ describe("Blender GLB export", () => {
               "1",
               "--python",
               path.resolve(
-                "plugins-v2/blender/skills/blender-assets/scripts/export_glb.py",
+                "plugins/blender/skills/blender-assets/scripts/export_glb.py",
               ),
               "--",
               "--output",
@@ -216,7 +216,7 @@ bpy.ops.wm.save_as_mainfile(filepath=${JSON.stringify(source)})
           "1",
           "--python",
           path.resolve(
-            "plugins-v2/blender/skills/blender-assets/scripts/export_glb.py",
+            "plugins/blender/skills/blender-assets/scripts/export_glb.py",
           ),
           "--",
           "--output",
