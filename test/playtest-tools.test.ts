@@ -77,7 +77,20 @@ describe("game use tool", () => {
     expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining('"score":10') });
   });
 
-  it("gives the model the whole snapshot without indentation and keeps the record complete", async () => {
+  it("keeps the record complete when the model's text is limited", async () => {
+    const elements = Array.from({ length: 90 }, (_, index) => ({ tag: "button", role: "button", name: `Button ${index}`, text: "", visible: true, disabled: false }));
+    const large = { ...snapshot, elements } as unknown as PlaytestSnapshot;
+    const driver = new FakeDriver();
+    driver.request = async () => ({ operation: "inspect", snapshot: large });
+    const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
+
+    const result = await tool.execute("inspect-1", { operation: "inspect", sessionId: "session-1" }, undefined, undefined, {} as never);
+
+    expect(JSON.parse((result.content[0] as { text: string }).text).elements).toHaveLength(80);
+    expect(result.details).toEqual({ playtest: large });
+  });
+
+  it("gives the model the snapshot without indentation and keeps the record complete", async () => {
     const spaced = {
       ...snapshot,
       elements: [{ tag: "button", role: "button", name: "Start  game", text: "Start\n  game", visible: true, disabled: false }],
@@ -103,10 +116,14 @@ describe("game use tool", () => {
       sessionId: "session-1",
     }, undefined, undefined, {} as never);
 
+    const analysis = { sampledPixels: 100, opaqueRatio: 1, luminanceMean: 80, luminanceVariance: 12, likelyBlank: false };
     expect(result.content).toEqual([
-      { type: "text", text: expect.stringContaining('"likelyBlank":false') },
+      { type: "text", text: JSON.stringify({ sessionId: "session-1", width: 1280, height: 720, analysis }) },
       { type: "image", data: Buffer.from("jpeg").toString("base64"), mimeType: "image/jpeg" },
     ]);
+    expect(result.details).toEqual({
+      playtestCapture: { sessionId: "session-1", mediaType: "image/jpeg", width: 1280, height: 720, analysis },
+    });
   });
 
   it("refuses routes outside the current preview origin", () => {
