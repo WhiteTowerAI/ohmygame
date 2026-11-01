@@ -49,6 +49,24 @@
       "minLength": 1,
       "maxLength": 300
     },
+    "longDescription": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "examples": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300
+      },
+      "minItems": 1,
+      "maxItems": 5
+    },
+    "beta": {
+      "type": "boolean"
+    },
     "icon": {
       "type": "string",
       "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.(?:svg|png|webp)$",

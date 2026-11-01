@@ -165,6 +165,8 @@ function localizedKeys(manifest: PluginManifestV2): Set<string> {
   const texts = [
     manifest.displayName,
     manifest.description,
+    manifest.longDescription,
+    ...(manifest.examples ?? []),
     ...Object.values(manifest.configuration ?? {}).flatMap((field) => [
       field.title,
       field.description,

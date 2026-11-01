@@ -1,0 +1,28 @@
+{
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "ohmygame/game-studio",
+  "version": "0.1.0",
+  "engines": {
+    "ohmygame-api": "^2.0.0"
+  },
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "longDescription": "%longDescription%",
+  "examples": [
+    "%example.1%",
+    "%example.2%",
+    "%example.3%"
+  ],
+  "icon": "./assets/icon.svg",
+  "categories": [
+    "workflow"
+  ],
+  "appliesTo": [
+    "general",
+    "godot-game",
+    "interactive-story"
+  ],
+  "contributes": {
+    "skills": "./skills/"
+  }
+}

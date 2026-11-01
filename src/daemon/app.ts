@@ -105,7 +105,7 @@ import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService, pluginSummary } from "./plugin-catalog.js";
-import { BundledPluginStore } from "./bundled-plugins.js";
+import { BUNDLED_PLUGINS_OFF, BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
 import { inspectPluginSource, installPlugin } from "./plugin-installer.js";
 import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settings.js";
@@ -797,14 +797,17 @@ export function createApp(options: AppOptions = {}) {
   const pluginServices = new PluginServices({
     directory: path.join(dataDirectory, "plugin-store"),
     bundled: bundledPluginsV2,
-    // TapTap Maker is in beta: it starts off, as its format 1 plugin did.
-    bundledOff: ["ohmygame/taptap-maker"],
+    bundledOff: BUNDLED_PLUGINS_OFF,
     onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled format 2 plugins"),
   });
   // Indexing the bundled plugins starts now; every use of the plugin services waits for it.
   const pluginServicesReady = pluginServices.ready().catch((err: unknown) => app.log.warn({ err }, "Could not load the format 2 plugins"));
   const legacyMcp = new LegacyMcpConfiguration(piAgentDirectory);
-  const bundledPlugins = new BundledPluginStore(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"));
+  const bundledPlugins = new BundledPluginStore(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"), {
+    formatTwoDirectory: bundledPluginsV2,
+    off: BUNDLED_PLUGINS_OFF,
+    onError: (err) => app.log.warn({ err }, "Could not read a bundled plugin"),
+  });
   const preinstalledPlugins = new PreinstalledPluginManager(
     options.preinstalledPluginsDirectory,
     dataDirectory,

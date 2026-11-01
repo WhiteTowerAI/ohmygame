@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
+import { BUNDLED_PLUGINS_OFF, BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 import { resolvePluginSkillPaths } from "../src/daemon/plugin-runtime.js";
 import { LegacyMcpConfiguration } from "../src/daemon/legacy-mcp.js";
 import { createApp } from "../src/daemon/app.js";
@@ -35,7 +35,7 @@ async function environment() {
   const settings = new PluginSettingsStore(directory);
   await settings.load();
   const local = new LocalPluginStore(directory);
-  const bundled = new BundledPluginStore(path.resolve("plugins"));
+  const bundled = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
   await bundled.load();
   const service = new PluginCapabilities(
     directory,
@@ -53,7 +53,7 @@ describe("native plugin capabilities", () => {
     const { service, bundled, settings } = await environment();
     const optionalNames = ["aseprite", "cocos-creator", "douyin-minigame", "tiled", "unity", "unreal-engine", "wechat-minigame"];
     const optional = optionalNames.map(name => bundled.read(`ohmygame:${name}`)!);
-    const roots = optional.map(plugin => path.resolve("plugins", plugin.name));
+    const roots = optional.map(plugin => bundled.installedPath(plugin.id)!);
     const initialSkills = await resolvePluginSkillPaths([bundled], settings, "general");
     expect(initialSkills.filter(file => roots.some(root => file.startsWith(`${root}${path.sep}`)))).toEqual([]);
     const unreal = bundled.read("ohmygame:unreal-engine")!;
@@ -64,7 +64,7 @@ describe("native plugin capabilities", () => {
     for (const projectType of ["general", "web-game", "godot-game", "asset-canvas"] as const) {
       const skills = await resolvePluginSkillPaths([bundled], settings, projectType);
       for (const plugin of optional) {
-        const skill = path.resolve("plugins", plugin.name, plugin.skills[0]!.id);
+        const skill = path.join(bundled.installedPath(plugin.id)!, plugin.skills[0]!.id);
         expect(skills.includes(skill)).toBe(projectType === "general" || plugin.name === "aseprite" || plugin.name === "tiled");
       }
       const servers = (await service.effective(projectType)).mcpServers;

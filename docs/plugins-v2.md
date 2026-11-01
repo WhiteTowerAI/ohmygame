@@ -60,6 +60,7 @@ shows it in the call's progress.
 | Manifest, index, `when` | `src/shared/plugin-manifest.ts`, `src/shared/plugin-when.ts`, `src/daemon/plugin-index.ts` | `test/plugin-manifest.test.ts` |
 | Project file and decisions | `src/daemon/project-plugins.ts` | `test/project-plugins.test.ts` |
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
+| Bundled plugins for every project, conversion | `src/daemon/bundled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/convert-format-1-plugin.ts` | `test/bundled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
 | TapTap Maker and format 1 Maker projects | `plugins-v2/taptap-maker/`, `src/daemon/legacy-maker.ts` | `test/taptap-maker.test.ts`, `test/project-plugins.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
@@ -137,6 +138,24 @@ shows it in the call's progress.
   and lists `GET /project-plugins`, the enabled format 2 plugins a new project
   can turn on for itself; the type's own plugin is left out. Creating the project posts each one's consent, if still needed, and
   turns it on once the project exists.
+
+## Plugins for every project
+
+A plugin that only adds Skills, with no native entry, settings or
+capabilities (`isAppWidePlugin`), can't run code or reach files of its own.
+When it ships with the app (`plugins-v2/`, publisher `ohmygame`), it applies
+to every project its `appliesTo` suits, as format 1 plugins do, instead of
+being turned on per project: `BundledPluginStore` shows it in the catalog as
+`ohmygame:<name>`, with its switch, Skill switches, mentions and Try it
+prompts, and `PluginServices` leaves it out of the format 2 index. The
+catalog speaks only of the app's own types, so such a plugin needs at least
+one of them in `appliesTo`. `BUNDLED_PLUGINS_OFF` lists the ones that start
+off.
+
+A manifest can also give a `longDescription` and up to five `examples`, shown
+on the plugin's page, and mark itself `beta`.
+`scripts/convert-format-1-plugin.ts` converts a format 1 plugin that only adds
+Skills, in place (`src/daemon/plugin-conversion.ts`).
 
 ## In the app
 

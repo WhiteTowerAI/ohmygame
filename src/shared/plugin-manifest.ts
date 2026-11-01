@@ -59,6 +59,7 @@ export const PLUGIN_CATEGORIES = [
   "workflow",
   "integration",
 ] as const;
+export type PluginCategory = (typeof PLUGIN_CATEGORIES)[number];
 
 export const PLUGIN_SLOTS = [
   "home.starters",
@@ -403,6 +404,14 @@ export const PluginManifestV2Schema = Type.Object(
     ),
     displayName: Text(80),
     description: Text(300),
+    /** The plugin's page shows it under About. */
+    longDescription: Type.Optional(Text(2000)),
+    /** Prompts the plugin's page offers to try it with. */
+    examples: Type.Optional(
+      Type.Array(Text(300), { minItems: 1, maxItems: 5 }),
+    ),
+    /** Still being checked on real projects; the app marks it Beta. */
+    beta: Type.Optional(Type.Boolean()),
     icon: Type.Optional(Icon),
     /** Project types the plugin suits: built-in ids, or `publisher/name:type`. */
     appliesTo: Type.Optional(
@@ -467,6 +476,26 @@ export const PluginManifestV2Schema = Type.Object(
 
 export type PluginManifestV2 = Static<typeof PluginManifestV2Schema>;
 export type PluginContributions = NonNullable<PluginManifestV2["contributes"]>;
+
+/**
+ * Whether a plugin only adds Skills and asks for nothing. Such a plugin can't
+ * run code or reach files of its own, so it can apply to every project it
+ * suits without a project turning it on.
+ */
+export function isAppWidePlugin(manifest: PluginManifestV2): boolean {
+  const contributes = manifest.contributes ?? {};
+  return (
+    !manifest.entrypoints?.native &&
+    !manifest.configuration &&
+    Object.values(manifest.capabilities ?? {}).every(
+      (value) => value === undefined || value === false || (Array.isArray(value) && !value.length),
+    ) &&
+    contributes.skills !== undefined &&
+    Object.entries(contributes).every(
+      ([key, value]) => key === "skills" || value === undefined,
+    )
+  );
+}
 
 export interface PluginManifestIssue {
   /** JSON Pointer into the manifest, such as `/contributes/themes/0/dark`. */

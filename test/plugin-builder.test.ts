@@ -10,7 +10,7 @@ import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
 import { LocalPluginStore } from "../src/daemon/local-plugins.js";
 import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService } from "../src/daemon/plugin-catalog.js";
 import { discoverPlugins } from "../src/daemon/plugin-discovery.js";
-import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
+import { BUNDLED_PLUGINS_OFF, BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
 import { readPluginBuilderInput, savePluginBuilderInput } from "../src/renderer/plugin-builder-drafts.js";
@@ -25,7 +25,7 @@ async function environment() {
   const settings = new PluginSettingsStore(directory);
   await settings.load();
   const local = new LocalPluginStore(directory);
-  const bundled = new BundledPluginStore(path.resolve("plugins"));
+  const bundled = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
   await bundled.load();
   const capabilities = new PluginCapabilities(directory, agentDir, [bundled, local], local, settings);
   await capabilities.configuration.load();

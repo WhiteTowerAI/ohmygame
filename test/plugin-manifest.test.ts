@@ -38,7 +38,7 @@ import {
 } from "../scripts/plugin-schema.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins-v2");
-const BUNDLED = path.join(import.meta.dirname, "../plugins");
+const BUNDLED = path.join(import.meta.dirname, "../plugins-v2");
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -410,7 +410,7 @@ describe("plugin index", () => {
 
   it("indexes the format 2 Godot plugin with its type, tools and command", async () => {
     const result = await indexPluginPackage(
-      path.join(BUNDLED, "..", "plugins-v2", "godot"),
+      path.join(BUNDLED, "godot"),
     );
     expect(result.ok ? [] : result.issues).toEqual([]);
     if (!result.ok) return;
@@ -903,18 +903,39 @@ describe("plugin releases", () => {
     }
   });
 
+  it("drops only the bundled copy of a plugin for every project from the index, keeping a version installed apart", async () => {
+    const dir = await temporary();
+    const services = new PluginServices({ directory: path.join(dir, "store") });
+    try {
+      const apart = path.join(dir, "blender");
+      await cp(path.join(BUNDLED, "blender"), apart, { recursive: true });
+      await editManifest(apart, (manifest) => (manifest.version = "9.0.0"));
+      await services.index.load();
+      // As an earlier version of the app might have indexed it.
+      expect((await services.index.add(path.join(BUNDLED, "blender"))).ok).toBe(true);
+      expect((await services.index.add(apart)).ok).toBe(true);
+      await services.addBundled(BUNDLED);
+      expect(services.index.versions("ohmygame/blender").map((entry) => entry.version)).toEqual(["9.0.0"]);
+    } finally {
+      await services.close();
+    }
+  });
+
   it("indexes the app's own format 2 plugins and allows what they ask for, except one that starts off", async () => {
     const dir = await temporary();
     const services = new PluginServices({ directory: path.join(dir, "store"), bundledOff: ["ohmygame/taptap-maker"] });
     try {
-      const results = await services.addBundled(path.join(BUNDLED, "..", "plugins-v2"));
+      const results = await services.addBundled(BUNDLED);
       expect(results.map((result) => (result.ok ? [] : result.issues))).toEqual(results.map(() => []));
       expect(services.grants.plugin("ohmygame/godot")?.allowed).toEqual(expect.arrayContaining(["native"]));
+      // Those that only add Skills apply to every project they suit; the catalog shows them.
+      expect(services.index.entries().map((entry) => entry.id).sort()).toEqual(["ohmygame/godot", "ohmygame/taptap-maker"]);
+      expect(services.grants.plugin("ohmygame/game-studio")).toBeUndefined();
       // It asks for consent when the person turns it on, and stays as they leave it.
       expect(services.grants.plugin("ohmygame/taptap-maker")).toEqual({ enabled: false, allowed: [] });
       await services.consent("ohmygame/taptap-maker", ["native"]);
       await services.grants.setEnabled("ohmygame/taptap-maker", true);
-      await services.addBundled(path.join(BUNDLED, "..", "plugins-v2"));
+      await services.addBundled(BUNDLED);
       expect(services.grants.plugin("ohmygame/taptap-maker")?.enabled).toBe(true);
     } finally {
       await services.close();

@@ -274,9 +274,14 @@ The migration reader never modifies the old file or creates a missing one. A ret
 ## Bundled engine workflows
 
 Blender and Godot are marked Beta while their platform workflows are being
-validated. They use the standard Skill/MCP package contract and default to
-enabled. Existing saved switch choices are preserved. TapTap Maker is a
-format 2 plugin; see [TapTap Maker](#taptap-maker).
+validated, and default to enabled. Existing saved switch choices are
+preserved. Blender, like the other bundled plugins that only add Skills
+(Game Studio, Web Game Studio, Three.js World and the Beta workflows below),
+is a format 2 package in `plugins-v2/` that applies to every project it suits;
+see [Plugin format 2](plugins-v2.md#plugins-for-every-project). Godot and
+Unreal Engine remain format 1 packages in `plugins/` until format 2 can carry
+their MCP services. TapTap Maker is a format 2 plugin; see
+[TapTap Maker](#taptap-maker).
 
 - **Blender:** local Blender CLI/Python workflow for editable `.blend` sources,
   GLB delivery, and preview images. The export helper accepts an optional
@@ -355,7 +360,8 @@ Open **Plugins** in the main sidebar and enable only the workflows needed for
 the current project.
 Their saved switches are preserved by the same settings store as other plugins.
 These packages reuse the existing runtime; they introduce no new project types,
-client installers, custom MCP bridges, or automatic engine upgrades.
+client installers, custom MCP bridges, or automatic engine upgrades. All but
+Unreal Engine are format 2 packages that only add Skills.
 
 | Plugin | Project scope | Local integration and initial boundary |
 | --- | --- | --- |

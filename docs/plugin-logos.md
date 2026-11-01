@@ -1,7 +1,8 @@
 # Plugin logos
 
 Product integrations use recognizable brand artwork in their own `assets/`
-directory. Each manifest points to that file with `interface.icon.type: asset`.
+directory. Each manifest points to that file: `icon` in format 2,
+`interface.icon.type: asset` in format 1.
 Bundled workflow plugins can use their own artwork through the same contract.
 Generic capabilities continue to use Solar presets. The renderer does not map
 engine names to special logo components.
