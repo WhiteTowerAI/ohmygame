@@ -5,7 +5,7 @@ import { ZipFile } from "yazl";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { availableUpdates, downloadRelease, installRelease, readCatalog, releaseMessage } from "../src/daemon/plugin-releases.js";
 import { compileWhen, matchesWhen } from "../src/shared/plugin-when.js";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   cp,
   mkdir,
@@ -436,6 +436,28 @@ describe("plugin index", () => {
         "zh-CN",
       ),
     ).toBe("在 Godot 中运行");
+    expect(manifest.contributes?.mcpServers).toMatchObject([
+      { id: "godot", command: "node", args: ["./native/mcp.mjs"], env: { OHMYGAME_GODOT_SETTING: "${config.godotPath}" } },
+    ]);
+  });
+
+  it("starts godot-mcp with the Godot the plugin's tools find", async () => {
+    const dir = await temporary();
+    const godot = path.join(dir, "Godot", process.platform === "win32" ? "godot.exe" : "godot");
+    await mkdir(path.dirname(godot), { recursive: true });
+    await writeFile(godot, "", { mode: 0o755 });
+    const bin = path.join(dir, "bin");
+    await mkdir(bin);
+    // Stands in for npx: says what it was given, and exits as godot-mcp might.
+    if (process.platform === "win32") await writeFile(path.join(bin, "npx.cmd"), "@echo off\r\necho %GODOT_PATH% %*\r\nexit /b 3\r\n");
+    else await writeFile(path.join(bin, "npx"), '#!/bin/sh\necho "$GODOT_PATH $*"\nexit 3\n', { mode: 0o755 });
+    const { Path: _windowsPath, ...env } = process.env;
+    const result = spawnSync(process.execPath, [path.join(BUNDLED, "godot", "native", "mcp.mjs")], {
+      env: { ...env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? process.env.Path ?? ""}`, OHMYGAME_GODOT_SETTING: godot },
+      encoding: "utf8",
+    });
+    expect(result.stdout.trim()).toBe(`${godot} -y @coding-solo/godot-mcp@0.1.1`);
+    expect(result.status).toBe(3);
   });
 
   it("reads strings only from display fields", async () => {

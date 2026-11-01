@@ -140,7 +140,8 @@ describe("plugin catalog API", () => {
     const saved = await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/godot/configuration", payload: { godotPath: "/opt/godot" } });
     expect(saved.json()).toEqual({ godotPath: { type: "path", value: "/opt/godot" } });
     const cleared = await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/godot/configuration", payload: { godotPath: null } });
-    expect(cleared.json()).toEqual({ godotPath: { type: "path", value: null } });
+    // Back to its default: empty, so Godot is looked for in the usual places.
+    expect(cleared.json()).toEqual({ godotPath: { type: "path", value: "" } });
   });
 
   it("offers a project only the plugin mentions its prompts accept", async () => {
@@ -170,9 +171,9 @@ describe("plugin catalog API", () => {
 
     expect(await mentionIds("web-game")).toContain("personal:web-only");
     expect(await mentionIds("general")).not.toContain("personal:web-only");
-    expect(await mentionIds("general")).toContain("ohmygame:godot");
-    expect(await mentionIds("godot-game")).toContain("ohmygame:godot");
-    expect(await mentionIds("web-game")).not.toContain("ohmygame:godot");
+    expect(await mentionIds("general")).toContain("ohmygame:game-studio");
+    expect(await mentionIds("godot-game")).toContain("ohmygame:game-studio");
+    expect(await mentionIds("web-game")).not.toContain("ohmygame:game-studio");
     expect((await app.inject({ method: "GET", url: "/composer/capabilities" })).json().plugins)
       .toEqual(expect.arrayContaining([expect.objectContaining({ id: "personal:web-only", icon: { type: "asset", path: "./icon.svg" }, iconRevision: expect.any(String) })]));
   });
@@ -272,7 +273,7 @@ describe("plugin catalog API", () => {
     await app.ready();
 
     const catalog = await app.inject({ method: "GET", url: "/plugins" });
-    const detail = await app.inject({ method: "GET", url: "/plugins/ohmygame%3Agodot" });
+    const detail = await app.inject({ method: "GET", url: "/plugins/ohmygame%3Aunreal-engine" });
 
     expect(catalog.statusCode).toBe(200);
     expect(catalog.json()).toMatchObject({
@@ -282,7 +283,6 @@ describe("plugin catalog API", () => {
         { id: "ohmygame:cocos-creator", installed: true, beta: true, enabled: false },
         { id: "ohmygame:douyin-minigame", installed: true, beta: true, enabled: false },
         { id: "ohmygame:game-studio", installed: true },
-        { id: "ohmygame:godot", installed: true, beta: true },
         { id: "ohmygame:threejs-world", installed: true },
         { id: "ohmygame:tiled", installed: true, beta: true, enabled: false },
         { id: "ohmygame:unity", installed: true, beta: true, enabled: false },
@@ -294,11 +294,11 @@ describe("plugin catalog API", () => {
     });
     expect(catalog.json().plugins.every((plugin: Record<string, unknown>) => !("longDescription" in plugin))).toBe(true);
     expect(detail.json()).toMatchObject({
-      id: "ohmygame:godot",
+      id: "ohmygame:unreal-engine",
       longDescription: expect.any(String),
-      mcpServers: [{ id: "godot", name: "Godot" }],
+      mcpServers: [{ id: "unreal" }],
       defaultPrompts: expect.any(Array),
-      projectTypes: ["godot-game", "general"],
+      projectTypes: ["general"],
     });
   });
 
@@ -310,12 +310,12 @@ describe("plugin catalog API", () => {
 
     const updated = await app.inject({
       method: "PUT",
-      url: "/plugins/ohmygame%3Agodot/settings",
+      url: "/plugins/ohmygame%3Aunreal-engine/settings",
       payload: { enabled: false, components: {} },
     });
 
     expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toMatchObject({ enabled: false, mcpServers: [{ id: "godot", status: "disabled" }] });
+    expect(updated.json()).toMatchObject({ enabled: false, mcpServers: [{ id: "unreal", status: "disabled" }] });
   });
 
   it("migrates Pi MCP configuration into an installed plugin", async () => {

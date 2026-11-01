@@ -108,7 +108,7 @@ For the additional engine, mini-game, and asset-tool Beta packages, use the
 [manual acceptance checklist (中文)](plugin-beta-testing.zh-CN.md).
 
 - [Blender Assets](../plugins-v2/blender/skills/blender-assets/SKILL.md),
-  [Godot Game](../plugins/godot/skills/godot-game/SKILL.md),
+  [Godot Game](../plugins-v2/godot/skills/godot-game/SKILL.md),
   [TapTap Maker](../plugins-v2/taptap-maker/skills/taptap-maker/SKILL.md), and
   [TapTap Release](../plugins-v2/taptap-maker/skills/taptap-release/SKILL.md).
 

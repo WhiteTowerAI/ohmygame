@@ -25,7 +25,7 @@ const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] }
 
 // Plugins that start a project, in the order Home offers them; only enabled ones show.
 const STARTERS = [
-  "web-game-studio", "game-studio", "godot", "threejs-world", "wechat-minigame",
+  "web-game-studio", "game-studio", "threejs-world", "wechat-minigame",
   "douyin-minigame", "cocos-creator", "unity", "unreal-engine",
 ];
 const DEFAULT_TYPE = "web-game";
@@ -41,6 +41,11 @@ const IDEAS = {
   "threejs-world": ["home.ideas.world.island", "home.ideas.world.cyberpunk", "home.ideas.world.station"],
   "wechat-minigame": ["home.ideas.minigame.match", "home.ideas.minigame.rhythm"],
 } as const;
+// Game ideas for a type, before its starter's: Godot's starts with no Godot starter.
+const TYPE_IDEAS: Record<string, (typeof IDEAS)[keyof typeof IDEAS]> = {
+  "godot-game": IDEAS.godot,
+  "ohmygame/godot:godot-game": IDEAS.godot,
+};
 const GENERAL_IDEAS = ["home.ideas.general.platformer", "home.ideas.general.puzzle", "home.ideas.general.story"] as const;
 type IdeaKey = (typeof IDEAS)[keyof typeof IDEAS][number] | (typeof GENERAL_IDEAS)[number];
 
@@ -155,7 +160,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
     .filter((plugin): plugin is Plugin => plugin !== undefined && plugin !== starter && starters.includes(plugin));
   // Until plugins load, the draft's own extras stand, so neither sending nor editing drops them.
   const extraMentions = capabilitiesLoaded ? extras.map(toPluginMention) : extraPlugins ?? [];
-  const ideas: readonly IdeaKey[] = (starter && starter.name in IDEAS ? IDEAS[starter.name as keyof typeof IDEAS] : undefined) ?? GENERAL_IDEAS;
+  const ideas: readonly IdeaKey[] = TYPE_IDEAS[type] ?? (starter && starter.name in IDEAS ? IDEAS[starter.name as keyof typeof IDEAS] : undefined) ?? GENERAL_IDEAS;
   // A plugin that adds the chosen type is on in its projects already.
   const projectPlugins = projectPluginChoices.filter((plugin) => !plugin.providesTypes.includes(type));
   /** The prompt as sent: the skill, the chosen plugins in order, then the text. */

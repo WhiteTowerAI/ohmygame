@@ -16,6 +16,7 @@ import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import {
   PluginGrants,
+  capabilityGrants,
   createProjectPlugins,
   projectFolderKey,
   projectSkills,
@@ -27,6 +28,8 @@ import {
 import { validateProjectFile } from "../src/shared/project-file.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 import { LEGACY_MAKER_ID, MAKER_PLUGIN, MAKER_TYPE, migrateLegacyMakerProjects } from "../src/daemon/legacy-maker.js";
+import { GODOT_PLUGIN, LEGACY_GODOT_ID, migrateLegacyGodotPath } from "../src/daemon/legacy-godot.js";
+import { GODOT_PLUGIN_MCP_SERVER_ID } from "../src/shared/mcp.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins-v2");
 const BUNDLED = path.join(import.meta.dirname, "../plugins-v2");
@@ -236,6 +239,34 @@ describe("project plugins", () => {
       ]);
       expect(skills[0]).toMatchObject({ marketplaceDisplayName: "ohmygame" });
       expect(skills[0]!.path.endsWith(path.join("skills", "game-foundations", "SKILL.md"))).toBe(true);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("starts the bundled Godot's MCP server in a General project that turns Godot on, with its setting", async () => {
+    const services = new PluginServices({ directory: await temporary(), bundled: BUNDLED });
+    try {
+      await services.ready();
+      const entry = services.index.get("ohmygame/godot")!;
+      const folder = await temporary();
+      await writeProjectFile(folder, (file) => file, { type: "general", plugins: { "ohmygame/godot": entry.version } });
+      // Bundled, so it is on everywhere; a General project still approves it itself.
+      expect(await services.mcpServers(folder)).toEqual({});
+      await services.grants.approve(await projectFolderKey(folder), "ohmygame/godot", capabilityGrants(entry.manifest));
+      // The timeline knows this name to show Godot's calls as Godot's.
+      expect(Object.keys(await services.mcpServers(folder))).toEqual([GODOT_PLUGIN_MCP_SERVER_ID]);
+      const server = () => services.mcpServers(folder).then((servers) => Object.values(servers));
+      // Empty until it is set, so the server looks for Godot as the tools do.
+      expect(await server()).toMatchObject([{
+        command: "node",
+        args: ["./native/mcp.mjs"],
+        cwd: entry.root,
+        env: { OHMYGAME_GODOT_SETTING: "" },
+        includeTools: expect.arrayContaining(["run_project", "get_debug_output", "add_node"]),
+      }]);
+      await services.values.update(entry, { godotPath: "/opt/Godot" });
+      expect(await server()).toMatchObject([{ env: { OHMYGAME_GODOT_SETTING: "/opt/Godot" } }]);
     } finally {
       await services.close();
     }
@@ -697,5 +728,68 @@ describe("format 1 TapTap Maker projects", () => {
     } finally {
       await services.close();
     }
+  });
+});
+
+describe("format 1 Godot's executable setting", () => {
+  const open: PluginServices[] = [];
+  afterEach(async () => {
+    await Promise.all(open.splice(0).map((services) => services.close()));
+  });
+  async function setup(stored?: Record<string, string | boolean>) {
+    const services = new PluginServices({ directory: path.join(await temporary(), "store"), bundled: BUNDLED });
+    open.push(services);
+    let values = stored;
+    const configuration = {
+      storedValues: (id: string) => (id === LEGACY_GODOT_ID && values ? { ...values } : undefined),
+      remove: async (id: string) => {
+        if (id === LEGACY_GODOT_ID) values = undefined;
+      },
+    };
+    const warnings: string[] = [];
+    const migrate = (environment?: { PATH?: string; PATHEXT?: string }) =>
+      migrateLegacyGodotPath({ configuration, services, warn: (message) => warnings.push(message), environment });
+    const setting = async () => {
+      await services.ready();
+      const view = services.values.view(services.index.get(GODOT_PLUGIN)!).godotPath;
+      return view && "value" in view ? view.value : undefined;
+    };
+    return { services, migrate, setting, warnings, legacy: () => values };
+  }
+
+  it("moves a path to the format 2 plugin and forgets it", async () => {
+    const { migrate, setting, legacy } = await setup({ "godot-path": "/opt/Godot/godot" });
+    await migrate();
+    expect(await setting()).toBe("/opt/Godot/godot");
+    expect(legacy()).toBeUndefined();
+  });
+
+  it("leaves the default, and a setting the person already chose, as they are", async () => {
+    const defaulted = await setup({ "godot-path": "godot" });
+    await defaulted.migrate();
+    expect(await defaulted.setting()).toBe("");
+    expect(defaulted.legacy()).toBeUndefined();
+
+    const chosen = await setup({ "godot-path": "/old/godot" });
+    await chosen.services.ready();
+    await chosen.services.values.update(chosen.services.index.get(GODOT_PLUGIN)!, { godotPath: "/new/godot" });
+    await chosen.migrate();
+    expect(await chosen.setting()).toBe("/new/godot");
+    expect(chosen.legacy()).toBeUndefined();
+  });
+
+  it("finds a command on the PATH, and keeps one it can't find for the next start", async () => {
+    const bin = await temporary();
+    const name = process.platform === "win32" ? "godot4.exe" : "godot4";
+    await writeFile(path.join(bin, name), "", { mode: 0o755 });
+    const found = await setup({ "godot-path": "godot4" });
+    await found.migrate({ PATH: bin, PATHEXT: ".exe" });
+    expect(await found.setting()).toBe(path.join(bin, name));
+
+    const missing = await setup({ "godot-path": "godot-nowhere" });
+    await missing.migrate({ PATH: bin, PATHEXT: ".exe" });
+    expect(await missing.setting()).toBe("");
+    expect(missing.legacy()).toEqual({ "godot-path": "godot-nowhere" });
+    expect(missing.warnings).toEqual([expect.stringContaining("isn't on the PATH")]);
   });
 });

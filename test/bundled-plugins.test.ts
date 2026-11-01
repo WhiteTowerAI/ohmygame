@@ -10,7 +10,7 @@ describe("bundled plugins", () => {
     const store = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
     await store.load();
     expect(store.list().filter(plugin => plugin.beta).map(plugin => plugin.name)).toEqual([
-      "aseprite", "blender", "cocos-creator", "douyin-minigame", "godot",
+      "aseprite", "blender", "cocos-creator", "douyin-minigame",
       "tiled", "unity", "unreal-engine", "wechat-minigame",
     ]);
     for (const plugin of store.list().filter(plugin => plugin.beta)) {
@@ -25,12 +25,8 @@ describe("bundled plugins", () => {
       skills: [{ id: "skills/blender-assets/SKILL.md" }],
       mcpServers: [],
     });
-    expect(store.read("ohmygame:godot")).toMatchObject({
-      enabled: true,
-      skills: [{ id: "skills/godot-game/SKILL.md" }],
-      mcpServers: [{ id: "godot" }],
-      configuration: { "godot-path": { default: "godot" } },
-    });
+    // Godot is a format 2 plugin with its own tools, turned on per project.
+    expect(store.read("ohmygame:godot")).toBeUndefined();
     for (const [name, skill] of [
       ["aseprite", "aseprite-assets"],
       ["cocos-creator", "cocos-creator"],

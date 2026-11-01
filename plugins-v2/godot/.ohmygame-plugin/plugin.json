@@ -5,19 +5,24 @@
   "engines": { "ohmygame-api": "^2.0.0" },
   "displayName": "%displayName%",
   "description": "%description%",
+  "longDescription": "%longDescription%",
+  "examples": ["%example.1%", "%example.2%", "%example.3%"],
+  "beta": true,
   "icon": "./assets/icon.svg",
   "categories": ["engine"],
+  "appliesTo": ["general", "ohmygame/godot:godot-game"],
   "entrypoints": { "native": "./native/index.mjs" },
   "capabilities": {
     "native": true,
     "project.files": "write",
-    "processes": ["godot"]
+    "processes": ["godot", "node", "npx"]
   },
   "configuration": {
     "godotPath": {
       "type": "path",
       "title": "%config.godotPath%",
-      "description": "%config.godotPath.description%"
+      "description": "%config.godotPath.description%",
+      "default": ""
     }
   },
   "contributes": {
@@ -52,6 +57,31 @@
         "description": "Export the project as a web build into .ohmygame/build/web, the build the game panel plays. Returns Godot's output.",
         "input": "./tools/empty.json",
         "output": "./tools/run-output.json"
+      }
+    ],
+    "mcpServers": [
+      {
+        "id": "godot",
+        "title": "%mcp.title%",
+        "command": "node",
+        "args": ["./native/mcp.mjs"],
+        "env": { "OHMYGAME_GODOT_SETTING": "${config.godotPath}" },
+        "tools": [
+          "launch_editor",
+          "run_project",
+          "get_debug_output",
+          "stop_project",
+          "get_godot_version",
+          "list_projects",
+          "get_project_info",
+          "create_scene",
+          "add_node",
+          "load_sprite",
+          "export_mesh_library",
+          "save_scene",
+          "get_uid",
+          "update_project_uids"
+        ]
       }
     ],
     "commands": [

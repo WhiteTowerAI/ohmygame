@@ -131,6 +131,7 @@ import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.j
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { exportProjectArchive, importProjectArchive, ProjectArchiveError } from "./project-archive.js";
 import { LEGACY_MAKER_ID, migrateLegacyMakerProjects } from "./legacy-maker.js";
+import { migrateLegacyGodotPath } from "./legacy-godot.js";
 import { MAX_PROJECT_COVER_BYTES, MAX_PROJECT_LOGO_BYTES } from "./project-covers.js";
 import { PROJECT_ICONS, PROJECT_TONES } from "../shared/project-appearance.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE, PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
@@ -1132,6 +1133,11 @@ export function createApp(options: AppOptions = {}) {
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     await migrateMaker();
+    await migrateLegacyGodotPath({
+      configuration: pluginCapabilities.configuration,
+      services: pluginServices,
+      warn: (message, err) => app.log.warn({ err }, message),
+    }).catch((err: unknown) => app.log.warn({ err }, "Could not move Godot's executable setting"));
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
