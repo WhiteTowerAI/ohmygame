@@ -867,9 +867,10 @@ export function createApp(options: AppOptions = {}) {
       projects,
       (toolCallId, input, signal) => agents.askQuestionnaire(project.id, conversation.summary.id, toolCallId, input, signal),
       async (sourcePath) => {
-        const installed = await localPlugins.install(sourcePath);
+        // The agent can't allow anything for the person; they approve what it asks for.
+        const installed = await pluginServices.installPersonal(sourcePath, { consent: false });
         invalidatePluginSessions();
-        return await plugins.read(installed.id) ?? installed;
+        return installed;
       },
       playtest ? { driver: playtest, resolveOpenTarget: () => playtestTarget(project) } : undefined,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
@@ -1078,7 +1079,7 @@ export function createApp(options: AppOptions = {}) {
   const canvasStore = registerCanvasRoutes(app, { projects, library, tools });
   registerPluginCapabilityRoutes(app, { capabilities: pluginCapabilities, plugins, invalidate: invalidatePluginSessions });
   registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
-  const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginCapabilities, plugins, localPlugins, invalidatePluginSessions, async ref => {
+  const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginCapabilities, plugins, pluginServices, invalidatePluginSessions, async ref => {
     const runtime = await getModelRuntime();
     const model = await availableModel(ref.provider, ref.id);
     if (!model) throw new Error("Select an available model in Providers");

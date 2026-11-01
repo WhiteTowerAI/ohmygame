@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import type { PluginDraft, PluginSetupState, PluginSetupSummary } from "../shared/plugin-setup.js";
+import type { PluginDraft, PluginDraftPlugin, PluginSetupState, PluginSetupSummary } from "../shared/plugin-setup.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import { pluginComponentKey } from "../shared/plugins.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
-import { abortPluginSetup, clearPluginSetupConversation, deletePluginSetup, installPluginDraft, listPluginSetups, promptPluginSetup, readPluginDraft,
-  readPluginDraftFile, readPluginSetup, readPlugin, readPluginSkill, testPluginDraft, uninstallPlugin, updatePluginSettings, updatePluginDraftIcon, waitForRuntime } from "./api.js";
+import { abortPluginSetup, clearPluginSetupConversation, deletePluginSetup, installPluginDraft, listPluginSetups, listStorePlugins, promptPluginSetup, readPluginDraft,
+  readPluginDraftFile, readPluginSetup, readPlugin, readPluginSkill, setStorePluginEnabled, testPluginDraft, uninstallPlugin, uninstallStorePlugin, updatePluginSettings, updatePluginDraftIcon, waitForRuntime } from "./api.js";
 import { PluginIcon } from "./plugin-icons.js";
 import { PluginIconPicker } from "./plugin-icon-picker.js";
+import { groupStorePlugins, StorePluginSettings, storePluginEnabled } from "./plugin-store.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import { useAgentModels } from "./model-selector.js";
 import { PromptBox, type PromptInput } from "./prompt-box.js";
@@ -105,11 +106,14 @@ const TABS: WorkspaceTabOption<BuilderView>[] = [
 
 async function loadBuilderSnapshot(sessionId: string, state?: PluginSetupState) {
   state ??= await readPluginSetup(sessionId);
-  const [draft, installed] = await Promise.all([
+  // A configuration session looks after a format 1 plugin; the others make format 2 ones.
+  const configuring = state.mode === "configure";
+  const [draft, installed, stored] = await Promise.all([
     readPluginDraft(sessionId),
-    state.pluginId ? readPlugin(state.pluginId) : undefined,
+    configuring && state.pluginId ? readPlugin(state.pluginId) : undefined,
+    !configuring && state.pluginId ? listStorePlugins().then(rows => groupStorePlugins(rows).find(group => group.plugin.id === state.pluginId)) : undefined,
   ]);
-  return { state, draft, installed };
+  return { state, draft, installed, stored };
 }
 
 export function PluginBuilder({ sessionId }: { sessionId: string }) {
@@ -134,7 +138,8 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
   const model = preferredAgentModel(catalog.models, input.model ?? state?.model, catalog.defaultModel);
   const reasoning = model ? clampReasoningLevel(input.reasoningLevel ?? state?.reasoningLevel ?? catalog.defaultReasoningLevel, model.reasoningLevels) : undefined;
   const disabled = Boolean(state?.busy || operation);
-  const upToDate = Boolean(installed?.installed && draft?.revision && draft.revision === draft.installedRevision);
+  const stored = snapshot?.stored;
+  const upToDate = Boolean(stored && draft?.revision && draft.revision === draft.installedRevision);
   const configuring = state?.mode === "configure";
 
   useEffect(() => { if (state?.mode === "configure") setView("configuration"); }, [state?.id]);
@@ -229,18 +234,21 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
       case "files":
         return <PluginFiles sessionId={sessionId} draft={draft} installed={installed} request={fileRequest} />;
       case "configuration": {
-        if (!plugin) return <EmptyView label={t("pluginBuilder.noConfiguration")} />;
-        const installedSetup = draftPlugin ? undefined : installed;
-        const hasConnections = Boolean(installedSetup && (installedSetup.mcpServers?.length || installedSetup.connections.length));
+        if (!configuring) {
+          if (stored?.plugin.settings.length) return <fieldset className="plugin-builder-config" disabled={disabled}><StorePluginSettings plugin={stored.plugin} /></fieldset>;
+          return <EmptyView label={t(draftPlugin?.settings ? "pluginBuilder.settingsAfterInstall" : "pluginBuilder.noConfiguration")} />;
+        }
+        if (!installed) return <EmptyView label={t("pluginBuilder.noConfiguration")} />;
+        const hasConnections = Boolean(installed.mcpServers?.length || installed.connections.length);
         return <>
           <fieldset className="plugin-builder-config" disabled={disabled}>
-            <PluginConfigurationPanel key={`${sessionId}:${draft?.revision ?? plugin.id}`} plugin={plugin} setupId={draftPlugin ? sessionId : undefined} compact onChanged={() => void refresh().catch(cause => setError(message(cause)))} />
+            <PluginConfigurationPanel key={`${sessionId}:${installed.id}`} plugin={installed} compact onChanged={() => void refresh().catch(cause => setError(message(cause)))} />
           </fieldset>
-          {installedSetup ? <PluginMcpPanel plugin={installedSetup} onChanged={() => void refresh().catch(cause => setError(message(cause)))} onAssist={() => {
+          <PluginMcpPanel plugin={installed} onChanged={() => void refresh().catch(cause => setError(message(cause)))} onAssist={() => {
             setView("overview");
             prefill("Inspect this plugin's configuration and diagnose any connection problems. Report what needs to be changed before making changes.");
-          }} onToggle={(id, enabled) => void action("configuring", () => toggleMcp(id, enabled))} /> : null}
-          {!Object.keys(plugin.configuration ?? {}).length && !hasConnections ? <EmptyView label={t("pluginBuilder.noConfiguration")} /> : null}
+          }} onToggle={(id, enabled) => void action("configuring", () => toggleMcp(id, enabled))} />
+          {!Object.keys(installed.configuration ?? {}).length && !hasConnections ? <EmptyView label={t("pluginBuilder.noConfiguration")} /> : null}
         </>;
       }
       case "checks":
@@ -309,6 +317,14 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
               await uninstallPlugin(installed.id);
               await refresh();
             })} /> : null}
+            {stored ? <PluginEnabledSwitch plugin={{ displayName: stored.plugin.displayName, enabled: storePluginEnabled(stored.plugin), installed: true }} disabled={disabled} onToggle={enabled => void action("configuring", async () => {
+              await setStorePluginEnabled(stored.plugin.id, enabled);
+              await refresh();
+            })} /> : null}
+            {stored ? <PluginUninstallButton plugin={{ displayName: stored.plugin.displayName, installed: true, source: { type: "directory" } }} disabled={disabled} compact onUninstall={() => void action("uninstalling", async () => {
+              for (const version of stored.versions) await uninstallStorePlugin(stored.plugin.id, version.version);
+              await refresh();
+            })} /> : null}
             {state ? <button className="icon-button pane-header-action" type="button" disabled={disabled}
               title={draft?.path ? t("pluginBuilder.deleteDraft") : t("pluginBuilder.deleteWorkspace")} aria-label={draft?.path ? t("pluginBuilder.deleteDraft") : t("pluginBuilder.deleteWorkspace")}
               onClick={() => setConfirming("workspace")}><Trash2 size={14} /></button> : null}
@@ -344,13 +360,15 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
 }
 
 function PluginOverview({ plugin, setupId, disabled, onEditIcon, onChooseView, onChooseFile }: {
-  plugin: PluginDetail; setupId?: string; disabled: boolean; onEditIcon?: () => void; onChooseView: (view: BuilderView) => void; onChooseFile: (file: string) => void;
+  plugin: PluginDetail | PluginDraftPlugin; setupId?: string; disabled: boolean; onEditIcon?: () => void; onChooseView: (view: BuilderView) => void; onChooseFile: (file: string) => void;
 }) {
   return <div className="plugin-builder-overview">
     <div className="plugin-builder-overview-heading">{onEditIcon ? <button className="plugin-builder-icon-button" type="button" aria-label={t("pluginIconPicker.change")} title={t("pluginIconPicker.change")} disabled={disabled} onClick={onEditIcon}><PluginIcon plugin={plugin} setupId={setupId} /></button> : <PluginIcon plugin={plugin} setupId={setupId} />}<h2>{plugin.displayName}</h2>{plugin.version ? <small>v{plugin.version}</small> : null}</div>
     {plugin.description ? <p className="plugin-builder-description">{plugin.description}</p> : null}
+    {"appWide" in plugin ? <p className="plugin-builder-description">{t(plugin.appWide ? "pluginBuilder.scopeAppWide" : "pluginBuilder.scopePerProject")}</p> : null}
+    {"asks" in plugin && plugin.asks.length ? <section><div className="plugin-builder-section-heading"><h3>{t("pluginBuilder.asksFor")}</h3><span>{plugin.asks.length}</span></div>{plugin.asks.map(ask => <p className="plugin-builder-description" key={ask}><code>{ask}</code></p>)}</section> : null}
     {plugin.skills.length ? <section><div className="plugin-builder-section-heading"><h3>{t("plugins.skills")}</h3><span>{plugin.skills.length}</span></div>{plugin.skills.map(skill => <button className="plugin-builder-component" type="button" key={skill.id} title={skill.description} onClick={() => onChooseFile(skill.id)}><FileText size={15} /><strong>{skill.name}</strong><ChevronRight size={14} /></button>)}</section> : null}
-    {plugin.mcpServers?.length ? <section><div className="plugin-builder-section-heading"><h3>{t("pluginControls.mcpServices")}</h3><span>{plugin.mcpServers.length}</span></div>{plugin.mcpServers.map(server => <button className="plugin-builder-component" type="button" key={server.id} onClick={() => onChooseView("checks")}><Plug size={15} /><strong>{server.name}</strong><ChevronRight size={14} /></button>)}</section> : null}
+    {plugin.mcpServers?.length ? <section><div className="plugin-builder-section-heading"><h3>{t("pluginControls.mcpServices")}</h3><span>{plugin.mcpServers.length}</span></div>{plugin.mcpServers.map(server => <button className="plugin-builder-component" type="button" key={server.id} onClick={() => onChooseView("checks")}><Plug size={15} /><strong>{"title" in server ? server.title : server.name}</strong><ChevronRight size={14} /></button>)}</section> : null}
   </div>;
 }
 
@@ -395,7 +413,7 @@ function PluginChecks({ draft, disabled, operation, onTest }: {
       const check = draft.checks?.[server.id];
       const current = check?.revision === draft.revision;
       const result = current ? check?.result : undefined;
-      return <div className="plugin-builder-service-check" key={server.id}><div className="plugin-builder-check"><Plug size={18} /><span><strong>{server.name}</strong><small>{result?.status === "connected" ? t("pluginBuilder.connectedTools", { count: result.toolCount }) : result?.status === "needs-auth" ? t("pluginControls.authorizationRequired") : result?.status === "failed" ? t("providers.status.failed") : check ? t("pluginBuilder.outdated") : t("pluginBuilder.notTested")}</small></span><button className="plugin-detail-secondary" type="button" aria-label={t("pluginBuilder.testServer", { name: server.name })} disabled={disabled || Boolean(draft.errors.length)} onClick={() => onTest(server.id)}>{operation === `test:${server.id}` ? <LoaderCircle className="spin" size={12} /> : null}{t("pluginControls.test")}</button></div>{result?.message && result.status !== "connected" ? <details className="plugin-builder-notice"><summary>{t("common.details")}</summary><pre>{result.message}</pre></details> : null}</div>;
+      return <div className="plugin-builder-service-check" key={server.id}><div className="plugin-builder-check"><Plug size={18} /><span><strong>{server.title}</strong><small>{result?.status === "connected" ? t("pluginBuilder.connectedTools", { count: result.toolCount }) : result?.status === "needs-auth" ? t("pluginControls.authorizationRequired") : result?.status === "failed" ? t("providers.status.failed") : check ? t("pluginBuilder.outdated") : t("pluginBuilder.notTested")}</small></span><button className="plugin-detail-secondary" type="button" aria-label={t("pluginBuilder.testServer", { name: server.title })} disabled={disabled || Boolean(draft.errors.length)} onClick={() => onTest(server.id)}>{operation === `test:${server.id}` ? <LoaderCircle className="spin" size={12} /> : null}{t("pluginControls.test")}</button></div>{result?.message && result.status !== "connected" ? <details className="plugin-builder-notice"><summary>{t("common.details")}</summary><pre>{result.message}</pre></details> : null}</div>;
     })}
   </div>;
 }

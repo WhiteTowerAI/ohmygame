@@ -2,9 +2,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
 import { PLUGIN_CONTRIBUTIONS, type PluginContribution, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo, projectFileTypeFor } from "../shared/project-runtime.js";
+import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
+import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { consentToPlugin, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, uninstallStorePlugin } from "./api.js";
 import { t } from "./i18n.js";
-import { BadgeCheck, ExternalLink, FolderOpen, Play } from "./icons.js";
+import { BadgeCheck, ExternalLink, FolderOpen, Play, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
@@ -158,6 +160,7 @@ export function StorePluginDetail({ group, onChanged, onRemoved, onTry }: {
   onTry?: TryPlugin;
 }): ReactNode {
   const { plugin, versions } = group;
+  const personal = plugin.id.startsWith(`${PERSONAL_PUBLISHER}/`);
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
   const [removing, setRemoving] = useState<StorePlugin>();
@@ -304,8 +307,9 @@ export function StorePluginDetail({ group, onChanged, onRemoved, onTry }: {
             </ul>
           </dd>
         </dl>
-        {!plugin.bundled && window.ohMyGameDesktop ? <div className="plugin-side-actions">
-          <Button icon={<FolderOpen size={14} />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button>
+        {!plugin.bundled && (personal || window.ohMyGameDesktop) ? <div className="plugin-side-actions">
+          {personal ? <Button icon={<WandSparkles size={14} />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id, "edit").catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
+          {window.ohMyGameDesktop ? <Button icon={<FolderOpen size={14} />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button> : null}
         </div> : null}
       </aside>
     </div>
@@ -320,7 +324,7 @@ export function StorePluginDetail({ group, onChanged, onRemoved, onTry }: {
 }
 
 /** The plugin's settings form. Secrets are never read back, only replaced or cleared. */
-function StorePluginSettings({ plugin }: { plugin: StorePlugin }): ReactNode {
+export function StorePluginSettings({ plugin }: { plugin: StorePlugin }): ReactNode {
   const [config, setConfig] = useState<StorePluginConfiguration>();
   const [values, setValues] = useState<Record<string, string | boolean | null>>({});
   const [busy, setBusy] = useState(false);

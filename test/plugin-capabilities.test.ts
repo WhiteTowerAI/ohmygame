@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { LocalPluginStore } from "../src/daemon/local-plugins.js";
+import { PluginServices } from "../src/daemon/plugin-services.js";
 import { createApp } from "../src/daemon/app.js";
 import { PluginSetupManager } from "../src/daemon/plugin-setup.js";
 import {
@@ -229,7 +230,7 @@ describe("native plugin capabilities", () => {
       agentDir,
       service,
       new PluginCatalogService([new LocalPluginAdapter(local)], settings),
-      local,
+      new PluginServices({ directory: path.join(directory, "plugin-store") }),
       () => {},
       resolveModel,
     );
@@ -662,17 +663,11 @@ describe("native plugin capabilities", () => {
       path.join(tmpdir(), "ohmygame-setup-model-"),
     );
     const calls = [
-      { action: "create-mcp", input: { name: "ai-created", servers: { api: {
-        command: process.execPath, args: [path.resolve("test/fixtures/plugin-mcp-server.mjs")],
-      } }, configuration: { tag: { type: "text", label: "Tag" }, key: { type: "secret", label: "API key" } } } },
-      { action: "configure", input: { tag: "original" } },
+      { action: "prepare", input: { path: "ai-created" } },
       { action: "read" },
       { action: "test", server: "api" },
       { action: "configure", input: { tag: "updated" } },
-      { action: "read" },
-      { action: "configure", input: { key: "rejected-secret" } },
-      { action: "create-mcp", input: { name: "ai-created", servers: { replacement: { url: "https://example.com/mcp" } } } },
-      { action: "test", server: "api" },
+      { action: "read", id: "ohmygame/blender" },
     ];
     let requests = 0;
     const toolResults = new Map<string, string>();
@@ -745,6 +740,16 @@ describe("native plugin capabilities", () => {
         payload: {},
       })
     ).json();
+    // What the assistant would have written with its file tools.
+    const draftRoot = path.join(directory, "plugin-setup", state.id, "workspace", "ai-created");
+    await mkdir(path.join(draftRoot, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(draftRoot, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      id: "personal/ai-created", version: "0.1.0", engines: { "ohmygame-api": "^2.0.0" },
+      displayName: "AI Created", description: "Made by the assistant",
+      capabilities: { processes: ["node"] },
+      contributes: { mcpServers: [{ id: "api", title: "API", command: "node", args: ["./server.mjs"], tools: ["echo"] }] },
+    }));
+    await writeFile(path.join(draftRoot, "server.mjs"), await readFile(path.resolve("test/fixtures/plugin-mcp-server.mjs")));
     const prompt = await app.inject({
       method: "POST",
       url: `/plugins/setup-sessions/${state.id}/prompt`,
@@ -776,20 +781,16 @@ describe("native plugin capabilities", () => {
       { timeout: 15_000 },
     );
     const draft = (await app.inject({ method: "GET", url: `/plugins/setup-sessions/${state.id}/draft` })).json();
-    expect(draft).toMatchObject({ plugin: { id: "personal:ai-created", installed: false }, errors: [] });
-    expect(JSON.parse(toolResults.get("plugin-tool-2")!)).toMatchObject({
-      plugin: { installed: false }, configuration: { values: { tag: "original" } },
-    });
-    expect(JSON.parse(toolResults.get("plugin-tool-3")!)).toMatchObject({ status: "connected", toolCount: 1 });
-    expect(JSON.parse(toolResults.get("plugin-tool-5")!)).toMatchObject({ checks: {}, configuration: { values: { tag: "updated" } } });
-    expect(toolResults.get("plugin-tool-6")).toContain("configuration form");
-    expect(toolResults.get("plugin-tool-7")).toContain("already exists");
+    expect(draft).toMatchObject({ plugin: { id: "personal/ai-created", appWide: false }, errors: [] });
+    expect(JSON.parse(toolResults.get("plugin-tool-1")!)).toMatchObject({ plugin: { id: "personal/ai-created" } });
+    expect(JSON.parse(toolResults.get("plugin-tool-2")!)).toMatchObject({ status: "connected", toolCount: 1 });
+    expect(toolResults.get("plugin-tool-3")).toContain("plugin's page");
+    expect(toolResults.get("plugin-tool-4")).toContain("omit id");
     expect(draft.plugin.mcpServers).toMatchObject([{ id: "api" }]);
     expect(draft.checks.api).toMatchObject({ revision: draft.revision, result: { status: "connected", toolCount: 1 } });
-    expect((await app.inject({ method: "GET", url: "/plugins/personal%3Aai-created" })).statusCode).toBe(404);
     const installed = await app.inject({ method: "POST", url: `/plugins/setup-sessions/${state.id}/install`, payload: { revision: draft.revision } });
     expect(installed.statusCode, installed.body).toBe(200);
-    expect(installed.json()).toMatchObject({ pluginId: "personal:ai-created", status: "installed" });
+    expect(installed.json()).toMatchObject({ pluginId: "personal/ai-created", status: "installed" });
     const metadataPath = path.join(
       directory,
       "plugin-setup",
@@ -799,7 +800,7 @@ describe("native plugin capabilities", () => {
     // Metadata has no second copy of the SDK's conversation history.
     await vi.waitFor(async () => {
       expect(JSON.parse(await readFile(metadataPath, "utf8"))).toMatchObject({
-        pluginId: "personal:ai-created",
+        pluginId: "personal/ai-created",
       });
     });
     expect(await readFile(metadataPath, "utf8")).not.toContain("messages");
@@ -822,14 +823,9 @@ describe("native plugin capabilities", () => {
       expect.objectContaining({ type: "agentMessage", text: "Prepared the MCP plugin draft. Review it in the builder." }),
     ]));
     expect(toolResults.size).toBe(calls.length);
-    expect(
-      (
-        await restarted.inject({
-          method: "GET",
-          url: "/plugins/personal%3Aai-created",
-        })
-      ).statusCode,
-    ).toBe(200);
+    expect((await restarted.inject({ method: "GET", url: "/plugin-store/plugins" })).json()).toContainEqual(
+      expect.objectContaining({ id: "personal/ai-created" }),
+    );
     expect(
       (await restarted.inject({ method: "GET", url: "/projects" })).json(),
     ).toEqual([]);

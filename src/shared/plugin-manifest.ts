@@ -406,6 +406,9 @@ const list = <T extends Parameters<typeof Type.Array>[0]>(item: T) =>
 
 const PLUGIN_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$";
 
+/** The publisher of plugins the person makes themselves. */
+export const PERSONAL_PUBLISHER = "personal";
+
 /** Whether `id` is a format 2 plugin id, `publisher/name`, safe to use as a path. */
 export function isPluginId(id: string): boolean {
   return id.length <= 129 && new RegExp(PLUGIN_ID_PATTERN).test(id);

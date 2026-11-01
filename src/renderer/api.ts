@@ -1715,12 +1715,6 @@ export async function readPluginDraftFile(id: string, path: string): Promise<{ p
 export async function installPluginDraft(id: string, revision: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/install`, { method: "POST", body: JSON.stringify({ revision }) });
 }
-export async function readPluginDraftConfiguration(id: string): Promise<import("../shared/plugins.js").PluginConfigurationView> {
-  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/configuration`);
-}
-export async function savePluginDraftConfiguration(id: string, values: import("../shared/plugins.js").PluginConfigurationValues): Promise<import("../shared/plugins.js").PluginConfigurationView> {
-  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/configuration`, { method: "PUT", body: JSON.stringify({ values }) });
-}
 export async function testPluginDraft(id: string, server: string, revision: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/test/${encodeURIComponent(server)}`, { method: "POST", body: JSON.stringify({ revision }) });
 }

@@ -235,17 +235,6 @@ export class PluginConfigurationStore {
       this.#applyValues(next, plugin.id, fields, values);
     });
   }
-  /** Transfer draft values and retire their private identity in one write. */
-  async promoteDraft(draft: PluginDetail, plugin: PluginDetail): Promise<void> {
-    if (draft.id === plugin.id) return;
-    await this.#mutate(next => {
-      // A retry after promotion succeeded but metadata saving failed must not
-      // overwrite the installed configuration with draft defaults.
-      if (!next.plugins[draft.id]) return;
-      this.#applyValues(next, plugin.id, this.fields(plugin), this.resolved(draft));
-      this.#remove(next, draft.id);
-    });
-  }
   #remove(next: StoredConfiguration, pluginId: string): void {
     for (const ref of Object.values(next.plugins[pluginId]?.secretRefs ?? {})) delete next.credentials[ref];
     delete next.plugins[pluginId];

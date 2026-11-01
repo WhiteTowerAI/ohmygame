@@ -15,7 +15,6 @@ import {
   Server,
   Sparkles,
   Store,
-  WandSparkles,
 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -638,7 +637,6 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
   onTry: TryPlugin;
 }): ReactNode {
   const [tab, setTab] = useState<DetailTab>();
-  const [actionError, setActionError] = useState<string>();
   const tryIt = usePluginTry({
     displayName: plugin?.displayName ?? "",
     suits: (project) => !plugin?.projectTypes?.length || plugin.projectTypes.includes(project.type),
@@ -688,7 +686,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         {tryIt.popover}
       </div> : null}
     </header>
-    {error || actionError ? <Alert tone="danger" title={error ?? actionError} /> : null}
+    {error ? <Alert tone="danger" title={error} /> : null}
 
     <div className="plugin-layout">
       <div className="plugin-main">
@@ -713,7 +711,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         </div>
       </div>
       <PluginManagement plugin={plugin} updating={updating} personal={personal} onBrowse={onBrowse} onRemove={onRemove} onToggle={togglePlugin}
-        onAssist={!plugin.mcpServers?.length && !plugin.connections.length ? onAssist : undefined} onError={setActionError} />
+        onAssist={!plugin.mcpServers?.length && !plugin.connections.length ? onAssist : undefined} />
     </div>
   </div>;
 }
@@ -746,7 +744,7 @@ function pluginSearchText(plugin: PluginSummary): string {
 }
 
 /** The side card: state, version and source, then what can be done with the plugin. */
-function PluginManagement({ plugin, updating, personal, onBrowse, onRemove, onToggle, onAssist, onError }: {
+function PluginManagement({ plugin, updating, personal, onBrowse, onRemove, onToggle, onAssist }: {
   plugin: PluginDetail;
   updating: boolean;
   personal: boolean;
@@ -754,7 +752,6 @@ function PluginManagement({ plugin, updating, personal, onBrowse, onRemove, onTo
   onRemove: () => void;
   onToggle: (enabled: boolean) => void;
   onAssist?: () => void;
-  onError: (message: string) => void;
 }): ReactNode {
   const repository = plugin.origin?.repository;
   const version = plugin.version;
@@ -791,8 +788,6 @@ function PluginManagement({ plugin, updating, personal, onBrowse, onRemove, onTo
       {plugin.origin?.type === "claude-marketplace" && repository ? <><dt>{t("plugins.repository")}</dt><dd><RepositoryLink repository={repository} /></dd></> : null}
     </dl>
     <div className="plugin-side-actions">
-      {plugin.installed && personal ? <Button icon={<WandSparkles size={14} />} disabled={updating}
-        onClick={() => void openPluginBuilder(plugin.id, "edit").catch(cause => onError(errorMessage(cause)))}>{t("plugins.editWithAi")}</Button> : null}
       {onAssist ? <Button icon={<Sparkles size={14} />} onClick={onAssist}>{t("plugins.askAboutPlugin")}</Button> : null}
       {canBrowse && plugin.installed ? <Button icon={<FolderOpen size={14} />} disabled={updating} onClick={onBrowse}>{t("plugins.openFolder")}</Button> : null}
       {plugin.installed && personal ? <PluginExportButton plugin={plugin} /> : null}

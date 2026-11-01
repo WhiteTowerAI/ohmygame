@@ -3,11 +3,10 @@ import { createPortal } from "react-dom";
 import {
   PLUGIN_ICON_MEDIA_TYPES,
   PLUGIN_ICON_MAX_BYTES,
-  PLUGIN_ICON_PRESETS,
 } from "../shared/plugin-icons.js";
-import { isPluginIcon, type PluginDetail } from "../shared/plugins.js";
-import type { PluginIconChange } from "../shared/plugin-setup.js";
-import { PluginIcon, PLUGIN_PRESET_GLYPHS } from "./plugin-icons.js";
+import { isPluginIcon } from "../shared/plugins.js";
+import type { PluginDraftPlugin, PluginIconChange } from "../shared/plugin-setup.js";
+import { PluginIcon } from "./plugin-icons.js";
 import { PluginFilePicker } from "./plugin-file-picker.js";
 import { t } from "./i18n.js";
 
@@ -19,7 +18,7 @@ export function PluginIconPicker({
   onClose,
   onSave,
 }: {
-  plugin: PluginDetail;
+  plugin: PluginDraftPlugin;
   setupId: string;
   files: readonly { path: string }[];
   disabled: boolean;
@@ -31,12 +30,8 @@ export function PluginIconPicker({
   const dialog = useRef<HTMLElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
-  const [mode, setMode] = useState<"preset" | "upload" | "path">(
-    plugin.icon?.type === "asset" ? "path" : "preset",
-  );
-  const [search, setSearch] = useState("");
-  const [presetId, setPresetId] = useState<string>(
-    plugin.icon?.type === "preset" ? plugin.icon.id : "package",
+  const [mode, setMode] = useState<"upload" | "path">(
+    plugin.icon?.type === "asset" ? "path" : "upload",
   );
   const [assetPath, setAssetPath] = useState(
     plugin.icon?.type === "asset" ? plugin.icon.path : "",
@@ -100,10 +95,7 @@ export function PluginIconPicker({
     setLocalImage(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
-  const icon =
-    mode === "preset"
-      ? { type: "preset", id: presetId }
-      : { type: "asset", path: assetPath.trim() };
+  const icon = { type: "asset", path: assetPath.trim() };
   const valid = mode === "upload" ? Boolean(file) : isPluginIcon(icon);
   const preview = {
     ...plugin,
@@ -141,11 +133,6 @@ export function PluginIconPicker({
       setBusy(false);
     }
   }
-  const matches = PLUGIN_ICON_PRESETS.filter((item) =>
-    `${item.id} ${item.label} ${t(`pluginIcons.${item.id}`)} ${item.keywords}`
-      .toLowerCase()
-      .includes(search.trim().toLowerCase()),
-  );
   return createPortal(
     <div
       className="plugin-install-backdrop"
@@ -189,7 +176,7 @@ export function PluginIconPicker({
           role="group"
           aria-label={t("pluginIconPicker.source")}
         >
-          {(["preset", "upload", "path"] as const).map((value) => (
+          {(["upload", "path"] as const).map((value) => (
             <button
               key={value}
               type="button"
@@ -212,58 +199,7 @@ export function PluginIconPicker({
           }}
         >
           <fieldset key={mode} disabled={busy || disabled}>
-            {mode === "preset" ? (
-              <>
-                <label>
-                  {t("pluginIconPicker.search")}
-                  <input
-                    aria-label={t("pluginIconPicker.search")}
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder={t("pluginIconPicker.searchPlaceholder")}
-                  />
-                </label>
-                <div className="plugin-icon-grid">
-                  {matches.map((item) => {
-                    const Glyph = PLUGIN_PRESET_GLYPHS[item.id];
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        aria-label={`${t(`pluginIcons.${item.id}`)} (${item.id})`}
-                        aria-pressed={presetId === item.id}
-                        title={item.id}
-                        onClick={() => setPresetId(item.id)}
-                      >
-                        <Glyph size={23} />
-                        <span>{t(`pluginIcons.${item.id}`)}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {!matches.length ? (
-                  <p className="plugin-icon-help">
-                    {t("pluginIconPicker.noMatches")}
-                  </p>
-                ) : null}
-                <label>
-                  {t("pluginIconPicker.presetId")}
-                  <input
-                    aria-label={t("pluginIconPicker.presetId")}
-                    value={presetId}
-                    onChange={(event) =>
-                      setPresetId(event.target.value.trim().toLowerCase())
-                    }
-                    aria-invalid={!valid}
-                  />
-                </label>
-                {!valid ? (
-                  <p className="plugin-icon-help">
-                    {t("pluginIconPicker.presetHelp")}
-                  </p>
-                ) : null}
-              </>
-            ) : mode === "upload" ? (
+            {mode === "upload" ? (
               <>
                 <PluginFilePicker
                   label={t("pluginIconPicker.imageFile")}

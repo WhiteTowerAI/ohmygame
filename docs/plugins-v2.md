@@ -5,7 +5,8 @@ which the Browse tab still uses.
 The app lists installed format 2 plugins on the Plugins page, turns them on
 per project, and shows their panels and commands in a project. Installing a
 signed release from the app is not built yet: no catalog or release keys
-ship, so format 2 plugins come bundled or from a folder.
+ship, so format 2 plugins come bundled, from a folder, or from the Plugin
+Builder.
 
 ## Files
 
@@ -68,6 +69,7 @@ shows it in the call's progress.
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
 | Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts` |
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 
@@ -201,6 +203,29 @@ same path that checks a package with `indexPluginPackage` and copies it under
 `packages/<publisher>/<name>/<version>`. A package the person removes stays
 removed, later releases included. Bundled plugins are indexed from `plugins-v2/`
 and can't be uninstalled.
+
+## Making a plugin
+
+The Plugin Builder (`src/daemon/plugin-setup.ts`) and the `plugin-creator` Skill
+(`src/daemon/pi-agent.ts`) follow the rules in `src/daemon/plugin-authoring.ts`.
+What they make is always `personal/<name>`: `PluginServices.installPersonal`
+refuses any other publisher, so it can't replace what the app or a publisher
+ships. `src/daemon/plugin-draft.ts` checks a draft with `indexPluginPackage`,
+as any package is checked.
+
+- Installing from the builder allows what the plugin asks for, since the person
+  reviewed it and chose Install. `install_plugin`, which the agent calls in a
+  game conversation, allows nothing: the person turns such a plugin on in a
+  project's Plugins sheet, which asks them to approve it. A plugin that only
+  adds Skills asks for nothing and applies right away.
+- A new version of a plugin that only adds Skills replaces its older versions.
+  Any other keeps them for the projects that name them.
+- A draft has no settings of its own; they are saved for the installed plugin.
+  A draft's MCP server can be tried with `PluginServices.draftMcpServer`.
+- An MCP service that signs in with OAuth is a connection, not a plugin
+  ([Connections](plugins.md#connections)).
+
+## More manifest fields
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
 on the plugin's page, and mark itself `beta`.
