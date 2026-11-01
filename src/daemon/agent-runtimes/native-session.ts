@@ -180,6 +180,15 @@ const IDLE_PROCESS_MS = 10 * 60_000;
  * same. The CLI keeps its own context; the stored messages are a record and,
  * when the conversation moves to another agent, the source of a summary.
  */
+interface NativeRun {
+  controller: AbortController;
+  done: Promise<void>;
+  /** Stopping one run is shared: cancelling a turn calls abort twice at once. */
+  stopping?: Promise<void>;
+  /** The driver had to be closed because the run did not stop in time. */
+  forced?: boolean;
+}
+
 export class NativeCodingSession implements CodingSession {
   readonly runtime: AgentRuntimeId;
   get profileId(): string | undefined { return this.options.profileId; }
@@ -190,14 +199,13 @@ export class NativeCodingSession implements CodingSession {
   #listeners = new Set<(event: AgentSessionEvent) => void>();
   #followUps: Array<{ text: string; images: PromptImage[] }> = [];
   #steering: Array<{ text: string; images: PromptImage[] }> = [];
-  #running?: { controller: AbortController; done: Promise<void> };
+  #running?: NativeRun;
   #readOnly = false;
   #handoff: boolean;
   #nativeSessionId?: string;
   /** The next message must say the turn before it was stopped. */
   #interrupted: boolean;
   /** The adapter of a stopped turn was closed because it did not stop in time. */
-  #forcedStop = false;
   #usage?: AgentContextUsage;
   #checkpointFailure?: { cause: unknown };
   #disposed = false;
@@ -301,6 +309,11 @@ export class NativeCodingSession implements CodingSession {
     this.#steering = [];
     const running = this.#running;
     if (!running) return;
+    running.stopping ??= this.#stop(running);
+    await running.stopping;
+  }
+
+  async #stop(running: NativeRun): Promise<void> {
     running.controller.abort();
     const timeout = this.options.cancellationTimeoutMs ?? 1_500;
     await bounded(
@@ -308,7 +321,7 @@ export class NativeCodingSession implements CodingSession {
       timeout,
     );
     if (!(await bounded(running.done, timeout))) {
-      this.#forcedStop = true;
+      running.forced = true;
       await this.#driver.dispose();
       await running.done;
     }
@@ -573,11 +586,13 @@ export class NativeCodingSession implements CodingSession {
    * running, or may have left a session the CLI cannot continue.
    */
   #canContinueAfter(outcome: NativeTurnOutcome): boolean {
-    const stopped =
-      outcome.status === "aborted" && outcome.resumable === true;
-    const forced = this.#forcedStop;
-    this.#forcedStop = false;
-    return stopped && !forced && !this.#disposed && !!this.#nativeSessionId;
+    return (
+      outcome.status === "aborted" &&
+      outcome.resumable === true &&
+      !this.#running?.forced &&
+      !this.#disposed &&
+      !!this.#nativeSessionId
+    );
   }
 
   #scheduleIdleStop(): void {
@@ -633,7 +648,6 @@ export class NativeCodingSession implements CodingSession {
     this.#storeNativeState("invalid");
     this.#nativeSessionId = undefined;
     this.#interrupted = false;
-    this.#forcedStop = false;
     await this.#driver.dispose();
     this.#driver = this.options.createDriver(undefined, {
       model: this.options.model,

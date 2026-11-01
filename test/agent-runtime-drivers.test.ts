@@ -25,8 +25,7 @@ import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { conversationItems } from "../src/daemon/agent.js";
 import {
   NativeCodingSession,
-  NativeSessionExpiredError,
-} from "../src/daemon/agent-runtimes/native-session.js";
+  NativeSessionExpiredError, latestNativeSession } from "../src/daemon/agent-runtimes/native-session.js";
 
 const cleanup: Array<() => Promise<unknown> | void> = [];
 afterEach(async () => {
@@ -627,7 +626,10 @@ describe("Claude Code adapter", () => {
     }
   });
 
-  it("continues in the same Claude Code process after it reports the stopped turn's end", async () => {
+  it.each([
+    ["was interrupted", { subtype: "error_during_execution", is_error: true, terminal_reason: "aborted_tools" }],
+    ["finished as it was stopped", { subtype: "success", is_error: false }],
+  ])("continues in the same Claude Code process after a turn that %s", async (_name, ending) => {
     let started!: () => void;
     const ready = new Promise<void>((resolve) => {
       started = resolve;
@@ -640,7 +642,7 @@ describe("Claude Code adapter", () => {
           response: { subtype: "success", request_id: message.request_id, response: {} },
         });
         if ((message.request as { subtype?: string } | undefined)?.subtype === "interrupt")
-          cli.send({ type: "result", subtype: "error_during_execution", is_error: true });
+          cli.send({ type: "result", ...ending });
       }
       if (message.type === "user") {
         users.push(message);
@@ -674,6 +676,49 @@ describe("Claude Code adapter", () => {
     expect(text).toContain("stopped the previous turn");
     expect(text).toContain("carry on");
     expect(text).not.toContain("conversation-handoff");
+  });
+
+  it.each([
+    ["ran out of quota", { subtype: "success", is_error: true, result: "You've hit your session limit" }],
+    ["reported an error", { subtype: "error_during_execution", is_error: true, errors: ["Usage limit reached"] }],
+  ])("rebuilds the context when a stopped turn %s instead", async (_name, ending) => {
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const clis = fakeCli((message, cli) => {
+      if (message.type === "control_request") {
+        cli.send({
+          type: "control_response",
+          response: { subtype: "success", request_id: message.request_id, response: {} },
+        });
+        if ((message.request as { subtype?: string } | undefined)?.subtype === "interrupt")
+          cli.send({ type: "result", ...ending });
+      }
+      if (message.type === "user") {
+        cli.send({ type: "system", subtype: "init", session_id: "claude-1" });
+        started();
+      }
+    });
+    const ctx = await context();
+    const sessionManager = SessionManager.inMemory(ctx.workspacePath);
+    const session = new NativeCodingSession({
+      runtime: "claude-code-cli",
+      model: "sonnet",
+      sessionManager,
+      toolNames: [],
+      createDriver: () => new ClaudeCodeDriver(ctx),
+      requestApproval: async () => "deny",
+    });
+    cleanup.push(() => session.dispose());
+
+    const run = session.prompt("wait");
+    await ready;
+    await session.abort();
+    await run;
+
+    expect(latestNativeSession(sessionManager.getBranch(), "claude-code-cli")).toBeUndefined();
+    expect(clis[0]!.exited).toBe(true);
   });
 
   it("treats a missing session as expired when the process it continues was restarted", async () => {

@@ -53,8 +53,10 @@ class ScriptedDriver implements NativeDriver {
     sink.compaction("start");
     sink.compaction("end", { summary: "compacted" });
   }
-  dispose(): void {
+  slowDispose?: () => Promise<void>;
+  dispose(): void | Promise<void> {
     this.disposed = true;
+    return this.slowDispose?.();
   }
 }
 
@@ -477,16 +479,16 @@ describe("coding agent sessions", () => {
   });
 
   describe("after the person stops a turn", () => {
-    const stoppedTurn = (reported: { status: "aborted"; resumable?: boolean }): Script =>
+    const stoppedTurn = (reported: { status: "aborted"; resumable?: boolean }, id = "native-1"): Script =>
       async (_input, sink, signal) => {
-        sink.nativeSession("native-1");
+        sink.nativeSession(id);
         sink.text("a", "Working");
         await new Promise<void>((resolve) =>
           signal.addEventListener("abort", () => resolve(), { once: true }),
         );
         return reported;
       };
-    const stop = async (session: NativeCodingSession, prompt: string) => {
+    const stop = async (session: NativeCodingSession, prompt: string, id = "native-1") => {
       const run = session.prompt(prompt);
       // Stop only once the agent has named its session: a fixed delay raced a slow runner.
       await vi.waitFor(() =>
@@ -495,7 +497,7 @@ describe("coding agent sessions", () => {
             (entry) =>
               entry.type === "custom" &&
               entry.customType === NATIVE_SESSION_ENTRY &&
-              (entry.data as { sessionId?: string } | undefined)?.sessionId === "native-1",
+              (entry.data as { sessionId?: string } | undefined)?.sessionId === id,
           ),
         ).toBe(true),
       );
@@ -579,6 +581,41 @@ describe("coding agent sessions", () => {
 
       expect(drivers).toHaveLength(2);
       expect(drivers[1]!.inputs[0]!.text).toContain("<conversation-handoff>");
+      session.dispose();
+    });
+
+    it("does not hold a forced close of one turn against the next", async () => {
+      const { session, drivers } = fixture(
+        [
+          async (_input, sink, signal) => {
+            sink.nativeSession("native-1");
+            sink.text("a", "Working");
+            await new Promise<void>((resolve) =>
+              signal.addEventListener("abort", () => setTimeout(resolve, 25), { once: true }),
+            );
+            return { status: "aborted" };
+          },
+          stoppedTurn({ status: "aborted", resumable: true }, "native-2"),
+          async () => ({ status: "completed" }),
+        ],
+        undefined,
+        { cancellationTimeoutMs: 20 },
+      );
+      const run = session.prompt("first");
+      await vi.waitFor(() => expect(drivers[0]!.inputs).toHaveLength(1));
+      drivers[0]!.slowDispose = () => new Promise((resolve) => setTimeout(resolve, 60));
+      // Cancelling a turn calls abort twice; the second one times out while the
+      // first is still closing the old driver.
+      const first = session.abort();
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      await Promise.all([first, session.abort(), run]);
+
+      await stop(session, "second", "native-2");
+      await session.prompt("third");
+
+      expect(drivers).toHaveLength(2);
+      expect(drivers[1]!.disposed).toBeFalsy();
+      expect(drivers[1]!.inputs[1]!.text).toContain("stopped the previous turn");
       session.dispose();
     });
 
