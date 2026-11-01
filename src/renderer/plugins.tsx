@@ -97,8 +97,12 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
 
   useEffect(() => { void load(); }, [serviceGeneration]);
   // The page works without the market, so it neither waits for it nor reports it failing.
+  // The daemon answers from what it has and refreshes behind that, so asking again is cheap.
   useEffect(() => {
-    void waitForRuntime().then(readPluginMarket).then(setMarket, () => setMarket(undefined));
+    const read = () => void waitForRuntime().then(readPluginMarket).then(setMarket, () => {});
+    read();
+    const timer = setInterval(read, MARKET_READ_MS);
+    return () => clearInterval(timer);
   }, [serviceGeneration]);
 
   function createWithAi(): void {
@@ -261,6 +265,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
 }
 
 const INSTALLED_PLUGIN_LIMIT = 6;
+/** How often an open page picks up what the daemon's market has read. */
+const MARKET_READ_MS = 2 * 60_000;
 
 /** A category of installed plugins: its first six cards, and the rest behind View all. */
 function PluginGroup({ title, cards }: { title: string; cards: ReactNode[] }): ReactNode {

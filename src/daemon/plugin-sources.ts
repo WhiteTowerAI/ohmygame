@@ -4,7 +4,7 @@ import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, sta
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, isPluginVersion } from "../shared/plugins.js";
+import { NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, isPluginVersion } from "../shared/plugins.js";
 import { extractTarball } from "./archive-extraction.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
 import { indexPluginPackage, localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
@@ -374,9 +374,12 @@ interface NpmMetadata {
 
 /** `@scope/name`, optionally `@version`. A plugin's publisher is its scope, so unscoped names can't be plugins. */
 export function parseNpmName(input: string): { scope: string; name: string; version?: string } {
-  const match = /^@([a-z0-9-]+)\/([a-z0-9][a-z0-9._-]*)(?:@(.+))?$/.exec(input.trim());
-  if (!match) throw new PluginSourceError(`Enter a scoped npm package, like @publisher/plugin, not "${input.trim()}".`);
-  const [, scope, name, version] = match as unknown as [string, string, string, string | undefined];
+  const text = input.trim();
+  const at = text.indexOf("@", 1);
+  const match = NPM_PLUGIN_PACKAGE.exec(at < 0 ? text : text.slice(0, at));
+  if (!match) throw new PluginSourceError(`Enter a scoped npm package, like @publisher/plugin, not "${text}".`);
+  const [, scope, name] = match as unknown as [string, string, string];
+  const version = at < 0 ? undefined : text.slice(at + 1);
   if (version !== undefined && !isPluginVersion(version)) throw new PluginSourceError(`"${version}" isn't an exact version.`);
   return { scope, name, ...(version ? { version } : {}) };
 }

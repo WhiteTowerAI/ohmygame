@@ -306,6 +306,21 @@ describe("plugin catalog browsing", () => {
       expect(container.textContent).toContain("OhMyGame blocked version 1.0.0: steals keys");
     });
 
+    it("picks up what the market reads later while the page stays open", async () => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      try {
+        await renderCatalog();
+        await click("Browse");
+        expect(cards()).not.toContain("Market picked");
+        market = { status: "ready", blocked: [], plugins: [listed("picked")] };
+        await act(async () => { vi.advanceTimersByTime(2 * 60_000); });
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+        expect(cards()).toContain("Market picked");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("works the same when the market's route fails", async () => {
       vi.stubGlobal("fetch", vi.fn(async (url: string) => {
         const route = new URL(String(url), "http://localhost").pathname.replace(/^\/api/, "");

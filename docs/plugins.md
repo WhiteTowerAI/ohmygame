@@ -315,8 +315,10 @@ HTTP on this computer), there's no market and nothing is read.
 - **Installing.** Opening a market plugin starts [Add plugin](#adding-a-plugin)'s
   review at that exact version, so there's no separate install path and it allows
   nothing. The app checks npm's signature over the name, version and SHA-512 with
-  keys it ships with, asking npm only for a key it doesn't know, and an expired key
-  counts only for what was published before it expired. The package then comes
+  keys it ships with, asking npm only for a key it doesn't know. An expired key
+  counts for nothing, since nothing signed says when a package was published: after
+  npm retires a key, versions signed only with it need publishing again. The
+  package then comes
   from the chosen registry or the other one and has to match that SHA-512, so the
   index and a mirror can't get a changed package installed. Registry metadata isn't
   needed, since a mirror can lag behind.
@@ -330,8 +332,11 @@ HTTP on this computer), there's no market and nothing is read.
 - **After installing.** A plugin added from npm shows **Update available** when the
   market has a newer version; the update is the same review. A blocked version gets
   a badge and a warning on its page, and it stays on until the person uninstalls it.
-- A market card shows the default icon, since the package hasn't been downloaded.
-  The index leaves out the publishers `ohmygame` and `personal`.
+- Browse shows each plugin's greatest version, a prerelease only when there's no
+  release, and an open page picks up new answers every two minutes. A market card
+  shows the default icon, since the package hasn't been downloaded. The publishers
+  `ohmygame` and `personal` aren't listed, nor is anything whose name isn't
+  `@publisher/name` or whose version isn't exact.
 
 ## More manifest fields
 

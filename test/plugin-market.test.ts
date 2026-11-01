@@ -103,6 +103,32 @@ describe("PluginMarket listing", () => {
     expect(plugins[0]!.sourceVerified).toBe(false);
   });
 
+  it("shows the greatest version, whatever order they were published in", async () => {
+    const list = async (...versions: string[]) => (await (await market(index({
+      versions: versions.map((ver, order) => version("@a/b", ver, "a/b", { publishedAt: `2026-01-0${order + 1}T00:00:00.000Z` })),
+    }))).market.listing("en")).plugins.map((plugin) => plugin.version);
+    // A maintenance release after 2.0.0 doesn't hide it.
+    expect(await list("2.0.0", "1.9.1")).toEqual(["2.0.0"]);
+    expect(await list("1.9.1", "2.0.0")).toEqual(["2.0.0"]);
+    // A prerelease shows only when there's no release.
+    expect(await list("1.9.1", "3.0.0-beta.1")).toEqual(["1.9.1"]);
+    expect(await list("3.0.0-beta.1", "3.0.0-beta.2")).toEqual(["3.0.0-beta.2"]);
+  });
+
+  it("leaves out a name or version installing wouldn't look up as written", async () => {
+    // Add plugin trims a name and reads a version out of it. A card for one of these
+    // would miss the index when installing, and so the signature check.
+    const { market: subject } = await market(index({ versions: [
+      version(" @a/spaced ", "1.0.0", "a/spaced", { signatures: [] }),
+      version("@a/named@9.0.0", "1.0.0", "a/named", { signatures: [] }),
+      version("@A/upper", "1.0.0", "a/upper", { signatures: [] }),
+      version("unscoped", "1.0.0", "a/unscoped", { signatures: [] }),
+      version("@a/tagged", "latest", "a/tagged", { signatures: [] }),
+      version("@a/good", "1.0.0", "a/good"),
+    ] }));
+    expect((await subject.listing("en")).plugins.map((plugin) => plugin.package)).toEqual(["@a/good"]);
+  });
+
   it("lists blocked versions with their reasons", async () => {
     const { market: subject } = await market(index({
       versions: [
@@ -122,6 +148,17 @@ describe("PluginMarket listing", () => {
       expect((await (await market(index(), options)).market.listing("en")).status).toBe("unavailable");
     for (const body of ["{", index({ schemaVersion: 2 }), index({ versions: [{ package: "@a/b" }] }), index({ packages: { "@a/b": { repository: "https://evil.example.com/a/b" } } })])
       expect((await (await market(body)).market.listing("en")).status).toBe("unavailable");
+  });
+
+  it("doesn't let a slow read of the saved index undo a refresh", async () => {
+    let now = 1_000_000;
+    const directory = await temporary();
+    await (await market(index(), { directory, now: () => now })).market.listing("en");
+    const newer = await market(index({ versions: [version("@a/b", "1.0.0", "a/b")] }), { directory, now: () => now });
+    const answers = await Promise.all([newer.market.listing("en"), newer.market.listing("en"), newer.market.listing("en")]);
+    expect(answers.every(({ status }) => status === "ready")).toBe(true);
+    await vi.waitFor(async () => expect((await newer.market.listing("en")).plugins).toHaveLength(1));
+    expect(newer.reads.filter((url) => url === URL_INDEX)).toHaveLength(1);
   });
 
   it("keeps the last index when the network is down, across restarts, and says it may be old", async () => {
@@ -212,17 +249,14 @@ describe("PluginMarket release", () => {
       await expect(subject.release(name!, ver!)).rejects.toThrow("no valid npm signature");
   });
 
-  it("takes an expired key only for what it signed while it was valid", async () => {
-    const body = index({ versions: [
-      entry("@a/old", "1.0.0", { publishedAt: "2024-06-01T00:00:00.000Z" }),
-      entry("@a/late", "1.0.0", { publishedAt: "2026-06-01T00:00:00.000Z" }),
-      entry("@a/undated", "1.0.0", { publishedAt: undefined }),
-    ].map((item) => JSON.parse(JSON.stringify(item))) });
-    const { fetcher } = server(body);
-    const subject = new PluginMarket({ url: URL_INDEX, directory: await temporary(), fetch: fetcher, keys: { test: { key: KEY, expires: "2025-01-29T00:00:00.000Z" } } });
-    await expect(subject.release("@a/old", "1.0.0")).resolves.toBeDefined();
-    await expect(subject.release("@a/late", "1.0.0")).rejects.toThrow("no valid npm signature");
-    await expect(subject.release("@a/undated", "1.0.0")).rejects.toThrow("no valid npm signature");
+  it("takes no signature from an expired key, whatever the index says about when it was published", async () => {
+    const { fetcher } = server(index({ versions: [entry("@a/b", "1.0.0", { publishedAt: "2020-01-01T00:00:00.000Z" })] }));
+    const subject = async (now: number) => {
+      const directory = await temporary();
+      return new PluginMarket({ url: URL_INDEX, directory, fetch: fetcher, now: () => now, keys: { test: { key: KEY, expires: "2025-01-29T00:00:00.000Z" } } });
+    };
+    await expect((await subject(Date.parse("2025-01-28T00:00:00.000Z"))).release("@a/b", "1.0.0")).resolves.toBeDefined();
+    await expect((await subject(Date.parse("2025-01-29T00:00:00.000Z"))).release("@a/b", "1.0.0")).rejects.toThrow("no valid npm signature");
   });
 
   it("asks npm for a key it doesn't know, and refuses when npm doesn't know it either", async () => {
@@ -239,13 +273,13 @@ describe("PluginMarket release", () => {
 
   it("checks a real npm signature with the keys it ships with", async () => {
     const real = {
-      package: "left-pad", version: "1.3.0", tarball: "", publishedAt: "2018-04-09T01:10:45.796Z",
-      integrity: "sha512-XI5MPzVNApjAyhQzphX8BkmKsKUxD4LdyK24iZeQGinBN9yTQT3bFlCBy/aVx2HrNcqQGsdot8ghrjyrvMCoEA==",
-      signatures: [{ keyid: "SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA", sig: "MEYCIQD6P3wA64go2fjiRW+yNvdi0x7Jtge3eAxAlwNaK2wyfQIhAKMCJXCFKygnFmsVuppuZIuNzTCYx2WlrJSg8B6wMqZk" }],
+      package: "@sigstore/core", version: "4.0.1", tarball: "", publishedAt: "2026-06-25T22:33:24.869Z",
+      integrity: "sha512-9v5hRjujn5NXq8o7XFEUgLyAtdr5Iisb4pzM05u3K61IS5q3hP3luWAndk0RkPPLTUFoTbg7Vb84UQ1ZQeajWQ==",
+      signatures: [{ keyid: "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U", sig: "MEYCIQCD+g9SHEyZwSovTHY2fX+lUQ9UlJpjCpgtqWO/4HlshwIhAMWhgS+3m+vDni6pf//SEKOYpbq31bK2119OZgqFcR8X" }],
     };
-    const { fetcher } = server(index({ versions: [real, { ...real, version: "1.3.1" }] }));
+    const { fetcher } = server(index({ versions: [real, { ...real, version: "4.0.2" }] }));
     const subject = new PluginMarket({ url: URL_INDEX, directory: await temporary(), fetch: fetcher });
-    await expect(subject.release("left-pad", "1.3.0")).resolves.toMatchObject({ integrity: real.integrity });
-    await expect(subject.release("left-pad", "1.3.1")).rejects.toThrow("no valid npm signature");
+    await expect(subject.release("@sigstore/core", "4.0.1")).resolves.toMatchObject({ integrity: real.integrity });
+    await expect(subject.release("@sigstore/core", "4.0.2")).rejects.toThrow("no valid npm signature");
   });
 });

@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
-import type { MarketPlugin, PluginMarketListing } from "../shared/plugins.js";
+import { isNewerPluginVersion, isPluginVersion, NPM_PLUGIN_PACKAGE, type MarketPlugin, type PluginMarketListing } from "../shared/plugins.js";
 import { RESERVED_PUBLISHERS } from "./plugin-services.js";
 
 // The market: the index built by WhiteTowerAI/ohmygame-plugins, which lists the
@@ -21,10 +21,6 @@ const RETRY_MS = 2 * 60_000;
 
 /** npm's registry keys when this app was built; `registryKey` asks npm for one it doesn't know. */
 const NPM_KEYS: Record<string, { key: string; expires?: string }> = {
-  "SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA": {
-    key: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE1Olb3zMAFFxXKHiIkQO5cJ3Yhl5i6UPp+IhuteBJbuHcA5UogKo0EWtlWwW6KSaKoTNEYL7JlCQiVnkhBktUgg==",
-    expires: "2025-01-29T00:00:00.000Z",
-  },
   "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U": {
     key: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEY6Ya7W++7aUPzvMTrezH6Ycx3c+HOKYCcNGybJZSCJq/fd7Qa8uuAKtdIkUQtQiEKERhAmE5lMMJhP8OkDOa2g==",
   },
@@ -97,6 +93,8 @@ export class PluginMarket {
   /** The last try failed, so what's shown may be old. */
   #stale = false;
   #refreshing: Promise<void> | undefined;
+  /** Read once, so a slow read can't replace what a refresh brought. */
+  #saved: Promise<void> | undefined;
 
   constructor(options: PluginMarketOptions) {
     this.#url = options.url && isIndexUrl(options.url) ? options.url : undefined;
@@ -116,8 +114,11 @@ export class PluginMarket {
     for (const version of index.versions) {
       const id = version.plugin?.id;
       if (!id || RESERVED_PUBLISHERS.has(id.split("/")[0]!)) continue;
+      // Installing looks for exactly this name and version, and what it can't find
+      // isn't held to a signature. Anything else mustn't reach a card.
+      if (!NPM_PLUGIN_PACKAGE.test(version.package) || !isPluginVersion(version.version)) continue;
       const current = newest.get(id);
-      if (!current || (version.publishedAt ?? "") >= (current.publishedAt ?? "")) newest.set(id, version);
+      if (!current || isNewerListing(version.version, current.version)) newest.set(id, version);
     }
     const plugins = [...newest.values()].map((version): MarketPlugin => {
       const plugin = version.plugin!;
@@ -175,12 +176,10 @@ export class PluginMarket {
   async #checkSignature(entry: IndexedVersion): Promise<void> {
     const label = `${entry.package} ${entry.version}`;
     const payload = `${entry.package}@${entry.version}:${entry.integrity}`;
-    const published = entry.publishedAt ? Date.parse(entry.publishedAt) : undefined;
     for (const { keyid, sig } of entry.signatures) {
       const known = await this.#registryKey(keyid);
-      if (!known) continue;
-      // An expired key still vouches for what it signed while it was valid.
-      if (known.expires !== undefined && (published === undefined || !(published < known.expires))) continue;
+      // Nothing signed vouches for when a package was published, so an expired key vouches for nothing.
+      if (!known || (known.expires !== undefined && known.expires <= this.#now())) continue;
       try {
         if (verify("sha256", Buffer.from(payload), known.key, Buffer.from(sig, "base64"))) return;
       } catch {
@@ -207,7 +206,7 @@ export class PluginMarket {
 
   /** The index, read at most every half hour, or sooner after a failure; the last one when the network is down. */
   async #current(): Promise<MarketIndex | undefined> {
-    if (!this.#index) await this.#readSaved();
+    await (this.#saved ??= this.#readSaved());
     const due = this.#checkedAt === undefined || this.#now() - this.#checkedAt >= (this.#stale ? RETRY_MS : REFRESH_MS);
     if (due) {
       this.#refreshing ??= this.#refresh().finally(() => { this.#refreshing = undefined; });
@@ -283,6 +282,12 @@ function readKey({ key, expires }: { key: string; expires?: string }): { key: Ke
     key: createPublicKey({ key: Buffer.from(key, "base64"), format: "der", type: "spki" }),
     ...(expires ? { expires: Date.parse(expires) } : {}),
   };
+}
+
+/** A release always beats a prerelease, whatever the numbers say; a prerelease shows only when there's nothing else. */
+function isNewerListing(candidate: string, current: string): boolean {
+  const [candidateRelease, currentRelease] = [candidate, current].map((version) => !version.includes("-"));
+  return candidateRelease === currentRelease ? isNewerPluginVersion(candidate, current) : candidateRelease!;
 }
 
 const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");

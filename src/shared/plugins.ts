@@ -201,6 +201,9 @@ export interface PluginMcpResult {
   authorizationUrl?: string;
 }
 
+/** The npm name of a plugin, `@publisher/name`: captures the scope and the name. */
+export const NPM_PLUGIN_PACKAGE = /^@([a-z0-9-]+)\/([a-z0-9][a-z0-9._-]*)$/;
+
 export function isPluginVersion(value: unknown): value is string {
   return Check(SemVerSchema, value);
 }
