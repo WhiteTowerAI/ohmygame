@@ -1082,6 +1082,10 @@ const zhCN: typeof en = {
     badLink: "这个命令的链接不是有效的网址。",
   },
   pluginStore: {
+    updateAvailable: "有新版本",
+    updateTo: "更新到 {{version}}",
+    blockedBadge: "已封禁",
+    blocked: "OhMyGame 已封禁版本 {{version}}：{{reason}}。建议卸载。",
     npmPackage: "npm 包",
     section: "按项目开启",
     perProject: "按项目开启",
@@ -2271,6 +2275,7 @@ const zhCN: typeof en = {
     coverProcessFailed: "无法处理这张封面图片",
   },
   pluginAdd: {
+    reading: "正在读取插件包…",
     menu: "添加插件…",
     title: "添加插件",
     description: "可以从 npm、GitHub 仓库或这台电脑上的插件包添加。",
@@ -2302,6 +2307,13 @@ const zhCN: typeof en = {
     unreviewed: "OhMyGame 不会审核通过这种方式添加的插件，请只添加你信任的内容。",
   },
   plugins: {
+    marketFeatured: "精选",
+    marketListed: "npm 上的插件",
+    marketUnavailable: "无法加载插件列表，当前只显示已安装的插件。",
+    marketStale: "无法刷新插件列表，内容可能不是最新的。",
+    sourceVerified: "来源已验证",
+    sourceUnverified: "来源未验证",
+    weeklyDownloads: "每周 {{count}} 次下载",
     beta: "Beta",
     personal: "个人",
     viewAll: "查看全部（{{count}}）",

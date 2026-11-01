@@ -3,10 +3,10 @@ import { PluginBuilderSessions } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { ChevronLeft, CirclePlus, Package, Server, Sparkles, Store } from "./icons.js";
 import { useEffect, useState, type ReactNode } from "react";
-import { type PluginContribution, PLUGIN_CONTRIBUTIONS, type StorePlugin } from "../shared/plugins.js";
+import { type MarketPlugin, type PluginContribution, PLUGIN_CONTRIBUTIONS, type PluginMarketListing, type StorePlugin } from "../shared/plugins.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
-import { listStorePlugins, setStorePluginEnabled, waitForRuntime } from "./api.js";
-import { groupStorePlugins, type StorePluginGroup, StorePluginBrowseCard, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard } from "./plugin-store.js";
+import { listStorePlugins, readPluginMarket, setStorePluginEnabled, waitForRuntime } from "./api.js";
+import { groupStorePlugins, marketContributions, MarketPluginCard, type StorePluginGroup, StorePluginBrowseCard, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard } from "./plugin-store.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { settingsHash } from "./routes.js";
 import { t } from "./i18n.js";
@@ -44,6 +44,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const [store, setStore] = useState<StorePlugin[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [addOpen, setAddOpen] = useState(false);
+  const [market, setMarket] = useState<PluginMarketListing>();
+  const [adding, setAdding] = useState<MarketPlugin>();
   const [tab, setTab] = useState<CatalogTab>(initialAdds ? "browse" : "installed");
   const [query, setQuery] = useState("");
   const [source, setSource] = useState<BrowseSource>("all");
@@ -94,6 +96,14 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   }
 
   useEffect(() => { void load(); }, [serviceGeneration]);
+  // The page works without the market, so it neither waits for it nor reports it failing.
+  // The daemon answers from what it has and refreshes behind that, so asking again is cheap.
+  useEffect(() => {
+    const read = () => void waitForRuntime().then(readPluginMarket).then(setMarket, () => {});
+    read();
+    const timer = setInterval(read, MARKET_READ_MS);
+    return () => clearInterval(timer);
+  }, [serviceGeneration]);
 
   function createWithAi(): void {
     void openPluginBuilder().catch(cause => setError(errorMessage(cause)));
@@ -103,7 +113,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const groups = groupStorePlugins(store);
   const matching = groups.filter(group => storePluginSearchText(group.plugin).includes(normalizedQuery))
     .sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName));
-  const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} disabled={Boolean(updating)}
+  const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} market={market} disabled={Boolean(updating)}
     onToggle={enabled => void togglePlugin(group.plugin.id, enabled)} onOpen={() => onPluginChange(group.plugin.id)} />;
   const appWide = matching.filter(({ plugin }) => plugin.appWide && !madeByPerson(plugin));
   const perProject = matching.filter(({ plugin }) => !plugin.appWide && !madeByPerson(plugin));
@@ -113,9 +123,16 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     <div className="plugins-grid">{perProject.map(card)}</div>
   </section> : null;
   // Only categories some plugin falls in, so no choice leads to an empty page.
-  const categories = PLUGIN_CONTRIBUTIONS.filter(kind => kind === adds || groups.some(group => storePluginContributions(group.plugin).includes(kind)));
+  const installedIds = new Set(groups.map(group => group.plugin.id));
+  const onMarket = (market?.plugins ?? []).filter(plugin => !installedIds.has(plugin.id));
+  const categories = PLUGIN_CONTRIBUTIONS.filter(kind => kind === adds || groups.some(group => storePluginContributions(group.plugin).includes(kind)) || onMarket.some(plugin => marketContributions(plugin).includes(kind)));
   const browsed = matching.filter(({ plugin }) => (source === "all" || (plugin.bundled || plugin.preinstalled ? "public" : "personal") === source)
     && (adds === "all" || storePluginContributions(plugin).includes(adds)));
+  const listed = source === "public" ? [] : onMarket.filter(plugin => `${plugin.displayName} ${plugin.description} ${plugin.id} ${plugin.package}`.toLowerCase().includes(normalizedQuery)
+    && (adds === "all" || marketContributions(plugin).includes(adds)));
+  const marketCards = (plugins: MarketPlugin[]) => <div className="plugins-grid">
+    {plugins.map(plugin => <MarketPluginCard key={plugin.id} plugin={plugin} onOpen={() => setAdding(plugin)} />)}
+  </div>;
   const skills = groups.flatMap(({ plugin }) => plugin.skills.map(skill => ({ plugin, skill })));
   const visibleSkills = skills.filter(({ plugin, skill }) => `${skill.name} ${skill.description} ${plugin.displayName}`.toLowerCase().includes(normalizedQuery));
   const addMenuItems: MenuEntry[] = [
@@ -156,6 +173,9 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     <PluginBuilderSessions />
   </>;
 
+  const browsedCards = <div className="plugins-grid">
+    {browsed.map(group => <StorePluginBrowseCard key={group.plugin.id} group={group} onOpen={() => onPluginChange(group.plugin.id)} />)}
+  </div>;
   const browseTab = <>
     <div className="plugins-filters">
       <Select<BrowseSource> size="sm" label={t("plugins.sourceFilter")} value={source} onChange={setSource} options={[
@@ -168,9 +188,20 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
         ...categories.map(kind => ({ value: kind, label: t(`plugins.contributions.${kind}`) })),
       ]} />
     </div>
-    {browsed.length ? <div className="plugins-grid">
-      {browsed.map(group => <StorePluginBrowseCard key={group.plugin.id} group={group} onOpen={() => onPluginChange(group.plugin.id)} />)}
-    </div> : <Empty title={t("plugins.noMatch")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
+    {market?.status === "unavailable" ? <Alert tone="info" title={t("plugins.marketUnavailable")} /> : null}
+    {market?.status === "stale" ? <Alert tone="info" title={t("plugins.marketStale")} /> : null}
+    {listed.some(plugin => plugin.featured) ? <section className="plugins-section" aria-label={t("plugins.marketFeatured")}>
+      <h2>{t("plugins.marketFeatured")}</h2>
+      {marketCards(listed.filter(plugin => plugin.featured))}
+    </section> : null}
+    {listed.some(plugin => !plugin.featured) ? <section className="plugins-section" aria-label={t("plugins.marketListed")}>
+      <h2>{t("plugins.marketListed")}</h2>
+      {marketCards(listed.filter(plugin => !plugin.featured))}
+    </section> : null}
+    {browsed.length ? listed.length ? <section className="plugins-section" aria-label={t("plugins.installed")}>
+      <h2>{t("plugins.installed")}</h2>
+      {browsedCards}
+    </section> : browsedCards : listed.length ? null : <Empty title={t("plugins.noMatch")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
       <Button icon={<Package size={14} />} onClick={() => setAddOpen(true)}>{t("pluginAdd.menu")}</Button>
       <Button icon={<Sparkles size={14} />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>
     </div>} />}
@@ -202,7 +233,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
         <Button variant="ghost" icon={<ChevronLeft size={14} />} onClick={showCatalog}>{t("plugins.title")}</Button>
       </div>
       {detail
-        ? <StorePluginDetail key={pluginId} group={detail} onChanged={reload} onRemoved={showCatalog} onTry={onTryPlugin} />
+        ? <StorePluginDetail key={pluginId} group={detail} market={market} onUpdate={setAdding} onChanged={reload} onRemoved={showCatalog} onTry={onTryPlugin} />
         : phase === "loading" ? <PluginState>{t("plugins.loadingPlugin")}</PluginState>
           : <PluginError message={error ?? t("pluginStore.notInstalled")} onRetry={() => void load()} />}
     </> : <>
@@ -225,6 +256,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
       </div>
     </>}
     {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); void reload().then(() => onPluginChange(id)); }} /> : null}
+    {adding ? <PluginAddDialog key={adding.id} listed={adding} onClose={() => setAdding(undefined)} onAdded={(id) => { setAdding(undefined); void reload().then(() => onPluginChange(id)); }} /> : null}
   </section>;
 
   function showCatalog(): void {
@@ -233,6 +265,8 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
 }
 
 const INSTALLED_PLUGIN_LIMIT = 6;
+/** How often an open page picks up what the daemon's market has read. */
+const MARKET_READ_MS = 2 * 60_000;
 
 /** A category of installed plugins: its first six cards, and the rest behind View all. */
 function PluginGroup({ title, cards }: { title: string; cards: ReactNode[] }): ReactNode {

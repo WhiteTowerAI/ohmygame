@@ -12,9 +12,45 @@ export type PluginNpmRegistry = (typeof PLUGIN_NPM_REGISTRIES)[number];
 
 /** Where the Add plugin dialog gets a package. A `.tgz` file is uploaded, so it isn't one of these. */
 export type PluginAddSource =
-  | { type: "npm"; name: string; registry: PluginNpmRegistry; version?: string }
+  /** `market`: opened from a market card, so only a version the market signs off will do. */
+  | { type: "npm"; name: string; registry: PluginNpmRegistry; version?: string; market?: true }
   | { type: "github"; url: string; commit?: string }
   | { type: "directory"; path: string };
+
+/** A plugin published on npm that the market lists, at its newest version. */
+export interface MarketPlugin {
+  id: string;
+  package: string;
+  version: string;
+  displayName: string;
+  description: string;
+  /** What it asks to be allowed. */
+  asks: string[];
+  /** How many of each list its manifest contributes, and how many Skills. */
+  adds: Record<string, number>;
+  publishedAt?: string;
+  repository?: string;
+  /** npm's provenance names the repository, or the repository's package.json names the package. */
+  sourceVerified: boolean;
+  /** Only when the source is verified. */
+  stars?: number;
+  weeklyDownloads?: number;
+  featured: boolean;
+}
+
+/** One published version the maintainers blocked. */
+export interface MarketBlock {
+  package: string;
+  version: string;
+  reason: string;
+}
+
+export interface PluginMarketListing {
+  /** `off`: no index is set up. `unavailable`: none could be read. `stale`: the last one, as a new one couldn't be read. */
+  status: "off" | "unavailable" | "ready" | "stale";
+  plugins: MarketPlugin[];
+  blocked: MarketBlock[];
+}
 
 /** What the person reviews before adding a package. */
 export interface PluginAddPreview {
@@ -165,6 +201,9 @@ export interface PluginMcpResult {
   message?: string;
   authorizationUrl?: string;
 }
+
+/** The npm name of a plugin, `@publisher/name`: captures the scope and the name. */
+export const NPM_PLUGIN_PACKAGE = /^@([a-z0-9-]+)\/([a-z0-9][a-z0-9._-]*)$/;
 
 export function isPluginVersion(value: unknown): value is string {
   return Check(SemVerSchema, value);

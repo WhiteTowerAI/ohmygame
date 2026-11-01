@@ -4,11 +4,12 @@ import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, sta
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, type PluginOrigin, type PluginAddSource, type PluginAddPreview, isPluginVersion } from "../shared/plugins.js";
+import { NPM_PLUGIN_PACKAGE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_NPM_REGISTRIES, type PluginNpmRegistry, type PluginOrigin, type PluginAddSource, type PluginAddPreview, isPluginVersion } from "../shared/plugins.js";
 import { extractTarball } from "./archive-extraction.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
 import { indexPluginPackage, localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { assertAddablePlugin, type PluginServices } from "./plugin-services.js";
+import { PluginMarketError, type MarketRelease, type PluginMarket } from "./plugin-market.js";
 import { downloadRelease } from "./plugin-releases.js";
 import { capabilityGrants } from "./project-plugins.js";
 
@@ -62,6 +63,7 @@ export class PluginSources {
     private readonly services: PluginServices,
     private readonly originsPath: string,
     private readonly network: PluginSourceNetwork = { fetch: (...request) => fetch(...request), download: downloadRelease },
+    private readonly market?: Pick<PluginMarket, "release">,
   ) {}
 
   inspect(source: PluginAddSource, locale: string | undefined): Promise<PluginAddPreview> {
@@ -187,27 +189,67 @@ export class PluginSources {
   async #fetchNpm(source: Extract<PluginAddSource, { type: "npm" }>): Promise<FetchedPackage> {
     const { scope, name, version: named } = parseNpmName(source.name);
     const fullName = `@${scope}/${name}`;
+    const requested = source.version ?? named;
+    // A version the market vouches for needs nothing from the registry, whose
+    // metadata a mirror may not have yet: npm's signature covers its checksum.
+    const release = requested ? await this.#marketRelease(fullName, requested) : undefined;
+    // A card can outlive its entry, and without one nothing here is signed.
+    if (source.market && !release) throw new PluginSourceError(`${fullName} ${requested ?? ""} isn't on the plugin market any more.`);
+    if (release) {
+      const others = PLUGIN_NPM_REGISTRIES.filter((registry) => registry !== source.registry);
+      return this.#downloadNpm(fullName, scope, name, requested!, release.integrity, [source.registry, ...others].map((registry) => ({
+        registry,
+        tarball: `${NPM_REGISTRIES[registry].url}/${fullName}/-/${name}-${encodeURIComponent(requested!)}.tgz`,
+      })), source.market);
+    }
     const registry = NPM_REGISTRIES[source.registry];
     const response = await this.#request(`${registry.url}/@${scope}%2F${name}`, { accept: "application/vnd.npm.install-v1+json" }, `Could not reach the ${source.registry} registry`);
     if (response.status === 404) throw new PluginSourceError(`${fullName} isn't on ${source.registry}.${source.registry === "npmmirror" ? " A new package can take a while to reach a mirror." : ""}`);
     if (!response.ok) throw new PluginSourceError(`The ${source.registry} registry answered ${response.status}.`);
     const metadata = await readJson(response) as NpmMetadata;
-    const version = source.version ?? named ?? metadata["dist-tags"]?.latest;
-    const release = version !== undefined && metadata.versions && Object.hasOwn(metadata.versions, version) ? metadata.versions[version] : undefined;
-    if (!version || !release) throw new PluginSourceError(`${fullName} has no version ${version ?? "to install"}.`);
-    const tarball = release.dist?.tarball;
+    const version = requested ?? metadata["dist-tags"]?.latest;
+    const published = version !== undefined && metadata.versions && Object.hasOwn(metadata.versions, version) ? metadata.versions[version] : undefined;
+    if (!version || !published) throw new PluginSourceError(`${fullName} has no version ${version ?? "to install"}.`);
+    const tarball = published.dist?.tarball;
     if (typeof tarball !== "string" || !isFromHost(tarball, registry.tarballHosts))
       throw new PluginSourceError(`${fullName} ${version} doesn't download from ${source.registry}.`);
-    const integrity = sha512Integrity(release.dist?.integrity);
+    // The newest version may be one the market knows, or has blocked.
+    const latest = requested ? undefined : await this.#marketRelease(fullName, version);
+    const integrity = latest?.integrity ?? published.dist?.integrity;
+    return this.#downloadNpm(fullName, scope, name, version, integrity, [{ registry: source.registry, tarball }]);
+  }
+
+  async #marketRelease(fullName: string, version: string): Promise<MarketRelease | undefined> {
+    try {
+      return await this.market?.release(fullName, version);
+    } catch (cause) {
+      if (cause instanceof PluginMarketError) throw new PluginSourceError(cause.message);
+      throw cause;
+    }
+  }
+
+  /** The first place the package downloads from; its checksum makes them all as good. */
+  async #downloadNpm(fullName: string, scope: string, name: string, version: string, checksum: unknown, places: { registry: PluginNpmRegistry; tarball: string }[], market?: true): Promise<FetchedPackage> {
+    const integrity = sha512Integrity(checksum);
     if (!integrity) throw new PluginSourceError(`${fullName} ${version} has no SHA-512 checksum to verify it with.`);
     return this.#inTemporaryFolder(async (folder) => {
       const archive = path.join(folder, "package.tgz");
-      await this.network.download(tarball, archive, PLUGIN_ARCHIVE_MAX_BYTES, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)).catch(downloadFailed);
+      let used: PluginNpmRegistry | undefined;
+      for (const [index, place] of places.entries()) {
+        try {
+          await this.network.download(place.tarball, archive, PLUGIN_ARCHIVE_MAX_BYTES, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS));
+          used = place.registry;
+          break;
+        } catch (cause) {
+          await rm(archive, { force: true });
+          if (index === places.length - 1) downloadFailed(cause);
+        }
+      }
       if (await fileSha512(archive) !== integrity) throw new PluginSourceError(`${fullName} ${version} doesn't match its checksum.`);
       return {
         root: await unpack(archive, folder, { published: true }),
-        source: { type: "npm", name: fullName, registry: source.registry, version },
-        origin: { type: "npm", package: fullName, version, registry: source.registry },
+        source: { type: "npm", name: fullName, registry: used!, version, ...(market ? { market } : {}) },
+        origin: { type: "npm", package: fullName, version, registry: used! },
         check: (entry) => {
           // The scope is what npm vouches for, so it has to be the plugin's publisher.
           const allowed = [`${scope}/${name}`, `${scope}/${name.replace(/^ohmygame-plugin-/, "")}`];
@@ -334,9 +376,12 @@ interface NpmMetadata {
 
 /** `@scope/name`, optionally `@version`. A plugin's publisher is its scope, so unscoped names can't be plugins. */
 export function parseNpmName(input: string): { scope: string; name: string; version?: string } {
-  const match = /^@([a-z0-9-]+)\/([a-z0-9][a-z0-9._-]*)(?:@(.+))?$/.exec(input.trim());
-  if (!match) throw new PluginSourceError(`Enter a scoped npm package, like @publisher/plugin, not "${input.trim()}".`);
-  const [, scope, name, version] = match as unknown as [string, string, string, string | undefined];
+  const text = input.trim();
+  const at = text.indexOf("@", 1);
+  const match = NPM_PLUGIN_PACKAGE.exec(at < 0 ? text : text.slice(0, at));
+  if (!match) throw new PluginSourceError(`Enter a scoped npm package, like @publisher/plugin, not "${text}".`);
+  const [, scope, name] = match as unknown as [string, string, string];
+  const version = at < 0 ? undefined : text.slice(at + 1);
   if (version !== undefined && !isPluginVersion(version)) throw new PluginSourceError(`"${version}" isn't an exact version.`);
   return { scope, name, ...(version ? { version } : {}) };
 }

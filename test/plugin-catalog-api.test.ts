@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -56,6 +57,29 @@ describe("plugin catalog API", () => {
     const notGzip = await app.inject({ method: "POST", url: "/plugin-sources/file/inspect", headers: { "content-type": "application/gzip" }, payload: Buffer.from("nope") });
     expect(notGzip.statusCode).toBe(400);
     expect((await app.inject({ method: "POST", url: `/plugin-sources/file/install?digest=short`, headers: { "content-type": "application/gzip" }, payload: Buffer.from("nope") })).statusCode).toBe(400);
+  });
+
+  it("gives the market's listing over its route, off when no index is set", async () => {
+    const off = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-market-api-")) });
+    apps.push(off);
+    await off.ready();
+    expect((await off.inject({ method: "GET", url: "/plugin-market?locale=en" })).json()).toEqual({ status: "off", plugins: [], blocked: [] });
+    const fromCard = await off.inject({ method: "POST", url: "/plugin-sources/inspect", payload: { source: { type: "npm", name: "@acme/maker", registry: "npmjs", version: "1.0.0", market: true } } });
+    expect(fromCard.statusCode, fromCard.body).toBe(400);
+    expect(fromCard.json().error).toContain("isn't on the plugin market any more");
+
+    const body = JSON.stringify({ schemaVersion: 1, versions: [{
+      package: "@acme/maker", version: "1.0.0", tarball: "", integrity: "sha512-AAAA", signatures: [],
+      plugin: { id: "acme/maker", displayName: { en: "Maker", "zh-CN": "制造者" }, description: { en: "Makes" }, grants: [], adds: {} },
+    }], packages: {}, featured: [] });
+    const digest = createHash("sha256").update(body).digest("hex");
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/index.json")
+      ? Response.json({ latest: `index.${digest}.json` })
+      : new Response(body));
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-market-api-")), pluginIndexUrl: "https://plugins.example.com/index.json" });
+    apps.push(app);
+    await app.ready();
+    expect((await app.inject({ method: "GET", url: "/plugin-market?locale=zh-CN" })).json()).toMatchObject({ status: "ready", plugins: [{ id: "acme/maker", displayName: "制造者" }] });
   });
 
   it("finishes indexing the bundled plugins before it closes the plugin store", async () => {

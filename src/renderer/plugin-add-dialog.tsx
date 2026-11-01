@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type PluginAddPreview, type PluginAddSource, type PluginNpmRegistry } from "../shared/plugins.js";
+import { useEffect, useState, type FormEvent } from "react";
+import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginNpmRegistry } from "../shared/plugins.js";
 import { addPlugin, addPluginFile, inspectAddedPlugin, inspectPluginFile } from "./api.js";
 import { LoaderCircle } from "./icons.js";
 import { language, t } from "./i18n.js";
@@ -16,12 +16,17 @@ interface Review {
   folder?: string;
 }
 
-/** One place to add a plugin from outside the app: read the package, show what it does, then add it. */
-export function PluginAddDialog({ onClose, onAdded }: { onClose: () => void; onAdded: (id: string) => void }) {
+/** npm can be slow to reach from China, where the mirror is the usual choice. */
+const preferredRegistry = (): PluginNpmRegistry => language === "zh-CN" ? "npmmirror" : "npmjs";
+
+/**
+ * One place to add a plugin from outside the app: read the package, show what it
+ * does, then add it. Given a plugin from the market, it starts with that review.
+ */
+export function PluginAddDialog({ listed, onClose, onAdded }: { listed?: MarketPlugin; onClose: () => void; onAdded: (id: string) => void }) {
   const [kind, setKind] = useState<SourceKind>("npm");
   const [name, setName] = useState("");
-  // npm can be slow to reach from China, where the mirror is the usual choice.
-  const [registry, setRegistry] = useState<PluginNpmRegistry>(language === "zh-CN" ? "npmmirror" : "npmjs");
+  const [registry, setRegistry] = useState<PluginNpmRegistry>(preferredRegistry);
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File>();
   const [review, setReview] = useState<Review>();
@@ -45,6 +50,9 @@ export function PluginAddDialog({ onClose, onAdded }: { onClose: () => void; onA
   const readSource = (source: PluginAddSource, folder?: string) => run(async () => {
     setReview({ preview: await inspectAddedPlugin(source), ...(folder ? { folder } : {}) });
   });
+  useEffect(() => {
+    if (listed) void readSource({ type: "npm", name: listed.package, version: listed.version, registry: preferredRegistry(), market: true });
+  }, []);
   const readFile = (selected: File) => run(async () => {
     if (selected.size > PLUGIN_ARCHIVE_MAX_BYTES) throw new Error(t("pluginAdd.tooLarge"));
     setReview({ preview: await inspectPluginFile(selected), file: selected });
@@ -73,14 +81,14 @@ export function PluginAddDialog({ onClose, onAdded }: { onClose: () => void; onA
 
   return <Dialog open onClose={() => { if (!busy) onClose(); }}
     title={review ? t("pluginAdd.reviewTitle", { name: review.preview.displayName }) : t("pluginAdd.title")}
-    description={review ? undefined : t("pluginAdd.description")}
+    description={review || listed ? undefined : t("pluginAdd.description")}
     footer={<>
-      <Button disabled={busy} onClick={() => { if (review) { setReview(undefined); setError(undefined); } else onClose(); }}>{review ? t("pluginAdd.back") : t("common.cancel")}</Button>
-      <Button variant="primary" type="submit" form="plugin-add-form" disabled={busy || !canContinue}
-        icon={busy ? <LoaderCircle className="spin" size={14} /> : undefined}>{review ? t("pluginAdd.add") : t("pluginAdd.continue")}</Button>
+      <Button disabled={busy} onClick={() => { if (review && !listed) { setReview(undefined); setError(undefined); } else onClose(); }}>{review && !listed ? t("pluginAdd.back") : t("common.cancel")}</Button>
+      {listed && !review ? null : <Button variant="primary" type="submit" form="plugin-add-form" disabled={busy || !canContinue}
+        icon={busy ? <LoaderCircle className="spin" size={14} /> : undefined}>{review ? t("pluginAdd.add") : t("pluginAdd.continue")}</Button>}
     </>}>
     <form id="plugin-add-form" className="plugins-install-form" onSubmit={submit}>
-      {review ? <PluginAddReview review={review} /> : <>
+      {review ? <PluginAddReview review={review} {...(listed ? { listed } : {})} /> : listed ? (busy ? <p>{t("pluginAdd.reading")}</p> : null) : <>
         <Tabs<SourceKind> variant="pills" label={t("pluginAdd.source")} value={kind} onChange={(next) => { if (busy) return; setKind(next); setError(undefined); }} tabs={[
           { value: "npm", label: "npm" },
           { value: "github", label: "GitHub" },
@@ -101,7 +109,7 @@ export function PluginAddDialog({ onClose, onAdded }: { onClose: () => void; onA
   </Dialog>;
 }
 
-function PluginAddReview({ review }: { review: Review }) {
+function PluginAddReview({ review, listed }: { review: Review; listed?: MarketPlugin }) {
   const { preview, folder, file } = review;
   const others = preview.installedVersions.filter((version) => version !== preview.version);
   return <div className="plugin-add-review">
@@ -109,6 +117,7 @@ function PluginAddReview({ review }: { review: Review }) {
     <dl>
       <dt>{t("pluginAdd.plugin")}</dt><dd>{preview.id} {preview.version}</dd>
       <dt>{t("pluginAdd.from")}</dt><dd>{sourceLabel(preview, folder ?? file?.name)}</dd>
+      {listed?.repository ? <><dt>{t("plugins.repository")}</dt><dd><a href={listed.repository} target="_blank" rel="noreferrer">{listed.repository.replace("https://github.com/", "")}</a> · {t(listed.sourceVerified ? "plugins.sourceVerified" : "plugins.sourceUnverified")}</dd></> : null}
     </dl>
     <p>{t(preview.appWide ? "pluginAdd.appliesByItself" : "pluginAdd.turnedOnPerProject")}</p>
     {preview.asks.length ? <section><h3>{t("pluginBuilder.asksFor")}</h3><ul>{preview.asks.map((ask) => <li key={ask}><code>{ask}</code></li>)}</ul></section> : null}

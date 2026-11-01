@@ -63,6 +63,7 @@ try {
     piAgentDirectory,
     bundledPluginsDirectory: process.env.OHMYGAME_BUNDLED_PLUGINS_DIR,
     pluginUiDirectory: process.env.OHMYGAME_PLUGIN_UI_DIR,
+    ...(process.env.OHMYGAME_PLUGIN_INDEX_URL ? { pluginIndexUrl: process.env.OHMYGAME_PLUGIN_INDEX_URL } : {}),
     ...(process.env.OHMYGAME_PLUGIN_UI_PORT ? { pluginUiPort: Number(process.env.OHMYGAME_PLUGIN_UI_PORT) } : {}),
     preinstalledPluginsDirectory: process.env.OHMYGAME_PREINSTALLED_PLUGINS_DIR
       ?? path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),

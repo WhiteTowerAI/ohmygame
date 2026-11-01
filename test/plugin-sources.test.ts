@@ -5,6 +5,7 @@ import path from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { extractTarball } from "../src/daemon/archive-extraction.js";
+import { PluginMarketError, type MarketRelease } from "../src/daemon/plugin-market.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { parseGitHubUrl, parseNpmName, PluginSourceError, PluginSources, type PluginSourceNetwork } from "../src/daemon/plugin-sources.js";
 
@@ -145,7 +146,7 @@ describe("source names", () => {
 });
 
 describe("PluginSources", () => {
-  async function setup(routes: Record<string, () => Response> = {}, files: Record<string, Buffer> = {}) {
+  async function setup(routes: Record<string, () => Response> = {}, files: Record<string, Buffer> = {}, market?: { release(name: string, version: string): Promise<MarketRelease | undefined> }) {
     const directory = await temporary();
     const services = new PluginServices({ directory: path.join(directory, "plugin-store") });
     const requested: string[] = [];
@@ -162,7 +163,7 @@ describe("PluginSources", () => {
         await writeFile(file, bytes, { flag: "wx" });
       },
     };
-    const sources = new PluginSources(services, path.join(directory, "plugin-store", "origins.json"), network);
+    const sources = new PluginSources(services, path.join(directory, "plugin-store", "origins.json"), network, market);
     return { services, sources, requested, directory, close: () => services.close() };
   }
   const integrity = (bytes: Buffer) => `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
@@ -198,6 +199,94 @@ describe("PluginSources", () => {
     expect(services.grants.plugin("acme/maker")?.allowed ?? []).toEqual([]);
     expect(await sources.origin("acme/maker", "1.0.0")).toEqual({ type: "npm", package: "@acme/maker", version: "1.0.0", registry: "npmjs" });
     await close();
+  });
+
+  describe("a version on the market", () => {
+    const bytes = tgz(...pluginEntries("package/"));
+    const vouched = (checksum = integrity(bytes)) => ({
+      release: vi.fn(async (name: string, version: string): Promise<MarketRelease | undefined> => ({ package: name, version, integrity: checksum })),
+    });
+    const onNpm = "https://registry.npmjs.org/@acme/maker/-/maker-1.0.0.tgz";
+    const onMirror = "https://registry.npmmirror.com/@acme/maker/-/maker-1.0.0.tgz";
+    const pinned = { ...npm, registry: "npmmirror", version: "1.0.0" } as const;
+
+    it("needs nothing but the package from the registry, so a mirror's metadata can lag", async () => {
+      const { sources, requested, close } = await setup({}, { [onMirror]: bytes }, vouched());
+      const preview = await sources.inspect(pinned, "en");
+      expect(requested).toEqual([onMirror]);
+      expect(preview.origin).toEqual({ type: "npm", package: "@acme/maker", version: "1.0.0", registry: "npmmirror" });
+      await sources.install(preview.source!, preview.digest);
+      expect(await sources.origin("acme/maker", "1.0.0")).toMatchObject({ registry: "npmmirror" });
+      await close();
+    });
+
+    it("tries the other registry when one doesn't have it, and records the one that did", async () => {
+      const { sources, requested, close } = await setup({}, { [onNpm]: bytes }, vouched());
+      const preview = await sources.inspect(pinned, "en");
+      expect(requested).toEqual([onMirror, onNpm]);
+      expect(preview.source).toMatchObject({ registry: "npmjs", version: "1.0.0" });
+      expect(preview.origin).toMatchObject({ registry: "npmjs" });
+      await close();
+    });
+
+    it("refuses a package that isn't the one npm signed, wherever it came from", async () => {
+      const { sources, close } = await setup({}, { [onMirror]: tgz(...pluginEntries("package/", "acme/maker", "1.0.0", { description: "Changed" })) }, vouched());
+      await expect(sources.inspect(pinned, "en")).rejects.toThrow("doesn't match its checksum");
+      await close();
+    });
+
+    it("refuses what the market refuses, without downloading it", async () => {
+      const refusing = { release: async () => { throw new PluginMarketError("@acme/maker 1.0.0 was blocked: steals keys"); } };
+      const { routes, files } = npmPackage("@acme/maker", bytes);
+      const { sources, requested, close } = await setup(routes, files, refusing);
+      await expect(sources.inspect(pinned, "en")).rejects.toThrow(PluginSourceError);
+      await expect(sources.inspect(pinned, "en")).rejects.toThrow("was blocked: steals keys");
+      expect(requested).toEqual([]);
+      // Asking for the newest version finds the same one blocked.
+      await expect(sources.inspect(npm, "en")).rejects.toThrow("was blocked: steals keys");
+      expect(Object.keys(files).some((url) => requested.includes(url))).toBe(false);
+      await close();
+    });
+
+    it("holds the newest version to the market's checksum, not the registry's", async () => {
+      const { routes, files } = npmPackage("@acme/maker", bytes);
+      const market = vouched(integrity(Buffer.from("something else")));
+      const { sources, close } = await setup(routes, files, market);
+      await expect(sources.inspect(npm, "en")).rejects.toThrow("doesn't match its checksum");
+      expect(market.release).toHaveBeenCalledWith("@acme/maker", "1.0.0");
+      await close();
+    });
+
+    it("keeps a market card's review and install to a signed version, even once it's gone from the index", async () => {
+      const fromCard = { ...pinned, market: true } as const;
+      const { routes, files } = npmPackage("@acme/maker", bytes);
+      const gone = await setup(routes, { ...files, [onMirror]: bytes }, { release: async () => undefined });
+      await expect(gone.sources.inspect(fromCard, "en")).rejects.toThrow("isn't on the plugin market any more");
+      await expect(gone.sources.install(fromCard, "d".repeat(64))).rejects.toThrow("isn't on the plugin market any more");
+      expect(gone.requested).toEqual([]);
+      await gone.close();
+
+      const off = await setup(routes, { ...files, [onMirror]: bytes });
+      await expect(off.sources.inspect(fromCard, "en")).rejects.toThrow("isn't on the plugin market any more");
+      await off.close();
+
+      const market = vouched();
+      const listed = await setup({}, { [onMirror]: bytes }, market);
+      const preview = await listed.sources.inspect(fromCard, "en");
+      expect(preview.source).toMatchObject({ market: true, version: "1.0.0" });
+      market.release.mockResolvedValue(undefined);
+      await expect(listed.sources.install(preview.source!, preview.digest)).rejects.toThrow("isn't on the plugin market any more");
+      expect(listed.services.index.get("acme/maker")).toBeUndefined();
+      await listed.close();
+    });
+
+    it("leaves a version it doesn't list to the registry", async () => {
+      const { routes, files } = npmPackage("@acme/maker", bytes);
+      const { sources, close } = await setup(routes, files, { release: async () => undefined });
+      expect(await sources.inspect({ ...npm, version: "1.0.0" }, "en")).toMatchObject({ id: "acme/maker", version: "1.0.0" });
+      expect(await sources.inspect(npm, "en")).toMatchObject({ id: "acme/maker", version: "1.0.0" });
+      await close();
+    });
   });
 
   it("accepts the ohmygame-plugin- name form, and only the plugin the scope vouches for", async () => {

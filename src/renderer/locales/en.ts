@@ -1100,6 +1100,10 @@ const en = {
     badLink: "This command's link isn't a valid web address.",
   },
   pluginStore: {
+    updateAvailable: "Update available",
+    updateTo: "Update to {{version}}",
+    blockedBadge: "Blocked",
+    blocked: "OhMyGame blocked version {{version}}: {{reason}}. Consider uninstalling it.",
     npmPackage: "npm package",
     section: "Turned on per project",
     perProject: "Per project",
@@ -2317,6 +2321,7 @@ const en = {
     coverProcessFailed: "Could not process this cover image",
   },
   pluginAdd: {
+    reading: "Reading the package…",
     menu: "Add plugin…",
     title: "Add a plugin",
     description: "From npm, a GitHub repository, or a package on this computer.",
@@ -2348,6 +2353,13 @@ const en = {
     unreviewed: "OhMyGame doesn't review plugins added this way. Add only what you trust.",
   },
   plugins: {
+    marketFeatured: "Featured",
+    marketListed: "On npm",
+    marketUnavailable: "Couldn't load the plugin list. Showing what's installed.",
+    marketStale: "Couldn't refresh the plugin list, so it may be out of date.",
+    sourceVerified: "Source verified",
+    sourceUnverified: "Source not verified",
+    weeklyDownloads: "{{count}} a week",
     beta: "Beta",
     personal: "Personal",
     viewAll: "View all ({{count}})",

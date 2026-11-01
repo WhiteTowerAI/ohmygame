@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { StorePlugin } from "../src/shared/plugins.js";
+import type { MarketPlugin, PluginMarketListing, StorePlugin } from "../src/shared/plugins.js";
 import { PluginsSettings } from "../src/renderer/plugins.js";
 
 function storePlugin(name: string, displayName: string, overrides: Partial<StorePlugin> = {}): StorePlugin {
@@ -30,8 +30,10 @@ function personal(name: string, displayName: string, overrides: Partial<StorePlu
 
 let container: HTMLDivElement, root: ReturnType<typeof createRoot>;
 let store: StorePlugin[];
+let market: PluginMarketListing;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  market = { status: "off", plugins: [], blocked: [] };
   const off = { grants: { enabled: false, allowed: [] } };
   store = [
     storePlugin("new-tool", "New tool", {
@@ -64,6 +66,7 @@ beforeEach(() => {
       if (route === "/health") return Response.json({ status: "ok" });
       if (route === "/plugins/setup-sessions") return Response.json([]);
       if (route === "/plugin-store/plugins") return Response.json(store);
+      if (route === "/plugin-market") return Response.json(market);
       if (init.method === "PUT" && route.startsWith("/plugin-store/") && route.endsWith("/enabled")) {
         const id = route.slice("/plugin-store/".length, -"/enabled".length);
         store.find((plugin) => plugin.id === id)!.grants = { enabled: JSON.parse(String(init.body)).enabled, allowed: [] };
@@ -88,10 +91,11 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function renderCatalog() {
+async function renderCatalog(pluginId?: string) {
   await act(async () =>
     root.render(
       <PluginsSettings
+        {...(pluginId ? { pluginId } : {})}
         onPluginChange={() => {}}
         onTryPlugin={async () => {}}
       />,
@@ -227,6 +231,109 @@ describe("plugin catalog browsing", () => {
     expect(document.querySelector(".ui-dialog-title")?.textContent).toBe(
       "Add a plugin",
     );
+  });
+
+  describe("with the plugin market", () => {
+    const listed = (name: string, fields: Partial<MarketPlugin> = {}): MarketPlugin => ({
+      id: `acme/${name}`, package: `@acme/${name}`, version: "1.0.0", displayName: `Market ${name}`, description: "From npm",
+      asks: [], adds: { skills: 2 }, featured: false, sourceVerified: false, ...fields,
+    });
+    const fromNpm = (name: string, version = "1.0.0"): StorePlugin => personal(name, `Installed ${name}`, {
+      id: `acme/${name}`, version, origin: { type: "npm", package: `@acme/${name}`, version, registry: "npmjs" },
+    });
+    const section = (title: string) => container.querySelector(`section[aria-label="${title}"]`)!;
+
+    it("shows featured and listed plugins on Browse, leaving out what's installed", async () => {
+      store.push(fromNpm("owned"));
+      market = { status: "ready", blocked: [], plugins: [
+        listed("picked", { featured: true }), listed("popular", { sourceVerified: true, stars: 1200, weeklyDownloads: 3400 }), listed("owned"),
+      ] };
+      await renderCatalog();
+      await click("Browse");
+      expect(cards(section("Featured"))).toEqual(["Market picked"]);
+      expect(cards(section("On npm"))).toEqual(["Market popular"]);
+      expect(cards()).not.toContain("Market owned");
+      expect(section("On npm").textContent).toContain("★ 1.2K");
+      expect(section("On npm").querySelector('[aria-label="Source verified"]')).toBeTruthy();
+      expect(section("Featured").querySelector('[aria-label="Source verified"]')).toBeNull();
+      await search("popular");
+      expect(cards()).toEqual(["Market popular"]);
+    });
+
+    it("opens the review of a listed plugin from its card", async () => {
+      market = { status: "ready", blocked: [], plugins: [listed("picked")] };
+      await renderCatalog();
+      await click("Browse");
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".plugin-card-link")].find((item) => item.textContent?.includes("Market picked"))!.click());
+      expect(document.querySelector(".ui-dialog")).toBeTruthy();
+    });
+
+    it("says so when the market can't be reached, or may be out of date, and still shows the page", async () => {
+      market = { status: "unavailable", plugins: [], blocked: [] };
+      await renderCatalog();
+      await click("Browse");
+      expect(container.textContent).toContain("Couldn't load the plugin list");
+      expect(cards()).toContain("Game Studio");
+      market = { status: "stale", plugins: [listed("picked")], blocked: [] };
+      await act(async () => root.unmount());
+      root = createRoot(container);
+      await renderCatalog();
+      await click("Browse");
+      expect(cards()).toContain("Market picked");
+      expect(container.textContent).toContain("may be out of date");
+    });
+
+    it("offers a newer version only for a plugin added from npm", async () => {
+      store.push(fromNpm("owned"), personal("local", "Installed local", { id: "acme/local" }));
+      market = { status: "ready", blocked: [], plugins: [listed("owned", { version: "1.2.0" }), listed("local", { version: "1.2.0" })] };
+      await renderCatalog();
+      const card = (name: string) => [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes(name))!;
+      expect(card("Installed owned").textContent).toContain("Update available");
+      expect(card("Installed local").textContent).not.toContain("Update available");
+      await renderCatalog("acme/owned");
+      await click("Update to 1.2.0");
+      expect(document.querySelector(".ui-dialog")).toBeTruthy();
+    });
+
+    it("warns about an installed version the maintainers blocked, without switching it off", async () => {
+      store.push(fromNpm("owned"));
+      market = { status: "ready", plugins: [], blocked: [{ package: "@acme/owned", version: "1.0.0", reason: "steals keys" }] };
+      await renderCatalog();
+      const card = [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes("Installed owned"))!;
+      expect(card.textContent).toContain("Blocked");
+      expect(store.at(-1)!.grants?.enabled).toBe(true);
+      await renderCatalog("acme/owned");
+      expect(container.textContent).toContain("OhMyGame blocked version 1.0.0: steals keys");
+    });
+
+    it("picks up what the market reads later while the page stays open", async () => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      try {
+        await renderCatalog();
+        await click("Browse");
+        expect(cards()).not.toContain("Market picked");
+        market = { status: "ready", blocked: [], plugins: [listed("picked")] };
+        await act(async () => { vi.advanceTimersByTime(2 * 60_000); });
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+        expect(cards()).toContain("Market picked");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("works the same when the market's route fails", async () => {
+      vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+        const route = new URL(String(url), "http://localhost").pathname.replace(/^\/api/, "");
+        if (route === "/health") return Response.json({ status: "ok" });
+        if (route === "/plugins/setup-sessions") return Response.json([]);
+        if (route === "/plugin-store/plugins") return Response.json(store);
+        return Response.json({ error: "no" }, { status: 500 });
+      }));
+      await renderCatalog();
+      await click("Browse");
+      expect(cards()).toContain("Game Studio");
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+    });
   });
 
   it("switches tabs with the arrow keys and filters Browse by source and project type", async () => {
