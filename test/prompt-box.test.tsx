@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, useState } from "react";
+import { UNDO_COMMAND, type LexicalEditor } from "lexical";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PromptBox } from "../src/renderer/prompt-box.js";
@@ -90,4 +91,22 @@ describe("PromptBox", () => {
     await pressKey("Backspace", {}, host);
     expect(promptText(host)).toBe("hi");
   });
+});
+
+it("undoes a chip deletion back to the chip rather than its earlier plain token", async () => {
+  let update!: (value: string) => void;
+  function Controlled() {
+    const [value, setValue] = useState("plain");
+    update = setValue;
+    return <PromptBox value={value} onChange={setValue} onSubmit={() => {}} placeholder="" variant="project" actions={null} skills={["review"]} />;
+  }
+  await act(async () => root.render(<Controlled />));
+  await act(async () => update("$review now"));
+  await placeCaret(7, host);
+  await pressKey("Backspace", {}, host);
+  expect(promptChips(host)).toEqual([]);
+  const editor = (promptField(host) as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+  await act(async () => { editor.dispatchCommand(UNDO_COMMAND, undefined); });
+  expect(promptText(host)).toBe("$review now");
+  expect(promptChips(host)).toEqual(["Review"]);
 });

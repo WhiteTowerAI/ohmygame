@@ -214,13 +214,14 @@ function PromptBridge({ value, onChange, onSelectionChange, onKeyDown, mentions,
     const knownChanged = shownKnown.current !== known;
     shownKnown.current = known;
     if (shown.current.text === value && (!knownChanged || shown.current.chips === chips)) return;
+    const textChanged = shown.current.text !== value;
     shown.current = { text: value, chips };
     editor.update(() => {
       const selection = $getSelection();
       const cursor = $isRangeSelection(selection) ? Math.min(pointOffset(selection.focus), value.length) : undefined;
       setText(value, ranges);
       if (cursor !== undefined) selectOffset(cursor);
-    }, { tag: "history-merge" });
+    }, { tag: textChanged ? "history-push" : "history-merge" });
   }, [editor, value, known]);
 
   useEffect(() => editor.registerUpdateListener(({ editorState }) => {
