@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationCapabilities } from "../src/shared/contracts.js";
 import type { ProjectPluginChoice } from "../src/shared/plugins.js";
+import { placeCaret, pressKey, promptChips, promptText, typePrompt } from "./prompt-field.js";
 
 const plugin = (
   name: string,
@@ -49,15 +50,16 @@ beforeEach(() => {
   // Blender helps any project but does not start one, so the picker leaves it out.
   capabilities = {
     plugins: [
-      plugin("godot", "Godot", ["godot-game", "general"]),
+      plugin("game-studio", "Game Studio", ["general", "godot-game", "interactive-story"]),
       plugin("blender", "Blender"),
       plugin("web-game-studio", "Web Game Studio", ["web-game"]),
     ],
     skills: [],
   };
   projectPlugins = [
-    { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", capabilities: [], consented: true, providesTypes: ["ohmygame/godot:godot-game"] },
+    { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", capabilities: [], consented: true, providesTypes: ["ohmygame/godot:godot-game"], appliesTo: ["general", "ohmygame/godot:godot-game", "acme/tiles:tile-map"] },
     { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", capabilities: ["network:tiles.example.com"], consented: false, providesTypes: ["acme/tiles:tile-map"] },
+    { id: "acme/sprites", displayName: "Sprites", description: "Sprite sheets.", version: "1.2.0", capabilities: ["network:sprites.example.com"], consented: false, providesTypes: [], appliesTo: ["general"] },
   ];
   localStorage.clear();
   pendingTypes = undefined;
@@ -88,16 +90,7 @@ async function render() {
     ),
   );
 }
-async function type(value: string) {
-  const textarea = container.querySelector("textarea")!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(
-      HTMLTextAreaElement.prototype,
-      "value",
-    )!.set!.call(textarea, value);
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
+const type = (value: string) => typePrompt(value, container);
 const send = () =>
   act(async () =>
     container
@@ -127,10 +120,12 @@ async function chooseIdea(text: string) {
   await act(async () => idea.click());
 }
 async function historyKey(key: "ArrowUp" | "ArrowDown") {
-  const textarea = container.querySelector("textarea")!;
-  const at = key === "ArrowUp" ? 0 : textarea.value.length;
-  textarea.setSelectionRange(at, at);
-  await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })); });
+  await placeCaret(key === "ArrowUp" ? 0 : promptText(container).length, container);
+  await pressKey(key, {}, container);
+}
+async function backspaceAtStart() {
+  await placeCaret(0, container);
+  await pressKey("Backspace", {}, container);
 }
 const menuItem = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>(".home-plugin-row")]
@@ -144,7 +139,7 @@ describe("Home prompt box", () => {
     // Its ideas sit behind one button in the row of ways to start, and fill the prompt.
     expect(ideasButton()).toBeDefined();
     await chooseIdea("dungeon");
-    expect(container.querySelector("textarea")!.value).toBe(
+    expect(promptText(container)).toBe(
       "Make a pixel-art dungeon roguelike with turn-based combat",
     );
 
@@ -154,11 +149,14 @@ describe("Home prompt box", () => {
     await act(async () => typePicker().click());
 
     await chooseType("Godot");
-    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Godot");
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Game Studio");
     // Only plugins that start this type are offered; Blender starts none.
     await act(async () => pluginButton().click());
-    expect(starterItems()).toEqual(["Godot"]);
+    expect(starterItems()).toEqual(["Game Studio"]);
     await act(async () => pluginButton().click());
+    // Godot's type has Godot's ideas, though Godot is no starter.
+    await chooseIdea("third-person");
+    expect(promptText(container)).toBe("Make a third-person 3D scene in Godot you can walk around");
 
     // A type no starter names starts with no plugin, and sends none.
     await chooseType("Tile Map");
@@ -177,19 +175,20 @@ describe("Home prompt box", () => {
     localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Web Game Studio @Three.js World Make an island", mentions }]));
     await render();
     await historyKey("ArrowUp");
-    expect(container.querySelector("textarea")!.value).toBe("Make an island");
+    expect(promptText(container)).toBe("Make an island");
     expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Web Game Studio, Three.js World");
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio @Three.js World Make an island" }), expect.any(Function));
 
-    // A plugin that does not fit the type now stays in the prompt instead.
+    // Plugins that do not fit the type now stay in the prompt instead, as chips.
     onSubmit.mockReset();
     await act(async () => root.unmount());
     root = createRoot(container);
     await render();
     await chooseType("Godot");
     await historyKey("ArrowUp");
-    expect(container.querySelector("textarea")!.value).toBe("@Three.js World Make an island");
+    expect(promptText(container)).toBe("@Web Game Studio @Three.js World Make an island");
+    expect(promptChips(container)).toEqual(["Web Game Studio", "Three.js World"]);
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio @Three.js World Make an island" }), expect.any(Function));
   });
@@ -200,7 +199,9 @@ describe("Home prompt box", () => {
     await act(async () => pluginButton().click());
     await act(async () => menuItem("Three.js World")!.click());
     expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Web Game Studio, Three.js World");
-    expect(pluginButton().textContent).toBe("+1");
+    // A few chosen plugins show side by side, without a count.
+    expect(pluginButton().querySelectorAll(".home-plugin-trigger-icon")).toHaveLength(2);
+    expect(pluginButton().textContent).toBe("");
     await act(async () => root.unmount());
     root = createRoot(container);
     await render();
@@ -217,9 +218,7 @@ describe("Home prompt box", () => {
 
     // Removing the lead keeps the others, also once Home brings the type's starter back.
     onSubmit.mockReset();
-    const textarea = () => container.querySelector("textarea")!;
-    textarea().setSelectionRange(0, 0);
-    await act(async () => { textarea().dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true })); });
+    await backspaceAtStart();
     await act(async () => root.unmount());
     root = createRoot(container);
     await render();
@@ -240,26 +239,56 @@ describe("Home prompt box", () => {
     }), expect.any(Function));
   });
 
-  it("keeps the other plugins when the lead is replaced by a mention", async () => {
+  it("shows the first chosen plugin and how many follow it once more than three are chosen", async () => {
+    capabilities.plugins.push(...[["threejs-world", "Three.js World"], ["wechat-minigame", "WeChat Mini Game"], ["douyin-minigame", "Douyin Mini Game"]]
+      .map(([name, displayName]) => plugin(name!, displayName!, ["web-game"])));
+    await render();
+    await act(async () => pluginButton().click());
+    await act(async () => menuItem("Three.js World")!.click());
+    await act(async () => menuItem("WeChat Mini Game")!.click());
+    expect(pluginButton().querySelectorAll(".home-plugin-trigger-icon")).toHaveLength(3);
+    await act(async () => menuItem("Douyin Mini Game")!.click());
+    expect(pluginButton().querySelectorAll(".home-plugin-trigger-icon")).toHaveLength(1);
+    expect(pluginButton().textContent).toBe("+3");
+  });
+
+  it("keeps a plugin that starts no project in the text, after the chosen plugins", async () => {
     capabilities.plugins.push(plugin("threejs-world", "Three.js World", ["web-game"]));
     await render();
     await act(async () => pluginButton().click());
     await act(async () => menuItem("Three.js World")!.click());
     await act(async () => pluginButton().click());
-    const textarea = container.querySelector("textarea")!;
-    textarea.setSelectionRange(0, 0);
-    await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true })); });
+    await backspaceAtStart();
     await type("@Blen");
-    textarea.setSelectionRange(5, 5);
-    await act(async () => { textarea.dispatchEvent(new Event("select", { bubbles: true })); });
+    await placeCaret(5, container);
     const option = [...document.querySelectorAll<HTMLElement>('[role="option"], [role="menuitem"]')].find((item) => item.textContent?.includes("Blender"))!;
     await act(async () => option.click());
-    await type("Make an island");
+    expect(promptText(container)).toBe("@Blender ");
+    expect(promptChips(container)).toEqual(["Blender"]);
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Three.js World");
+    await type("@Blender Make an island");
     await send();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: "@Blender @Three.js World Make an island",
+      prompt: "@Three.js World @Blender Make an island",
       mentions: expect.arrayContaining([expect.objectContaining({ name: "blender" }), expect.objectContaining({ name: "threejs-world" })]),
     }), expect.any(Function));
+  });
+
+  it("puts any number of Skills in the text where they are picked, after the starting plugin", async () => {
+    capabilities.skills = [{ name: "game-design", description: "Write a brief" }, { name: "review", description: "Review a change" }];
+    await render();
+    const pick = async (text: string, name: string) => {
+      await type(text);
+      await placeCaret(text.length, container);
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent?.includes(name))!;
+      await act(async () => option.click());
+    };
+    await pick("$game", "Game Design");
+    await pick(`${promptText(container)}then $rev`, "Review");
+    expect(promptText(container)).toBe("$game-design then $review ");
+    expect(promptChips(container)).toEqual(["Game Design", "Review"]);
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio $game-design then $review" }), expect.any(Function));
   });
 
   it("moves a following plugin up when a mention makes it the lead", async () => {
@@ -268,15 +297,10 @@ describe("Home prompt box", () => {
     await act(async () => pluginButton().click());
     await act(async () => menuItem("Three.js World")!.click());
     await act(async () => pluginButton().click());
-    const textarea = container.querySelector("textarea")!;
-    const backspace = async () => {
-      textarea.setSelectionRange(0, 0);
-      await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true })); });
-    };
+    const backspace = backspaceAtStart;
     await backspace();
     await type("@Three");
-    textarea.setSelectionRange(6, 6);
-    await act(async () => { textarea.dispatchEvent(new Event("select", { bubbles: true })); });
+    await placeCaret(6, container);
     const option = [...document.querySelectorAll<HTMLElement>('[role="option"], [role="menuitem"]')].find((item) => item.textContent?.includes("Three.js World"))!;
     await act(async () => option.click());
     expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Three.js World");
@@ -328,20 +352,42 @@ describe("Home prompt box", () => {
   it("turns plugins on for the new project alone once the person allows what they ask for", async () => {
     await render();
     await act(async () => pluginButton().click());
-    await act(async () => menuItem("Tiles")!.click());
-    expect(document.body.textContent).toContain("network:tiles.example.com");
+    // Plugins that add project types are picked as the type instead.
+    expect([...document.querySelectorAll('[role="group"][aria-label="On in this project only"] [role="menuitemcheckbox"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
+      .toEqual(["Sprites"]);
+    await act(async () => menuItem("Sprites")!.click());
+    expect(document.body.textContent).toContain("network:sprites.example.com");
     const allow = [...document.querySelectorAll("button")].find((button) => button.textContent === "Allow and turn on")!;
     await act(async () => allow.click());
-    expect(pluginButton().textContent).toBe("+1");
+    expect(pluginButton().querySelectorAll(".home-plugin-trigger-icon")).toHaveLength(2);
     await type("Make a maze");
     await send();
-    expect(onSubmit.mock.calls[0]![0].projectPlugins.map((plugin: ProjectPluginChoice) => plugin.id)).toEqual(["acme/tiles"]);
+    expect(onSubmit.mock.calls[0]![0].projectPlugins.map((plugin: ProjectPluginChoice) => plugin.id)).toEqual(["acme/sprites"]);
 
-    // A plugin that adds the chosen type is on in that project already.
+    // Applicability still filters tools that add no project type.
+    await chooseType("Interactive Story");
+    await act(async () => pluginButton().click());
+    expect(document.querySelector('[role="group"][aria-label="On in this project only"]')).toBeNull();
+    await act(async () => pluginButton().click());
+    // A Web game is stored as General, so Sprites is offered again.
+    await chooseType("Web Game");
+    await act(async () => pluginButton().click());
+    expect(menuItem("Sprites")).toBeDefined();
+    expect(menuItem("Godot")).toBeUndefined();
+    expect(menuItem("Tiles")).toBeUndefined();
+    await act(async () => pluginButton().click());
     await chooseType("Tile Map");
     await act(async () => pluginButton().click());
-    expect([...document.querySelectorAll('[role="group"][aria-label="On in this project only"] [role="menuitemcheckbox"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
-      .toEqual(["Godot"]);
+    expect(document.querySelectorAll('[role="group"][aria-label="On in this project only"] [role="menuitemcheckbox"]')).toHaveLength(0);
+    expect(document.querySelector(".home-plugin-empty a")!.getAttribute("href")).toBe("#/plugins");
+  });
+
+  it("leaves out the list of plugins for this project when only type plugins could go in it", async () => {
+    projectPlugins = projectPlugins.filter((plugin) => plugin.providesTypes.length);
+    await render();
+    await act(async () => pluginButton().click());
+    expect(starterItems()).toEqual(["Web Game Studio"]);
+    expect(document.querySelector('[role="group"][aria-label="On in this project only"]')).toBeNull();
   });
 
   it("offers no starting plugins when none is enabled, and links to plugins when none can be turned on", async () => {
@@ -389,124 +435,7 @@ describe("Home prompt box", () => {
     expect(document.querySelector(".home-plugin-empty")!.textContent).toContain("Couldn't load the plugins");
     const retry = [...document.querySelectorAll<HTMLButtonElement>(".home-plugin-empty button")].find((item) => item.textContent === "Retry")!;
     await act(async () => retry.click());
-    expect(menuItem("Tiles")).toBeDefined();
-  });
-
-  it("offers a plugin that sets up its own projects as a type, which keeps that plugin on", async () => {
-    capabilities.plugins.push({ ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never });
-    await render();
-    await act(async () => typePicker().click());
-    expect(options()).toEqual(["Web Game", "Interactive Story", "Asset Canvas", "Godot", "General Game", "Tile Map", "TapTap Maker", "More types…"]);
-    await act(async () => typePicker().click());
-    // Another type does not offer it as a plugin; it would set up a second project.
-    await chooseType("General Game");
-    await act(async () => pluginButton().click());
-    expect(starterItems()).not.toContain("TapTap Maker");
-    await act(async () => pluginButton().click());
-
-    await chooseType("TapTap Maker");
-    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: TapTap Maker");
-    await act(async () => pluginButton().click());
-    expect(starterItems()[0]).toBe("TapTap Maker");
-    expect(menuItem("TapTap Maker")!.getAttribute("aria-disabled")).toBe("true");
-    await act(async () => menuItem("TapTap Maker")!.click());
-    expect(menuItem("TapTap Maker")!.getAttribute("aria-checked")).toBe("true");
-    await type("Make a puzzle");
-    await send();
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: "@TapTap Maker Make a puzzle",
-      type: "general",
-    }), expect.any(Function));
-  });
-
-  it("keeps a type's own plugin when the prompt is cleared, for plugins outside the starter list too", async () => {
-    capabilities.plugins.push({ ...plugin("island-maker", "Island Maker", ["general"]), integration: { createProject: true } as never });
-    await render();
-    await chooseType("Island Maker");
-    // /plan clears the prompt and its plugins; the type's plugin comes back.
-    await type("/plan");
-    await send();
-    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Island Maker");
-    await type("Make an island");
-    // Browsing history and coming back keeps the plugin once.
-    localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "Make a maze", mentions: [] }]));
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await render();
-    await historyKey("ArrowUp");
-    expect(container.querySelector("textarea")!.value).toBe("Make a maze");
-    await historyKey("ArrowDown");
-    expect(container.querySelector("textarea")!.value).toBe("Make an island");
-    await send();
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Island Maker Make an island", type: "general" }), expect.any(Function));
-  });
-
-  it("keeps a lead plugin from history in the prompt after the type's own plugin", async () => {
-    capabilities.plugins.push({ ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never });
-    const mention = { name: "blender", displayName: "Blender", marketplaceId: "bundled" };
-    localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Blender Make a maze", mentions: [mention] }]));
-    await render();
-    await chooseType("TapTap Maker");
-    await historyKey("ArrowUp");
-    expect(container.querySelector("textarea")!.value).toBe("@Blender Make a maze");
-    await send();
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: "@TapTap Maker @Blender Make a maze",
-      mentions: expect.arrayContaining([expect.objectContaining({ name: "taptap-maker" }), expect.objectContaining({ name: "blender" })]),
-    }), expect.any(Function));
-  });
-
-  it("keeps the order of plugins from history after the type's own plugin", async () => {
-    capabilities.plugins.push(
-      { ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never },
-      plugin("game-studio", "Game Studio", ["general"]),
-    );
-    const mentions = [{ name: "game-studio", displayName: "Game Studio", marketplaceId: "bundled" }, { name: "godot", displayName: "Godot", marketplaceId: "bundled" }];
-    localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Game Studio @Godot Make a maze", mentions }]));
-    await render();
-    await chooseType("TapTap Maker");
-    await historyKey("ArrowUp");
-    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: TapTap Maker, Game Studio, Godot");
-    await send();
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@TapTap Maker @Game Studio @Godot Make a maze" }), expect.any(Function));
-  });
-
-  it("drops a remembered plugin type's plugin once that plugin is gone", async () => {
-    capabilities.plugins.push({ ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never });
-    await render();
-    await chooseType("TapTap Maker");
-    await type("Make a puzzle");
-    await act(async () => root.unmount());
-    capabilities.plugins.pop();
-    root = createRoot(container);
-    await render();
-    expect(typePicker().textContent).toBe("Web Game");
-    await send();
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio Make a puzzle", type: "web-game" }), expect.any(Function));
-  });
-
-  it("keeps a remembered plugin type pending when plugins fail to load", async () => {
-    localStorage.setItem("ohmygame.home.projectType", "starter:taptap-maker@bundled");
-    pendingCapabilities = Promise.reject(new Error("Plugins unavailable"));
-    pendingCapabilities.catch(() => {});
-    await render();
-    await type("Make a puzzle");
-    expect(container.textContent).toContain("Plugins unavailable");
-    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
-  });
-
-  it("waits for plugins before sending a plugin's own type it remembered", async () => {
-    localStorage.setItem("ohmygame.home.projectType", "starter:taptap-maker@bundled");
-    let answer!: (value: ConversationCapabilities) => void;
-    pendingCapabilities = new Promise((resolve) => { answer = resolve; });
-    await render();
-    await type("Make a puzzle");
-    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
-    capabilities.plugins.push({ ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never });
-    await act(async () => answer(capabilities));
-    expect(typePicker().textContent).toBe("TapTap Maker");
-    await send();
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@TapTap Maker Make a puzzle", type: "general" }), expect.any(Function));
+    expect(menuItem("Sprites")).toBeDefined();
   });
 
   it("remembers the type, and leads to plugins that add types", async () => {
@@ -528,15 +457,15 @@ describe("Home prompt box", () => {
     await act(async () => root.unmount());
     root = createRoot(container);
     await render();
-    expect(container.querySelector("textarea")!.value).toBe("A tiny racing game");
+    expect(promptText(container)).toBe("A tiny racing game");
   });
 
   it("clears the prompt once the dialog has created the project", async () => {
     await render();
     await type("Make a maze");
     await send();
-    expect(container.querySelector("textarea")!.value).toBe("Make a maze");
+    expect(promptText(container)).toBe("Make a maze");
     await act(async () => onSubmit.mock.calls[0]![1]());
-    expect(container.querySelector("textarea")!.value).toBe("");
+    expect(promptText(container)).toBe("");
   });
 });

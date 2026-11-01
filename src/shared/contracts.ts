@@ -433,8 +433,6 @@ export interface ProjectState extends ProjectPreviewSettings {
   type: ProjectType;
   updatedAt: string;
   workspacePath: string;
-  /** The plugin owns the binding file; OhMyGame stores only its identity and presentation. */
-  integration?: { pluginId: string; preview?: "external" };
   /**
    * A format 2 plugin project type, `publisher/name:type`, and how its game is
    * previewed, recorded for the app's screens. `ohmygame.json` decides what runs.
@@ -1003,7 +1001,6 @@ export interface ConversationCapabilities {
     icon?: import("./plugins.js").PluginIcon;
     iconRevision?: string;
     projectTypes?: ProjectType[];
-    integration?: import("./plugin-integration.js").PluginIntegrationDefinition;
   }>;
   skills: Array<{
     name: string;
@@ -1299,6 +1296,10 @@ export interface RuntimeEventData {
   "conversation.model.changed": { item: Extract<ThreadItem, { type: "modelChange" }> };
   "project.renamed": { project: ProjectState };
   "project.updated": { project: ProjectState };
+  /** What the project's format 2 plugins offer may have changed: read their panels and commands again. */
+  "project.plugins.changed": Record<string, never>;
+  /** A plugin command the app runs needs the person to open an https link, such as a sign-in page. */
+  "plugin.command.progress": { command: string; message: string; url?: string };
   "preview.updated": { preview: PreviewRuntimeState };
   /** Without a pick, the person cancelled. */
   "preview.picked": { client: string; pick?: PreviewPick };
@@ -1332,6 +1333,8 @@ export const RUNTIME_EVENT_TYPES = [
   "conversation.model.changed",
   "project.renamed",
   "project.updated",
+  "project.plugins.changed",
+  "plugin.command.progress",
   "preview.updated",
   "preview.picked",
   "agent.started",

@@ -50,6 +50,8 @@ describe("plugin catalog", () => {
       .resolves.toEqual([{ name: plugin.name, displayName: plugin.displayName, marketplaceId: "personal" }]);
     await expect(catalog.validateMentions([{ name: "missing", displayName: "Missing", marketplaceId: "personal" }]))
       .rejects.toThrow("not installed");
+    await expect(catalog.validateMentions([{ name: "godot", displayName: "Godot", marketplaceId: "ohmygame" }]))
+      .rejects.toThrow("not installed");
   });
 
   it("keeps healthy catalog entries when an adapter reports a damaged plugin", async () => {

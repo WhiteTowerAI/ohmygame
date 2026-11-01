@@ -41,10 +41,6 @@ export function formatPluginInvocation(mention: PluginMention | undefined, promp
   return mention ? `${pluginMentionToken(mention)}${prompt ? ` ${prompt}` : ""}` : prompt;
 }
 
-export function formatComposerInvocation(skill: string | undefined, plugin: PluginMention | undefined, prompt: string): string {
-  return formatSkillInvocation(skill, formatPluginInvocation(plugin, prompt));
-}
-
 export function skillDisplayName(name: string): string {
   return name.split(/[._-]+/).filter(Boolean).map((part) => {
     const normalized = part.toLowerCase();
@@ -68,7 +64,8 @@ export function mentionQuery(value: string, cursor: number): ComposerMentionQuer
   if (!match) return undefined;
   const trigger = match[2] as "@" | "$" | "/";
   const start = cursor - match[2].length - match[3].length;
-  if ((trigger === "$" || trigger === "/") && value.slice(0, start).trim()) return undefined;
+  // Skills and plugins can be named anywhere; "/" opens the commands only at the start.
+  if (trigger === "/" && value.slice(0, start).trim()) return undefined;
   return {
     start,
     end: cursor,

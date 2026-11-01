@@ -314,8 +314,9 @@ Local development can start without cloud configuration; see
 Your projects and keys stay on your machine. Prompts and generation requests go
 directly to the model providers you choose. Publishing requires an OhMyGame
 account and uploads only your game's static build. Release builds check for
-updates and send anonymous usage events (PostHog, no session recording) and
-crash reports (Sentry, no personal data). Builds from source send no telemetry.
+updates and send usage data and crash reports. Usage data is linked to your
+account when you sign in, and you can turn it off in **Settings → About**.
+Builds from source send no telemetry.
 The desktop app keeps redacted logs on your machine; they leave it only if you
 export them from **Settings → About → Diagnostics** and share the file. See
 [logs and diagnostics](docs/diagnostics.md).

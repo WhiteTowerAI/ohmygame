@@ -6,8 +6,10 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { PreinstalledPluginManager } from "../src/daemon/preinstalled-plugins.js";
+import { catalogManifest, convertFormat1Package } from "../src/daemon/plugin-conversion.js";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
+import type { PluginManifest } from "../src/shared/plugins.js";
 
 const apps: FastifyInstance[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
@@ -187,6 +189,23 @@ describe("preinstalled plugins", () => {
       .toMatchObject({ plugins: { [prepared.pluginId]: { seededReleaseId: prepared.releaseId, removed: true } } });
   });
 
+  it("installs a format 2 package converted from a Skills repository with one SKILL.md at its root", async () => {
+    const prepared = await preparedPlugin({ layout: "format-2" });
+    const app = createApp({
+      dataDirectory: await temporary("ohmygame-preinstalled-format-2-"),
+      bundledPluginsDirectory: await temporary("ohmygame-preinstalled-bundled-"),
+      preinstalledPluginsDirectory: prepared.directory,
+    });
+    apps.push(app);
+    await app.ready();
+    expect((await app.inject({ method: "GET", url: "/plugins/ohmygame%3Areference-tools" })).json()).toMatchObject({
+      installed: true,
+      enabled: true,
+      source: { type: "preinstalled", releaseId: prepared.releaseId },
+      skills: [{ id: "skills/reference/SKILL.md", enabled: true }],
+    });
+  });
+
   it("keeps startup available when one prepared archive fails verification", async () => {
     const prepared = await preparedPlugin();
     await writeFile(path.join(prepared.directory, `${prepared.releaseId}.zip`), "damaged");
@@ -204,30 +223,39 @@ describe("preinstalled plugins", () => {
 
 });
 
-async function preparedPlugin(options: { releaseId?: string; version?: string; skillContent?: string; iconContent?: string } = {}) {
+/** A prepared release: Skills in a folder, or a format 2 package converted from one `SKILL.md` at the root (as img2threejs has). */
+async function preparedPlugin(options: { releaseId?: string; version?: string; skillContent?: string; iconContent?: string; layout?: "folder" | "format-2" } = {}) {
   const directory = await temporary("ohmygame-prepared-plugin-");
   const source = await temporary("ohmygame-prepared-source-");
   const pluginId = "11111111-1111-4111-8111-111111111111";
   const releaseId = options.releaseId ?? "22222222-2222-4222-8222-222222222222";
   const skillContent = options.skillContent ?? "---\nname: reference\ndescription: Rebuild a reference.\n---\n";
   const iconContent = options.iconContent ?? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#f00"/></svg>';
-  const manifest = {
+  const layout = options.layout ?? "folder";
+  const skill = layout === "folder" ? "./skills/reference/SKILL.md" : "./SKILL.md";
+  let manifest: PluginManifest = {
     name: "reference-tools",
     version: options.version ?? "1.0.0",
     description: "Reference workflows",
-    skills: ["./skills/reference/SKILL.md"],
+    skills: [skill],
     interface: {
       displayName: "Reference Tools", shortDescription: "Rebuild a reference.",
       icon: { type: "asset", path: "./assets/icon.svg" } as const,
     },
   };
   await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
-  await mkdir(path.join(source, "skills", "reference"), { recursive: true });
+  await mkdir(path.dirname(path.join(source, skill)), { recursive: true });
   await mkdir(path.join(source, "assets"), { recursive: true });
   await writeFile(path.join(source, "assets", "icon.svg"), iconContent);
   await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify(manifest));
-  await writeFile(path.join(source, "skills", "reference", "SKILL.md"), skillContent);
-  const archive = await createPluginArchive(source);
+  await writeFile(path.join(source, skill), skillContent);
+  let packaged = source;
+  if (layout === "format-2") {
+    packaged = path.join(await temporary("ohmygame-prepared-converted-"), "package");
+    const converted = await convertFormat1Package({ root: source, manifest }, packaged, { id: "ohmygame/reference-tools" });
+    manifest = { ...catalogManifest(converted.entry, { enabledByDefault: true })!, version: converted.entry.version };
+  }
+  const archive = await createPluginArchive(packaged);
   const artifactSha256 = createHash("sha256").update(archive).digest("hex");
   await writeFile(path.join(directory, `${releaseId}.zip`), archive);
   const index: PreparedPluginIndex = {

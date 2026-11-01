@@ -219,8 +219,11 @@
   height: 40px;
 }
 
+/* The bar starts after back and forward rather than padding past them: on
+   macOS it drags the window, and a drag region over them takes their clicks. */
 .project-frame:has(.sidebar-titlebar) .project-top {
-  padding-left: calc(var(--titlebar-end) - var(--sidebar-width) + var(--space-2));
+  margin-left: calc(var(--titlebar-end) - var(--sidebar-width));
+  padding-left: var(--space-2);
 }
 
 /* macOS: the top bar is the title bar, and the rest of it drags the window. */

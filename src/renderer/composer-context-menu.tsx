@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { AgentUsageLimit, ConversationCapabilities } from "../shared/contracts.js";
 import { AgentUsageInline } from "./agent-usage.js";
 import { ClipboardList, FileText, Paperclip, Plug, Plus, Share2, Sparkles, WandSparkles } from "./icons.js";
@@ -6,7 +6,9 @@ import { attachmentFiles, type ComposerAttachment } from "./composer-attachments
 import { matchingMentions, mentionQuery, slashCommandQuery, skillDisplayName, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { t } from "./i18n.js";
 import { PluginGlyph } from "./plugin-icons.js";
-import { DropdownMenu, type MenuEntry } from "./ui/index.js";
+import { DropdownMenu, Kbd, type MenuEntry } from "./ui/index.js";
+import type { ProjectPluginCommand } from "../shared/plugins.js";
+import type { PromptInput } from "./prompt-editor.js";
 
 type ContextAction = "plan" | "compact" | "publish";
 interface ContextMenuItem {
@@ -15,17 +17,28 @@ interface ContextMenuItem {
   label: string;
   description: string;
   source?: string;
-  command?: "plan" | "compact" | "publish";
+  /** What "/" types for it. */
+  command?: string;
   action?: ContextAction;
   mention?: ComposerMention;
+  pluginCommand?: ProjectPluginCommand;
 }
+
+/** The plugin commands the composer shows: in the "/" list and in the + menu. */
+export interface ComposerPluginCommands {
+  slash: ProjectPluginCommand[];
+  add: ProjectPluginCommand[];
+}
+
+/** A plugin command's "/" name: its `slash`, or its own id. */
+const slashName = (command: ProjectPluginCommand) => command.slash ?? command.id.slice(command.id.indexOf(":") + 1);
 
 /**
  * What a typed "/", "@" or "$" offers: "/" the commands and skills, "@" the
  * plugins and skills, "$" the skills. With no query it is the "/" list, as
  * the + menu opens it. Attaching files and the modes live in the + menu.
  */
-export function composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact = false, contextPercent, canPublish = false }: {
+export function composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact = false, contextPercent, canPublish = false, pluginCommands = [] }: {
   capabilities: ConversationCapabilities;
   query?: ComposerMentionQuery;
   planning: boolean;
@@ -33,12 +46,14 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
   showCompact?: boolean;
   contextPercent?: number;
   canPublish?: boolean;
+  pluginCommands?: ProjectPluginCommand[];
 }): ContextMenuItem[] {
   const trigger = query?.trigger ?? "/";
   const actions: ContextMenuItem[] = trigger !== "/" ? [] : [
     ...(canTogglePlanning ? [{ id: "plan", command: "plan" as const, section: "Commands" as const, label: t("planMode.mode"), description: planning ? t("planMode.turnOff") : t("planMode.turnOn"), action: "plan" as const }] : []),
     ...(showCompact ? [{ id: "compact", command: "compact" as const, section: "Commands" as const, label: t("planMode.compact"), description: `${t("planMode.compactHint")}${contextPercent === undefined ? "" : t("planMode.full", { percent: contextPercent })}`, action: "compact" as const }] : []),
     ...(canPublish ? [{ id: "publish", command: "publish" as const, section: "Commands" as const, label: t("contextMenu.publish"), description: t("contextMenu.publishHint"), action: "publish" as const }] : []),
+    ...pluginCommands.map((command): ContextMenuItem => ({ id: `command:${command.id}`, command: slashName(command), section: "Commands", label: command.title, description: command.title, source: command.plugin, pluginCommand: command })),
   ];
   const search = query?.query ?? "";
   return [
@@ -57,10 +72,10 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
   ];
 }
 
-export function useComposerContextMenu({ prompt, cursor, textarea, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onPublish, onMention, onChange, onSelectionChange, contextPercent, canPublish, usageLimits }: {
+export function useComposerContextMenu({ prompt, cursor, input, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onPublish, onMention, onChange, onSelectionChange, contextPercent, canPublish, usageLimits, pluginCommands, onPluginCommand }: {
   prompt: string;
   cursor: number;
-  textarea: RefObject<HTMLTextAreaElement | null>;
+  input: RefObject<PromptInput | null>;
   disabled: boolean;
   capabilities: ConversationCapabilities;
   planning: boolean;
@@ -77,6 +92,8 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
   canPublish?: boolean;
   /** A coding agent's account quota, shown under the commands when they are opened with "/". */
   usageLimits?: AgentUsageLimit[];
+  pluginCommands?: ComposerPluginCommands;
+  onPluginCommand?: (command: ProjectPluginCommand) => void;
 }) {
   const id = useId();
   const menu = useRef<HTMLDivElement>(null);
@@ -90,7 +107,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
   const typed = mentionKey === dismissed ? undefined : candidate;
   const query: ComposerMentionQuery | undefined = typed ?? (openedWith ? { start: cursor, end: cursor, trigger: openedWith, query: "" } : undefined);
   const open = !disabled && Boolean(query);
-  const items = composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact: Boolean(onCompact), contextPercent, canPublish });
+  const items = composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact: Boolean(onCompact), contextPercent, canPublish, pluginCommands: onPluginCommand ? pluginCommands?.slash : undefined });
   const selectedIndex = Math.min(selected, Math.max(0, items.length - 1));
 
   useEffect(() => setSelected(0), [query?.start, query?.trigger, query?.query]);
@@ -108,7 +125,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     if (!open) return;
     const closeOutside = (event: Event) => {
       const target = event.target as Node;
-      if (target === textarea.current || menu.current?.contains(target)) return;
+      if (input.current?.contains(target) || menu.current?.contains(target)) return;
       close();
     };
     document.addEventListener("pointerdown", closeOutside);
@@ -129,7 +146,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     setSelected(0);
     setOpenedWith(trigger);
     // The menu hands focus back to its button as it closes; the list belongs to the field.
-    requestAnimationFrame(() => textarea.current?.focus());
+    requestAnimationFrame(() => input.current?.focus());
   }
 
   function select(item: ContextMenuItem): void {
@@ -140,18 +157,19 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     }
     if (item.action === "compact") {
       onCompact?.();
-      textarea.current?.focus();
+      input.current?.focus();
       return;
     }
     // Actions consume the search token, leaving the message draft intact.
     if (query && query.end > query.start) {
       onChange(`${prompt.slice(0, query.start)}${prompt.slice(query.end).replace(/^\s+/, "")}`);
       onSelectionChange(query.start);
-      requestAnimationFrame(() => textarea.current?.setSelectionRange(query.start, query.start));
+      requestAnimationFrame(() => input.current?.focus(query.start));
     }
     if (item.action === "plan") onTogglePlanning();
     else if (item.action === "publish") onPublish?.();
-    textarea.current?.focus();
+    else if (item.pluginCommand) onPluginCommand?.(item.pluginCommand);
+    input.current?.focus();
   }
 
   function handleKeyDown(event: KeyboardEvent): boolean {
@@ -179,7 +197,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     event.preventDefault();
     event.stopPropagation();
     close();
-    textarea.current?.focus();
+    input.current?.focus();
     return true;
   }
 
@@ -188,6 +206,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     ...(onDesignReference ? [{ label: t("contextMenu.design"), icon: <FileText size={14} />, onSelect: onDesignReference }] : []),
     ...(canTogglePlanning ? ["separator" as const, { label: t("planMode.mode"), icon: <ClipboardList size={14} />, checked: planning, onSelect: onTogglePlanning }] : []),
     "separator",
+    ...(onPluginCommand && pluginCommands?.add.length ? pluginCommands.add.map((command): MenuEntry => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => onPluginCommand(command) })) : []),
     { label: t("contextMenu.commandsAndSkills"), icon: <Sparkles size={14} />, shortcut: "/", onSelect: () => openList("/") },
     ...(capabilities.plugins.length ? [{ label: t("contextMenu.mentionPlugin"), icon: <Plug size={14} />, shortcut: "@", onSelect: () => openList("@") }] : []),
   ];
@@ -204,13 +223,13 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
           disabled={disabled}
           aria-label={t("contextMenu.trigger")}
           title={t("contextMenu.trigger")}
-        ><Plus size={17} /></button>
+        ><Plus size={16} /></button>
       )} />
       <input ref={filesInput} className="visually-hidden" type="file" multiple tabIndex={-1} aria-hidden="true" onChange={(event) => {
         const files = attachmentFiles([...(event.target.files ?? [])]);
         if (files.length) onFiles(files);
         event.target.value = "";
-        textarea.current?.focus();
+        input.current?.focus();
       }} />
     </>,
     overlay: open ? <ComposerContextMenu id={id} menuRef={menu} trigger={query?.trigger ?? "/"} items={items} selected={selectedIndex} onSelect={select} onHover={setSelected} usageLimits={query?.trigger === "/" ? usageLimits : undefined} /> : null,
@@ -308,12 +327,12 @@ function ComposerContextMenu({ id, menuRef, trigger, items, selected, onSelect, 
         onMouseEnter={() => onHover(index)}
         onClick={() => onSelect(item)}
       >
-        <span className="composer-context-menu-icon">{item.action === "plan" ? <ClipboardList size={14} /> : item.action === "compact" ? <FileText size={14} /> : item.action === "publish" ? <Share2 size={14} /> : item.mention?.type === "plugin" ? <PluginGlyph plugin={item.mention.value} size={14} /> : <WandSparkles size={14} />}</span>
+        <span className="composer-context-menu-icon">{item.action === "plan" ? <ClipboardList size={14} /> : item.action === "compact" ? <FileText size={14} /> : item.action === "publish" ? <Share2 size={14} /> : item.mention?.type === "plugin" ? <PluginGlyph plugin={item.mention.value} size={14} /> : item.pluginCommand ? <Plug size={14} /> : <WandSparkles size={14} />}</span>
         <span className={item.command ? "composer-context-menu-command" : undefined}>{item.command ? `/${item.command}` : item.label}</span>
         <small>{item.command ? item.label : item.description}</small>
       </button>
     </Fragment>) : <div className="composer-context-menu-empty" role="status">{t("contextMenu.noMatch")}</div>}
     {usageLimits?.length ? <div className="composer-context-menu-usage" role="status" aria-label={t("agentUsage.title")}><AgentUsageInline limits={usageLimits} compact /></div> : null}
-    <div className="composer-context-menu-foot" aria-hidden="true"><kbd>↑↓</kbd>{t("contextMenu.keys.select")}<kbd>↵</kbd>{t("contextMenu.keys.use")}<kbd>esc</kbd>{t("contextMenu.keys.close")}</div>
+    <div className="composer-context-menu-foot" aria-hidden="true"><Kbd>↑↓</Kbd>{t("contextMenu.keys.select")}<Kbd>↵</Kbd>{t("contextMenu.keys.use")}<Kbd>Esc</Kbd>{t("contextMenu.keys.close")}</div>
   </div>;
 }

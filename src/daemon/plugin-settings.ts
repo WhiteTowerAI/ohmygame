@@ -41,6 +41,11 @@ export class PluginSettingsStore {
     }
   }
 
+  /** The switch the person set for a plugin, if they ever did, even for one the app no longer ships. */
+  storedEnabled(id: string): boolean | undefined {
+    return this.#settings.get(id)?.enabled;
+  }
+
   resolve(plugin: PluginDetail): PluginSettings {
     const stored = this.#settings.get(plugin.id);
     const components = componentEntries(plugin).map(([key, component]) => [key, component.enabled] as const);

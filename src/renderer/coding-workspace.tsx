@@ -1,4 +1,3 @@
-import { ExternalProjectPreview } from "./plugin-integration.js";
 import { previewPageUrl as isolatedPreviewUrl } from "../shared/preview-page.js";
 import {
   Check,
@@ -35,7 +34,6 @@ import {
   Smartphone,
   Tablet,
   Trash2,
-  Video,
   Wrench,
   X,
   type IconComponent,
@@ -46,7 +44,7 @@ import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { isWebRuntimeProjectType, supportsWebPreview, supportsProjectPreview } from "../shared/project-runtime.js";
+import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetThumbnail, WorkspaceAssetDialog, fileExtension, fileName, filterAssets, hasMediaType, libraryAssetOriginLabel, mediaTypeLabel, type BrowsableAsset, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
@@ -70,7 +68,6 @@ import type { PanelNodes } from "./panel-layout.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
 import { Button, CategoryMark, DropdownMenu, Empty, IconButton, MediaTile, SearchInput, Tabs } from "./ui/index.js";
 
-type WorkspaceTab = "preview" | "code" | "assets";
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 const DesignDocumentPanel = lazy(() => import("./design-document-panel.js").then((module) => ({ default: module.DesignDocumentPanel })));
 type WorkspaceContextMenu = { path: string; directory: boolean; x: number; y: number };
@@ -84,7 +81,6 @@ export function workspacePathAfterChange(selectedPath: string | undefined, chang
 }
 interface CodingWorkspaceProps {
   project?: ProjectState;
-  agentBusy: boolean;
   publishing: boolean;
   workspaceRevision: number;
   previewPaused?: boolean;
@@ -132,7 +128,6 @@ export interface CodingPanels {
 
 export function CodingWorkspace({
   project,
-  agentBusy,
   publishing,
   workspaceRevision,
   previewPaused = false,
@@ -155,7 +150,7 @@ export function CodingWorkspace({
   panels,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
-  const hasPreview = supportsProjectPreview(project);
+  const hasPreview = supportsWebPreview(project);
   const visible = panels?.visible ?? new Set<CodingView>([canvasOpen ? "canvas" : hasPreview ? "preview" : "code"]);
   const shows = (view: CodingView) => visible.has(view);
   const show = (view: CodingView) => panels?.onShow(view);
@@ -331,8 +326,7 @@ export function CodingWorkspace({
   }
 
   function playGame(): void {
-    const bounds = previewStage.current?.getBoundingClientRect();
-    void player.play({ path: actualPreviewPath, viewport: playerViewport(viewport, bounds) });
+    void player.play({ path: actualPreviewPath, viewport: playerViewport(viewport) });
   }
 
   async function toggleAgentPlaytestWatch(): Promise<void> {
@@ -375,7 +369,7 @@ export function CodingWorkspace({
     disabled={player.pending || (player.checking && !player.error) || canPlay}
     onClick={playGame}
   >{player.open ? t("workspace.returnToGame") : t("workspace.play")}</Button> : null;
-  const settingsButton = project && !project.integration && isWebRuntimeProjectType(project.type) ? <button
+  const settingsButton = project && project.pluginType?.preview !== "native" && isWebRuntimeProjectType(project.type) ? <button
     className="icon-button pane-header-action"
     type="button"
     aria-label={t("projectSettings.title")}
@@ -414,7 +408,6 @@ export function CodingWorkspace({
         {panels ? null : playButton}
       </> : undefined,
       body: <>
-        {project?.integration?.preview === "external" ? <ExternalProjectPreview key={project.id} project={project} onProjectUpdated={onProjectUpdated} /> : null}
         {supportsPreview ? (
           <div className="coding-workspace-preview-panel">
             <ErrorBoundary label={t("errorBoundary.label.preview")} resetKey={previewPageUrl}>
@@ -804,12 +797,11 @@ function viewportLabel(viewport: PreviewViewport): string {
   return t("projectSettings.device.fit");
 }
 
-export function playerViewport(viewport: PreviewViewport, bounds?: { width: number; height: number }): { width: number; height: number } {
+export function playerViewport(viewport: PreviewViewport): { width: number; height: number } {
   if (viewport === "mobile") return { width: 375, height: 667 };
   if (viewport === "mobile-landscape") return { width: 667, height: 375 };
   if (viewport === "tablet") return { width: 768, height: 1024 };
-  const size = (value: number | undefined, fallback: number) => Math.min(8192, Math.max(240, Math.round(value || fallback)));
-  return { width: size(bounds?.width, 1280), height: size(bounds?.height, 720) };
+  return { width: 1280, height: 720 };
 }
 
 export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, reload, revision, url, viewport, active = true, playerOpen = false, suspended = false, pending = false, pausedAfterRecovery = false, error, onPlay, onRetry, onSettings, stageRef }: {

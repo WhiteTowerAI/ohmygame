@@ -12,6 +12,7 @@ import { initializeAnalytics } from "./analytics.js";
 import { initializeRuntimeConnection } from "./runtime-connection.js";
 import { RuntimeNotice } from "./runtime-notice.js";
 import { ErrorBoundary } from "./error-boundary.js";
+import { ToastProvider } from "./ui/index.js";
 import { DesktopCloseGuard } from "./desktop-close-guard.js";
 import "./styles.css";
 import "./runtime-recovery.css";
@@ -55,7 +56,9 @@ const content = (
       ) : (
         <DesktopWindowFrame>
           <AuthProvider>
-            <App />
+            <ToastProvider>
+              <App />
+            </ToastProvider>
           </AuthProvider>
         </DesktopWindowFrame>
       )}

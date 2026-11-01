@@ -1,4 +1,4 @@
-import { mp3Fixture, wavFixture } from "./audio-fixtures.js";
+import { mp3Fixture } from "./audio-fixtures.js";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,7 +12,6 @@ import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
-const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 async function saveProjectAsset(app: Awaited<ReturnType<typeof createApp>>, projectId: string, filePath: string) {
@@ -404,7 +403,11 @@ describe("daemon", () => {
     const unknown = await app.inject({ method: "POST", url: "/projects", payload: { type: "unknown" } });
 
     expect(godot.statusCode).toBe(201);
-    expect(godot.json()).toMatchObject({ name: "Platformer", type: "godot-game" });
+    // The app's Godot kind starts as the Godot plugin's type, with its template and the plugin on.
+    expect(godot.json()).toMatchObject({ name: "Platformer", type: "godot-game", pluginType: { id: "ohmygame/godot:godot-game", plugin: "ohmygame/godot", preview: "web-build" } });
+    const file = JSON.parse(await readFile(path.join(godot.json().workspacePath, "ohmygame.json"), "utf8"));
+    expect(file).toMatchObject({ type: "ohmygame/godot:godot-game", plugins: { "ohmygame/godot": expect.any(String) } });
+    expect(await readdir(godot.json().workspacePath)).toContain("project.godot");
     expect(general.statusCode).toBe(201);
     expect(general.json()).toMatchObject({ type: "general", webPreviewEnabled: true, preview: { status: "waiting" } });
     expect(await readdir(general.json().workspacePath)).toEqual([]);
@@ -882,17 +885,17 @@ describe("daemon", () => {
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "godot-game" } })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
-    const mention = { name: "godot", displayName: "Godot", marketplaceId: "ohmygame" };
+    const mention = { name: "game-studio", displayName: "Game Studio", marketplaceId: "ohmygame" };
 
     const accepted = await app.inject({
       method: "POST",
       url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
-      payload: { prompt: "Use @Godot", mentions: [mention] },
+      payload: { prompt: "Use @Game Studio", mentions: [mention] },
     });
-    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Use [@Godot](plugin://godot@ohmygame)"));
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Use [@Game Studio](plugin://game-studio@ohmygame)"));
     const incompatible = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
     const otherConversation = (await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations` })).json();
-    const mismatch = await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations/${otherConversation.id}/turns`, payload: { prompt: "Use @Godot", mentions: [mention] } });
+    const mismatch = await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations/${otherConversation.id}/turns`, payload: { prompt: "Use @Game Studio", mentions: [mention] } });
     expect(mismatch.statusCode).toBe(409);
     expect(prompt).toHaveBeenCalledTimes(1);
     const rejected = await app.inject({

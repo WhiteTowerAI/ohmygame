@@ -34,7 +34,7 @@ describe("conversation composer drafts", () => {
   it("restores text, capability selections, planning and explicit references after a reload", () => {
     const storage = memoryStorage();
     const draft = createComposerDraftStore(storage).get(scope);
-    draft.update({ prompt: "  revise this\n", mentions: [plugin], selectedSkill: "writer", selectedPlugin: plugin,
+    draft.update({ prompt: "  revise this\n", mentions: [plugin], selectedPlugin: plugin,
       planning: true, reference: { text: "the earlier answer" },
       designReference: { references: [{ type: "workspace-file", path: "canvas/documents/design.md" }],
         context: { kind: "design-document", label: "Game design", text: "Reference this document" } },
@@ -42,7 +42,7 @@ describe("conversation composer drafts", () => {
       submitting: true, focusRequestId: "request-1" });
 
     const restored = createComposerDraftStore(storage).get(scope).getSnapshot();
-    expect(restored).toMatchObject({ prompt: "  revise this\n", mentions: [plugin], selectedSkill: "writer", selectedPlugin: plugin,
+    expect(restored).toMatchObject({ prompt: "  revise this\n", mentions: [plugin], selectedPlugin: plugin,
       planning: true, reference: draft.getSnapshot().reference, designReference: draft.getSnapshot().designReference });
     expect(restored.attachments).toEqual([]);
     expect(restored.submitting).toBe(false);
@@ -53,13 +53,18 @@ describe("conversation composer drafts", () => {
     const extras = createComposerDraftStore(storage).get({ ...scope, conversationId: "chat-b" });
     extras.update({ extraPlugins: [plugin] });
     expect(createComposerDraftStore(storage).get({ ...scope, conversationId: "chat-b" }).getSnapshot().extraPlugins).toEqual([plugin]);
+
+    // A Skill saved in a slot of its own, before Skills sat in the text, comes back in the text.
+    storage.setItem([...storage.values.keys()][0]!, JSON.stringify({ version: 1, prompt: "revise this", mentions: [], selectedSkill: "writer", planning: false }));
+    expect(createComposerDraftStore(storage).get(scope).getSnapshot().prompt).toBe("$writer revise this");
   });
 
   it("preserves an initial capability draft without requiring a first keystroke", () => {
     const storage = memoryStorage();
     const initial = { prompt: "$writer @Game helper Build a game", mentions: [plugin] };
     const snapshot = createComposerDraftStore(storage).get(scope, initial).getSnapshot();
-    expect(snapshot).toMatchObject({ prompt: "Build a game", selectedSkill: "writer", selectedPlugin: plugin, mentions: [plugin] });
+    expect(snapshot).toMatchObject({ prompt: "$writer @Game helper Build a game", mentions: [plugin] });
+    expect(snapshot.selectedPlugin).toBeUndefined();
     expect(createComposerDraftStore(storage).get(scope).getSnapshot()).toMatchObject(snapshot);
   });
 

@@ -333,7 +333,7 @@ export function ProjectSettingsDialog({
                 size="sm"
                 label={t("projectSettings.webPreview")}
                 checked={webPreviewEnabled}
-                disabled={saving || project.integration?.preview === "external"}
+                disabled={saving || project.pluginType?.preview === "native"}
                 onChange={setWebPreviewEnabled}
               />
             </div>

@@ -122,7 +122,7 @@ async function fixture() {
 }
 
 it("serves persisted and live turn diffs, undoes only files, and rejects old editor writes", async () => {
-  const { checkpointId, app, project, session, userId, base } = await fixture();
+  const { checkpointId, app, project, session, base } = await fixture();
   for (const id of [checkpointId]) {
     const changes = await app.inject({
       method: "GET",
@@ -252,7 +252,7 @@ it.each(["keep", "overwrite"] as const)(
 );
 
 it("recovers the recorded interrupted operation and blocks creative writes until recovery", async () => {
-  const { checkpointId, app, project, before } = await fixture();
+  const { app, project, before } = await fixture();
   await writeFile(
     path.join(checkpointDirectory(project), "ohmygame-unfinished.json"),
     JSON.stringify({ previous: before }),
@@ -325,7 +325,7 @@ it("preserves the restored workspace version across daemon restart", async () =>
 });
 
 it("shows binary and oversized files without unbounded text reads", async () => {
-  const { checkpointId, app, project, store, session, base, before } =
+  const { app, project, store, session, base, before } =
     await fixture();
   await writeFile(
     path.join(project.workspacePath, "binary.bin"),

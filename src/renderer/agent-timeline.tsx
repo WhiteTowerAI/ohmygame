@@ -13,7 +13,6 @@ import {
   FileText,
   Gamepad2,
   Image,
-  LoaderCircle,
   Pencil,
   Plug,
   Search,
@@ -25,8 +24,10 @@ import {
   type IconComponent,
 } from "./icons.js";
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { ConversationAttachment, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
+import type { ConversationAttachment, ConversationCapabilities, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
+import { splitPluginMentions } from "../shared/plugins.js";
+import { PluginMentionGlyph } from "./plugin-icons.js";
 import { ConversationImage } from "./image-attachments.js";
 import { useNearViewport } from "./asset-gallery.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
@@ -62,9 +63,13 @@ interface AgentTimelineProps {
   onBranch?: (entryId: string) => void;
   branchDisabled?: boolean;
   waitingForInput?: boolean;
+  /** The installed plugins, for the icons of those a message mentions. */
+  plugins?: ConversationCapabilities["plugins"];
 }
 
 const WorkspaceLinkContext = createContext<{ workspacePath?: string; onOpenWorkspaceFile?: (path: string) => void }>({});
+const PluginsContext = createContext<ConversationCapabilities["plugins"]>([]);
+const NO_PLUGINS: ConversationCapabilities["plugins"] = [];
 const completedDisplays = new WeakMap<ThreadTurn, TurnDisplay>();
 
 function turnDisplay(turn: ThreadTurn): TurnDisplay {
@@ -74,7 +79,7 @@ function turnDisplay(turn: ThreadTurn): TurnDisplay {
   return display;
 }
 
-export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false }: AgentTimelineProps) {
+export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -136,40 +141,42 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
 
   return (
     <WorkspaceLinkContext.Provider value={workspaceLinks}>
-      <div className="agent-timeline-selection-root" ref={setSelectionRoot}>
-        <TurnChangesViews key={turns[0]?.conversationId} workspaceRevision={workspaceRevision}>
-          {turns.map((turn, index) => (
-            <Turn
-              key={turn.id}
-              projectId={projectId}
-              turn={turn}
-              waitingForInput={turn.status === "inProgress" && waitingForInput}
-              steeringPending={steeringPending && index === latestSteeringIndex}
-              changeControls={changeControls}
-              assistantControls={{
-                copiedItemId: copiedAssistantId,
-                latestItemId: latestAssistantId,
-                onCopy: copyAssistant,
-                onBranch,
-                branchDisabled,
-              }}
-              userControls={{
-                editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
-                draft: displays[index].user?.id === editingItemId ? draft : "",
-                copied: displays[index].user?.id === copiedItemId,
-                canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
-                disabled: Boolean(revisionDisabled || submitting),
-                onCopy: copy,
-                onEdit: edit,
-                onDraftChange: setDraft,
-                onCancel: cancelEdit,
-                onSubmit: submitRevision,
-              }}
-            />
-          ))}
-        </TurnChangesViews>
-        {onAddToChat ? <SelectedTextMenu root={selectionRoot} onAdd={onAddToChat} /> : null}
-      </div>
+      <PluginsContext.Provider value={plugins}>
+        <div className="agent-timeline-selection-root" ref={setSelectionRoot}>
+          <TurnChangesViews key={turns[0]?.conversationId} workspaceRevision={workspaceRevision}>
+            {turns.map((turn, index) => (
+              <Turn
+                key={turn.id}
+                projectId={projectId}
+                turn={turn}
+                waitingForInput={turn.status === "inProgress" && waitingForInput}
+                steeringPending={steeringPending && index === latestSteeringIndex}
+                changeControls={changeControls}
+                assistantControls={{
+                  copiedItemId: copiedAssistantId,
+                  latestItemId: latestAssistantId,
+                  onCopy: copyAssistant,
+                  onBranch,
+                  branchDisabled,
+                }}
+                userControls={{
+                  editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
+                  draft: displays[index].user?.id === editingItemId ? draft : "",
+                  copied: displays[index].user?.id === copiedItemId,
+                  canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
+                  disabled: Boolean(revisionDisabled || submitting),
+                  onCopy: copy,
+                  onEdit: edit,
+                  onDraftChange: setDraft,
+                  onCancel: cancelEdit,
+                  onSubmit: submitRevision,
+                }}
+              />
+            ))}
+          </TurnChangesViews>
+          {onAddToChat ? <SelectedTextMenu root={selectionRoot} onAdd={onAddToChat} /> : null}
+        </div>
+      </PluginsContext.Provider>
     </WorkspaceLinkContext.Provider>
   );
 });
@@ -293,6 +300,18 @@ function formatResponseTime(timestamp: number): string {
   }).format(timestamp);
 }
 
+/** The message as written, with each plugin it mentions shown as the plugin. */
+function UserMessageText({ text, mentions = [] }: { text: string; mentions?: Extract<ThreadItem, { type: "userMessage" }>["mentions"] }) {
+  const plugins = useContext(PluginsContext);
+  return <>{splitPluginMentions(text, mentions).map((part, index) => {
+    if (typeof part === "string") return part;
+    return <span key={index} className="user-message-plugin" title={t("timeline.pluginMention", { name: part.displayName })}>
+      <PluginMentionGlyph mention={part} plugins={plugins} size={14} />
+      <span>{part.displayName}</span>
+    </span>;
+  })}</>;
+}
+
 function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "userMessage" }> | undefined; controls: UserControls }) {
   if (!item) return null;
   const visualAttachmentNames = new Set(item.images?.map((image) => image.name).filter((name): name is string => Boolean(name)) ?? []);
@@ -332,7 +351,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
         </div>
       ) : item.text ? (
         <>
-          <div className="user-message">{item.text}</div>
+          <div className="user-message"><UserMessageText text={item.text} mentions={item.mentions} /></div>
           <div className="user-message-actions">
             <button type="button" aria-label={t("timeline.copyMessage")} title={t("common.copy")} onClick={() => controls.onCopy(item)}>
               {controls.copied ? <Check size={13} /> : <Copy size={13} />}

@@ -29,6 +29,7 @@ jobs:
       - run: bun run changelog:check
       - run: bun run prepare:preinstalled-plugins
       - run: bun run typecheck
+      - run: bun run lint
       - run: bun run test:ablation --dry-run
       - run: bun run test
       - run: bun run build:renderer

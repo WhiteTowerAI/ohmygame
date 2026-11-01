@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { consentToPlugin, createConversation, createProject, getHomeComposerCapabilities, getProjectLocation, listProjects, setProjectPluginVersion } from "./api.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { activePluginMentions } from "./composer-mentions.js";
-import { LoaderCircle } from "./icons.js";
-import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
+import { Folder, LoaderCircle } from "./icons.js";
 import { saveHomePrompt } from "./prompt-history.js";
 import { defaultProjectName, PROJECT_TYPES } from "./project-types.js";
 import { isAppProjectType, MORE_TYPES, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes, useProjectPluginChoices } from "./project-type-choices.js";
@@ -17,7 +15,7 @@ import type {
   PromptAttachment,
   PromptMode,
 } from "../shared/contracts.js";
-import { pluginProjectType } from "../shared/project-runtime.js";
+import { pluginAppliesTo, pluginProjectType, projectFileTypeFor } from "../shared/project-runtime.js";
 import type { ProjectPluginChoice } from "../shared/plugins.js";
 import { t } from "./i18n.js";
 import "./project-create-dialog.css";
@@ -88,7 +86,7 @@ export function ProjectCreateDialog({
   const [prompt, setPrompt] = useState(firstMessage?.prompt ?? "");
   const [name, setName] = useState("");
   const [plugins, setPlugins] = useState<Plugin[]>([]);
-  // The type and integration come from the plugins, so creating waits for them.
+  // The types come from the plugins, so creating waits for them.
   const [pluginsPhase, setPluginsPhase] = useState<"loading" | "ready" | "error">("loading");
   const [pluginsRetry, setPluginsRetry] = useState(0);
   const mentions = activePluginMentions(prompt, firstMessage?.mentions ?? []);
@@ -123,24 +121,18 @@ export function ProjectCreateDialog({
     && (isAppProjectType(wanted) || installedPluginTypes.types !== undefined)
     && (isAppProjectType(type) || pluginChoices !== undefined);
   const [workspacePath, setWorkspacePath] = useState(initialWorkspacePath);
-  // Settings → General → Project location, where a project without a chosen folder goes.
-  const [defaultLocation, setDefaultLocation] = useState<string>();
+  // Where a project without a chosen folder goes: Settings → General → Project location, else OhMyGame's own storage.
+  const [defaultLocation, setDefaultLocation] = useState<{ location?: string; storage?: string }>({});
   useEffect(() => {
     let active = true;
-    void getProjectLocation().then((value) => { if (active) setDefaultLocation(value.location); }).catch(() => undefined);
+    void getProjectLocation().then((value) => { if (active) setDefaultLocation(value); }).catch(() => undefined);
     return () => { active = false; };
   }, []);
   const [selectingWorkspace, setSelectingWorkspace] = useState(false);
   const [existingProject, setExistingProject] = useState<ProjectState>();
-  const [integrationId, setIntegrationId] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
   const created = useRef<{ key: string; project: ProjectState; conversationId?: string } | undefined>(undefined);
-  const integrationGate = usePluginIntegrationGate();
-  // A prompt picks its integration from its mentions; a blank project from this list.
-  const integrations = firstMessage
-    ? []
-    : isAppProjectType(type) ? plugins.filter((plugin) => plugin.integration && (!plugin.projectTypes?.length || plugin.projectTypes.includes(kind))) : [];
   // Types are waited for when offered or when Home asked for a plugin's type.
   const typesFailed = installedPluginTypes.failed && (offersPluginTypes || !isAppProjectType(wanted));
   const loadFailed = pluginsPhase === "error" || typesFailed || (pluginChoicesFailed && !isAppProjectType(type));
@@ -191,36 +183,21 @@ export function ProjectCreateDialog({
     setCreating(true);
     setError(undefined);
     try {
-      if (!types.length) throw new Error(t("integration.incompatible"));
-      const pluginId = firstMessage
-        ? referencedIntegration(mentions, plugins)
-        : integrations.find((plugin) => plugin.id === integrationId)?.id;
+      if (!types.length) throw new Error(t("createDialog.incompatiblePlugins"));
       const input = {
         ...(name.trim() ? { name: name.trim() } : {}),
-        ...(isAppProjectType(type) ? { type, ...(pluginId ? { pluginId } : {}) } : { projectType: type }),
+        ...(isAppProjectType(type) ? { type } : { projectType: type }),
         ...(workspacePath ? { workspacePath } : {}),
       };
       if (typePluginConsent) await consentToPlugin(typePluginConsent.id, typePluginConsent.capabilities);
       // Retrying after a failure reuses the project, unless the choices changed.
       const key = JSON.stringify(input);
       if (created.current?.key !== key) created.current = { key, project: await createProject(input) };
-      const gateId = pluginId ?? created.current.project.integration?.pluginId;
-      const integration = plugins.find((plugin) => plugin.id === gateId)?.integration;
-      const project = await integrationGate.ensure(
-        created.current.project,
-        gateId,
-        gateId ? { canCreate: !!integration?.createProject, embedded: true } : undefined,
-      );
-      if (!project) {
-        setCreating(false);
-        setShown(true);
-        return;
-      }
-      created.current.project = project;
+      const project = created.current.project;
       // Plugins chosen on Home for this project alone; the person allowed what they ask for there.
       for (const plugin of firstMessage?.projectPlugins ?? []) {
         // A plugin's own type turns it on; the app's Godot type does not.
-        if (plugin.providesTypes.includes(type)) continue;
+        if (plugin.providesTypes.includes(type) || !pluginAppliesTo(plugin.appliesTo, projectFileTypeFor(type))) continue;
         if (!plugin.consented) await consentToPlugin(plugin.id, plugin.capabilities);
         await setProjectPluginVersion(project.id, plugin.id, plugin.version);
       }
@@ -257,11 +234,11 @@ export function ProjectCreateDialog({
     }
   }
 
-  // Creating with a plugin that makes its own project (TapTap Maker) continues in its panel.
-  if (integrationGate.creation) return <IntegrationStep label={integrationGate.creationTitle} onCancel={integrationGate.cancelCreation}>{integrationGate.creation}</IntegrationStep>;
   if (!shown) return null;
 
-  const location = workspacePath ?? (defaultLocation ? t("createDialog.inLocation", { path: defaultLocation }) : t("createDialog.managedFolder"));
+  // A folder the person chose or set is shown as its path; OhMyGame's own storage by name, its path on hover.
+  const locationPath = workspacePath ?? defaultLocation.location;
+  const locationTitle = locationPath ?? defaultLocation.storage;
   return (
     <Dialog open onClose={close} title={t("createDialog.newProject")} size="md"
       footer={<>
@@ -291,7 +268,6 @@ export function ProjectCreateDialog({
                 return;
               }
               setChosenType(value);
-              setIntegrationId("");
             }}
             options={projectTypeOptions(types.map((option) => option.value), pluginTypes)} />}
         </Field>
@@ -303,20 +279,19 @@ export function ProjectCreateDialog({
             </ul>
           </div>
         ) : null}
-        {integrations.length ? (
-          <Field label={t("integration.plugin")}>
-            {(props) => <Select id={props.id} label={t("integration.plugin")} value={integrationId} onChange={setIntegrationId}
-              options={[{ value: "", label: t("integration.noPlugin") }, ...integrations.map((plugin) => ({ value: plugin.id, label: plugin.displayName }))]} />}
-          </Field>
-        ) : null}
-        <Field label={t("creator.workspace")}>
+        {/* Only a folder shown by its path needs saying how it is used. */}
+        <Field label={t("creator.workspace")} hint={workspacePath ? t("createDialog.usesFolder") : locationPath ? t("createDialog.newFolder") : undefined}>
           {(props) => (
+            // One box with the folder and its buttons, as tall as the fields above; a folder is only chosen with the button.
             <div className="new-project-location">
-              <Input {...props} readOnly value={location} title={location} />
-              <Button disabled={creating || selectingWorkspace} onClick={() => void chooseWorkspace()}>
+              <Folder size={14} className="new-project-location-icon" aria-hidden="true" />
+              <output {...props} className={`new-project-location-path${locationPath ? " is-path" : ""}`} title={locationTitle}>
+                <bdi>{locationPath ?? t("settings.general.projectLocationDefault")}</bdi>
+              </output>
+              <Button size="sm" disabled={creating || selectingWorkspace} onClick={() => void chooseWorkspace()}>
                 {selectingWorkspace ? t("createDialog.opening") : workspacePath ? t("createDialog.chooseAnother") : t("creator.chooseFolder")}
               </Button>
-              {workspacePath ? <Button variant="ghost" disabled={creating} onClick={() => setWorkspacePath(undefined)}>{t("common.clear")}</Button> : null}
+              {workspacePath ? <Button size="sm" variant="ghost" disabled={creating} onClick={() => setWorkspacePath(undefined)}>{t("common.clear")}</Button> : null}
             </div>
           )}
         </Field>
@@ -346,29 +321,6 @@ export function ProjectCreateDialog({
         <button type="submit" hidden />
       </form>
     </Dialog>
-  );
-}
-
-/** The plugin's own creation panel, which brings its header and cancel button. */
-function IntegrationStep({ label, onCancel, children }: { label?: string; onCancel: () => void; children: React.ReactNode }) {
-  const panel = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    panel.current?.querySelector<HTMLElement>("input, button")?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
-  return createPortal(
-    <div className="ui-backdrop">
-      <div ref={panel} className="ui-dialog ui-dialog-md new-project-integration" role="dialog" aria-modal="true" aria-label={label}>
-        {children}
-      </div>
-    </div>,
-    document.body,
   );
 }
 

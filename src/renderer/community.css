@@ -110,7 +110,7 @@
 .community-card-cover {
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 16 / 9;
   border-radius: 10px;
   object-fit: cover;
   background: var(--color-surface-raised);

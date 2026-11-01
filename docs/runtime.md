@@ -614,6 +614,15 @@ drags by its top edge (double-click puts it back), folds to a pill at the
 bottom, which unfolds when something waits on an answer, and opens into the
 chat panel. The composer's draft carries between the bar and the panel.
 
+The composer's and Home's prompt field (`src/renderer/prompt-editor.tsx`, a
+plain-text Lexical editor) shows each plugin (`@Name`) and Skill (`$name`) the
+prompt names as a chip, which the caret steps over and Backspace removes
+whole. Picking one from `@`, `$`, `/` or the **+** menu puts it where it is
+typed, any number of each; the field's text is the prompt as sent. A name
+typed by hand stays text until the prompt is shown again, as from history.
+Drafts saved when a Skill or plugin sat in a slot before the text come back
+with it in the text.
+
 Design is the game design document, the Markdown the agent reads as the game's
 design (`src/renderer/design-document-panel.tsx`). Its toolbar picks one of the
 canvas documents, the main one first, and switches between reading it beside its
@@ -759,8 +768,11 @@ colors following the app's light or dark theme. See the
 [dark](assets/community-gallery-dark.webp) and
 [light](assets/community-gallery-light.webp) examples (sample games).
 
-Author links open their public profile with listed works. **My profile** requires
-sign-in and includes deployed works. Profile cards open the game detail; they
+Author links open their public profile with listed works. **My games**, next to
+the search and in the account menu, opens your own profile; it requires sign-in
+and includes deployed works. While the gallery is open, the window coming back
+after a minute or more reloads the list in the background, keeping the grid if
+that fails. Profile cards open the game detail; they
 have no editing or unpublish controls. The game detail header shows **Edit game**
 and a **More game actions → Unpublish** menu only for the signed-in author,
 using the existing user and game author IDs without an extra ownership request.

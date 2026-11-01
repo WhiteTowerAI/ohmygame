@@ -7,6 +7,7 @@ import {
   parseSkillBlock,
   SessionManager,
   SettingsManager,
+  stripFrontmatter,
   type AgentSessionEvent,
   type SessionEntry,
   type ToolDefinition,
@@ -15,7 +16,7 @@ import path from "node:path";
 import { promptContextLabels, splitPromptContext, withProjectDesignContext } from "./prompt-context.js";
 import { gameDesignMetadata } from "./game-design-context.js";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createTrackedWriteTool, fileChangeMetadata } from "./file-line-changes.js";
 import { readWorkspaceNotice } from "./workspace-notice.js";
 import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
@@ -24,6 +25,7 @@ import type { RuntimeEventBus } from "../shared/events.js";
 import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "../shared/agent-runtimes.js";
 import type { StoredConversation } from "./conversations.js";
 import { replayNativeMessages } from "./agent-runtimes/replay.js";
+import { invokedSkills } from "./agent-runtimes/skills.js";
 import {
   ensureOhMyGamePiEnvironment,
   withoutOhMyGameManagedPiPackages,
@@ -846,7 +848,7 @@ export class AgentManager {
         const metadata = await gameDesignMetadata(project, Boolean(managedDesign?.designContext));
         if (managedDesign) managedDesign.designContext = metadata;
         const privateContext = withProjectDesignContext(attachmentContext, metadata);
-        const wirePrompt = `${promptWithReferences(skillInvocationPrompt(serializePluginMentions(prompt, mentions)), references)}${privateContext}`;
+        const wirePrompt = `${promptWithReferences(serializePluginMentions(prompt, mentions), references)}${privateContext}`;
         const event = this.events.publish(
           project.id,
           "prompt.queued",
@@ -1174,8 +1176,7 @@ export class AgentManager {
     );
     active.startedEventId = started.id;
     active.startedAt = Date.parse(started.timestamp);
-    const mentionedPrompt = serializePluginMentions(prompt, mentions);
-    const invocation = mode === "normal" ? skillInvocationPrompt(mentionedPrompt) : mentionedPrompt;
+    const invocation = serializePluginMentions(prompt, mentions);
     const basePrompt = mode === "planning"
       ? planningPrompt(promptWithReferences(invocation, references))
       : mode === "executing"
@@ -2453,9 +2454,35 @@ function promptWithReferences(prompt: string, references: PromptReference[]): st
   return `${prompt}\n\n${REFERENCE_MARKER}\n${JSON.stringify(references.map(({ path }) => path))}\n</workspace-file-references>`;
 }
 
-export function skillInvocationPrompt(prompt: string): string {
-  const match = prompt.match(/^\$([a-zA-Z0-9][a-zA-Z0-9._-]*)(?=\s|$)/);
-  return match ? `/skill:${match[1]}${prompt.slice(match[0].length)}` : prompt;
+/** The Skills a message names, each as the block Pi itself writes for `/skill:`, before the message. */
+export function skillBlocksPrompt(prompt: string, skills: ReadonlyArray<{ name: string; filePath: string; baseDir: string }>): string {
+  const byName = new Map(skills.map((skill) => [skill.name, skill]));
+  const blocks = invokedSkills(prompt, byName.keys()).flatMap((name) => {
+    const skill = byName.get(name)!;
+    try {
+      const body = stripFrontmatter(readFileSync(skill.filePath, "utf8")).trim();
+      return [`<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`];
+    } catch {
+      return [];
+    }
+  });
+  return blocks.length ? `${blocks.join("\n\n")}\n\n${prompt}` : prompt;
+}
+
+/**
+ * The message under its Skill blocks. Pi's own expansion of `/skill:` dropped
+ * the name from the message, so a Skill the message does not name comes back as `$name`.
+ */
+function withoutSkillBlocks(value: string): string {
+  const names: string[] = [];
+  let rest = value;
+  for (let block = parseSkillBlock(rest); block; block = parseSkillBlock(rest)) {
+    names.push(block.name);
+    rest = block.userMessage ?? "";
+  }
+  if (!names.length) return value;
+  const unnamed = names.filter((name) => !invokedSkills(rest, [name]).length).map((name) => `$${name}`);
+  return [...unnamed, rest].filter(Boolean).join(" ");
 }
 
 function parseUserPrompt(value: string): { text: string; mentions: PluginMention[]; references: PromptReference[]; attachments: ConversationAttachment[]; attachmentContext: string } {
@@ -2466,9 +2493,7 @@ function parseUserPrompt(value: string): { text: string; mentions: PluginMention
   const marker = `\n\n${REFERENCE_MARKER}\n`;
   const index = source.lastIndexOf(marker);
   const visible = index < 0 ? source : source.slice(0, index);
-  const skill = parseSkillBlock(visible);
-  const restored = skill ? `$${skill.name}${skill.userMessage ? ` ${skill.userMessage}` : ""}` : visible;
-  const parsed = parsePluginMentions(restored);
+  const parsed = parsePluginMentions(withoutSkillBlocks(visible));
   const text = parsed.text;
   const attachments = localAttachments?.attachments ?? [];
   if (index < 0) return { text, mentions: parsed.mentions, references: [], attachments, attachmentContext };
@@ -3101,13 +3126,19 @@ export async function createPiSession(
   mcp?.host.manage(session);
   try { await session.bindExtensions({ mode: "rpc" }); } catch (cause) { session.dispose(); throw cause; }
   const prompt = session.prompt.bind(session);
+  const followUp = session.followUp.bind(session);
+  const steer = session.steer.bind(session);
+  // Pi expands only one leading `/skill:`, so the session expands every Skill a message names.
+  const withSkills = (text: string) => skillBlocksPrompt(text, resourceLoader.getSkills().skills);
   return Object.assign(session, {
     emitsInitialUserMessage: true,
-    prompt: async (...args: Parameters<typeof prompt>) => {
+    prompt: async (text: string, options?: Parameters<typeof prompt>[1]) => {
       checkpointFailure = undefined;
-      await prompt(...args);
+      await prompt(withSkills(text), options);
       assertCheckpoint();
     },
+    followUp: (text: string, images?: Parameters<typeof followUp>[1], options?: Parameters<typeof followUp>[2]) => followUp(withSkills(text), images, options),
+    steer: (text: string, images?: Parameters<typeof steer>[1], options?: Parameters<typeof steer>[2]) => steer(withSkills(text), images, options),
     getSkills: () => skillCatalog(resourceLoader.getSkills().skills, pluginSkills),
   });
 }

@@ -25,7 +25,6 @@ import {
   PluginConfigurationStore,
 } from "./plugin-configuration.js";
 import { PluginMcpHost, type EffectiveMcpConfig } from "./plugin-mcp-host.js";
-import type { LegacyMcpConfiguration } from "./legacy-mcp.js";
 
 interface PluginMcpPackage {
   root: string;
@@ -111,26 +110,15 @@ export class PluginCapabilities {
       );
     const values = this.configuration.resolved(plugin);
     const resolved = substitute(template, values) as McpServerDefinition;
-    if (plugin.integration && resolved.command) {
-      resolved.env = { ...(resolved.env as Record<string, string> | undefined), OHMYGAME_PLUGIN_DATA_DIR: this.dataPath(plugin.id) };
-    }
     if (!isMcpServerDefinition(resolved))
       throw new PluginConfigurationError("Resolved MCP definition is invalid");
     if (typeof resolved.cwd === "string" && !path.isAbsolute(resolved.cwd))
       resolved.cwd = path.resolve(root, resolved.cwd);
-    if (
-      resolved.command &&
-      resolved.cwd === undefined &&
-      !this.configuration.legacyName(plugin.id, serverId)
-    )
-      resolved.cwd = root;
+    if (resolved.command && resolved.cwd === undefined) resolved.cwd = root;
     return resolved;
   }
   runtimeName(pluginId: string, serverId: string): string {
-    return (
-      this.configuration.legacyName(pluginId, serverId) ??
-      `plugin-${createHash("sha256").update(pluginId).digest("hex").slice(0, 12)}-${serverId}`
-    );
+    return `plugin-${createHash("sha256").update(pluginId).digest("hex").slice(0, 12)}-${serverId}`;
   }
   async effective(projectType?: ProjectType): Promise<EffectiveMcpConfig> {
     const mcpServers: Record<string, McpServerDefinition> = {};
@@ -196,26 +184,13 @@ export class PluginCapabilities {
         toolCount: runtime?.toolCount,
       };
     });
-    const owners = this.configuration.legacyOwners;
-    const all = plugin.connections.length ? await this.all() : [];
-    const connections = plugin.connections.map((connection) => {
-      const owner = owners[connection.id];
-      const provider = all.find((p) => p.id === owner?.pluginId);
-      const enabled = Boolean(
-        provider?.enabled &&
-        provider.mcpServers?.find((s) => s.id === owner?.serverId)?.enabled,
-      );
-      return {
-        ...connection,
-        ownerPluginId: owner?.pluginId,
-        enabled,
-        status: !provider
-          ? ("not-configured" as const)
-          : enabled
-            ? ("enabled" as const)
-            : ("disabled" as const),
-      };
-    });
+    // Only servers imported from the old `mcp.json` could provide a format 1
+    // connection, and those are gone.
+    const connections = plugin.connections.map((connection) => ({
+      ...connection,
+      enabled: false,
+      status: "not-configured" as const,
+    }));
     return {
       ...plugin,
       configuration: this.configuration.fields(plugin),
@@ -371,66 +346,6 @@ export class PluginCapabilities {
     await this.configuration.update(plugin, values);
     return this.settings.decorate(plugin);
   }
-  async migrate(legacy: LegacyMcpConfiguration): Promise<void> {
-    if (this.configuration.migrated) return;
-    const definitions = await legacy.readAndBackup();
-    const owners = this.configuration.legacyOwners;
-    const godot = (await this.all()).find(
-      (plugin) => plugin.id === "ohmygame:godot",
-    );
-    if (
-      godot &&
-      !Object.hasOwn(definitions, "ohmygame-godot") &&
-      !owners["ohmygame-godot"]
-    )
-      await this.configuration.setLegacyOwner(
-        "ohmygame-godot",
-        godot.id,
-        "godot",
-      );
-    for (const [id, definition] of Object.entries(definitions)) {
-      if (owners[id]) continue;
-      if (!isMcpServerDefinition(definition))
-        throw new LocalPluginError(
-          `Cannot migrate invalid MCP definition: ${id}`,
-        );
-      if (id === "ohmygame-godot") {
-        const plugin = godot;
-        if (!plugin) continue;
-        // Preserve advanced/custom preset fields in the user override.
-        const bundled = await this.template(plugin, "godot");
-        const { disabled: _disabled, ...enabledDefinition } = definition;
-        if (JSON.stringify(bundled) !== JSON.stringify(enabledDefinition))
-          await this.setDefinition(plugin, "godot", definition);
-        if (definition.disabled === true)
-          await this.settings.update(plugin, {
-            enabled: false,
-            components: this.settings.resolve(plugin).components,
-          });
-        await this.configuration.setLegacyOwner(id, plugin.id, "godot");
-        continue;
-      }
-      const name = `mcp-${id.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${createHash("sha256").update(id).digest("hex").slice(0, 6)}`;
-      let plugin = await this.localPlugins.read(`personal:${name}`);
-      if (!plugin)
-        plugin = await this.create({
-          name,
-          displayName: id,
-          description: "Imported MCP connection",
-          servers: { [id]: definition },
-        });
-      // Installation can succeed before configuration is persisted. Replaying
-      // the original definition repairs that window on the next startup.
-      await this.setDefinition(plugin, id, definition);
-      if (definition.disabled === true)
-        await this.settings.update(plugin, {
-          enabled: false,
-          components: this.settings.resolve(plugin).components,
-        });
-      await this.configuration.setLegacyOwner(id, plugin.id, id);
-    }
-    await this.configuration.markMigrated();
-  }
 }
 
 /** Shared by manual installation and the AI builder's uninstalled drafts. */
@@ -459,7 +374,7 @@ export function mcpPluginPackage(input: CreateMcpPluginRequest, allowSecrets = f
   if (!isPluginManifest(manifest)) throw new LocalPluginError("Invalid plugin name or configuration fields");
   return { manifest, servers, values };
 }
-function substitute(
+export function substitute(
   value: unknown,
   values: Record<string, string | boolean>,
 ): unknown {
@@ -485,7 +400,7 @@ function substitute(
     );
   return value;
 }
-function protectDefinitions(
+export function protectDefinitions(
   servers: Record<string, McpServerDefinition>,
   fields: Record<string, PluginConfigurationField>,
   values: PluginConfigurationValues,

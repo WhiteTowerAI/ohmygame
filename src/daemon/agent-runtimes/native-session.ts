@@ -16,6 +16,7 @@ import type {
 import { CHECKPOINT_ENTRY, recordCheckpoint } from "../checkpoint-extension.js";
 import type { CodingSession, SkillCatalogItem } from "../agent.js";
 import { handoffSummary } from "./handoff.js";
+import { invokedSkills } from "./skills.js";
 import { NATIVE_API } from "./replay.js";
 
 /** The custom entry that records which native session a conversation's branch continues. */
@@ -43,6 +44,8 @@ export interface NativeTurnInput {
   images: PromptImage[];
   /** Planning turns may read but not change the workspace. */
   readOnly: boolean;
+  /** The Skills the person named with `$name`; each agent loads them its own way. */
+  skills?: string[];
 }
 
 /** A tool result in the shape OhMyGame's own tools return, so artifacts and images show the same way. */
@@ -497,6 +500,7 @@ export class NativeCodingSession implements CodingSession {
       if (summary) wire = `${summary}\n\n${wire}`;
       this.#handoff = false;
     }
+    const skills = invokedSkills(text, this.getSkills().map((skill) => skill.name));
     // A crash or interrupted write must never leave an earlier ready marker
     // claiming that this native context still matches the branch.
     this.#storeNativeState("active");
@@ -505,7 +509,7 @@ export class NativeCodingSession implements CodingSession {
     try {
       try {
         outcome = await this.#driver.runTurn(
-          { text: wire, images, readOnly: this.#readOnly },
+          { text: wire, images, readOnly: this.#readOnly, ...(skills.length ? { skills } : {}) },
           turn.sink(),
           signal,
         );
@@ -519,6 +523,7 @@ export class NativeCodingSession implements CodingSession {
             text: summary ? `${summary}\n\n${currentPrompt}` : currentPrompt,
             images,
             readOnly: this.#readOnly,
+            ...(skills.length ? { skills } : {}),
           },
           turn.sink(),
           signal,

@@ -16,7 +16,6 @@ import type { ComposerDraft } from "./composer.js";
 import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Onboarding, OnboardingArrival, OnboardingLoading, type OnboardingStart } from "./onboarding.js";
 import { useOnboarding } from "./use-onboarding.js";
-import { usePluginIntegrationGate } from "./plugin-integration.js";
 import { CommandMenuHost } from "./command-menu.js";
 import { rememberLastProject } from "./general-preferences.js";
 import { useRunAlerts } from "./run-alerts.js";
@@ -50,7 +49,6 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
   const [playtestEditorProjectId, setPlaytestEditorProjectId] = useState<string>();
-  const creationGate = usePluginIntegrationGate();
 
   // A reconnected runtime may have different providers; model pickers reload theirs.
   useEffect(() => {
@@ -76,9 +74,9 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   if (route.page === "settings") {
     return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} agent={route.agent} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
   }
-  if (route.page === "plugins") return <>{creationGate.dialog}<SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
+  if (route.page === "plugins") return <SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
     <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} adds={route.adds} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
-  </SidebarPageLayout></>;
+  </SidebarPageLayout>;
   if (route.page === "home") {
     return <><Home inert={welcoming} start={start} onStartHandled={() => setStart(undefined)} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
   }
@@ -123,7 +121,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   function openCreatedProject(project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]): void {
     const connection = runtimeConnection();
     setInitialPrompt({ generation: connection.status === "ready" ? connection.generation : -1, conversationId, prompt, mentions, images, mode, attachments });
-    navigateToConversation(project.id, conversationId, false, project.integration ? undefined : createdProjectView(project.type));
+    navigateToConversation(project.id, conversationId, false, createdProjectView(project.type));
   }
 
   function openProject(projectId: string, view?: "design"): void {
@@ -133,12 +131,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   }
 
   async function tryPlugin(plugin: PluginDetail, prompt: string, projectId?: string): Promise<void> {
-    let project = projectId ? await getProject(projectId) : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game", ...(plugin.integration ? { pluginId: plugin.id } : {}) });
-    if (!projectId && plugin.integration) {
-      const ready = await creationGate.ensure(project, plugin.id, { canCreate: !!plugin.integration.createProject });
-      if (!ready) return;
-      project = ready;
-    }
+    const project = projectId ? await getProject(projectId) : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game" });
     const conversation = await createConversation(project.id);
     const mention: PluginMention = {
       name: plugin.name,
@@ -150,7 +143,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
       conversationId: conversation.id,
       draft: { prompt: `${pluginMentionToken(mention)} ${prompt}`, mentions: [mention] },
     });
-    navigateToConversation(project.id, conversation.id, false, project.integration ? undefined : createdProjectView(project.type));
+    navigateToConversation(project.id, conversation.id, false, createdProjectView(project.type));
   }
 
   function clearInitialPrompt(): void {

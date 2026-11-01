@@ -113,9 +113,10 @@
   line-height: 1.4;
 }
 
+/* kbd defaults to monospace, which draws ⌘ thin and small. */
 .ui-menu-shortcut {
   color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--text-xs);
 }
 
@@ -367,9 +368,9 @@
   color: var(--color-text-secondary);
 }
 
-.ui-command kbd {
+.ui-command-list kbd {
   color: var(--color-text-secondary);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--text-xs);
 }
 

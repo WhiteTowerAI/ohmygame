@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import type { ConversationCapabilities, PluginMention } from "../shared/contracts.js";
 import type { PluginSummary } from "../shared/plugins.js";
 import type { PluginIconPresetId } from "../shared/plugin-icons.js";
 import {
@@ -125,6 +126,16 @@ export function PluginGlyph({
     return <Icon size={size} aria-hidden="true" />;
   }
   return <Package size={size} aria-hidden="true" />;
+}
+
+/** A mentioned plugin's own icon, found among the installed ones. */
+export function PluginMentionGlyph({ mention, plugins, size }: {
+  mention: Pick<PluginMention, "name" | "marketplaceId">;
+  plugins: ConversationCapabilities["plugins"];
+  size: number;
+}): ReactNode {
+  const plugin = plugins.find((item) => item.name === mention.name && item.marketplaceId === mention.marketplaceId);
+  return plugin ? <PluginGlyph plugin={plugin} size={size} /> : <Package size={size} aria-hidden="true" />;
 }
 
 export function PluginIcon({

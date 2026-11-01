@@ -116,3 +116,15 @@ it("opens the logs folder in the desktop app only", async () => {
     Reflect.deleteProperty(window, "ohMyGameDesktop");
   }
 });
+
+it("remembers when usage data is turned off", async () => {
+  localStorage.removeItem("ohmygame:usage-data");
+  await renderAbout();
+  const toggle = container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Send usage data"]')!;
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+
+  await act(async () => toggle.click());
+
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  expect(localStorage.getItem("ohmygame:usage-data")).toBe("off");
+});

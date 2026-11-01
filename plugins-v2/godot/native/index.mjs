@@ -3,53 +3,14 @@
 // agent, the web export the game panel plays, and the full editor on request.
 
 import { spawn } from "node:child_process";
-import { access, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { constants } from "node:fs";
+import { lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { findGodot as findGodotAt } from "./godot.mjs";
 
 const OUTPUT_MAX_CHARS = 40_000;
 const WEB_BUILD_FOLDER = ".ohmygame/build/web";
 const WEB_PRESET = "Web";
-
-/** Where Godot is usually installed, after the setting, `GODOT_PATH` and the PATH. */
-function candidates(configured) {
-  const names = process.platform === "win32" ? ["godot.exe", "godot4.exe"] : ["godot", "godot4"];
-  const fromPath = (process.env.PATH ?? "")
-    .split(path.delimiter)
-    .filter(Boolean)
-    .flatMap((folder) => names.map((name) => path.join(folder, name)));
-  const known =
-    process.platform === "darwin"
-      ? ["/Applications/Godot.app/Contents/MacOS/Godot", path.join(os.homedir(), "Applications/Godot.app/Contents/MacOS/Godot")]
-      : process.platform === "win32"
-        ? [path.join(process.env.LOCALAPPDATA ?? "", "Programs", "Godot", "godot.exe")]
-        : ["/usr/bin/godot", "/usr/local/bin/godot", "/snap/bin/godot", "/var/lib/flatpak/exports/bin/org.godotengine.Godot"];
-  return [
-    ...(configured ? [configured] : []),
-    ...(process.env.GODOT_PATH ? [process.env.GODOT_PATH] : []),
-    ...fromPath,
-    ...known,
-  ];
-}
-
-/** The Godot setting is a path to the executable, or to Godot.app on macOS. */
-function executableAt(setting) {
-  if (typeof setting !== "string" || !setting) return undefined;
-  return process.platform === "darwin" && setting.endsWith(".app") ? path.join(setting, "Contents/MacOS/Godot") : setting;
-}
-
-async function findGodot(call) {
-  for (const candidate of candidates(executableAt(call?.configuration?.godotPath))) {
-    try {
-      await access(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // Try the next one.
-    }
-  }
-  return undefined;
-}
 
 /** Runs Godot and collects its output; the call's signal stops it. */
 function run(executable, args, { cwd, signal, timeoutMs = 120_000, progress }) {
@@ -92,6 +53,9 @@ function errorLines(output) {
     .slice(0, 50)
     .map((line) => line.trim());
 }
+
+/** The Godot this call uses, from the plugin's setting, then the usual places. */
+const findGodot = (call) => findGodotAt(call?.configuration?.godotPath);
 
 async function requireGodot(call) {
   const executable = await findGodot(call);

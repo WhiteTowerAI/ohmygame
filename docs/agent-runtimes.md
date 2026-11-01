@@ -340,6 +340,16 @@ Each agent reads its staged roots without asking: Claude Code through
 read them. Running staged scripts follows the agent's own rules.
 Remove staged files only after the CLI stops.
 
+A message names Skills as `$name`, anywhere and any number; only names the
+agent has count. The message stays as written, and each agent gets the named
+Skills its own way: Pi a `<skill>` block per Skill before the message (the
+block Pi writes for `/skill:`, which takes only one), Codex a `skill` input
+item with the staged `SKILL.md`, and Claude Code (`ohmygame:<name>`, the
+session plugin's names) and OpenCode a first line asking them to load the
+Skills with their own tool. A Skill that was not staged for the session, such
+as one of the project's own, is asked for in words by its own name. A restored
+Pi message drops its blocks and shows the `$name` again.
+
 New plugin capabilities must be expressible as Skills or MCP. Pi extensions are
 not portable. Native canvas file edits still need `canvas_check`; media jobs,
 artifacts, retries, defaults, and cancellation reuse their existing handlers.

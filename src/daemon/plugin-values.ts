@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PluginConfigurationValues } from "../shared/extension-host-protocol.js";
+import { configReferences, fillConfigReferences, mcpUrlIssue } from "../shared/plugin-manifest.js";
 import type { PluginIndexEntry } from "./plugin-index.js";
 
 // The person's values for format 2 plugins' `configuration` fields, one file
@@ -87,6 +88,12 @@ export class PluginValues {
       : undefined;
   }
 
+  /** Whether the person set a field, rather than it falling back to its default. */
+  isSet(entry: PluginIndexEntry, name: string): boolean {
+    const field = entry.manifest.configuration?.[name];
+    return field !== undefined && this.#value(entry, name, field) !== undefined;
+  }
+
   /** What the plugin's settings page shows; secrets only say whether they are set. */
   view(entry: PluginIndexEntry): PluginConfigurationView {
     return Object.fromEntries(
@@ -114,6 +121,17 @@ export class PluginValues {
       if (value === null) continue;
       const problem = invalid(field, value);
       if (problem) throw new PluginConfigurationError(`${name} ${problem}`);
+    }
+    // An HTTP MCP server's URL, once these values fill it in, must still be allowed.
+    const next: Record<string, unknown> = { ...this.forNative(entry) };
+    for (const [name, value] of Object.entries(changes)) next[name] = value === null ? fields[name]!.default : typeof value === "string" ? value.trim() : value;
+    for (const server of entry.manifest.contributes?.mcpServers ?? []) {
+      if (!("url" in server)) continue;
+      const names = configReferences(server.url);
+      if (!names.some((name) => name in changes) || names.some((name) => next[name] === undefined)) continue;
+      const url = fillConfigReferences(server.url, next);
+      const problem = mcpUrlIssue(url, entry.manifest.capabilities?.network);
+      if (problem) throw new PluginConfigurationError(`${url} ${problem}`);
     }
     return this.#write((values) => {
       const next = { ...values[entry.id] };

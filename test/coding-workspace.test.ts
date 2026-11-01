@@ -85,7 +85,6 @@ describe("coding workspace", () => {
           workspacePath: "/tmp/project-1",
           preview: { status: "waiting" },
         },
-        agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
         onPublish: async () => false,
@@ -110,7 +109,7 @@ describe("coding workspace", () => {
         preview: { status: "waiting" },
         publication: { gameId: "game-1", deploymentId: "deployment-1", playUrl: "https://play.example/game-1", publishedAt: "2026-10-05T03:00:00.000Z" },
       },
-      agentBusy: false, publishing: false, workspaceRevision: 0,
+      publishing: false, workspaceRevision: 0,
       onPublish: async () => false, onRestart: () => undefined,
       onClosePublish: () => undefined,
     }));
@@ -127,7 +126,7 @@ describe("coding workspace", () => {
         preview: { status: "waiting" },
         publication: { gameId: "game-1", deploymentId: "deployment-1", title: "Published title", playUrl: "https://play.example/game-1", publishedAt: "2026-10-05T03:00:00.000Z" },
       },
-      agentBusy: false, publishing: false, workspaceRevision: 0,
+      publishing: false, workspaceRevision: 0,
       publishDialog: "success",
       onPublish: async () => false, onRestart: () => undefined,
       onClosePublish: () => undefined,
@@ -160,7 +159,6 @@ describe("coding workspace", () => {
           workspacePath: "/tmp/project-1",
           preview: { status: "stopped" },
         },
-        agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
         onPublish: async () => false,
@@ -187,7 +185,6 @@ describe("coding workspace", () => {
           previewViewport: viewport,
           preview: { status: "ready", url: "http://127.0.0.1:43121" },
         },
-        agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
         onPublish: async () => false,
@@ -202,7 +199,7 @@ describe("coding workspace", () => {
 
   it("respects the saved General preview capability when opening the workspace directly", () => {
     const props = {
-      agentBusy: false, publishing: false, workspaceRevision: 0,
+      publishing: false, workspaceRevision: 0,
       onPublish: async () => false,
       onClosePublish: () => undefined, onRestart: () => undefined,
     };
@@ -230,7 +227,6 @@ describe("coding workspace", () => {
           workspacePath: "/tmp/project-1",
           preview: { status: "ready", url: "http://127.0.0.1:43121" },
         },
-        agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
         onPublish: async () => false,

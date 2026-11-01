@@ -1,11 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
+import type { ConversationCapabilities, PluginMention } from "../shared/contracts.js";
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
 import { promptHistoryDirection } from "./prompt-history.js";
-import { editPromptList, promptListLines } from "./prompt-lists.js";
+import { editPromptList } from "./prompt-lists.js";
+import { PromptEditor, type PromptInput, type PromptSelection } from "./prompt-editor.js";
 import { sendsMessage } from "./general-preferences.js";
 import { t } from "./i18n.js";
 
 export type DroppedFile = TransferredFile;
+export type { PromptInput, PromptSelection };
 
 interface PromptBoxProps {
   value: string;
@@ -18,14 +21,19 @@ interface PromptBoxProps {
   readOnly?: boolean;
   placeholder: string;
   variant: "home" | "project";
-  textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  inputRef?: RefObject<PromptInput | null>;
+  /** Plugins the prompt mentions, shown as chips in it. */
+  mentions?: readonly PluginMention[];
+  /** The installed plugins, for the mentioned ones' icons. */
+  plugins?: ConversationCapabilities["plugins"];
+  /** The agent's Skills; `$name` of one is shown as a chip. */
+  skills?: readonly string[];
   overlay?: ReactNode;
   suggestions?: { id: string; activeId?: string };
   content?: ReactNode;
-  prefix?: ReactNode;
   leading?: ReactNode;
   actions: ReactNode;
-  onCommandKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => boolean;
+  onCommandKeyDown?: (event: KeyboardEvent, selection: PromptSelection) => boolean;
   onSelectionChange?: (cursor: number) => void;
   onDropFiles?: (files: DroppedFile[]) => void;
   onDropError?: (error: Error) => void;
@@ -41,11 +49,13 @@ export function PromptBox({
   readOnly,
   placeholder,
   variant,
-  textareaRef,
+  inputRef,
+  mentions,
+  plugins,
+  skills,
   overlay,
   suggestions,
   content,
-  prefix,
   leading,
   actions,
   onCommandKeyDown,
@@ -55,52 +65,51 @@ export function PromptBox({
 }: PromptBoxProps) {
   const [dropActive, setDropActive] = useState(false);
   const dragDepth = useRef(0);
-  const localTextarea = useRef<HTMLTextAreaElement>(null);
-  const inputRef = textareaRef ?? localTextarea;
-  const listMirror = useRef<HTMLDivElement>(null);
+  const localInput = useRef<PromptInput>(null);
+  const input = inputRef ?? localInput;
   const pendingCursor = useRef<number | undefined>(undefined);
-  const lines = variant === "project" ? promptListLines(value) : [];
-  const showListMirror = lines.some(({ list }) => list && /^[-+*]$/.test(list.marker));
-  useLayoutEffect(() => {
-    const input = inputRef.current;
-    resizeTextarea(input);
-    if (input && pendingCursor.current !== undefined) {
-      input.setSelectionRange(pendingCursor.current, pendingCursor.current);
-      onSelectionChange?.(pendingCursor.current);
-      pendingCursor.current = undefined;
-    }
-    syncListMirror();
-  }, [value, showListMirror]);
+  // A list edit replaces the text; its caret lands once the field shows it.
   useEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-    let width = input.clientWidth;
-    const observer = new ResizeObserver(() => {
-      // Collapsed panes still mount the input at a narrow width. Remeasure
-      // wrapping when it expands, without reacting to our own height changes.
-      const nextWidth = input.clientWidth;
-      if (nextWidth !== width) {
-        width = nextWidth;
-        resizeTextarea(input);
-      }
-      syncListMirror();
-    });
-    observer.observe(input);
-    return () => observer.disconnect();
-  }, [inputRef]);
-
-  function syncListMirror(): void {
-    const input = inputRef.current;
-    const mirror = listMirror.current;
-    if (!input || !mirror) return;
-    mirror.style.width = `${input.clientWidth}px`;
-    mirror.scrollTop = input.scrollTop;
-    mirror.scrollLeft = input.scrollLeft;
-  }
+    if (pendingCursor.current === undefined) return;
+    input.current?.focus(pendingCursor.current);
+    pendingCursor.current = undefined;
+  }, [value]);
 
   function submit(event?: FormEvent): void {
     event?.preventDefault();
     onSubmit();
+  }
+
+  function handleKeyDown(event: KeyboardEvent, selection: PromptSelection): boolean {
+    if (onCommandKeyDown?.(event, selection)) return true;
+    if (variant === "project" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      const edit = editPromptList(value, selection.start, selection.end, event.key, event.shiftKey);
+      if (edit) {
+        event.preventDefault();
+        if (edit.value !== value) {
+          pendingCursor.current = edit.cursor;
+          onChange(edit.value);
+        }
+        return true;
+      }
+    }
+    const historyDirection = promptHistoryDirection(event.key, selection.start, selection.end, value.length);
+    if (historyDirection === "previous" && onHistoryPrevious) {
+      event.preventDefault();
+      onHistoryPrevious();
+      return true;
+    }
+    if (historyDirection === "next" && onHistoryNext) {
+      event.preventDefault();
+      onHistoryNext();
+      return true;
+    }
+    if (sendsMessage(event)) {
+      event.preventDefault();
+      submit();
+      return true;
+    }
+    return false;
   }
 
   return (
@@ -147,69 +156,26 @@ export function PromptBox({
       {overlay}
       {content}
       <div className="prompt-box-input">
-        {prefix}
-        <div className={`prompt-box-editor${showListMirror ? " has-list-mirror" : ""}`}>
-        {showListMirror ? <div className="prompt-box-list-mirror" aria-hidden="true" ref={listMirror}>
-          {lines.map(({ text, list }, index) => <span key={index}>
-            {list && /^[-+*]$/.test(list.marker) ? <>{list.indent}<span className="prompt-box-list-bullet">{list.marker}</span>{list.spacing}{list.task}{list.content}</> : text}
-            {index < lines.length - 1 ? "\n" : ""}
-          </span>)}
-          {value.endsWith("\n") ? " " : null}
-        </div> : null}
-        <textarea
-          ref={inputRef}
-          aria-label={t("composer.prompt")}
-          aria-controls={suggestions?.id}
-          aria-activedescendant={suggestions?.activeId}
-          aria-autocomplete={suggestions ? "list" : undefined}
-          disabled={disabled}
-          readOnly={readOnly}
-          onChange={(event) => {
-            onChange(event.target.value);
-            onSelectionChange?.(event.currentTarget.selectionStart);
-          }}
-          onSelect={(event) => onSelectionChange?.(event.currentTarget.selectionStart)}
-          onInput={(event) => resizeTextarea(event.currentTarget)}
-          onScroll={syncListMirror}
-          onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
-            if (readOnly || event.nativeEvent.isComposing || event.keyCode === 229) return;
-            if (onCommandKeyDown?.(event)) return;
-            if (variant === "project" && !event.metaKey && !event.ctrlKey && !event.altKey) {
-              const edit = editPromptList(value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd, event.key, event.shiftKey);
-              if (edit) {
-                event.preventDefault();
-                if (edit.value !== value) {
-                  pendingCursor.current = edit.cursor;
-                  onChange(edit.value);
-                }
-                return;
-              }
-            }
-            const historyDirection = promptHistoryDirection(
-              event.key,
-              event.currentTarget.selectionStart,
-              event.currentTarget.selectionEnd,
-              value.length,
-            );
-            if (historyDirection === "previous" && onHistoryPrevious) {
-              event.preventDefault();
-              onHistoryPrevious();
-              return;
-            }
-            if (historyDirection === "next" && onHistoryNext) {
-              event.preventDefault();
-              onHistoryNext();
-              return;
-            }
-            if (sendsMessage(event)) {
-              event.preventDefault();
-              submit();
-            }
-          }}
-          placeholder={placeholder}
-          rows={1}
-          value={value}
-        />
+        <div className="prompt-box-editor">
+          <PromptEditor
+            value={value}
+            onChange={onChange}
+            onSelectionChange={onSelectionChange}
+            onKeyDown={handleKeyDown}
+            mentions={mentions}
+            plugins={plugins}
+            skills={skills}
+            placeholder={placeholder}
+            disabled={disabled}
+            readOnly={readOnly}
+            inputRef={input}
+            aria={{
+              "aria-label": t("composer.prompt"),
+              "aria-controls": suggestions?.id,
+              "aria-activedescendant": suggestions?.activeId,
+              "aria-autocomplete": suggestions ? "list" : undefined,
+            }}
+          />
         </div>
       </div>
       <div className="prompt-box-toolbar">
@@ -218,10 +184,4 @@ export function PromptBox({
       </div>
     </form>
   );
-}
-
-function resizeTextarea(element: HTMLTextAreaElement | null): void {
-  if (!element) return;
-  element.style.height = "auto";
-  element.style.height = `${Math.min(element.scrollHeight + 1, 132)}px`;
 }

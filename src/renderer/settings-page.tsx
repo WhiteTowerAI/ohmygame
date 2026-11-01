@@ -15,6 +15,7 @@ import {
   readAppearance, readChatFont, readPalette, setAppearance as persistAppearance, setChatFont, setPalette,
   type Appearance, type ChatFont, type Palette,
 } from "./appearance.js";
+import { ConnectionsSettings } from "./connections-settings.js";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { NetworkSettingsPanel } from "./network-settings.js";
 import { ExternalAgentsSettings } from "./external-agents-settings.js";
@@ -25,6 +26,7 @@ import { readGeneralPreferences, setGeneralPreference, type GeneralPreferences }
 import { Badge, Button, Progress, SegmentedControl, Select, Spinner, Switch, Tooltip } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import "./settings.css";
+import { readUsageDataEnabled, setUsageDataEnabled } from "./analytics.js";
 
 const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
 const LANGUAGE_OPTIONS: readonly { value: LanguagePreference; label: string }[] = [
@@ -87,6 +89,7 @@ export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOp
           {section === "agents" ? <AgentsSettings agent={agent} onOpen={(id) => onSectionChange("agents", id)} onBack={() => onSectionChange("agents")} onOpenSection={chooseSection} onOpenPlugins={() => onNavigate("plugins")} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
           {section === "network" ? <NetworkSettingsPanel /> : null}
+          {section === "connections" ? <ConnectionsSettings /> : null}
           {section === "mcp-server" ? <ExternalAgentsSettings /> : null}
           {section === "about" ? <AboutSettings onOpenNetwork={() => chooseSection("network")} onOpenOnboarding={onOpenOnboarding} /> : null}
         </div>
@@ -401,6 +404,7 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
       ) : null}
       <ChangelogPanel currentVersion={version} availableRelease={update?.availableRelease} />
       <DiagnosticsSettings />
+      <UsageDataSettings />
     </>
   );
 }
@@ -483,6 +487,20 @@ function DiagnosticsSettings() {
         </SettingsRow>
       ) : null}
       {error ? <div className="settings-pad"><SettingsNote tone="danger">{error}</SettingsNote></div> : null}
+    </SettingsGroup>
+  );
+}
+
+function UsageDataSettings() {
+  const [enabled, setEnabled] = useState(readUsageDataEnabled);
+  return (
+    <SettingsGroup title={t("settings.usageData.title")}>
+      <SettingsRow title={t("settings.usageData.toggle")} description={t("settings.usageData.description")}>
+        <Switch label={t("settings.usageData.toggle")} checked={enabled} onChange={(value) => {
+          setEnabled(value);
+          setUsageDataEnabled(value);
+        }} />
+      </SettingsRow>
     </SettingsGroup>
   );
 }

@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -15,6 +16,7 @@ import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import {
   PluginGrants,
+  capabilityGrants,
   createProjectPlugins,
   projectFolderKey,
   projectSkills,
@@ -24,9 +26,14 @@ import {
   writeProjectFile,
 } from "../src/daemon/project-plugins.js";
 import { validateProjectFile } from "../src/shared/project-file.js";
+import { GODOT_PLUGIN_MCP_SERVER_ID } from "../src/shared/mcp.js";
+import { PLUGIN_PROJECT_KINDS } from "../src/shared/project-runtime.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins-v2");
-const BUNDLED = path.join(import.meta.dirname, "../plugins");
+const BUNDLED = path.join(import.meta.dirname, "../plugins-v2");
+const GODOT_PLUGIN = "ohmygame/godot";
+const GODOT_TYPE = PLUGIN_PROJECT_KINDS["godot-game"];
+const UNREAL_PLUGIN = "ohmygame/unreal-engine";
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -112,6 +119,12 @@ async function clonedProject(folder: string) {
     }),
   );
 }
+
+/** A project's plugins and their statuses, as the services see them. */
+const stateOf = async (folder: string, services: PluginServices) => {
+  const resolved = await resolveProjectPlugins({ folder, index: services.index, grants: services.grants });
+  return resolved?.ok ? resolved.plugins.map((plugin) => [plugin.id, plugin.status]) : resolved;
+};
 
 const statuses = (
   resolved: Awaited<ReturnType<typeof resolveProjectPlugins>>,
@@ -238,6 +251,196 @@ describe("project plugins", () => {
     }
   });
 
+  it("starts the bundled Godot's MCP server in a General project that turns Godot on, with its setting", async () => {
+    const services = new PluginServices({ directory: await temporary(), bundled: BUNDLED });
+    try {
+      await services.ready();
+      const entry = services.index.get("ohmygame/godot")!;
+      const folder = await temporary();
+      await writeProjectFile(folder, (file) => file, { type: "general", plugins: { "ohmygame/godot": entry.version } });
+      // Bundled, so it is on everywhere; a General project still approves it itself.
+      expect(await services.mcpServers(folder)).toEqual({});
+      await services.grants.approve(await projectFolderKey(folder), "ohmygame/godot", capabilityGrants(entry.manifest));
+      // The timeline knows this name to show Godot's calls as Godot's.
+      expect(Object.keys(await services.mcpServers(folder))).toEqual([GODOT_PLUGIN_MCP_SERVER_ID]);
+      const server = () => services.mcpServers(folder).then((servers) => Object.values(servers));
+      // Empty until it is set, so the server looks for Godot as the tools do.
+      expect(await server()).toMatchObject([{
+        command: "node",
+        args: ["./native/mcp.mjs"],
+        cwd: entry.root,
+        env: { OHMYGAME_GODOT_SETTING: "" },
+        includeTools: expect.arrayContaining(["run_project", "get_debug_output", "add_node"]),
+      }]);
+      await services.values.update(entry, { godotPath: "/opt/Godot" });
+      expect(await server()).toMatchObject([{ env: { OHMYGAME_GODOT_SETTING: "/opt/Godot" } }]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("connects to the bundled Unreal's MCP server only on this computer, at the port the person sets", async () => {
+    const services = new PluginServices({ directory: await temporary(), bundled: BUNDLED, bundledOff: [UNREAL_PLUGIN] });
+    try {
+      await services.ready();
+      const entry = services.index.get(UNREAL_PLUGIN)!;
+      const folder = await temporary();
+      await writeProjectFile(folder, (file) => file, { type: "general", plugins: { [UNREAL_PLUGIN]: entry.version } });
+      // It starts off, and a General project approves it itself.
+      expect(await services.mcpServers(folder)).toEqual({});
+      await services.consent(UNREAL_PLUGIN, capabilityGrants(entry.manifest));
+      await services.setEnabled(UNREAL_PLUGIN, true);
+      expect(await services.mcpServers(folder)).toEqual({});
+      await services.grants.approve(await projectFolderKey(folder), UNREAL_PLUGIN, capabilityGrants(entry.manifest));
+      // The adapter keeps it on that origin, with OAuth, redirects and URL expansion off.
+      expect(Object.values(await services.mcpServers(folder))).toEqual([{
+        url: "http://127.0.0.1:8000/mcp",
+        allowedOrigins: ["http://127.0.0.1:8000"],
+        includeTools: ["list_toolsets", "describe_toolset", "call_tool"],
+        disabled: false,
+      }]);
+      await services.configure(UNREAL_PLUGIN, { endpoint: "http://localhost:8100/mcp" });
+      expect(Object.values(await services.mcpServers(folder))).toMatchObject([{ url: "http://localhost:8100/mcp", allowedOrigins: ["http://localhost:8100"] }]);
+      // A setting can't move it past the hosts the person allowed.
+      for (const endpoint of ["http://192.168.1.5:8000/mcp", "https://example.com/mcp", "http://user:secret@127.0.0.1:8000/mcp"])
+        await expect(services.configure(UNREAL_PLUGIN, { endpoint })).rejects.toThrow(endpoint);
+      expect(Object.values(await services.mcpServers(folder))).toMatchObject([{ url: "http://localhost:8100/mcp" }]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("runs a plugin only in the project types its appliesTo names", async () => {
+    const services = new PluginServices({ directory: await temporary(), bundled: BUNDLED });
+    try {
+      await services.ready();
+      const unreal = services.index.get(UNREAL_PLUGIN)!;
+      const godot = services.index.get(GODOT_PLUGIN)!;
+      expect(unreal.manifest.appliesTo).toEqual(["general"]);
+      // An Interactive Story can't turn on Unreal, which suits General projects.
+      const web = await temporary();
+      await writeProjectFile(web, (file) => file, { type: "interactive-story" });
+      await expect(services.setProjectPlugin(web, UNREAL_PLUGIN, unreal.version)).rejects.toThrow("doesn't work in interactive-story projects");
+      // One the file asks for anyway (an older app, or by hand) doesn't run there, and can still be turned off.
+      await writeProjectFile(web, (file) => ({ ...file, plugins: { [UNREAL_PLUGIN]: unreal.version } }));
+      await services.grants.approve(await projectFolderKey(web), UNREAL_PLUGIN, capabilityGrants(unreal.manifest));
+      expect(await stateOf(web, services)).toEqual([[UNREAL_PLUGIN, "not-applicable"]]);
+      expect(await services.mcpServers(web)).toEqual({});
+      await services.setProjectPlugin(web, UNREAL_PLUGIN, null);
+      expect(await stateOf(web, services)).toEqual([]);
+      // Godot names its own type, so a Godot project keeps it and can't add Unreal.
+      const typed = await temporary();
+      await createProjectPlugins({ folder: typed, type: GODOT_TYPE, plugins: { [GODOT_PLUGIN]: godot.version }, index: services.index, grants: services.grants });
+      expect(await stateOf(typed, services)).toEqual([[GODOT_PLUGIN, "active"]]);
+      await expect(services.setProjectPlugin(typed, UNREAL_PLUGIN, unreal.version)).rejects.toThrow("doesn't work in");
+      // A General project can turn on both.
+      const general = await temporary();
+      await services.setProjectPlugin(general, UNREAL_PLUGIN, unreal.version, "general");
+      await services.setProjectPlugin(general, GODOT_PLUGIN, godot.version);
+      expect(await stateOf(general, services)).toEqual([[GODOT_PLUGIN, "active"], [UNREAL_PLUGIN, "active"]]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("leaves out an HTTP MCP server whose saved URL is outside what the plugin may reach", async () => {
+    const directory = await temporary();
+    // As one saved by hand, or before the check, would be.
+    await writeFile(path.join(directory, "configuration.json"), JSON.stringify({ version: 1, plugins: { [UNREAL_PLUGIN]: { endpoint: { type: "text", value: "http://192.168.1.5:8000/mcp" } } } }));
+    const services = new PluginServices({ directory, bundled: BUNDLED });
+    try {
+      await services.ready();
+      const entry = services.index.get(UNREAL_PLUGIN)!;
+      const folder = await temporary();
+      await writeProjectFile(folder, (file) => file, { type: "general", plugins: { [UNREAL_PLUGIN]: entry.version } });
+      await services.grants.approve(await projectFolderKey(folder), UNREAL_PLUGIN, capabilityGrants(entry.manifest));
+      expect(services.values.view(entry).endpoint).toEqual({ type: "text", value: "http://192.168.1.5:8000/mcp" });
+      expect(await services.mcpServers(folder)).toEqual({});
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("starts the MCP servers of plugins the project allows, once their settings are filled in", async () => {
+    const services = new PluginServices({ directory: await temporary() });
+    try {
+      const root = path.join(await temporary(), "maker");
+      await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
+      await writeFile(
+        path.join(root, ".ohmygame-plugin/plugin.json"),
+        JSON.stringify({
+          id: "acme/maker",
+          version: "1.0.0",
+          engines: { "ohmygame-api": "^2.0.0" },
+          displayName: "Maker",
+          description: "Maker games.",
+          configuration: {
+            region: { type: "text", title: "Region" },
+            token: { type: "secret", title: "Token" },
+          },
+          capabilities: { processes: ["maker"], secrets: true },
+          contributes: {
+            mcpServers: [
+              { id: "local", title: "Local", command: "maker", args: ["mcp", "--region", "${config.region}"], env: { HOME_HINT: "${HOME}" }, tools: ["build"], timeoutSeconds: 600 },
+              { id: "signed-in", title: "Signed in", command: "maker", args: ["mcp"], env: { MAKER_TOKEN: "${config.token}" }, cwd: "./bin", tools: ["publish"] },
+            ],
+          },
+        }),
+      );
+      const added = await services.index.add(root);
+      expect(added.ok).toBe(true);
+      const folder = await temporary();
+      await writeProjectFile(folder, (file) => file, { type: "general", plugins: { "acme/maker": "1.0.0" } });
+      expect(await services.mcpServers(folder)).toEqual({});
+      const grants = ["process:maker", "secrets"];
+      await services.grants.consent("acme/maker", grants);
+      await services.grants.approve(await projectFolderKey(folder), "acme/maker", grants);
+      // Neither setting is filled in yet.
+      expect(await services.mcpServers(folder)).toEqual({});
+      const entry = services.index.get("acme/maker", "1.0.0")!;
+      await services.values.update(entry, { region: "eu", token: "t0k" });
+      const servers = await services.mcpServers(folder);
+      const name = (id: string) => Object.keys(servers).find((key) => key.endsWith(`-v2-${id}`))!;
+      expect(Object.keys(servers)).toHaveLength(2);
+      expect(servers[name("local")]).toEqual({
+        command: "maker",
+        args: ["mcp", "--region", "eu"],
+        // The adapter passes env as written, never reading the app's own;
+        // the app adds the plugin's data folder.
+        env: { HOME_HINT: "${HOME}", OHMYGAME_PLUGIN_DATA_DIR: services.dataFolder("acme/maker") },
+        cwd: added.ok ? added.entry.root : "",
+        literalEnv: true,
+        includeTools: ["build"],
+        requestTimeoutMs: 600_000,
+        disabled: false,
+      });
+      expect(servers[name("signed-in")]).toEqual({
+        command: "maker",
+        args: ["mcp"],
+        env: { MAKER_TOKEN: "t0k", OHMYGAME_PLUGIN_DATA_DIR: services.dataFolder("acme/maker") },
+        cwd: added.ok ? path.join(added.entry.root, "bin") : "",
+        literalEnv: true,
+        includeTools: ["publish"],
+        disabled: false,
+      });
+      // A setting can't make the adapter read the app's environment into args.
+      await services.values.update(entry, { region: "{env:HOME}" });
+      expect(Object.keys(await services.mcpServers(folder))).toEqual([name("signed-in")]);
+      expect((await stat(services.dataFolder("acme/maker"))).isDirectory()).toBe(true);
+      // An id from a route that isn't a plugin's never reaches the file system.
+      const outside = path.join(services.dataFolder("acme/maker"), "..", "..", "..", "projects");
+      await mkdir(outside, { recursive: true });
+      await services.uninstall("../../projects");
+      expect(() => services.dataFolder("../../projects")).toThrow("Not a plugin id");
+      expect((await stat(outside)).isDirectory()).toBe(true);
+      // Uninstalling the last version deletes the data folder.
+      await services.uninstall("acme/maker");
+      await expect(stat(services.dataFolder("acme/maker"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await services.close();
+    }
+  });
+
   it("asks again when a version wants more, and only for what is new", async () => {
     const { index, grants, folder } = await setup();
     expect(
@@ -317,6 +520,18 @@ describe("project plugins", () => {
       id: "ohmygame/game-studio",
       status: "incompatible",
     });
+  });
+
+  it("keeps a plugin off that was turned off before anything was allowed", async () => {
+    const { grants } = await setup();
+    await grants.setEnabled("ohmygame/godot", false);
+    expect(grants.plugin("ohmygame/godot")).toEqual({ enabled: false, allowed: [] });
+    // Allowing it later doesn't turn it back on.
+    await grants.consent("ohmygame/godot", ["network:api.godotengine.org"]);
+    expect(grants.plugin("ohmygame/godot")?.enabled).toBe(false);
+    // Turning on what was never allowed records nothing.
+    await grants.setEnabled("someone/tilemaps", true);
+    expect(grants.plugin("someone/tilemaps")).toBeUndefined();
   });
 
   it("turns plugins on and off in a project, but not the type's plugin", async () => {
