@@ -551,6 +551,18 @@ describe("plugin index", () => {
     ]);
   });
 
+  it("counts only a locale file's own strings", async () => {
+    const dir = await gameStudio();
+    await editManifest(dir, (manifest) => {
+      manifest.contributes.commands[0].title = "%toString%";
+    });
+    const result = await indexPluginPackage(dir);
+    expect(result.ok ? [] : result.issues).toEqual([
+      { path: "./locales/en.json", message: "missing %toString%" },
+    ]);
+    expect(localizePluginString({ strings: { en: {} } }, "%constructor%", "zh-CN")).toBe("%constructor%");
+  });
+
   it("refuses links and plugins for another plugin API", async () => {
     const linked = await solarized();
     await symlink("/etc/hosts", path.join(linked, "assets/hosts"));
