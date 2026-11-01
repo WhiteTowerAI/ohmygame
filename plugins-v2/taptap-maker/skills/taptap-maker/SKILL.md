@@ -13,7 +13,7 @@ The TapTap Maker panel prepares the pinned CLI and diagnostics, signs in, and cr
 
 ## Preview
 
-Use `ohmygame__taptap-maker__maker_preview` with `status`, `install`, `start`, `refresh`, `stop`, or `logs`; the panel has the same controls. The game opens in its own window, and a running process does not prove gameplay. Refresh after relevant edits, which resets game state. Never restart a preview the user stopped, and stop one you started for a test. CLI 0.0.36 has no `preview validate` or screenshots; validate Lua with the project's validation Skill and read its reports.
+Use `ohmygame__taptap-maker__maker_preview` with `status`, `install`, `start`, `refresh`, `stop`, or `logs`; the panel has the same controls. The game opens in its own window, and a running process does not prove gameplay. Refresh after relevant edits, which resets game state. Never restart a preview the user stopped, and stop one you started for a test. The preview tool has no validation or screenshots yet; validate Lua with the project's validation Skill and read its reports.
 
 ## Submit
 

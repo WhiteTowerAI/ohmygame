@@ -17,7 +17,7 @@ const TEXT = {
     signIn: "Sign in",
     signInAgain: "Sign in again",
     project: "Maker project",
-    connected: (id) => `Connected to Maker project ${id}.`,
+    connected: (name) => `Connected to Maker project “${name}”.`,
     createHint: (name) => `Create a new Maker project named “${name}”, or connect one you already have.`,
     create: "Create Maker project",
     load: "Choose an existing project",
@@ -52,7 +52,7 @@ const TEXT = {
     signIn: "登录",
     signInAgain: "重新登录",
     project: "Maker 项目",
-    connected: (id) => `已连接 Maker 项目 ${id}。`,
+    connected: (name) => `已连接 Maker 项目“${name}”。`,
     createHint: (name) => `新建一个名为“${name}”的 Maker 项目，或者连接你已有的项目。`,
     create: "新建 Maker 项目",
     load: "选择已有项目",
@@ -251,7 +251,7 @@ function render() {
       );
     }
     if (status.project) {
-      parts.push(section(text.project, element("p", { class: "status", "data-tone": "good" }, text.connected(status.project.id))));
+      parts.push(section(text.project, element("p", { class: "status", "data-tone": "good" }, text.connected(status.project.name ?? status.project.id))));
       const label = { running: text.running, stopped: text.stopped, missing: text.missing, error: text.failed }[preview?.status] ?? "";
       const previewAction = (action) => () => act(action, () => loadPreview(action));
       parts.push(

@@ -15,7 +15,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
-export const MAKER_VERSION = "0.0.36";
+export const MAKER_VERSION = "0.0.39";
 export const LUA_LSP_VERSION = "0.22.2";
 export const pythonPath = (directory) =>
   path.join(
