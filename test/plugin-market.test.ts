@@ -113,6 +113,8 @@ describe("PluginMarket listing", () => {
     // A prerelease shows only when there's no release.
     expect(await list("1.9.1", "3.0.0-beta.1")).toEqual(["1.9.1"]);
     expect(await list("3.0.0-beta.1", "3.0.0-beta.2")).toEqual(["3.0.0-beta.2"]);
+    // A hyphen in build metadata doesn't make a prerelease.
+    expect(await list("1.0.0", "2.0.0+build-1")).toEqual(["2.0.0+build-1"]);
   });
 
   it("leaves out a name or version installing wouldn't look up as written", async () => {

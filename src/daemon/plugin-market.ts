@@ -286,7 +286,7 @@ function readKey({ key, expires }: { key: string; expires?: string }): { key: Ke
 
 /** A release always beats a prerelease, whatever the numbers say; a prerelease shows only when there's nothing else. */
 function isNewerListing(candidate: string, current: string): boolean {
-  const [candidateRelease, currentRelease] = [candidate, current].map((version) => !version.includes("-"));
+  const [candidateRelease, currentRelease] = [candidate, current].map((version) => !version.split("+")[0]!.includes("-"));
   return candidateRelease === currentRelease ? isNewerPluginVersion(candidate, current) : candidateRelease!;
 }
 
