@@ -378,7 +378,20 @@ export interface StorePlugin {
   grants: { enabled: boolean; allowed: string[] } | null;
   /** Ships with the app, so it can't be uninstalled. */
   bundled: boolean;
+  /** Still being checked on real projects. */
+  beta?: boolean;
+  icon?: PluginIcon;
+  iconRevision?: string;
+  /** Shown under About. */
+  longDescription?: string;
+  /** Prompts its page offers to try it with. */
+  examples: string[];
+  /** The project types it works in; absent means every type. */
+  appliesTo?: string[];
+  homepage?: string;
   settings: StorePluginSetting[];
+  /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
+  skills: Array<{ id: string; name: string; description: string }>;
   /** What it adds, by title; tools and skills are counted. */
   adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; tools: number; skills: number };
 }

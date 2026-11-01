@@ -1,9 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type { StorePlugin, StorePluginConfiguration } from "../shared/plugins.js";
+import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
+import { PLUGIN_CONTRIBUTIONS, type PluginContribution, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
+import { PLUGIN_PROJECT_KINDS, pluginAppliesTo, projectFileTypeFor } from "../shared/project-runtime.js";
 import { consentToPlugin, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, uninstallStorePlugin } from "./api.js";
 import { t } from "./i18n.js";
+import { BadgeCheck, ExternalLink, FolderOpen, Play } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
-import { Alert, Badge, Button, Dialog, Switch } from "./ui/index.js";
+import { SkillSection } from "./plugin-skills.js";
+import { usePluginTry, type TryPlugin } from "./plugin-try.js";
+import { Alert, Badge, Button, Dialog, Switch, Tabs } from "./ui/index.js";
 
 // Format 2 plugins on the Plugins page. They are installed for the app and
 // turned on in each project, from its Plugins sheet or when it is created;
@@ -40,8 +45,21 @@ export function storePluginSearchText(plugin: StorePlugin): string {
   return `${plugin.displayName} ${plugin.description} ${plugin.id}`.toLowerCase();
 }
 
+/** What a format 2 plugin adds, for the browse page's filter. */
+export function storePluginContributions({ adds }: StorePlugin): PluginContribution[] {
+  return PLUGIN_CONTRIBUTIONS.filter((kind) =>
+    kind === "projectType" ? adds.projectTypes.length > 0 : kind === "skills" ? adds.skills > 0 : kind === "mcp" ? adds.mcpServers.length > 0 : false);
+}
+
+/** The app's project type a new project to try it in gets: the plugin's own if it has one, else the first that suits it. */
+function newProjectType(plugin: StorePlugin): ProjectType | undefined {
+  const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
+  return PROJECT_TYPE_IDS.find((type) => kinds[type]?.startsWith(`${plugin.id}:`))
+    ?? PROJECT_TYPE_IDS.find((type) => pluginAppliesTo(plugin.appliesTo, projectFileTypeFor(type)));
+}
+
 function StoreTile({ plugin, large = false }: { plugin: StorePlugin; large?: boolean }): ReactNode {
-  return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}><PluginGlyph plugin={{ id: plugin.id }} size={large ? 40 : 24} /></span>;
+  return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}><PluginGlyph plugin={plugin} size={large ? 40 : 24} /></span>;
 }
 
 function StoreTags({ plugin }: { plugin: StorePlugin }): ReactNode {
@@ -68,6 +86,7 @@ export function StorePluginCard({ group, disabled, onToggle, onOpen }: {
       <span className="plugin-card-text">
         <strong>
           <span className="plugin-card-name">{plugin.displayName}</span>
+          {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
           {enabled && storePluginMissing(plugin).length ? <Badge tone="outline">{t("pluginStore.needsConsent")}</Badge> : null}
         </strong>
         <small>{plugin.description}</small>
@@ -82,19 +101,81 @@ export function StorePluginCard({ group, disabled, onToggle, onOpen }: {
   </article>;
 }
 
-export function StorePluginDetail({ group, onChanged, onRemoved }: {
+/** A listing on the browse page: where it comes from and what it adds. */
+export function StorePluginBrowseCard({ group, onOpen }: { group: StorePluginGroup; onOpen: () => void }): ReactNode {
+  const { plugin } = group;
+  return <article className="plugin-card">
+    <button className="plugin-card-link" type="button" onClick={onOpen}>
+      <StoreTile plugin={plugin} />
+      <span className="plugin-card-text">
+        <strong>
+          <span className="plugin-card-name">{plugin.displayName}</span>
+          {plugin.bundled ? <BadgeCheck size={14} className="plugins-verified" aria-label={t("plugins.official")} /> : null}
+          {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
+        </strong>
+        <small>{plugin.description}</small>
+        <span className="plugins-meta">
+          <span>{plugin.bundled ? t("plugins.officialSource") : plugin.id}</span>
+          <StoreTags plugin={plugin} />
+        </span>
+      </span>
+    </button>
+    <span className="plugins-installed-label">{t("plugins.installed")}</span>
+  </article>;
+}
+
+/** One of a plugin's Skills, on the page that lists every plugin's; opens the plugin. */
+export function StoreSkillCard({ plugin, skill, onOpen }: { plugin: StorePlugin; skill: StorePlugin["skills"][number]; onOpen: () => void }): ReactNode {
+  return <article className={`plugin-card${storePluginEnabled(plugin) ? "" : " is-off"}`}>
+    <button type="button" className="plugin-card-link" onClick={onOpen}>
+      <StoreTile plugin={plugin} />
+      <span className="plugin-card-text">
+        <strong className="plugins-mono">{skill.name}</strong>
+        <small>{skill.description}</small>
+        <small>{t("plugins.fromPlugin", { name: plugin.displayName })}</small>
+      </span>
+    </button>
+  </article>;
+}
+
+type StoreDetailTab = "about" | "skills" | "settings";
+
+export function StorePluginDetail({ group, onChanged, onRemoved, onTry }: {
   group: StorePluginGroup;
   /** The store changed; reload it. */
   onChanged: () => Promise<void>;
   /** Its last version was uninstalled. */
   onRemoved: () => void;
+  /** Starts a conversation with one of its examples; without this, they only show. */
+  onTry?: TryPlugin;
 }): ReactNode {
   const { plugin, versions } = group;
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
   const [removing, setRemoving] = useState<StorePlugin>();
+  const [selectedTab, setTab] = useState<StoreDetailTab>("about");
   const enabled = storePluginEnabled(plugin);
   const missing = storePluginMissing(plugin);
+  const tryIt = usePluginTry({
+    displayName: plugin.displayName,
+    suits: (project) => pluginAppliesTo(plugin.appliesTo, project.pluginType?.id ?? projectFileTypeFor(project.type)),
+    emptyLabel: t("plugins.noCompatibleProjects"),
+    target: { turnOn: plugin.id, newProjectType: newProjectType(plugin) },
+    onTry: onTry ?? (async () => {}),
+  });
+  const canTry = Boolean(onTry) && enabled && !missing.length;
+  const firstExample = plugin.examples[0];
+  const browse = (action: () => Promise<void> | undefined) => {
+    setError(undefined);
+    void Promise.resolve(action()).catch((cause: unknown) => setError(message(cause)));
+  };
+  const tabs: { value: StoreDetailTab; label: string; count?: number }[] = [
+    { value: "about", label: t("plugins.about") },
+    ...(plugin.skills.length ? [{ value: "skills" as const, label: t("plugins.skills"), count: plugin.skills.length }] : []),
+    ...(plugin.settings.length ? [{ value: "settings" as const, label: t("common.settings") }] : []),
+  ];
+  // Uninstalling the newest version can take away the tab that was open.
+  const tab = tabs.some((item) => item.value === selectedTab) ? selectedTab : "about";
 
   async function act(key: string, work: () => Promise<void>): Promise<void> {
     if (busy) return;
@@ -134,10 +215,16 @@ export function StorePluginDetail({ group, onChanged, onRemoved }: {
       <div className="plugin-head-copy">
         <h1>
           <span>{plugin.displayName}</span>
+          {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
           {plugin.bundled ? <Badge tone="outline">{t("plugins.included")}</Badge> : null}
         </h1>
         <p>{plugin.description}</p>
       </div>
+      {canTry && firstExample ? <div className="plugin-head-actions" ref={tryIt.anchor}>
+        <Button variant="primary" icon={<Play size={14} />} aria-haspopup="dialog" aria-expanded={Boolean(tryIt.prompt)}
+          onClick={() => tryIt.open(firstExample)}>{t("plugins.tryNow")}</Button>
+        {tryIt.popover}
+      </div> : null}
     </header>
     {error ? <Alert tone="danger" title={error} /> : null}
     {enabled && missing.length ? <Alert title={t("pluginStore.consentTitle")} action={
@@ -148,18 +235,35 @@ export function StorePluginDetail({ group, onChanged, onRemoved }: {
 
     <div className="plugin-layout">
       <div className="plugin-main">
-        <p className="plugin-long">{t("pluginStore.perProjectHint")}</p>
-        {adds.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
-          <h2>{t("pluginStore.adds")}</h2>
-          <ul className="plugin-store-adds">
-            {adds.map((item) => <li key={`${item.kind}:${item.title}`}><span>{item.kind}</span>{item.title}</li>)}
-          </ul>
-        </section> : null}
-        {plugin.capabilities.length ? <section className="plugins-section" aria-label={t("pluginStore.asksFor")}>
-          <h2>{t("pluginStore.asksFor")}</h2>
-          <ul className="plugin-store-capabilities">{plugin.capabilities.map((capability) => <li key={capability} className="plugins-tag plugins-mono">{capability}</li>)}</ul>
-        </section> : null}
-        <StorePluginSettings key={plugin.id + plugin.version} plugin={plugin} />
+        {tabs.length > 1 ? <Tabs<StoreDetailTab> variant="pills" label={plugin.displayName} value={tab} onChange={setTab} tabs={tabs} /> : null}
+        {/* Every tab stays mounted, so unsaved settings survive switching tabs. */}
+        <div className="plugin-tab" role="tabpanel" aria-label={t("plugins.about")} hidden={tab !== "about"}>
+          {plugin.longDescription ? <p className="plugin-long">{plugin.longDescription}</p> : null}
+          <p className="plugin-long">{t("pluginStore.perProjectHint")}</p>
+          {plugin.examples.length ? <section className="plugins-section" aria-label={t("plugins.tryIt")}>
+            <h2>{t("plugins.tryIt")}</h2>
+            <div className="plugin-prompt-list">{plugin.examples.map((example) => <button type="button" key={example} className="plugin-prompt" disabled={!canTry}
+              onClick={() => tryIt.open(example)}>{example}</button>)}</div>
+            {onTry && !canTry ? <p className="plugins-note" role="status">{enabled ? t("pluginStore.allowToTry") : t("plugins.enableToTry")}</p> : null}
+          </section> : null}
+          {adds.length ? <section className="plugins-section" aria-label={t("pluginStore.adds")}>
+            <h2>{t("pluginStore.adds")}</h2>
+            <ul className="plugin-store-adds">
+              {adds.map((item) => <li key={`${item.kind}:${item.title}`}><span>{item.kind}</span>{item.title}</li>)}
+            </ul>
+          </section> : null}
+          {plugin.capabilities.length ? <section className="plugins-section" aria-label={t("pluginStore.asksFor")}>
+            <h2>{t("pluginStore.asksFor")}</h2>
+            <ul className="plugin-store-capabilities">{plugin.capabilities.map((capability) => <li key={capability} className="plugins-tag plugins-mono">{capability}</li>)}</ul>
+          </section> : null}
+        </div>
+        {plugin.skills.length ? <div className="plugin-tab" role="tabpanel" aria-label={t("plugins.skills")} hidden={tab !== "skills"}>
+          <SkillSection pluginId={plugin.id} items={plugin.skills} installed
+            onBrowse={(skillId) => browse(() => window.ohMyGameDesktop?.revealPluginSkill(plugin.id, skillId))} />
+        </div> : null}
+        {plugin.settings.length ? <div className="plugin-tab plugin-settings" role="tabpanel" aria-label={t("common.settings")} hidden={tab !== "settings"}>
+          <StorePluginSettings key={plugin.id + plugin.version} plugin={plugin} />
+        </div> : null}
       </div>
       <aside className="plugin-side" aria-label={t("plugins.management")}>
         <h2>{t("plugins.management")}</h2>
@@ -172,6 +276,7 @@ export function StorePluginDetail({ group, onChanged, onRemoved }: {
           </dd>
           <dt>{t("plugins.source")}</dt>
           <dd>{plugin.bundled ? t("plugins.includedWithOhMyGame") : plugin.id}</dd>
+          {plugin.homepage ? <><dt>{t("pluginStore.homepage")}</dt><dd><a href={plugin.homepage} target="_blank" rel="noreferrer">{new URL(plugin.homepage).host}<ExternalLink size={11} /></a></dd></> : null}
           <dt>{versions.length > 1 ? t("pluginStore.versions") : t("plugins.version")}</dt>
           <dd>
             <ul className="plugin-store-versions">
@@ -184,6 +289,9 @@ export function StorePluginDetail({ group, onChanged, onRemoved }: {
             </ul>
           </dd>
         </dl>
+        {!plugin.bundled && window.ohMyGameDesktop ? <div className="plugin-side-actions">
+          <Button icon={<FolderOpen size={14} />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button>
+        </div> : null}
       </aside>
     </div>
     {removing ? <Dialog open title={t("pluginStore.uninstallTitle", { name: plugin.displayName, version: removing.version })} onClose={() => setRemoving(undefined)}

@@ -3,7 +3,7 @@ import { request } from "../src/renderer/api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
 import { readPluginIconImage, updatePluginDraftIcon, cancelToolJob, getProjectCoverState, listToolJobs, setProjectCoverMode, retryToolJob, startToolJob } from "../src/renderer/api.js";
-import { exportProject, streamProjectActivity } from "../src/renderer/api.js";
+import { exportProject, streamProjectActivity, turnOnProjectPlugin } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -287,6 +287,34 @@ describe("renderer project API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins", expect.objectContaining({ headers: {} }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/ohmygame%3Agodot", expect.objectContaining({ headers: {} }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/plugins/ohmygame%3Agodot/skill-content?id=skills%2Fgodot%2FSKILL.md", expect.objectContaining({ headers: {} }));
+  });
+
+  it("turns a plugin on in a project only when it needs turning on, keeping the version in use", async () => {
+    installWindow();
+    const view = (plugins: unknown[]) => Response.json({ global: [], plugins });
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (_init?.method === "PUT") return new Response(null, { status: 204 });
+      return view([
+        { id: "acme/off", version: "2.0.0" },
+        { id: "acme/on", version: "2.0.0", used: "1.0.0", status: "active" },
+        { id: "acme/waiting", version: "2.0.0", used: "1.0.0", status: "needs-approval" },
+        { id: "acme/gone", version: "2.0.0", used: "1.0.0", status: "version-not-installed" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const puts = () => fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT").map(([url, init]) => [url, init?.body]);
+
+    expect(await turnOnProjectPlugin("p", "acme/missing")).toBe("not-offered");
+    expect(await turnOnProjectPlugin("p", "acme/on")).toBeUndefined();
+    // A version it asks for that can't run says so, and keeps the project's choice.
+    expect(await turnOnProjectPlugin("p", "acme/gone")).toBe("version-not-installed");
+    expect(puts()).toEqual([]);
+    expect(await turnOnProjectPlugin("p", "acme/off")).toBeUndefined();
+    expect(await turnOnProjectPlugin("p", "acme/waiting")).toBeUndefined();
+    expect(puts()).toEqual([
+      ["/api/projects/p/plugins/acme/off", JSON.stringify({ version: "2.0.0" })],
+      ["/api/projects/p/plugins/acme/waiting", JSON.stringify({ version: "1.0.0" })],
+    ]);
   });
 
   it("loads Composer capabilities before a project exists", async () => {

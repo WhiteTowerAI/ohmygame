@@ -750,6 +750,20 @@ export async function setProjectPluginVersion(projectId: string, id: string, ver
   await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}`, { method: "PUT", body: JSON.stringify({ version }) });
 }
 
+/**
+ * Turns a format 2 plugin on in a project and allows it for its folder,
+ * keeping the version the project already uses. Says why it can't run there:
+ * `not-offered` when it doesn't suit the project's type, or the status of a
+ * version the project asks for that isn't running; undefined once it runs.
+ */
+export async function turnOnProjectPlugin(projectId: string, id: string): Promise<"not-offered" | Exclude<import("../shared/plugins.js").ProjectPluginItem["status"], "active" | undefined> | undefined> {
+  const item = (await getProjectPlugins(projectId)).plugins.find((plugin) => plugin.id === id);
+  if (!item) return "not-offered";
+  if (item.used && item.status !== "needs-approval") return item.status && item.status !== "active" ? item.status : undefined;
+  await setProjectPluginVersion(projectId, id, item.used ?? item.version);
+  return undefined;
+}
+
 /** Allows what a plugin asks for, as the person agreed in the app. */
 export async function consentToPlugin(id: string, allowed: string[]): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/consent`, { method: "POST", body: JSON.stringify({ allowed }) });

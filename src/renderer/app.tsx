@@ -9,9 +9,10 @@ import { SidebarPageLayout } from "./sidebar-page.js";
 import type { SidebarActive } from "./app-sidebar.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
-import type { PluginDetail } from "../shared/plugins.js";
+import type { PluginTryTarget } from "./plugin-try.js";
 import { pluginMentionToken } from "../shared/plugins.js";
-import { createConversation, createProject, getProject, MODELS_CHANGED_EVENT } from "./api.js";
+import { t } from "./i18n.js";
+import { createConversation, createProject, getProject, MODELS_CHANGED_EVENT, turnOnProjectPlugin } from "./api.js";
 import type { ComposerDraft } from "./composer.js";
 import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Onboarding, OnboardingArrival, OnboardingLoading, type OnboardingStart } from "./onboarding.js";
@@ -130,18 +131,15 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
     navigate(projectHash(projectId, view));
   }
 
-  async function tryPlugin(plugin: PluginDetail, prompt: string, projectId?: string): Promise<void> {
-    const project = projectId ? await getProject(projectId) : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game" });
+  async function tryPlugin({ mention, turnOn, newProjectType }: PluginTryTarget, prompt: string, projectId?: string): Promise<void> {
+    const project = projectId ? await getProject(projectId) : await createProject({ type: newProjectType ?? "general" });
+    const blocked = turnOn ? await turnOnProjectPlugin(project.id, turnOn) : undefined;
+    if (blocked) throw new Error(blocked === "not-offered" ? t("pluginStore.doesNotSuitProject") : t(`projectPlugins.status.${blocked}`));
     const conversation = await createConversation(project.id);
-    const mention: PluginMention = {
-      name: plugin.name,
-      displayName: plugin.displayName,
-      marketplaceId: plugin.marketplace.id,
-    };
     setInitialPrompt(undefined);
     setInitialDraft({
       conversationId: conversation.id,
-      draft: { prompt: `${pluginMentionToken(mention)} ${prompt}`, mentions: [mention] },
+      draft: mention ? { prompt: `${pluginMentionToken(mention)} ${prompt}`, mentions: [mention] } : { prompt, mentions: [] },
     });
     navigateToConversation(project.id, conversation.id, false, createdProjectView(project.type));
   }
