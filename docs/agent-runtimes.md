@@ -201,11 +201,14 @@ other failed turn. Codex and OpenCode rebuild it for every stop until their turn
 ends are proven separate from the next turn's events.
 
 When context is absent or invalid, start fresh with a deterministic, bounded
-handoff: recent visible turns, how the last turn ended, tool failures from the
-last few turns, the last playtest's state and errors, files whose change
-succeeded apart from the others, the structured plan, and restore notices. Tool text is labeled as data, and stored
-text cannot close the handoff block. Exclude private prompt context and do not
-make another model call.
+handoff: recent visible turns, how a cut-off last turn ended, the tool failures
+it ended on, files whose change succeeded apart from the others, the structured
+plan, and restore notices. Tool text is labeled as data, and stored text cannot
+close the handoff block. Leave out failures the earlier agent went on from and
+game state the next agent can look at again; replaying local conversations
+showed 98% of recent failures were already behind the agent and half of the
+playtest snapshots were older than the latest file change. Exclude private
+prompt context and do not make another model call.
 An explicitly expired/not-found native resume receives one fresh-context retry,
 without appending the user message twice. Other failures remain visible.
 Moving back to Pi uses the shared messages; native hidden state is not imported.
