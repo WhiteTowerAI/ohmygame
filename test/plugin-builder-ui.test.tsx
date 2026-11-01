@@ -3,23 +3,17 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PluginBuilder } from "../src/renderer/plugin-builder.js";
-import { PluginUninstallButton } from "../src/renderer/plugin-controls.js";
 import { readPluginBuilderInput, savePluginBuilderInput } from "../src/renderer/plugin-builder-drafts.js";
-import { PERSONAL_MARKETPLACE, type PluginDetail } from "../src/shared/plugins.js";
+import type { PluginIcon } from "../src/shared/plugins.js";
 import type { PluginSetupState } from "../src/shared/plugin-setup.js";
 import i18next from "i18next";
 
 const sessionId = "a1234567-1234-1234-1234-123456789abc";
-const plugin: PluginDetail = {
-  id: "personal:review", name: "review", displayName: "Review", description: "Review game design",
-  marketplace: PERSONAL_MARKETPLACE, source: { type: "directory" },
-  installed: true, enabled: true, skills: [], connections: [],
-};
+const storeId = "personal/review";
 const state: PluginSetupState = {
-  id: sessionId, pluginId: plugin.id, title: plugin.displayName, status: "installed",
+  id: sessionId, pluginId: storeId, title: "Review", status: "installed",
   createdAt: 0, updatedAt: 0, busy: false, turns: [],
 };
-const storeId = "personal/review";
 const stored = {
   id: storeId, version: "0.1.0", displayName: "Review", description: "Review game design", bundled: false, appWide: true,
   capabilities: [], examples: [], settings: [], skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 },
@@ -31,11 +25,9 @@ let container: HTMLDivElement;
 let installed: boolean;
 let installationFailed: boolean;
 let requests: string[];
-let configuring: boolean;
-let builtIn: boolean;
 let hasConversation: boolean;
 let enabled: boolean;
-let draftIcon: PluginDetail["icon"];
+let draftIcon: PluginIcon | undefined;
 let iconChanged: boolean;
 let savedIcon: unknown;
 let hasSettings: boolean;
@@ -47,7 +39,7 @@ beforeEach(() => {
   installed = true;
   installationFailed = false;
   requests = [];
-  configuring = false; builtIn = false; hasConversation = false; enabled = true;
+  hasConversation = false; enabled = true;
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
   hasSettings = false; updated = false;
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
@@ -70,7 +62,7 @@ beforeEach(() => {
       installationFailed = true;
       return Response.json({ error: "Configuration could not be saved" }, { status: 409 });
     }
-    const currentState = { ...state, pluginId: configuring ? plugin.id : storeId, mode: configuring ? "configure" : "create", turns: hasConversation ? [{ id: "turn", conversationId: sessionId, status: "completed", items: [] }] : [] };
+    const currentState = { ...state, pluginId: storeId, mode: "create", turns: hasConversation ? [{ id: "turn", conversationId: sessionId, status: "completed", items: [] }] : [] };
     if (route === `/plugins/setup-sessions/${sessionId}/conversation` && method === "DELETE") {
       hasConversation = false;
       return Response.json({ ...currentState, turns: [] });
@@ -85,19 +77,12 @@ beforeEach(() => {
       installed = false;
       return new Response(null, { status: 204 });
     }
-    if (route === `/plugins/${encodeURIComponent(plugin.id)}/configuration`) return Response.json({ fields: {}, values: {}, configuredSecrets: [], missing: [] });
-    if (route === `/plugins/${encodeURIComponent(plugin.id)}/settings` && method === "PUT") {
-      enabled = JSON.parse(init.body as string).enabled;
-      return Response.json({ ...plugin, enabled });
-    }
     if (method === "DELETE") {
-      if (route === `/plugins/${encodeURIComponent(plugin.id)}`) installed = false;
-      else if (route !== `/plugins/setup-sessions/${sessionId}`) throw new Error(`Unexpected request: ${route}`);
+      if (route !== `/plugins/setup-sessions/${sessionId}`) throw new Error(`Unexpected request: ${route}`);
       return new Response(null, { status: 204 });
     }
     if (route === `/plugins/setup-sessions/${sessionId}`) return Response.json(installationFailed ? { ...state, pluginId: storeId, status: "error", error: "Configuration could not be saved" } : installed ? currentState : { ...currentState, pluginId: undefined, status: "ready" });
-    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json(configuring ? { files: [], errors: [] } : { path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon }, files: [], errors: [] });
-    if (route === `/plugins/${encodeURIComponent(plugin.id)}`) return Response.json({ ...plugin, enabled, source: builtIn ? { type: "builtIn" } : plugin.source });
+    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon }, files: [], errors: [] });
     throw new Error(`Unexpected request: ${route}`);
   }));
   container = document.createElement("div");
@@ -130,20 +115,6 @@ describe("Plugin Builder removal controls", () => {
     expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([`DELETE /plugins/setup-sessions/${sessionId}`]);
     expect(installed).toBe(true);
     expect(window.location.hash).toBe("#/plugins");
-  });
-
-  it("opens built-in configuration on Setup with configuration prompts and independent workspace deletion", async () => {
-    configuring = true; builtIn = true;
-    await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
-    expect(container.querySelector('[aria-label="Plugin preview"]')?.getAttribute("data-active-tab")).toBe("configuration");
-    expect(container.querySelector(".prompt-editor")?.getAttribute("aria-placeholder")).toContain("configuration problem");
-    expect(button("Uninstall plugin")).toBeNull();
-    expect(button("Disable Review")).not.toBeNull();
-    expect(container.textContent).not.toContain("Install plugin");
-    await act(async () => button("Delete workspace").click());
-    await answer("Delete");
-    expect(requests).toContain(`DELETE /plugins/setup-sessions/${sessionId}`);
-    expect(installed).toBe(true);
   });
 
   it("deletes only conversation history and keeps the installed draft open", async () => {
@@ -214,11 +185,6 @@ describe("Plugin Builder removal controls", () => {
     updated = true;
     await act(async () => refresh.click());
     expect(reads()).toBe(2);
-  });
-
-  it("does not offer uninstalling a built-in plugin", async () => {
-    await act(async () => root.render(<PluginUninstallButton plugin={{ ...plugin, source: { type: "builtIn" } }} onUninstall={() => {}} />));
-    expect(button("Uninstall plugin")).toBeNull();
   });
 
   it("refreshes after a partial installation failure so uninstall and retry stay available", async () => {

@@ -4,7 +4,7 @@ import { CUSTOM_MODEL_APIS } from "./contracts.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
 import { compileWhen } from "./plugin-when.js";
 
-// Plugin format 2: the manifest at `.ohmygame-plugin/plugin.json`, read at
+// The plugin manifest at `.ohmygame-plugin/plugin.json`, read at
 // install time without running any plugin code. The TypeBox schemas below
 // are the source of the published JSON Schema (`schemas/plugin-2.json`), and
 // `validatePluginManifest` adds the rules a schema can't express.
@@ -409,7 +409,7 @@ const PLUGIN_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$";
 /** The publisher of plugins the person makes themselves. */
 export const PERSONAL_PUBLISHER = "personal";
 
-/** Whether `id` is a format 2 plugin id, `publisher/name`, safe to use as a path. */
+/** Whether `id` is a plugin id, `publisher/name`, safe to use as a path. */
 export function isPluginId(id: string): boolean {
   return id.length <= 129 && new RegExp(PLUGIN_ID_PATTERN).test(id);
 }

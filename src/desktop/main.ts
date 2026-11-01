@@ -803,9 +803,9 @@ function isSceneHashes(value: unknown): value is Record<string, string> {
     && Object.values(value).every((hash) => typeof hash === "string" && /^[0-9a-f]{8,64}$/.test(hash));
 }
 
-/** Format 1 ids are one route segment; format 2's are `publisher/name`. Both are encoded into the route. */
+/** `publisher/name`, encoded into the route. */
 function validPluginId(value: unknown): value is string {
-  return typeof value === "string" && /^[^/]{1,200}(?:\/[^/]{1,200})?$/.test(value);
+  return typeof value === "string" && /^[^/]{1,200}\/[^/]{1,200}$/.test(value);
 }
 
 function validRouteId(value: unknown): value is string {

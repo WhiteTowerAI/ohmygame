@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { PluginDraft } from "../shared/plugin-setup.js";
 import { isAppWidePlugin, PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
-import { PLUGIN_SKILL_CONTENT_MAX_BYTES } from "../shared/plugins.js";
-import { validatePluginBundle } from "./local-plugins.js";
+import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_SKILL_CONTENT_MAX_BYTES } from "../shared/plugins.js";
 import { readPluginIconAsset } from "./plugin-icons.js";
 import { indexPluginPackage, localizePluginString } from "./plugin-index.js";
 import { capabilityGrants } from "./project-plugins.js";
@@ -81,4 +80,42 @@ export async function readPluginDraftFile(root: string, requested: string): Prom
   const bytes = await readFile(target);
   if (bytes.includes(0)) throw new Error("This file cannot be previewed as text");
   return { path: requested, content: bytes.toString("utf8") };
+}
+
+const MAX_PLUGIN_DEPTH = 64;
+
+async function validatePluginBundle(root: string): Promise<void> {
+  let entryCount = 0;
+  let size = 0;
+  async function visit(directory: string, depth: number): Promise<void> {
+    if (depth > MAX_PLUGIN_DEPTH) throw new Error("Plugin directory is nested too deeply");
+    let directoryEntries;
+    try {
+      directoryEntries = await readdir(directory, { withFileTypes: true });
+    } catch (cause) {
+      throw new Error(`Could not read plugin directory: ${errorMessage(cause)}`);
+    }
+    for (const entry of directoryEntries) {
+      entryCount += 1;
+      if (entryCount > PLUGIN_ARCHIVE_MAX_ENTRIES) throw new Error("Plugin contains too many files and directories");
+      const target = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) throw new Error("Plugin directories must not contain symbolic links");
+      if (entry.isDirectory()) {
+        await visit(target, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) throw new Error("Plugin directories may contain only files and directories");
+      size += (await lstat(target)).size;
+      if (size > PLUGIN_ARCHIVE_MAX_BYTES) throw new Error("Plugin is larger than 50 MB");
+    }
+  }
+  const stats = await lstat(root).catch((cause) => {
+    throw new Error(`Could not open plugin directory: ${errorMessage(cause)}`);
+  });
+  if (stats.isSymbolicLink() || !stats.isDirectory()) throw new Error("Plugin source must be a directory");
+  await visit(root, 0);
+}
+
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }

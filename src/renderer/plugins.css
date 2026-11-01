@@ -501,7 +501,7 @@
   text-decoration: underline;
 }
 
-/* A format 2 plugin's versions, each with its own Uninstall (plugin-store.tsx). */
+/* A plugin's versions, each with its own Uninstall (plugin-store.tsx). */
 .plugin-store-versions {
   display: grid;
   gap: 2px;

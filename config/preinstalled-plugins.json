@@ -9,7 +9,8 @@
       "release": "v1.5.1",
       "version": "1.5.1",
       "artifactSha256": "79e2c2c91c6ac27ab932ab4ec57ff1b3ab659cdfc8acec91183b48ba91f5af75",
-      "candidate": "agent-skills:root",
+      "name": "img2threejs",
+      "skills": "./SKILL.md",
       "interface": {
         "displayName": "Image to Three.js",
         "shortDescription": "Create procedural Three.js models from reference images.",

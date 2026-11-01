@@ -6,10 +6,9 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { PreinstalledPluginManager } from "../src/daemon/preinstalled-plugins.js";
-import { convertFormat1Package } from "../src/daemon/plugin-conversion.js";
+import { packageSkills } from "../src/daemon/plugin-conversion.js";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
-import { LocalPluginStore } from "../src/daemon/local-plugins.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 
 const apps: FastifyInstance[] = [];
@@ -51,12 +50,12 @@ describe("preinstalled plugins", () => {
     };
     expect(isPreparedPluginIndex({ version: 1, plugins: [release] })).toBe(true);
     expect(isPreparedPluginIndex({ version: 1, plugins: [{ ...release, artifactFile: "../plugin.zip" }] })).toBe(false);
-    // What an older app prepared has no format 2 id, so it is prepared again.
+    // What an older app prepared has no plugin id, so it is prepared again.
     const { id: _id, ...older } = release;
     expect(isPreparedPluginIndex({ version: 1, plugins: [{ ...older, name: "unsafe" }] })).toBe(false);
   });
 
-  it("installs a prepared plugin in the format 2 store without replacing it on restart", async () => {
+  it("installs a prepared plugin in the store without replacing it on restart", async () => {
     const dataDirectory = await temporary("ohmygame-preinstalled-data-");
     const prepared = await preparedPlugin();
     const first = await start(dataDirectory, prepared.directory);
@@ -133,68 +132,13 @@ describe("preinstalled plugins", () => {
       .toMatchObject({ plugins: { [prepared.pluginId]: { seededReleaseId: prepared.releaseId, removed: true } } });
   });
 
-  it("takes over from the copy format 1 kept", async () => {
-    const dataDirectory = await temporary("ohmygame-preinstalled-format-1-");
-    const prepared = await preparedPlugin();
-    const manager = new PreinstalledPluginManager(prepared.directory, dataDirectory);
-    await manager.load();
-    const services = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
-    // As an earlier app seeded it; one the person installed themselves stays.
-    const copies: Record<string, { source: { type: string } }> = { "ohmygame:reference-tools": { source: { type: "preinstalled" } } };
-    const remove = vi.fn(async (id: string) => { delete copies[id]; });
-    const formatOne = { read: async (id: string) => copies[id], remove } as unknown as LocalPluginStore;
-    expect(await manager.seed(services, formatOne)).toEqual([]);
-    expect(remove).toHaveBeenCalledWith("ohmygame:reference-tools");
-    expect(services.index.get(ID)).toBeDefined();
-    copies["ohmygame:reference-tools"] = { source: { type: "directory" } };
-    remove.mockClear();
-    await manager.seed(services, formatOne);
-    expect(remove).not.toHaveBeenCalled();
-    await services.close();
-  });
-
-  it("keeps the copy format 1 kept until the format 2 one installs", async () => {
-    const dataDirectory = await temporary("ohmygame-preinstalled-damaged-");
-    const prepared = await preparedPlugin();
-    await writeFile(path.join(prepared.directory, `${prepared.releaseId}.zip`), "damaged");
-    const manager = new PreinstalledPluginManager(prepared.directory, dataDirectory);
-    await manager.load();
-    const services = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
-    const remove = vi.fn();
-    const formatOne = { read: async () => ({ source: { type: "preinstalled" } }), remove } as unknown as LocalPluginStore;
-    expect(await manager.seed(services, formatOne)).toEqual([expect.stringContaining("integrity verification")]);
-    expect(remove).not.toHaveBeenCalled();
-    await services.close();
-  });
-
-  it("stays away when the person removes the format 1 copy before it could install", async () => {
-    const dataDirectory = await temporary("ohmygame-preinstalled-removed-copy-");
-    const prepared = await preparedPlugin();
-    const archive = path.join(prepared.directory, `${prepared.releaseId}.zip`);
-    const intact = await readFile(archive);
-    await writeFile(archive, "damaged");
-    const app = await start(dataDirectory, prepared.directory);
-    const read = vi.spyOn(LocalPluginStore.prototype, "read").mockResolvedValue({ id: "ohmygame:reference-tools", source: { type: "preinstalled" } } as never);
-    const remove = vi.spyOn(LocalPluginStore.prototype, "remove").mockResolvedValue(undefined as never);
-    try {
-      expect((await app.inject({ method: "DELETE", url: "/plugins/ohmygame:reference-tools" })).statusCode).toBe(204);
-    } finally {
-      read.mockRestore();
-      remove.mockRestore();
-    }
-    await close(app);
-    await writeFile(archive, intact);
-    expect(await listed(await start(dataDirectory, prepared.directory))).toBeUndefined();
-  });
-
   it("updates only the version it installed, leaving one installed apart", async () => {
     const dataDirectory = await temporary("ohmygame-preinstalled-update-");
     const services = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
-    const formatOne = { read: async () => undefined, remove: vi.fn() } as unknown as LocalPluginStore;
     const seed = async (prepared: Awaited<ReturnType<typeof preparedPlugin>>) => {
       const manager = new PreinstalledPluginManager(prepared.directory, dataDirectory);
       await manager.load();
-      expect(await manager.seed(services, formatOne)).toEqual([]);
+      expect(await manager.seed(services)).toEqual([]);
     };
     await seed(await preparedPlugin());
     const apart = path.join(await temporary("ohmygame-preinstalled-apart-"), "package");
@@ -214,8 +158,7 @@ describe("preinstalled plugins", () => {
     await manager.load();
     const services = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
     vi.spyOn(services, "ready").mockRejectedValueOnce(new Error("no access"));
-    const formatOne = { read: async () => undefined, remove: vi.fn() } as unknown as LocalPluginStore;
-    expect(await manager.seed(services, formatOne)).toEqual([expect.stringContaining("no access")]);
+    expect(await manager.seed(services)).toEqual([expect.stringContaining("no access")]);
     await services.close();
   });
 
@@ -250,7 +193,7 @@ async function listed(app: Awaited<ReturnType<typeof start>>) {
   return (await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json().find((plugin: { id: string }) => plugin.id === ID);
 }
 
-/** A prepared release: a format 2 package converted from a repository with one `SKILL.md` at its root, as img2threejs is. */
+/** A prepared release: a package made from a repository with one `SKILL.md` at its root, as img2threejs is. */
 async function preparedPlugin(options: { releaseId?: string; version?: string; skillContent?: string; iconContent?: string } = {}) {
   const directory = await temporary("ohmygame-prepared-plugin-");
   const source = await temporary("ohmygame-prepared-source-");
@@ -274,7 +217,7 @@ async function preparedPlugin(options: { releaseId?: string; version?: string; s
   await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify(manifest));
   await writeFile(path.join(source, "SKILL.md"), skillContent);
   const packaged = path.join(await temporary("ohmygame-prepared-converted-"), "package");
-  const converted = await convertFormat1Package({ root: source, manifest }, packaged, { id: ID });
+  const converted = await packageSkills({ root: source, manifest }, packaged, { id: ID });
   const archive = await createPluginArchive(packaged);
   const artifactSha256 = createHash("sha256").update(archive).digest("hex");
   await writeFile(path.join(directory, `${releaseId}.zip`), archive);

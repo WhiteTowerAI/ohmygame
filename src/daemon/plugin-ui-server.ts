@@ -6,7 +6,7 @@ import path from "node:path";
 import type { PluginIndex } from "./plugin-index.js";
 import { MIME } from "./preview-static.js";
 
-// Serves format 2 plugins' pages to their sandboxed frames. It is its own
+// Serves plugins' pages to their sandboxed frames. It is its own
 // server, on its own port and with no daemon token, so a page can't reach the
 // daemon's routes even as a same-origin request. Only a declared panel's
 // folder and the package's `assets/` are served, and every page gets a CSP

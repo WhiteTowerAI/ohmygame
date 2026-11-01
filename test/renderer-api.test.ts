@@ -1,7 +1,7 @@
 import { observeWorkspaceVersion, workspaceVersion } from "../src/renderer/workspace-version.js";
 import { request } from "../src/renderer/api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { addPlugin, inspectAddedPlugin, approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
+import { addPlugin, inspectAddedPlugin, approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, listLibraryAssetReferences, listLibraryAssets, listModels, listProjects, listWorkspaceFiles, publishProject, readPluginSkill, refinePlan, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
 import { readPluginIconImage, updatePluginDraftIcon, cancelToolJob, getProjectCoverState, listToolJobs, setProjectCoverMode, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import { exportProject, streamProjectActivity, turnOnProjectPlugin } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
@@ -272,21 +272,14 @@ describe("renderer event stream", () => {
 });
 
 describe("renderer project API", () => {
-  it("lists and reads plugins through the unified API", async () => {
+  it("reads a plugin's Skill through the API", async () => {
     installWindow();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json({ plugins: [], errors: [] }))
-      .mockResolvedValueOnce(Response.json({ id: "ohmygame:godot" }))
-      .mockResolvedValueOnce(Response.json({ id: "skills/godot/SKILL.md", content: "# Godot" }));
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ id: "skills/godot/SKILL.md", content: "# Godot" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await listPlugins();
-    await readPlugin("ohmygame:godot");
-    await readPluginSkill("ohmygame:godot", "skills/godot/SKILL.md");
+    await readPluginSkill("ohmygame/godot", "skills/godot/SKILL.md");
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins", expect.objectContaining({ headers: {} }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/ohmygame%3Agodot", expect.objectContaining({ headers: {} }));
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/plugins/ohmygame%3Agodot/skill-content?id=skills%2Fgodot%2FSKILL.md", expect.objectContaining({ headers: {} }));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/ohmygame%2Fgodot/skill-content?id=skills%2Fgodot%2FSKILL.md", expect.objectContaining({ headers: {} }));
   });
 
   it("turns a plugin on in a project only when it needs turning on, keeping the version in use", async () => {
@@ -325,24 +318,6 @@ describe("renderer project API", () => {
     await getHomeComposerCapabilities();
 
     expect(fetchMock).toHaveBeenCalledWith("/api/composer/capabilities?locale=en", expect.objectContaining({ headers: {} }));
-  });
-
-  it("updates settings and removes personal plugins through the unified API", async () => {
-    installWindow();
-    const plugin = { id: "personal:character-writer" };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json(plugin))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await updatePluginSettings(plugin.id, { enabled: false, components: {} });
-    await uninstallPlugin(plugin.id);
-
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/plugins/personal%3Acharacter-writer/settings", expect.objectContaining({
-      method: "PUT",
-      body: JSON.stringify({ enabled: false, components: {} }),
-    }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/personal%3Acharacter-writer", expect.objectContaining({ method: "DELETE" }));
   });
 
   it("reviews and adds a plugin from a source", async () => {
@@ -838,8 +813,8 @@ describe("renderer project API", () => {
     await readPluginIconImage("personal:review", "workspace", undefined, "./assets/logo.png");
     expect(fetchMock).toHaveBeenLastCalledWith("http://127.0.0.1:43210/plugins/setup-sessions/workspace/icon?path=.%2Fassets%2Flogo.png", expect.objectContaining({ headers: { authorization: "Bearer secret" } }));
     fetchMock.mockImplementation(async () => Response.json({ errors: [], revision: "next" }));
-    await updatePluginDraftIcon("workspace", { revision: "reviewed", icon: { type: "preset", id: "image" } });
-    expect(fetchMock).toHaveBeenLastCalledWith("http://127.0.0.1:43210/plugins/setup-sessions/workspace/icon", expect.objectContaining({ method: "PUT", body: JSON.stringify({ revision: "reviewed", icon: { type: "preset", id: "image" } }), headers: expect.objectContaining({ authorization: "Bearer secret" }) }));
+    await updatePluginDraftIcon("workspace", { revision: "reviewed", icon: { type: "asset", path: "./assets/icon.png" } });
+    expect(fetchMock).toHaveBeenLastCalledWith("http://127.0.0.1:43210/plugins/setup-sessions/workspace/icon", expect.objectContaining({ method: "PUT", body: JSON.stringify({ revision: "reviewed", icon: { type: "asset", path: "./assets/icon.png" } }), headers: expect.objectContaining({ authorization: "Bearer secret" }) }));
   });
 
   it("loads and stores project covers with desktop authorization", async () => {

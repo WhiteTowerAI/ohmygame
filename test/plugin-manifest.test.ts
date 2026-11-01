@@ -61,7 +61,7 @@ async function solarized() {
   return dir;
 }
 
-/** Game Studio as format 2: the bundled skills and icon with the new manifest. */
+/** Game Studio: the bundled skills and icon with the new manifest. */
 async function gameStudio() {
   const dir = path.join(await temporary(), "game-studio");
   await cp(path.join(BUNDLED, "game-studio"), dir, { recursive: true });
@@ -91,7 +91,7 @@ const messages = (value: unknown) => {
     : result.issues.map((issue) => `${issue.path} ${issue.message}`);
 };
 
-describe("plugin manifest format 2", () => {
+describe("plugin manifest", () => {
   it("publishes a JSON Schema that matches its source", async () => {
     expect(await readFile(PLUGIN_SCHEMA_FILE, "utf8")).toBe(pluginSchemaJson());
   });
@@ -100,7 +100,7 @@ describe("plugin manifest format 2", () => {
     expect(messages(minimal)).toEqual([]);
   });
 
-  it("rejects unknown fields and format 1 fields", () => {
+  it("rejects unknown fields", () => {
     expect(
       messages({ ...minimal, interface: { displayName: "X" } }),
     ).toContainEqual(expect.stringContaining("additional properties"));
@@ -431,7 +431,7 @@ describe("plugin index", () => {
     expect(localizePluginString(result.entry, "Plain", "zh-CN")).toBe("Plain");
   });
 
-  it("indexes a bundled skills plugin rewritten for format 2", async () => {
+  it("indexes a bundled skills plugin", async () => {
     const result = await indexPluginPackage(await gameStudio());
     expect(result.ok ? [] : result.issues).toEqual([]);
     if (!result.ok) return;
@@ -445,7 +445,7 @@ describe("plugin index", () => {
     ).toBe(true);
   });
 
-  it("indexes the format 2 Godot plugin with its type, tools and command", async () => {
+  it("indexes the Godot plugin with its type, tools and command", async () => {
     const result = await indexPluginPackage(
       path.join(BUNDLED, "godot"),
     );
@@ -1157,7 +1157,7 @@ describe("plugin releases", () => {
     }
   });
 
-  it("indexes the app's own format 2 plugins and allows what they ask for, except one that starts off", async () => {
+  it("indexes the app's own plugins and allows what they ask for, except one that starts off", async () => {
     const dir = await temporary();
     const services = new PluginServices({ directory: path.join(dir, "store"), bundledOff: ["ohmygame/taptap-maker", "ohmygame/unreal-engine"] });
     try {

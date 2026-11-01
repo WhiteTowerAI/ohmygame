@@ -511,6 +511,6 @@ maintained compatibility code.
 - [Shared model and runtime events](../src/shared/contracts.ts)
 - [Agent tools](../src/daemon/agent-tools.ts)
 - [Checkpoint and Undo contract](checkpoints.md)
-- [Plugin package and portability contract](plugins.md)
+- [Plugin package contract](plugins.md)
 - [Runtime and trust boundary](runtime.md)
 - [Contribution checks](../CONTRIBUTING.md#make-and-check-your-change)

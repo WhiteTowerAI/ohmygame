@@ -350,48 +350,42 @@ describe("renderer service recovery", () => {
     expect(input.value).toBe("http://127.0.0.1:9999");
   });
 
-  it.each([false, true])("loads plugin details once and preserves loaded drafts across recovery (loaded: %s)", async (loaded) => {
+  it.each([false, true])("loads a plugin's page and preserves its unsaved settings across recovery (loaded: %s)", async (loaded) => {
     installDesktop();
     const { updateRuntimeConnection } = await import("../src/renderer/runtime-connection.js");
     const { PluginsSettings } = await import("../src/renderer/plugins.js");
     updateRuntimeConnection(ready(1));
-    let detailReads = 0;
     let catalogReads = 0;
-    const configuration = {
-      fields: { endpoint: { type: "string", label: "Endpoint" } }, values: { endpoint: "Saved endpoint" }, configuredSecrets: [], missing: [],
-    };
     const plugin = {
-      id: "test", name: "test", displayName: "Test plugin", description: "Test", marketplace: { id: "test", displayName: "Test" },
-      source: { type: "builtIn" }, installed: true, enabled: true, skills: [], connections: [], configuration: configuration.fields,
+      id: "acme/test", version: "1.0.0", revision: "a".repeat(64), displayName: "Test plugin", description: "Test",
+      capabilities: [], grants: { enabled: true, allowed: [] }, bundled: false, appWide: false, examples: [], skills: [],
+      settings: [{ name: "endpoint", type: "text", title: "Endpoint", required: true }],
+      adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 },
     };
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       const route = new URL(url).pathname;
-      if (route === "/plugins/test") {
-        detailReads++;
-        if (!loaded && detailReads === 1) return Response.json({ error: "Detail failed" }, { status: 500 });
-        return Response.json(plugin);
+      if (route === "/plugin-store/plugins") {
+        catalogReads++;
+        if (!loaded && catalogReads === 1) return Response.json({ error: "Catalog failed" }, { status: 500 });
+        return Response.json([plugin]);
       }
-      if (route === "/plugins") { catalogReads++; return Response.json({ plugins: [], errors: [] }); }
-      if (route === "/plugins/test/configuration") return Response.json(configuration);
-      if (route === "/plugin-store/plugins") return Response.json([]);
+      if (route === "/plugin-store/acme/test/configuration") return Response.json({ endpoint: { type: "text", value: null } });
       return Response.json({ status: "ok" });
     }));
-    await act(async () => root.render(<PluginsSettings pluginId="test" onPluginChange={() => {}} onTryPlugin={async () => {}} />));
-    expect(detailReads).toBe(1);
+    await act(async () => root.render(<PluginsSettings pluginId="acme/test" onPluginChange={() => {}} onTryPlugin={async () => {}} />));
+    expect(catalogReads).toBe(1);
     const input = container.querySelector<HTMLInputElement>(".plugin-configuration input");
     if (loaded) await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Unsaved endpoint");
       input!.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    else expect(input).toBeNull();
     await act(async () => updateRuntimeConnection({ status: "recovering", generation: 2, recovered: true }));
     await act(async () => updateRuntimeConnection(ready(2)));
     expect(catalogReads).toBe(2);
-    expect(detailReads).toBe(loaded ? 1 : 2);
     if (loaded) {
       expect(container.querySelector(".plugin-configuration input")).toBe(input);
       expect(input!.value).toBe("Unsaved endpoint");
-      await act(async () => container.querySelector(".plugin-configuration form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-      expect(detailReads).toBe(2); // An explicit configuration save still refreshes the details.
     } else expect(container.textContent).toContain("Test plugin");
   });
 

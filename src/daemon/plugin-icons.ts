@@ -92,18 +92,13 @@ export async function readPluginIconAsset(
 
 export function registerPluginIconRoutes(
   app: FastifyInstance,
-  stores: readonly {
-    readIcon(id: string): ReturnType<typeof readPluginIconAsset>;
-  }[],
+  readIcon: (id: string) => ReturnType<typeof readPluginIconAsset>,
 ) {
   app.get<{ Params: { pluginId: string } }>(
     "/plugins/:pluginId/icon",
     async (request, reply) => {
       try {
-        const images = await Promise.all(
-          stores.map((store) => store.readIcon(request.params.pluginId)),
-        );
-        const image = images.find(Boolean);
+        const image = await readIcon(request.params.pluginId);
         if (!image)
           return reply.code(404).send({ error: "Plugin icon not found" });
         const etag = `"${image.revision}"`;
