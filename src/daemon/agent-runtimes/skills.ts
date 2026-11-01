@@ -61,3 +61,21 @@ export async function skillFolders(root: string): Promise<string[]> {
     return [];
   }
 }
+
+/**
+ * The Skills a message names as `$name`, anywhere and any number, in the order
+ * they first appear. Only names the agent has count, so `$5` stays text.
+ */
+export function invokedSkills(text: string, available: Iterable<string>): string[] {
+  const names = new Set(available);
+  const invoked = new Set<string>();
+  for (const match of text.matchAll(/(?<=^|\s)\$([a-zA-Z0-9][a-zA-Z0-9._-]*?)(?=$|[\s,!?;:)\]}]|\.(?:$|\s))/g)) {
+    if (names.has(match[1]!)) invoked.add(match[1]!);
+  }
+  return [...invoked];
+}
+
+/** Asks an agent that loads Skills itself, with its Skill tool, to load the named ones. */
+export function skillInstruction(names: readonly string[]): string {
+  return `Load and follow these Skills before you answer: ${names.join(", ")}.`;
+}

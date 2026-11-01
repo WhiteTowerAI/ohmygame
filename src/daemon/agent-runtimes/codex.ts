@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   FULL_ACCESS_PERMISSION_MODES,
@@ -34,6 +36,7 @@ import type { AgentContextUsage } from "../../shared/contracts.js";
 import { runtimeStartupError } from "./compatibility.js";
 import { importCodexImage } from "./codex-images.js";
 import { BRIDGE_SERVER_NAME } from "./tool-bridge.js";
+import { skillInstruction } from "./skills.js";
 import { EXTERNAL_MCP_SERVER_NAME } from "../../shared/external-mcp.js";
 
 /** A turn on a shared server must stop on its own: the process outlives the conversation. */
@@ -115,7 +118,7 @@ export class CodexDriver implements NativeDriver {
       server
         .request<{ turn?: { id?: string } }>("turn/start", {
           threadId,
-          input: codexInput(input),
+          input: codexInput(input, this.#lease?.skillsRoot),
           ...(this.context.reasoningLevel
             ? { effort: this.context.reasoningLevel }
             : {}),
@@ -629,9 +632,16 @@ export class CodexDriver implements NativeDriver {
   }
 }
 
-function codexInput(input: NativeTurnInput): Array<Record<string, unknown>> {
+/** Named Skills go as Codex's own Skill items; one that was not staged is asked for in words. */
+function codexInput(input: NativeTurnInput, skillsRoot?: string): Array<Record<string, unknown>> {
+  const skills = (input.skills ?? []).map((name) => {
+    const file = skillsRoot ? path.join(skillsRoot, name, "SKILL.md") : undefined;
+    return { name, ...(file && existsSync(file) ? { path: file } : {}) };
+  });
+  const unstaged = skills.filter((skill) => !skill.path).map((skill) => skill.name);
   return [
-    { type: "text", text: input.text, text_elements: [] },
+    { type: "text", text: unstaged.length ? `${skillInstruction(unstaged)}\n\n${input.text}` : input.text, text_elements: [] },
+    ...skills.flatMap((skill) => skill.path ? [{ type: "skill", name: skill.name, path: skill.path }] : []),
     ...input.images.map((image) => ({
       type: "image",
       url: `data:${image.mimeType};base64,${image.data}`,

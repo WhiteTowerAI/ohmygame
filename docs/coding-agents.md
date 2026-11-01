@@ -346,8 +346,12 @@ an `ohmygame_` prefix to avoid reserved names such as `mcp`; dispatch and the
 conversation timeline retain the original tool names. Skills (plugin Skills and
 OhMyGame's own) are copied into a private folder for the session and handed to
 the CLI: a session plugin for Claude Code, `skills/extraRoots/set` for Codex,
-the `skills` array for OpenCode v2. Staging copies regular files and omits symbolic
-links, so it cannot copy an external credential through a Skill's link. Each
+the `skills` array for OpenCode v2. Skills a message names as `$name`, any
+number of them, reach each agent its own way: as Codex `skill` input items, and
+as a first line asking Claude Code (by their `ohmygame:` names) or OpenCode to
+load them; see [agent runtimes](agent-runtimes.md#tools-plugins-and-skills).
+Staging copies regular files and omits symbolic links, so it cannot copy an
+external credential through a Skill's link. Each
 agent reads the staged Skills without asking: Claude Code also gets the folder
 with `--add-dir`, OpenCode's session allows it as an external directory, and
 Codex's profiles read it already. Running a staged script follows the agent's

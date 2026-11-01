@@ -27,11 +27,13 @@ import {
   textResult,
   type DriverContext,
 } from "./driver-context.js";
-import { stageSkills, stagedSkillsRoot } from "./skills.js";
+import { skillInstruction, stageSkills, stagedSkillsRoot } from "./skills.js";
 import { NativeSessionExpiredError } from "./native-session.js";
 import { cliProbeError, runtimeStartupError } from "./compatibility.js";
 
 const CONTROL_TIMEOUT_MS = 30_000;
+// The plugin each session's Skills reach Claude Code in.
+const SESSION_PLUGIN = "ohmygame";
 
 /**
  * Claude Code can launch subagents and shells in the background, and
@@ -71,6 +73,8 @@ export class ClaudeCodeDriver implements NativeDriver {
   #turn?: PendingTurn;
   #sessionId?: string;
   #limits: AgentUsageLimit[] = [];
+  /** The Skills staged in the session's plugin, which Claude Code names `ohmygame:<name>`. */
+  #stagedSkills = new Set<string>();
   #permissionMode?: ClaudePermissionMode;
   #controls = new Map<
     string,
@@ -122,7 +126,7 @@ export class ClaudeCodeDriver implements NativeDriver {
         readOnly: input.readOnly,
       };
       try {
-        child.write(userMessage(input));
+        child.write(userMessage(input, this.#stagedSkills));
       } catch (cause) {
         this.#turn = undefined;
         resolve({
@@ -267,14 +271,15 @@ export class ClaudeCodeDriver implements NativeDriver {
       await writeFile(
         path.join(plugin, ".claude-plugin", "plugin.json"),
         JSON.stringify({
-          name: "ohmygame",
+          name: SESSION_PLUGIN,
           version: "1.0.0",
           description: "OhMyGame Skills for this project",
         }),
       );
       // Its folder is a working directory too, so reading a Skill's files is not
       // a request to reach outside the project.
-      if ((await stageSkills(context.skillDirectories, skills)).length)
+      this.#stagedSkills = new Set(await stageSkills(context.skillDirectories, skills));
+      if (this.#stagedSkills.size)
         args.push("--plugin-dir", plugin, "--add-dir", plugin);
     }
     if (this.#sessionId) args.push("--resume", this.#sessionId);
@@ -730,13 +735,15 @@ function refusedTool(tool: string, readOnly: boolean): string | undefined {
   return undefined;
 }
 
-function userMessage(input: NativeTurnInput): Record<string, unknown> {
+/** A staged Skill is asked for by its name in the session's plugin, any other Skill by its own name. */
+function userMessage(input: NativeTurnInput, staged: ReadonlySet<string>): Record<string, unknown> {
+  const skills = (input.skills ?? []).map((name) => staged.has(name) ? `${SESSION_PLUGIN}:${name}` : name);
   return {
     type: "user",
     message: {
       role: "user",
       content: [
-        { type: "text", text: input.text },
+        { type: "text", text: skills.length ? `${skillInstruction(skills)}\n\n${input.text}` : input.text },
         ...input.images.map((image) => ({
           type: "image",
           source: {

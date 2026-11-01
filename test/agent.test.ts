@@ -1,10 +1,10 @@
 import { SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
-import { AgentManager, compatibleRuntimeModel, conversationItems, lastAssistantError, loadPiSkills, skillInvocationPrompt, type CodingSession, type RuntimeModel } from "../src/daemon/agent.js";
+import { AgentManager, compatibleRuntimeModel, conversationItems, lastAssistantError, loadPiSkills, skillBlocksPrompt, type CodingSession, type RuntimeModel } from "../src/daemon/agent.js";
 import * as gameDesignContext from "../src/daemon/game-design-context.js";
 import { promptContextBlock } from "../src/daemon/prompt-context.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
@@ -52,10 +52,24 @@ describe("lastAssistantError", () => {
   });
 });
 
-describe("skillInvocationPrompt", () => {
-  it("maps the Composer syntax to Pi's native skill command", () => {
-    expect(skillInvocationPrompt("$review check this change")).toBe("/skill:review check this change");
-    expect(skillInvocationPrompt("Use $review here")).toBe("Use $review here");
+describe("skillBlocksPrompt", () => {
+  it("puts every Skill a message names before it, as Pi writes one, and leaves the message as written", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ohmygame-skill-blocks-"));
+    try {
+      const skills = await Promise.all(["review", "map-design"].map(async (name) => {
+        const baseDir = path.join(root, name);
+        await mkdir(baseDir);
+        await writeFile(path.join(baseDir, "SKILL.md"), `---\nname: ${name}\ndescription: d\n---\n\nFollow ${name}.\n`);
+        return { name, filePath: path.join(baseDir, "SKILL.md"), baseDir };
+      }));
+      const block = (name: string) => `<skill name="${name}" location="${path.join(root, name, "SKILL.md")}">\nReferences are relative to ${path.join(root, name)}.\n\nFollow ${name}.\n</skill>`;
+
+      expect(skillBlocksPrompt("$review then use $map-design here, $review again", skills))
+        .toBe(`${block("review")}\n\n${block("map-design")}\n\n$review then use $map-design here, $review again`);
+      expect(skillBlocksPrompt("Costs $5, see $unknown", skills)).toBe("Costs $5, see $unknown");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -298,6 +312,14 @@ describe("conversationItems", () => {
       }),
     ] as never, false);
     expect(items[0]).toMatchObject({ type: "userMessage", text: "$review check this change" });
+  });
+
+  it("restores several Skill blocks to the message that names them", () => {
+    const block = (name: string) => `<skill name="${name}" location="/skills/${name}/SKILL.md">\nReferences are relative to /skills/${name}.\n\nFollow ${name}.\n</skill>`;
+    const items = conversationItems([
+      sessionMessage("user", { role: "user", content: `${block("review")}\n\n${block("map")}\n\nUse $review and $map here`, timestamp: 1 }),
+    ] as never, false);
+    expect(items[0]).toMatchObject({ type: "userMessage", text: "Use $review and $map here" });
   });
 
   it("restores a completed questionnaire as a user input request item", () => {
