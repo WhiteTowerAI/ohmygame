@@ -95,7 +95,7 @@ shows it in the call's progress.
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
-| Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts` |
+| Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts` |
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
@@ -297,7 +297,8 @@ the source again and refuses a package whose digest isn't the one reviewed.
 ## More manifest fields
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
-on the plugin's page, and mark itself `beta`.
+on the plugin's page, and mark itself `beta`. `ui.preview` lets its pages
+load page components still in preview (see [Page components](#page-components)).
 
 ## Packaging a repository of Skills
 
@@ -374,6 +375,42 @@ its type, radius, spacing and motion tokens. Until then the stylesheet holds
 the app's defaults, and `test/preview-static.test.ts` keeps them equal to
 `src/renderer/ui/tokens.css`. Pages may rely on these names: a release may
 add tokens but not rename or remove one.
+
+### Page components
+
+`/_ohmygame/ui/<major>/index.js` defines the app's page components, which
+`packages/plugin-ui/ui/<major>/` holds. Each draws in its own Shadow DOM from
+the tokens above, so a page customizes one only through its attributes, CSS
+custom properties and `::part()`. `--omg-accent` is the plugin's brand
+colour, used only for the current step and progress; buttons stay ink.
+
+Version 1 is in preview: a page's policy loads it only when the manifest has
+`"ui": { "preview": true }`. Once a major version is stable, it loads for
+every plugin, and a new one doesn't remove it for at least 12 months.
+Featured and certified plugins won't use preview components.
+
+| Component | What it is |
+| --- | --- |
+| `omg-page` | The page's column, at most 720px wide. `heading`, `description`; slots `brand` and `actions`. |
+| `omg-section` | A titled group. `heading`, `description`; slot `actions`. |
+| `omg-stack` | A row or column. `direction`, `gap` (`1`–`6`, the space tokens), `align`, `justify`, `wrap`. |
+| `omg-steps`, `omg-step` | A numbered flow. A step's `state` is `pending`, `current`, `done` or `error`; a current or failed step, or one that is `open`, shows its content. Slot `summary` always shows. |
+| `omg-status` | A state after a coloured dot, or a spinner. `tone`: `neutral`, `good`, `warning`, `bad`, `busy`. A live region. |
+| `omg-banner` | A message across the page. `tone`: `info`, `good`, `warning`, `bad` (an alert); `heading`; slot `actions`. |
+| `omg-log` | Monospace output that scrolls. `empty` text; `follow` keeps the latest line in view; the `text` property. |
+| `omg-empty` | What to show when there is nothing yet. `heading`, `description`; slots `icon` and actions. |
+| `omg-button` | The app's button. `variant`: `secondary`, `primary`, `ghost`, `danger`; `disabled`; `busy`. |
+| `omg-command-button` | Runs one of the plugin's commands by its manifest id. `command`, and `input` as JSON or a property. While running, it is busy, shows the command's progress, and other command buttons wait unless `concurrent`; a failure shows beside it unless `quiet`. Events: `omg-command-start` (cancelable), `omg-command-result`, `omg-command-error` (cancelable). |
+| `omg-select` | The app's select over its `<option>` children. `label` or `aria-label`, `value`, `disabled`; fires `change` and `input`. |
+
+The components connect to the app themselves, so a page may use them
+without calling `connect()`.
+
+`packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
+shows every component in its states, with commands that report progress and
+fail. It isn't bundled: add it from that folder with **Add plugin…**, allow
+it, and turn it on in a project. `test/plugin-ui-components.test.ts` keeps it
+valid and using only documented components.
 
 ## Plugin icons
 

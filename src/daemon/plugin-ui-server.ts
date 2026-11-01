@@ -15,12 +15,17 @@ import { MIME } from "./preview-static.js";
 //
 //   /<publisher>/<name>/<version>/<file>   a plugin's files
 //   /_ohmygame/plugin-ui.css, .js          the shared styles and bridge
+//   /_ohmygame/ui/<major>/<file>.js        the page components, by major version
 
 const SDK_FILES = new Set(["plugin-ui.css", "plugin-ui.js"]);
 const SDK_SOURCES: Record<string, string> = {
   "plugin-ui.css": "plugin-ui.css",
   "plugin-ui.js": "index.js",
 };
+/** The components' major versions the app serves, and those still in preview. */
+const UI_MAJORS = new Set(["1"]);
+const UI_PREVIEW_MAJORS = new Set(["1"]);
+const UI_FILE = /^[a-z0-9-]{1,64}\.js$/;
 
 export interface PluginUiServer {
   url: string;
@@ -43,14 +48,18 @@ export async function startPluginUiServer({
   port?: number;
 }): Promise<PluginUiServer> {
   let origin = "";
-  const policy = (base: string) =>
+  const policy = (base: string, preview: boolean) =>
     [
       "default-src 'none'",
-      `script-src ${base} ${origin}/_ohmygame/`,
-      `style-src ${base} ${origin}/_ohmygame/ 'unsafe-inline'`,
+      // Components in preview load only for a plugin that opts in.
+      `script-src ${base} ${origin}/_ohmygame/plugin-ui.js ${[...UI_MAJORS]
+        .filter((major) => preview || !UI_PREVIEW_MAJORS.has(major))
+        .map((major) => `${origin}/_ohmygame/ui/${major}/`)
+        .join(" ")}`.trimEnd(),
+      `style-src ${base} ${origin}/_ohmygame/plugin-ui.css 'unsafe-inline'`,
       `img-src ${base} data: blob:`,
       `media-src ${base} blob:`,
-      `font-src ${base} ${origin}/_ohmygame/`,
+      `font-src ${base}`,
       "connect-src 'none'",
       "form-action 'none'",
       "base-uri 'none'",
@@ -74,11 +83,15 @@ export async function startPluginUiServer({
       let file: string;
       let csp: string | undefined;
       if (parts[0] === "_ohmygame") {
-        if (parts.length !== 2 || !SDK_FILES.has(parts[1]!)) {
+        const [, first, major, name] = parts;
+        if (parts.length === 2 && SDK_FILES.has(first!))
+          file = path.join(sdkDirectory, SDK_SOURCES[first!]!);
+        else if (parts.length === 4 && first === "ui" && UI_MAJORS.has(major!) && UI_FILE.test(name!))
+          file = path.join(sdkDirectory, "ui", major!, name!);
+        else {
           outgoing.writeHead(404).end();
           return;
         }
-        file = path.join(sdkDirectory, SDK_SOURCES[parts[1]!]!);
       } else {
         const [publisher, name, version, ...rest] = parts;
         const entry =
@@ -98,7 +111,10 @@ export async function startPluginUiServer({
           file = path.join(file, part);
           if ((await lstat(file)).isSymbolicLink()) throw new Error("link");
         }
-        csp = policy(`${origin}/${publisher}/${name}/${version}/`);
+        csp = policy(
+          `${origin}/${publisher}/${name}/${version}/`,
+          entry.manifest.ui?.preview === true,
+        );
       }
       const stats = await stat(file);
       if (!stats.isFile()) throw new Error("not a file");
