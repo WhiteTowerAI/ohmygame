@@ -756,7 +756,7 @@ export async function setProjectPluginVersion(projectId: string, id: string, ver
  * `not-offered` when it doesn't suit the project's type, or the status of a
  * version the project asks for that isn't running; undefined once it runs.
  */
-export async function turnOnProjectPlugin(projectId: string, id: string): Promise<"not-offered" | NonNullable<import("../shared/plugins.js").ProjectPluginItem["status"]> | undefined> {
+export async function turnOnProjectPlugin(projectId: string, id: string): Promise<"not-offered" | Exclude<import("../shared/plugins.js").ProjectPluginItem["status"], "active" | undefined> | undefined> {
   const item = (await getProjectPlugins(projectId)).plugins.find((plugin) => plugin.id === id);
   if (!item) return "not-offered";
   if (item.used && item.status !== "needs-approval") return item.status && item.status !== "active" ? item.status : undefined;
