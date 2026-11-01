@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -16,6 +16,10 @@ import { capabilityGrants } from "./project-plugins.js";
 // which is read and checked but never run: npm's install scripts don't apply.
 // Reviewing and adding are two requests, and adding fetches again, so it takes
 // the digest the person reviewed and refuses a package that isn't that one.
+//
+// Approvals and settings belong to a plugin's id, so a package can only join an
+// installed plugin when it comes from the same place. From anywhere else, the
+// person uninstalls first, which clears them.
 
 export class PluginSourceError extends Error {
   readonly statusCode = 400;
@@ -51,8 +55,6 @@ interface FetchedPackage {
 
 export class PluginSources {
   #origins: Promise<Record<string, PluginOrigin>> | undefined;
-  /** One at a time, so adding the same package twice can't race for its folder. */
-  #queue: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly services: PluginServices,
@@ -85,16 +87,15 @@ export class PluginSources {
     await this.services.ready();
     const fetched = await fetchPackage();
     try {
-      const checked = await indexPluginPackage(fetched.root);
-      if (!checked.ok)
-        throw new PluginSourceError(`This isn't a valid plugin: ${checked.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`.trim()).join("; ")}`);
+      const entry = await validPackage(fetched.root);
       try {
-        assertAddablePlugin(checked.entry.id);
+        assertAddablePlugin(entry.id);
       } catch (cause) {
         throw new PluginSourceError((cause as Error).message);
       }
-      fetched.check?.(checked.entry);
-      return await use(fetched, checked.entry);
+      fetched.check?.(entry);
+      await this.#assertCanJoin(entry, fetched.origin);
+      return await use(fetched, entry);
     } finally {
       if (fetched.removeAfter) await rm(fetched.removeAfter, { recursive: true, force: true });
     }
@@ -119,15 +120,29 @@ export class PluginSources {
     });
   }
 
-  #install(fetched: FetchedPackage, entry: PluginIndexEntry, digest: string): Promise<PluginIndexEntry> {
+  async #install(fetched: FetchedPackage, entry: PluginIndexEntry, digest: string): Promise<PluginIndexEntry> {
     if (entry.digest !== digest) throw new PluginSourceError("This package changed after you reviewed it. Review it again.");
-    const run = this.#queue.then(async () => {
-      const installed = await this.services.installAdded(fetched.root);
-      await this.#recordOrigin(`${installed.id}@${installed.version}`, fetched.origin);
-      return installed;
-    });
-    this.#queue = run.catch(() => undefined);
-    return run;
+    const present = this.services.index.get(entry.id, entry.version);
+    if (present?.digest === entry.digest) return present;
+    const installed = await this.services.installAdded(fetched.root);
+    await this.#recordOrigin(`${installed.id}@${installed.version}`, fetched.origin);
+    return installed;
+  }
+
+  /**
+   * The exact package already installed changes nothing, so it's always fine.
+   * Other contents under one version would change what projects already run
+   * and have approved, so a new release needs a new version.
+   */
+  async #assertCanJoin(entry: PluginIndexEntry, origin: PluginOrigin | undefined): Promise<void> {
+    const present = this.services.index.get(entry.id, entry.version);
+    if (present?.digest === entry.digest) return;
+    for (const installed of this.services.index.versions(entry.id)) {
+      const previous = await this.origin(installed.id, installed.version);
+      if (!isSameSource(previous, origin))
+        throw new PluginSourceError(`${entry.id} is already installed from ${sourceName(previous)}. Its approvals and settings stay with that source, so uninstall it first to add it from here.`);
+    }
+    if (present) throw new PluginSourceError(`Version ${entry.version} of ${entry.id} is already installed with different contents. A new release needs a new version.`);
   }
 
   #fetch(source: PluginAddSource): Promise<FetchedPackage> {
@@ -138,9 +153,17 @@ export class PluginSources {
 
   async #directory(source: Extract<PluginAddSource, { type: "directory" }>): Promise<FetchedPackage> {
     if (!path.isAbsolute(source.path)) throw new PluginSourceError("Choose a folder by its full path.");
-    const info = await stat(source.path).catch(() => undefined);
-    if (!info?.isDirectory()) throw new PluginSourceError(`There is no folder at ${source.path}.`);
-    return { root: source.path, source };
+    const real = await realpath(source.path).catch(() => undefined);
+    const info = real ? await stat(real).catch(() => undefined) : undefined;
+    if (!real || !info?.isDirectory()) throw new PluginSourceError(`There is no folder at ${source.path}.`);
+    // Checked in place first, so a huge folder stops at the package limits.
+    await validPackage(real);
+    // A private copy can't change between the review's checks and the install.
+    return this.#inTemporaryFolder(async (folder) => {
+      const root = path.join(folder, "package");
+      await cp(real, root, { recursive: true, verbatimSymlinks: true });
+      return { root, source };
+    });
   }
 
   async #unpackUpload(file: Buffer): Promise<FetchedPackage> {
@@ -251,6 +274,26 @@ export class PluginSources {
       await rm(temporary, { force: true });
     }
   }
+}
+
+async function validPackage(root: string): Promise<PluginIndexEntry> {
+  const checked = await indexPluginPackage(root);
+  if (!checked.ok)
+    throw new PluginSourceError(`This isn't a valid plugin: ${checked.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`.trim()).join("; ")}`);
+  return checked.entry;
+}
+
+/** A package from this computer has no source to vouch for it, so it never counts as the same. */
+function isSameSource(left: PluginOrigin | undefined, right: PluginOrigin | undefined): boolean {
+  if (left?.type === "npm" && right?.type === "npm") return left.package.split("/")[0] === right.package.split("/")[0];
+  if (left?.type === "github" && right?.type === "github") return left.repository.toLowerCase() === right.repository.toLowerCase();
+  return false;
+}
+
+function sourceName(origin: PluginOrigin | undefined): string {
+  if (origin?.type === "npm") return `npm (${origin.package})`;
+  if (origin?.type === "github") return `GitHub (${origin.repository})`;
+  return "another package on this computer";
 }
 
 interface NpmMetadata {

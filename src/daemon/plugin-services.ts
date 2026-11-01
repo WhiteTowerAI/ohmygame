@@ -156,6 +156,7 @@ export class PluginServices {
   readonly values: PluginValues;
   /** Where signed releases are unpacked; uninstalling deletes its folders. */
   readonly packagesDirectory: string;
+  #packageChanges: Promise<unknown> = Promise.resolve();
   readonly #bundledOff: ReadonlySet<string>;
   /** Holds each plugin's data folder, `<publisher>/<name>`. */
   readonly dataDirectory: string;
@@ -595,7 +596,11 @@ export class PluginServices {
    * asks for; the caller vouches for it. The same version replaces its older
    * copy, and a choice to turn the plugin off stays.
    */
-  async installManaged(source: string, { consent = true }: { consent?: boolean } = {}): Promise<PluginIndexEntry> {
+  installManaged(source: string, { consent = true }: { consent?: boolean } = {}): Promise<PluginIndexEntry> {
+    return this.#onePackageChangeAtATime(() => this.#installManaged(source, consent));
+  }
+
+  async #installManaged(source: string, consent: boolean): Promise<PluginIndexEntry> {
     await this.ready();
     const checked = await indexPluginPackage(source);
     if (!checked.ok) throw new Error(`Not a valid plugin: ${checked.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`).join("; ")}`);
@@ -663,7 +668,18 @@ export class PluginServices {
     return entry;
   }
 
-  async uninstall(id: string, version?: string): Promise<void> {
+  uninstall(id: string, version?: string): Promise<void> {
+    return this.#onePackageChangeAtATime(() => this.#uninstall(id, version));
+  }
+
+  /** Installing and uninstalling share folders, so one can't delete what the other just placed. */
+  #onePackageChangeAtATime<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.#packageChanges.then(work);
+    this.#packageChanges = run.catch(() => undefined);
+    return run;
+  }
+
+  async #uninstall(id: string, version?: string): Promise<void> {
     await this.ready();
     const removed = version
       ? [this.index.get(id, version)].filter((entry) => entry !== undefined)

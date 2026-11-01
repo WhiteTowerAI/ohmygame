@@ -2296,7 +2296,7 @@ const zhCN: typeof en = {
     appliesByItself: "它只添加 Skills，添加后会立即对所有适用的项目生效。",
     turnedOnPerProject: "添加后不会获得任何权限。你可以在插件页面，或在项目里开启它时，批准它请求的权限。",
     settingsAfterAdding: "添加后可以在插件页面填写它的设置。",
-    replacesSameVersion: "已安装版本 {{version}}。添加后会替换它，即使内容不同。",
+    alreadyInstalled: "已安装版本 {{version}}，内容完全相同。",
     replacesVersions: "添加后会替换版本 {{versions}}。",
     keepsVersions: "版本 {{versions}} 会保留给正在使用它的项目。",
     unreviewed: "OhMyGame 不会审核通过这种方式添加的插件，请只添加你信任的内容。",

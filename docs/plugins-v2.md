@@ -249,6 +249,13 @@ the source again and refuses a package whose digest isn't the one reviewed.
   to approve it, on its page or when they turn it on in a project's Plugins sheet.
   One that only adds Skills asks for nothing, so it applies right away and replaces
   its older versions.
+- A package joins an installed plugin only from the same source: the same npm
+  scope or GitHub repository. Approvals and settings belong to the id, so from
+  anywhere else, and from this computer always, the person uninstalls it first,
+  which clears them. Other contents under an installed version are refused; a
+  new release needs a new version.
+- A folder is copied to a private temporary folder before it's reviewed or
+  installed, so it can't change between the two checks that matter.
 - The publishers `ohmygame` and `personal` can't be added this way
   (`PluginServices.installAdded`), so a package can't stand in for what the app or
   the Plugin Builder provides.

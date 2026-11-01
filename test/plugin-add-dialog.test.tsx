@@ -85,8 +85,21 @@ describe("PluginAddDialog", () => {
     expect(requests[0]!.body).toEqual({ source: { type: "github", url: "https://github.com/acme/maker" } });
     const text = dialog().textContent!;
     expect(text).toContain("as soon as you add it");
-    expect(text).toContain("Version 1.0.0 is already installed");
+    expect(text).toContain("Version 1.0.0 is already installed, with these same contents");
     expect(text).toContain("This replaces version 0.9.0");
+  });
+
+  it("doesn't change source while one is being read", async () => {
+    let finish!: (response: Response) => void;
+    answer = () => undefined as unknown as Response;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; })));
+    await open();
+    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="@publisher/plugin"]')!, "@acme/maker");
+    await submit();
+    await tab("GitHub");
+    expect(dialog().querySelector('input[type="url"]')).toBeNull();
+    await act(async () => finish(Response.json(preview)));
+    expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Add Maker?");
   });
 
   it("stays on the review with the reason when adding fails, and Back returns to the source", async () => {

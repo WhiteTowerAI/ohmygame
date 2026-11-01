@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
@@ -265,32 +265,144 @@ describe("PluginSources", () => {
     await absent.close();
   });
 
-  it("adds an uploaded package and a folder, with no origin, replacing the origin of one added before", async () => {
-    const bytes = tgz(...pluginEntries("package/"));
-    const pack = npmPackage("@acme/maker", bytes);
-    const { sources, services, directory, close } = await setup(pack.routes, pack.files);
-    const preview = await sources.inspect(npm, "en");
-    await sources.install(preview.source!, preview.digest);
-    expect(await sources.origin("acme/maker", "1.0.0")).toBeDefined();
-
-    const uploaded = await sources.inspectFile(bytes, "en");
-    expect(uploaded.source).toBeUndefined();
-    expect(uploaded.installedVersions).toEqual(["1.0.0"]);
-    await sources.installFile(bytes, uploaded.digest);
-    expect(await sources.origin("acme/maker", "1.0.0")).toBeUndefined();
-
+  async function folderPackage(directory: string, version = "1.0.0", extra = "") {
     const folder = path.join(directory, "folder");
     await mkdir(path.join(folder, ".ohmygame-plugin"), { recursive: true });
     await mkdir(path.join(folder, "skills", "make"), { recursive: true });
-    await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), manifest("acme/maker", "1.1.0"));
-    await writeFile(path.join(folder, "skills", "make", "SKILL.md"), skill);
-    const source = { type: "directory", path: folder } as const;
+    await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), manifest("acme/maker", version));
+    await writeFile(path.join(folder, "skills", "make", "SKILL.md"), skill + extra);
+    return folder;
+  }
+
+  it("adds an uploaded package and a folder, with no origin", async () => {
+    const bytes = tgz(...pluginEntries("package/"));
+    const { sources, services, directory, close } = await setup();
+    const uploaded = await sources.inspectFile(bytes, "en");
+    expect(uploaded.source).toBeUndefined();
+    expect(uploaded.installedVersions).toEqual([]);
+    await sources.installFile(bytes, uploaded.digest);
+    expect(await sources.origin("acme/maker", "1.0.0")).toBeUndefined();
+    await services.uninstall("acme/maker");
+
+    const source = { type: "directory", path: await folderPackage(directory) } as const;
     const local = await sources.inspect(source, "en");
     await sources.install(source, local.digest);
+    expect(services.index.get("acme/maker")?.root).toContain(path.join("plugin-store", "packages"));
+    await expect(sources.inspect({ type: "directory", path: path.join(directory, "absent") }, "en")).rejects.toThrow("no folder");
+    await expect(sources.inspect({ type: "directory", path: "relative" }, "en")).rejects.toThrow("full path");
+    await close();
+  });
+
+  it("installs the folder that was reviewed, not what it became", async () => {
+    const { sources, services, directory, close } = await setup();
+    const folder = await folderPackage(directory);
+    const source = { type: "directory", path: folder } as const;
+    const reviewed = await sources.inspect(source, "en");
+    await writeFile(path.join(folder, "skills", "make", "SKILL.md"), `${skill}Something else.\n`);
+    await expect(sources.install(source, reviewed.digest)).rejects.toThrow("changed after you reviewed it");
+    expect(services.index.get("acme/maker")).toBeUndefined();
+    await close();
+  });
+
+  it.skipIf(process.platform === "win32")("copies a linked folder's contents, so the plugin doesn't depend on the link", async () => {
+    const { sources, services, directory, close } = await setup();
+    const folder = await folderPackage(directory);
+    const link = path.join(directory, "link");
+    await symlink(folder, link);
+    const source = { type: "directory", path: link } as const;
+    const reviewed = await sources.inspect(source, "en");
+    await sources.install(source, reviewed.digest);
+    await rm(folder, { recursive: true });
+    const { root } = services.index.get("acme/maker")!;
+    expect((await lstat(root)).isSymbolicLink()).toBe(false);
+    expect(await readFile(path.join(root, "skills", "make", "SKILL.md"), "utf8")).toBe(skill);
+    await close();
+  });
+
+  it("keeps an installed plugin's approvals and settings from a package of another source", async () => {
+    const commit = "c".repeat(40);
+    const github = {
+      "https://api.github.com/repos/evil/maker/commits/HEAD": () => new Response(commit),
+    };
+    const pack = npmPackage("@acme/maker", tgz(...pluginEntries("package/")));
+    const { sources, services, directory, close } = await setup({ ...pack.routes, ...github }, {
+      ...pack.files,
+      [`https://codeload.github.com/evil/maker/tar.gz/${commit}`]: tgz(...pluginEntries("maker/", "acme/maker", "1.1.0")),
+    });
+    const preview = await sources.inspect(npm, "en");
+    await sources.install(preview.source!, preview.digest);
+
+    const message = "already installed from npm (@acme/maker)";
+    await expect(sources.inspect({ type: "github", url: "https://github.com/evil/maker" }, "en")).rejects.toThrow(message);
+    await expect(sources.inspectFile(tgz(...pluginEntries("package/", "acme/maker", "2.0.0")), "en")).rejects.toThrow(message);
+    await expect(sources.inspect({ type: "directory", path: await folderPackage(directory, "2.0.0") }, "en")).rejects.toThrow(message);
+
+    // Uninstalling clears what it held, so the plugin can then come from anywhere.
+    await services.uninstall("acme/maker");
+    const elsewhere = await sources.inspect({ type: "github", url: "https://github.com/evil/maker" }, "en");
+    expect(elsewhere.installedVersions).toEqual([]);
+    await close();
+  });
+
+  it("doesn't let a package from this computer join one installed the same way", async () => {
+    const { sources, close } = await setup();
+    const bytes = tgz(...pluginEntries("package/"));
+    await sources.installFile(bytes, (await sources.inspectFile(bytes, "en")).digest);
+    await expect(sources.inspectFile(tgz(...pluginEntries("package/", "acme/maker", "1.1.0")), "en")).rejects.toThrow("another package on this computer");
+    await close();
+  });
+
+  it("takes a newer release from the same source, and refuses other contents under one version", async () => {
+    const first = "1".repeat(40);
+    const second = "2".repeat(40);
+    const third = "3".repeat(40);
+    const url = "https://github.com/acme/maker";
+    const { sources, services, close } = await setup({}, {
+      [`https://codeload.github.com/acme/maker/tar.gz/${first}`]: tgz(...pluginEntries("maker/")),
+      [`https://codeload.github.com/acme/maker/tar.gz/${second}`]: tgz(...pluginEntries("maker/", "acme/maker", "1.1.0")),
+      [`https://codeload.github.com/acme/maker/tar.gz/${third}`]: tgz(...pluginEntries("maker/"), tarEntry("maker/extra.txt", "changed")),
+    });
+    const add = async (commit: string) => {
+      const source = { type: "github", url, commit } as const;
+      return sources.install(source, (await sources.inspect(source, "en")).digest);
+    };
+    await add(first);
+    await expect(sources.inspect({ type: "github", url, commit: third }, "en")).rejects.toThrow("different contents");
+    // The same package again changes nothing, wherever it comes from.
+    const identical = tgz(...pluginEntries("package/"));
+    const before = services.index.get("acme/maker", "1.0.0")!;
+    expect((await sources.installFile(identical, (await sources.inspectFile(identical, "en")).digest)).root).toBe(before.root);
+    expect((await sources.origin("acme/maker", "1.0.0"))?.type).toBe("github");
+    await add(second);
     // It only adds Skills, so the new version takes over from the old.
     expect(services.index.versions("acme/maker").map((entry) => entry.version)).toEqual(["1.1.0"]);
-    await expect(sources.inspect({ type: "directory", path: path.join(folder, "absent") }, "en")).rejects.toThrow("no folder");
-    await expect(sources.inspect({ type: "directory", path: "relative" }, "en")).rejects.toThrow("full path");
+    await close();
+  });
+
+  it("doesn't let an uninstall delete what an install just placed", async () => {
+    const { services, directory, close } = await setup();
+    const folder = await folderPackage(directory);
+    await services.installAdded(folder);
+    // The uninstall stops between leaving the index and deleting the files.
+    const { changed } = services;
+    let resume!: () => void;
+    const paused = new Promise<void>((resolve) => { resume = resolve; });
+    let reached!: () => void;
+    const atPause = new Promise<void>((resolve) => { reached = resolve; });
+    vi.spyOn(services, "changed").mockImplementationOnce(async () => {
+      reached();
+      await paused;
+      return changed.call(services);
+    });
+    const uninstalling = services.uninstall("acme/maker");
+    await atPause;
+    const installing = services.installAdded(folder);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    resume();
+    await uninstalling;
+    const entry = await installing;
+    expect((await stat(path.join(entry.root, ".ohmygame-plugin", "plugin.json"))).isFile()).toBe(true);
+    expect(services.index.get("acme/maker")).toBeDefined();
     await close();
   });
 

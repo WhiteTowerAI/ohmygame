@@ -81,7 +81,7 @@ export function PluginAddDialog({ onClose, onAdded }: { onClose: () => void; onA
     </>}>
     <form id="plugin-add-form" className="plugins-install-form" onSubmit={submit}>
       {review ? <PluginAddReview review={review} /> : <>
-        <Tabs<SourceKind> variant="pills" label={t("pluginAdd.source")} value={kind} onChange={(next) => { setKind(next); setError(undefined); }} tabs={[
+        <Tabs<SourceKind> variant="pills" label={t("pluginAdd.source")} value={kind} onChange={(next) => { if (busy) return; setKind(next); setError(undefined); }} tabs={[
           { value: "npm", label: "npm" },
           { value: "github", label: "GitHub" },
           { value: "local", label: t("pluginAdd.local") },
@@ -115,7 +115,7 @@ function PluginAddReview({ review }: { review: Review }) {
     {preview.skills ? <p>{t("plugins.skillCount", { count: preview.skills })}</p> : null}
     {preview.mcpServers.length ? <section><h3>{t("pluginControls.mcpServices")}</h3><ul>{preview.mcpServers.map((server) => <li key={server}>{server}</li>)}</ul></section> : null}
     {preview.settings ? <p>{t("pluginAdd.settingsAfterAdding")}</p> : null}
-    {preview.installedVersions.includes(preview.version) ? <Alert tone="info" title={t("pluginAdd.replacesSameVersion", { version: preview.version })} /> : null}
+    {preview.installedVersions.includes(preview.version) ? <Alert tone="info" title={t("pluginAdd.alreadyInstalled", { version: preview.version })} /> : null}
     {others.length ? <p>{t(preview.appWide ? "pluginAdd.replacesVersions" : "pluginAdd.keepsVersions", { versions: others.join(", ") })}</p> : null}
     <Alert tone="info" title={t("pluginAdd.unreviewed")} />
   </div>;

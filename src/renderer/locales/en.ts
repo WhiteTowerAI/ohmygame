@@ -2342,7 +2342,7 @@ const en = {
     appliesByItself: "It only adds Skills, so it applies to every project it suits as soon as you add it.",
     turnedOnPerProject: "Adding it allows nothing yet. You approve what it asks for on its page, or when you turn it on in a project.",
     settingsAfterAdding: "It has settings to fill in on its page once it's added.",
-    replacesSameVersion: "Version {{version}} is already installed. This replaces it, even if its contents differ.",
+    alreadyInstalled: "Version {{version}} is already installed, with these same contents.",
     replacesVersions: "This replaces version {{versions}}.",
     keepsVersions: "Version {{versions}} stays for the projects that use it.",
     unreviewed: "OhMyGame doesn't review plugins added this way. Add only what you trust.",
