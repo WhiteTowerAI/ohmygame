@@ -358,7 +358,8 @@ describe("Home prompt box", () => {
     await act(async () => pluginButton().click());
     await chooseType("Tile Map");
     await act(async () => pluginButton().click());
-    expect(document.querySelector('[role="group"][aria-label="On in this project only"]')).toBeNull();
+    expect(document.querySelectorAll('[role="group"][aria-label="On in this project only"] [role="menuitemcheckbox"]')).toHaveLength(0);
+    expect(document.querySelector(".home-plugin-empty a")!.getAttribute("href")).toBe("#/plugins");
   });
 
   it("leaves out the list of plugins for this project when only type plugins could go in it", async () => {
