@@ -1,4 +1,3 @@
-import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
 import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
 import {
   Play,
@@ -41,7 +40,8 @@ import {
   Suspense,
 } from "react";
 import { previewElementContext } from "../shared/playable-chat-context.js";
-import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
+import { isProgressLink } from "../shared/extension-host-protocol.js";
+import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
@@ -125,7 +125,7 @@ import { ErrorBoundary } from "./error-boundary.js";
 import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
-import { PluginFrame } from "./plugin-frame.js";
+import { PluginFrame, type CommandProgress } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 import type { CodingView } from "./coding-workspace.js";
@@ -274,7 +274,9 @@ export function ProjectShell({
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [pluginChangesOpen, setPluginChangesOpen] = useState(false);
   /** A plugin command's link, shown with its host before it opens. */
-  const [pluginLink, setPluginLink] = useState<URL>();
+  /** A link a plugin command offers, opened only once the person sees its host; `message` is the plugin's. */
+  const [pluginLink, setPluginLink] = useState<{ url: URL; message?: string }>();
+  const [pluginProgress, setPluginProgress] = useState<CommandProgress>();
   const toast = useToast();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
@@ -358,6 +360,10 @@ export function ProjectShell({
       onEvent: (event) => {
         dispatch({ type: "runtime-event", event });
         if (event.type === "project.plugins.changed") setCapabilitiesRevision((value) => value + 1);
+        if (event.type === "plugin.command.progress") {
+          setPluginProgress({ command: event.data.command, message: event.data.message });
+          if (isProgressLink(event.data.url)) setPluginLink({ url: new URL(event.data.url), message: event.data.message });
+        }
         if (event.type === "workspace.restored") {
           observeWorkspaceVersion(projectId, event.data.version);
           setWorkspaceEpoch(event.data.version);
@@ -466,7 +472,6 @@ export function ProjectShell({
     };
   }, [projectId, runtime.generation, runtime.status]);
 
-  const integrationGate = usePluginIntegrationGate(project => dispatch({ type: "project-updated", project }));
   const previewSupported = supportsWebPreview(state.project);
   useEffect(() => {
     if (!previewSupported || unfinishedRestore || runtime.status !== "ready") return;
@@ -524,14 +529,12 @@ export function ProjectShell({
     initialPromptAttempted.current = true;
     setSendingInitialPrompt(true);
     setInitialPromptDeferred(false);
-    let sent = false;
-    void integrationGate.ensure(project).then(ready => {
-      if (!ready) return;
-      sent = true;
-      return sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments);
-    }).then(() => {
+    let sent = true;
+    void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments).then(() => {
       if (sent && (initialPrompt.images.length || initialPrompt.attachments?.length)) setWorkspaceRevision((value) => value + 1);
     }).catch((error) => {
+      // The message waits, as when it was paused, until the project is set up.
+      if (revealSetupPanel(error)) sent = false;
       dispatch({ type: "notice", message: errorMessage(error) });
     }).finally(() => {
       if (sent) onInitialPromptHandled?.();
@@ -609,8 +612,6 @@ export function ProjectShell({
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
-      const pluginId = referencedIntegration(mentions, capabilities.plugins);
-      if (!await integrationGate.ensure(project, pluginId)) return false;
       await saveDesign.current?.();
       const surface = playableSurface;
       const previewContexts = storyShown ? playableChat?.attachments ?? [] : [];
@@ -625,9 +626,18 @@ export function ProjectShell({
       if (previewContexts.length) playableChat?.clearAttachments();
       return true;
     } catch (error) {
+      revealSetupPanel(error);
       dispatch({ type: "notice", message: errorMessage(error) });
       return false;
     }
+  }
+
+  /** A prompt refused until a plugin type's project is set up opens the panel that sets it up. */
+  function revealSetupPanel(error: unknown): boolean {
+    if (!(error instanceof ApiError) || error.code !== "project-not-ready" || !error.panel) return false;
+    const at = error.panel.lastIndexOf(":");
+    revealPanel(pluginPanelId({ plugin: error.panel.slice(0, at), id: error.panel.slice(at + 1) }));
+    return true;
   }
 
   /**
@@ -1014,7 +1024,7 @@ export function ProjectShell({
     if ("url" in run) {
       // The manifest only checks that it starts with https://.
       const url = URL.canParse(run.url) ? new URL(run.url) : undefined;
-      if (url) setPluginLink(url);
+      if (url) setPluginLink({ url });
       else toast({ title: command.title, description: t("pluginCommands.badLink"), tone: "danger" });
       return;
     }
@@ -1049,7 +1059,7 @@ export function ProjectShell({
   /** A plugin's page in its panel, talking to the app through its frame. */
   function pluginPanelContent(panel: PluginPanel, shown: boolean) {
     const current = project!;
-    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} context={{
+    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} context={{
       plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
       locale: language,
       capabilities: panel.capabilities,
@@ -1060,15 +1070,16 @@ export function ProjectShell({
         get: (key) => getPluginPageValue(current.id, panel.plugin, key),
         set: (key, value) => setPluginPageValue(current.id, panel.plugin, key, value),
       },
-      runCommand: async (command) => {
+      runCommand: async (command, input) => {
         const id = `${panel.plugin}:${command}`;
         const found = plugins.commands.find((item) => item.id === id);
         // Commands that run in the app run here; the page only gets back that they did.
         const action = pageCommand(panel, found);
+        if (input !== undefined && action.kind !== "plugin") throw new Error(`${id} runs in the app and takes no input`);
         if (action.kind === "fill") requestPrompt(action.text);
         else if (action.kind === "app") await runProjectPluginCommand(action.command);
         if (action.kind !== "plugin") return null;
-        const { result, change } = await runPluginCommand(current.id, id);
+        const { result, change } = await runPluginCommand(current.id, id, input);
         if (change?.changed.length) showPluginChange(found?.title ?? command, change);
         return result;
       },
@@ -1183,7 +1194,7 @@ export function ProjectShell({
     ) : null}
 
     {initialPrompt && (initialPromptDeferred || (initialPrompt.generation !== runtime.generation && !initialPromptAttempted.current)) ? <div className="paused-initial-prompt" role="status">
-      <p>{t(initialPromptDeferred ? "integration.promptNotSent" : "projectShell.promptPaused")}</p>
+      <p>{t(initialPromptDeferred ? "projectShell.promptNotSent" : "projectShell.promptPaused")}</p>
       <details><summary>{t("projectShell.reviewMessage")}</summary><pre>{initialPrompt.prompt}</pre>
         {initialPrompt.images.length || initialPrompt.attachments?.length ? <p>{t("projectShell.attachmentsRetained", { count: initialPrompt.images.length + (initialPrompt.attachments?.length ?? 0) })}</p> : null}
       </details>
@@ -1260,15 +1271,15 @@ export function ProjectShell({
 
   return (
     <>
-    {integrationGate.dialog}
     {chatInput}
     {project ? <PluginChangesSheet projectId={project.id} open={pluginChangesOpen} busy={agentBusy} onClose={() => setPluginChangesOpen(false)}
       onUndone={() => setWorkspaceRevision((value) => value + 1)} /> : null}
     {pluginLink ? <Dialog open title={t("pluginCommands.openLinkTitle")} onClose={() => setPluginLink(undefined)} footer={<>
       <Button variant="ghost" onClick={() => setPluginLink(undefined)}>{t("common.cancel")}</Button>
-      <Button variant="primary" onClick={() => { openExternalLink(pluginLink.href); setPluginLink(undefined); }}>{t("pluginCommands.openLink")}</Button>
+      <Button variant="primary" onClick={() => { openExternalLink(pluginLink.url.href); setPluginLink(undefined); }}>{t("pluginCommands.openLink")}</Button>
     </>}>
-      <p>{t("pluginCommands.openLinkHint", { host: pluginLink.host })}</p>
+      {pluginLink.message ? <p>{pluginLink.message}</p> : null}
+      <p>{t("pluginCommands.openLinkHint", { host: pluginLink.url.host })}</p>
     </Dialog> : null}
     {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
     {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} /> : null}
@@ -1392,7 +1403,6 @@ export function ProjectShell({
       {!project ? null : coding ? (
         <CodingWorkspace
           project={project}
-          agentBusy={agentBusy}
           publishing={publishing}
           workspaceRevision={workspaceRevision}
           previewPaused={previewPaused}
@@ -1426,7 +1436,6 @@ export function ProjectShell({
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         onDesignSaveReady={registerDesignSave}
         onDesignContextChange={setDesignContext}
-        agentBusy={agentBusy}
         publishing={publishing}
         workspaceRevision={workspaceRevision}
         openFileRequest={openFileRequest}

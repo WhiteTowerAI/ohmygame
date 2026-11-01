@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": ["status", "install", "start", "refresh", "stop", "logs"],
+      "description": "status: whether the preview runs; install: download Maker Runtime; start: open the game in its own window; refresh: restart it with the latest files, resetting game state; stop: close it; logs: the latest 100 log lines."
+    }
+  },
+  "required": ["action"],
+  "additionalProperties": false
+}

@@ -27,7 +27,7 @@ import { useAuth } from "./auth.js";
 import { BrandLogo } from "./brand-logo.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
-import { conversationHash, createdProjectView, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
+import { communityProfileHash, conversationHash, createdProjectView, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { DropdownMenu, IconButton, Kbd, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
 import { useDesktopUpdate } from "./use-desktop-update.js";
@@ -326,7 +326,8 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
         ) : null}
         <div className="sidebar-head">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => onNavigate("home")}>
-            <BrandLogo size={22} /><span>OhMyGame</span>
+            {/* Collapsed, the logo stands alone above the project icons, at their size as in a project's rail. */}
+            <BrandLogo size={collapsed ? 32 : 22} /><span>OhMyGame</span>
           </button>
           {mac || collapsed ? null : toggleButton}
         </div>
@@ -559,7 +560,8 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
       <div className="sidebar-head">
         <Tooltip content={t("sidebar.home")} placement="right-start">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => leaveTo("home")}>
-            <BrandLogo size={22} />
+            {/* the size of the project icons below it */}
+            <BrandLogo size={32} />
           </button>
         </Tooltip>
       </div>
@@ -605,6 +607,8 @@ function AccountMenu({ active, avatarSize, onNavigate }: { active: boolean; avat
   const items: MenuEntry[] = signedIn ? [
     settings,
     { label: t("sidebar.account"), icon: <UserRound size={16} />, onSelect: () => openSettings("account") },
+    // The games you published, to edit or unpublish.
+    { label: t("community.myGames"), icon: <Globe2 size={16} />, onSelect: () => { window.location.hash = communityProfileHash(signedIn.id); } },
     "separator",
     about,
   ] : [

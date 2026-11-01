@@ -318,6 +318,10 @@ describe("plugin pages", () => {
     expect(readPluginUiRequest({ id: 2, method: "fs.read" })).toMatchObject({ ok: false, id: 2 });
     expect(readPluginUiRequest({ id: 3, method: "storage.get", params: { key: "../x" } })).toMatchObject({ ok: false, id: 3 });
     expect(readPluginUiRequest({ id: 4, method: "command.run", params: { command: "Run Now" } }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 6, method: "command.run", params: { command: "rename", input: { name: "map" } } })).toMatchObject({
+      ok: true,
+      request: { params: { input: { name: "map" } } },
+    });
     expect(readPluginUiRequest({ method: "theme.get" })).toEqual({ ok: false, error: "no id" });
     expect(readPluginUiRequest({ id: 5, method: "storage.set", params: { key: "a", value: "x".repeat(300_000) } }).ok).toBe(false);
     expect(pluginUiRefusal("composer.fill", {})).toContain("composer capability");

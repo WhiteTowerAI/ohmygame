@@ -203,14 +203,11 @@ editor, cancels. The daemon validates and bounds the report and publishes
 `preview.picked`, and the chat adds it as a `preview-element` context chip. A
 game drawn into one canvas only offers the `<canvas>` element.
 
-## External plugin preview
+## Native plugin preview
 
-A project's optional `integration` selects its plugin and `external` presentation.
-These projects expose View with the plugin's native preview controls and do not
-acquire Web leases or create a Web player. Browser runtime configuration and
-leases retain their existing lifecycle. See [plugin integrations](plugins.md#optional-project-integrations)
-for the adapter contract and Maker's current limits. External controls mount only
-while View is visible; they do not capture or embed the native game window.
-When the connection cannot be used, disconnecting the plugin there stops its
-native preview and returns the project to ordinary General settings with Web
-preview off.
+A plugin project type with `preview: "native"`, such as
+[TapTap Maker](plugins.md#taptap-maker), runs its game outside the app. These
+projects acquire no Web leases, create no Web player, and keep Web preview off;
+the plugin's own panel controls its preview. A project the format 1 Maker
+integration connected keeps Web preview off the same way until it moves to the
+format 2 type.
