@@ -61,20 +61,20 @@ describe("plugin catalog API", () => {
     const app = createApp({ dataDirectory });
     apps.push(app);
     await app.ready();
-    const web = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
-    const webView = (await app.inject({ method: "GET", url: `/projects/${web.id}/plugins?locale=en` })).json();
-    // Plugins from the Plugins page that work with web games are on, for every such project.
-    expect(webView.global.map((plugin: { id: string }) => plugin.id)).toContain("ohmygame:web-game-studio");
-    expect(webView.global.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame:godot");
-    // Godot and Unreal suit General projects (appliesTo), so a Web game neither lists nor turns them on.
-    expect(webView.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/godot");
-    expect(webView.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/unreal-engine");
-    expect((await app.inject({ method: "PUT", url: `/projects/${web.id}/plugins/ohmygame/godot`, payload: { version: "1.0.0" } })).json())
-      .toEqual({ error: "ohmygame/godot doesn't work in web-game projects" });
-
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
     const view = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins?locale=en` })).json();
+    // Plugins from the Plugins page that work with web games are on, for every such project.
+    expect(view.global.map((plugin: { id: string }) => plugin.id)).toContain("ohmygame:web-game-studio");
+    expect(view.global.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame:godot");
+    // Godot and Unreal suit General projects (appliesTo), which a Web game's ohmygame.json says it is.
     expect(view.plugins.map((plugin: { id: string }) => plugin.id)).toEqual(expect.arrayContaining(["ohmygame/godot", "ohmygame/unreal-engine"]));
+    // An Interactive Story neither lists nor turns them on.
+    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
+    const storyView = (await app.inject({ method: "GET", url: `/projects/${story.id}/plugins?locale=en` })).json();
+    expect(storyView.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/godot");
+    expect(storyView.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/unreal-engine");
+    expect((await app.inject({ method: "PUT", url: `/projects/${story.id}/plugins/ohmygame/godot`, payload: { version: "1.0.0" } })).json())
+      .toEqual({ error: "ohmygame/godot doesn't work in interactive-story projects" });
     const godot = view.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/godot");
     expect(godot).toMatchObject({ displayName: "Godot", version: "1.0.0", providesType: false });
     expect(godot.used).toBeUndefined();

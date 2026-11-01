@@ -2,7 +2,7 @@ import { Lightbulb, LoaderCircle, SendArrow } from "./icons.js";
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
-import { pluginAppliesTo } from "../shared/project-runtime.js";
+import { pluginAppliesTo, projectFileTypeFor } from "../shared/project-runtime.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import { isAgentRuntimeId, nativeEffort } from "../shared/agent-runtimes.js";
 import { getHomeComposerCapabilities, updateAgentDefaults, waitForRuntime } from "./api.js";
@@ -163,7 +163,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   const extraMentions = capabilitiesLoaded ? extras.map(toPluginMention) : extraPlugins ?? [];
   const ideas: readonly IdeaKey[] = TYPE_IDEAS[type] ?? (starter && starter.name in IDEAS ? IDEAS[starter.name as keyof typeof IDEAS] : undefined) ?? GENERAL_IDEAS;
   // A plugin that adds the chosen type is on in its projects already; one that doesn't suit it isn't offered.
-  const projectPlugins = projectPluginChoices.filter((plugin) => !plugin.providesTypes.includes(type) && pluginAppliesTo(plugin.appliesTo, type));
+  const projectPlugins = projectPluginChoices.filter((plugin) => !plugin.providesTypes.includes(type) && pluginAppliesTo(plugin.appliesTo, projectFileTypeFor(type)));
   /** The prompt as sent: the skill, the chosen plugins in order, then the text. */
   const withExtras = (text: string, others = extraMentions) =>
     others.reduceRight((rest, mention) => formatPluginInvocation(mention, rest), text);

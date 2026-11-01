@@ -574,7 +574,6 @@ export class PluginServices {
     id: string,
     version: string | null,
     initialType?: string,
-    appKind?: string,
   ): Promise<void> {
     await this.ready();
     await setProjectPlugin({
@@ -584,7 +583,6 @@ export class PluginServices {
       index: this.index,
       grants: this.grants,
       ...(initialType ? { initialType } : {}),
-      ...(appKind ? { appKind } : {}),
     });
     await this.changed(folder);
   }

@@ -1289,8 +1289,8 @@ export function createApp(options: AppOptions = {}) {
     const resolved = await resolveProjectPlugins({ folder: project.workspacePath, index: pluginServices.index, grants: pluginServices.grants }).catch(() => undefined);
     const states = resolved?.ok ? resolved.plugins : [];
     // One that doesn't suit the project's type is offered only to turn off, if it is on.
-    // A file that says `general` leaves the app's kind (a Web game, say) to say more.
-    const projectType = resolved?.ok && resolved.file.type !== "general" ? resolved.file.type : project.type;
+    // The type the project file says, or will say once a plugin is turned on.
+    const projectType = resolved?.ok ? resolved.file.type : (CORE_PROJECT_TYPES as readonly string[]).includes(project.type) ? project.type : "general";
     // Each plugin's newest version that suits the project is the one to turn on.
     const offered = new Map<string, PluginIndexEntry>();
     for (const entry of pluginServices.index.entries())
@@ -1347,7 +1347,7 @@ export function createApp(options: AppOptions = {}) {
       await pluginServices.ready();
       // A project made before plugins could be per project gets its `ohmygame.json` now.
       const initialType = (CORE_PROJECT_TYPES as readonly string[]).includes(project.type) ? project.type : "general";
-      await pluginServices.setProjectPlugin(project.workspacePath, `${request.params.publisher}/${request.params.name}`, request.body.version, initialType, project.type);
+      await pluginServices.setProjectPlugin(project.workspacePath, `${request.params.publisher}/${request.params.name}`, request.body.version, initialType);
       // The change listener does this too; waiting here means the reply follows it.
       await syncPluginType(project);
       return reply.code(204).send();

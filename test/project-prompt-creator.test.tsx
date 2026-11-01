@@ -346,6 +346,12 @@ describe("Home prompt box", () => {
     expect([...document.querySelectorAll('[role="group"][aria-label="On in this project only"] [role="menuitemcheckbox"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
       .toEqual(["Tiles"]);
     await act(async () => pluginButton().click());
+    // A Web game is a General project in its ohmygame.json, so Godot suits it.
+    await chooseType("Web Game");
+    await act(async () => pluginButton().click());
+    expect([...document.querySelectorAll('[role="group"][aria-label="On in this project only"] [role="menuitemcheckbox"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
+      .toEqual(["Godot", "Tiles"]);
+    await act(async () => pluginButton().click());
 
     // A plugin that adds the chosen type is on in that project already.
     await chooseType("Tile Map");

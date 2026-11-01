@@ -52,6 +52,15 @@ export function pluginAppliesTo(appliesTo: readonly string[] | undefined, type: 
   return names.some((name) => name !== undefined && appliesTo.includes(name));
 }
 
+/**
+ * The type a project of this kind records in `ohmygame.json`, which plugins'
+ * `appliesTo` is matched against: the app kinds that aren't project file
+ * types (a Web game, an Asset Canvas) are `general` there.
+ */
+export function projectFileTypeFor(type: string): string {
+  return type === "interactive-story" || type.includes(":") || type in PLUGIN_PROJECT_KINDS ? type : "general";
+}
+
 export function pluginProjectType(current: ProjectType, plugins: readonly { projectTypes?: ProjectType[] }[]): ProjectType | undefined {
   const compatible = PROJECT_TYPE_IDS.filter((type) => plugins.every((plugin) => !plugin.projectTypes?.length || plugin.projectTypes.includes(type)));
   return compatible.includes(current) ? current : compatible.length === 1 ? compatible[0] : undefined;

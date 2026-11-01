@@ -317,10 +317,8 @@ describe("project plugins", () => {
       const unreal = services.index.get(UNREAL_PLUGIN)!;
       const godot = services.index.get(GODOT_PLUGIN)!;
       expect(unreal.manifest.appliesTo).toEqual(["general"]);
-      // A Web game project, whose file says general, can't turn on Unreal, which suits General projects.
+      // An Interactive Story can't turn on Unreal, which suits General projects.
       const web = await temporary();
-      await expect(services.setProjectPlugin(web, UNREAL_PLUGIN, unreal.version, "general", "web-game")).rejects.toThrow("doesn't work in web-game projects");
-      // An Interactive Story says so in its file.
       await writeProjectFile(web, (file) => file, { type: "interactive-story" });
       await expect(services.setProjectPlugin(web, UNREAL_PLUGIN, unreal.version)).rejects.toThrow("doesn't work in interactive-story projects");
       // One the file asks for anyway (an older app, or by hand) doesn't run there, and can still be turned off.

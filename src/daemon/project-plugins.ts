@@ -468,7 +468,6 @@ export async function setProjectPlugin({
   index,
   grants,
   initialType,
-  appKind,
 }: {
   folder: string;
   id: string;
@@ -477,11 +476,6 @@ export async function setProjectPlugin({
   grants: PluginGrants;
   /** The type to write when the folder has no `ohmygame.json` yet. */
   initialType?: string;
-  /**
-   * The app's kind for a project whose file says `general`, such as
-   * `web-game`, which a plugin's `appliesTo` may leave out.
-   */
-  appKind?: string;
 }): Promise<ProjectFile> {
   const key = await projectFolderKey(folder);
   if (version === null) {
@@ -499,9 +493,8 @@ export async function setProjectPlugin({
   const entry = index.get(id, version);
   if (!entry) throw new Error(`${id}@${version} is not installed`);
   const file = await writeProjectFileAt(key, (current) => {
-    const type = current.type === "general" && appKind ? appKind : current.type;
-    if (projectTypePlugin(current.type) !== id && !pluginAppliesTo(entry.manifest.appliesTo, type))
-      throw new Error(`${id} doesn't work in ${type} projects`);
+    if (projectTypePlugin(current.type) !== id && !pluginAppliesTo(entry.manifest.appliesTo, current.type))
+      throw new Error(`${id} doesn't work in ${current.type} projects`);
     return { ...current, plugins: { ...current.plugins, [id]: version } };
   }, initialType ? { type: initialType } : undefined);
   await grants.approve(key, id, capabilityGrants(entry.manifest));
