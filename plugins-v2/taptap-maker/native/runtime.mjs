@@ -289,6 +289,35 @@ export function redact(message) {
 const LOCK_STALE_MS = 2 * 60 * 60 * 1000;
 
 /**
+ * On Windows a file another process is deleting can still be seen until its
+ * last handle closes, and opening, linking over or deleting it then fails
+ * with EPERM: for a lock file, another process is changing it, so try again.
+ * A file that stays so for longer than LINGER_TRIES × LINGER_WAIT_MS isn't
+ * being deleted but is out of reach, as a read-only one, and its error is
+ * reported.
+ */
+export function lingering(error, platform = process.platform) {
+  return platform === "win32" && error?.code === "EPERM";
+}
+
+const LINGER_TRIES = 20;
+const LINGER_WAIT_MS = 25;
+
+/** Removes a lock file, which another process may be removing too. */
+async function remove(file) {
+  for (let tries = 1; ; tries++) {
+    try {
+      await rm(file, { force: true });
+      return;
+    } catch (error) {
+      if (!lingering(error)) throw error;
+      if (tries >= LINGER_TRIES) throw new Error(`Could not delete ${path.basename(file)}: ${error.message}`, { cause: error });
+      await new Promise((resolve) => setTimeout(resolve, LINGER_WAIT_MS));
+    }
+  }
+}
+
+/**
  * Runs `work` while holding a lock file in the data folder, waiting for
  * another project's host that holds it. A lock whose process is gone, or that
  * is older than two hours, is taken over.
@@ -302,20 +331,28 @@ export async function withLock(directory, name, work, { signal, onWait } = {}) {
   const own = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}`;
   await writeFile(own, String(process.pid), { mode: 0o600 });
   try {
+    // Rounds in a row in which a lock file was lingering on Windows.
+    let lingered = 0;
     for (;;) {
       if (signal?.aborted) throw new Cancelled();
+      let holder;
       try {
-        await link(own, file);
-        break;
+        try {
+          await link(own, file);
+          break;
+        } catch (error) {
+          if (error.code !== "EEXIST") throw error;
+        }
+        holder = await stale(file);
+        if (holder !== undefined && holder !== false) await reclaim(file);
       } catch (error) {
-        if (error.code !== "EEXIST") throw error;
-      }
-      const holder = await stale(file);
-      if (holder === undefined) continue;
-      if (holder !== false) {
-        await reclaim(file);
+        if (!lingering(error) || ++lingered >= LINGER_TRIES) throw error;
+        await new Promise((resolve) => setTimeout(resolve, LINGER_WAIT_MS));
         continue;
       }
+      lingered = 0;
+      // Gone, or taken over: try again at once.
+      if (holder !== false) continue;
       if (!told) {
         told = true;
         onWait?.();
@@ -328,7 +365,7 @@ export async function withLock(directory, name, work, { signal, onWait } = {}) {
   try {
     return await work();
   } finally {
-    await rm(file, { force: true });
+    await remove(file);
   }
 }
 
@@ -345,16 +382,17 @@ async function reclaim(file) {
   try {
     await writeFile(guard, String(process.pid), { flag: "wx", mode: 0o600 });
   } catch (error) {
+    // A guard lingering on Windows goes to the caller, which waits or gives up.
     if (error.code !== "EEXIST") throw error;
     const info = await stat(guard).catch(() => undefined);
-    if (info && Date.now() - info.mtimeMs > RECLAIM_STALE_MS) await rm(guard, { force: true });
+    if (info && Date.now() - info.mtimeMs > RECLAIM_STALE_MS) await remove(guard);
     else await new Promise((resolve) => setTimeout(resolve, 100));
     return;
   }
   try {
-    if (typeof (await stale(file)) === "string") await rm(file, { force: true });
+    if (typeof (await stale(file)) === "string") await remove(file);
   } finally {
-    await rm(guard, { force: true });
+    await remove(guard);
   }
 }
 
