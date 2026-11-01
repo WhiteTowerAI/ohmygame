@@ -221,7 +221,8 @@ as any package is checked.
 - A new version of a plugin that only adds Skills replaces its older versions.
   Any other keeps them for the projects that name them.
 - A draft has no settings of its own; they are saved for the installed plugin.
-  A draft's MCP server can be tried with `PluginServices.draftMcpServer`.
+  A draft's MCP server can be tried with `PluginServices.draftMcpServer`, which
+  gives it the saved settings only if it is the package its workspace installed.
 - An MCP service that signs in with OAuth is a connection, not a plugin
   ([Connections](plugins.md#connections)).
 

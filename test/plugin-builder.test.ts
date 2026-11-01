@@ -477,7 +477,7 @@ describe("Plugin Builder", () => {
     const draft = await setup.prepare(state.id, root);
     // It needs a setting that can't be filled in until it is installed.
     const waiting = await app.inject({ method: "POST", url: `/plugins/setup-sessions/${state.id}/test/api`, payload: { revision: draft.revision } });
-    expect(waiting.json()).toMatchObject({ status: "failed", message: expect.stringContaining("Install the plugin") });
+    expect(waiting.json()).toMatchObject({ status: "failed", message: expect.stringContaining("Install this draft") });
     expect((await app.inject({ method: "POST", url: `/plugins/setup-sessions/${state.id}/test/missing`, payload: { revision: draft.revision } })).statusCode).toBe(400);
     expect(services.index.entries()).toEqual([]);
 
@@ -488,6 +488,37 @@ describe("Plugin Builder", () => {
     expect(tested.json()).toMatchObject({ status: "connected", toolCount: 1 });
     expect((await setup.draft(state.id)).checks?.api).toMatchObject({ revision: draft.revision, result: { status: "connected" } });
     expect(await readFile(path.join(directory, "plugin-setup", state.id, "state.json"), "utf8")).not.toContain("private-test-key");
+  });
+
+  it("keeps saved settings from a draft that names an installed plugin", async () => {
+    const { setup, directory, services } = await environment();
+    const owner = await setup.create();
+    const root = await writeDraft(directory, owner.id, true);
+    const draft = await setup.prepare(owner.id, root);
+    await setup.installDraft(owner.id, draft.revision!);
+    await services.configure(ID, { key: "private-test-key" });
+    const probed = vi.spyOn(services, "draftMcpServer");
+
+    // Another workspace names the same plugin.
+    const other = await setup.create();
+    const copy = await setup.prepare(other.id, await writeDraft(directory, other.id, true));
+    expect(await setup.testDraft(other.id, "api", copy.revision!)).toMatchObject({ status: "failed", message: expect.stringContaining("Install this draft") });
+    expect((await probed.mock.results.at(-1)!.value).secrets).toEqual([]);
+
+    // Its own workspace changed the package since the person installed it.
+    await setManifest(root, manifest => { manifest.description = "Changed after review"; });
+    const changed = await setup.draft(owner.id);
+    expect(await setup.testDraft(owner.id, "api", changed.revision!)).toMatchObject({ status: "failed" });
+    expect((await probed.mock.results.at(-1)!.value).secrets).toEqual([]);
+  });
+
+  it("lets one of two workspaces install a name both chose", async () => {
+    const { setup, directory, services } = await environment();
+    const first = await setup.create(), second = await setup.create();
+    const [one, two] = [await setup.prepare(first.id, await writeDraft(directory, first.id)), await setup.prepare(second.id, await writeDraft(directory, second.id))];
+    const results = await Promise.allSettled([setup.installDraft(first.id, one.revision!), setup.installDraft(second.id, two.revision!)]);
+    expect(results.map(result => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(services.index.versions(ID)).toHaveLength(1);
   });
 
   it("restores unsent input and model selection by workspace, including after malformed storage", () => {

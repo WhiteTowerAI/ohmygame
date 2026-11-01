@@ -62,6 +62,7 @@ export class PluginSetupManager {
   #runs = new Set<Promise<void>>();
   #aborted = new Set<string>();
   #live = new Map<string, ThreadItem[]>();
+  #installs: Promise<unknown> = Promise.resolve();
   constructor(
     private readonly dataDirectory: string,
     private readonly agentDirectory: string,
@@ -330,10 +331,12 @@ export class PluginSetupManager {
     if (!draft.plugin || draft.errors.length || !state.draftPath || !draft.revision) throw new Error("Prepare a valid draft before testing");
     if (revision !== undefined && draft.revision !== revision) throw new Error("The draft changed. Refresh the preview before testing");
     const root = await pluginDraftPath(path.join(this.#directory(state.id), "workspace"), state.draftPath);
-    const { definition, secrets } = await this.services.draftMcpServer(root, server);
+    const { definition, secrets } = await this.services.draftMcpServer(root, server, {
+      withSaved: draft.plugin.id === state.pluginId && draft.revision === state.installedRevision,
+    });
     const result: PluginMcpResult = definition
       ? await this.capabilities.testDefinition(`draft:${state.id}:${server}`, `draft-${state.id}-${server}`, definition, secrets)
-      : { status: "failed", toolCount: 0, message: "Install the plugin and fill in its settings, then test this server" };
+      : { status: "failed", toolCount: 0, message: "Install this draft and fill in its settings, then test this server" };
     state.checks = { ...state.checks, [server]: { revision: draft.revision, result } };
     return result;
   }
@@ -348,11 +351,14 @@ export class PluginSetupManager {
       if (draft.errors.length || !draft.plugin || !state.draftPath) throw new Error(draft.errors.join("\n") || "No valid plugin draft yet");
       if (draft.revision !== revision) throw new Error("The draft changed. Review it again before installing");
       const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
-      await this.services.ready();
-      const current = this.services.index.get(draft.plugin.id);
-      if (current && state.pluginId !== current.id) throw new Error("A plugin with this name is already installed. Choose another name");
-      if (current && current.digest !== state.baseRevision) throw new Error("The installed plugin changed. Start a new editing workspace");
-      const entry = await this.services.installPersonal(root, { consent: true });
+      // Workspaces install one at a time, so none passes these checks while another replaces the package.
+      const entry = await this.#oneInstallAtATime(async () => {
+        await this.services.ready();
+        const current = this.services.index.get(draft.plugin!.id);
+        if (current && state.pluginId !== current.id) throw new Error("A plugin with this name is already installed. Choose another name");
+        if (current && current.digest !== state.baseRevision) throw new Error("The installed plugin changed. Start a new editing workspace");
+        return this.services.installPersonal(root, { consent: true });
+      });
       packageInstalled = true;
       state.pluginId = entry.id;
       state.baseRevision = entry.digest;
@@ -368,6 +374,11 @@ export class PluginSetupManager {
       await this.#save(state);
     }
     return this.read(id);
+  }
+  #oneInstallAtATime<T>(install: () => Promise<T>): Promise<T> {
+    const run = this.#installs.then(install, install);
+    this.#installs = run.catch(() => {});
+    return run;
   }
   #sessionManager(id: string): SessionManager {
     let history = this.#history.get(id);

@@ -309,8 +309,11 @@ export class PluginServices {
   }
 
   /** How to start one of a plugin's MCP servers, unless a setting is missing or a value breaks a rule. */
-  async #mcpDefinition(entry: PluginIndexEntry, server: NonNullable<NonNullable<PluginManifestV2["contributes"]>["mcpServers"]>[number]): Promise<McpServerDefinition | undefined> {
-    const values = this.values.forNative(entry);
+  async #mcpDefinition(
+    entry: PluginIndexEntry,
+    server: NonNullable<NonNullable<PluginManifestV2["contributes"]>["mcpServers"]>[number],
+    values: ReturnType<PluginValues["forNative"]> = this.values.forNative(entry),
+  ): Promise<McpServerDefinition | undefined> {
     if (configReferences(server).some((name) => values[name] === undefined)) return undefined;
     const filled = fillConfigReferences(server, values);
     const timeout = filled.timeoutSeconds ? { requestTimeoutMs: filled.timeoutSeconds * 1000 } : {};
@@ -345,19 +348,23 @@ export class PluginServices {
   }
 
   /**
-   * One MCP server of a draft that isn't installed, to try it. It uses the
-   * settings saved for the plugin, if an earlier version was installed.
+   * One MCP server of a draft, to try it. Saved settings, secrets included, are
+   * only for `withSaved`: a package the person installed, and so reviewed. Any
+   * other draft could name an installed plugin to send them somewhere else, so
+   * it gets the manifest's defaults.
    */
-  async draftMcpServer(root: string, serverId: string): Promise<{ definition?: McpServerDefinition; secrets: string[] }> {
+  async draftMcpServer(root: string, serverId: string, { withSaved }: { withSaved: boolean }): Promise<{ definition?: McpServerDefinition; secrets: string[] }> {
     await this.ready();
     const checked = await indexPluginPackage(root);
     if (!checked.ok) throw new Error("Prepare a valid draft before testing");
     const server = checked.entry.manifest.contributes?.mcpServers?.find((item) => item.id === serverId);
     if (!server) throw new Error("MCP server not found in this draft");
-    const values = this.values.forNative(checked.entry);
-    const secrets = Object.entries(checked.entry.manifest.configuration ?? {})
-      .flatMap(([name, field]) => field.type === "secret" && typeof values[name] === "string" ? [values[name] as string] : []);
-    return { definition: await this.#mcpDefinition(checked.entry, server), secrets };
+    const fields = Object.entries(checked.entry.manifest.configuration ?? {});
+    const values = withSaved
+      ? this.values.forNative(checked.entry)
+      : Object.fromEntries(fields.flatMap(([name, field]) => field.default === undefined ? [] : [[name, field.default]]));
+    const secrets = fields.flatMap(([name, field]) => field.type === "secret" && typeof values[name] === "string" ? [values[name] as string] : []);
+    return { definition: await this.#mcpDefinition(checked.entry, server, values), secrets };
   }
 
   /**
