@@ -164,8 +164,14 @@ export class PluginServices {
   #files: Promise<void> | undefined;
   #loaded: Promise<void> | undefined;
   readonly #listeners = new Set<(folder?: string) => void>();
-  /** Project folders whose `ohmygame.json` is watched, for edits made outside OhMyGame. */
-  readonly #watchers = new Map<string, FSWatcher>();
+  /**
+   * Project folders whose `ohmygame.json` is watched, for edits made outside
+   * OhMyGame, each with the report it is waiting to send.
+   */
+  readonly #watchers = new Map<
+    string,
+    { watcher: FSWatcher; timer?: ReturnType<typeof setTimeout> }
+  >();
 
   constructor(options: PluginServicesOptions) {
     this.index = new PluginIndex(path.join(options.directory, "index.json"));
@@ -752,15 +758,13 @@ export class PluginServices {
   }
 
   async close(): Promise<void> {
-    for (const watcher of this.#watchers.values()) watcher.close();
-    this.#watchers.clear();
+    for (const folder of [...this.#watchers.keys()]) this.#unwatch(folder);
     await this.native.dispose();
   }
 
   /** Stops watching a project and its host, as when it is deleted. */
   async closeProject(folder: string): Promise<void> {
-    this.#watchers.get(folder)?.close();
-    this.#watchers.delete(folder);
+    this.#unwatch(folder);
     await this.native.closeProject(folder);
   }
 
@@ -771,24 +775,31 @@ export class PluginServices {
    */
   #watch(folder: string) {
     if (this.#watchers.has(folder)) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const watcher = watch(folder, { persistent: false }, (_event, name) => {
         if (name !== null && String(name) !== PROJECT_FILE_NAME) return;
-        clearTimeout(timer);
-        timer = setTimeout(
-          () => void this.changed(folder).catch(() => {}),
-          200,
-        );
+        const watched = this.#watchers.get(folder);
+        if (watched?.watcher !== watcher) return;
+        clearTimeout(watched.timer);
+        watched.timer = setTimeout(() => {
+          watched.timer = undefined;
+          void this.changed(folder).catch(() => {});
+        }, 200);
       });
-      watcher.on("error", () => {
-        watcher.close();
-        this.#watchers.delete(folder);
-      });
-      this.#watchers.set(folder, watcher);
+      watcher.on("error", () => this.#unwatch(folder));
+      this.#watchers.set(folder, { watcher });
     } catch {
       // A folder that can't be watched still works; edits show next session.
     }
+  }
+
+  /** Stops watching the folder, with any report its watcher still owed. */
+  #unwatch(folder: string) {
+    const watched = this.#watchers.get(folder);
+    if (!watched) return;
+    clearTimeout(watched.timer);
+    watched.watcher.close();
+    this.#watchers.delete(folder);
   }
 
   async #tool(

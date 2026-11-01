@@ -1072,14 +1072,11 @@ describe("plugin tools", () => {
       );
       expect(changes).toContain(undefined);
       changes.length = 0;
-      // Hold the folder watcher's 200 ms debounce so only the method itself can
-      // report this write; the held echo is dropped with the fake timers.
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-      try {
-        await services.setProjectPlugin(folder, "acme/tiles", "1.1.0");
-      } finally {
-        vi.useRealTimers();
-      }
+      // Stop the folder watcher, and the report it may still owe for an
+      // earlier write, so only the method itself can report this one. Asking
+      // for the project's tools below watches the folder again.
+      await services.closeProject(folder);
+      await services.setProjectPlugin(folder, "acme/tiles", "1.1.0");
       expect(changes).toEqual([folder]);
       await expect(
         count.execute("call-6", {}, undefined, undefined, undefined as never),
