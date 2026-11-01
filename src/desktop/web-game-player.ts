@@ -1,5 +1,5 @@
 import { previewPagePath, previewPageUrl } from "../shared/preview-page.js";
-import { BrowserWindow, WebContentsView, shell, type BaseWindow } from "electron";
+import { BrowserWindow, WebContentsView, screen, shell, type BaseWindow } from "electron";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
 import { webGamePlayerUrl } from "../shared/web-game-player.js";
 
@@ -99,9 +99,15 @@ export class WebGamePlayerWindows {
         // Exit HTML fullscreen/pointer lock while this view still belongs to its old window.
         await this.#source(game, "player");
         if (this.#games.get(projectId) !== game) throw new Error("Game launch was cancelled.");
+        const display = game.editor && !game.editor.window.isDestroyed()
+          ? screen.getDisplayMatching(game.editor.window.getBounds())
+          : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+        const scale = Math.min(1, display.workAreaSize.width * 0.85 / request.viewport.width, display.workAreaSize.height * 0.85 / request.viewport.height);
+        const width = Math.max(1, Math.floor(request.viewport.width * scale));
+        const height = Math.max(1, Math.floor(request.viewport.height * scale));
         const window = new BrowserWindow({
-          width: request.viewport.width, height: request.viewport.height,
-          useContentSize: true, minWidth: 240, minHeight: 240,
+          width, height,
+          useContentSize: true, minWidth: Math.min(240, width), minHeight: Math.min(240, height),
           show: false, title: `${game.title} - Play`, autoHideMenuBar: true,
           backgroundColor: "#000000",
           webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },

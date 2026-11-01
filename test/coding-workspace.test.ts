@@ -31,13 +31,11 @@ describe("coding workspace", () => {
     expect(renderToStaticMarkup(createElement(PreviewView, { ...props, active: true }))).toContain("<iframe");
   });
 
-  it("uses device presets and bounds the fit viewport to supported dimensions", () => {
+  it("uses device presets and a fixed fit viewport independent of the preview panel", () => {
     expect(playerViewport("mobile")).toEqual({ width: 375, height: 667 });
     expect(playerViewport("mobile-landscape")).toEqual({ width: 667, height: 375 });
     expect(playerViewport("tablet")).toEqual({ width: 768, height: 1024 });
-    expect(playerViewport("fit", { width: 930.4, height: 660.8 })).toEqual({ width: 930, height: 661 });
-    expect(playerViewport("fit", { width: 0, height: 0 })).toEqual({ width: 1280, height: 720 });
-    expect(playerViewport("fit", { width: 20000, height: 200 })).toEqual({ width: 8192, height: 240 });
+    expect(playerViewport("fit")).toEqual({ width: 1280, height: 720 });
   });
 
   it("browses project assets as Library tiles with the source and use filters, without file mutation menus", () => {
