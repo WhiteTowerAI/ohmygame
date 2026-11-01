@@ -156,7 +156,7 @@ describe("Home prompt box", () => {
     await act(async () => pluginButton().click());
     // Godot's type has Godot's ideas, though Godot is no starter.
     await chooseIdea("third-person");
-    expect(container.querySelector("textarea")!.value).toBe("Make a third-person 3D scene in Godot you can walk around");
+    expect(promptText(container)).toBe("Make a third-person 3D scene in Godot you can walk around");
 
     // A type no starter names starts with no plugin, and sends none.
     await chooseType("Tile Map");
