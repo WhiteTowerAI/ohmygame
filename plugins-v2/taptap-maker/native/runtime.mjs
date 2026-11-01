@@ -289,6 +289,25 @@ export function redact(message) {
 const LOCK_STALE_MS = 2 * 60 * 60 * 1000;
 
 /**
+ * On Windows a file another process is deleting can still be seen until its
+ * last handle closes, and opening, linking over or deleting it then fails
+ * with EPERM. For lock files that means the same as EEXIST or ENOENT: another
+ * process is changing it, so try again.
+ */
+export function busy(error, platform = process.platform) {
+  return error?.code === "EEXIST" || (platform === "win32" && error?.code === "EPERM");
+}
+
+/** Removes a lock file, which another process may be removing too. */
+async function remove(file) {
+  try {
+    await rm(file, { force: true });
+  } catch (error) {
+    if (!busy(error)) throw error;
+  }
+}
+
+/**
  * Runs `work` while holding a lock file in the data folder, waiting for
  * another project's host that holds it. A lock whose process is gone, or that
  * is older than two hours, is taken over.
@@ -308,10 +327,14 @@ export async function withLock(directory, name, work, { signal, onWait } = {}) {
         await link(own, file);
         break;
       } catch (error) {
-        if (error.code !== "EEXIST") throw error;
+        if (!busy(error)) throw error;
       }
       const holder = await stale(file);
-      if (holder === undefined) continue;
+      if (holder === undefined) {
+        // Gone, or going: on Windows a deleted lock lingers for a moment.
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        continue;
+      }
       if (holder !== false) {
         await reclaim(file);
         continue;
@@ -328,7 +351,7 @@ export async function withLock(directory, name, work, { signal, onWait } = {}) {
   try {
     return await work();
   } finally {
-    await rm(file, { force: true });
+    await remove(file);
   }
 }
 
@@ -345,16 +368,16 @@ async function reclaim(file) {
   try {
     await writeFile(guard, String(process.pid), { flag: "wx", mode: 0o600 });
   } catch (error) {
-    if (error.code !== "EEXIST") throw error;
+    if (!busy(error)) throw error;
     const info = await stat(guard).catch(() => undefined);
-    if (info && Date.now() - info.mtimeMs > RECLAIM_STALE_MS) await rm(guard, { force: true });
+    if (info && Date.now() - info.mtimeMs > RECLAIM_STALE_MS) await remove(guard);
     else await new Promise((resolve) => setTimeout(resolve, 100));
     return;
   }
   try {
-    if (typeof (await stale(file)) === "string") await rm(file, { force: true });
+    if (typeof (await stale(file)) === "string") await remove(file);
   } finally {
-    await rm(guard, { force: true });
+    await remove(guard);
   }
 }
 
@@ -375,7 +398,7 @@ async function stale(file) {
       return error.code === "ESRCH" ? text : false;
     }
   } catch (error) {
-    if (error.code === "ENOENT") return undefined;
+    if (error.code === "ENOENT" || busy(error)) return undefined;
     throw error;
   }
 }

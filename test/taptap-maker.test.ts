@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error The plugin's native code is plain JavaScript.
 import * as maker from "../plugins-v2/taptap-maker/native/maker.mjs";
 // @ts-expect-error The plugin's native code is plain JavaScript.
-import { Cancelled, withLock } from "../plugins-v2/taptap-maker/native/runtime.mjs";
+import { busy, Cancelled, withLock } from "../plugins-v2/taptap-maker/native/runtime.mjs";
 
 let directory: string, workspace: string;
 let progress: { message: string; url?: string }[];
@@ -241,6 +241,14 @@ describe("TapTap Maker project setup", () => {
     })));
     expect(most).toBe(1);
   }, 15_000);
+
+  it("waits out a lock file another process is deleting, which Windows reports as EPERM", () => {
+    expect(busy({ code: "EEXIST" }, "darwin")).toBe(true);
+    expect(busy({ code: "EPERM" }, "win32")).toBe(true);
+    // Elsewhere EPERM means the folder can't be written, which waiting won't change.
+    expect(busy({ code: "EPERM" }, "linux")).toBe(false);
+    expect(busy({ code: "EACCES" }, "win32")).toBe(false);
+  });
 
   it("lets one project at a time hold the data folder's lock", async () => {
     const order: string[] = [];
