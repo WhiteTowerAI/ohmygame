@@ -17,12 +17,16 @@ export const GODOT_PLUGIN = "ohmygame/godot";
 export const GODOT_TYPE = PLUGIN_PROJECT_KINDS["godot-game"];
 
 export interface LegacyGodotProjects {
-  projects: { list(): ProjectState[]; setPluginType(id: string, pluginType: NonNullable<ProjectState["pluginType"]>): Promise<unknown> };
+  projects: {
+    list(): ProjectState[];
+    setPluginType(id: string, pluginType: NonNullable<ProjectState["pluginType"]>): Promise<unknown>;
+    migrateIntegration(id: string, pluginType: NonNullable<ProjectState["pluginType"]>): Promise<unknown>;
+  };
   services: Pick<PluginServices, "ready" | "index" | "grants" | "changed">;
   /**
    * Whether Godot works in these projects as it did: the person hadn't turned
-   * the format 1 plugin off, and the project isn't one just taken from an
-   * archive, whose folder waits for the person's approval.
+   * the format 1 plugin off. A project from an archive records that in its
+   * `integration`, and its folder always waits for the person's approval.
    */
   approve: boolean;
   warn: (message: string, error?: unknown) => void;
@@ -65,9 +69,10 @@ export async function migrateLegacyGodotProjects(options: LegacyGodotProjects): 
           (file) => ({ ...file, plugins: { ...file.plugins, [GODOT_PLUGIN]: version } }),
           { type: GODOT_TYPE, plugins: { [GODOT_PLUGIN]: version } },
         );
-      if (options.approve)
+      if (options.approve && !project.integration?.imported)
         await options.services.grants.approve(folder, GODOT_PLUGIN, capabilityGrants(options.services.index.get(GODOT_PLUGIN, version)!.manifest));
-      await options.projects.setPluginType(project.id, pluginType);
+      if (project.integration) await options.projects.migrateIntegration(project.id, pluginType);
+      else await options.projects.setPluginType(project.id, pluginType);
       await options.services.changed(folder);
       options.onMigrated?.(project);
     } catch (error) {

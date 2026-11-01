@@ -803,8 +803,11 @@ describe("Godot projects from before format 2", () => {
     const services = new PluginServices({ directory: path.join(await temporary(), "store"), bundled: BUNDLED });
     open.push(services);
     const typed = new Map<string, NonNullable<ProjectState["pluginType"]>>();
+    const record = async (id: string, pluginType: NonNullable<ProjectState["pluginType"]>) => {
+      typed.set(id, pluginType);
+    };
     const migrate = (approve: boolean, only?: string) => migrateLegacyGodotProjects({
-      projects: { list: () => projects, setPluginType: async (id, pluginType) => { typed.set(id, pluginType); } },
+      projects: { list: () => projects, setPluginType: record, migrateIntegration: record },
       services,
       approve,
       warn: () => {},
@@ -838,10 +841,19 @@ describe("Godot projects from before format 2", () => {
     expect(JSON.parse(await readFile(path.join(other.workspacePath, "ohmygame.json"), "utf8"))).toEqual({ type: "general" });
   });
 
-  it("leaves the folder to the person's approval when they had turned Godot off or it came from an archive", async () => {
-    const archived = await project("archived");
+  it("leaves the folder to the person's approval when they had turned Godot off", async () => {
+    const turnedOff = await project("turned-off");
+    const { typed, migrate, status } = await setup([turnedOff]);
+    await migrate(false);
+    expect(typed.get("turned-off")?.id).toBe(GODOT_TYPE);
+    expect(await status(turnedOff.workspacePath)).toBe("needs-approval");
+  });
+
+  it("never allows Godot for a project from an archive, even when it moves at a later start", async () => {
+    const archived = { ...await project("archived"), integration: { pluginId: LEGACY_GODOT_ID, imported: true as const } };
     const { typed, migrate, status } = await setup([archived]);
-    await migrate(false, "archived");
+    // As at a start after the import, when its own move was put off.
+    await migrate(true);
     expect(typed.get("archived")?.id).toBe(GODOT_TYPE);
     expect(await status(archived.workspacePath)).toBe("needs-approval");
   });

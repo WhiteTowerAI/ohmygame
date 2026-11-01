@@ -1051,8 +1051,8 @@ export function createApp(options: AppOptions = {}) {
     return migrateLegacyGodotProjects({
       projects,
       services: pluginServices,
-      // Format 1 Godot was on unless the person turned it off; an archive's folder waits for approval.
-      approve: !only && pluginSettings.storedEnabled(LEGACY_GODOT_ID) !== false,
+      // Format 1 Godot was on unless the person turned it off; an archive's project records where it came from.
+      approve: pluginSettings.storedEnabled(LEGACY_GODOT_ID) !== false,
       warn: (message, err) => app.log.warn({ err }, message),
       onMigrated: (project) => {
         agents.invalidateProjectSessions(project.id);
