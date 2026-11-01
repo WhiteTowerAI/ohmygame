@@ -1,13 +1,11 @@
-import { Type, type Static } from "typebox";
+import { Type } from "typebox";
 import { Check } from "typebox/value";
-import { PROJECT_TYPE_IDS, type PluginMention, type ProjectType } from "./contracts.js";
-import { PLUGIN_ICON_PRESETS, type PluginIconPresetId } from "./plugin-icons.js";
+import type { PluginMention } from "./contracts.js";
 import type { PluginCategory } from "./plugin-manifest.js";
 
 export type PluginOrigin =
   | { type: "github"; repository: string; commit: string; release?: string }
-  | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry }
-  | { type: "claude-marketplace"; marketplace: string; repository?: string };
+  | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry };
 
 export const PLUGIN_NPM_REGISTRIES = ["npmjs", "npmmirror"] as const;
 export type PluginNpmRegistry = (typeof PLUGIN_NPM_REGISTRIES)[number];
@@ -39,53 +37,9 @@ export interface PluginAddPreview {
 }
 
 export const PLUGIN_MANIFEST_PATH = ".ohmygame-plugin/plugin.json";
-export const PLUGIN_FORMAT_VERSION = 1;
 export const PLUGIN_ARCHIVE_MAX_ENTRIES = 5_000;
 export const PLUGIN_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024;
 export const PLUGIN_SKILL_CONTENT_MAX_BYTES = 512 * 1024;
-export const PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES: readonly string[] = [
-  ".agents",
-  ".claude-plugin",
-  ".codex-plugin",
-  ".ohmygame-plugin",
-];
-
-export type PluginSource =
-  | { type: "builtIn" }
-  | { type: "authored" }
-  | { type: "archive" }
-  | { type: "directory" }
-  | { type: "git"; url: string; commit: string }
-  | { type: "preinstalled"; pluginId: string; releaseId: string };
-
-export type InstallPluginRequest =
-  | { type: "directory"; path: string; candidate?: string }
-  | { type: "git"; url: string; candidate?: string };
-
-export interface PluginInstallCandidate {
-  key: string;
-  name: string;
-  displayName: string;
-  description: string;
-  skillCount: number;
-  format: "ohmygame" | "codex" | "claude" | "pi" | "agent-skills";
-  marketplace: PluginMarketplaceRef;
-}
-
-export interface PluginInstallInspection {
-  candidates: PluginInstallCandidate[];
-}
-
-export interface PluginMarketplaceRef {
-  id: string;
-  displayName: string;
-  /** Trusted catalog adapters may mark official community marketplaces public. */
-  visibility?: "public" | "personal";
-}
-
-export const OHMYGAME_MARKETPLACE: PluginMarketplaceRef = { id: "ohmygame", displayName: "OhMyGame" };
-export const PERSONAL_MARKETPLACE: PluginMarketplaceRef = { id: "personal", displayName: "Personal" };
-
 const PLUGIN_MENTION_PATTERN = /\[(@[^\]]+)\]\(plugin:\/\/([^@\s)]+)@([^\s)]+)\)/g;
 
 export function pluginMentionToken(mention: Pick<PluginMention, "displayName">): string {
@@ -165,138 +119,38 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export interface PluginSummary {
-  id: string;
-  name: string;
-  displayName: string;
-  description: string;
-  projectTypes?: ProjectType[];
-  icon?: PluginIcon;
-  iconRevision?: string;
-  version?: string;
-  beta?: boolean;
-  marketplace: PluginMarketplaceRef;
-  source: PluginSource;
-  installed: boolean;
-  enabled: boolean;
-  origin?: PluginOrigin;
-  preinstalled?: boolean;
-  configurationStatus?: "ready" | "needs-configuration";
-  mcpServerCount?: number;
-  skillCount?: number;
-}
-
 /** What a plugin adds, for its card's tags and the browse page's category filter. */
 export type PluginContribution = "projectType" | "skills" | "mcp" | "service";
 export const PLUGIN_CONTRIBUTIONS: readonly PluginContribution[] = ["projectType", "skills", "mcp", "service"];
-
-/** What a format 1 plugin adds; project types and services come from format 2 plugins. */
-export function pluginContributions(plugin: Pick<PluginSummary, "skillCount" | "mcpServerCount">): PluginContribution[] {
-  return PLUGIN_CONTRIBUTIONS.filter((kind) =>
-    kind === "skills" ? Boolean(plugin.skillCount) : kind === "mcp" ? Boolean(plugin.mcpServerCount) : false);
-}
-
-export function pluginCollection(plugin: Pick<PluginSummary, "source" | "marketplace">): "public" | "personal" {
-  if (plugin.source.type === "builtIn" || plugin.source.type === "preinstalled" || plugin.marketplace.id === OHMYGAME_MARKETPLACE.id)
-    return "public";
-  return plugin.marketplace.visibility ?? "personal";
-}
-
-export interface PluginComponentSummary {
-  id: string;
-  name: string;
-  description?: string;
-  enabled: boolean;
-}
-
-export interface PluginConnectionSummary extends PluginComponentSummary {
-  status?: "enabled" | "disabled" | "not-configured" | "connected" | "failed" | "needs-auth";
-  toolCount?: number;
-  transport?: "stdio" | "http";
-}
-
-export type ConfigurablePluginComponentType = "skill" | "mcp";
-
-export interface PluginSettings {
-  enabled: boolean;
-  components: Record<string, boolean>;
-}
-
-export function pluginComponentKey(type: ConfigurablePluginComponentType, id: string): string {
-  return `${type}:${id}`;
-}
-
-export interface PluginDetail extends PluginSummary {
-  requirements?: PluginManifest["requirements"];
-  longDescription?: string;
-  skills: PluginComponentSummary[];
-  connections: PluginConnectionSummary[];
-  defaultPrompts?: string[];
-  mcpServers?: PluginConnectionSummary[];
-  mcpConfigPath?: string;
-  configuration?: Record<string, PluginConfigurationField>;
-}
 
 export interface PluginSkillContent {
   id: string;
   content: string;
 }
 
-export interface PluginCatalog {
-  plugins: PluginSummary[];
-  errors: PluginMarketplaceError[];
-}
-
-export interface PluginMarketplaceError {
-  marketplaceId: string;
-  message: string;
-}
-
-const RelativePathSchema = Type.String({
-  pattern: "^\\./(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))[^\\\\]+$",
-  minLength: 3,
-});
-const IdentifierSchema = Type.String({ pattern: "^[a-z0-9]+(?:[-_.][a-z0-9]+)*$" });
 const SemVerSchema = Type.String({
   pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
   maxLength: 256,
 });
 
-export const PluginIconSchema = Type.Union([
-  Type.Object({
-    type: Type.Literal("preset"),
-    id: Type.Union(PLUGIN_ICON_PRESETS.map(icon => Type.Literal(icon.id))),
-  }, { additionalProperties: false }),
-  Type.Object({
-    type: Type.Literal("asset"),
-    path: Type.String({ pattern: "^\\./(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|webp|svg)$", maxLength: 1000 }),
-  }, { additionalProperties: false }),
-]);
-export type PluginIcon = { type: "preset"; id: PluginIconPresetId } | { type: "asset"; path: string };
+export const PluginIconSchema = Type.Object({
+  type: Type.Literal("asset"),
+  path: Type.String({ pattern: "^\\./(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|webp|svg)$", maxLength: 1000 }),
+}, { additionalProperties: false });
+export type PluginIcon = { type: "asset"; path: string };
 
 export function isPluginIcon(value: unknown): value is PluginIcon {
   return Check(PluginIconSchema, value);
 }
 
-const InterfaceSchema = Type.Object({
-  beta: Type.Optional(Type.Boolean()),
-  displayName: Type.Optional(Type.String({ minLength: 1 })),
-  shortDescription: Type.Optional(Type.String({ minLength: 1 })),
-  longDescription: Type.Optional(Type.String({ minLength: 1 })),
-  icon: Type.Optional(Type.Unsafe<PluginIcon>(PluginIconSchema)),
-  defaultPrompt: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
-  projectTypes: Type.Optional(Type.Array(Type.Union(PROJECT_TYPE_IDS.map((type) => Type.Literal(type))), { minItems: 1, uniqueItems: true })),
-}, { additionalProperties: false });
-
-const ConfigurationFieldSchema = Type.Object({
-  type: Type.Union([Type.Literal("text"), Type.Literal("secret"), Type.Literal("path"), Type.Literal("boolean"), Type.Literal("select")]),
-  label: Type.String({ minLength: 1 }),
-  description: Type.Optional(Type.String()),
-  required: Type.Optional(Type.Boolean()),
-  default: Type.Optional(Type.Union([Type.String(), Type.Boolean()])),
-  options: Type.Optional(Type.Array(Type.String(), { minItems: 1, uniqueItems: true })),
-}, { additionalProperties: false });
-export type PluginConfigurationField = Static<typeof ConfigurationFieldSchema>;
+export interface PluginConfigurationField {
+  type: "text" | "secret" | "path" | "boolean" | "select";
+  label: string;
+  description?: string;
+  required?: boolean;
+  default?: string | boolean;
+  options?: string[];
+}
 export type PluginConfigurationValues = Record<string, string | boolean | null>;
 export interface PluginConfigurationView {
   fields: Record<string, PluginConfigurationField>;
@@ -305,41 +159,12 @@ export interface PluginConfigurationView {
   missing: string[];
 }
 export type McpServerDefinition = Record<string, unknown> & { command?: string; url?: string; disabled?: boolean };
-export interface CreateMcpPluginRequest {
-  name: string;
-  displayName?: string;
-  description?: string;
-  icon?: PluginIcon;
-  servers: Record<string, McpServerDefinition>;
-  configuration?: Record<string, PluginConfigurationField>;
-}
 export interface PluginMcpResult {
   status: "connected" | "failed" | "needs-auth";
   toolCount: number;
   message?: string;
   authorizationUrl?: string;
 }
-
-export const PluginManifestSchema = Type.Object({
-  enabledByDefault: Type.Optional(Type.Boolean()),
-  formatVersion: Type.Optional(Type.Integer({ minimum: 1 })),
-  minimumHostVersion: Type.Optional(SemVerSchema),
-  requirements: Type.Optional(Type.Object({
-    commands: Type.Optional(Type.Array(Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }), { maxItems: 30, uniqueItems: true })),
-    platforms: Type.Optional(Type.Array(Type.Union([Type.Literal("darwin"), Type.Literal("win32"), Type.Literal("linux")]), { minItems: 1, uniqueItems: true })),
-  }, { additionalProperties: false })),
-  name: Type.String({ pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }),
-  version: SemVerSchema,
-  description: Type.String({ minLength: 1 }),
-  skills: Type.Optional(Type.Union([RelativePathSchema, Type.Array(RelativePathSchema, { minItems: 1, uniqueItems: true })])),
-  connections: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
-  mcpServers: Type.Optional(RelativePathSchema),
-  configuration: Type.Optional(Type.Record(IdentifierSchema, ConfigurationFieldSchema)),
-  interface: Type.Optional(InterfaceSchema),
-}, { additionalProperties: false });
-
-export type PluginManifest = Static<typeof PluginManifestSchema>;
-export type ResolvedPluginManifest = Omit<PluginManifest, "version"> & { version?: string };
 
 export function isPluginVersion(value: unknown): value is string {
   return Check(SemVerSchema, value);
@@ -376,17 +201,7 @@ function parsedVersion(value: string): { core: number[]; prerelease?: string[] }
   } : undefined;
 }
 
-export function isPluginManifest(value: unknown): value is PluginManifest {
-  if (!Check(PluginManifestSchema, value)) return false;
-  return Object.values(value.configuration ?? {}).every(field => {
-    if (field.type === "secret" && field.default !== undefined) return false;
-    if (field.type === "select" && (!field.options?.length || (field.default !== undefined && !field.options.includes(String(field.default))))) return false;
-    if (field.default !== undefined && (field.type === "boolean" ? typeof field.default !== "boolean" : typeof field.default !== "string")) return false;
-    return true;
-  });
-}
-
-/** A setting a format 2 plugin asks for, as its settings page shows it. */
+/** A setting a plugin asks for, as its settings page shows it. */
 export interface StorePluginSetting {
   name: string;
   type: "text" | "secret" | "path" | "boolean" | "select";
@@ -396,7 +211,7 @@ export interface StorePluginSetting {
   options?: string[];
 }
 
-/** One installed version of a format 2 plugin (GET /plugin-store/plugins). */
+/** One installed version of a plugin (GET /plugin-store/plugins). */
 export interface StorePlugin {
   /** `publisher/name`. */
   id: string;
@@ -435,14 +250,14 @@ export interface StorePlugin {
   adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; tools: number; skills: number };
 }
 
-/** What a format 2 plugin's settings page shows; secrets only say whether they are set. */
+/** What a plugin's settings page shows; secrets only say whether they are set. */
 export type StorePluginConfiguration = Record<
   string,
   | { type: Exclude<StorePluginSetting["type"], "secret">; value: string | boolean | null }
   | { type: "secret"; configured: boolean }
 >;
 
-/** A format 2 plugin command a project offers (GET /projects/:id/plugin-commands). */
+/** A plugin command a project offers (GET /projects/:id/plugin-commands). */
 export interface ProjectPluginCommand {
   /** `publisher/name:command`. */
   id: string;
@@ -500,7 +315,7 @@ export interface ProjectPluginChoice extends Pick<ProjectPluginItem, "id" | "dis
 
 export interface ProjectPluginsView {
   /** Plugins on for every project they work with; switched in Plugins. */
-  global: Array<Pick<PluginSummary, "id" | "displayName" | "description" | "icon" | "iconRevision">>;
+  global: Array<{ id: string; displayName: string; description: string; icon?: PluginIcon; iconRevision?: string }>;
   /** Plugins each project turns on for itself, recorded in its `ohmygame.json`. */
   plugins: ProjectPluginItem[];
 }

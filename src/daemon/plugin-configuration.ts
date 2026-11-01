@@ -9,7 +9,6 @@ import path from "node:path";
 import type {
   PluginConfigurationValues,
   PluginConfigurationView,
-  PluginDetail,
   PluginConfigurationField,
   McpServerDefinition,
 } from "../shared/plugins.js";
@@ -29,7 +28,7 @@ interface StoredConfiguration {
 }
 
 /** Whose configuration it is: a plugin, or a connection (`connection:<id>`) whose fields are all generated. */
-export type ConfigurationOwner = Pick<PluginDetail, "id" | "configuration">;
+export type ConfigurationOwner = { id: string; configuration?: Record<string, PluginConfigurationField> };
 
 export class PluginConfigurationError extends Error {
   readonly statusCode = 400;
@@ -179,7 +178,6 @@ export class PluginConfigurationStore {
   async update(
     plugin: ConfigurationOwner,
     values: PluginConfigurationValues,
-    allowSecrets = true,
   ): Promise<PluginConfigurationView> {
     const fields = this.fields(plugin);
     for (const [key, value] of Object.entries(values)) {
@@ -187,10 +185,6 @@ export class PluginConfigurationStore {
       if (!field)
         throw new PluginConfigurationError(
           `Unknown configuration field: ${key}`,
-        );
-      if (field.type === "secret" && !allowSecrets)
-        throw new PluginConfigurationError(
-          "Enter credentials in the plugin configuration form",
         );
       if (
         value !== null &&
@@ -215,25 +209,6 @@ export class PluginConfigurationStore {
   }
   async remove(pluginId: string): Promise<void> {
     await this.#mutate(next => this.#remove(next, pluginId));
-  }
-  /** Adopt the archive's templates and nonsecret values while retaining only
-   * credentials still declared as secret by the restored package. */
-  async restorePortable(plugin: PluginDetail, values: Record<string, string | boolean>): Promise<void> {
-    await this.#mutate(next => {
-      const fields = plugin.configuration ?? {};
-      const stored = next.plugins[plugin.id];
-      const secretRefs = Object.fromEntries(Object.entries(stored?.secretRefs ?? {}).filter(([key]) => fields[key]?.type === "secret"));
-      for (const [key, ref] of Object.entries(stored?.secretRefs ?? {}))
-        if (!Object.hasOwn(secretRefs, key)) delete next.credentials[ref];
-      next.plugins[plugin.id] = { values: {}, secretRefs };
-      if (next.extraFields) delete next.extraFields[plugin.id];
-      for (const [key, ref] of Object.entries(next.serverOverrides ?? {})) {
-        if (!key.startsWith(`${plugin.id}/`)) continue;
-        delete next.credentials[ref];
-        delete next.serverOverrides![key];
-      }
-      this.#applyValues(next, plugin.id, fields, values);
-    });
   }
   #remove(next: StoredConfiguration, pluginId: string): void {
     for (const ref of Object.values(next.plugins[pluginId]?.secretRefs ?? {})) delete next.credentials[ref];

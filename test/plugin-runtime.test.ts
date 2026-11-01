@@ -2,11 +2,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { PluginDetail } from "../src/shared/plugins.js";
-import type { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { pluginSkillFolders, resolvePluginSkillPaths, resolvePluginSkills } from "../src/daemon/plugin-runtime.js";
+import { pluginSkillFolders } from "../src/daemon/plugin-runtime.js";
 import { stageSkills } from "../src/daemon/agent-runtimes/skills.js";
-import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { BUNDLED_PLUGINS_OFF, PluginServices } from "../src/daemon/plugin-services.js";
 
 describe("plugin runtime", () => {
@@ -63,62 +60,4 @@ describe("plugin runtime", () => {
     expect(await services.appWideSkills({ type: "web-game" })).toEqual(webBefore);
     await services.close();
   });
-
-  it("loads only enabled plugin skills", async () => {
-    const plugin = localPlugin();
-    const settings = await settingsStore();
-    await settings.update(plugin, { enabled: true, components: { "skill:skills/review/SKILL.md": false } });
-    const local = {
-      list: async () => ({ plugins: [plugin], errors: [] }),
-      installedPath: async () => "/managed/plugin/0.1.0",
-    } as unknown as LocalPluginStore;
-
-    const skillPaths = await resolvePluginSkillPaths([local], settings);
-
-    expect(skillPaths).toEqual([]);
-  });
-
-  it("preserves Plugin provenance for enabled skills", async () => {
-    const plugin = localPlugin();
-    const settings = await settingsStore();
-    const local = {
-      list: async () => ({ plugins: [plugin], errors: [] }),
-      installedPath: async () => "/managed/plugin/0.1.0",
-    } as unknown as LocalPluginStore;
-
-    await expect(resolvePluginSkills([local], settings)).resolves.toEqual([{
-      path: path.join("/managed/plugin/0.1.0", "skills/review/SKILL.md"),
-      pluginDisplayName: "Test",
-      marketplaceDisplayName: "Personal",
-    }]);
-  });
-
-  it("loads project-scoped skills only for compatible project types", async () => {
-    const plugin = { ...localPlugin(), projectTypes: ["web-game" as const] };
-    const settings = await settingsStore();
-    const local = {
-      list: async () => ({ plugins: [plugin], errors: [] }),
-      installedPath: async () => "/managed/plugin/0.1.0",
-    } as unknown as LocalPluginStore;
-
-    await expect(resolvePluginSkills([local], settings, "web-game")).resolves.toHaveLength(1);
-    await expect(resolvePluginSkills([local], settings, "godot-game")).resolves.toEqual([]);
-    await expect(resolvePluginSkills([local], settings, "interactive-story")).resolves.toEqual([]);
-    await expect(resolvePluginSkills([local], settings)).resolves.toHaveLength(1);
-  });
 });
-
-async function settingsStore(): Promise<PluginSettingsStore> {
-  const store = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-runtime-")));
-  await store.load();
-  return store;
-}
-
-function localPlugin(): PluginDetail {
-  return {
-    id: "personal:test", name: "test", displayName: "Test", description: "Test plugin", version: "0.1.0",
-    marketplace: { id: "personal", displayName: "Personal" }, source: { type: "directory" }, installed: true, enabled: true,
-    skills: [{ id: "skills/review/SKILL.md", name: "Review", enabled: true }],
-    connections: [{ id: "ohmygame-godot", name: "Godot", enabled: true }],
-  };
-}

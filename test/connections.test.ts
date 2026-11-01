@@ -4,9 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConnectionService } from "../src/daemon/connections.js";
-import { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
-import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
+import { PluginConfigurationStore } from "../src/daemon/plugin-configuration.js";
+import { PluginMcpHost } from "../src/daemon/plugin-mcp-host.js";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
@@ -17,15 +16,13 @@ async function environment() {
   const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-connections-"));
   const agentDir = path.join(directory, "pi-agent");
   await mkdir(agentDir);
-  const settings = new PluginSettingsStore(directory);
-  await settings.load();
-  const local = new LocalPluginStore(directory);
-  const capabilities = new PluginCapabilities(directory, agentDir, [local], local, settings);
-  await capabilities.configuration.load();
-  cleanup.push(() => capabilities.host.close());
-  const connections = new ConnectionService(directory, agentDir, capabilities.configuration, capabilities.host);
+  const configuration = new PluginConfigurationStore(directory);
+  await configuration.load();
+  const host = new PluginMcpHost();
+  cleanup.push(() => host.close());
+  const connections = new ConnectionService(directory, agentDir, configuration, host);
   await connections.load();
-  return { directory, capabilities, connections };
+  return { directory, host, connections };
 }
 
 describe("connections", () => {
@@ -53,6 +50,10 @@ describe("connections", () => {
       headers: { Authorization: "Bearer tracker-secret" },
     });
 
+    // Reading the definition wrote nothing; dropping the header drops its generated field.
+    await connections.setDefinition("issue-tracker", { url: "https://tracker.example.com/v2/mcp" });
+    expect(connections.configurationView("issue-tracker")).toMatchObject({ fields: {}, configuredSecrets: [], missing: [] });
+
     await connections.update("issue-tracker", { enabled: false });
     expect(connections.effective().mcpServers).toEqual({});
     expect((await connections.create({ displayName: "Issue tracker", definition: { command: "node" } })).id).toBe("issue-tracker-2");
@@ -79,6 +80,19 @@ describe("connections", () => {
       .toEqual(["https://one.example.com/mcp", "https://two.example.com/mcp"]);
   });
 
+  it("leaves public environment and header values as written", async () => {
+    const { connections } = await environment();
+    await connections.create({
+      displayName: "Public",
+      definition: {
+        url: "https://public.example.com/mcp",
+        env: { NODE_ENV: "production", LOG_LEVEL: "info" },
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+      },
+    });
+    expect(connections.configurationView("public").fields).toEqual({});
+  });
+
   it("waits for required configuration before a connection runs", async () => {
     const { connections } = await environment();
     await connections.create({
@@ -93,7 +107,7 @@ describe("connections", () => {
   });
 
   it("connects through the MCP host with its credentials and keeps them out of the result", async () => {
-    const { capabilities, connections } = await environment();
+    const { host, connections } = await environment();
     let authorization = "";
     const server = createServer(async (req, res) => {
       if (req.method !== "POST") {
@@ -126,12 +140,16 @@ describe("connections", () => {
     expect(JSON.stringify(result)).not.toContain("fixture-secret");
 
     // A credential replaced while a test runs stays masked in what that test returns.
-    const probe = vi.spyOn(capabilities.host, "probe").mockImplementationOnce(async () => {
+    const probe = vi.spyOn(host, "probe").mockImplementationOnce(async () => {
       const [key] = connections.configurationView("fixture").configuredSecrets;
       await connections.saveConfiguration("fixture", { [key!]: "replacement-secret" });
       return { status: "failed" as const, toolCount: 0, message: "Server said: Bearer fixture-secret" };
     });
     expect((await connections.test("fixture")).message).not.toContain("fixture-secret");
     probe.mockRestore();
+
+    // An error thrown on the way out is masked too.
+    vi.spyOn(host, "probe").mockRejectedValueOnce(new Error("Rejected token replacement-secret"));
+    await expect(connections.test("fixture")).rejects.not.toThrow("replacement-secret");
   }, 45_000);
 });

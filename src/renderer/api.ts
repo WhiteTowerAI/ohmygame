@@ -87,7 +87,7 @@ import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
-import type { PluginCatalog, PluginDetail, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
+import type { PluginSkillContent } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 import type { ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
@@ -720,10 +720,6 @@ function communityHeaders(accessToken?: string): Record<string, string> {
   return accessToken ? { "x-publish-access-token": accessToken } : {};
 }
 
-export async function listPlugins(): Promise<PluginCatalog> {
-  return request("/plugins");
-}
-
 export async function getProjectPlugins(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginsView> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugins?locale=${encodeURIComponent(language)}`);
 }
@@ -751,7 +747,7 @@ export async function setProjectPluginVersion(projectId: string, id: string, ver
 }
 
 /**
- * Turns a format 2 plugin on in a project and allows it for its folder,
+ * Turns a plugin on in a project and allows it for its folder,
  * keeping the version the project already uses. Says why it can't run there:
  * `not-offered` when it doesn't suit the project's type, or the status of a
  * version the project asks for that isn't running; undefined once it runs.
@@ -769,12 +765,12 @@ export async function consentToPlugin(id: string, allowed: string[]): Promise<vo
   await request(`/plugin-store/${pluginPath(id)}/consent`, { method: "POST", body: JSON.stringify({ allowed }) });
 }
 
-/** Installed format 2 plugins, one row per version. */
+/** Installed plugins, one row per version. */
 export async function listStorePlugins(): Promise<import("../shared/plugins.js").StorePlugin[]> {
   return request(`/plugin-store/plugins?locale=${encodeURIComponent(language)}`);
 }
 
-/** The app switch for a format 2 plugin: off, it runs in no project. */
+/** The app switch for a plugin: off, it runs in no project. */
 export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
 }
@@ -817,20 +813,8 @@ export async function addPluginFile(file: Blob, digest: string): Promise<{ id: s
   return uploadPluginPackage(`/plugin-sources/file/install?digest=${encodeURIComponent(digest)}`, file);
 }
 
-export async function readPlugin(id: string): Promise<PluginDetail> {
-  return request(`/plugins/${encodeURIComponent(id)}`);
-}
-
 export async function readPluginSkill(pluginId: string, skillId: string): Promise<PluginSkillContent> {
   return request(`/plugins/${encodeURIComponent(pluginId)}/skill-content?id=${encodeURIComponent(skillId)}`);
-}
-
-export async function updatePluginSettings(id: string, settings: PluginSettings): Promise<PluginDetail> {
-  return request(`/plugins/${encodeURIComponent(id)}/settings`, { method: "PUT", body: JSON.stringify(settings) });
-}
-
-export async function uninstallPlugin(id: string): Promise<void> {
-  await request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 
@@ -1655,30 +1639,13 @@ export async function saveConnectionConfiguration(id: string, values: import("..
 export async function testConnection(id: string, action: "test" | "auth-start" | "auth-complete" = "test", input?: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/connections/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(input ? { input } : {}) });
 }
-export async function readPluginConfiguration(id: string): Promise<import("../shared/plugins.js").PluginConfigurationView> {
-  return request(`/plugins/${encodeURIComponent(id)}/configuration`);
-}
-export async function savePluginConfiguration(id: string, values: import("../shared/plugins.js").PluginConfigurationValues): Promise<import("../shared/plugins.js").PluginConfigurationView> {
-  return request(`/plugins/${encodeURIComponent(id)}/configuration`, { method: "PUT", body: JSON.stringify({ values }) });
-}
-export async function testPluginMcp(id: string, server: string, action: "test" | "auth-start" | "auth-complete" = "test", input?: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
-  return request(`/plugins/${encodeURIComponent(id)}/mcp/${encodeURIComponent(server)}/${action}`, { method: "POST", body: JSON.stringify(input ? { input } : {}) });
-}
 export async function createPluginSetup(pluginId?: string, mode?: import("../shared/plugin-setup.js").PluginSetupMode): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
   return request("/plugins/setup-sessions", { method: "POST", body: JSON.stringify({ pluginId, mode }) });
-}
-export async function exportPluginArchive(id: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/plugins/${encodeURIComponent(id)}/export`), { headers: runtimeHeaders() });
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
 }
 async function uploadPluginPackage<T>(route: string, file: Blob): Promise<T> {
   const response = await fetch(apiUrl(route), { method: "POST", headers: { "content-type": "application/gzip", ...runtimeHeaders() }, body: file });
   if (!response.ok) throw await responseError(response);
   return response.json() as Promise<T>;
-}
-export async function checkPluginDependencies(id: string): Promise<import("../shared/plugin-portability.js").PluginDiagnostics> {
-  return request(`/plugins/${encodeURIComponent(id)}/dependencies`);
 }
 export async function clearPluginSetupConversation(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/conversation`, { method: "DELETE" });
@@ -1721,13 +1688,6 @@ export async function installPluginDraft(id: string, revision: string): Promise<
 export async function testPluginDraft(id: string, server: string, revision: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/test/${encodeURIComponent(server)}`, { method: "POST", body: JSON.stringify({ revision }) });
 }
-export async function readPluginMcpDefinition(id: string, server: string): Promise<{ definition: import("../shared/plugins.js").McpServerDefinition }> {
-  return request(`/plugins/${encodeURIComponent(id)}/mcp/${encodeURIComponent(server)}/definition`);
-}
-export async function savePluginMcpDefinition(id: string, server: string, definition: import("../shared/plugins.js").McpServerDefinition): Promise<PluginDetail> {
-  return request(`/plugins/${encodeURIComponent(id)}/mcp/${encodeURIComponent(server)}/definition`, { method: "PUT", body: JSON.stringify({ definition }) });
-}
-
 export async function stopPreview(projectId: string): Promise<{ preview: ProjectState["preview"] }> {
   return request(`/projects/${projectId}/preview`, { method: "DELETE" });
 }
@@ -1753,7 +1713,7 @@ export async function previewSeedAudio(prompt: string): Promise<Blob> {
   return response.blob();
 }
 
-/** A format 2 plugin panel a project's plugins offer, with its page's address. */
+/** A plugin panel a project's plugins offer, with its page's address. */
 export interface PluginPanel {
   id: string;
   plugin: string;
@@ -1778,7 +1738,7 @@ export async function setPluginPageValue(projectId: string, plugin: string, key:
   await request(`/projects/${encodeURIComponent(projectId)}/plugin-storage/${plugin}/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value }) });
 }
 
-/** The format 2 plugin commands a project offers. */
+/** The plugin commands a project offers. */
 export async function listProjectPluginCommands(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCommand[]> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands?locale=${encodeURIComponent(language)}`);
 }
@@ -1792,7 +1752,7 @@ export async function undoProjectPluginChange(projectId: string, changeId: strin
   await request(`/projects/${encodeURIComponent(projectId)}/plugin-changes/${encodeURIComponent(changeId)}/undo`, { method: "POST" });
 }
 
-/** Runs a format 2 plugin command, `publisher/name:command`, whose code runs in its plugin. */
+/** Runs a plugin command, `publisher/name:command`, whose code runs in its plugin. */
 export async function runPluginCommand(projectId: string, command: string, input?: unknown): Promise<{ result: unknown; change?: { id: string; changed: string[] } }> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands`, { method: "POST", body: JSON.stringify({ command, input }) });
 }

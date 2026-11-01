@@ -1,36 +1,40 @@
-// From format 1 to format 2. A format 1 plugin that only adds Skills becomes a
-// format 2 package (bundled plugins, by script, in place; any other format 1
-// package's Skills, by `convertFormat1Package`, into a new folder).
+// Makes a plugin package from a repository of Agent Skills, for the plugins the app
+// brings along from other repositories (scripts/prepare-preinstalled-plugins.ts).
 import { copyFile, lstat, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PluginCategory } from "../shared/plugin-manifest.js";
-import type { PluginManifest, ResolvedPluginManifest } from "../shared/plugins.js";
+import type { ProjectType } from "../shared/contracts.js";
+import type { PluginIcon } from "../shared/plugins.js";
 import { indexPluginPackage, type PluginIndexEntry } from "./plugin-index.js";
 import { Document, isMap, parseDocument } from "yaml";
 import { parseSkillMetadata } from "./skill-metadata.js";
 
-export interface ConvertedPlugin {
-  /** `.ohmygame-plugin/plugin.json`. */
-  manifest: Record<string, unknown>;
-  /** `locales/en.json`: the manifest's display strings. */
-  strings: Record<string, string>;
+/** What a repository of Skills is packaged as. */
+export interface SkillsSource {
+  name: string;
+  version?: string;
+  description: string;
+  /** Folders searched for `SKILL.md` to any depth, or `SKILL.md` files. */
+  skills: string | string[];
+  interface?: {
+    displayName?: string;
+    shortDescription?: string;
+    longDescription?: string;
+    defaultPrompt?: string[];
+    beta?: boolean;
+    icon?: PluginIcon;
+    projectTypes?: ProjectType[];
+  };
 }
 
-/**
- * Format 2 manifest and strings for a format 1 plugin that only adds Skills.
- * Its Skills folder and icon keep their paths, so the files copy as they are.
- */
-export function convertFormat1Manifest(
-  manifest: PluginManifest,
-  { publisher, categories }: { publisher: string; categories?: PluginCategory[] },
-): ConvertedPlugin {
-  const unsupported = (["mcpServers", "configuration", "connections", "requirements"] as const).filter((key) => manifest[key] !== undefined);
-  if (unsupported.length) throw new Error(`${manifest.name} has ${unsupported.join(", ")}; only plugins that add Skills convert`);
-  if (typeof manifest.skills !== "string") throw new Error(`${manifest.name} must keep its Skills in one folder`);
-  const face = manifest.interface ?? {};
+function skillsManifest(
+  source: SkillsSource,
+  { id, categories }: { id: string; categories?: PluginCategory[] },
+): { manifest: Record<string, unknown>; strings: Record<string, string> } {
+  const face = source.interface ?? {};
   const strings: Record<string, string> = {
-    displayName: face.displayName ?? manifest.name,
-    description: face.shortDescription ?? manifest.description,
+    displayName: face.displayName ?? source.name,
+    description: face.shortDescription ?? source.description,
   };
   if (face.longDescription) strings.longDescription = face.longDescription;
   const examples = (face.defaultPrompt ?? []).slice(0, 5);
@@ -39,8 +43,8 @@ export function convertFormat1Manifest(
   return {
     manifest: {
       $schema: "https://ohmygame.dev/schema/plugin-2.json",
-      id: `${publisher}/${manifest.name}`,
-      version: manifest.version,
+      id,
+      version: source.version ?? "0.0.0",
       engines: { "ohmygame-api": "^2.0.0" },
       displayName: "%displayName%",
       description: "%description%",
@@ -50,22 +54,18 @@ export function convertFormat1Manifest(
       ...(icon ? { icon } : {}),
       ...(categories?.length ? { categories } : {}),
       ...(face.projectTypes?.length ? { appliesTo: face.projectTypes } : {}),
-      contributes: { skills: manifest.skills },
+      contributes: { skills: "./skills/" },
     },
     strings,
   };
 }
 
-/** What a format 1 package has besides Skills; `convertFormat1Package` leaves it to the caller. */
-const NOT_SKILLS = ["mcpServers", "configuration", "connections", "requirements"] as const;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export interface ConvertedPackage {
   entry: PluginIndexEntry;
-  /** Each Skill's old path in the format 1 package to its new one, both `a/b/SKILL.md`. */
+  /** Each Skill's old path in the repository to its new one, both `a/b/SKILL.md`. */
   skills: Record<string, string>;
-  /** Parts of the format 1 manifest not carried over (MCP servers, configuration, …). */
-  left: string[];
   /** What changed besides the layout, for the person or a log. */
   notes: string[];
 }
@@ -73,7 +73,7 @@ export interface ConvertedPackage {
 export class PluginConversionError extends Error {}
 
 /**
- * Writes a format 2 package for a format 1 package's Skills into `target`,
+ * Writes a plugin package for a repository's Skills into `target`,
  * a folder that doesn't exist yet:
  * - every `SKILL.md` its Skills paths reach (a folder, searched to any depth,
  *   or one `SKILL.md`; one path or several) becomes `skills/<name>/`, its
@@ -86,8 +86,8 @@ export class PluginConversionError extends Error {}
  * - the icon keeps its path, a missing version is `0.0.0`.
  * The package is checked before this returns. The source is only read.
  */
-export async function convertFormat1Package(
-  source: { root: string; manifest: PluginManifest | ResolvedPluginManifest },
+export async function packageSkills(
+  source: { root: string; manifest: SkillsSource },
   target: string,
   { id, categories }: { id: string; categories?: PluginCategory[] },
 ): Promise<ConvertedPackage> {
@@ -115,8 +115,7 @@ export async function convertFormat1Package(
   }
   if (!folders.size) throw new PluginConversionError(`${source.manifest.name}'s Skills paths hold no SKILL.md`);
 
-  const left = NOT_SKILLS.filter((key) => source.manifest[key] !== undefined);
-  const notes: string[] = left.map((key) => `${key} is not part of the converted package`);
+  const notes: string[] = [];
   const ordered = [...folders].sort();
   // Names first, so a link into another Skill's folder can follow it.
   const named = new Map<string, { name: string; text: string; description?: string }>();
@@ -150,15 +149,7 @@ export async function convertFormat1Package(
     skills[posix(path.relative(root, folder), "SKILL.md")] = `skills/${name}/SKILL.md`;
   }
 
-  const converted = convertFormat1Manifest(
-    {
-      ...(Object.fromEntries(Object.entries(source.manifest).filter(([key]) => !(NOT_SKILLS as readonly string[]).includes(key))) as PluginManifest),
-      version: source.manifest.version ?? "0.0.0",
-      skills: "./skills/",
-    },
-    { publisher: id.slice(0, id.indexOf("/")), ...(categories ? { categories } : {}) },
-  );
-  converted.manifest.id = id;
+  const converted = skillsManifest(source.manifest, { id, ...(categories ? { categories } : {}) });
   const icon = typeof converted.manifest.icon === "string" ? converted.manifest.icon : undefined;
   if (icon) {
     const from = await inside(root, icon).catch(() => undefined);
@@ -183,7 +174,7 @@ export async function convertFormat1Package(
   const checked = await indexPluginPackage(output);
   if (!checked.ok)
     throw new PluginConversionError(`The converted package isn't valid: ${checked.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`).join("; ")}`);
-  return { entry: checked.entry, skills, left: [...left], notes };
+  return { entry: checked.entry, skills, notes };
 }
 
 /** A path the manifest or a Skill names, inside the real package folder through no link. */

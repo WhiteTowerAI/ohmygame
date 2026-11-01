@@ -5,7 +5,7 @@ export type PluginIconChange =
   | { icon: PluginIcon | null }
   | { image: { mediaType: PluginIconMediaType; data: string } };
 export type PluginIconUpdate = PluginIconChange & { revision: string };
-export type PluginSetupMode = "create" | "configure" | "edit";
+export type PluginSetupMode = "create" | "edit";
 export interface PluginSetupSummary {
   id: string;
   mode?: PluginSetupMode;

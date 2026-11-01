@@ -209,7 +209,7 @@ export function ProjectShell({
   // Bumped when the project's plugins change, so the chat offers their skills
   // and commands, and their panels come and go.
   const [capabilitiesRevision, setCapabilitiesRevision] = useState(0);
-  // Format 2 plugins' panels follow the type's own, in the areas they name.
+  // Plugins' panels follow the type's own, in the areas they name.
   const plugins = useProjectPluginContributions(state.project, capabilitiesRevision);
   const pluginPanels = new Map(plugins.panels.map((panel) => [pluginPanelId(panel), panel]));
   const homes: PanelHomes = Object.fromEntries(plugins.panels.map((panel) => [pluginPanelId(panel), panel.area]));
@@ -1007,7 +1007,7 @@ export function ProjectShell({
       dispatch({ type: "notice", message: errorMessage(cause) });
     }
   }
-  /** Runs a format 2 plugin command where its manifest says: the chat, a panel, a page, a link, or the plugin's code. */
+  /** Runs a plugin command where its manifest says: the chat, a panel, a page, a link, or the plugin's code. */
   async function runProjectPluginCommand(command: ProjectPluginCommand): Promise<void> {
     if (!project) return;
     const run = command.run;

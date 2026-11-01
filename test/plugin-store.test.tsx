@@ -258,7 +258,7 @@ it("goes back to About when the open tab goes away with the newest version", asy
   expect(document.querySelector<HTMLElement>('[role=tabpanel][aria-label="About"]')!.hidden).toBe(false);
 });
 
-it("offers format 2 plugins and their Skills for browsing by what they add", () => {
+it("offers plugins and their Skills for browsing by what they add", () => {
   expect(storePluginContributions(row("1.0.0"))).toEqual(["projectType", "skills", "mcp"]);
   expect(storePluginContributions(row("1.0.0", { skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 } }))).toEqual([]);
 });

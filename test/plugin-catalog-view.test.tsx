@@ -2,30 +2,8 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PluginDetail, PluginSummary, StorePlugin } from "../src/shared/plugins.js";
+import type { StorePlugin } from "../src/shared/plugins.js";
 import { PluginsSettings } from "../src/renderer/plugins.js";
-
-function plugin(
-  name: string,
-  displayName: string,
-  enabled = true,
-  personal = false,
-): PluginSummary {
-  return {
-    id: `${personal ? "personal" : "ohmygame"}:${name}`,
-    name,
-    displayName,
-    description: "Fixture tool",
-    enabled,
-    installed: true,
-    source: { type: personal ? "directory" : "builtIn" },
-    marketplace: {
-      id: personal ? "personal" : "ohmygame",
-      displayName: personal ? "Personal" : "OhMyGame",
-    },
-    icon: { type: "preset", id: "package" },
-  };
-}
 
 function storePlugin(name: string, displayName: string, overrides: Partial<StorePlugin> = {}): StorePlugin {
   return {
@@ -46,22 +24,23 @@ function storePlugin(name: string, displayName: string, overrides: Partial<Store
   };
 }
 
+function personal(name: string, displayName: string, overrides: Partial<StorePlugin> = {}): StorePlugin {
+  return storePlugin(name, displayName, { id: `personal/${name}`, bundled: false, ...overrides });
+}
+
 let container: HTMLDivElement, root: ReturnType<typeof createRoot>;
-let catalog: PluginSummary[];
 let store: StorePlugin[];
-let skills: Record<string, PluginDetail["skills"]>;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  catalog = [
-    plugin("new-tool", "New tool"),
-    plugin("zebra", "Zebra", true, true),
-    plugin("alpha", "Alpha", false, true),
-  ].reverse();
-  Object.assign(catalog.find((item) => item.id === "ohmygame:new-tool")!, {
-    projectTypes: ["web-game"], skillCount: 1, mcpServerCount: 1,
-  });
   const off = { grants: { enabled: false, allowed: [] } };
   store = [
+    storePlugin("new-tool", "New tool", {
+      appliesTo: ["web-game"],
+      skills: [{ id: "skills/plan/SKILL.md", name: "plan-game", description: "Plan a game" }],
+      adds: { projectTypes: [], panels: [], commands: [], mcpServers: ["Tool"], tools: 0, skills: 1 },
+    }),
+    personal("zebra", "Zebra", { skills: [{ id: "skills/stripes/SKILL.md", name: "stripes", description: "Stripes" }] }),
+    personal("alpha", "Alpha", { grants: { enabled: false, allowed: [] }, skills: [{ id: "skills/publish/SKILL.md", name: "publish-wechat", description: "Publish" }] }),
     storePlugin("game-studio", "Game Studio", { categories: ["workflow"], skills: [{ id: "skills/design/SKILL.md", name: "design-game", description: "Design a game" }] }),
     storePlugin("web-game-studio", "Web Game Studio", { categories: ["workflow"] }),
     storePlugin("threejs-world", "Three.js World", { categories: ["workflow"] }),
@@ -75,11 +54,6 @@ beforeEach(() => {
     storePlugin("tiled", "Tiled", { ...off, categories: ["art"] }),
     storePlugin("unreal-engine", "Unreal Engine", { ...off, appWide: false, categories: ["engine"], adds: { projectTypes: [], panels: [], commands: [], mcpServers: ["Unreal"], tools: 0, skills: 0 } }),
   ];
-  skills = {
-    "ohmygame:new-tool": [{ id: "skills/plan/SKILL.md", name: "plan-game", description: "Plan a game", enabled: true }],
-    "personal:alpha": [{ id: "skills/publish/SKILL.md", name: "publish-wechat", enabled: true }],
-    "personal:zebra": [{ id: "skills/stripes/SKILL.md", name: "stripes", enabled: false }],
-  };
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url, init: RequestInit = {}) => {
@@ -95,34 +69,11 @@ beforeEach(() => {
         store.find((plugin) => plugin.id === id)!.grants = { enabled: JSON.parse(String(init.body)).enabled, allowed: [] };
         return new Response(null, { status: 204 });
       }
-      if (route === "/plugins")
-        return Response.json({ plugins: catalog, errors: [] });
-      if (init.method === "PUT" && route.endsWith("/settings")) {
-        const id = decodeURIComponent(
-          route.slice("/plugins/".length, -"/settings".length),
-        );
-        const item = catalog.find((plugin) => plugin.id === id)!;
-        const settings = JSON.parse(String(init.body));
-        item.enabled = settings.enabled;
-        skills[id] = (skills[id] ?? []).map((skill) => ({
-          ...skill,
-          enabled: settings.components[`skill:${skill.id}`] ?? skill.enabled,
-        }));
-        return Response.json({ ...item, skills: skills[id], connections: [] });
-      }
-      if (!init.method && route.startsWith("/plugins/")) {
-        const item = catalog.find(
-          (plugin) => plugin.id === decodeURIComponent(route.slice("/plugins/".length)),
-        )!;
-        return Response.json({ ...item, skills: skills[item.id] ?? [], connections: [] });
-      }
       if (init.method === "POST" && route === "/plugin-sources/inspect")
         return Response.json({ source: { type: "github", url: "https://github.com/acme/fresh", commit: "a".repeat(40) }, digest: "b".repeat(64), id: "acme/fresh", version: "1.0.0", displayName: "Fresh", description: "Fresh", appWide: true, asks: [], skills: 1, mcpServers: [], settings: false, installedVersions: [] });
       if (init.method === "POST" && route === "/plugin-sources/install") {
-        const fresh = plugin("fresh", "Fresh", true, true);
-        catalog.push(fresh);
-        skills[fresh.id] = [{ id: "skills/fresh/SKILL.md", name: "fresh-skill", enabled: true }];
-        return Response.json({ ...fresh, skills: skills[fresh.id], connections: [] });
+        store.push(storePlugin("fresh", "Fresh", { id: "acme/fresh", bundled: false, skills: [{ id: "skills/fresh/SKILL.md", name: "fresh-skill", description: "Fresh" }] }));
+        return Response.json({ id: "acme/fresh", version: "1.0.0" }, { status: 201 });
       }
       throw new Error(`Unexpected request: ${route}`);
     }),
@@ -156,7 +107,8 @@ async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(
     (button) =>
       button.textContent === label ||
-      button.getAttribute("aria-label") === label,
+      button.getAttribute("aria-label") === label ||
+      (button.getAttribute("role") === "tab" && button.textContent?.startsWith(label)),
   )!;
   expect(button, label).toBeTruthy();
   await act(async () => button.click());
@@ -201,7 +153,7 @@ describe("plugin catalog browsing", () => {
   });
 
   it("expands and collapses an individual group", async () => {
-    catalog.push(...["one", "two", "three", "four", "five", "six"].map((name) => plugin(`extra-${name}`, `Extra ${name}`)));
+    store.push(...["one", "two", "three", "four", "five", "six"].map((name) => storePlugin(`extra-${name}`, `Extra ${name}`)));
     await renderCatalog();
     const other = () => [...container.querySelectorAll(".plugins-section")].find((section) => section.querySelector("h2")?.textContent?.startsWith("Other plugins"))!;
     expect(cards(other())).toHaveLength(6);
@@ -282,7 +234,7 @@ describe("plugin catalog browsing", () => {
     const tabs = [
       ...container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
     ];
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Installed15", "Browse", "Skills"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Installed15", "Browse", "Skills4"]);
     tabs[0].focus();
     await act(async () =>
       tabs[0].dispatchEvent(
@@ -310,7 +262,7 @@ describe("plugin catalog browsing", () => {
     expect([...card.querySelectorAll(".plugins-tag")].map((tag) => tag.textContent)).toEqual(["Web Game", "1 skill", "MCP"]);
   });
 
-  it("lists every plugin's skills and switches them through their plugin", async () => {
+  it("lists every plugin's skills, which go on and off with their plugin", async () => {
     await renderCatalog();
     await click("Skills");
     await vi.waitFor(() => expect(container.textContent).toContain("plan-game"));
@@ -320,15 +272,8 @@ describe("plugin catalog browsing", () => {
       "Personal 2",
     ]);
     expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Skills4");
-    // A format 2 plugin's Skills go on and off with it.
     expect(container.textContent).toContain("design-game");
     expect(container.querySelector('[aria-label="Disable design-game"]')).toBeNull();
-    expect(container.querySelector<HTMLInputElement>('[aria-label="Search skills"]')).not.toBeNull();
-    // A disabled plugin's skills cannot be switched on their own.
-    expect(container.querySelector<HTMLButtonElement>('[aria-label="Disable publish-wechat"]')?.disabled).toBe(true);
-    await click("Disable plan-game");
-    expect(skills["ohmygame:new-tool"]![0]!.enabled).toBe(false);
-    expect(container.querySelector('[aria-label="Enable plan-game"]')?.getAttribute("aria-checked")).toBe("false");
     await search("stripes", "Search skills");
     expect(container.textContent).not.toContain("plan-game");
     expect(container.textContent).toContain("stripes");

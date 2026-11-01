@@ -11,7 +11,7 @@ import {
 } from "../shared/plugin-ui-protocol.js";
 import "./plugin-frame.css";
 
-// A format 2 plugin's page in a sandboxed frame. The frame gets only
+// A plugin's page in a sandboxed frame. The frame gets only
 // `allow-scripts`: an opaque origin, no popups, no navigation of the app, no
 // forms. Once it loads, the host transfers one end of a MessageChannel with
 // the handshake; every request comes back on that port and is checked

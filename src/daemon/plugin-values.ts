@@ -4,7 +4,7 @@ import type { PluginConfigurationValues } from "../shared/extension-host-protoco
 import { configReferences, fillConfigReferences, mcpUrlIssue } from "../shared/plugin-manifest.js";
 import type { PluginIndexEntry } from "./plugin-index.js";
 
-// The person's values for format 2 plugins' `configuration` fields, one file
+// The person's values for plugins' `configuration` fields, one file
 // for every plugin, readable only by the person (it holds secrets). Values
 // are app-wide, like an engine's path or an account key. The renderer never
 // gets a secret back, only whether one is set; native code gets secrets

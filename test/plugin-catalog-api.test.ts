@@ -12,26 +12,16 @@ afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
 });
 
+/** Adds the package in `source` the way the Add plugin dialog does. */
+async function addPlugin(app: ReturnType<typeof createApp>, source: string) {
+  const payload = { source: { type: "directory", path: source } };
+  const inspected = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
+  expect(inspected.statusCode, inspected.body).toBe(200);
+  const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { ...payload, digest: inspected.json().digest } });
+  expect(added.statusCode, added.body).toBe(201);
+}
+
 describe("plugin catalog API", () => {
-  it("installs a directory plugin enabled by default", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-install-api-"));
-    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-source-"));
-    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
-    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
-      name: "test-plugin", version: "1.0.0", description: "Test plugin",
-    }));
-    const app = createApp({ dataDirectory });
-    apps.push(app);
-    await app.ready();
-
-    const installed = await app.inject({ method: "POST", url: "/plugins/install", payload: { type: "directory", path: source } });
-    const detail = await app.inject({ method: "GET", url: "/plugins/personal%3Atest-plugin" });
-
-    expect(installed.statusCode).toBe(201);
-    expect(installed.json()).toMatchObject({ id: "personal:test-plugin", source: { type: "directory" }, enabled: true });
-    expect(detail.json()).toMatchObject({ id: "personal:test-plugin", enabled: true });
-  });
-
   it("reviews and adds a package over its routes, then lists where it came from", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-add-api-"));
     const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-add-source-"));
@@ -171,7 +161,7 @@ describe("plugin catalog API", () => {
     expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/tools`, payload: { version: "2.0.0" } })).statusCode).toBe(409);
   });
 
-  it("lists format 2 plugins with their settings, switches them, and keeps bundled ones installed", async () => {
+  it("lists plugins with their settings, switches them, and keeps bundled ones installed", async () => {
     // Indexing the bundled plugins finishes after a project is made, as on a slow machine.
     let indexBundled!: () => void;
     const gate = new Promise<void>((resolve) => { indexBundled = resolve; });
@@ -213,7 +203,7 @@ describe("plugin catalog API", () => {
       adds: { projectTypes: ["Godot game"], tools: expect.any(Number), skills: expect.any(Number) },
     });
     expect((await listed("zh-CN")).settings[0].title).toBe("Godot 可执行文件");
-    // What its page shows, read through the routes format 1 plugins use.
+    // What its page shows, read through its own routes.
     const godot = await listed();
     expect(godot).toMatchObject({
       beta: true,
@@ -261,8 +251,11 @@ describe("plugin catalog API", () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-types-"));
     const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-source-"));
     await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await mkdir(path.join(source, "skills", "web-only"), { recursive: true });
+    await writeFile(path.join(source, "skills", "web-only", "SKILL.md"), "---\nname: web-only\ndescription: Web only.\n---\n");
     await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
-      name: "web-only", version: "1.0.0", description: "Web only", interface: { projectTypes: ["web-game"], icon: { type: "asset", path: "./icon.svg" } },
+      id: "acme/web-only", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Web only", description: "Web only",
+      appliesTo: ["web-game"], icon: "./icon.svg", contributes: { skills: "./skills/" },
     }));
     await writeFile(path.join(source, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="green"/></svg>');
     const app = createApp({
@@ -271,25 +264,25 @@ describe("plugin catalog API", () => {
     });
     apps.push(app);
     await app.ready();
-    await app.inject({ method: "POST", url: "/plugins/install", payload: { type: "directory", path: source } });
+    await addPlugin(app, source);
     const mentionIds = async (type: string) => {
       const project = (await app.inject({ method: "POST", url: "/projects", payload: { type } })).json();
       const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
       const capabilities = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}/capabilities` });
       if (type === "web-game") expect(capabilities.json().plugins).toEqual(expect.arrayContaining([
-        expect.objectContaining({ id: "personal:web-only", icon: { type: "asset", path: "./icon.svg" }, iconRevision: expect.any(String) }),
+        expect.objectContaining({ id: "acme/web-only", icon: { type: "asset", path: "./icon.svg" }, iconRevision: expect.any(String) }),
       ]));
       return capabilities.json().plugins.map((plugin: { id: string }) => plugin.id);
     };
 
-    expect(await mentionIds("web-game")).toContain("personal:web-only");
-    expect(await mentionIds("general")).not.toContain("personal:web-only");
+    expect(await mentionIds("web-game")).toContain("acme/web-only");
+    expect(await mentionIds("general")).not.toContain("acme/web-only");
     expect(await mentionIds("general")).toContain("ohmygame/game-studio");
     expect(await mentionIds("godot-game")).toContain("ohmygame/game-studio");
     expect(await mentionIds("web-game")).not.toContain("ohmygame/game-studio");
     const home = (await app.inject({ method: "GET", url: "/composer/capabilities?locale=zh-CN" })).json();
     expect(home.plugins).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "personal:web-only", icon: { type: "asset", path: "./icon.svg" }, iconRevision: expect.any(String) }),
+      expect.objectContaining({ id: "acme/web-only", icon: { type: "asset", path: "./icon.svg" }, iconRevision: expect.any(String) }),
       // Home knows no project yet, so it offers those that apply by themselves whatever they suit; a mention keeps its old form.
       expect.objectContaining({ id: "ohmygame/web-game-studio", name: "web-game-studio", marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame", projectTypes: ["web-game"] }),
       expect.objectContaining({ id: "ohmygame/game-studio", projectTypes: ["general", "interactive-story", "godot-game"] }),
@@ -313,89 +306,56 @@ describe("plugin catalog API", () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-skill-api-"));
     const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-skill-source-"));
     await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
-    await mkdir(path.join(source, "skills", "test"), { recursive: true });
+    await mkdir(path.join(source, "skills", "test-skill"), { recursive: true });
     await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
-      name: "test-plugin", version: "1.0.0", description: "Test plugin", skills: "./skills",
+      id: "acme/test-plugin", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Test Plugin", description: "Test plugin",
+      contributes: { skills: "./skills/" },
     }));
     const skillContent = "---\nname: test-skill\ndescription: Test workflows.\n---\n\n# Test Skill\n\nDo the thing.\n";
-    await writeFile(path.join(source, "skills", "test", "SKILL.md"), skillContent);
+    await writeFile(path.join(source, "skills", "test-skill", "SKILL.md"), skillContent);
     const app = createApp({ dataDirectory });
     apps.push(app);
     await app.ready();
-    await app.inject({ method: "POST", url: "/plugins/install", payload: { type: "directory", path: source } });
+    await addPlugin(app, source);
 
     const skill = await app.inject({
       method: "GET",
-      url: "/plugins/personal%3Atest-plugin/skill-content?id=skills%2Ftest%2FSKILL.md",
+      url: "/plugins/acme%2Ftest-plugin/skill-content?id=skills%2Ftest-skill%2FSKILL.md",
     });
     const skillFile = await app.inject({
       method: "GET",
-      url: "/plugins/personal%3Atest-plugin/skill-file?id=skills%2Ftest%2FSKILL.md",
+      url: "/plugins/acme%2Ftest-plugin/skill-file?id=skills%2Ftest-skill%2FSKILL.md",
     });
     const capabilities = await app.inject({ method: "GET", url: "/composer/capabilities" });
     const unknown = await app.inject({
       method: "GET",
-      url: "/plugins/personal%3Atest-plugin/skill-content?id=.ohmygame-plugin%2Fplugin.json",
+      url: "/plugins/acme%2Ftest-plugin/skill-content?id=.ohmygame-plugin%2Fplugin.json",
     });
     const unknownFile = await app.inject({
       method: "GET",
-      url: "/plugins/personal%3Atest-plugin/skill-file?id=.ohmygame-plugin%2Fplugin.json",
+      url: "/plugins/acme%2Ftest-plugin/skill-file?id=.ohmygame-plugin%2Fplugin.json",
     });
 
     expect(skill.statusCode).toBe(200);
-    expect(skill.json()).toEqual({ id: "skills/test/SKILL.md", content: skillContent });
+    expect(skill.json()).toEqual({ id: "skills/test-skill/SKILL.md", content: skillContent });
     expect(skillFile.statusCode).toBe(200);
-    expect(skillFile.json().path).toMatch(/skills[/\\]test[/\\]SKILL\.md$/);
+    expect(skillFile.json().path).toMatch(/skills[/\\]test-skill[/\\]SKILL\.md$/);
     expect(capabilities.statusCode).toBe(200);
     expect(capabilities.json().plugins).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "personal:test-plugin", marketplaceId: "personal" }),
+      expect.objectContaining({ id: "acme/test-plugin", marketplaceId: "acme" }),
     ]));
     expect(capabilities.json().skills).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: "test-skill",
         pluginDisplayName: "Test Plugin",
-        marketplaceDisplayName: "Personal",
+        marketplaceDisplayName: "acme",
       }),
     ]));
     expect(unknown.statusCode).toBe(404);
     expect(unknownFile.statusCode).toBe(404);
   });
 
-  it("inspects a Claude marketplace before installing a selected plugin", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-marketplace-api-"));
-    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-marketplace-source-"));
-    await mkdir(path.join(source, ".claude-plugin"), { recursive: true });
-    await mkdir(path.join(source, "skills", "godot"), { recursive: true });
-    await writeFile(path.join(source, ".claude-plugin", "marketplace.json"), JSON.stringify({
-      name: "game-skills",
-      plugins: [{ name: "godot-skills", source: "./", description: "Godot workflows", skills: ["./skills/godot"] }],
-    }));
-    await writeFile(path.join(source, "skills", "godot", "SKILL.md"), "---\nname: godot\ndescription: Godot workflows.\n---\n");
-    const app = createApp({ dataDirectory });
-    apps.push(app);
-    await app.ready();
-
-    const inspected = await app.inject({ method: "POST", url: "/plugins/inspect", payload: { type: "directory", path: source } });
-    const installed = await app.inject({
-      method: "POST", url: "/plugins/install",
-      payload: { type: "directory", path: source, candidate: "marketplace:game-skills:godot-skills" },
-    });
-
-    expect(inspected.statusCode).toBe(200);
-    expect(inspected.json()).toEqual({ candidates: [{
-      key: "marketplace:game-skills:godot-skills", name: "godot-skills", displayName: "Godot Skills",
-      description: "Godot workflows", skillCount: 1, format: "claude",
-      marketplace: { id: "game-skills", displayName: "Game Skills" },
-    }] });
-    expect(installed.json()).toMatchObject({
-      id: "marketplace:game-skills:godot-skills",
-      marketplace: { id: "game-skills", displayName: "Game Skills" },
-      enabled: true,
-      skills: [{ name: "Godot" }],
-    });
-  });
-
-  it("lists the plugins that ship with the app in the format 2 store, not the format 1 catalog", async () => {
+  it("lists the plugins that ship with the app", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")),
       publishFetch: async () => Response.json([]),
@@ -403,8 +363,6 @@ describe("plugin catalog API", () => {
     apps.push(app);
     await app.ready();
 
-    expect((await app.inject({ method: "GET", url: "/plugins" })).json()).toEqual({ plugins: [], errors: [] });
-    expect((await app.inject({ method: "GET", url: "/plugins/ohmygame%3Aunity" })).statusCode).toBe(404);
     const store = (await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json() as Array<{ id: string; appWide: boolean; bundled: boolean; beta?: boolean; categories?: string[]; grants: { enabled: boolean } | null }>;
     const fields = ({ id, appWide, beta, categories, grants }: (typeof store)[number]) => ({ id, appWide, beta, categories, enabled: grants?.enabled });
     expect(store.map(fields)).toEqual(expect.arrayContaining([
@@ -415,28 +373,5 @@ describe("plugin catalog API", () => {
       { id: "ohmygame/godot", appWide: false, beta: true, categories: ["engine"], enabled: true },
     ]));
     expect(store.every((plugin) => plugin.bundled)).toBe(true);
-  });
-
-  it("stores the Plugin switch together with MCP capabilities", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-settings-api-"));
-    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mcp-source-"));
-    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
-    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
-      name: "editor-bridge", version: "1.0.0", description: "Local editor MCP", mcpServers: "./mcp.json",
-    }));
-    await writeFile(path.join(source, "mcp.json"), JSON.stringify({ mcpServers: { editor: { url: "http://127.0.0.1:8000/mcp", lifecycle: "lazy" } } }));
-    const app = createApp({ dataDirectory });
-    apps.push(app);
-    await app.ready();
-    await app.inject({ method: "POST", url: "/plugins/install", payload: { type: "directory", path: source } });
-
-    const updated = await app.inject({
-      method: "PUT",
-      url: "/plugins/personal%3Aeditor-bridge/settings",
-      payload: { enabled: false, components: {} },
-    });
-
-    expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toMatchObject({ enabled: false, mcpServers: [{ id: "editor", status: "disabled" }] });
   });
 });

@@ -1,26 +1,21 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { PluginComponentSummary } from "../shared/plugins.js";
 import { readPluginSkill } from "./api.js";
 import { t } from "./i18n.js";
 import { ChevronRight, FolderOpen } from "./icons.js";
 import { MarkdownContent } from "./markdown-content.js";
-import { Alert, Button, IconButton, Spinner, Switch } from "./ui/index.js";
+import { Alert, Button, IconButton, Spinner } from "./ui/index.js";
 
 /** A SKILL.md's metadata, which the row above its content already shows. */
 const FRONTMATTER = /^---[ \t]*\r?\n(?:[\s\S]*?\r?\n)??---[ \t]*(?:\r?\n|$)/;
 
-/** A Skill on a plugin's page; `enabled` only where Skills switch one by one. */
-export type SkillItem = Omit<PluginComponentSummary, "enabled"> & { enabled?: boolean };
+/** A Skill on a plugin's page. */
+export type SkillItem = { id: string; name: string; description?: string };
 
 /** The Skills of a plugin: each opens to show its content. */
-export function SkillSection({ pluginId, items, installed, disabled, onBrowse, onToggle }: {
+export function SkillSection({ pluginId, items, onBrowse }: {
   pluginId: string;
   items: SkillItem[];
-  installed: boolean;
-  disabled?: boolean;
   onBrowse: (skillId: string) => void;
-  /** Format 2 plugins have no switch per Skill; without this, none shows. */
-  onToggle?: (component: PluginComponentSummary, enabled: boolean) => void;
 }): ReactNode {
   const [expanded, setExpanded] = useState<{ id: string; phase: "loading" | "ready" | "error"; content?: string; error?: string }>();
   const requestId = useRef(0);
@@ -59,10 +54,9 @@ export function SkillSection({ pluginId, items, installed, disabled, onBrowse, o
           <ChevronRight size={14} className="plugin-skill-caret" aria-hidden="true" />
           <span className="plugin-skill-copy"><strong className="plugins-mono">{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
         </button>
-        {installed && window.ohMyGameDesktop ? <IconButton size="sm" label={t("plugins.showNameInFinder", { name: item.name })} onClick={() => onBrowse(item.id)}><FolderOpen size={14} /></IconButton> : null}
-        {installed && onToggle ? <Switch size="sm" checked={item.enabled !== false} disabled={disabled} label={item.enabled !== false ? t("plugins.disableName", { name: item.name }) : t("plugins.enableName", { name: item.name })} onChange={enabled => onToggle({ ...item, enabled: item.enabled !== false }, enabled)} /> : null}
+        {window.ohMyGameDesktop ? <IconButton size="sm" label={t("plugins.showNameInFinder", { name: item.name })} onClick={() => onBrowse(item.id)}><FolderOpen size={14} /></IconButton> : null}
       </div>
-      {open ? <div className="plugin-skill-content">
+      {open && expanded ? <div className="plugin-skill-content">
         {expanded.phase === "loading" ? <div className="plugins-state"><Spinner size={14} label={t("plugins.loadingSkill")} />{t("plugins.loadingSkill")}</div> : null}
         {expanded.phase === "error" ? <Alert tone="danger" title={expanded.error} action={<Button size="sm" onClick={() => void loadContent(item)}>{t("common.retry")}</Button>} /> : null}
         {expanded.phase === "ready" ? <MarkdownContent text={(expanded.content ?? "").replace(FRONTMATTER, "")} /> : null}

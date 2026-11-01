@@ -13,7 +13,7 @@ import { usePluginTry, type TryPlugin } from "./plugin-try.js";
 import { projectTypeLabel } from "./project-types.js";
 import { Alert, Badge, Button, Dialog, Switch, Tabs } from "./ui/index.js";
 
-// Format 2 plugins on the Plugins page. They are installed for the app and
+// Plugins on the Plugins page. They are installed for the app and
 // turned on in each project, from its Plugins sheet or when it is created;
 // here they switch off everywhere, get the person's consent, take their
 // settings and uninstall. Several versions can be installed side by side,
@@ -48,7 +48,7 @@ export function storePluginSearchText(plugin: StorePlugin): string {
   return `${plugin.displayName} ${plugin.description} ${plugin.id}`.toLowerCase();
 }
 
-/** What a format 2 plugin adds, for the browse page's filter. */
+/** What a plugin adds, for the browse page's filter. */
 export function storePluginContributions({ adds }: StorePlugin): PluginContribution[] {
   return PLUGIN_CONTRIBUTIONS.filter((kind) =>
     kind === "projectType" ? adds.projectTypes.length > 0 : kind === "skills" ? adds.skills > 0 : kind === "mcp" ? adds.mcpServers.length > 0 : false);
@@ -79,6 +79,7 @@ function StoreTags({ plugin }: { plugin: StorePlugin }): ReactNode {
     {adds.skills ? <span className="plugins-tag">{t("plugins.skillCount", { count: adds.skills })}</span> : null}
     {adds.tools ? <span className="plugins-tag">{t("pluginStore.toolCount", { count: adds.tools })}</span> : null}
     {adds.panels.length ? <span className="plugins-tag">{t("pluginStore.panelCount", { count: adds.panels.length })}</span> : null}
+    {adds.mcpServers.length ? <span className="plugins-tag">{t("plugins.contributions.mcp")}</span> : null}
   </>;
 }
 
@@ -275,7 +276,7 @@ export function StorePluginDetail({ group, onChanged, onRemoved, onTry }: {
           </section> : null}
         </div>
         {plugin.skills.length ? <div className="plugin-tab" role="tabpanel" aria-label={t("plugins.skills")} hidden={tab !== "skills"}>
-          <SkillSection pluginId={plugin.id} items={plugin.skills} installed
+          <SkillSection pluginId={plugin.id} items={plugin.skills}
             onBrowse={(skillId) => browse(() => window.ohMyGameDesktop?.revealPluginSkill(plugin.id, skillId))} />
         </div> : null}
         {plugin.settings.length ? <div className="plugin-tab plugin-settings" role="tabpanel" aria-label={t("common.settings")} hidden={tab !== "settings"}>

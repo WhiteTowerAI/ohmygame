@@ -1,3 +1,5 @@
+import { Type } from "typebox";
+import { Check } from "typebox/value";
 // Connections: MCP servers the person added themselves, available to every
 // project's agent. Definitions, values and secrets live in the plugin
 // configuration store (encrypted), owned by `connection:<id>`.
@@ -8,16 +10,14 @@ import path from "node:path";
 import type { ProjectType } from "../shared/contracts.js";
 import type { ConnectionSummary, CreateConnectionRequest, UpdateConnectionRequest } from "../shared/connections.js";
 import {
-  isPluginManifest,
   type McpServerDefinition,
   type PluginConfigurationField,
   type PluginConfigurationValues,
   type PluginConfigurationView,
   type PluginMcpResult,
 } from "../shared/plugins.js";
-import { isMcpServerDefinition } from "./local-plugins.js";
 import { PluginConfigurationError, type ConfigurationOwner, type PluginConfigurationStore } from "./plugin-configuration.js";
-import { protectDefinitions, substitute } from "./plugin-capabilities.js";
+import { isMcpServerDefinition, protectDefinitions, substitute } from "./mcp-definitions.js";
 import type { EffectiveMcpConfig, PluginMcpHost } from "./plugin-mcp-host.js";
 
 /** Each connection's template is stored as this server of its owner. */
@@ -94,19 +94,19 @@ export class ConnectionService {
     return { mcpServers };
   }
 
-  async create(input: CreateConnectionRequest, allowSecrets = true): Promise<ConnectionSummary> {
+  async create(input: CreateConnectionRequest): Promise<ConnectionSummary> {
     const displayName = typeof input?.displayName === "string" ? input.displayName.trim() : "";
     if (!displayName || displayName.length > 100) throw new ConnectionError("Name the connection");
     if (!isMcpServerDefinition(input.definition)) throw new ConnectionError("Invalid MCP server definition");
     if (!isConfigurationFields(input.configuration)) throw new ConnectionError("Invalid connection configuration");
-    return this.#exclusive(() => this.#create(displayName, input, allowSecrets));
+    return this.#exclusive(() => this.#create(displayName, input));
   }
 
-  async #create(displayName: string, input: CreateConnectionRequest, allowSecrets: boolean): Promise<ConnectionSummary> {
+  async #create(displayName: string, input: CreateConnectionRequest): Promise<ConnectionSummary> {
     const fields = structuredClone(input.configuration ?? {});
     const values: PluginConfigurationValues = {};
     const { disabled: _disabled, ...template } = structuredClone(input.definition);
-    const definition = protectDefinitions({ [SERVER]: template }, fields, values, allowSecrets)[SERVER]!;
+    const definition = protectDefinitions({ [SERVER]: template }, fields, values)[SERVER]!;
     const id = this.#freeId(slug(displayName));
     const record: ConnectionRecord = { id, displayName, enabled: input.definition.disabled !== true };
     const owner = ownerOf(record);
@@ -147,21 +147,21 @@ export class ConnectionService {
     const record = this.#record(id);
     const owner = ownerOf(record);
     return {
-      ...protectDefinitions({ [SERVER]: this.#template(record) }, this.configuration.fields(owner), {}, true)[SERVER]!,
+      ...protectDefinitions({ [SERVER]: this.#template(record) }, this.configuration.fields(owner), {})[SERVER]!,
       disabled: !record.enabled,
     };
   }
 
-  async setDefinition(id: string, definition: McpServerDefinition, allowSecrets = true): Promise<ConnectionSummary> {
+  async setDefinition(id: string, definition: McpServerDefinition): Promise<ConnectionSummary> {
     const record = this.#record(id);
     if (!isMcpServerDefinition(definition)) throw new ConnectionError("Invalid MCP server definition");
     const owner = ownerOf(record);
     const fields = this.configuration.fields(owner);
     const values: PluginConfigurationValues = {};
     // Literal credentials still in the current template keep their generated fields.
-    protectDefinitions({ [SERVER]: this.#template(record) }, fields, values, true);
+    protectDefinitions({ [SERVER]: this.#template(record) }, fields, values);
     const { disabled, ...template } = structuredClone(definition);
-    const protectedDefinition = protectDefinitions({ [SERVER]: template }, fields, values, allowSecrets)[SERVER]!;
+    const protectedDefinition = protectDefinitions({ [SERVER]: template }, fields, values)[SERVER]!;
     await this.configuration.setOverride({ plugin: owner, serverId: SERVER, definition: protectedDefinition, fields, values, definitions: { [SERVER]: protectedDefinition } });
     if (typeof disabled === "boolean") await this.update(id, { enabled: !disabled });
     return this.read(id);
@@ -186,7 +186,7 @@ export class ConnectionService {
     const owner = ownerOf(record);
     const definition = this.#resolve(record);
     const literals: PluginConfigurationValues = {};
-    protectDefinitions({ [SERVER]: this.#template(record) }, {}, literals, true);
+    protectDefinitions({ [SERVER]: this.#template(record) }, {}, literals);
     // Taken now: a secret replaced while the probe runs must still be masked in what it returns.
     const values = this.configuration.resolved(owner);
     const secrets = [
@@ -303,7 +303,24 @@ function slug(value: string): string {
   return ID.test(id) ? id : "connection";
 }
 
-/** Fields as a plugin manifest may declare them: known types, and no secret with a default. */
+const ConfigurationFieldSchema = Type.Object({
+  type: Type.Union([Type.Literal("text"), Type.Literal("secret"), Type.Literal("path"), Type.Literal("boolean"), Type.Literal("select")]),
+  label: Type.String({ minLength: 1 }),
+  description: Type.Optional(Type.String()),
+  required: Type.Optional(Type.Boolean()),
+  default: Type.Optional(Type.Union([Type.String(), Type.Boolean()])),
+  options: Type.Optional(Type.Array(Type.String(), { minItems: 1, uniqueItems: true })),
+}, { additionalProperties: false });
+const ConfigurationFieldsSchema = Type.Record(Type.String({ pattern: "^[a-z0-9]+(?:[-_.][a-z0-9]+)*$" }), ConfigurationFieldSchema);
+
+/** Known field types, and no secret with a default. */
 function isConfigurationFields(value: unknown): value is Record<string, PluginConfigurationField> | undefined {
-  return value === undefined || isPluginManifest({ name: "connection", version: "1.0.0", description: "Connection", configuration: value });
+  if (value === undefined) return true;
+  if (!Check(ConfigurationFieldsSchema, value)) return false;
+  return Object.values(value).every(field => {
+    if (field.type === "secret" && field.default !== undefined) return false;
+    if (field.type === "select" && (!field.options?.length || (field.default !== undefined && !field.options.includes(String(field.default))))) return false;
+    if (field.default !== undefined && (field.type === "boolean" ? typeof field.default !== "boolean" : typeof field.default !== "string")) return false;
+    return true;
+  });
 }

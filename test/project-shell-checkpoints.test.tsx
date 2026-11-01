@@ -297,7 +297,7 @@ describe("project shell layout", () => {
   });
 });
 
-describe("format 2 plugins in the project shell", () => {
+describe("plugins in the project shell", () => {
   it("holds the initial message until a plugin type's project is set up, opening the panel that sets it up", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     let ready = false;
