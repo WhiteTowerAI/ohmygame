@@ -19,6 +19,7 @@ import { createPortal } from "react-dom";
 import { Check, Search, X } from "../icons.js";
 import { t } from "../i18n.js";
 import { IconButton } from "./button.js";
+import { Kbd } from "./display.js";
 import "./overlay.css";
 
 type Placement =
@@ -641,7 +642,7 @@ export function CommandMenu({
               }
             }}
           />
-          <kbd>Esc</kbd>
+          <Kbd>Esc</Kbd>
         </div>
         <div ref={list} id={`${id}-list`} className="ui-command-list" role="listbox" aria-label={t("commandMenu.label")}>
           {filtered.length ? filtered.map((command, index) => (

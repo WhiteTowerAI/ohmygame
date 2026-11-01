@@ -6,7 +6,7 @@ import { attachmentFiles, type ComposerAttachment } from "./composer-attachments
 import { matchingMentions, mentionQuery, slashCommandQuery, skillDisplayName, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { t } from "./i18n.js";
 import { PluginGlyph } from "./plugin-icons.js";
-import { DropdownMenu, type MenuEntry } from "./ui/index.js";
+import { DropdownMenu, Kbd, type MenuEntry } from "./ui/index.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 
 type ContextAction = "plan" | "compact" | "publish";
@@ -332,6 +332,6 @@ function ComposerContextMenu({ id, menuRef, trigger, items, selected, onSelect, 
       </button>
     </Fragment>) : <div className="composer-context-menu-empty" role="status">{t("contextMenu.noMatch")}</div>}
     {usageLimits?.length ? <div className="composer-context-menu-usage" role="status" aria-label={t("agentUsage.title")}><AgentUsageInline limits={usageLimits} compact /></div> : null}
-    <div className="composer-context-menu-foot" aria-hidden="true"><kbd>↑↓</kbd>{t("contextMenu.keys.select")}<kbd>↵</kbd>{t("contextMenu.keys.use")}<kbd>esc</kbd>{t("contextMenu.keys.close")}</div>
+    <div className="composer-context-menu-foot" aria-hidden="true"><Kbd>↑↓</Kbd>{t("contextMenu.keys.select")}<Kbd>↵</Kbd>{t("contextMenu.keys.use")}<Kbd>Esc</Kbd>{t("contextMenu.keys.close")}</div>
   </div>;
 }
