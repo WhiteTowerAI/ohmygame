@@ -163,11 +163,15 @@ function h(tag, attributes = {}, ...children) {
  * until it runs again.
  */
 function command(label, name, { input, variant, disabled, done, key = name } = {}) {
-  // A failure before the run starts, such as bad input, has no start to undo.
-  let started = false;
+  // This button's runs still finishing: it can run again while the last
+  // one's `done` waits, and a failure before a run starts, such as bad
+  // input, has no start to undo.
+  let pending = 0;
   const finish = () => {
-    if (started) state.running--;
-    started = false;
+    if (pending > 0) {
+      pending--;
+      state.running--;
+    }
     redraw();
   };
   return h(
@@ -180,7 +184,7 @@ function command(label, name, { input, variant, disabled, done, key = name } = {
       props: input === undefined ? {} : { input },
       on: {
         "omg-command-start": () => {
-          started = true;
+          pending++;
           state.running++;
           state.errors.delete(key);
         },
