@@ -11,7 +11,7 @@ Read the `.uproject`, engine association, `Config/`, and source modules. Keep th
 
 The official experimental **Model Context Protocol** Editor plugin is documented for UE 5.8; confirm the actual Editor includes it. Enabling the plugin and its toolsets changes the project, so do it only when the task needs Editor operations, and enable only the toolsets needed.
 
-Start the server in that Editor's console with `ModelContextProtocol.StartServer` (default `http://127.0.0.1:8000/mcp`) and make this plugin's **Local Unreal MCP URL** match. Keep it on loopback because it is unauthenticated. With several Editors, use separate ports and confirm the project and level with read-only tools before editing.
+Start the server in that Editor's console with `ModelContextProtocol.StartServer` (default `http://127.0.0.1:8000/mcp`) and make this plugin's **Local Unreal MCP URL** match. Keep it on loopback because it is unauthenticated; the plugin only connects to `127.0.0.1` or `localhost`. With several Editors, use separate ports and confirm the project and level with read-only tools before editing.
 
 In the default tool-search mode the server lists only `list_toolsets`, `describe_toolset`, and `call_tool`. Describe a toolset before calling its tools. Call tools one at a time and wait for each result, because they run on the game thread. Blueprint graph editing, viewport capture, input, and Play-in-Editor exist only when a toolset provides them.
 

@@ -279,9 +279,10 @@ preserved. Blender, like the other bundled plugins that only add Skills
 (Game Studio, Web Game Studio, Three.js World and the Beta workflows below),
 is a format 2 package in `plugins-v2/` that applies to every project it suits;
 see [Plugin format 2](plugins-v2.md#plugins-for-every-project). Godot is a
-format 2 plugin turned on per project. Unreal Engine remains a format 1
-package in `plugins/` until format 2 can carry HTTP MCP services. TapTap Maker
-is a format 2 plugin; see [TapTap Maker](#taptap-maker).
+format 2 plugin turned on per project, and so is Unreal Engine (below). No
+bundled plugin is format 1 any more; the app still reads format 1 packages
+from a `plugins/` folder beside `plugins-v2/`. TapTap Maker is a format 2
+plugin; see [TapTap Maker](#taptap-maker).
 
 - **Blender:** local Blender CLI/Python workflow for editable `.blend` sources,
   GLB delivery, and preview images. The export helper accepts an optional
@@ -377,7 +378,9 @@ the current project.
 Their saved switches are preserved by the same settings store as other plugins.
 These packages reuse the existing runtime; they introduce no new project types,
 client installers, custom MCP bridges, or automatic engine upgrades. All but
-Unreal Engine are format 2 packages that only add Skills.
+Unreal Engine are format 2 packages that only add Skills. Unreal Engine is a
+format 2 plugin with an HTTP MCP server, so once it is on, each General project
+turns it on in its own plugins.
 
 | Plugin | Project scope | Local integration and initial boundary |
 | --- | --- | --- |
@@ -397,9 +400,13 @@ disabled for native editors and developer tools. Serve actual Web exports throug
 the browser workflow only after their build and serving command are known.
 
 Only Unreal adds an MCP connection in this group. Its configurable endpoint
-defaults to `http://127.0.0.1:8000/mcp` and connects lazily. Start the official
-server in the intended Editor, keep it on loopback, and verify the actual
-project/level before editing. The default tool-search mode exposes three
+defaults to `http://127.0.0.1:8000/mcp` and connects lazily. It may only be on
+this computer (`127.0.0.1` or `localhost`, any port), and the connection
+follows no redirect. Start the official server in the intended Editor and
+verify the actual project/level before editing. Someone who had turned on the
+format 1 plugin finds the format 2 one on, with their endpoint if it was on
+this computer (`src/daemon/legacy-unreal.ts`); its separate Skill and MCP
+switches are now one switch. The default tool-search mode exposes three
 meta-tools; listing them proves neither enabled toolsets nor a working scene
 operation. Other packages use the agent's file/terminal tools and official local
 applications. CLI executables may need absolute paths when absent from PATH.

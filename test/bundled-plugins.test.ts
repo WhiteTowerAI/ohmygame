@@ -11,7 +11,7 @@ describe("bundled plugins", () => {
     await store.load();
     expect(store.list().filter(plugin => plugin.beta).map(plugin => plugin.name)).toEqual([
       "aseprite", "blender", "cocos-creator", "douyin-minigame",
-      "tiled", "unity", "unreal-engine", "wechat-minigame",
+      "tiled", "unity", "wechat-minigame",
     ]);
     for (const plugin of store.list().filter(plugin => plugin.beta)) {
       expect(plugin.icon?.type, plugin.name).toBe("asset");
@@ -25,15 +25,15 @@ describe("bundled plugins", () => {
       skills: [{ id: "skills/blender-assets/SKILL.md" }],
       mcpServers: [],
     });
-    // Godot is a format 2 plugin with its own tools, turned on per project.
+    // Godot and Unreal are format 2 plugins with their own tools or MCP, turned on per project.
     expect(store.read("ohmygame:godot")).toBeUndefined();
+    expect(store.read("ohmygame:unreal-engine")).toBeUndefined();
     for (const [name, skill] of [
       ["aseprite", "aseprite-assets"],
       ["cocos-creator", "cocos-creator"],
       ["douyin-minigame", "douyin-minigame"],
       ["tiled", "tiled-maps"],
       ["unity", "unity-game"],
-      ["unreal-engine", "unreal-game"],
       ["wechat-minigame", "wechat-minigame"],
     ]) {
       const plugin = store.read(`ohmygame:${name}`)!;
@@ -45,7 +45,7 @@ describe("bundled plugins", () => {
           ? ["general", "web-game", "godot-game", "asset-canvas"]
           : ["general"],
       });
-      expect(plugin.mcpServers?.map(server => server.id)).toEqual(name === "unreal-engine" ? ["unreal"] : []);
+      expect(plugin.mcpServers).toEqual([]);
     }
   });
 

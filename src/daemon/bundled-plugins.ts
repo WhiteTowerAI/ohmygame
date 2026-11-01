@@ -23,6 +23,7 @@ export const BUNDLED_PLUGINS_OFF: readonly string[] = [
   "ohmygame/douyin-minigame",
   "ohmygame/tiled",
   "ohmygame/unity",
+  "ohmygame/unreal-engine",
   "ohmygame/wechat-minigame",
 ];
 

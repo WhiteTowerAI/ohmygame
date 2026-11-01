@@ -341,11 +341,11 @@ const Template = (maxLength = 2000) => Type.String({ maxLength });
 
 /**
  * An MCP server the plugin brings: a process (`command`, run from the
- * plugin's folder unless `cwd` says otherwise). Agents see only the `tools`
- * it names. HTTP servers wait for a way to keep redirects within
- * `capabilities.network`, which the MCP adapter doesn't offer.
+ * plugin's folder unless `cwd` says otherwise), or an HTTP server (`url`,
+ * whose host `capabilities.network` must list). Agents see only the `tools`
+ * it names.
  */
-const McpServer = Type.Object(
+const McpProcessServer = Type.Object(
   {
     id: Slug,
     title: Text(),
@@ -366,6 +366,28 @@ const McpServer = Type.Object(
   },
   { additionalProperties: false },
 );
+
+const McpHttpServer = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    url: Template(),
+    headers: Type.Optional(
+      Type.Record(Type.String({ pattern: "^[A-Za-z0-9-]{1,64}$" }), Template(), {
+        additionalProperties: false,
+      }),
+    ),
+    tools: Type.Array(Type.String({ pattern: "^[A-Za-z0-9_.-]{1,100}$" }), {
+      minItems: 1,
+      maxItems: 100,
+      uniqueItems: true,
+    }),
+    timeoutSeconds: Type.Optional(TimeoutSeconds),
+  },
+  { additionalProperties: false },
+);
+
+const McpServer = Type.Union([McpProcessServer, McpHttpServer]);
 
 const Panel = Type.Object(
   {
@@ -669,6 +691,30 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
   const processes = new Set(capabilities.processes);
   contributes.mcpServers?.forEach((server, index) => {
     const path = `/contributes/mcpServers/${index}`;
+    if ("url" in server) {
+      if (!capabilities.network?.length) issue(`${path}/url`, "an HTTP server needs capabilities.network");
+      for (const name of configReferences(server.url)) {
+        const field = manifest.configuration?.[name];
+        if (!field) issue(`${path}/url`, `no configuration field ${name}`);
+        else if (field.type === "secret") issue(`${path}/url`, `${name} is a secret, which a URL can't carry; send it in a header`);
+      }
+      for (const name of configReferences(server.headers)) {
+        const field = manifest.configuration?.[name];
+        if (!field) issue(`${path}/headers`, `no configuration field ${name}`);
+        else if (field.type === "secret" && !capabilities.secrets)
+          issue(`${path}/headers`, `${name} is a secret, which needs capabilities.secrets`);
+      }
+      // The URL as it starts, with its settings' defaults, must already be allowed.
+      const initial = server.url.replace(/\$\{config\.([a-zA-Z0-9]+)\}/g, (match, name: string) => {
+        const value = manifest.configuration?.[name]?.default;
+        return typeof value === "string" ? value : match;
+      });
+      if (!configReferences(initial).length) {
+        const problem = mcpUrlIssue(initial, capabilities.network);
+        if (problem) issue(`${path}/url`, `${initial} ${problem}`);
+      }
+      return;
+    }
     if (!processes.has(server.command))
       issue(`${path}/command`, `${server.command} must be listed in capabilities.processes`);
     const syntax = mcpServerSyntaxIssue(server);
@@ -706,6 +752,50 @@ export function mcpServerSyntaxIssue(server: { args?: string[]; cwd?: string }):
   return [...(server.args ?? []), server.cwd].some((value) => value !== undefined && ADAPTER_SYNTAX.test(value))
     ? "args and cwd can't name environment variables"
     : undefined;
+}
+
+/** Hosts an HTTP MCP server may use plain HTTP with: those on this computer. */
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost"]);
+
+/**
+ * Whether `capabilities.network` covers a URL: an entry names a host exactly,
+ * with any port, or `host:port` for that port alone (the URL's own, or 443 or
+ * 80 by its scheme).
+ */
+export function networkCovers(network: readonly string[] | undefined, url: URL): boolean {
+  const port = url.port || (url.protocol === "https:" ? "443" : "80");
+  return (network ?? []).some((entry) => {
+    const [host, only] = entry.split(":");
+    return host === url.hostname && (only === undefined || only === port);
+  });
+}
+
+/**
+ * Why an HTTP MCP server can't use a URL, or undefined: it must be https, or
+ * http on this computer, carry no user name or password, and be on a host
+ * `capabilities.network` lists.
+ */
+export function mcpUrlIssue(value: string, network: readonly string[] | undefined): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return "is not a URL";
+  }
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname)))
+    return "must use https, or http on this computer (127.0.0.1 or localhost)";
+  if (url.username || url.password) return "can't carry a user name or password";
+  if (!networkCovers(network, url)) return `is on ${url.host}, which capabilities.network doesn't list`;
+  return undefined;
+}
+
+/** A copy of `value` with each `${config.field}` in its strings replaced by that field's value. */
+export function fillConfigReferences<T>(value: T, values: Record<string, unknown>): T {
+  return JSON.parse(JSON.stringify(value), (_key, item: unknown) =>
+    typeof item === "string"
+      ? item.replace(/\$\{config\.([a-zA-Z0-9]+)\}/g, (_match, name: string) => String(values[name]))
+      : item,
+  ) as T;
 }
 
 /** The configuration fields a value names as `${config.field}`, anywhere inside it. */
