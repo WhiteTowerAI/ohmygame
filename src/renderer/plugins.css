@@ -247,6 +247,42 @@
   gap: var(--space-3);
 }
 
+.plugin-add-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+
+.plugin-add-review :is(p, h3, ul, dl, dd) {
+  margin: 0;
+}
+
+.plugin-add-review h3 {
+  margin-bottom: var(--space-1);
+  font-size: inherit;
+  font-weight: 600;
+}
+
+.plugin-add-review ul {
+  padding-left: var(--space-4);
+}
+
+.plugin-add-review dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+}
+
+.plugin-add-review dt {
+  color: var(--color-text-tertiary);
+}
+
+.plugin-add-review dd {
+  overflow-wrap: anywhere;
+}
+
 /* a plugin's page */
 .plugins-back {
   margin: var(--space-6) 0 calc(var(--space-2) * -1) calc(var(--space-2) * -1);

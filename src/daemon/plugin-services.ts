@@ -139,6 +139,14 @@ function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRe
   };
 }
 
+/** Publishers whose names only the app and the Plugin Builder can give out. */
+const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set(["ohmygame", PERSONAL_PUBLISHER]);
+
+export function assertAddablePlugin(id: string): void {
+  const publisher = id.slice(0, id.indexOf("/"));
+  if (RESERVED_PUBLISHERS.has(publisher)) throw new Error(`Plugins added from outside the app can't use the publisher "${publisher}": ${id}`);
+}
+
 export class PluginServices {
   readonly index: PluginIndex;
   readonly grants: PluginGrants;
@@ -627,15 +635,28 @@ export class PluginServices {
 
   /**
    * Installs a package the person made. These are all `personal/<name>`, so
-   * one can't replace what the app or a publisher ships. A new version of one
-   * that only adds Skills replaces its older versions; any other keeps them
-   * for the projects that name them.
+   * one can't replace what the app or a publisher ships.
    */
   async installPersonal(source: string, options: { consent: boolean }): Promise<PluginIndexEntry> {
     const checked = await indexPluginPackage(source);
     if (checked.ok && !checked.entry.id.startsWith(`${PERSONAL_PUBLISHER}/`))
       throw new Error(`The plugin's id must be ${PERSONAL_PUBLISHER}/<name>, not ${checked.entry.id}`);
-    const entry = await this.installManaged(source, options);
+    return this.#replacingAppWide(await this.installManaged(source, options));
+  }
+
+  /**
+   * Installs a package the person added from npm, GitHub or a file. It allows
+   * nothing: what it asks for waits for the person, in a project's Plugins
+   * sheet. It can't take a name the app or the Plugin Builder uses.
+   */
+  async installAdded(source: string): Promise<PluginIndexEntry> {
+    const checked = await indexPluginPackage(source);
+    if (checked.ok) assertAddablePlugin(checked.entry.id);
+    return this.#replacingAppWide(await this.installManaged(source, { consent: false }));
+  }
+
+  /** A new version of a plugin that only adds Skills replaces its older versions; any other keeps them for the projects that name them. */
+  async #replacingAppWide(entry: PluginIndexEntry): Promise<PluginIndexEntry> {
     if (isAppWidePlugin(entry.manifest))
       for (const older of this.index.versions(entry.id))
         if (older.version !== entry.version && isAppWidePlugin(older.manifest)) await this.uninstall(entry.id, older.version);

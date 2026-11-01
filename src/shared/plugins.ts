@@ -6,7 +6,37 @@ import type { PluginCategory } from "./plugin-manifest.js";
 
 export type PluginOrigin =
   | { type: "github"; repository: string; commit: string; release?: string }
+  | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry }
   | { type: "claude-marketplace"; marketplace: string; repository?: string };
+
+export const PLUGIN_NPM_REGISTRIES = ["npmjs", "npmmirror"] as const;
+export type PluginNpmRegistry = (typeof PLUGIN_NPM_REGISTRIES)[number];
+
+/** Where the Add plugin dialog gets a package. A `.tgz` file is uploaded, so it isn't one of these. */
+export type PluginAddSource =
+  | { type: "npm"; name: string; registry: PluginNpmRegistry; version?: string }
+  | { type: "github"; url: string; commit?: string }
+  | { type: "directory"; path: string };
+
+/** What the person reviews before adding a package. */
+export interface PluginAddPreview {
+  /** The same source, pinned to what was read: an npm version or a commit. */
+  source?: PluginAddSource;
+  /** Adding checks the package is still this one. */
+  digest: string;
+  id: string;
+  version: string;
+  displayName: string;
+  description: string;
+  appWide: boolean;
+  asks: string[];
+  skills: number;
+  mcpServers: string[];
+  settings: boolean;
+  /** Versions already installed, so the dialog can say what adding this does to them. */
+  installedVersions: string[];
+  origin?: PluginOrigin;
+}
 
 export const PLUGIN_MANIFEST_PATH = ".ohmygame-plugin/plugin.json";
 export const PLUGIN_FORMAT_VERSION = 1;

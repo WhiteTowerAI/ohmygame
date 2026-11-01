@@ -366,14 +366,13 @@ describe("plugin portability", () => {
     expect((await env.local.list()).plugins).toEqual([]);
   });
 
-  it("supports authenticated-style binary routes and refuses malformed upload bodies", async () => {
+  it("exports over its route and no longer takes archives", async () => {
     const env = await environment();
     const root = path.join(env.directory, "source");
     await packageAt(root);
-    const bytes = await createPluginArchive(root);
+    const installed = await env.portability.restore(await createPluginArchive(root));
     const app = Fastify();
     cleanup.push(() => app.close());
-    const invalidate = vi.fn();
     registerPluginPortabilityRoutes(app, {
       local: env.local,
       plugins: new PluginCatalogService(
@@ -382,45 +381,24 @@ describe("plugin portability", () => {
       ),
       capabilities: env.service,
       settings: env.settings,
-      invalidate,
+      invalidate: vi.fn(),
     });
-    const inspected = await app.inject({
-      method: "POST",
-      url: "/plugins/import/inspect",
-      headers: { "content-type": "application/zip" },
-      payload: bytes,
-    });
-    expect(inspected.statusCode).toBe(200);
-    expect((await env.local.list()).plugins).toEqual([]);
-    const installed = await app.inject({
-      method: "POST",
-      url: "/plugins/import",
-      headers: { "content-type": "application/zip" },
-      payload: bytes,
-    });
-    expect(installed.statusCode).toBe(201);
-    expect(invalidate).toHaveBeenCalledOnce();
     const exported = await app.inject({
-      url: `/plugins/${encodeURIComponent(installed.json().id)}/export`,
+      url: `/plugins/${encodeURIComponent(installed.id)}/export`,
     });
     expect(exported.headers["content-type"]).toBe("application/zip");
     expect(exported.headers["cache-control"]).toBe("no-store");
     expect((await env.portability.inspect(exported.rawPayload)).plugin.id).toBe(
-      installed.json().id,
+      installed.id,
     );
     expect(
       (
         await app.inject({
-          url: `/plugins/${encodeURIComponent(installed.json().id)}/dependencies`,
+          url: `/plugins/${encodeURIComponent(installed.id)}/dependencies`,
         })
       ).statusCode,
     ).toBe(200);
-    const malformed = await app.inject({
-      method: "POST",
-      url: "/plugins/import/inspect",
-      payload: {},
-    });
-    expect(malformed.statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: "/plugins/import", payload: {} })).statusCode).toBe(404);
   });
 
   it("rejects an export whose installed package changes during capture", async () => {

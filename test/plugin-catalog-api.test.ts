@@ -32,6 +32,42 @@ describe("plugin catalog API", () => {
     expect(detail.json()).toMatchObject({ id: "personal:test-plugin", enabled: true });
   });
 
+  it("reviews and adds a package over its routes, then lists where it came from", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-add-api-"));
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-add-source-"));
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+      id: "acme/maker", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Maker", description: "Makes things",
+      capabilities: { network: ["api.example.com"] }, contributes: { mcpServers: [{ id: "api", title: "API", url: "https://api.example.com/mcp", tools: ["search"] }] },
+    }));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    await app.ready();
+    const directory = { type: "directory", path: source };
+
+    const inspected = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload: { source: directory } });
+    expect(inspected.statusCode).toBe(200);
+    expect(inspected.json()).toMatchObject({ id: "acme/maker", asks: ["network:api.example.com"], installedVersions: [] });
+    const listed = async () => (await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json<Array<{ id: string; grants: unknown; origin?: unknown }>>().find((plugin) => plugin.id === "acme/maker");
+    expect(await listed()).toBeUndefined();
+
+    const stale = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { source: directory, digest: "f".repeat(64) } });
+    expect(stale.statusCode).toBe(400);
+    expect(stale.json().error).toContain("changed after you reviewed it");
+    const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { source: directory, digest: inspected.json().digest } });
+    expect(added.statusCode).toBe(201);
+    expect(added.json()).toEqual({ id: "acme/maker", version: "1.0.0" });
+    const plugin = await listed();
+    expect(plugin?.grants).toBeNull();
+    expect(plugin?.origin).toBeUndefined();
+
+    for (const payload of [{ source: { type: "npm", name: "@acme/maker", registry: "https://evil.example" } }, { source: { type: "github", url: "https://github.com/acme/maker", commit: "main" } }, { source: { type: "git", url: "https://example.com/x.git" } }, {}])
+      expect((await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload })).statusCode, JSON.stringify(payload)).toBe(400);
+    const notGzip = await app.inject({ method: "POST", url: "/plugin-sources/file/inspect", headers: { "content-type": "application/gzip" }, payload: Buffer.from("nope") });
+    expect(notGzip.statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: `/plugin-sources/file/install?digest=short`, headers: { "content-type": "application/gzip" }, payload: Buffer.from("nope") })).statusCode).toBe(400);
+  });
+
   it("finishes indexing the bundled plugins before it closes the plugin store", async () => {
     let indexed = false;
     let finishIndexing!: () => void;

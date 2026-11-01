@@ -5,8 +5,8 @@ which the Browse tab still uses.
 The app lists installed format 2 plugins on the Plugins page, turns them on
 per project, and shows their panels and commands in a project. Installing a
 signed release from the app is not built yet: no catalog or release keys
-ship, so format 2 plugins come bundled, from a folder, or from the Plugin
-Builder.
+ship, so format 2 plugins come bundled, from the Plugin Builder, or from
+[Add plugin](#adding-a-plugin).
 
 ## Files
 
@@ -19,6 +19,7 @@ Builder.
   plugins; it never allows them.
 - **App data,** under `<data>/plugin-store/`:
   - `index.json`: installed packages, with their tool schemas;
+  - `origins.json`: where packages added from npm or GitHub came from;
   - `grants.json`: install consent, the app switch per plugin, and what each
     project folder allows (by real path);
   - `configuration.json`: settings values, readable only by the person;
@@ -72,6 +73,7 @@ shows it in the call's progress.
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
+| Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
 
 ## Routes
 
@@ -133,6 +135,9 @@ shows it in the call's progress.
   `POST /projects/:id/plugin-changes/:changeId/undo`.
 - Pages: `GET /projects/:id/plugin-panels`,
   `GET`/`PUT /projects/:id/plugin-storage/:publisher/:name/:key`.
+- Adding: `POST /plugin-sources/inspect` and `/plugin-sources/install` take a
+  source as JSON; `POST /plugin-sources/file/inspect` and
+  `/plugin-sources/file/install?digest=` take a `.tgz` as `application/gzip`.
 - Store: `GET /plugin-store/plugins`, `POST /plugin-store/releases`,
   `POST /plugin-store/:publisher/:name/consent`,
   `PUT /plugin-store/:publisher/:name/enabled`,
@@ -225,6 +230,35 @@ as any package is checked.
   gives it the saved settings only if it is the package its workspace installed.
 - An MCP service that signs in with OAuth is a connection, not a plugin
   ([Connections](plugins.md#connections)).
+
+## Adding a plugin
+
+**Add plugin…** on the Plugins page (`src/renderer/plugin-add-dialog.tsx`) adds a
+package from npm, GitHub or this computer. `src/daemon/plugin-sources.ts` reads
+each one into a temporary folder and never runs anything in it, so npm's install
+scripts don't apply. The person reviews what it does, then adds it: adding reads
+the source again and refuses a package whose digest isn't the one reviewed.
+
+| Source | What's accepted | What's checked |
+| --- | --- | --- |
+| npm, from `registry.npmjs.org` or `registry.npmmirror.com` | `@publisher/name` or `@publisher/ohmygame-plugin-name` for the plugin `publisher/name`, optionally `@version` | The download's host and its SHA-512; the scope is the plugin's publisher and the version is the package's |
+| GitHub | A public repository's URL, optionally `/tree/<ref>` or `/commit/<sha>`, with the package at its top | Pinned to the commit it resolves to, recorded as the plugin's origin |
+| This computer | A folder (desktop app) or an uploaded `.tgz` | As any package |
+
+- A package allows nothing when it's added. What it asks for waits for the person
+  to approve it, on its page or when they turn it on in a project's Plugins sheet.
+  One that only adds Skills asks for nothing, so it applies right away and replaces
+  its older versions.
+- The publishers `ohmygame` and `personal` can't be added this way
+  (`PluginServices.installAdded`), so a package can't stand in for what the app or
+  the Plugin Builder provides.
+- Archives come out through `extractTarball`, which takes only files and folders
+  within the destination. The size and file limits are the release ones.
+- npm leaves `.gitignore` files out of what it publishes, so a template ships
+  `gitignore`, and packages from npm or a `.tgz` get it back as `.gitignore` in
+  each project type's `template` folder, unless one is already there.
+- Where a package came from is in `<data>/plugin-store/origins.json`, and shows on
+  its page. Nothing updates a package by itself: adding it again is the update.
 
 ## More manifest fields
 

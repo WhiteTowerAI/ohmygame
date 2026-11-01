@@ -1,7 +1,7 @@
 import { observeWorkspaceVersion, workspaceVersion } from "../src/renderer/workspace-version.js";
 import { request } from "../src/renderer/api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
+import { addPlugin, inspectAddedPlugin, approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
 import { readPluginIconImage, updatePluginDraftIcon, cancelToolJob, getProjectCoverState, listToolJobs, setProjectCoverMode, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import { exportProject, streamProjectActivity, turnOnProjectPlugin } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
@@ -345,29 +345,22 @@ describe("renderer project API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugins/personal%3Acharacter-writer", expect.objectContaining({ method: "DELETE" }));
   });
 
-  it("installs plugins through the unified API", async () => {
+  it("reviews and adds a plugin from a source", async () => {
     installWindow();
-    const fetchMock = vi.fn().mockResolvedValue(Response.json({ id: "personal:test" }, { status: 201 }));
+    const fetchMock = vi.fn(async () => Response.json({ id: "acme/maker", version: "1.0.0" }, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
+    const source = { type: "npm", name: "@acme/maker", registry: "npmjs" } as const;
 
-    await installPlugin({ type: "git", url: "https://example.com/test.git" });
+    await inspectAddedPlugin(source);
+    await addPlugin(source, "a".repeat(64));
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/plugins/install", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(1, expect.stringMatching(/^\/api\/plugin-sources\/inspect\?locale=/), expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ type: "git", url: "https://example.com/test.git" }),
+      body: JSON.stringify({ source }),
     }));
-  });
-
-  it("inspects plugin sources through the unified API", async () => {
-    installWindow();
-    const fetchMock = vi.fn().mockResolvedValue(Response.json({ candidates: [] }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await inspectPluginSource({ type: "directory", path: "/plugins/test" });
-
-    expect(fetchMock).toHaveBeenCalledWith("/api/plugins/inspect", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/plugin-sources/install", expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ type: "directory", path: "/plugins/test" }),
+      body: JSON.stringify({ source, digest: "a".repeat(64) }),
     }));
   });
 
