@@ -9,6 +9,7 @@ import {
   type PluginUiEvent,
   type PluginUiRequest,
 } from "../shared/plugin-ui-protocol.js";
+import "./plugin-frame.css";
 
 // A format 2 plugin's page in a sandboxed frame. The frame gets only
 // `allow-scripts`: an opaque origin, no popups, no navigation of the app, no
@@ -36,12 +37,54 @@ export interface PluginPageContext {
   runCommand(command: string, input?: unknown): Promise<unknown>;
 }
 
-/** The app's current colour tokens and appearance, as a page sees them. */
+/**
+ * The design tokens a page gets on its `:root`, with the values the app has
+ * now: the colours a theme sets, then the roles, type, shape, space and motion
+ * the app's own components use (`src/renderer/ui/tokens.css`). Pages and
+ * `plugin-ui.css` use these names, so a release may add tokens but never
+ * renames or removes one.
+ */
+export const PAGE_TOKENS = [
+  ...THEME_TOKENS,
+  ...[
+    "app",
+    "stage",
+    "surface",
+    "surface-raised",
+    "hover",
+    "selected",
+    "border",
+    "border-strong",
+    "text",
+    "text-secondary",
+    "text-tertiary",
+    "ink",
+    "on-ink",
+    "focus",
+    "control-thumb",
+    "success",
+    "danger",
+    "warning",
+  ].map((role) => `--color-${role}`),
+  "--shadow-hairline",
+  "--shadow-float",
+  "--font-sans",
+  "--font-mono",
+  ...["xs", "sm", "md", "lg", "xl"].map((size) => `--text-${size}`),
+  ...["regular", "medium", "semibold"].map((weight) => `--weight-${weight}`),
+  ...["sm", "md", "lg", "pill"].map((size) => `--radius-${size}`),
+  ...[1, 2, 3, 4, 6].map((step) => `--space-${step}`),
+  "--ease-out",
+  "--duration-fast",
+  "--duration-base",
+] as const;
+
+/** The app's current design tokens and appearance, as a page sees them. */
 export function currentTheme(): Extract<PluginUiEvent, { event: "theme" }> {
   const root = document.documentElement;
   const style = getComputedStyle(root);
   const tokens: Record<string, string> = {};
-  for (const token of THEME_TOKENS) {
+  for (const token of PAGE_TOKENS) {
     const value = style.getPropertyValue(token).trim();
     if (value) tokens[token] = value;
   }
@@ -182,6 +225,7 @@ export function PluginFrame({
         return;
       }
       loaded = true;
+      element.dataset.loaded = "";
       if (element.contentWindow) connection.current = connectPluginFrame(element.contentWindow, stable);
     };
     element.addEventListener("load", onLoad);

@@ -11,6 +11,7 @@ export interface PluginUiHost {
   plugin: { id: string; version: string; panel: string };
   locale: "en" | "zh-CN";
   request<T = unknown>(method: PluginUiMethod, params?: Record<string, unknown>): Promise<T>;
+  /** The app's design tokens (`--color-surface`, `--text-md`…), already set on `:root`, and its appearance. */
   on(event: "theme", listener: (theme: { tokens: Record<string, string>; appearance: "dark" | "light" }) => void): () => void;
   on(event: "visibility", listener: (value: { visible: boolean }) => void): () => void;
   /** How one of the plugin's commands, by its manifest id, is going while it runs. */

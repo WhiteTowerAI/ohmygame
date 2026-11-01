@@ -333,3 +333,15 @@ through `@ohmygame/plugin-ui`. The page's CSP allows no inline scripts, so
 its script is a module file next to it. The desktop app keeps the frame
 within its plugin version's files (`src/desktop/window.ts`); a page that
 loads again is replaced by a new frame at the panel's URL.
+
+The frame has no border and stays hidden until its page loads. A page that
+links `/_ohmygame/plugin-ui.css` has a transparent root, so the panel's
+surface shows through, and the app's type, colours and controls. When it
+connects, and whenever the theme changes, the app sets the tokens in
+`PAGE_TOKENS` (`src/renderer/plugin-frame.tsx`) on the page's `:root`. These
+are the colours a theme sets, the roles the app's own components use
+(`--color-surface`, `--color-text`, `--color-border`, `--color-ink`…), and
+its type, radius, spacing and motion tokens. Until then the stylesheet holds
+the app's defaults, and `test/preview-static.test.ts` keeps them equal to
+`src/renderer/ui/tokens.css`. Pages may rely on these names: a release may
+add tokens but not rename or remove one.
