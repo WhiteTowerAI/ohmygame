@@ -881,17 +881,17 @@ describe("daemon", () => {
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "godot-game" } })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
-    const mention = { name: "godot", displayName: "Godot", marketplaceId: "ohmygame" };
+    const mention = { name: "game-studio", displayName: "Game Studio", marketplaceId: "ohmygame" };
 
     const accepted = await app.inject({
       method: "POST",
       url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
-      payload: { prompt: "Use @Godot", mentions: [mention] },
+      payload: { prompt: "Use @Game Studio", mentions: [mention] },
     });
-    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Use [@Godot](plugin://godot@ohmygame)"));
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Use [@Game Studio](plugin://game-studio@ohmygame)"));
     const incompatible = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
     const otherConversation = (await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations` })).json();
-    const mismatch = await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations/${otherConversation.id}/turns`, payload: { prompt: "Use @Godot", mentions: [mention] } });
+    const mismatch = await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations/${otherConversation.id}/turns`, payload: { prompt: "Use @Game Studio", mentions: [mention] } });
     expect(mismatch.statusCode).toBe(409);
     expect(prompt).toHaveBeenCalledTimes(1);
     const rejected = await app.inject({
