@@ -3,7 +3,7 @@ import path from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ConversationCapabilities } from "../src/shared/contracts.js";
+import type { AgentModelCatalog, ConversationCapabilities } from "../src/shared/contracts.js";
 import type { ProjectPluginChoice } from "../src/shared/plugins.js";
 import { placeCaret, pressKey, promptChips, promptText, typePrompt } from "./prompt-field.js";
 
@@ -22,6 +22,7 @@ const plugin = (
 });
 let capabilities: ConversationCapabilities;
 let projectPlugins: ProjectPluginChoice[];
+let modelCatalog: AgentModelCatalog;
 // Set to hold GET /project-types until a test answers it.
 let pendingTypes: Promise<never> | undefined;
 let pendingCapabilities: Promise<ConversationCapabilities> | undefined;
@@ -31,7 +32,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   waitForRuntime: async () => undefined,
   getHomeComposerCapabilities: async () => pendingCapabilities ?? capabilities,
-  listModels: async () => ({ models: [] }),
+  listModels: async () => modelCatalog,
   listProjectPluginChoices: async () => choicesFail-- > 0 ? Promise.reject(new Error("offline")) : projectPlugins,
   listProjectTypes: async () => typesFail-- > 0 ? Promise.reject(new Error("offline")) : pendingTypes ?? [
     { id: "ohmygame/godot:godot-game", title: "Godot game", plugin: { id: "ohmygame/godot", version: "1.0.0" } },
@@ -61,6 +62,7 @@ beforeEach(() => {
     { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", capabilities: ["network:tiles.example.com"], consented: false, providesTypes: ["acme/tiles:tile-map"] },
     { id: "acme/sprites", displayName: "Sprites", description: "Sprite sheets.", version: "1.2.0", capabilities: ["network:sprites.example.com"], consented: false, providesTypes: [], appliesTo: ["general"] },
   ];
+  modelCatalog = { models: [], defaultReasoningLevel: "medium" };
   localStorage.clear();
   pendingTypes = undefined;
   pendingCapabilities = undefined;
@@ -132,6 +134,18 @@ const menuItem = (label: string) =>
     .find((item) => item.querySelector(".home-plugin-text > span")?.textContent === label);
 
 describe("Home prompt box", () => {
+  it("keeps the displayed Codex model when starting a Web Game without a saved default", async () => {
+    modelCatalog.models = [{ provider: "codex-cli", providerName: "Codex", id: "gpt-6.1-sol", name: "GPT-6.1-Sol", reasoningLevels: [], nativeReasoningLevels: ["low", "medium"] }];
+    await render();
+    expect(container.textContent).toContain("GPT-6.1-Sol");
+    await type("Make a game");
+    await send();
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      type: "web-game",
+      model: { provider: "codex-cli", id: "gpt-6.1-sol" },
+    }), expect.any(Function));
+  });
+
   it("starts with the plugin the type names, and changes it with the type", async () => {
     await render();
     expect(typePicker().textContent).toBe("Web Game");

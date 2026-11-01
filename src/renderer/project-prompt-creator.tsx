@@ -230,6 +230,7 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
       mentions: activePluginMentions(submittedPrompt, pluginMentions),
       attachments,
       mode: planning ? "planning" : "normal",
+      ...(selectedModel ? { model: { provider: selectedModel.provider, id: selectedModel.id } } : {}),
       type: projectType,
       projectPlugins: projectPlugins.filter((plugin) => projectPluginIds.includes(plugin.id)),
     }, () => { draftSession.clearSubmitted(submittedDraft); });

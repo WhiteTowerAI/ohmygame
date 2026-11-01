@@ -8,6 +8,7 @@ import { defaultProjectName, PROJECT_TYPES } from "./project-types.js";
 import { isAppProjectType, MORE_TYPES, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes, useProjectPluginChoices } from "./project-type-choices.js";
 import { Button, Dialog, Field, Input, Select, Textarea } from "./ui/index.js";
 import type {
+  AgentModelRef,
   ConversationCapabilities,
   PluginMention,
   ProjectState,
@@ -26,6 +27,8 @@ export interface FirstMessage {
   mentions: PluginMention[];
   attachments: ComposerAttachment[];
   mode: PromptMode;
+  /** The conversation model displayed on Home when the prompt was sent. */
+  model?: AgentModelRef;
   /** The type chosen on Home: one of the app's, or a plugin's `publisher/name:type`. */
   type?: string;
   /** Plugins to turn on for this project alone once it exists. */
@@ -206,7 +209,7 @@ export function ProjectCreateDialog({
         onCreated(project);
         return;
       }
-      created.current.conversationId ??= (await createConversation(project.id)).id;
+      created.current.conversationId ??= (await createConversation(project.id, firstMessage.model)).id;
       const attachments = await uploadAttachments(project.id, crypto.randomUUID(), firstMessage.attachments);
       saveHomePrompt({ prompt: text, mentions });
       if (!mounted.current) return;
