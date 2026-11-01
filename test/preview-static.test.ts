@@ -241,7 +241,7 @@ describe("static preview byte ranges", () => {
 });
 
 describe("plugin pages", () => {
-  async function pluginPackage() {
+  async function pluginPackage(extra: Record<string, unknown> = {}) {
     const root = path.join(await directory(), "panel");
     await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
     await mkdir(path.join(root, "ui"), { recursive: true });
@@ -265,6 +265,7 @@ describe("plugin pages", () => {
         contributes: {
           panels: [{ id: "main", title: "Main", area: "right", entry: "./ui/panel.html" }],
         },
+        ...extra,
       }),
     );
     return root;
@@ -284,6 +285,9 @@ describe("plugin pages", () => {
     const sdk = await directory();
     await writeFile(path.join(sdk, "index.js"), "export function connect() {}");
     await writeFile(path.join(sdk, "plugin-ui.css"), ":root {}");
+    await mkdir(path.join(sdk, "ui/1"), { recursive: true });
+    await writeFile(path.join(sdk, "ui/1/index.js"), "import './layout.js';");
+    await writeFile(path.join(sdk, "ui/1/notes.md"), "notes");
     const server = await startPluginUiServer({ index, sdkDirectory: sdk, frameAncestors: ["http://localhost:5173"] });
     cleanups.push(() => server.close());
 
@@ -293,7 +297,10 @@ describe("plugin pages", () => {
     const response = await fetch(page);
     expect(await response.text()).toBe("<p>panel</p>");
     const csp = response.headers.get("content-security-policy")!;
-    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/`);
+    // Only the bridge and styles, until the plugin opts in to preview components.
+    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js;`);
+    expect(csp).toContain(`style-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.css 'unsafe-inline'`);
+    expect(csp).not.toContain("/_ohmygame/ui/");
     expect(csp).toContain("connect-src 'none'");
     expect(csp).toContain("frame-ancestors http://localhost:5173");
     expect(csp).not.toContain("unsafe-eval");
@@ -302,6 +309,9 @@ describe("plugin pages", () => {
     expect((await fetch(`${server.url}/acme/panel/1.0.0/ui/panel.js`)).status).toBe(200);
     expect((await fetch(`${server.url}/acme/panel/1.0.0/assets/icon.svg`)).status).toBe(200);
     expect(await (await fetch(`${server.url}/_ohmygame/plugin-ui.js`)).text()).toContain("connect");
+    const components = await fetch(`${server.url}/_ohmygame/ui/1/index.js`);
+    expect(components.headers.get("content-type")).toContain("javascript");
+    expect(await components.text()).toContain("layout.js");
     for (const refused of [
       "/acme/panel/1.0.0/native/index.mjs",
       "/acme/panel/1.0.0/.ohmygame-plugin/plugin.json",
@@ -310,8 +320,28 @@ describe("plugin pages", () => {
       "/acme/panel/1.0.0/ui/%2e%2e/native/index.mjs",
       "/acme/panel/2.0.0/ui/panel.html",
       "/_ohmygame/index.js",
+      "/_ohmygame/ui/1/notes.md",
+      "/_ohmygame/ui/2/index.js",
+      "/_ohmygame/ui/1/%2e%2e/%2e%2e/index.js",
+      "/_ohmygame/ui/1/nested/index.js",
     ])
       expect((await fetch(`${server.url}${refused}`)).status, refused).toBe(404);
+  });
+
+  it("lets a page load preview components only when its plugin opts in", async () => {
+    const index = new PluginIndex(path.join(await directory(), "index.json"));
+    const added = await index.add(await pluginPackage({ ui: { preview: true } }));
+    expect(added.ok ? [] : added.issues).toEqual([]);
+    const sdk = await directory();
+    await mkdir(path.join(sdk, "ui/1"), { recursive: true });
+    await writeFile(path.join(sdk, "ui/1/index.js"), "import './layout.js';");
+    const server = await startPluginUiServer({ index, sdkDirectory: sdk });
+    cleanups.push(() => server.close());
+    const csp = (await fetch(server.panelUrl("acme/panel", "1.0.0", "main")!)).headers.get("content-security-policy")!;
+    // The policy's source for components covers the file the server sends.
+    const source = `${server.url}/_ohmygame/ui/1/`;
+    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js ${source};`);
+    expect((await fetch(`${source}index.js`)).status).toBe(200);
   });
 
   it("styles pages with the app's tokens and defaults", async () => {

@@ -209,6 +209,15 @@
       },
       "additionalProperties": false
     },
+    "ui": {
+      "type": "object",
+      "properties": {
+        "preview": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
     "configuration": {
       "type": "object",
       "patternProperties": {

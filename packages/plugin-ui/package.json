@@ -2,11 +2,11 @@
   "name": "@ohmygame/plugin-ui",
   "version": "1.0.0",
   "private": true,
-  "description": "Styles and the host bridge for OhMyGame plugin pages.",
+  "description": "Styles, the host bridge and page components for OhMyGame plugin pages.",
   "type": "module",
   "exports": {
     ".": "./index.js",
     "./plugin-ui.css": "./plugin-ui.css"
   },
-  "files": ["index.js", "index.d.ts", "plugin-ui.css"]
+  "files": ["index.js", "index.d.ts", "plugin-ui.css", "ui"]
 }
