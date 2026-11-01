@@ -385,8 +385,10 @@ describe("PluginSources", () => {
     const second = tgz(...pluginEntries("package/"), tarEntry("package/extra.txt", "other"));
     const [one, two] = await Promise.all([sources.inspectFile(first, "en"), sources.inspectFile(second, "en")]);
     const results = await Promise.allSettled([sources.installFile(first, one.digest), sources.installFile(second, two.digest)]);
-    expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
-    expect(services.index.get("acme/maker")?.digest).toBe(one.digest);
+    // Either may get there first; the installed package is the one that was told it did.
+    expect(results.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+    const winner = results[0].status === "fulfilled" ? one : two;
+    expect(services.index.get("acme/maker")?.digest).toBe(winner.digest);
     await close();
   });
 
