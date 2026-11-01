@@ -124,9 +124,14 @@ async function excludeAppFiles(workspace) {
     if (cause.code === "ENOENT") return "";
     throw cause;
   });
-  // Git ignores trailing spaces in a pattern, but leading ones are part of it.
-  const lines = new Set(current.split(/\r?\n/).map((line) => line.replace(/\s+$/, "")));
-  const missing = APP_FILES.filter((entry) => !lines.has(entry));
+  // Git drops a pattern's unescaped trailing spaces; leading spaces and tabs
+  // are part of it.
+  const lines = current.split(/\r?\n/).map((line) => line.replace(/(?<!\\) +$/, ""));
+  // An entry holds when no negation follows it: Git's last matching rule wins.
+  const missing = APP_FILES.filter((entry) => {
+    const at = lines.lastIndexOf(entry);
+    return at < 0 || lines.slice(at + 1).some((line) => line.startsWith("!"));
+  });
   if (!missing.length) return;
   await mkdir(path.dirname(filename), { recursive: true });
   await appendFile(

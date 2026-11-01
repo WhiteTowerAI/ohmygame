@@ -189,15 +189,26 @@ describe("TapTap Maker project setup", () => {
     await writeFile(path.join(workspace, ".git"), `gitdir: ${path.join(main, "worktrees/workspace")}\n`);
     await mkdir(path.join(main, "info"));
     // Leading spaces are part of a Git pattern, so this rule matches nothing.
-    await writeFile(path.join(main, "info/exclude"), " /ohmygame.json\n/canvas/   \n");
+    // A trailing tab is too, and a later negation undoes a rule.
+    await writeFile(path.join(main, "info/exclude"), " /ohmygame.json\n/canvas/   \n/.ohmygame/\t\n");
     expect(await maker.ready(context())).toEqual({ ready: true });
-    expect((await readFile(path.join(main, "info/exclude"), "utf8")).split("\n")).toEqual([
+    const exclude = path.join(main, "info/exclude");
+    expect((await readFile(exclude, "utf8")).split("\n")).toEqual([
       " /ohmygame.json",
       "/canvas/   ",
+      "/.ohmygame/\t",
       "# OhMyGame's own files, kept out of Maker builds",
       "/ohmygame.json",
       "/.ohmygame/",
       "",
+    ]);
+    await writeFile(exclude, "/ohmygame.json\n/.ohmygame/\n/canvas/\n!/canvas/\n");
+    await maker.ready(context());
+    expect((await readFile(exclude, "utf8")).trim().split("\n").slice(4)).toEqual([
+      "# OhMyGame's own files, kept out of Maker builds",
+      "/ohmygame.json",
+      "/.ohmygame/",
+      "/canvas/",
     ]);
   });
 
