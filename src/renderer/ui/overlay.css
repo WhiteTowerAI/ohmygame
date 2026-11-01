@@ -229,7 +229,9 @@
   border-top: 1px solid var(--color-border);
 }
 
+/* A fixed column, so content that does not wrap cannot push the sheet off screen. */
 .ui-backdrop-sheet {
+  grid-template-columns: minmax(0, 1fr);
   place-items: stretch end;
   padding: var(--space-2);
 }
