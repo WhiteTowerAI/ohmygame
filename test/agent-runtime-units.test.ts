@@ -249,11 +249,11 @@ describe("conversation handoff", () => {
     it("keeps only the tool failures the earlier agent did not get to respond to", () => {
       const session = SessionManager.inMemory("/tmp/p");
       user(session, "first");
-      assistant(session, [toolCall("old", "bash", { command: "old-command" })]);
+      assistant(session, [toolCall("old", "bash", { command: "old-command" })], { stopReason: "toolUse" });
       toolResult(session, "old", "bash", "old failure", true);
       assistant(session, [{ type: "text", text: "Trying another way" }]);
       user(session, "second");
-      assistant(session, [toolCall("new", "bash", { command: "npm run build" }), toolCall("fine", "bash", { command: "ls" })]);
+      assistant(session, [toolCall("new", "bash", { command: "npm run build" }), toolCall("fine", "bash", { command: "ls" })], { stopReason: "toolUse" });
       toolResult(session, "new", "bash", `TS2304 ${"x".repeat(1_000)}`, true);
       toolResult(session, "fine", "bash", "listing");
       // How a native turn is stored when it is cut off: an empty closing message.
@@ -270,7 +270,7 @@ describe("conversation handoff", () => {
     it("drops a failure once a later turn went on, or the turn finished after it", () => {
       const later = SessionManager.inMemory("/tmp/p");
       user(later, "first");
-      assistant(later, [toolCall("a", "bash", { command: "one" })]);
+      assistant(later, [toolCall("a", "bash", { command: "one" })], { stopReason: "toolUse" });
       toolResult(later, "a", "bash", "first failure", true);
       assistant(later, [], { stopReason: "aborted" });
       user(later, "second");
@@ -280,10 +280,41 @@ describe("conversation handoff", () => {
       // A native loop may finish after a denied tool without final text.
       const finished = SessionManager.inMemory("/tmp/p");
       user(finished, "go");
-      assistant(finished, [toolCall("b", "bash", { command: "two" })]);
+      assistant(finished, [toolCall("b", "bash", { command: "two" })], { stopReason: "toolUse" });
       toolResult(finished, "b", "bash", "denied", true);
       assistant(finished, []);
       expect(handoffSummary(finished.getBranch())).not.toContain("denied");
+    });
+
+    it("counts a later call that worked as going on, and one that failed as not", () => {
+      const worked = SessionManager.inMemory("/tmp/p");
+      user(worked, "go");
+      assistant(worked, [toolCall("a", "bash", { command: "one" })], { stopReason: "toolUse" });
+      toolResult(worked, "a", "bash", "first failure", true);
+      assistant(worked, [toolCall("b", "bash", { command: "two" })], { stopReason: "toolUse" });
+      toolResult(worked, "b", "bash", "fine");
+      assistant(worked, [], { stopReason: "aborted" });
+      expect(handoffSummary(worked.getBranch())).not.toContain("first failure");
+
+      const failed = SessionManager.inMemory("/tmp/p");
+      user(failed, "go");
+      assistant(failed, [toolCall("a", "bash", { command: "one" })], { stopReason: "toolUse" });
+      toolResult(failed, "a", "bash", "first failure", true);
+      assistant(failed, [toolCall("b", "bash", { command: "two" })], { stopReason: "toolUse" });
+      toolResult(failed, "b", "bash", "second failure", true);
+      assistant(failed, [], { stopReason: "aborted" });
+      const summary = handoffSummary(failed.getBranch())!;
+      expect(summary).toContain("first failure");
+      expect(summary).toContain("second failure");
+    });
+
+    it("does not count an empty block from an interrupted stream as a response", () => {
+      const session = SessionManager.inMemory("/tmp/p");
+      user(session, "go");
+      assistant(session, [toolCall("a", "bash", { command: "npm run build" })], { stopReason: "toolUse" });
+      toolResult(session, "a", "bash", "TS2304", true);
+      assistant(session, [{ type: "text", text: "" }], { stopReason: "error", errorMessage: "Stream ended" });
+      expect(handoffSummary(session.getBranch())).toContain("- bash (npm run build): TS2304");
     });
 
     it("leaves out playtest state, which the next agent can look at again", () => {

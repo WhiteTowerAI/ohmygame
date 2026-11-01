@@ -14,6 +14,7 @@ import {
   type NativeTurnOutcome,
   type NativeTurnSink,
 } from "../src/daemon/agent-runtimes/native-session.js";
+import { handoffSummary } from "../src/daemon/agent-runtimes/handoff.js";
 import type {
   AgentUsageLimit,
   ProjectState,
@@ -581,6 +582,29 @@ describe("coding agent sessions", () => {
 
       expect(drivers).toHaveLength(2);
       expect(drivers[1]!.inputs[0]!.text).toContain("<conversation-handoff>");
+      session.dispose();
+    });
+
+    it("hands over every tool the stop cut off, including calls still buffered", async () => {
+      const { session, sessionManager } = fixture([
+        async (_input, sink, signal) => {
+          sink.nativeSession("native-1");
+          sink.toolCall("a", "bash", { command: "started-command" });
+          sink.toolStarted("a");
+          sink.toolCall("b", "bash", { command: "buffered-command" });
+          sink.toolCall("c", "bash", { command: "other-buffered-command" });
+          await new Promise<void>((resolve) =>
+            signal.addEventListener("abort", () => resolve(), { once: true }),
+          );
+          return { status: "aborted" };
+        },
+      ]);
+      await stop(session, "first");
+
+      const summary = handoffSummary(sessionManager.getBranch())!;
+      expect(summary).toContain("- bash (started-command): Stopped");
+      expect(summary).toContain("- bash (buffered-command): Stopped");
+      expect(summary).toContain("- bash (other-buffered-command): Stopped");
       session.dispose();
     });
 
