@@ -130,7 +130,7 @@ describe("source names", () => {
     expect(parseGitHubUrl("https://github.com/acme/maker")).toEqual({ repository: "acme/maker" });
     expect(parseGitHubUrl("github.com/acme/maker.git/")).toEqual({ repository: "acme/maker" });
     expect(parseGitHubUrl("https://github.com/acme/maker/tree/v1.0")).toEqual({ repository: "acme/maker", ref: "v1.0" });
-    for (const bad of ["acme/maker", "http://github.com/acme/maker", "https://evil.example/acme/maker", "https://github.com.evil.example/acme/maker", "https://github.com/acme/..", "https://github.com/acme/maker?x=1", "https://github.com/acme/maker/tree/a..b", "https://github.com/acme/maker/blob/main/x", `https://github.com/acme/maker/commit/${"a".repeat(40)}`, `https://github.com/acme/maker/tree/${"a".repeat(40)}`, "https://github.com/acme/maker/tree/abc1234"])
+    for (const bad of ["acme/maker", "http://github.com/acme/maker", "https://evil.example/acme/maker", "https://github.com.evil.example/acme/maker", "https://github.com/acme/..", "https://github.com/acme/maker?x=1", "https://github.com/acme/maker/tree/a..b", "https://github.com/acme/maker/blob/main/x", `https://github.com/acme/maker/commit/${"a".repeat(40)}`])
       expect(() => parseGitHubUrl(bad), bad).toThrow(PluginSourceError);
   });
 });
@@ -166,6 +166,11 @@ describe("PluginSources", () => {
     };
   }
   const npm = { type: "npm", name: "@acme/maker", registry: "npmjs" } as const;
+  /** A repository whose default branch, main, is at this commit. */
+  const gitHubBranch = (repository: string, sha: string) => ({
+    [`https://api.github.com/repos/${repository}`]: () => Response.json({ default_branch: "main" }),
+    [`https://api.github.com/repos/${repository}/git/ref/heads/main`]: () => Response.json({ object: { type: "commit", sha } }),
+  });
 
   it("reviews, then adds an npm package, allowing nothing and recording where it came from", async () => {
     const bytes = tgz(...pluginEntries("package/", "acme/maker", "1.0.0", { capabilities: { network: ["api.example.com"] }, contributes: { skills: "./skills/", mcpServers: [{ id: "api", title: "API", url: "https://api.example.com/mcp", tools: ["search"] }] } }));
@@ -239,10 +244,9 @@ describe("PluginSources", () => {
 
   it("pins a GitHub repository to a commit and doesn't take a different package at that source", async () => {
     const commit = "c".repeat(40);
-    const api = "https://api.github.com/repos/acme/maker/commits/HEAD";
     const download = `https://codeload.github.com/acme/maker/tar.gz/${commit}`;
     const files = { [download]: tgz(tarEntry("pax_global_header", `52 comment=${commit}\n`, { type: "g" }), ...pluginEntries("maker-ccc/"), tarEntry("maker-ccc/README.md", "hello")) };
-    const { sources, services, requested, close } = await setup({ [api]: () => new Response(`${commit}\n`) }, files);
+    const { sources, services, requested, close } = await setup(gitHubBranch("acme/maker", commit), files);
     const preview = await sources.inspect({ type: "github", url: "https://github.com/acme/maker" }, "en");
     expect(preview.source).toEqual({ type: "github", url: "https://github.com/acme/maker", commit });
     expect(preview.origin).toEqual({ type: "github", repository: "acme/maker", commit });
@@ -255,8 +259,31 @@ describe("PluginSources", () => {
     await close();
   });
 
+  it("follows an annotated tag to its commit", async () => {
+    const commit = "d".repeat(40);
+    const tagObject = "e".repeat(40);
+    const base = "https://api.github.com/repos/acme/maker";
+    const { sources, close } = await setup({
+      [`${base}/git/ref/tags/v1.0`]: () => Response.json({ object: { type: "tag", sha: tagObject } }),
+      [`${base}/git/tags/${tagObject}`]: () => Response.json({ object: { type: "commit", sha: commit } }),
+    }, { [`https://codeload.github.com/acme/maker/tar.gz/${commit}`]: tgz(...pluginEntries("maker/")) });
+    const preview = await sources.inspect({ type: "github", url: "https://github.com/acme/maker/tree/v1.0" }, "en");
+    expect(preview.origin).toEqual({ type: "github", repository: "acme/maker", commit });
+    await close();
+  });
+
+  it.each(["67a541", "abc1234", "a".repeat(40), `nonexistent-0-g${"a".repeat(40)}`])("reads %s only as a branch or tag, so a fork's commit can't pose as the repository", async (ref) => {
+    const { sources, requested, close } = await setup();
+    await expect(sources.inspect({ type: "github", url: `https://github.com/acme/maker/tree/${ref}` }, "en")).rejects.toThrow(`has no branch or tag named ${ref}`);
+    expect(requested).toEqual([
+      `https://api.github.com/repos/acme/maker/git/ref/heads/${ref}`,
+      `https://api.github.com/repos/acme/maker/git/ref/tags/${ref}`,
+    ]);
+    await close();
+  });
+
   it("says when GitHub can't find a repository or is limiting requests", async () => {
-    const limited = await setup({ "https://api.github.com/repos/acme/maker/commits/HEAD": () => new Response("", { status: 403 }) });
+    const limited = await setup({ "https://api.github.com/repos/acme/maker": () => new Response("", { status: 403 }) });
     await expect(limited.sources.inspect({ type: "github", url: "https://github.com/acme/maker" }, "en")).rejects.toThrow("limiting requests");
     await limited.close();
     const absent = await setup();
@@ -320,9 +347,7 @@ describe("PluginSources", () => {
 
   it("keeps an installed plugin's approvals and settings from a package of another source", async () => {
     const commit = "c".repeat(40);
-    const github = {
-      "https://api.github.com/repos/evil/maker/commits/HEAD": () => new Response(commit),
-    };
+    const github = gitHubBranch("evil/maker", commit);
     const pack = npmPackage("@acme/maker", tgz(...pluginEntries("package/")));
     const { sources, services, directory, close } = await setup({ ...pack.routes, ...github }, {
       ...pack.files,

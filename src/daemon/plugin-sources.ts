@@ -233,16 +233,32 @@ export class PluginSources {
     });
   }
 
+  /**
+   * A branch or tag by its exact name, or the default branch. GitHub's general
+   * commit lookup also takes short ids and `describe` forms, which reach commits
+   * in the repository's forks, so a fork could pose as the repository it forked.
+   */
   async #resolveCommit(repository: string, ref: string | undefined): Promise<string> {
-    const response = await this.#request(
-      `https://api.github.com/repos/${repository}/commits/${encodeURIComponent(ref ?? "HEAD")}`,
-      { accept: "application/vnd.github.sha", "x-github-api-version": "2022-11-28", "user-agent": "OhMyGame" },
-      "Could not reach GitHub",
-    );
-    if (response.status === 404 || response.status === 422) throw new PluginSourceError(`Could not find ${ref ? `${ref} in ` : ""}${repository} on GitHub. Private repositories can't be added.`);
+    const base = `https://api.github.com/repos/${repository}`;
+    const name = ref ?? (await this.#gitHubJson<{ default_branch?: unknown }>(base, repository))?.default_branch;
+    if (typeof name !== "string") throw new PluginSourceError(`Could not find ${repository} on GitHub. Private repositories can't be added.`);
+    let target = await this.#gitHubJson<GitObject>(`${base}/git/ref/heads/${encodeURIComponent(name)}`, repository);
+    target ??= await this.#gitHubJson<GitObject>(`${base}/git/ref/tags/${encodeURIComponent(name)}`, repository);
+    if (!target) throw new PluginSourceError(`${repository} has no branch or tag named ${name}.`);
+    // An annotated tag points at a tag object, which points at the commit.
+    for (let depth = 0; target?.object?.type === "tag" && depth < 5; depth += 1)
+      target = await this.#gitHubJson<GitObject>(`${base}/git/tags/${target.object.sha}`, repository);
+    if (target?.object?.type !== "commit" || typeof target.object.sha !== "string") throw new PluginSourceError(`${name} in ${repository} doesn't lead to a commit.`);
+    return target.object.sha;
+  }
+
+  /** The answer, or undefined when GitHub has no such thing. */
+  async #gitHubJson<T>(url: string, repository: string): Promise<T | undefined> {
+    const response = await this.#request(url, { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "OhMyGame" }, "Could not reach GitHub");
+    if (response.status === 404) return undefined;
     if (response.status === 403 || response.status === 429) throw new PluginSourceError("GitHub is limiting requests right now. Try again later.");
-    if (!response.ok) throw new PluginSourceError(`GitHub answered ${response.status}.`);
-    return (await response.text()).trim();
+    if (!response.ok) throw new PluginSourceError(`GitHub answered ${response.status} about ${repository}.`);
+    return await readJson(response) as T;
   }
 
   async #request(url: string, headers: Record<string, string>, failure: string): Promise<Response> {
@@ -306,6 +322,10 @@ function sourceName(origin: PluginOrigin | undefined): string {
   return "another package on this computer";
 }
 
+interface GitObject {
+  object?: { type?: unknown; sha?: unknown };
+}
+
 interface NpmMetadata {
   "dist-tags"?: { latest?: string };
   versions?: Record<string, { dist?: { tarball?: unknown; integrity?: unknown } }>;
@@ -320,17 +340,12 @@ export function parseNpmName(input: string): { scope: string; name: string; vers
   return { scope, name, ...(version ? { version } : {}) };
 }
 
-/**
- * A repository's page, optionally at a branch or tag. A commit can't be named:
- * GitHub serves its forks' commits through it too, so a commit wouldn't show that
- * the repository's maintainers published the package, which the origin claims.
- */
+/** A repository's page, optionally at a branch or tag. */
 export function parseGitHubUrl(input: string): { repository: string; ref?: string } {
   const text = input.trim().replace(/^(?:https:\/\/)?(?:www\.)?github\.com\//i, "");
   const match = /^([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:\/tree\/([A-Za-z0-9][A-Za-z0-9._-]*))?\/?$/.exec(text);
   if (!match || text === input.trim() || /^\.+$/.test(match[2]!) || match[3]?.includes(".."))
     throw new PluginSourceError(`Enter a GitHub repository, like https://github.com/publisher/plugin, not "${input.trim()}".`);
-  if (match[3] && /^[0-9a-f]{7,40}$/i.test(match[3])) throw new PluginSourceError("Name a branch or tag, not a commit.");
   return { repository: `${match[1]}/${match[2]}`, ...(match[3] ? { ref: match[3] } : {}) };
 }
 
