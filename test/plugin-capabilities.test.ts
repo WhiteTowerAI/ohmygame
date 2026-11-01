@@ -13,8 +13,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { BUNDLED_PLUGINS_OFF, BundledPluginStore } from "../src/daemon/bundled-plugins.js";
-import { resolvePluginSkillPaths } from "../src/daemon/plugin-runtime.js";
 import { createApp } from "../src/daemon/app.js";
 import { PluginSetupManager } from "../src/daemon/plugin-setup.js";
 import {
@@ -34,41 +32,18 @@ async function environment() {
   const settings = new PluginSettingsStore(directory);
   await settings.load();
   const local = new LocalPluginStore(directory);
-  const bundled = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
-  await bundled.load();
   const service = new PluginCapabilities(
     directory,
     agentDir,
-    [bundled, local],
+    [local],
     local,
     settings,
   );
   await service.configuration.load();
   cleanup.push(() => service.host.close());
-  return { directory, agentDir, settings, local, bundled, service };
+  return { directory, agentDir, settings, local, service };
 }
 describe("native plugin capabilities", () => {
-  it("excludes optional beta workflows until enabled and scopes their Skills", async () => {
-    const { bundled, settings } = await environment();
-    const optionalNames = ["aseprite", "cocos-creator", "douyin-minigame", "tiled", "unity", "wechat-minigame"];
-    const optional = optionalNames.map(name => bundled.read(`ohmygame:${name}`)!);
-    const roots = optional.map(plugin => bundled.installedPath(plugin.id)!);
-    const initialSkills = await resolvePluginSkillPaths([bundled], settings, "general");
-    expect(initialSkills.filter(file => roots.some(root => file.startsWith(`${root}${path.sep}`)))).toEqual([]);
-
-    for (const plugin of optional) await settings.update(plugin, { enabled: true, components: {} });
-    for (const projectType of ["general", "web-game", "godot-game", "asset-canvas"] as const) {
-      const skills = await resolvePluginSkillPaths([bundled], settings, projectType);
-      for (const plugin of optional) {
-        const skill = path.join(bundled.installedPath(plugin.id)!, plugin.skills[0]!.id);
-        expect(skills.includes(skill)).toBe(projectType === "general" || plugin.name === "aseprite" || plugin.name === "tiled");
-      }
-    }
-    const unity = bundled.read("ohmygame:unity")!;
-    await settings.update(unity, { enabled: false, components: {} });
-    expect(await resolvePluginSkillPaths([bundled], settings, "general")).not.toContain(path.join(bundled.installedPath(unity.id)!, unity.skills[0]!.id));
-  });
-
   it("resolves a format 1 plugin's configuration in its MCP server", async () => {
     const { service, local, directory } = await environment();
     const source = path.join(directory, "engine-tool");
@@ -368,7 +343,7 @@ describe("native plugin capabilities", () => {
     ).rejects.toThrow("configuration form");
   });
   it("edits multiple MCP definitions atomically and reloads the masked configuration after restart", async () => {
-    const { service, directory, agentDir, local, bundled, settings } =
+    const { service, directory, agentDir, local, settings } =
       await environment();
     const plugin = await service.create({
       name: "editable",
@@ -396,7 +371,7 @@ describe("native plugin capabilities", () => {
     const restored = new PluginCapabilities(
       directory,
       agentDir,
-      [bundled, local],
+      [local],
       local,
       settings,
     );

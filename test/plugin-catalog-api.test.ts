@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
+import { pluginMentionToken } from "../src/shared/plugins.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
@@ -64,8 +65,15 @@ describe("plugin catalog API", () => {
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
     const view = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins?locale=en` })).json();
     // Plugins from the Plugins page that work with web games are on, for every such project.
-    expect(view.global.map((plugin: { id: string }) => plugin.id)).toContain("ohmygame:web-game-studio");
-    expect(view.global.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame:godot");
+    expect(view.global.map((plugin: { id: string }) => plugin.id)).toContain("ohmygame/web-game-studio");
+    expect(view.global).toEqual(expect.arrayContaining([expect.objectContaining({ id: "ohmygame/web-game-studio", displayName: "Web Game Studio", icon: expect.any(Object), iconRevision: expect.any(String) })]));
+    // By the project's own kind, not its file's type: a Web game isn't a General project here.
+    expect(view.global.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/game-studio");
+    expect(view.global.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/godot");
+    // Those are on already, so a project has no choice to make about them.
+    expect(view.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/web-game-studio");
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/ohmygame/web-game-studio`, payload: { version: "1.0.0" } })).json().error)
+      .toContain("applies to every project it suits");
     // Godot and Unreal suit General projects (appliesTo), which a Web game's ohmygame.json says it is.
     expect(view.plugins.map((plugin: { id: string }) => plugin.id)).toEqual(expect.arrayContaining(["ohmygame/godot", "ohmygame/unreal-engine"]));
     // An Interactive Story neither lists nor turns them on.
@@ -87,6 +95,7 @@ describe("plugin catalog API", () => {
     expect((await app.inject({ method: "GET", url: "/projects/missing/plugins" })).statusCode).toBe(404);
     // Home offers the same plugins before a project exists, with the types each adds.
     const choices = (await app.inject({ method: "GET", url: "/project-plugins?locale=en" })).json();
+    expect(choices.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/web-game-studio");
     expect(choices.find((plugin: { id: string }) => plugin.id === "ohmygame/godot")).toMatchObject({
       displayName: "Godot", version: "1.0.0", providesTypes: ["ohmygame/godot:godot-game"], consented: expect.any(Boolean),
       appliesTo: ["general", "ohmygame/godot:godot-game"],
@@ -102,7 +111,7 @@ describe("plugin catalog API", () => {
       await writeFile(path.join(folder, "skills", "tools", "SKILL.md"), "---\nname: tools\ndescription: Tools.\n---\n");
       await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
         id: "acme/tools", version: number, engines: { "ohmygame-api": "^2.0.0" },
-        displayName: "Tools", description: "Tools.", appliesTo, contributes: { skills: "./skills/" },
+        displayName: "Tools", description: "Tools.", appliesTo, capabilities: { processes: ["node"] }, contributes: { skills: "./skills/" },
       }));
       return folder;
     };
@@ -113,7 +122,7 @@ describe("plugin catalog API", () => {
       const results = await addBundled.call(this, directory);
       await this.index.add(older);
       await this.index.add(newer);
-      await this.grants.consent("acme/tools", []);
+      await this.grants.consent("acme/tools", ["process:node"]);
       return results;
     });
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-versions-api-")) });
@@ -239,11 +248,29 @@ describe("plugin catalog API", () => {
 
     expect(await mentionIds("web-game")).toContain("personal:web-only");
     expect(await mentionIds("general")).not.toContain("personal:web-only");
-    expect(await mentionIds("general")).toContain("ohmygame:game-studio");
-    expect(await mentionIds("godot-game")).toContain("ohmygame:game-studio");
-    expect(await mentionIds("web-game")).not.toContain("ohmygame:game-studio");
-    expect((await app.inject({ method: "GET", url: "/composer/capabilities" })).json().plugins)
-      .toEqual(expect.arrayContaining([expect.objectContaining({ id: "personal:web-only", icon: { type: "asset", path: "./icon.svg" }, iconRevision: expect.any(String) })]));
+    expect(await mentionIds("general")).toContain("ohmygame/game-studio");
+    expect(await mentionIds("godot-game")).toContain("ohmygame/game-studio");
+    expect(await mentionIds("web-game")).not.toContain("ohmygame/game-studio");
+    const home = (await app.inject({ method: "GET", url: "/composer/capabilities?locale=zh-CN" })).json();
+    expect(home.plugins).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "personal:web-only", icon: { type: "asset", path: "./icon.svg" }, iconRevision: expect.any(String) }),
+      // Home knows no project yet, so it offers those that apply by themselves whatever they suit; a mention keeps its old form.
+      expect.objectContaining({ id: "ohmygame/web-game-studio", name: "web-game-studio", marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame", projectTypes: ["web-game"] }),
+      expect.objectContaining({ id: "ohmygame/game-studio", projectTypes: ["general", "interactive-story", "godot-game"] }),
+    ]));
+    // One turned off is no longer offered, nor are its Skills.
+    expect(home.skills.map((skill: { name: string }) => skill.name)).toContain("game-studio");
+    await app.inject({ method: "PUT", url: "/plugin-store/ohmygame/game-studio/enabled", payload: { enabled: false } });
+    const off = (await app.inject({ method: "GET", url: "/composer/capabilities" })).json();
+    expect(off.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/game-studio");
+    expect(off.skills.map((skill: { name: string }) => skill.name)).not.toContain("game-studio");
+    // A prompt can't mention one that doesn't suit its project.
+    const mention = { name: "threejs-world", marketplaceId: "ohmygame", displayName: "Three.js World" };
+    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
+    const storyConversation = (await app.inject({ method: "POST", url: `/projects/${story.id}/conversations` })).json();
+    const refused = await app.inject({ method: "POST", url: `/projects/${story.id}/conversations/${storyConversation.id}/turns`, payload: { prompt: `${pluginMentionToken(mention)} build`, mentions: [mention] } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toContain("different project type");
   });
 
   it("reads only a registered Skill file from an installed plugin", async () => {
@@ -332,7 +359,7 @@ describe("plugin catalog API", () => {
     });
   });
 
-  it("lists and reads OhMyGame plugins without exposing Pi runtime packages", async () => {
+  it("lists the plugins that ship with the app in the format 2 store, not the format 1 catalog", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")),
       publishFetch: async () => Response.json([]),
@@ -340,32 +367,18 @@ describe("plugin catalog API", () => {
     apps.push(app);
     await app.ready();
 
-    const catalog = await app.inject({ method: "GET", url: "/plugins" });
-    const detail = await app.inject({ method: "GET", url: "/plugins/ohmygame%3Aunity" });
-
-    expect(catalog.statusCode).toBe(200);
-    expect(catalog.json()).toMatchObject({
-      plugins: [
-        { id: "ohmygame:aseprite", installed: true, beta: true, enabled: false },
-        { id: "ohmygame:blender", installed: true, beta: true },
-        { id: "ohmygame:cocos-creator", installed: true, beta: true, enabled: false },
-        { id: "ohmygame:douyin-minigame", installed: true, beta: true, enabled: false },
-        { id: "ohmygame:game-studio", installed: true },
-        { id: "ohmygame:threejs-world", installed: true },
-        { id: "ohmygame:tiled", installed: true, beta: true, enabled: false },
-        { id: "ohmygame:unity", installed: true, beta: true, enabled: false },
-        { id: "ohmygame:web-game-studio", installed: true },
-        { id: "ohmygame:wechat-minigame", installed: true, beta: true, enabled: false },
-      ],
-      errors: [],
-    });
-    expect(catalog.json().plugins.every((plugin: Record<string, unknown>) => !("longDescription" in plugin))).toBe(true);
-    expect(detail.json()).toMatchObject({
-      id: "ohmygame:unity",
-      longDescription: expect.any(String),
-      defaultPrompts: expect.any(Array),
-      projectTypes: ["general"],
-    });
+    expect((await app.inject({ method: "GET", url: "/plugins" })).json()).toEqual({ plugins: [], errors: [] });
+    expect((await app.inject({ method: "GET", url: "/plugins/ohmygame%3Aunity" })).statusCode).toBe(404);
+    const store = (await app.inject({ method: "GET", url: "/plugin-store/plugins" })).json() as Array<{ id: string; appWide: boolean; bundled: boolean; beta?: boolean; categories?: string[]; grants: { enabled: boolean } | null }>;
+    const fields = ({ id, appWide, beta, categories, grants }: (typeof store)[number]) => ({ id, appWide, beta, categories, enabled: grants?.enabled });
+    expect(store.map(fields)).toEqual(expect.arrayContaining([
+      { id: "ohmygame/aseprite", appWide: true, beta: true, categories: ["art"], enabled: false },
+      { id: "ohmygame/blender", appWide: true, beta: true, categories: ["art"], enabled: true },
+      { id: "ohmygame/game-studio", appWide: true, beta: undefined, categories: ["workflow"], enabled: true },
+      { id: "ohmygame/unity", appWide: true, beta: true, categories: ["engine"], enabled: false },
+      { id: "ohmygame/godot", appWide: false, beta: true, categories: ["engine"], enabled: true },
+    ]));
+    expect(store.every((plugin) => plugin.bundled)).toBe(true);
   });
 
   it("stores the Plugin switch together with MCP capabilities", async () => {

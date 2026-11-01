@@ -1,14 +1,15 @@
-import { isPluginManifest, type PluginManifest, type PluginOrigin } from "./plugins.js";
+import { isPluginId } from "./plugin-manifest.js";
+import type { PluginOrigin } from "./plugins.js";
 
 export interface PreparedPluginRelease {
   pluginId: string;
   releaseId: string;
-  name: string;
+  /** The format 2 plugin the archive holds. */
+  id: string;
   version: string;
   artifactFile: string;
   artifactSha256: string;
   artifactBytes: number;
-  manifest: PluginManifest;
   origin: PluginOrigin;
 }
 
@@ -26,12 +27,12 @@ export function isPreparedPluginIndex(value: unknown): value is PreparedPluginIn
 function isPreparedPluginRelease(value: unknown): value is PreparedPluginRelease {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const plugin = value as Partial<PreparedPluginRelease>;
-  return [plugin.pluginId, plugin.releaseId, plugin.name, plugin.version, plugin.artifactFile, plugin.artifactSha256]
+  return [plugin.pluginId, plugin.releaseId, plugin.id, plugin.version, plugin.artifactFile, plugin.artifactSha256]
     .every((item) => typeof item === "string" && item.length > 0)
     && /^[A-Za-z0-9][A-Za-z0-9._-]*\.zip$/.test(plugin.artifactFile!)
     && /^[a-f0-9]{64}$/.test(plugin.artifactSha256!)
     && Number.isSafeInteger(plugin.artifactBytes) && plugin.artifactBytes! > 0
-    && isPluginManifest(plugin.manifest)
+    && isPluginId(plugin.id!)
     && plugin.origin?.type === "github"
     && typeof plugin.origin.repository === "string" && plugin.origin.repository.length > 0
     && typeof plugin.origin.commit === "string" && plugin.origin.commit.length > 0

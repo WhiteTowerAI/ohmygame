@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import { mkdir, readdir, rm } from "node:fs/promises";
+import { cp, mkdir, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type {
   AgentToolResult,
@@ -8,10 +8,11 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, mcpUrlIssue, PLUGIN_DATA_ENV } from "../shared/plugin-manifest.js";
+import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
+import { appWidePluginSuits } from "../shared/project-runtime.js";
 import {
   ExtensionHosts,
   type ExtensionHostOptions,
@@ -99,6 +100,24 @@ export interface ProjectPanel {
   commands: string[];
 }
 
+/**
+ * Bundled plugins that start off: those still in beta for a platform the
+ * person may not use.
+ */
+export const BUNDLED_PLUGINS_OFF: readonly string[] = [
+  "ohmygame/taptap-maker",
+  "ohmygame/aseprite",
+  "ohmygame/cocos-creator",
+  "ohmygame/douyin-minigame",
+  "ohmygame/tiled",
+  "ohmygame/unity",
+  "ohmygame/unreal-engine",
+  "ohmygame/wechat-minigame",
+];
+
+/** What deciding whether an app-wide plugin suits a project needs to know of it. */
+export type AppWideProject = { type: string; pluginType?: { id: string } | undefined };
+
 export interface PluginServicesOptions {
   /** The folder for the index and decisions, inside the app's data folder. */
   directory: string;
@@ -109,6 +128,15 @@ export interface PluginServicesOptions {
   onBundledError?: (error: unknown) => void;
   /** Bundled plugins that start off, such as one in beta, until the person turns them on. */
   bundledOff?: readonly string[];
+}
+
+/** A plugin's Skill as agent sessions load it. Format 2 plugins have no marketplace; their publisher stands in. */
+function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRegistration {
+  return {
+    path: file,
+    pluginDisplayName: localizePluginString(entry, entry.manifest.displayName, "en"),
+    marketplaceDisplayName: entry.id.split("/")[0]!,
+  };
 }
 
 export class PluginServices {
@@ -206,6 +234,25 @@ export class PluginServices {
   }
 
   /**
+   * The plugins that apply without a project turning them on, those that only
+   * add Skills, so there is nothing to allow: each at its newest version,
+   * unless the person turned it off. With a project, only those that suit it.
+   */
+  async appWide(project?: AppWideProject): Promise<PluginIndexEntry[]> {
+    await this.ready();
+    return [...new Set(this.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
+      const entry = this.index.get(id);
+      if (!entry || !isAppWidePlugin(entry.manifest) || pluginApiIssue(entry.manifest) || this.grants.plugin(id)?.enabled === false) return [];
+      return !project || appWidePluginSuits(entry.manifest.appliesTo, project) ? [entry] : [];
+    });
+  }
+
+  /** The Skills of `appWide`, in a fixed order: when two share a name, agents keep the first. */
+  async appWideSkills(project?: AppWideProject): Promise<PluginSkillRegistration[]> {
+    return (await this.appWide(project)).flatMap((entry) => entry.skills.map((skill) => skillRegistration(entry, path.join(entry.root, skill.path))));
+  }
+
+  /**
    * The Skills of a project's active plugins, for agent sessions to load
    * beside the format 1 plugins' Skills.
    */
@@ -218,15 +265,7 @@ export class PluginServices {
       grants: this.grants,
     }).catch(() => undefined);
     if (!resolved?.ok) return [];
-    return projectSkills(resolved).map((skill) => {
-      const entry = this.index.get(skill.plugin)!;
-      return {
-        path: path.join(skill.root, skill.path),
-        pluginDisplayName: localizePluginString(entry, entry.manifest.displayName, "en"),
-        // Format 2 plugins have no marketplace; their publisher stands in.
-        marketplaceDisplayName: skill.plugin.split("/")[0]!,
-      };
-    });
+    return projectSkills(resolved).map((skill) => skillRegistration(this.index.get(skill.plugin)!, path.join(skill.root, skill.path)));
   }
 
   /** A plugin's data folder; ids are `publisher/name`, so it stays under `dataDirectory`. */
@@ -487,18 +526,14 @@ export class PluginServices {
     for (const folder of folders) {
       if (!folder.isDirectory()) continue;
       const root = path.join(directory, folder.name);
-      // One that only adds Skills applies to every project it suits; the
-      // catalog shows it with the format 1 bundled plugins (BundledPluginStore).
-      const checked = await indexPluginPackage(root);
-      if (checked.ok && checked.entry.id.startsWith("ohmygame/") && isAppWidePlugin(checked.entry.manifest)) {
-        // Only the copy indexed from this folder; a version installed apart stays.
-        for (const stale of this.index.versions(checked.entry.id))
-          if (path.resolve(stale.root) === path.resolve(root)) await this.index.remove(stale.id, stale.version);
-        continue;
-      }
       const result = await this.index.add(root);
       results.push(result);
       if (!result.ok || !result.entry.id.startsWith("ohmygame/")) continue;
+      // No project pins one that applies by itself, so a version this folder
+      // used to hold goes; a version installed apart stays.
+      if (isAppWidePlugin(result.entry.manifest))
+        for (const stale of this.index.versions(result.entry.id))
+          if (stale.version !== result.entry.version && path.resolve(stale.root) === path.resolve(root)) await this.index.remove(stale.id, stale.version);
       const decided = this.grants.plugin(result.entry.id);
       if (decided?.enabled === false) continue;
       // One that starts off asks for consent when the person turns it on.
@@ -513,6 +548,37 @@ export class PluginServices {
     }
     await this.#notify();
     return results;
+  }
+
+  /**
+   * Copies a package into the store and allows what it asks for; the caller
+   * vouches for it. The same version replaces its older copy, and a choice to
+   * turn the plugin off stays.
+   */
+  async installManaged(source: string): Promise<PluginIndexEntry> {
+    await this.ready();
+    const checked = await indexPluginPackage(source);
+    if (!checked.ok) throw new Error(`Not a valid plugin: ${checked.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`).join("; ")}`);
+    const { id, version } = checked.entry;
+    const target = path.join(this.packagesDirectory, ...id.split("/"), version);
+    const staging = path.join(this.packagesDirectory, `.staging-${randomUUID()}`);
+    await mkdir(this.packagesDirectory, { recursive: true });
+    try {
+      await cp(source, staging, { recursive: true, verbatimSymlinks: true });
+      await rm(target, { recursive: true, force: true });
+      await mkdir(path.dirname(target), { recursive: true });
+      await rename(staging, target);
+    } finally {
+      await rm(staging, { recursive: true, force: true });
+    }
+    const result = await this.index.add(target);
+    if (!result.ok) {
+      await rm(target, { recursive: true, force: true });
+      throw new Error(`Not a valid plugin: ${result.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`).join("; ")}`);
+    }
+    await this.grants.consent(id, capabilityGrants(result.entry.manifest));
+    await this.changed();
+    return result.entry;
   }
 
   async uninstall(id: string, version?: string): Promise<void> {

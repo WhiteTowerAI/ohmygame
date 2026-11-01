@@ -8,9 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PluginSetupManager, registerPluginSetupRoutes } from "../src/daemon/plugin-setup.js";
 import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
 import { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService } from "../src/daemon/plugin-catalog.js";
+import { LocalPluginAdapter, PluginCatalogService } from "../src/daemon/plugin-catalog.js";
 import { discoverPlugins } from "../src/daemon/plugin-discovery.js";
-import { BUNDLED_PLUGINS_OFF, BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
 import { readPluginBuilderInput, savePluginBuilderInput } from "../src/renderer/plugin-builder-drafts.js";
@@ -25,12 +24,10 @@ async function environment() {
   const settings = new PluginSettingsStore(directory);
   await settings.load();
   const local = new LocalPluginStore(directory);
-  const bundled = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
-  await bundled.load();
-  const capabilities = new PluginCapabilities(directory, agentDir, [bundled, local], local, settings);
+  const capabilities = new PluginCapabilities(directory, agentDir, [local], local, settings);
   await capabilities.configuration.load();
   cleanup.push(() => capabilities.host.close());
-  const catalog = new PluginCatalogService([new BundledPluginAdapter(bundled), new LocalPluginAdapter(local)], settings);
+  const catalog = new PluginCatalogService([new LocalPluginAdapter(local)], settings);
   const invalidate = vi.fn();
   function manager() { return new PluginSetupManager(directory, agentDir, capabilities, catalog, local, invalidate, async () => { throw new Error("No test model"); }); }
   const setup = manager();
@@ -405,9 +402,13 @@ describe("Plugin Builder", () => {
     expect(await readFile(path.join((await local.installedPath(plugin.id))!, "skills/review/SKILL.md"), "utf8")).toContain("New instructions");
   });
 
-  it("deletes a built-in plugin's configuration workspace and guards configuration mode from authoring", async () => {
-    const { setup, app } = await environment();
-    const created = await app.inject({ method: "POST", url: "/plugins/setup-sessions", payload: { pluginId: "ohmygame:web-game-studio", mode: "configure" } });
+  it("deletes a plugin's configuration workspace and guards configuration mode from authoring", async () => {
+    const { setup, app, directory, local } = await environment();
+    const source = path.join(directory, "public-source");
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({ name: "public-tool", version: "1.0.0", description: "Public" }));
+    const { id } = await local.install(source, { type: "directory", path: source });
+    const created = await app.inject({ method: "POST", url: "/plugins/setup-sessions", payload: { pluginId: id, mode: "configure" } });
     expect(created.statusCode).toBe(201);
     const state = created.json();
     expect(state.mode).toBe("configure");
@@ -415,8 +416,9 @@ describe("Plugin Builder", () => {
     await expect(setup.installDraft(state.id, "a".repeat(64))).rejects.toThrow("cannot install");
     expect((await app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}` })).statusCode).toBe(204);
     expect((await setup.list()).map(item => item.id)).not.toContain(state.id);
-    await expect(setup.create("ohmygame:web-game-studio", "edit")).rejects.toThrow("Public");
-    expect((await setup.create("ohmygame:web-game-studio")).mode).toBe("configure");
+    vi.spyOn(PluginCatalogService.prototype, "read").mockResolvedValueOnce({ ...(await local.read(id))!, marketplace: { id: "acme", displayName: "Acme", visibility: "public" } });
+    await expect(setup.create(id, "edit")).rejects.toThrow("Public");
+    expect((await setup.create(id)).mode).toBe("configure");
   });
 
   it("deletes conversation history across restart while retaining the draft and its credentials", async () => {

@@ -1,10 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { isPreparedPluginIndex, type PreparedPluginRelease } from "../shared/preinstalled-plugins.js";
-import type { PluginDetail, PluginSummary } from "../shared/plugins.js";
-import { installPreparedPlugin } from "./plugin-installer.js";
+import type { PluginOrigin } from "../shared/plugins.js";
+import { extractPluginArchive } from "./plugin-installer.js";
 import type { LocalPluginStore } from "./local-plugins.js";
+import type { PluginServices } from "./plugin-services.js";
+
+// Plugins the app brings along from other repositories. Unlike the bundled
+// ones they install like any other, so the person can remove them; a receipt
+// remembers that, and which release was last installed.
 
 interface PreinstalledPluginReceipt {
   seededReleaseId: string;
@@ -40,55 +46,62 @@ export class PreinstalledPluginManager {
     }
   }
 
-  async seed(store: LocalPluginStore): Promise<string[]> {
+  async seed(services: PluginServices, formatOne: LocalPluginStore): Promise<string[]> {
+    // Starting up waits for this, and needn't wait for the store with nothing to install.
+    if (!this.#entries.length) return [];
+    await services.ready();
     const errors: string[] = [];
     for (const entry of this.#entries) {
-      const receipt = this.#state.plugins[entry.pluginId];
-      if (receipt?.removed) continue;
-      const id = `ohmygame:${entry.name}`;
       try {
-        const installed = await store.read(id);
-        if (!installed || receipt?.seededReleaseId !== entry.releaseId) {
-          const archive = await readFile(path.join(this.directory!, entry.artifactFile));
-          const digest = createHash("sha256").update(archive).digest("hex");
-          if (archive.length !== entry.artifactBytes || digest !== entry.artifactSha256) {
-            throw new Error("archive failed integrity verification");
-          }
-          await installPreparedPlugin(store, {
-            pluginId: entry.pluginId,
-            releaseId: entry.releaseId,
-            manifest: entry.manifest,
-            archive,
-          });
+        // Format 1 kept its own copy of this plugin; the format 2 one takes over.
+        const older = `ohmygame:${entry.id.slice(entry.id.indexOf("/") + 1)}`;
+        if ((await formatOne.read(older))?.source.type === "preinstalled") await formatOne.remove(older);
+        const receipt = this.#state.plugins[entry.pluginId];
+        if (receipt?.removed) continue;
+        if (!services.index.get(entry.id, entry.version) || receipt?.seededReleaseId !== entry.releaseId) {
+          await this.#install(entry, services);
+          for (const stale of services.index.versions(entry.id))
+            if (stale.version !== entry.version) await services.uninstall(stale.id, stale.version);
         }
         if (receipt?.seededReleaseId !== entry.releaseId) {
           await this.#setReceipt(entry.pluginId, { seededReleaseId: entry.releaseId, removed: false });
         }
       } catch (cause) {
-        errors.push(`Could not install preinstalled Plugin ${entry.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        errors.push(`Could not install preinstalled Plugin ${entry.id}: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
     }
     return errors;
   }
 
-  decorate<T extends PluginSummary | PluginDetail>(plugin: T): T {
-    const pluginId = plugin.source.type === "preinstalled" ? plugin.source.pluginId : undefined;
-    const entry = pluginId ? this.#entries.find((candidate) => candidate.pluginId === pluginId) : undefined;
-    return entry
-      ? {
-          ...plugin,
-          origin: plugin.origin ?? entry.origin,
-          ...(plugin.installed ? { preinstalled: true } : {}),
-        }
-      : plugin;
+  async #install(entry: PreparedPluginRelease, services: PluginServices): Promise<void> {
+    const archivePath = path.join(this.directory!, entry.artifactFile);
+    const archive = await readFile(archivePath);
+    const digest = createHash("sha256").update(archive).digest("hex");
+    if (archive.length !== entry.artifactBytes || digest !== entry.artifactSha256) {
+      throw new Error("archive failed integrity verification");
+    }
+    const temporary = await mkdtemp(path.join(tmpdir(), "ohmygame-preinstalled-plugin-"));
+    try {
+      await extractPluginArchive(archivePath, temporary);
+      const installed = await services.installManaged(temporary);
+      if (installed.id !== entry.id || installed.version !== entry.version) {
+        await services.uninstall(installed.id, installed.version);
+        throw new Error(`the archive holds ${installed.id} ${installed.version}`);
+      }
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
+    }
   }
 
-  async markRemoved(plugin: PluginSummary | PluginDetail): Promise<void> {
-    if (plugin.source.type !== "preinstalled") return;
-    const pluginId = plugin.source.pluginId;
-    const entry = this.#entries.find((item) => item.pluginId === pluginId);
-    if (!entry) return;
-    await this.#setReceipt(entry.pluginId, { seededReleaseId: entry.releaseId, removed: true });
+  /** Where the plugin came from, when the app brought it along. */
+  origin(id: string): PluginOrigin | undefined {
+    return this.#entries.find((entry) => entry.id === id)?.origin;
+  }
+
+  /** The person removed it, so it doesn't come back when the app starts. */
+  async markRemoved(id: string): Promise<void> {
+    const entry = this.#entries.find((item) => item.id === id);
+    if (entry) await this.#setReceipt(entry.pluginId, { seededReleaseId: entry.releaseId, removed: true });
   }
 
   async #setReceipt(pluginId: string, receipt: PreinstalledPluginReceipt): Promise<void> {

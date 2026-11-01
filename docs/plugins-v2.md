@@ -60,7 +60,7 @@ shows it in the call's progress.
 | Manifest, index, `when` | `src/shared/plugin-manifest.ts`, `src/shared/plugin-when.ts`, `src/daemon/plugin-index.ts` | `test/plugin-manifest.test.ts` |
 | Project file and decisions | `src/daemon/project-plugins.ts` | `test/project-plugins.test.ts` |
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
-| Bundled plugins for every project, conversion | `src/daemon/bundled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/convert-format-1-plugin.ts` | `test/bundled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
+| Plugins for every project, preinstalled packages, conversion | `src/daemon/plugin-services.ts`, `src/daemon/preinstalled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/convert-format-1-plugin.ts` | `test/bundled-plugins.test.ts`, `test/preinstalled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
 | Godot | `plugins-v2/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts` |
 | TapTap Maker | `plugins-v2/taptap-maker/` | `test/taptap-maker.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
@@ -173,15 +173,32 @@ shows it in the call's progress.
 ## Plugins for every project
 
 A plugin that only adds Skills, with no native entry, settings or
-capabilities (`isAppWidePlugin`), can't run code or reach files of its own.
-When it ships with the app (`plugins-v2/`, publisher `ohmygame`), it applies
-to every project its `appliesTo` suits, as format 1 plugins do, instead of
-being turned on per project: `BundledPluginStore` shows it in the catalog as
-`ohmygame:<name>`, with its switch, Skill switches, mentions and Try it
-prompts, and `PluginServices` leaves it out of the format 2 index. The
-catalog speaks only of the app's own types, so such a plugin needs at least
-one of them in `appliesTo`. `BUNDLED_PLUGINS_OFF` lists the ones that start
-off.
+capabilities (`isAppWidePlugin`, judged on its newest version), can't run code
+or reach files of its own. It asks for nothing, so there is nothing to consent
+to, whoever publishes it: it applies to every project its `appliesTo` suits
+instead of being turned on per project, unless the person switches it off.
+`BUNDLED_PLUGINS_OFF` in `src/daemon/plugin-services.ts` lists the bundled ones
+that start off.
+
+`PluginServices.appWide(project)` lists these plugins and
+`appWideSkills(project)` their Skills. A project suits a plugin when `appliesTo`
+names its app kind or its plugin project type (`appWidePluginSuits`); the type
+in `ohmygame.json` doesn't count, and a plugin with no `appliesTo` suits every
+project. A project's Skills come in order: these plugins, sorted by id, then format 1
+plugins for its type, then the plugins in its `ohmygame.json`. They have no
+per-Skill switches. Mentions keep `{name, marketplaceId}`, with the publisher as
+`marketplaceId`, so `plugin://web-game-studio@ohmygame` still names a bundled
+one. A prompt that mentions one the project doesn't suit gets a 409.
+
+A project can't turn one of these on in `ohmygame.json`: `setProjectPlugin`
+refuses it, and `resolveProjectPlugins` skips an entry left there.
+
+`src/daemon/preinstalled-plugins.ts` installs the versions in
+`config/preinstalled-plugins.json` through `PluginServices.installManaged`, the
+same path that checks a package with `indexPluginPackage` and copies it under
+`packages/<publisher>/<name>/<version>`. A package the person removes stays
+removed, later releases included. Bundled plugins are indexed from `plugins-v2/`
+and can't be uninstalled.
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
 on the plugin's page, and mark itself `beta`.

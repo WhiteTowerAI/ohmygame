@@ -4,7 +4,8 @@ import path from "node:path";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 import { discoverPlugins } from "../src/daemon/plugin-discovery.js";
 import { inspectPluginBundle } from "../src/daemon/local-plugins.js";
-import { catalogManifest, convertFormat1Package } from "../src/daemon/plugin-conversion.js";
+import { convertFormat1Package } from "../src/daemon/plugin-conversion.js";
+import { isAppWidePlugin } from "../src/shared/plugin-manifest.js";
 import type { PluginCategory } from "../src/shared/plugin-manifest.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
 import type { ResolvedPluginManifest } from "../src/shared/plugins.js";
@@ -77,18 +78,14 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
         source: { type: "preinstalled" as const, pluginId: entry.pluginId, releaseId: entry.releaseId },
       };
       await inspectPluginBundle(source, identity, original);
-      // It ships as a format 2 package; the catalog shows it as it shows the
-      // bundled format 2 plugins that only add Skills, under the same id.
+      // It ships as a format 2 package that only adds Skills, so it applies by itself.
       const converted = path.join(temporary, `${entry.pluginId}-format-2`);
       const conversion = await convertFormat1Package({ root: source, manifest: original }, converted, {
         id: `ohmygame/${original.name}`,
         ...(entry.categories ? { categories: entry.categories } : {}),
       });
       if (conversion.left.length) throw new Error(`${entry.repository} has ${conversion.left.join(", ")}, which a preinstalled plugin can't carry`);
-      const view = catalogManifest(conversion.entry, { enabledByDefault: original.enabledByDefault ?? true });
-      if (!view) throw new Error(`${entry.repository} doesn't convert to a plugin that only adds Skills`);
-      const manifest = { ...view, version: conversion.entry.version };
-      await inspectPluginBundle(converted, identity, manifest);
+      if (!isAppWidePlugin(conversion.entry.manifest)) throw new Error(`${entry.repository} doesn't convert to a plugin that only adds Skills`);
       const archive = await createPluginArchive(converted);
       const artifactSha256 = createHash("sha256").update(archive).digest("hex");
       if (artifactSha256 !== entry.artifactSha256) {
@@ -99,12 +96,11 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
       plugins.push({
         pluginId: entry.pluginId,
         releaseId: entry.releaseId,
-        name: manifest.name,
+        id: conversion.entry.id,
         version: entry.version,
         artifactFile,
         artifactSha256,
         artifactBytes: archive.length,
-        manifest,
         origin: { type: "github", repository: entry.repository, commit: entry.commit, ...(entry.release ? { release: entry.release } : {}) },
       });
     }

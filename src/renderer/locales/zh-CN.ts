@@ -1107,6 +1107,7 @@ const zhCN: typeof en = {
     uninstall: "卸载",
     uninstallTitle: "卸载 {{name}} {{version}}？",
     uninstallHint: "使用这个版本的项目会停用该插件，直到你重新安装或把项目切换到其他版本。",
+    uninstallAppWideHint: "它的技能不再对你的项目生效，重新安装后恢复。",
     notInstalled: "没有安装这个插件。",
   },
   projectPlugins: {

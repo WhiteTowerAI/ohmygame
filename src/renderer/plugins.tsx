@@ -33,7 +33,7 @@ import {
   type StorePlugin,
 } from "../shared/plugins.js";
 import { inspectPluginSource, installPlugin, listPlugins, listStorePlugins, readPlugin, setStorePluginEnabled, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
-import { groupStorePlugins, StorePluginBrowseCard, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard } from "./plugin-store.js";
+import { groupStorePlugins, type StorePluginGroup, StorePluginBrowseCard, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard } from "./plugin-store.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { projectTypeLabel } from "./project-types.js";
 import { PluginGlyph } from "./plugin-icons.js";
@@ -45,31 +45,27 @@ import { PluginDependencyPanel, PluginExportButton, PluginImportDialog } from ".
 import { Alert, Badge, Button, Dialog, DropdownMenu, Empty, Field, Input, SearchInput, Select, Spinner, Switch, Tabs, type MenuEntry } from "./ui/index.js";
 import "./plugins.css";
 
-const PLUGIN_CATEGORIES = [
-  { id: "creation", plugins: ["ohmygame:game-studio", "ohmygame:web-game-studio", "ohmygame:threejs-world"] },
-  { id: "engines", plugins: ["ohmygame:cocos-creator", "ohmygame:unity", "ohmygame:unreal-engine", "ohmygame:wechat-minigame", "ohmygame:douyin-minigame"] },
-  { id: "assets", plugins: ["ohmygame:blender", "ohmygame:img2threejs", "ohmygame:aseprite", "ohmygame:tiled"] },
-  { id: "other", plugins: [] },
+/** The page's groups, by the categories a plugin declares. */
+const PLUGIN_GROUPS = [
+  { id: "creation", categories: ["workflow"] },
+  { id: "engines", categories: ["engine", "publishing"] },
+  { id: "assets", categories: ["art", "audio"] },
+  { id: "other", categories: [] },
 ] as const;
-const PLUGIN_ORDER: readonly string[] = PLUGIN_CATEGORIES.flatMap(category => [...category.plugins]);
 
 type CatalogTab = "installed" | "browse" | "skills";
 type BrowseSource = "all" | "public" | "personal";
 type SkillEntry = { plugin: PluginDetail; skill: PluginComponentSummary };
 
-function pluginCategory(plugin: PluginSummary) {
-  return PLUGIN_CATEGORIES.find(category => category.plugins.some(id => id === plugin.id))?.id ?? "other";
+function storePluginGroup(plugin: StorePlugin) {
+  return PLUGIN_GROUPS.find(group => group.categories.some(category => plugin.categories?.includes(category)))?.id ?? "other";
 }
 
 /** Format 2 ids are `publisher/name`; format 1 ids are `marketplace:name`. */
 const isStorePluginId = (id: string) => id.includes("/");
 
 function compareCatalogPlugins(left: PluginSummary, right: PluginSummary): number {
-  const rank = (id: string) => {
-    const index = PLUGIN_ORDER.indexOf(id);
-    return index < 0 ? PLUGIN_ORDER.length : index;
-  };
-  return rank(left.id) - rank(right.id) || left.displayName.localeCompare(right.displayName) || left.id.localeCompare(right.id);
+  return left.displayName.localeCompare(right.displayName) || left.id.localeCompare(right.id);
 }
 
 export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, onTryPlugin }: {
@@ -81,7 +77,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
 }) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
-  // Format 2 plugins, turned on per project (plugin-store.tsx).
+  // Format 2 plugins (plugin-store.tsx).
   const [store, setStore] = useState<StorePlugin[]>([]);
   const [storeError, setStoreError] = useState<string>();
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -305,13 +301,15 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
 
   const normalizedQuery = query.trim().toLowerCase();
   const storeGroups = groupStorePlugins(store);
-  const matchingStore = storeGroups.filter(group => storePluginSearchText(group.plugin).includes(normalizedQuery));
-  const storeSection = matchingStore.length ? <section className="plugins-section" aria-label={t("pluginStore.section")}>
-    <h2>{t("pluginStore.section")} <span className="plugins-count">{matchingStore.length}</span></h2>
-    <div className="plugins-grid">
-      {matchingStore.map(group => <StorePluginCard key={group.plugin.id} group={group} disabled={Boolean(updating)}
-        onToggle={enabled => void toggleStorePlugin(group.plugin.id, enabled)} onOpen={() => onPluginChange(group.plugin.id)} />)}
-    </div>
+  const matchingStore = storeGroups.filter(group => storePluginSearchText(group.plugin).includes(normalizedQuery))
+    .sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName));
+  const storeCard = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} disabled={Boolean(updating)}
+    onToggle={enabled => void toggleStorePlugin(group.plugin.id, enabled)} onOpen={() => onPluginChange(group.plugin.id)} />;
+  const appWideStore = matchingStore.filter(({ plugin }) => plugin.appWide);
+  const perProjectStore = matchingStore.filter(({ plugin }) => !plugin.appWide);
+  const storeSection = perProjectStore.length ? <section className="plugins-section" aria-label={t("pluginStore.section")}>
+    <h2>{t("pluginStore.section")} <span className="plugins-count">{perProjectStore.length}</span></h2>
+    <div className="plugins-grid">{perProjectStore.map(storeCard)}</div>
   </section> : null;
   const matching = plugins.filter(plugin => pluginSearchText(plugin).includes(normalizedQuery)).sort(compareCatalogPlugins);
   const publicPlugins = matching.filter(plugin => pluginCollection(plugin) === "public");
@@ -321,7 +319,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   // Only categories some plugin falls in, so no choice leads to an empty page.
   const categories = PLUGIN_CONTRIBUTIONS.filter(kind => kind === adds || plugins.some(plugin => pluginContributions(plugin).includes(kind))
     || storeGroups.some(group => storePluginContributions(group.plugin).includes(kind)));
-  const browsedStore = matchingStore.filter(({ plugin }) => (source === "all" || (plugin.bundled ? "public" : "personal") === source)
+  const browsedStore = matchingStore.filter(({ plugin }) => (source === "all" || (plugin.bundled || plugin.preinstalled ? "public" : "personal") === source)
     && (adds === "all" || storePluginContributions(plugin).includes(adds)));
   const skills: SkillEntry[] = skillCatalog
     ? [...skillCatalog.plugins].sort(compareCatalogPlugins).flatMap(plugin => plugin.skills.map(skill => ({ plugin, skill })))
@@ -354,14 +352,19 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
 
   const installedTab = normalizedQuery ? (
     matching.length || matchingStore.length ? <>
-      {matching.length ? <PluginGrid plugins={matching} updating={Boolean(updating)} onOpen={onPluginChange} onToggle={togglePluginCard} /> : null}
+      {matching.length || appWideStore.length ? <div className="plugins-grid">
+        {appWideStore.map(storeCard)}
+        {matching.map(plugin => <PluginCard key={plugin.id} plugin={plugin} disabled={Boolean(updating)} onToggle={enabled => togglePluginCard(plugin, enabled)} onOpen={() => onPluginChange(plugin.id)} />)}
+      </div> : null}
       {storeSection}
     </> : <Empty title={t("plugins.noMatch")} />
   ) : <>
-    {PLUGIN_CATEGORIES.map(category => ({ id: category.id, plugins: publicPlugins.filter(plugin => pluginCategory(plugin) === category.id) }))
-      .filter(group => group.plugins.length)
-      .map(group => <PluginGroup key={group.id} title={t(`plugins.categories.${group.id}`)} plugins={group.plugins}
-        updating={Boolean(updating)} onOpen={onPluginChange} onToggle={togglePluginCard} />)}
+    {PLUGIN_GROUPS.map(group => ({ id: group.id, store: appWideStore.filter(({ plugin }) => storePluginGroup(plugin) === group.id), plugins: group.id === "other" ? publicPlugins : [] }))
+      .filter(group => group.store.length || group.plugins.length)
+      .map(group => <PluginGroup key={group.id} title={t(`plugins.categories.${group.id}`)} cards={[
+        ...group.store.map(storeCard),
+        ...group.plugins.map(plugin => <PluginCard key={plugin.id} plugin={plugin} disabled={Boolean(updating)} onToggle={enabled => togglePluginCard(plugin, enabled)} onOpen={() => onPluginChange(plugin.id)} />),
+      ]} />)}
     {storeSection}
     <section className="plugins-section" aria-label={t("plugins.personal")}>
       <h2>{t("plugins.personal")} <span className="plugins-count">{personalPlugins.length}</span></h2>
@@ -537,33 +540,16 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
 const INSTALLED_PLUGIN_LIMIT = 6;
 
 /** A category of installed plugins: its first six cards, and the rest behind View all. */
-function PluginGroup({ title, plugins, updating, onOpen, onToggle }: {
-  title: string;
-  plugins: PluginSummary[];
-  updating: boolean;
-  onOpen: (id: string) => void;
-  onToggle: (plugin: PluginSummary, enabled: boolean) => void;
-}): ReactNode {
+function PluginGroup({ title, cards }: { title: string; cards: ReactNode[] }): ReactNode {
   const [expanded, setExpanded] = useState(false);
-  const limited = !expanded && plugins.length > INSTALLED_PLUGIN_LIMIT;
+  const limited = !expanded && cards.length > INSTALLED_PLUGIN_LIMIT;
   return <section className="plugins-section" aria-label={title}>
-    <h2>{title} <span className="plugins-count">{plugins.length}</span></h2>
-    <PluginGrid plugins={limited ? plugins.slice(0, INSTALLED_PLUGIN_LIMIT) : plugins} updating={updating} onOpen={onOpen} onToggle={onToggle} />
-    {plugins.length > INSTALLED_PLUGIN_LIMIT ? <div><Button variant="ghost" size="sm" onClick={() => setExpanded((current) => !current)}>
-      {expanded ? t("plugins.showLess") : t("plugins.viewAll", { count: plugins.length })}
+    <h2>{title} <span className="plugins-count">{cards.length}</span></h2>
+    <div className="plugins-grid">{limited ? cards.slice(0, INSTALLED_PLUGIN_LIMIT) : cards}</div>
+    {cards.length > INSTALLED_PLUGIN_LIMIT ? <div><Button variant="ghost" size="sm" onClick={() => setExpanded((current) => !current)}>
+      {expanded ? t("plugins.showLess") : t("plugins.viewAll", { count: cards.length })}
     </Button></div> : null}
   </section>;
-}
-
-function PluginGrid({ plugins, updating, onOpen, onToggle }: {
-  plugins: PluginSummary[];
-  updating: boolean;
-  onOpen: (id: string) => void;
-  onToggle: (plugin: PluginSummary, enabled: boolean) => void;
-}): ReactNode {
-  return <div className="plugins-grid">
-    {plugins.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} disabled={updating} onToggle={enabled => onToggle(plugin, enabled)} onOpen={() => onOpen(plugin.id)} />)}
-  </div>;
 }
 
 function PluginTile({ plugin, large = false }: { plugin: Parameters<typeof PluginGlyph>[0]["plugin"]; large?: boolean }): ReactNode {

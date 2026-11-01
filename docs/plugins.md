@@ -199,11 +199,11 @@ The legacy `connections` manifest field named a server imported from the old `mc
 
 The Add plugin menu supports folder/Git installation and a dedicated AI assistant. Its **Add MCP** entry opens Settings → MCP Connections. The detail page offers configuration forms, definition editing, tests, and HTTP authorization controls.
 
-The library groups plugins into OhMyGame's (public) and **Personal**. OhMyGame's contains plugins provided by OhMyGame, including bundled and preinstalled packages, plus catalog entries whose trusted adapter marks the marketplace as official. Personal contains user-created plugins and user imports from folders, Git repositories, and third-party marketplaces. These are display groups: plugin IDs, original marketplace identities, and configuration keys are preserved. Imported archives always enter Personal, even when their source metadata came from a public catalog. Installed plugins in both groups have switches, including bundled plugins. Bundled packages cannot be uninstalled.
+The library groups plugins into OhMyGame's (public) and **Personal**. OhMyGame's contains plugins provided by OhMyGame, including bundled and preinstalled packages, plus catalog entries whose trusted adapter marks the marketplace as official. Personal contains user-created plugins and user imports from folders, Git repositories, and third-party marketplaces. These are display groups: plugin IDs, original marketplace identities, and configuration keys are preserved. Imported archives always enter Personal, even when their source metadata came from a public catalog. Installed plugins in both groups have switches, including bundled plugins. Bundled packages cannot be uninstalled. A format 2 plugin that only adds Skills has one switch, with no switch per Skill.
 
 Create with AI opens a dedicated Plugin Builder page with a conversation and four preview views: Overview, Files, Setup, and Checks. Each new plugin gets its own persisted workspace. The Plugins page lists AI workspaces that can be resumed or deleted; unsent input and the selected model are saved per workspace on the current device.
 
-Configure with AI opens or resumes a separate configuration workspace for the selected installed plugin, starting on Setup. Its assistant can inspect the selected plugin and its Skill contents, change nonsecret configuration and MCP templates, and test connections. It cannot author or install packages or modify another plugin. Skills-only plugins offer Ask about this plugin. Edit with AI is available for Personal plugins and creates an editable native copy of the installed package, including normalized manifests for imported formats. Configuration and editing workspaces can start a new conversation in a separate workspace.
+Configure with AI opens or resumes a separate configuration workspace for the selected installed plugin, starting on Setup. Its assistant can inspect the selected plugin and its Skill contents, change nonsecret configuration and MCP templates, and test connections. It cannot author or install packages or modify another plugin. Skills-only format 1 plugins offer Ask about this plugin; format 2 plugins have neither this nor Configure with AI yet. Edit with AI is available for Personal plugins and creates an editable native copy of the installed package, including normalized manifests for imported formats. Configuration and editing workspaces can start a new conversation in a separate workspace.
 
 Game projects and Plugin Builder share `WorkspaceShell`, `WorkspaceAgentPane`, `ComposerActions`, and `WorkspaceFileBrowser`, alongside the existing timeline, prompt, model selector, workspace tabs, and configuration components. Both use the same compact toolbars, resizable panels, saved chat width, chat-side preference, and collapse controls. File preview accepts plugin-owned data and optional document rendering; authoring sessions, draft validation, configuration, and installation remain owned by the plugin service.
 
@@ -306,9 +306,8 @@ preserved. Blender, like the other bundled plugins that only add Skills
 is a format 2 package in `plugins-v2/` that applies to every project it suits;
 see [Plugin format 2](plugins-v2.md#plugins-for-every-project). Godot is a
 format 2 plugin turned on per project, and so is Unreal Engine (below). No
-bundled plugin is format 1 any more; the app still reads format 1 packages
-from a `plugins/` folder beside `plugins-v2/`. TapTap Maker is a format 2
-plugin; see [TapTap Maker](#taptap-maker).
+bundled plugin is format 1 any more. TapTap Maker is a format 2 plugin; see
+[TapTap Maker](#taptap-maker).
 
 - **Blender:** local Blender CLI/Python workflow for editable `.blend` sources,
   GLB delivery, and preview images. The export helper accepts an optional
