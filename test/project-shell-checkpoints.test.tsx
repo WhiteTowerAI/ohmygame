@@ -340,6 +340,54 @@ describe("format 2 plugins in the project shell", () => {
     expect(JSON.parse(sent[2]!.body!).prompt).toBe("Build my Maker game");
   });
 
+  it("shows a plugin's frame once its page has the app's theme", async () => {
+    const frameModule = await import("../src/renderer/plugin-frame.js");
+    const { PluginFrame, connectPluginFrame, PLUGIN_FRAME_REVEAL_AFTER_LOAD_MS, PLUGIN_FRAME_REVEAL_LATEST_MS } = frameModule;
+    const context = {
+      plugin: { id: "acme/maker", version: "1.0.0", panel: "main" },
+      locale: "en" as const,
+      capabilities: {},
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      runCommand: async () => null,
+    };
+    // The page's bridge says once it has applied the theme it was sent.
+    let page: MessagePort | undefined;
+    const ready = vi.fn();
+    const connection = connectPluginFrame({ postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]) } as unknown as Window, context, ready);
+    page!.postMessage({ event: "ready" });
+    await vi.waitFor(() => expect(ready).toHaveBeenCalledTimes(1));
+    connection.close();
+    page!.close();
+
+    // Without a bridge, a frame shows a moment after its page loads.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Loads" context={context} />));
+      const loads = container.querySelector<HTMLIFrameElement>("iframe.plugin-frame")!;
+      expect(loads.hasAttribute("data-ready")).toBe(false);
+      await act(async () => vi.advanceTimersByTime(PLUGIN_FRAME_REVEAL_AFTER_LOAD_MS + 50));
+      expect(loads.isConnected).toBe(true);
+      expect(loads.hasAttribute("data-ready")).toBe(true);
+      await act(async () => root.render(<></>));
+
+      // One whose page never loads still shows within a few seconds.
+      const listen = HTMLIFrameElement.prototype.addEventListener;
+      vi.spyOn(HTMLIFrameElement.prototype, "addEventListener").mockImplementation(function (this: HTMLIFrameElement, type: string, ...rest: unknown[]) {
+        if (type !== "load") (listen as (...args: unknown[]) => void).call(this, type, ...rest);
+      });
+      await act(async () => root.render(<PluginFrame url="about:blank#stalls" title="Stalls" context={context} />));
+      const stalls = container.querySelector<HTMLIFrameElement>("iframe.plugin-frame")!;
+      await act(async () => vi.advanceTimersByTime(PLUGIN_FRAME_REVEAL_LATEST_MS - 1));
+      expect(stalls.hasAttribute("data-ready")).toBe(false);
+      await act(async () => vi.advanceTimersByTime(1));
+      expect(stalls.hasAttribute("data-ready")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows a plugin's panel where it asks, and runs its menu command with Undo", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const { ToastProvider } = await import("../src/renderer/ui/index.js");

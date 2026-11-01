@@ -1,0 +1,16 @@
+/* A plugin's page fills its panel, with no frame of its own: the page's root
+   is transparent (plugin-ui.css), so the panel's surface shows through. The
+   frame stays hidden until its page has the app's theme (PluginFrame says
+   when), so the page's own defaults, or the opaque canvas a browser paints
+   while the page's colour scheme differs from the app's, never flash. */
+.plugin-frame {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+}
+
+.plugin-frame:not([data-ready]) {
+  visibility: hidden;
+}

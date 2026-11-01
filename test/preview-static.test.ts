@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import { startStaticPreview } from "../src/daemon/preview-static.js";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { PluginPageStorage } from "../src/daemon/plugin-page-storage.js";
 import { startPluginUiServer } from "../src/daemon/plugin-ui-server.js";
+import { PAGE_TOKENS } from "../src/renderer/plugin-frame.js";
 import { pluginFrameNavigationAllowed, pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -311,6 +312,35 @@ describe("plugin pages", () => {
       "/_ohmygame/index.js",
     ])
       expect((await fetch(`${server.url}${refused}`)).status, refused).toBe(404);
+  });
+
+  it("styles pages with the app's tokens and defaults", async () => {
+    /** The custom properties a rule declares, comments removed and spaces collapsed. */
+    const declared = (css: string, selector: string) => {
+      const start = css.indexOf(`${selector} {`);
+      expect(start, selector).toBeGreaterThanOrEqual(0);
+      const body = css.slice(start, css.indexOf("\n}", start)).replace(/\/\*[\s\S]*?\*\//g, "");
+      return new Map([...body.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map(([, name, value]) => [name!, value!.replace(/\s+/g, " ").trim()]));
+    };
+    // Windows checkouts may have CRLF line endings.
+    const read = async (file: string) => (await readFile(file, "utf8")).replace(/\r\n/g, "\n");
+    const app = await read("src/renderer/ui/tokens.css");
+    const page = await read("packages/plugin-ui/plugin-ui.css");
+    const tokens = new Set<string>(PAGE_TOKENS);
+    // Until the app sends its theme, a page has the app's own defaults.
+    for (const [appSelector, pageSelector] of [
+      [':root,\n[data-appearance="dark"]', ":root"],
+      ['[data-appearance="light"]', ':root[data-appearance="light"]'],
+    ] as const) {
+      const expected = [...declared(app, appSelector)].filter(([name]) => tokens.has(name));
+      expect(Object.fromEntries(declared(page, pageSelector)), pageSelector).toEqual(Object.fromEntries(expected));
+    }
+    // Every token the styles read is one the app sends.
+    const used = new Set([...page.matchAll(/var\((--[a-z0-9-]+)/g)].map(([, name]) => name!));
+    expect([...used].filter((name) => !tokens.has(name))).toEqual([]);
+    // The panel's surface shows through the page.
+    expect(declared(page, ":root").size).toBeGreaterThan(0);
+    expect(page).toMatch(/:root \{[^}]*background: transparent;/);
   });
 
   it("checks what a page asks for", async () => {
