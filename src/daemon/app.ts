@@ -30,7 +30,7 @@ import { ActivityLog } from "./activity-log.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
-import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
+import { buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
@@ -131,7 +131,7 @@ import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.j
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { exportProjectArchive, importProjectArchive, ProjectArchiveError } from "./project-archive.js";
 import { LEGACY_MAKER_ID, migrateLegacyMakerProjects } from "./legacy-maker.js";
-import { migrateLegacyGodotPath } from "./legacy-godot.js";
+import { LEGACY_GODOT_ID, migrateLegacyGodotPath, migrateLegacyGodotProjects } from "./legacy-godot.js";
 import { MAX_PROJECT_COVER_BYTES, MAX_PROJECT_LOGO_BYTES } from "./project-covers.js";
 import { PROJECT_ICONS, PROJECT_TONES } from "../shared/project-appearance.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE, PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
@@ -1046,6 +1046,21 @@ export function createApp(options: AppOptions = {}) {
   pluginServices.onChange(invalidatePluginSessions);
   // The app records each plugin-typed project's type when it is created; the
   // project file can later pin a version whose type previews differently.
+  /** Moves Godot projects from before format 2 to its Godot type; see legacy-godot.ts. */
+  function migrateGodot(only?: string): Promise<void> {
+    return migrateLegacyGodotProjects({
+      projects,
+      services: pluginServices,
+      // Format 1 Godot was on unless the person turned it off; an archive's folder waits for approval.
+      approve: !only && pluginSettings.storedEnabled(LEGACY_GODOT_ID) !== false,
+      warn: (message, err) => app.log.warn({ err }, message),
+      onMigrated: (project) => {
+        agents.invalidateProjectSessions(project.id);
+        events.publish(project.id, "project.updated", { project: structuredClone(projects.get(project.id) ?? project) });
+      },
+      ...(only ? { only } : {}),
+    }).catch((err: unknown) => app.log.warn({ err }, "Could not move Godot projects to the format 2 plugin"));
+  }
   /** Moves format 1 TapTap Maker projects to the format 2 plugin; see legacy-maker.ts. */
   function migrateMaker(only?: string): Promise<void> {
     return migrateLegacyMakerProjects({
@@ -1133,6 +1148,7 @@ export function createApp(options: AppOptions = {}) {
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     await migrateMaker();
+    await migrateGodot();
     await migrateLegacyGodotPath({
       configuration: pluginCapabilities.configuration,
       services: pluginServices,
@@ -1721,10 +1737,15 @@ export function createApp(options: AppOptions = {}) {
       // an explicit step in its connection panel.
       const existing = request.body?.workspacePath ? await projects.findByWorkspace(request.body.workspacePath) : undefined;
       if (existing) return reply.code(200).send(existing);
-      if (request.body?.projectType) {
+      // An app kind that a plugin's type took over, as Godot, starts as that type while its plugin is on.
+      const aliased = request.body?.type && !request.body.projectType && Object.hasOwn(PLUGIN_PROJECT_KINDS, request.body.type)
+        ? (await availableProjectTypes(pluginServices)).find((type) => type.plugin && type.id === PLUGIN_PROJECT_KINDS[request.body!.type as keyof typeof PLUGIN_PROJECT_KINDS])
+        : undefined;
+      const projectType = request.body?.projectType ?? aliased?.id;
+      if (projectType) {
         if (request.body.viewport) return reply.code(400).send({ error: "A plugin project type defines its own viewport" });
-        const selected = (await availableProjectTypes(pluginServices)).find((type) => type.id === request.body.projectType);
-        if (!selected?.plugin) return reply.code(400).send({ error: `${request.body.projectType} is not an installed plugin project type` });
+        const selected = (await availableProjectTypes(pluginServices)).find((type) => type.id === projectType);
+        if (!selected?.plugin) return reply.code(400).send({ error: `${projectType} is not an installed plugin project type` });
         // A chosen folder that already holds files is taken on as it is; an empty one starts from the type.
         const adopting = request.body.workspacePath ? (await readdir(request.body.workspacePath).catch(() => [])).some((item) => item !== ".DS_Store") : false;
         if (adopting) {
@@ -2206,6 +2227,7 @@ export function createApp(options: AppOptions = {}) {
       const imported = await importProjectArchive(projects, upload, { name: request.query.name });
       // The project records that it came from an archive, so its folder waits for the person's approval.
       if (imported.integration) await migrateMaker(imported.id);
+      if (imported.type === "godot-game" && !imported.pluginType) await migrateGodot(imported.id);
       return reply.code(201).send(projects.get(imported.id) ?? imported);
     } catch (cause) {
       if (cause instanceof ProjectArchiveError) return reply.code(cause.statusCode).send({ error: cause.message });

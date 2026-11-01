@@ -5,7 +5,7 @@ import { ZipFile } from "yazl";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { availableUpdates, downloadRelease, installRelease, readCatalog, releaseMessage } from "../src/daemon/plugin-releases.js";
 import { compileWhen, matchesWhen } from "../src/shared/plugin-when.js";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   cp,
   mkdir,
@@ -19,7 +19,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PLUGIN_INDEX_SCHEMA_VERSION,
   PluginIndex,
@@ -458,6 +458,34 @@ describe("plugin index", () => {
     });
     expect(result.stdout.trim()).toBe(`${godot} -y @coding-solo/godot-mcp@0.1.1`);
     expect(result.status).toBe(3);
+  });
+
+  it.skipIf(process.platform === "win32")("stops what godot-mcp started when its launcher is stopped", async () => {
+    const dir = await temporary();
+    const pidFile = path.join(dir, "game.pid");
+    // Stands in for npx running godot-mcp with a game it started.
+    await writeFile(path.join(dir, "npx"), '#!/bin/sh\nsleep 60 &\necho $! > "$GAME_PID_FILE"\nwait\n', { mode: 0o755 });
+    const launcher = spawn(process.execPath, [path.join(BUNDLED, "godot", "native", "mcp.mjs")], {
+      env: { ...process.env, PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}`, GAME_PID_FILE: pidFile },
+      stdio: "ignore",
+    });
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    let game = 0;
+    await vi.waitFor(async () => {
+      game = Number(await readFile(pidFile, "utf8"));
+      expect(alive(game)).toBe(true);
+    }, { timeout: 10_000 });
+    const exited = new Promise((resolve) => launcher.once("exit", resolve));
+    launcher.kill("SIGTERM");
+    await exited;
+    await vi.waitFor(() => expect(alive(game)).toBe(false), { timeout: 5_000 });
   });
 
   it("reads strings only from display fields", async () => {

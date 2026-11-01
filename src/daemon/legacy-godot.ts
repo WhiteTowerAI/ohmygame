@@ -1,15 +1,80 @@
-// Moves the format 1 Godot plugin's executable setting to the format 2
-// plugin, which replaced it. Format 1 took a command or a path and defaulted
+// Moves what the format 1 Godot plugin kept to the format 2 plugin, which
+// replaced it: Godot projects from before it, which had no `ohmygame.json`,
+// and its executable setting. Format 1 took a command or a path and defaulted
 // to `godot`; format 2 takes an absolute path and finds Godot itself when
 // it's empty.
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import path from "node:path";
+import type { ProjectState } from "../shared/contracts.js";
+import { PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import type { PluginConfigurationStore } from "./plugin-configuration.js";
 import type { PluginServices } from "./plugin-services.js";
+import { capabilityGrants, projectFolderKey, readProjectFile, writeProjectFile } from "./project-plugins.js";
 
 export const LEGACY_GODOT_ID = "ohmygame:godot";
 export const GODOT_PLUGIN = "ohmygame/godot";
+export const GODOT_TYPE = PLUGIN_PROJECT_KINDS["godot-game"];
+
+export interface LegacyGodotProjects {
+  projects: { list(): ProjectState[]; setPluginType(id: string, pluginType: NonNullable<ProjectState["pluginType"]>): Promise<unknown> };
+  services: Pick<PluginServices, "ready" | "index" | "grants" | "changed">;
+  /**
+   * Whether Godot works in these projects as it did: the person hadn't turned
+   * the format 1 plugin off, and the project isn't one just taken from an
+   * archive, whose folder waits for the person's approval.
+   */
+  approve: boolean;
+  warn: (message: string, error?: unknown) => void;
+  onMigrated?: (project: ProjectState) => void;
+  /** Only this project, as one just imported from an archive. */
+  only?: string;
+}
+
+/**
+ * Gives each Godot project that has no plugin type yet the format 2 Godot
+ * type: its `ohmygame.json` names the type and pins the bundled version.
+ * A folder whose file names another type keeps it; a project that can't move
+ * is tried again on the next start.
+ */
+export async function migrateLegacyGodotProjects(options: LegacyGodotProjects): Promise<void> {
+  const legacy = options.projects
+    .list()
+    .filter((project) => project.type === "godot-game" && !project.pluginType && (!options.only || project.id === options.only));
+  if (!legacy.length) return;
+  await options.services.ready();
+  const entry = options.services.index.get(GODOT_PLUGIN);
+  const contributed = entry?.manifest.contributes?.projectTypes?.find((type) => `${GODOT_PLUGIN}:${type.id}` === GODOT_TYPE);
+  if (!entry || !contributed?.preview)
+    return options.warn("The bundled Godot plugin is missing; Godot projects keep their format 1 record");
+  const pluginType = { id: GODOT_TYPE, plugin: GODOT_PLUGIN, preview: contributed.preview };
+  for (const project of legacy) {
+    try {
+      const folder = await projectFolderKey(project.workspacePath);
+      const existing = await readProjectFile(folder);
+      if (existing && !existing.ok) {
+        options.warn(`Godot project ${project.id} has an invalid ohmygame.json; it keeps its format 1 record`);
+        continue;
+      }
+      if (existing?.ok && existing.file.type !== GODOT_TYPE) continue;
+      const pinned = existing?.ok ? existing.file.plugins?.[GODOT_PLUGIN] : undefined;
+      const version = pinned && options.services.index.get(GODOT_PLUGIN, pinned) ? pinned : entry.version;
+      if (version !== pinned)
+        await writeProjectFile(
+          folder,
+          (file) => ({ ...file, plugins: { ...file.plugins, [GODOT_PLUGIN]: version } }),
+          { type: GODOT_TYPE, plugins: { [GODOT_PLUGIN]: version } },
+        );
+      if (options.approve)
+        await options.services.grants.approve(folder, GODOT_PLUGIN, capabilityGrants(options.services.index.get(GODOT_PLUGIN, version)!.manifest));
+      await options.projects.setPluginType(project.id, pluginType);
+      await options.services.changed(folder);
+      options.onMigrated?.(project);
+    } catch (error) {
+      options.warn(`Could not move Godot project ${project.id} to the format 2 plugin`, error);
+    }
+  }
+}
 
 export interface LegacyGodotMigration {
   configuration: Pick<PluginConfigurationStore, "storedValues" | "remove">;

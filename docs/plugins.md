@@ -296,8 +296,13 @@ is a format 2 plugin; see [TapTap Maker](#taptap-maker).
   (played in the game panel as a web build), native tools (`godot_status`,
   `run_headless`, `export_web`), **Run in Godot**, a Godot Skill, and the
   pinned `@coding-solo/godot-mcp@0.1.1` as its MCP server. Godot game projects
-  have it; a General project turns it on in its plugins and approves it for
-  its folder, where the format 1 plugin applied to every General project.
+  have it: creating one with the app's `godot-game` kind makes it the
+  plugin's type while the plugin is on, and at startup a Godot project from
+  before format 2 gets that type and an `ohmygame.json` pinning the bundled
+  version (`src/daemon/legacy-godot.ts`). Its folder is approved unless the
+  person had turned format 1 Godot off or the project came from an archive.
+  A General project turns Godot on in its plugins and approves it for its
+  folder, where the format 1 plugin applied to every General project.
   Keep Web preview off when using General for native Godot development. The
   **Godot executable** setting (`godotPath`) is an absolute path, or empty to
   look in `GODOT_PATH`, the PATH and the usual install folders;

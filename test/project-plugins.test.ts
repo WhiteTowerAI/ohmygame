@@ -28,7 +28,7 @@ import {
 import { validateProjectFile } from "../src/shared/project-file.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 import { LEGACY_MAKER_ID, MAKER_PLUGIN, MAKER_TYPE, migrateLegacyMakerProjects } from "../src/daemon/legacy-maker.js";
-import { GODOT_PLUGIN, LEGACY_GODOT_ID, migrateLegacyGodotPath } from "../src/daemon/legacy-godot.js";
+import { GODOT_PLUGIN, GODOT_TYPE, LEGACY_GODOT_ID, migrateLegacyGodotPath, migrateLegacyGodotProjects } from "../src/daemon/legacy-godot.js";
 import { GODOT_PLUGIN_MCP_SERVER_ID } from "../src/shared/mcp.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins-v2");
@@ -793,3 +793,57 @@ describe("format 1 Godot's executable setting", () => {
     expect(missing.warnings).toEqual([expect.stringContaining("isn't on the PATH")]);
   });
 });
+
+describe("Godot projects from before format 2", () => {
+  const open: PluginServices[] = [];
+  afterEach(async () => {
+    await Promise.all(open.splice(0).map((services) => services.close()));
+  });
+  async function setup(projects: ProjectState[]) {
+    const services = new PluginServices({ directory: path.join(await temporary(), "store"), bundled: BUNDLED });
+    open.push(services);
+    const typed = new Map<string, NonNullable<ProjectState["pluginType"]>>();
+    const migrate = (approve: boolean, only?: string) => migrateLegacyGodotProjects({
+      projects: { list: () => projects, setPluginType: async (id, pluginType) => { typed.set(id, pluginType); } },
+      services,
+      approve,
+      warn: () => {},
+      ...(only ? { only } : {}),
+    });
+    const status = async (folder: string) => {
+      const resolved = await resolveProjectPlugins({ folder, index: services.index, grants: services.grants });
+      return resolved?.ok ? resolved.plugins.find((plugin) => plugin.id === GODOT_PLUGIN)?.status : undefined;
+    };
+    return { services, typed, migrate, status };
+  }
+  const project = async (id: string, file?: object): Promise<ProjectState> => {
+    const workspacePath = await temporary();
+    if (file) await writeFile(path.join(workspacePath, "ohmygame.json"), JSON.stringify(file));
+    return { id, type: "godot-game", workspacePath } as ProjectState;
+  };
+
+  it("gives each the Godot type and keeps Godot working in it", async () => {
+    const fresh = await project("fresh");
+    const pinned = await project("pinned", { type: GODOT_TYPE, plugins: { [GODOT_PLUGIN]: "1.0.0" } });
+    const other = await project("other", { type: "general" });
+    const { typed, migrate, status } = await setup([fresh, pinned, other]);
+    await migrate(true);
+    expect([...typed.keys()].sort()).toEqual(["fresh", "pinned"]);
+    expect(typed.get("fresh")).toEqual({ id: GODOT_TYPE, plugin: GODOT_PLUGIN, preview: "web-build" });
+    expect(JSON.parse(await readFile(path.join(fresh.workspacePath, "ohmygame.json"), "utf8")))
+      .toMatchObject({ type: GODOT_TYPE, plugins: { [GODOT_PLUGIN]: "1.0.0" } });
+    expect(await status(fresh.workspacePath)).toBe("active");
+    expect(await status(pinned.workspacePath)).toBe("active");
+    // A folder that says it is something else stays so.
+    expect(JSON.parse(await readFile(path.join(other.workspacePath, "ohmygame.json"), "utf8"))).toEqual({ type: "general" });
+  });
+
+  it("leaves the folder to the person's approval when they had turned Godot off or it came from an archive", async () => {
+    const archived = await project("archived");
+    const { typed, migrate, status } = await setup([archived]);
+    await migrate(false, "archived");
+    expect(typed.get("archived")?.id).toBe(GODOT_TYPE);
+    expect(await status(archived.workspacePath)).toBe("needs-approval");
+  });
+});
+
