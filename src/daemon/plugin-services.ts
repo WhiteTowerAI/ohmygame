@@ -579,11 +579,10 @@ export class PluginServices {
       const result = await this.index.add(root);
       results.push(result);
       if (!result.ok || !result.entry.id.startsWith("ohmygame/")) continue;
-      // No project pins one that applies by itself, so a version this folder
-      // used to hold goes; a version installed apart stays.
-      if (isAppWidePlugin(result.entry.manifest))
-        for (const stale of this.index.versions(result.entry.id))
-          if (stale.version !== result.entry.version && path.resolve(stale.root) === path.resolve(root)) await this.index.remove(stale.id, stale.version);
+      // A version this folder used to hold, or a folder the app no longer has,
+      // goes; a version installed apart stays.
+      for (const other of this.index.versions(result.entry.id))
+        if (other.version !== result.entry.version) await this.index.verify(other.id, other.version);
       const decided = this.grants.plugin(result.entry.id);
       if (decided?.enabled === false) continue;
       // One that starts off asks for consent when the person turns it on.

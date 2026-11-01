@@ -791,10 +791,10 @@ export function createApp(options: AppOptions = {}) {
   );
   /** Plugins: their index, the person's decisions, and the hosts that run native code. */
   // The plugins that ship with the app.
-  const bundledPluginsV2 = path.join(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"), "..", "plugins-v2");
+  const bundledPlugins = options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins");
   const pluginServices = new PluginServices({
     directory: path.join(dataDirectory, "plugin-store"),
-    bundled: bundledPluginsV2,
+    bundled: bundledPlugins,
     bundledOff: BUNDLED_PLUGINS_OFF,
     onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled plugins"),
   });
@@ -1134,7 +1134,7 @@ export function createApp(options: AppOptions = {}) {
     reply.code(cause instanceof PluginReleaseError || cause instanceof PluginConfigurationError ? 400 : 409).send({ error: cause instanceof Error ? cause.message : String(cause) });
   // Bundled plugins are indexed where the app keeps them and come back when it starts, so they only turn off.
   const bundledPluginEntry = (root: string) => {
-    const inside = path.relative(bundledPluginsV2, root);
+    const inside = path.relative(bundledPlugins, root);
     return !!inside && !inside.startsWith("..") && !path.isAbsolute(inside);
   };
   /** A plugin's Skills, by their path in the package. */

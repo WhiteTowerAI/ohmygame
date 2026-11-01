@@ -10,7 +10,7 @@ describe("bundled plugins", () => {
   async function bundled() {
     const services = new PluginServices({
       directory: path.join(await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-")), "store"),
-      bundled: path.resolve("plugins-v2"),
+      bundled: path.resolve("plugins"),
       bundledOff: BUNDLED_PLUGINS_OFF,
     });
     await services.ready();

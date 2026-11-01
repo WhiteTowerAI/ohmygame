@@ -38,8 +38,8 @@ import {
   pluginSchemaJson,
 } from "../scripts/plugin-schema.js";
 
-const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins-v2");
-const BUNDLED = path.join(import.meta.dirname, "../plugins-v2");
+const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins");
+const BUNDLED = path.join(import.meta.dirname, "../plugins");
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -1021,6 +1021,28 @@ describe("plugin releases", () => {
       expect(services.index.versions("ohmygame/blender").map((entry) => entry.version)).toEqual(["9.0.0", "0.2.0"]);
       // There is one version in use: the newest.
       expect((await services.appWide()).map((entry) => entry.version)).toEqual(["9.0.0"]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("forgets a bundled version whose folder the app no longer has", async () => {
+    const dir = await temporary();
+    const services = new PluginServices({ directory: path.join(dir, "store") });
+    try {
+      for (const name of ["godot", "blender"]) {
+        const old = path.join(dir, "old", name);
+        await cp(path.join(BUNDLED, name), old, { recursive: true });
+        await editManifest(old, (manifest) => (manifest.version = "0.1.0"));
+        await services.index.load();
+        expect((await services.index.add(old)).ok).toBe(true);
+        await cp(path.join(BUNDLED, name), path.join(dir, "new", name), { recursive: true });
+        await editManifest(path.join(dir, "new", name), (manifest) => (manifest.version = "0.2.0"));
+      }
+      await rm(path.join(dir, "old"), { recursive: true });
+      await services.addBundled(path.join(dir, "new"));
+      for (const name of ["godot", "blender"])
+        expect(services.index.versions(`ohmygame/${name}`).map((entry) => entry.version)).toEqual(["0.2.0"]);
     } finally {
       await services.close();
     }

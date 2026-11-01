@@ -29,8 +29,8 @@ import { validateProjectFile } from "../src/shared/project-file.js";
 import { GODOT_PLUGIN_MCP_SERVER_ID } from "../src/shared/mcp.js";
 import { PLUGIN_PROJECT_KINDS } from "../src/shared/project-runtime.js";
 
-const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins-v2");
-const BUNDLED = path.join(import.meta.dirname, "../plugins-v2");
+const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins");
+const BUNDLED = path.join(import.meta.dirname, "../plugins");
 const GODOT_PLUGIN = "ohmygame/godot";
 const GODOT_TYPE = PLUGIN_PROJECT_KINDS["godot-game"];
 const UNREAL_PLUGIN = "ohmygame/unreal-engine";

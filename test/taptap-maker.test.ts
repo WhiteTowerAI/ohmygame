@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error The plugin's native code is plain JavaScript.
-import * as maker from "../plugins-v2/taptap-maker/native/maker.mjs";
+import * as maker from "../plugins/taptap-maker/native/maker.mjs";
 // @ts-expect-error The plugin's native code is plain JavaScript.
-import { Cancelled, lingering, withLock } from "../plugins-v2/taptap-maker/native/runtime.mjs";
+import { Cancelled, lingering, withLock } from "../plugins/taptap-maker/native/runtime.mjs";
 
 let directory: string, workspace: string;
 let progress: { message: string; url?: string }[];
