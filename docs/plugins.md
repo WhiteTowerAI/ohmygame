@@ -353,7 +353,8 @@ the project has no web preview and isn't published to Community.
   the Maker project has files at the same paths, and refuse a folder that is
   already a Git repository, since Maker would replace its remote and branch.
   `ohmygame.json`, `.ohmygame/` and `canvas/` go in the repository's
-  `.git/info/exclude`, so Maker's commits leave them out. A failed checkout resumes the created project instead of creating
+  `.git/info/exclude`, so Maker's commits leave them out unless the
+  project's own `.gitignore` un-ignores them. A failed checkout resumes the created project instead of creating
   another; when a create's outcome is unknown, the panel asks the person to
   connect the project instead. Connecting the same project again only checks
   it.
