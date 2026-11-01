@@ -370,8 +370,10 @@ describe("coding agent sessions", () => {
         },
       ],
       sm,
+      { skills: () => [{ name: "review", description: "" }] },
     );
-    await session.prompt("continue");
+    await session.prompt("continue with $review");
+    expect(drivers.map((driver) => driver.inputs[0]!.skills)).toEqual([["review"], ["review"]]);
     expect(drivers.map((driver) => driver.resume)).toEqual([
       "expired",
       undefined,

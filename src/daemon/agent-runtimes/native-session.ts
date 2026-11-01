@@ -523,6 +523,7 @@ export class NativeCodingSession implements CodingSession {
             text: summary ? `${summary}\n\n${currentPrompt}` : currentPrompt,
             images,
             readOnly: this.#readOnly,
+            ...(skills.length ? { skills } : {}),
           },
           turn.sink(),
           signal,
