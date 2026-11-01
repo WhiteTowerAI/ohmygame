@@ -1,64 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { ConversationCapabilities, PluginMention } from "../shared/contracts.js";
-import type { PluginSummary } from "../shared/plugins.js";
-import type { PluginIconPresetId } from "../shared/plugin-icons.js";
-import {
-  Box,
-  Brush,
-  Clipboard,
-  Code2,
-  FileText,
-  Film,
-  Flag,
-  Folder,
-  Gamepad2,
-  Globe2,
-  Image,
-  Layers3,
-  Lightbulb,
-  Music2,
-  Package,
-  Palette,
-  Plug,
-  Search,
-  Server,
-  Sparkles,
-  Terminal,
-  Video,
-  WandSparkles,
-  Wrench,
-  type IconComponent,
-} from "./icons.js";
+import type { PluginIcon as PluginIconValue } from "../shared/plugins.js";
+import { Package } from "./icons.js";
 import { readPluginIconImage } from "./api.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 
-export const PLUGIN_PRESET_GLYPHS: Record<PluginIconPresetId, IconComponent> = {
-  package: Package,
-  gamepad: Gamepad2,
-  globe: Globe2,
-  box: Box,
-  image: Image,
-  palette: Palette,
-  brush: Brush,
-  music: Music2,
-  video: Video,
-  film: Film,
-  code: Code2,
-  terminal: Terminal,
-  plug: Plug,
-  server: Server,
-  wand: WandSparkles,
-  sparkles: Sparkles,
-  document: FileText,
-  folder: Folder,
-  layers: Layers3,
-  lightbulb: Lightbulb,
-  search: Search,
-  wrench: Wrench,
-  clipboard: Clipboard,
-  flag: Flag,
-};
-type IconPlugin = Pick<PluginSummary, "id" | "icon" | "iconRevision">;
+type IconPlugin = { id: string; icon?: PluginIconValue; iconRevision?: string };
 
 export function PluginGlyph({
   plugin,
@@ -121,10 +68,6 @@ export function PluginGlyph({
         onError={() => setImage(undefined)}
       />
     );
-  if (plugin.icon?.type === "preset") {
-    const Icon = PLUGIN_PRESET_GLYPHS[plugin.icon.id] ?? Package;
-    return <Icon size={size} aria-hidden="true" />;
-  }
   return <Package size={size} aria-hidden="true" />;
 }
 

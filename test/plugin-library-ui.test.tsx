@@ -4,44 +4,35 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PluginsSettings } from "../src/renderer/plugins.js";
 import { PluginBuilderSessions } from "../src/renderer/plugin-builder.js";
-import type { PluginDetail } from "../src/shared/plugins.js";
+import type { StorePlugin } from "../src/shared/plugins.js";
 
-const official: PluginDetail = {
-  id: "ohmygame:studio",
-  name: "studio",
+const official: StorePlugin = {
+  id: "ohmygame/studio",
+  version: "1.0.0",
+  revision: "a".repeat(64),
   displayName: "Studio",
   description: "Make games",
-  source: { type: "builtIn" },
-  marketplace: { id: "ohmygame", displayName: "OhMyGame" },
-  installed: true,
-  enabled: true,
-  skills: [
-    { id: "skills/studio/SKILL.md", name: "Studio skill", enabled: false },
-  ],
-  connections: [],
+  capabilities: [],
+  grants: { enabled: true, allowed: [] },
+  bundled: true,
+  appWide: true,
+  examples: [],
+  settings: [],
+  skills: [],
+  adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 },
 };
-const imported: PluginDetail = {
-  ...official,
-  id: "marketplace:community:review",
-  name: "review",
-  displayName: "Community Review",
-  source: {
-    type: "git",
-    url: "https://github.com/example/review",
-    commit: "a".repeat(40),
-  },
-  marketplace: { id: "community", displayName: "Community" },
-};
+const added: StorePlugin = { ...official, id: "acme/review", displayName: "Community Review", bundled: false };
+const made: StorePlugin = { ...official, id: "personal/notes", displayName: "My Notes", bundled: false };
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
 let saved: unknown;
-let plugins: PluginDetail[];
+let plugins: StorePlugin[];
 let removed: string[];
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   window.location.hash = "#/plugins";
-  plugins = [structuredClone(official), structuredClone(imported)];
+  plugins = [structuredClone(official), structuredClone(added), structuredClone(made)];
   saved = undefined;
   removed = [];
   vi.stubGlobal(
@@ -52,14 +43,14 @@ beforeEach(() => {
         "",
       );
       if (route === "/health") return Response.json({ status: "ok" });
-      if (route === "/plugins") return Response.json({ plugins, errors: [] });
+      if (route === "/plugin-store/plugins") return Response.json(plugins);
       if (route === "/plugins/setup-sessions")
         return Response.json([
           {
             id: "workspace",
-            pluginId: official.id,
-            mode: "configure",
-            title: "Configure Studio",
+            pluginId: made.id,
+            mode: "edit",
+            title: "Edit My Notes",
             status: "idle",
             createdAt: 0,
             updatedAt: 0,
@@ -72,13 +63,10 @@ beforeEach(() => {
         removed.push(route);
         return new Response(null, { status: 204 });
       }
-      if (
-        route === `/plugins/${encodeURIComponent(official.id)}/settings` &&
-        init.method === "PUT"
-      ) {
+      if (route === `/plugin-store/${official.id}/enabled` && init.method === "PUT") {
         saved = JSON.parse(init.body as string);
-        plugins[0] = { ...plugins[0]!, enabled: false };
-        return Response.json(plugins[0]);
+        plugins[0] = { ...plugins[0]!, grants: { enabled: false, allowed: [] } };
+        return new Response(null, { status: 204 });
       }
       throw new Error(`Unexpected request: ${init.method ?? "GET"} ${route}`);
     }),
@@ -110,7 +98,7 @@ describe("Plugin library", () => {
     expect(section("Personal").querySelector(".ui-badge")).toBeNull();
   });
 
-  it("groups official plugins by category and user marketplace imports under Personal", async () => {
+  it("groups plugins by category and those the person made under Personal", async () => {
     await act(async () =>
       root.render(
         <PluginsSettings
@@ -120,22 +108,22 @@ describe("Plugin library", () => {
       ),
     );
     expect(section("Other plugins").textContent).toContain("Studio");
-    expect(section("Other plugins").textContent).not.toContain("Community Review");
+    expect(section("Other plugins").textContent).toContain("Community Review");
+    expect(section("Other plugins").textContent).not.toContain("My Notes");
     expect(section("Personal").querySelectorAll(".plugin-card-name")).toHaveLength(1);
-    expect(section("Personal").textContent).toContain("Community Review");
+    expect(section("Personal").textContent).toContain("My Notes");
     // The AI workspaces follow the Personal plugins.
-    expect(container.querySelector('[aria-label="Plugin workspaces"]')?.textContent).toContain("Configure Studio");
+    expect(container.querySelector('[aria-label="Plugin workspaces"]')?.textContent).toContain("Edit My Notes");
     const toggle = container.querySelector<HTMLButtonElement>(
       '[aria-label="Disable Studio"]',
     )!;
     await act(async () => toggle.click());
-    expect(saved).toEqual({ enabled: false, components: {} });
+    expect(saved).toEqual({ enabled: false });
     expect(
       container
         .querySelector('[aria-label="Enable Studio"]')
         ?.getAttribute("aria-checked"),
     ).toBe("false");
-    expect(plugins[0]!.skills[0]!.enabled).toBe(false);
     expect(window.location.hash).toBe("#/plugins");
   });
 
@@ -143,7 +131,7 @@ describe("Plugin library", () => {
     await act(async () => root.render(<PluginBuilderSessions />));
     expect(container.querySelector(".plugin-builder-session-card")).not.toBeNull();
     const actions = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Actions for Configure Studio"]',
+      '[aria-label="Actions for Edit My Notes"]',
     )!;
     const chooseDelete = async () => {
       await act(async () => actions.click());
@@ -155,7 +143,7 @@ describe("Plugin library", () => {
     };
     await chooseDelete();
     const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(dialog()?.textContent).toContain("Delete “Configure Studio”?");
+    expect(dialog()?.textContent).toContain("Delete “Edit My Notes”?");
     await act(async () =>
       [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent === "Cancel")!.click(),
     );
@@ -166,7 +154,7 @@ describe("Plugin library", () => {
     );
     expect(removed).toEqual(["/plugins/setup-sessions/workspace"]);
     await vi.waitFor(() =>
-      expect(container.textContent).not.toContain("Configure Studio"),
+      expect(container.textContent).not.toContain("Edit My Notes"),
     );
   });
 });

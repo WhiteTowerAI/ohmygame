@@ -10,214 +10,25 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
-import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
-import { LocalPluginStore } from "../src/daemon/local-plugins.js";
+import { PluginMcpHost } from "../src/daemon/plugin-mcp-host.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { createApp } from "../src/daemon/app.js";
 import { PluginSetupManager } from "../src/daemon/plugin-setup.js";
-import {
-  LocalPluginAdapter,
-  PluginCatalogService,
-} from "../src/daemon/plugin-catalog.js";
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((fn) => fn()));
 });
 async function environment() {
-  const directory = await mkdtemp(
-    path.join(tmpdir(), "ohmygame-capabilities-"),
-  );
+  const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-mcp-host-"));
   const agentDir = path.join(directory, "pi-agent");
   await mkdir(agentDir);
-  const settings = new PluginSettingsStore(directory);
-  await settings.load();
-  const local = new LocalPluginStore(directory);
-  const service = new PluginCapabilities(
-    directory,
-    agentDir,
-    [local],
-    local,
-    settings,
-  );
-  await service.configuration.load();
-  cleanup.push(() => service.host.close());
-  return { directory, agentDir, settings, local, service };
+  const host = new PluginMcpHost();
+  cleanup.push(() => host.close());
+  return { directory, agentDir, host };
 }
-describe("native plugin capabilities", () => {
-  it("resolves a format 1 plugin's configuration in its MCP server", async () => {
-    const { service, local, directory } = await environment();
-    const source = path.join(directory, "engine-tool");
-    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
-    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
-      name: "engine-tool",
-      version: "1.0.0",
-      description: "Drives a local engine",
-      configuration: { "engine-path": { type: "text", label: "Engine executable", default: "engine" } },
-      interface: { projectTypes: ["general"] },
-      mcpServers: "./mcp.json",
-    }));
-    await writeFile(path.join(source, "mcp.json"), JSON.stringify({
-      mcpServers: { engine: { command: "npx", args: ["-y", "engine-mcp@1.0.0"], env: { ENGINE_PATH: "${config.engine-path}" }, lifecycle: "lazy" } },
-    }));
-    const plugin = await local.install(source);
-    const name = service.runtimeName(plugin.id, "engine");
-    expect(await service.definition(plugin, "engine")).toMatchObject({ env: { ENGINE_PATH: "engine" }, lifecycle: "lazy" });
-    expect((await service.effective("general")).mcpServers).toHaveProperty(name);
-    expect((await service.effective("web-game")).mcpServers).not.toHaveProperty(name);
-    const probe = vi.spyOn(service.host, "probe").mockResolvedValue({ status: "connected", toolCount: 3, message: "engine: version" });
-    expect((await service.test(plugin, "engine")).message).toBe("engine: version");
-    probe.mockRestore();
-    await service.configuration.update(plugin, { "engine-path": "/custom/Engine" });
-    expect(await service.definition(plugin, "engine")).toMatchObject({ env: { ENGINE_PATH: "/custom/Engine" } });
-    expect(service.runtimeName(plugin.id, "engine")).toBe(name);
-  });
-
-  it("reads credential masks without writes and preserves them on an explicit save", async () => {
-    const { service, local, directory } = await environment();
-    const source = path.join(directory, "raw-service");
-    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
-    await writeFile(
-      path.join(source, ".ohmygame-plugin/plugin.json"),
-      JSON.stringify({
-        name: "raw-service",
-        version: "1.0.0",
-        description: "Imported package",
-        mcpServers: "./mcp.json",
-      }),
-    );
-    await writeFile(
-      path.join(source, "mcp.json"),
-      JSON.stringify({
-        mcpServers: {
-          api: {
-            url: "https://example.com/mcp",
-            headers: { Authorization: "Bearer packaged-secret" },
-          },
-        },
-      }),
-    );
-    const plugin = await local.install(source);
-    const template = await service.editableTemplate(plugin, "api");
-    expect(JSON.stringify(template)).not.toContain("packaged-secret");
-    await expect(
-      readFile(service.configuration.filePath),
-    ).rejects.toMatchObject({ code: "ENOENT" });
-    expect(service.configuration.view(plugin).fields).toEqual({});
-    const probe = vi.spyOn(service.host, "probe");
-    probe.mockRejectedValueOnce(new Error("Rejected token packaged-secret"));
-    await expect(service.test(plugin, "api")).rejects.toThrow(
-      "Rejected token [redacted]",
-    );
-    probe.mockResolvedValueOnce({
-      status: "failed",
-      toolCount: 0,
-      message: "Invalid packaged-secret",
-    });
-    expect((await service.test(plugin, "api")).message).toBe(
-      "Invalid [redacted]",
-    );
-    await service.setDefinition(
-      plugin,
-      "api",
-      { ...template, lifecycle: "lazy" },
-      false,
-    );
-    expect(await service.definition(plugin, "api")).toMatchObject({
-      headers: { Authorization: "Bearer packaged-secret" },
-      lifecycle: "lazy",
-    });
-    vi.spyOn(service.host, "probe").mockRejectedValueOnce(
-      new Error("Rejected token packaged-secret"),
-    );
-    await expect(service.test(plugin, "api")).rejects.toThrow(
-      "Rejected token [redacted]",
-    );
-  });
-
-  it("cleans generated fields after editing one service without losing another service's credentials", async () => {
-    const { service, local } = await environment();
-    const plugin = await service.create({
-      name: "pruned-fields",
-      servers: {
-        alpha: { url: "https://alpha.example/mcp" },
-        beta: { url: "https://beta.example/mcp" },
-      },
-    });
-    await Promise.all([
-      service.setDefinition(plugin, "alpha", {
-        url: "https://alpha.example/mcp",
-        headers: { Authorization: "alpha-secret" },
-      }),
-      service.setDefinition(plugin, "beta", {
-        url: "https://beta.example/mcp",
-        headers: { Authorization: "beta-secret" },
-      }),
-    ]);
-    const alphaKey = service.configuration
-      .view(plugin)
-      .configuredSecrets.find((key) => key.startsWith("alpha"))!;
-    await service.configuration.update(plugin, { [alphaKey]: null });
-    expect(service.configuration.view(plugin).missing).toContain(alphaKey);
-    await Promise.all([
-      service.setDefinition(plugin, "alpha", {
-        url: "https://alpha.example/mcp",
-      }),
-      service.setDefinition(plugin, "beta", {
-        url: "https://beta.example/updated",
-        headers: { Authorization: "new-beta-secret" },
-      }),
-    ]);
-    expect(service.configuration.view(plugin).fields).not.toHaveProperty(
-      alphaKey,
-    );
-    expect(service.configuration.view(plugin).missing).toEqual([]);
-    expect(await service.definition(plugin, "beta")).toMatchObject({
-      headers: { Authorization: "new-beta-secret" },
-    });
-    const lookup = vi.spyOn(local, "installedPath");
-    await service.decorate(plugin);
-    expect(lookup).toHaveBeenCalledTimes(1);
-  });
-
-  it("allows public environment and header values through AI authoring while protecting credentials", async () => {
-    const { service } = await environment();
-    const plugin = await service.create(
-      {
-        name: "public-values",
-        servers: {
-          local: {
-            command: "node",
-            env: { NODE_ENV: "production", LOG_LEVEL: "info" },
-          },
-          api: {
-            url: "https://example.com/mcp",
-            headers: {
-              Accept: "application/json",
-              "Content-Type": "application/json",
-            },
-          },
-        },
-      },
-      false,
-    );
-    expect(service.configuration.view(plugin).fields).toEqual({});
-    await expect(
-      service.setDefinition(
-        plugin,
-        "api",
-        {
-          url: "https://example.com/mcp",
-          headers: { Authorization: "private" },
-        },
-        false,
-      ),
-    ).rejects.toThrow("secret configuration field");
-  });
-
+describe("plugin MCP host", () => {
   it("tracks model lookup during assistant shutdown and persists lookup failures", async () => {
-    const { service, local, directory, agentDir, settings } =
-      await environment();
+    const { host, directory, agentDir } = await environment();
     let rejectModel!: (cause: Error) => void;
     const resolveModel = vi.fn(
       () =>
@@ -228,8 +39,7 @@ describe("native plugin capabilities", () => {
     const manager = new PluginSetupManager(
       directory,
       agentDir,
-      service,
-      new PluginCatalogService([new LocalPluginAdapter(local)], settings),
+      host,
       new PluginServices({ directory: path.join(directory, "plugin-store") }),
       () => {},
       resolveModel,
@@ -254,218 +64,19 @@ describe("native plugin capabilities", () => {
       error: "Provider lookup failed",
     });
   });
-  it("keeps secrets out of packages and API views, preserves configuration on reinstall, and applies plugin/server switches", async () => {
-    const { service, local, settings, directory } = await environment();
-    const plugin = await service.create({
-      name: "secure-service",
-      servers: {
-        api: {
-          url: "https://example.com/mcp",
-          headers: { Authorization: "Bearer private-token" },
-          oauth: { clientSecret: "private-client" },
-          lifecycle: "lazy-keep-alive",
-          includeTools: ["echo"],
-        },
-      },
-    });
-    const config = service.configuration.view(plugin);
-    expect(config.configuredSecrets).toHaveLength(2);
-    expect(JSON.stringify(config)).not.toContain("private-token");
-    expect(
-      service.configuration.redact(plugin, "Invalid token private-token"),
-    ).toBe("Invalid token [redacted]");
-    expect(
-      await readFile(
-        path.join((await local.installedPath(plugin.id))!, "mcp.json"),
-        "utf8",
-      ),
-    ).not.toContain("private-token");
-    expect(
-      await readFile(service.configuration.filePath, "utf8"),
-    ).not.toContain("private-client");
-    expect(
-      (await service.effective()).mcpServers[
-        service.runtimeName(plugin.id, "api")
-      ],
-    ).toMatchObject({
-      headers: { Authorization: "Bearer private-token" },
-      includeTools: ["echo"],
-    });
-    await local.install(
-      path.join(directory, "plugin-workspaces", "secure-service"),
-    );
-    expect(
-      service.configuration.view((await local.read(plugin.id))!)
-        .configuredSecrets,
-    ).toEqual(config.configuredSecrets);
-    await settings.update(plugin, {
-      enabled: true,
-      components: { "mcp:api": false },
-    });
-    expect((await service.effective()).mcpServers).not.toHaveProperty(
-      service.runtimeName(plugin.id, "api"),
-    );
-    await settings.update(plugin, {
-      enabled: false,
-      components: { "mcp:api": true },
-    });
-    expect((await service.effective()).mcpServers).not.toHaveProperty(
-      service.runtimeName(plugin.id, "api"),
-    );
-  });
-  it("installs incomplete configuration, then resolves templates after configuration without exposing secrets", async () => {
-    const { service } = await environment();
-    const plugin = await service.create({
-      name: "needs-key",
-      servers: {
-        api: {
-          url: "${config.endpoint}",
-          headers: { Authorization: "Bearer ${config.key}" },
-        },
-      },
-      configuration: {
-        endpoint: { type: "text", label: "Endpoint", required: true },
-        key: { type: "secret", label: "API key", required: true },
-      },
-    });
-    expect((await service.decorate(plugin)).mcpServers?.[0]?.status).toBe(
-      "not-configured",
-    );
-    await service.configuration.update(plugin, {
-      endpoint: "https://example.com/mcp",
-      key: "the-secret",
-    });
-    expect(await service.definition(plugin, "api")).toMatchObject({
-      url: "https://example.com/mcp",
-      headers: { Authorization: "Bearer the-secret" },
-    });
-    await expect(
-      service.configuration.update(plugin, { key: "bad" }, false),
-    ).rejects.toThrow("configuration form");
-  });
-  it("edits multiple MCP definitions atomically and reloads the masked configuration after restart", async () => {
-    const { service, directory, agentDir, local, settings } =
-      await environment();
-    const plugin = await service.create({
-      name: "editable",
-      servers: {
-        alpha: { url: "https://alpha.example/mcp" },
-        beta: { url: "https://beta.example/mcp" },
-      },
-    });
-    await Promise.all([
-      service.setDefinition(plugin, "alpha", {
-        url: "https://alpha.example/mcp",
-        headers: { Authorization: "Bearer alpha-secret" },
-        lifecycle: "eager",
-      }),
-      service.setDefinition(plugin, "beta", {
-        url: "https://beta.example/mcp",
-        headers: { Authorization: "Bearer beta-secret" },
-      }),
-    ]);
-    const config = service.configuration.view(plugin);
-    expect(config.configuredSecrets).toHaveLength(2);
-    expect(
-      JSON.stringify(await service.editableTemplate(plugin, "alpha")),
-    ).not.toContain("alpha-secret");
-    const restored = new PluginCapabilities(
-      directory,
-      agentDir,
-      [local],
-      local,
-      settings,
-    );
-    await restored.configuration.load();
-    cleanup.push(() => restored.host.close());
-    expect(await restored.definition(plugin, "alpha")).toMatchObject({
-      headers: { Authorization: "Bearer alpha-secret" },
-      lifecycle: "eager",
-    });
-    expect(await restored.definition(plugin, "beta")).toMatchObject({
-      headers: { Authorization: "Bearer beta-secret" },
-    });
-    await restored.configuration.update(plugin, {
-      [config.configuredSecrets.find((key) => key.startsWith("alpha"))!]: null,
-    });
-    const effective = await restored.effective();
-    expect(effective.mcpServers).not.toHaveProperty(
-      restored.runtimeName(plugin.id, "alpha"),
-    );
-    expect(effective.mcpServers).toHaveProperty(
-      restored.runtimeName(plugin.id, "beta"),
-    );
-  });
-
   it("connects to a real STDIO server, lists tools and shuts the process down", async () => {
-    const { service, directory } = await environment();
+    const { host, directory, agentDir } = await environment();
     const pidFile = path.join(directory, "server.pid");
-    const plugin = await service.create({
-      name: "stdio-fixture",
-      servers: {
-        local: {
-          command: process.execPath,
-          args: [path.resolve("test/fixtures/plugin-mcp-server.mjs"), pidFile],
-        },
-      },
-    });
-    const result = await service.test(plugin, "local");
+    const result = await host.probe("local", "local", {
+      command: process.execPath,
+      args: [path.resolve("test/fixtures/plugin-mcp-server.mjs"), pidFile],
+    }, agentDir, "test");
     expect(result).toMatchObject({ status: "connected", toolCount: 1 });
     const pid = Number(await readFile(pidFile, "utf8"));
     expect(() => process.kill(pid, 0)).toThrow();
   }, 45_000);
-  it("tests HTTP using resolved credentials and returns a sanitized result", async () => {
-    const { service } = await environment();
-    let authorization = "";
-    const server = createServer(async (req, res) => {
-      if (req.method !== "POST") {
-        res.writeHead(405);
-        res.end();
-        return;
-      }
-      authorization = String(req.headers.authorization ?? "");
-      let body = "";
-      for await (const chunk of req) body += chunk;
-      const message = JSON.parse(body);
-      if (message.id === undefined) {
-        res.writeHead(202);
-        res.end();
-        return;
-      }
-      const result =
-        message.method === "initialize"
-          ? {
-              protocolVersion: message.params.protocolVersion,
-              capabilities: { tools: {} },
-              serverInfo: { name: "http-fixture", version: "1.0.0" },
-            }
-          : { tools: [{ name: "inspect", inputSchema: { type: "object" } }] };
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
-    });
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
-    cleanup.push(
-      () => new Promise<void>((resolve) => server.close(() => resolve())),
-    );
-    const address = server.address() as { port: number };
-    const plugin = await service.create({
-      name: "http-fixture",
-      servers: {
-        api: {
-          url: `http://127.0.0.1:${address.port}/mcp`,
-          headers: { Authorization: "Bearer test-secret" },
-        },
-      },
-    });
-    const result = await service.test(plugin, "api");
-    expect(result).toMatchObject({ status: "connected", toolCount: 1 });
-    expect(authorization).toBe("Bearer test-secret");
-    expect(JSON.stringify(result)).not.toContain("test-secret");
-  }, 45_000);
   it("keeps an HTTP server restricted to its origins there: no redirects, probes or interpreted headers", async () => {
-    const { service, agentDir } = await environment();
+    const { host, agentDir } = await environment();
     const listen = async (handler: Parameters<typeof createServer>[1]) => {
       const server = createServer(handler);
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -505,7 +116,7 @@ describe("native plugin capabilities", () => {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
     });
-    const probe = (key: string, definition: Record<string, unknown>) => service.host.probe(key, key, definition, agentDir, "test");
+    const probe = (key: string, definition: Record<string, unknown>) => host.probe(key, key, definition, agentDir, "test");
 
     // Headers are sent as written: no command runs, no variable expands.
     expect(await probe("working", {
@@ -524,38 +135,10 @@ describe("native plugin capabilities", () => {
     expect(await probe("empty", { url: `${other}/mcp`, allowedOrigins: [] })).toMatchObject({ status: "failed" });
     expect(elsewhere).toBe(0);
   }, 45_000);
-  it("executes real MCP tools through a plugin session and keeps an independent provider enabled", async () => {
-    const { service, settings, directory, local } = await environment();
-    const provider = await service.create({
-      name: "provider",
-      servers: {
-        local: {
-          command: process.execPath,
-          args: [path.resolve("test/fixtures/plugin-mcp-server.mjs")],
-        },
-      },
-    });
-    const shared = service.runtimeName(provider.id, "local");
-    const source = path.join(directory, "consumer");
-    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
-    await writeFile(
-      path.join(source, ".ohmygame-plugin", "plugin.json"),
-      JSON.stringify({
-        name: "consumer",
-        version: "1.0.0",
-        description: "Uses a shared provider",
-        connections: ["shared-local", "missing-provider"],
-      }),
-    );
-    const consumer = await local.install(source);
-    await settings.update(consumer, { enabled: false, components: {} });
-    const config = await service.effective("web-game");
-    expect(config.mcpServers).toHaveProperty(shared);
-    expect(config.mcpServers).not.toHaveProperty("ohmygame-godot");
-    expect((await service.decorate(consumer)).connections).toMatchObject([
-      { id: "shared-local", enabled: false, status: "not-configured" },
-      { id: "missing-provider", enabled: false, status: "not-configured" },
-    ]);
+  it("executes real MCP tools through a plugin session", async () => {
+    const { host, directory } = await environment();
+    const shared = "local";
+    const config = { mcpServers: { [shared]: { command: process.execPath, args: [path.resolve("test/fixtures/plugin-mcp-server.mjs")] } } };
     const settingsManager = SettingsManager.inMemory({ packages: [] });
     const loader = new DefaultResourceLoader({
       cwd: directory,
@@ -565,7 +148,7 @@ describe("native plugin capabilities", () => {
       noSkills: true,
       noContextFiles: true,
       extensionFactories: [
-        { name: "plugin-mcp", factory: await service.host.extension(config) },
+        { name: "plugin-mcp", factory: await host.extension(config) },
       ],
     });
     await loader.reload();
@@ -577,7 +160,7 @@ describe("native plugin capabilities", () => {
       noTools: "builtin",
       sessionManager: SessionManager.inMemory(directory),
     });
-    const close = service.host.manage(session);
+    const close = host.manage(session);
     try {
       await session.bindExtensions({ mode: "rpc" });
       const mcp = session.getToolDefinition("mcp")!;
@@ -593,23 +176,23 @@ describe("native plugin capabilities", () => {
         session.extensionRunner.createToolContext("echo-call", undefined),
       );
       expect(JSON.stringify(result)).toContain("actual tool result");
-      expect(service.host.status(shared)).toMatchObject({
+      expect(host.status(shared)).toMatchObject({
         status: "connected",
         toolCount: 1,
       });
     } finally {
       await close();
     }
-    expect(service.host.status(shared)).toBeUndefined();
+    expect(host.status(shared)).toBeUndefined();
   });
 
   it("stops a session's MCP calls once its plugins change", async () => {
-    const { service, directory } = await environment();
+    const { host, directory } = await environment();
     const config = { mcpServers: { local: { command: process.execPath, args: [path.resolve("test/fixtures/plugin-mcp-server.mjs")] } } };
     let reason: string | undefined;
     const guard = async () => reason;
     // A coding agent calls the mcp tool directly.
-    const native = await service.host.tool(config, directory, guard);
+    const native = await host.tool(config, directory, guard);
     try {
       const call = () => native.tool.execute("echo-call", { server: "local", tool: "local_echo", args: { value: "still on" } }, undefined, undefined, undefined as never);
       expect(JSON.stringify(await call())).toContain("still on");
@@ -628,7 +211,7 @@ describe("native plugin capabilities", () => {
       noExtensions: true,
       noSkills: true,
       noContextFiles: true,
-      extensionFactories: [{ name: "plugin-mcp", factory: await service.host.extension(config, { guard }) }],
+      extensionFactories: [{ name: "plugin-mcp", factory: await host.extension(config, { guard }) }],
     });
     await loader.reload();
     const { session } = await createAgentSession({
@@ -639,7 +222,7 @@ describe("native plugin capabilities", () => {
       noTools: "builtin",
       sessionManager: SessionManager.inMemory(directory),
     });
-    const close = service.host.manage(session);
+    const close = host.manage(session);
     try {
       await session.bindExtensions({ mode: "rpc" });
       const event = { type: "tool_call", toolCallId: "echo-call", toolName: "mcp", input: {} } as never;
@@ -666,7 +249,6 @@ describe("native plugin capabilities", () => {
       { action: "prepare", input: { path: "ai-created" } },
       { action: "read" },
       { action: "test", server: "api" },
-      { action: "configure", input: { tag: "updated" } },
       { action: "read", id: "ohmygame/blender" },
     ];
     let requests = 0;
@@ -784,8 +366,7 @@ describe("native plugin capabilities", () => {
     expect(draft).toMatchObject({ plugin: { id: "personal/ai-created", appWide: false }, errors: [] });
     expect(JSON.parse(toolResults.get("plugin-tool-1")!)).toMatchObject({ plugin: { id: "personal/ai-created" } });
     expect(JSON.parse(toolResults.get("plugin-tool-2")!)).toMatchObject({ status: "connected", toolCount: 1 });
-    expect(toolResults.get("plugin-tool-3")).toContain("plugin's page");
-    expect(toolResults.get("plugin-tool-4")).toContain("omit id");
+    expect(toolResults.get("plugin-tool-3")).toContain("omit id");
     expect(draft.plugin.mcpServers).toMatchObject([{ id: "api" }]);
     expect(draft.checks.api).toMatchObject({ revision: draft.revision, result: { status: "connected", toolCount: 1 } });
     const installed = await app.inject({ method: "POST", url: `/plugins/setup-sessions/${state.id}/install`, payload: { revision: draft.revision } });
@@ -839,7 +420,7 @@ describe("native plugin capabilities", () => {
         delete process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE;
       else process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE = previousStore;
     });
-    const { service } = await environment();
+    const { host, agentDir, directory } = await environment();
     let base = "",
       exchanged = false;
     const server = createServer(async (req, res) => {
@@ -913,35 +494,27 @@ describe("native plugin capabilities", () => {
       () => new Promise<void>((resolve) => server.close(() => resolve())),
     );
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-    const plugin = await service.create({
-      name: "oauth-fixture",
-      servers: {
-        api: {
-          url: `${base}/mcp`,
-          auth: "oauth",
-          oauth: {
-            clientId: "fixture-client",
-            redirectUri: "http://127.0.0.1:45678/callback",
-          },
-        },
-      },
-    });
-    const started = await service.test(plugin, "api", "auth-start");
+    const definition = {
+      url: `${base}/mcp`,
+      auth: "oauth",
+      oauth: { clientId: "fixture-client", redirectUri: "http://127.0.0.1:45678/callback" },
+    };
+    const started = await host.probe("oauth", "oauth", definition, agentDir, "auth-start");
     expect(started.status).toBe("needs-auth");
     const url = new URL(started.authorizationUrl!);
     const callback = new URL(url.searchParams.get("redirect_uri")!);
     callback.searchParams.set("state", url.searchParams.get("state")!);
     callback.searchParams.set("code", "fixture-code");
     expect(
-      await service.test(plugin, "api", "auth-complete", callback.toString()),
+      await host.probe("oauth", "oauth", definition, agentDir, "auth-complete", callback.toString()),
     ).toMatchObject({ status: "connected" });
     expect(exchanged).toBe(true);
-    expect(await service.test(plugin, "api")).toMatchObject({
+    expect(await host.probe("oauth", "oauth", definition, agentDir, "test")).toMatchObject({
       status: "connected",
       toolCount: 1,
     });
     expect(
-      await readFile(service.configuration.filePath, "utf8").catch(() => ""),
+      await readFile(path.join(directory, "plugin-configuration.json"), "utf8").catch(() => ""),
     ).not.toContain("fixture-access-token");
   }, 45_000);
 

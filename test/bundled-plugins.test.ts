@@ -76,12 +76,11 @@ describe("bundled plugins", () => {
   });
 });
 
-describe("format 1 to format 2 conversion", () => {
-  const format1 = {
+describe("packaging a repository's Skills", () => {
+  const source = {
     name: "tiles",
     version: "0.2.0",
     description: "Long manifest description",
-    enabledByDefault: false,
     skills: "./skills/",
     interface: {
       beta: true,
@@ -94,21 +93,8 @@ describe("format 1 to format 2 conversion", () => {
     },
   };
 
-  it("keeps what its page shows when a plugin goes to format 2", async () => {
-    const { convertFormat1Manifest } = await import("../src/daemon/plugin-conversion.js");
-    const converted = convertFormat1Manifest(format1 as never, { publisher: "ohmygame", categories: ["art"] });
-    expect(converted.manifest).toMatchObject({ id: "ohmygame/tiles", version: "0.2.0", beta: true, icon: "./assets/icon.png", appliesTo: ["general", "web-game"], categories: ["art"], contributes: { skills: "./skills/" } });
-    expect(isAppWidePlugin(converted.manifest as never)).toBe(true);
-    expect(converted.strings).toMatchObject({ displayName: "Tiles", description: "Make tile maps" });
-  });
-
-  it("refuses a plugin that adds more than Skills", async () => {
-    const { convertFormat1Manifest } = await import("../src/daemon/plugin-conversion.js");
-    expect(() => convertFormat1Manifest({ ...format1, mcpServers: "./mcp.json" } as never, { publisher: "ohmygame" })).toThrow("only plugins that add Skills convert");
-  });
-
-  it("converts any format 1 package's Skills into a new format 2 package", async () => {
-    const { convertFormat1Package } = await import("../src/daemon/plugin-conversion.js");
+  it("packages a repository's Skills in a new folder", async () => {
+    const { packageSkills } = await import("../src/daemon/plugin-conversion.js");
     const { readFile, readdir } = await import("node:fs/promises");
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-convert-"));
     const root = path.join(directory, "source");
@@ -125,12 +111,16 @@ describe("format 1 to format 2 conversion", () => {
     await write("more/SKILL.md", "---\nname: Exporter\ndescription:\n---\nSee [notes](../shared/notes.md).\n");
     await write("shared/notes.md", "notes");
     await write("assets/icon.png", "png");
-    const result = await convertFormat1Package({
+    const result = await packageSkills({
       root,
-      manifest: { ...format1, version: undefined, skills: ["./SKILL.md", "./extras/", "./more/SKILL.md"], mcpServers: "./mcp.json" } as never,
+      manifest: { ...source, version: undefined, skills: ["./SKILL.md", "./extras/", "./more/SKILL.md"] } as never,
     }, path.join(directory, "target"), { id: "personal/tiles" });
 
     expect(result.entry).toMatchObject({ id: "personal/tiles", version: "0.0.0" });
+    // What its page shows comes along, and it applies by itself.
+    expect(result.entry.manifest).toMatchObject({ beta: true, icon: "./assets/icon.png", appliesTo: ["general", "web-game"] });
+    expect(isAppWidePlugin(result.entry.manifest)).toBe(true);
+    expect(JSON.parse(await readFile(path.join(directory, "target", "locales", "en.json"), "utf8"))).toMatchObject({ displayName: "Tiles", description: "Make tile maps" });
     expect(result.entry.skills.map((skill) => skill.path)).toEqual([
       "./skills/exporter/SKILL.md", "./skills/map-maker/SKILL.md", "./skills/map-maker-2/SKILL.md",
     ]);
@@ -139,7 +129,6 @@ describe("format 1 to format 2 conversion", () => {
       "extras/inner/SKILL.md": "skills/map-maker-2/SKILL.md",
       "more/SKILL.md": "skills/exporter/SKILL.md",
     });
-    expect(result.left).toEqual(["mcpServers"]);
     const target = path.join(directory, "target");
     const root2 = path.join(target, "skills", "map-maker");
     // Skills nested in the root Skill and hidden files stay out of its copy;
@@ -153,11 +142,11 @@ describe("format 1 to format 2 conversion", () => {
     const exporter = await readFile(path.join(target, "skills", "exporter", "SKILL.md"), "utf8");
     expect(exporter).toBe("---\nname: exporter\ndescription: Long manifest description\n---\nSee [notes](../map-maker/shared/notes.md).\n");
     expect(await readFile(path.join(target, "assets", "icon.png"), "utf8")).toBe("png");
-    expect(result.notes).toEqual(expect.arrayContaining(["mcpServers is not part of the converted package", 'Skill "Map Maker" is named map-maker']));
+    expect(result.notes).toEqual(expect.arrayContaining(['Skill "Map Maker" is named map-maker']));
   });
 
   it("copies a linked file in no Skill's folder, but no hidden file, and keeps frontmatter valid", async () => {
-    const { convertFormat1Package } = await import("../src/daemon/plugin-conversion.js");
+    const { packageSkills } = await import("../src/daemon/plugin-conversion.js");
     const { readFile, readdir } = await import("node:fs/promises");
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-convert-"));
     const root = path.join(directory, "source");
@@ -166,7 +155,7 @@ describe("format 1 to format 2 conversion", () => {
     await writeFile(path.join(root, "shared", "notes.md"), "notes");
     await writeFile(path.join(root, ".env"), "SECRET=1");
     await writeFile(path.join(root, "skills", "a", "SKILL.md"), '---\n"name": >-\n  My Skill\ndescription: A\n---\n[notes](../../shared/notes.md) [env](../../.env)\n');
-    await convertFormat1Package({ root, manifest: format1 as never }, path.join(directory, "target"), { id: "personal/tiles" });
+    await packageSkills({ root, manifest: source as never }, path.join(directory, "target"), { id: "personal/tiles" });
     const skill = path.join(directory, "target", "skills", "my-skill");
     expect(await readFile(path.join(skill, "_shared", "shared", "notes.md"), "utf8")).toBe("notes");
     expect(await readdir(path.join(skill, "_shared"))).toEqual(["shared"]);
@@ -174,7 +163,7 @@ describe("format 1 to format 2 conversion", () => {
   });
 
   it("rewrites every link form once, and keeps the icon inside the package", async () => {
-    const { convertFormat1Package } = await import("../src/daemon/plugin-conversion.js");
+    const { packageSkills } = await import("../src/daemon/plugin-conversion.js");
     const { readFile, readdir } = await import("node:fs/promises");
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-convert-"));
     const root = path.join(directory, "source");
@@ -212,9 +201,9 @@ describe("format 1 to format 2 conversion", () => {
     await write("x/a/_shared/docs/guide.md", "own");
     await write("locales/icon.png", "png");
     await mkdir(path.join(directory, "out"));
-    const result = await convertFormat1Package({
+    const result = await packageSkills({
       root,
-      manifest: { ...format1, skills: "./x/", interface: { ...format1.interface, icon: { type: "asset", path: "../source/locales/icon.png" } } } as never,
+      manifest: { ...source, skills: "./x/", interface: { ...source.interface, icon: { type: "asset", path: "../source/locales/icon.png" } } } as never,
     }, path.join(directory, "out", "result"), { id: "personal/tiles" });
     expect(await readFile(path.join(directory, "out", "result", "skills", "a", "SKILL.md"), "utf8")).toBe([
       "---", "name: a", "description: A", "---",
@@ -242,7 +231,7 @@ describe("format 1 to format 2 conversion", () => {
   });
 
   it("puts the icon beside the manifest folder when a Skill's file took its path", async () => {
-    const { convertFormat1Package } = await import("../src/daemon/plugin-conversion.js");
+    const { packageSkills } = await import("../src/daemon/plugin-conversion.js");
     const { readFile } = await import("node:fs/promises");
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-convert-"));
     const root = path.join(directory, "source");
@@ -252,9 +241,9 @@ describe("format 1 to format 2 conversion", () => {
     await writeFile(path.join(root, "skills", "old", "SKILL.md"), "---\nname: new\ndescription: New\n---\n");
     await writeFile(path.join(root, "skills", "old", "icon.png"), "skill");
     await writeFile(path.join(root, "skills", "new", "icon.png"), "plugin");
-    const result = await convertFormat1Package({
+    const result = await packageSkills({
       root,
-      manifest: { ...format1, skills: "./skills/old/SKILL.md", interface: { ...format1.interface, icon: { type: "asset", path: "./skills/new/icon.png" } } } as never,
+      manifest: { ...source, skills: "./skills/old/SKILL.md", interface: { ...source.interface, icon: { type: "asset", path: "./skills/new/icon.png" } } } as never,
     }, path.join(directory, "target"), { id: "personal/tiles" });
     expect(await readFile(path.join(directory, "target", "skills", "new", "icon.png"), "utf8")).toBe("skill");
     expect(result.entry.manifest.icon).toBe("./icon.png");
@@ -262,25 +251,25 @@ describe("format 1 to format 2 conversion", () => {
   });
 
   it("refuses Skills paths outside the package or through a link", async () => {
-    const { convertFormat1Package } = await import("../src/daemon/plugin-conversion.js");
+    const { packageSkills } = await import("../src/daemon/plugin-conversion.js");
     const { symlink } = await import("node:fs/promises");
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-convert-"));
     const root = path.join(directory, "source");
     await mkdir(path.join(root, "skills", "a"), { recursive: true });
     await writeFile(path.join(root, "skills", "a", "SKILL.md"), "---\nname: a\ndescription: A\n---\n");
-    await expect(convertFormat1Package({ root, manifest: { ...format1, skills: "../elsewhere" } as never }, path.join(directory, "one"), { id: "personal/tiles" }))
+    await expect(packageSkills({ root, manifest: { ...source, skills: "../elsewhere" } as never }, path.join(directory, "one"), { id: "personal/tiles" }))
       .rejects.toThrow("outside the package");
-    await expect(convertFormat1Package({ root, manifest: format1 as never }, path.join(root, "converted"), { id: "personal/tiles" }))
+    await expect(packageSkills({ root, manifest: source as never }, path.join(root, "converted"), { id: "personal/tiles" }))
       .rejects.toThrow("can't be written inside");
     // A link on the way, to a folder outside the package.
     const outside = path.join(directory, "outside", "private");
     await mkdir(outside, { recursive: true });
     await writeFile(path.join(outside, "SKILL.md"), "---\nname: private\ndescription: Private\n---\n");
     await symlink(path.dirname(outside), path.join(root, "alias"));
-    await expect(convertFormat1Package({ root, manifest: { ...format1, skills: "./alias/private/SKILL.md" } as never }, path.join(directory, "three"), { id: "personal/tiles" }))
+    await expect(packageSkills({ root, manifest: { ...source, skills: "./alias/private/SKILL.md" } as never }, path.join(directory, "three"), { id: "personal/tiles" }))
       .rejects.toThrow("is a link");
     await symlink(path.join(root, "skills", "a"), path.join(root, "skills", "b"));
-    await expect(convertFormat1Package({ root, manifest: format1 as never }, path.join(directory, "two"), { id: "personal/tiles" }))
+    await expect(packageSkills({ root, manifest: source as never }, path.join(directory, "two"), { id: "personal/tiles" }))
       .rejects.toThrow("is a link");
   });
 });

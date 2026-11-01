@@ -142,7 +142,7 @@ function ConnectionRow({ connection, open, onOpen, onChanged }: {
           ) : null}
           <PluginConfigurationPanel
             key={definitionVersion}
-            plugin={{ id: `connection:${connection.id}`, configuration: {} }}
+            owner={connection.id}
             compact
             load={() => readConnectionConfiguration(connection.id)}
             store={(values) => saveConnectionConfiguration(connection.id, values)}

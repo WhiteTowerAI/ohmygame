@@ -8,7 +8,7 @@ import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Alert, Button, Empty, Sheet, Skeleton } from "./ui/index.js";
 import type { PanelId } from "./workspace-layout.js";
 
-// What a project's format 2 plugins add to its workspace: panels beside the
+// What a project's plugins add to its workspace: panels beside the
 // built-in ones, and commands in the slots their manifests name. The project
 // shell reads them again whenever its plugins may have changed.
 

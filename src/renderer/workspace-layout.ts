@@ -3,7 +3,7 @@ import type { ProjectState, ProjectType } from "../shared/contracts.js";
 import { supportsWebPreview } from "../shared/project-runtime.js";
 
 // One layout for every project. A project type only names the panels it
-// offers, in the order they open (the shape of a format 2 plugin's
+// offers, in the order they open (the shape of a plugin's
 // `projectTypes[].panels`); the host decides where they go. The person's
 // arrangement is kept once and fitted to each project's panels, so moving the
 // chat to the right holds everywhere.
@@ -13,7 +13,7 @@ const VERSION = 3;
 const AREAS = ["left", "center", "right", "bottom"] as const;
 
 export type WorkspacePanel = "chat" | "game" | "design" | "code" | "assets" | "story" | "canvas";
-/** A built-in panel, or a format 2 plugin's as `plugin:<publisher/name>:<panel>`. */
+/** A built-in panel, or a plugin's as `plugin:<publisher/name>:<panel>`. */
 export type PanelId = WorkspacePanel | `plugin:${string}`;
 /** Where plugin panels open, from their manifests; built-in panels need none. */
 export type PanelHomes = Readonly<Record<string, AreaId>>;

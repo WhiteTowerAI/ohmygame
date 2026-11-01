@@ -65,7 +65,7 @@ interface ComposerProps {
   onRemoveContext?: (key: string) => void;
   canPublish?: boolean;
   onPublish?: () => void;
-  /** Format 2 plugin commands for the "/" list and the + menu; the project shell runs them. */
+  /** Plugin commands for the "/" list and the + menu; the project shell runs them. */
   pluginCommands?: ComposerPluginCommands;
   onPluginCommand?: (command: ProjectPluginCommand) => void;
 }

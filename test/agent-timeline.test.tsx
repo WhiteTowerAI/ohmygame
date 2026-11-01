@@ -1115,7 +1115,7 @@ describe("AgentTimeline", () => {
     ];
     const plugins = [{
       id: "web-game-studio@ohmygame", name: "web-game-studio", displayName: "Web Game Studio", description: "",
-      marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame", icon: { type: "preset" as const, id: "gamepad" as const },
+      marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame", icon: { type: "asset" as const, path: "./assets/icon.png" },
     }];
     const html = renderToStaticMarkup(<AgentTimeline plugins={plugins}
       items={[{ ...user(), text: "@Web Game Studio hi with @Gone and @Someone", mentions }]} />);

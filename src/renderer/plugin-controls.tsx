@@ -1,38 +1,24 @@
 import { useEffect, useState } from "react";
-import type {
-  PluginConfigurationValues,
-  PluginConfigurationView,
-  PluginDetail,
-  PluginMcpResult,
-} from "../shared/plugins.js";
-import {
-  readPluginConfiguration,
-  readPluginMcpDefinition,
-  savePluginConfiguration,
-  savePluginMcpDefinition,
-  testPluginMcp,
-} from "./api.js";
-import { LoaderCircle, Plug, Trash2, WandSparkles } from "./icons.js";
+import type { PluginConfigurationValues, PluginConfigurationView } from "../shared/plugins.js";
+import { Trash2 } from "./icons.js";
 import { t } from "./i18n.js";
 
 export function PluginEnabledSwitch({ plugin, disabled, onToggle }: {
-  plugin: Pick<PluginDetail, "displayName" | "enabled" | "installed">;
+  plugin: { displayName: string; enabled: boolean };
   disabled?: boolean;
   onToggle: (enabled: boolean) => void;
 }) {
-  if (!plugin.installed) return null;
   const label = `${plugin.enabled ? t("common.disable") : t("common.enable")} ${plugin.displayName}`;
   return <button className="plugin-switch" type="button" role="switch" aria-checked={plugin.enabled}
     aria-label={label} title={label} disabled={disabled} onClick={() => onToggle(!plugin.enabled)}><span /></button>;
 }
 
 export function PluginUninstallButton({ plugin, disabled, compact = false, onUninstall }: {
-  plugin: Pick<PluginDetail, "displayName" | "installed" | "source">;
+  plugin: { displayName: string };
   disabled?: boolean;
   compact?: boolean;
   onUninstall: () => void;
 }) {
-  if (!plugin.installed || plugin.source.type === "builtIn") return null;
   return <button className={compact ? "icon-button pane-header-action" : "plugin-detail-secondary"} type="button"
     disabled={disabled} title={t("pluginControls.uninstall")} aria-label={t("pluginControls.uninstall")} onClick={() => {
       if (window.confirm(t("pluginControls.confirmUninstall", { name: plugin.displayName }))) onUninstall();
@@ -40,17 +26,17 @@ export function PluginUninstallButton({ plugin, disabled, compact = false, onUni
 }
 
 export function PluginConfigurationPanel({
-  plugin,
+  owner,
   compact = false,
   load,
   store,
   onChanged,
 }: {
-  plugin: Pick<PluginDetail, "id" | "configuration">;
+  /** Whose settings these are; another owner reads them again. */
+  owner: string;
   compact?: boolean;
-  /** Reads and saves someone else's configuration, such as a connection's. */
-  load?: () => Promise<PluginConfigurationView>;
-  store?: (values: PluginConfigurationValues) => Promise<PluginConfigurationView>;
+  load: () => Promise<PluginConfigurationView>;
+  store: (values: PluginConfigurationValues) => Promise<PluginConfigurationView>;
   onChanged: () => void;
 }) {
   const [config, setConfig] = useState<PluginConfigurationView>();
@@ -60,7 +46,7 @@ export function PluginConfigurationPanel({
   const [notice, setNotice] = useState<string>();
   useEffect(() => {
     let active = true;
-    void (load ? load() : readPluginConfiguration(plugin.id))
+    void load()
       .then((value) => {
         if (active) {
           setConfig(value);
@@ -73,9 +59,8 @@ export function PluginConfigurationPanel({
     return () => {
       active = false;
     };
-  }, [plugin.id]);
+  }, [owner]);
   if (config && !Object.keys(config.fields).length) return null;
-  if (!config && !Object.keys(plugin.configuration ?? {}).length) return null;
   return (
     <section className="plugin-components plugin-configuration">
       {!compact ? <h2>{t("pluginControls.configuration")}</h2> : null}
@@ -181,7 +166,7 @@ export function PluginConfigurationPanel({
     setBusy(true);
     setError(undefined);
     try {
-      setConfig(await (store ? store(values) : savePluginConfiguration(plugin.id, values)));
+      setConfig(await store(values));
       setValues({});
       setNotice(
         compact ? t("common.saved") : t("pluginControls.savedActive"),
@@ -191,248 +176,6 @@ export function PluginConfigurationPanel({
       setError(message(cause));
     } finally {
       setBusy(false);
-    }
-  }
-}
-
-export function PluginMcpPanel({
-  plugin,
-  onToggle,
-  onAssist,
-  onChanged,
-}: {
-  plugin: PluginDetail;
-  onChanged: () => void;
-  onToggle: (id: string, enabled: boolean) => void;
-  onAssist: () => void;
-}) {
-  const [results, setResults] = useState<Record<string, PluginMcpResult>>({});
-  const [busy, setBusy] = useState<string>();
-  const [error, setError] = useState<string>();
-  const [input, setInput] = useState("");
-  const [editing, setEditing] = useState<string>();
-  const [definition, setDefinition] = useState("");
-  if (!plugin.mcpServers?.length && !plugin.connections.length) return null;
-  return (
-    <section className="plugin-components plugin-mcp">
-      <h2>{t("pluginControls.mcpServices")}</h2>
-      {(plugin.mcpServers ?? []).map((server) => {
-        const result = results[server.id];
-        return (
-          <div className="plugin-mcp-service" key={server.id}>
-            <div className="plugin-component-row plugin-mcp-row">
-              <span className="plugin-component-icon">
-                <Plug size={15} />
-              </span>
-              <span className="plugin-row-copy">
-                <strong>{server.name}</strong>
-                <span>
-                  {server.status === "connected"
-                    ? t("pluginControls.connectedTools", { count: server.toolCount ?? 0 })
-                    : server.status === "not-configured"
-                      ? t("plugins.needsConfiguration")
-                      : server.status === "disabled"
-                        ? t("common.disabled")
-                        : server.status === "needs-auth"
-                          ? t("pluginControls.authorizationRequired")
-                          : server.status === "failed"
-                            ? t("providers.status.failed")
-                            : t("pluginControls.readyToConnect")}
-                </span>
-              </span>
-              <div className="plugin-mcp-actions">
-                <button
-                  className="plugin-detail-secondary"
-                  type="button"
-                  disabled={Boolean(busy)}
-                  onClick={() => void edit(server.id)}
-                >
-                  {t("pluginControls.editConfiguration")}
-                </button>
-                {server.transport === "http" ? (
-                  <button
-                    className="plugin-detail-secondary"
-                    type="button"
-                    disabled={Boolean(busy)}
-                    onClick={() => void run(server.id, "auth-start")}
-                  >
-                    {t("pluginControls.authorize")}
-                  </button>
-                ) : null}
-                <button
-                  className="plugin-detail-secondary"
-                  type="button"
-                  disabled={Boolean(busy)}
-                  onClick={() => void run(server.id, "test")}
-                >
-                  {busy === server.id ? (
-                    <LoaderCircle size={13} className="spin" />
-                  ) : null}
-                  {t("pluginControls.test")}
-                </button>
-              </div>
-              <button
-                className="plugin-switch"
-                role="switch"
-                type="button"
-                aria-label={t("plugins.enableName", { name: server.name })}
-                aria-checked={server.enabled}
-                disabled={!plugin.enabled}
-                onClick={() => onToggle(server.id, !server.enabled)}
-              >
-                <span />
-              </button>
-            </div>
-            {result ? (
-              <div className="plugin-mcp-result" role="status">
-                <strong>
-                  {result.status === "connected"
-                    ? t("pluginControls.connectedTools", { count: result.toolCount })
-                    : result.status === "needs-auth"
-                      ? t("pluginControls.authorizationRequired")
-                      : t("providers.status.failed")}
-                </strong>
-                {result.message ? <pre>{result.message}</pre> : null}
-              </div>
-            ) : null}
-            {editing === server.id ? (
-              <form
-                className="plugin-mcp-editor"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void saveDefinition(server.id);
-                }}
-              >
-                <label>
-                  {t("pluginControls.mcpConfiguration")}
-                  <textarea
-                    aria-label={t("pluginControls.mcpConfiguration")}
-                    rows={10}
-                    value={definition}
-                    onChange={(event) => setDefinition(event.target.value)}
-                  />
-                </label>
-                <div>
-                  <button
-                    className="plugin-detail-secondary"
-                    type="button"
-                    onClick={() => setEditing(undefined)}
-                  >
-                    {t("common.cancel")}
-                  </button>
-                  <button
-                    className="plugin-detail-primary"
-                    type="submit"
-                    disabled={Boolean(busy)}
-                  >
-                    {t("pluginControls.saveConfiguration")}
-                  </button>
-                </div>
-                <small>
-                  {t("pluginControls.credentialsReferenced")}
-                </small>
-              </form>
-            ) : null}
-            {result?.authorizationUrl ? (
-              <div className="plugin-oauth">
-                <a
-                  href={result.authorizationUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {t("pluginControls.openAuthorization")}
-                </a>
-                <label>
-                  {t("pluginControls.pasteCallback")}
-                  <input
-                    value={input}
-                    autoComplete="off"
-                    onChange={(event) => setInput(event.target.value)}
-                  />
-                </label>
-                <button
-                  className="plugin-detail-secondary"
-                  type="button"
-                  disabled={Boolean(busy) || !input.trim()}
-                  onClick={() => void run(server.id, "auth-complete")}
-                >
-                  {t("pluginControls.completeAuthorization")}
-                </button>
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
-      {plugin.connections.map((connection) => (
-        <div className="plugin-component-row plugin-mcp-connection" key={connection.id}>
-          <span className="plugin-row-copy">
-            <strong>{connection.name}</strong>
-            <span>{t("pluginControls.providerNotInstalled")}</span>
-          </span>
-        </div>
-      ))}
-      {error ? <p role="alert">{error}</p> : null}
-      <footer className="plugin-mcp-footer">
-        <button
-          className="plugin-detail-secondary"
-          type="button"
-          onClick={onAssist}
-        >
-          <WandSparkles size={13} />
-          {t("pluginControls.repairWithAi")}
-        </button>
-        <p className="plugin-change-notice">
-          {t("pluginControls.changesApply")}
-        </p>
-      </footer>
-    </section>
-  );
-  async function edit(server: string) {
-    setBusy(server);
-    setError(undefined);
-    try {
-      const result = await readPluginMcpDefinition(plugin.id, server);
-      setDefinition(JSON.stringify(result.definition, null, 2));
-      setEditing(server);
-    } catch (cause) {
-      setError(message(cause));
-    } finally {
-      setBusy(undefined);
-    }
-  }
-  async function saveDefinition(server: string) {
-    setBusy(server);
-    setError(undefined);
-    try {
-      await savePluginMcpDefinition(plugin.id, server, JSON.parse(definition));
-      setEditing(undefined);
-      setResults({});
-      onChanged();
-    } catch (cause) {
-      setError(message(cause));
-    } finally {
-      setBusy(undefined);
-    }
-  }
-  async function run(
-    server: string,
-    action: "test" | "auth-start" | "auth-complete",
-  ) {
-    setBusy(server);
-    setError(undefined);
-    try {
-      const result = await testPluginMcp(
-        plugin.id,
-        server,
-        action,
-        action === "auth-complete" ? input : undefined,
-      );
-      setResults((r) => ({ ...r, [server]: result }));
-      if (action === "auth-complete") setInput("");
-    } catch (cause) {
-      setError(message(cause));
-    } finally {
-      setBusy(undefined);
     }
   }
 }

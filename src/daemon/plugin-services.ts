@@ -37,7 +37,7 @@ import {
 } from "./project-plugins.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
 
-// The format 2 plugin services the daemon holds: the index of installed
+// The plugin services the daemon holds: the index of installed
 // packages, the person's decisions, and the hosts that run native code. They
 // load on first use, so the app starts the same with no plugins installed.
 //
@@ -122,7 +122,7 @@ export interface PluginServicesOptions {
   /** The folder for the index and decisions, inside the app's data folder. */
   directory: string;
   hosts?: ExtensionHostOptions;
-  /** The format 2 plugins that ship with the app, indexed by `ready()` before anything is served. */
+  /** The plugins that ship with the app, indexed by `ready()` before anything is served. */
   bundled?: string;
   /** Told when the bundled plugins can't be indexed; everything else still loads. */
   onBundledError?: (error: unknown) => void;
@@ -130,7 +130,7 @@ export interface PluginServicesOptions {
   bundledOff?: readonly string[];
 }
 
-/** A plugin's Skill as agent sessions load it. Format 2 plugins have no marketplace; their publisher stands in. */
+/** A plugin's Skill as agent sessions load it. Plugins have no marketplace; their publisher stands in. */
 function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRegistration {
   return {
     path: file,
@@ -278,8 +278,7 @@ export class PluginServices {
   }
 
   /**
-   * The Skills of a project's active plugins, for agent sessions to load
-   * beside the format 1 plugins' Skills.
+   * The Skills of a project's active plugins, for agent sessions to load.
    */
   async skills(folder: string): Promise<PluginSkillRegistration[]> {
     await this.ready();
@@ -302,8 +301,7 @@ export class PluginServices {
 
   /**
    * The MCP servers of a project's active plugins, for agent sessions to
-   * start beside the format 1 plugins' servers, keyed by a name unique to
-   * the plugin and server. A server is left out until the settings it names
+   * start, keyed by a name unique to the plugin and server. A server is left out until the settings it names
    * are filled in, and an HTTP server while its URL is outside
    * `capabilities.network`.
    */
@@ -564,7 +562,7 @@ export class PluginServices {
   }
 
   /**
-   * Indexes the format 2 plugins that ship with the app, in place. They are
+   * Indexes the plugins that ship with the app, in place. They are
    * OhMyGame's own, so what they ask for is allowed at install, unless the
    * person turned one off; each project still allows them in its folder.
    */

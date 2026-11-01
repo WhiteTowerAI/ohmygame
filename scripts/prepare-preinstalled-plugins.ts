@@ -2,13 +2,10 @@ import { createHash } from "node:crypto";
 import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
-import { discoverPlugins } from "../src/daemon/plugin-discovery.js";
-import { inspectPluginBundle } from "../src/daemon/local-plugins.js";
-import { convertFormat1Package } from "../src/daemon/plugin-conversion.js";
+import { packageSkills, type SkillsSource } from "../src/daemon/plugin-conversion.js";
 import { isAppWidePlugin } from "../src/shared/plugin-manifest.js";
 import type { PluginCategory } from "../src/shared/plugin-manifest.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
-import type { ResolvedPluginManifest } from "../src/shared/plugins.js";
 import { git, replaceDirectory } from "./runtime-directory.js";
 
 interface LockedPlugin {
@@ -19,9 +16,12 @@ interface LockedPlugin {
   release?: string;
   version: string;
   artifactSha256: string;
-  candidate: string;
+  /** The plugin's name, after `ohmygame/`. */
+  name: string;
+  /** Where its Skills are in the repository. */
+  skills: string | string[];
   assets?: string;
-  interface?: NonNullable<ResolvedPluginManifest["interface"]>;
+  interface: NonNullable<SkillsSource["interface"]> & { shortDescription: string };
   categories?: PluginCategory[];
 }
 
@@ -64,28 +64,16 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
       await rm(path.join(source, ".git"), { recursive: true, force: true });
       if (entry.assets) await cp(path.resolve(repositoryRoot, entry.assets), path.join(source, "assets"), { recursive: true });
 
-      const candidates = await discoverPlugins(source);
-      const selected = candidates.find((candidate) => candidate.key === entry.candidate);
-      if (!selected) throw new Error(`Plugin candidate ${entry.candidate} was not found in ${entry.repository}`);
-      const original = {
-        ...selected.manifest,
-        version: entry.version,
-        interface: { ...selected.manifest.interface, ...entry.interface },
-      } satisfies ResolvedPluginManifest;
-      const identity = {
-        idPrefix: "ohmygame:",
-        marketplace: { id: "ohmygame", displayName: "OhMyGame" },
-        source: { type: "preinstalled" as const, pluginId: entry.pluginId, releaseId: entry.releaseId },
-      };
-      await inspectPluginBundle(source, identity, original);
-      // It ships as a format 2 package that only adds Skills, so it applies by itself.
-      const converted = path.join(temporary, `${entry.pluginId}-format-2`);
-      const conversion = await convertFormat1Package({ root: source, manifest: original }, converted, {
-        id: `ohmygame/${original.name}`,
+      // It ships as a package that only adds Skills, so it applies by itself.
+      const converted = path.join(temporary, `${entry.pluginId}-package`);
+      const conversion = await packageSkills({
+        root: source,
+        manifest: { name: entry.name, version: entry.version, description: entry.interface.shortDescription, skills: entry.skills, interface: entry.interface },
+      }, converted, {
+        id: `ohmygame/${entry.name}`,
         ...(entry.categories ? { categories: entry.categories } : {}),
       });
-      if (conversion.left.length) throw new Error(`${entry.repository} has ${conversion.left.join(", ")}, which a preinstalled plugin can't carry`);
-      if (!isAppWidePlugin(conversion.entry.manifest)) throw new Error(`${entry.repository} doesn't convert to a plugin that only adds Skills`);
+      if (!isAppWidePlugin(conversion.entry.manifest)) throw new Error(`${entry.repository} doesn't package as a plugin that applies by itself`);
       const archive = await createPluginArchive(converted);
       const artifactSha256 = createHash("sha256").update(archive).digest("hex");
       if (artifactSha256 !== entry.artifactSha256) {

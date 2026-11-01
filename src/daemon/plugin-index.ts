@@ -28,7 +28,7 @@ import {
 } from "../shared/plugin-manifest.js";
 import { parseSkillMetadata } from "./skill-metadata.js";
 
-// The plugin index: what every installed format 2 plugin offers, worked out
+// The plugin index: what every installed plugin offers, worked out
 // once at install and kept in one file, so startup reads that file and
 // nothing else. No plugin code runs to build it. Several versions of a
 // plugin can be installed side by side; an entry is keyed by id and version

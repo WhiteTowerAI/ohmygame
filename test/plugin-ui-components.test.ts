@@ -234,7 +234,7 @@ describe("page components", () => {
     const page = await readFile("packages/plugin-ui/gallery/panel/index.html", "utf8");
     const used = new Set([...page.matchAll(/<(omg-[a-z-]+)/g)].map(([, name]) => name!));
     expect([...used].filter((name) => !customElements.get(name))).toEqual([]);
-    const docs = await readFile("docs/plugins-v2.md", "utf8");
+    const docs = await readFile("docs/plugins.md", "utf8");
     expect([...used].filter((name) => !docs.includes(`\`${name}\``))).toEqual([]);
   });
 });

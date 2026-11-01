@@ -28,7 +28,7 @@ beforeEach(async () => {
   await mkdir(path.dirname(python), { recursive: true });
   await mkdir(workspace);
   await writeFile(python, "");
-  await writeFile(path.join(cli, "package.json"), JSON.stringify({ version: "0.0.36", type: "module" }));
+  await writeFile(path.join(cli, "package.json"), JSON.stringify({ version: "0.0.39", type: "module" }));
   await writeFile(
     path.join(cli, "bin/taptap-maker"),
     `
@@ -67,6 +67,8 @@ beforeEach(async () => {
       const workspace = args[args.indexOf("--target-dir") + 1];
       const id = args.includes("--create") ? "created" : args[args.indexOf("--app-id") + 1];
       console.log(JSON.stringify({step:"app",data:{app_id:id}}));
+      // Like Maker, init sets up a repository in the folder and keeps its files.
+      await mkdir(path.join(workspace, ".git/info"), { recursive: true });
       await mkdir(path.join(workspace, ".maker-mcp"), { recursive: true });
       await writeFile(path.join(workspace, ".maker-mcp/config.json"), JSON.stringify({ project_id: id }));
       if (await has("fail-init")) process.exit(1);
@@ -160,10 +162,71 @@ describe("TapTap Maker project setup", () => {
     expect(await maker.bind(context(), { projectId: "selected" })).toMatchObject({ project: { id: "selected" } });
   });
 
-  it("refuses a project with files of its own before creating a remote project", async () => {
-    await writeFile(path.join(workspace, "game.lua"), "-- keep");
-    await expect(maker.create(context(), { name: "Pixel garden" })).rejects.toThrow("empty project");
+  it("connects a project with files of its own, keeping them out of Maker's commits", async () => {
+    await writeFile(path.join(workspace, "ohmygame.json"), "{}");
+    await writeFile(path.join(workspace, "notes.md"), "kept");
+    await maker.create(context(), { name: "Pixel garden" });
+    expect(await readFile(path.join(workspace, "notes.md"), "utf8")).toBe("kept");
+    const exclude = path.join(workspace, ".git/info/exclude");
+    expect((await readFile(exclude, "utf8")).split("\n")).toEqual(
+      expect.arrayContaining(["/ohmygame.json", "/.ohmygame/", "/canvas/"]),
+    );
+    await writeFile(exclude, "*.log\n/canvas/");
+    await maker.ready(context());
+    await maker.status(context());
+    const lines = (await readFile(exclude, "utf8")).trim().split("\n");
+    expect(lines.filter((line) => line === "/canvas/")).toHaveLength(1);
+    expect(lines).toEqual(["*.log", "/canvas/", "# OhMyGame's own files, kept out of Maker builds", "/ohmygame.json", "/.ohmygame/"]);
+  });
+
+  it("finds a worktree's shared exclude file and keeps rules Git reads differently", async () => {
+    await maker.bind(context(), { projectId: "selected" });
+    // A worktree's .git is a file; its Git folder names the main repository's.
+    const main = path.join(directory, "main.git");
+    await mkdir(path.join(main, "worktrees/workspace"), { recursive: true });
+    await writeFile(path.join(main, "worktrees/workspace/commondir"), "../..\n");
+    await rm(path.join(workspace, ".git"), { recursive: true });
+    await writeFile(path.join(workspace, ".git"), `gitdir: ${path.join(main, "worktrees/workspace")}\n`);
+    await mkdir(path.join(main, "info"));
+    // Leading spaces are part of a Git pattern, so this rule matches nothing.
+    // A trailing tab is too, and a later negation undoes a rule.
+    await writeFile(path.join(main, "info/exclude"), " /ohmygame.json\n/canvas/   \n/.ohmygame/\t\n");
+    expect(await maker.ready(context())).toEqual({ ready: true });
+    const exclude = path.join(main, "info/exclude");
+    expect((await readFile(exclude, "utf8")).split("\n")).toEqual([
+      " /ohmygame.json",
+      "/canvas/   ",
+      "/.ohmygame/\t",
+      "# OhMyGame's own files, kept out of Maker builds",
+      "/ohmygame.json",
+      "/.ohmygame/",
+      "",
+    ]);
+    await writeFile(exclude, "/ohmygame.json\n/.ohmygame/\n/canvas/\n!/canvas/\n");
+    await maker.ready(context());
+    expect((await readFile(exclude, "utf8")).trim().split("\n").slice(4)).toEqual([
+      "# OhMyGame's own files, kept out of Maker builds",
+      "/ohmygame.json",
+      "/.ohmygame/",
+      "/canvas/",
+    ]);
+  });
+
+  it("refuses a folder that is already a Git repository before calling Maker", async () => {
+    await mkdir(path.join(workspace, ".git"));
+    await expect(maker.create(context(), { name: "Pixel garden" })).rejects.toThrow("already a Git repository");
+    await expect(maker.bind(context(), { projectId: "selected" })).rejects.toThrow("already a Git repository");
     expect(await calls()).toEqual([]);
+  });
+
+  it("refuses a repository that replaced a connected folder, whatever an earlier setup recorded", async () => {
+    await maker.bind(context(), { projectId: "selected" });
+    await rm(workspace, { recursive: true });
+    await mkdir(path.join(workspace, ".git"), { recursive: true });
+    const before = (await calls()).length;
+    await expect(maker.bind(context(), { projectId: "selected" })).rejects.toThrow("already a Git repository");
+    await expect(maker.create(context(), { name: "Pixel garden" })).rejects.toThrow("already a Git repository");
+    expect(await calls()).toHaveLength(before);
   });
 
   it("initializes once and keeps the binding when the same project is connected again", async () => {
@@ -171,7 +234,7 @@ describe("TapTap Maker project setup", () => {
     const bindingPath = path.join(workspace, ".maker-mcp/config.json");
     const original = await readFile(bindingPath, "utf8");
     await writeFile(path.join(workspace, "game.lua"), "-- local changes");
-    expect(await maker.bind(context(), { projectId: "selected" })).toEqual({ connection: "ready", project: { id: "selected" } });
+    expect(await maker.bind(context(), { projectId: "selected" })).toEqual({ connection: "ready", project: { id: "selected", name: "Selected" } });
     expect(await inits()).toHaveLength(1);
     expect(await readFile(bindingPath, "utf8")).toBe(original);
     await expect(maker.bind(context(), { projectId: "another" })).rejects.toThrow("already bound to another Maker project");

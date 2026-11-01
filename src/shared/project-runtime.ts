@@ -41,7 +41,7 @@ export const PLUGIN_PROJECT_KINDS = {
 } as const satisfies Record<string, string>;
 
 /**
- * Whether a format 2 plugin suits a project type, by its `appliesTo` (none
+ * Whether a plugin suits a project type, by its `appliesTo` (none
  * means every type). An app kind that is a plugin type now matches either name.
  */
 export function pluginAppliesTo(appliesTo: readonly string[] | undefined, type: string): boolean {

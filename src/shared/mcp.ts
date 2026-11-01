@@ -4,7 +4,7 @@ export interface McpToolIdentity {
 }
 
 export const GODOT_MCP_SERVER_ID = "ohmygame-godot";
-/** The bundled format 2 Godot plugin's server, as `PluginServices.mcpServers` names it. */
+/** The bundled Godot plugin's server, as `PluginServices.mcpServers` names it. */
 export const GODOT_PLUGIN_MCP_SERVER_ID = "plugin-043aef6f25f5-v2-godot";
 const KNOWN_MCP_SERVERS = [GODOT_MCP_SERVER_ID, GODOT_PLUGIN_MCP_SERVER_ID];
 

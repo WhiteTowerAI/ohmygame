@@ -4,7 +4,7 @@ import type { PluginOrigin } from "./plugins.js";
 export interface PreparedPluginRelease {
   pluginId: string;
   releaseId: string;
-  /** The format 2 plugin the archive holds. */
+  /** The plugin the archive holds. */
   id: string;
   version: string;
   artifactFile: string;

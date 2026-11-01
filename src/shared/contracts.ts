@@ -434,7 +434,7 @@ export interface ProjectState extends ProjectPreviewSettings {
   updatedAt: string;
   workspacePath: string;
   /**
-   * A format 2 plugin project type, `publisher/name:type`, and how its game is
+   * A plugin project type, `publisher/name:type`, and how its game is
    * previewed, recorded for the app's screens. `ohmygame.json` decides what runs.
    */
   pluginType?: { id: string; plugin: string; preview: "web" | "web-build" | "native" };
@@ -948,7 +948,7 @@ export interface CreateProjectRequest {
   /** Absolute path returned by the desktop directory picker. */
   workspacePath?: string;
   pluginId?: string;
-  /** A format 2 plugin project type, `publisher/name:type` (see GET /project-types). */
+  /** A plugin project type, `publisher/name:type` (see GET /project-types). */
   projectType?: string;
 }
 /** `reasoningLevel` is for a Pi model and `nativeReasoningLevel` for a coding agent's. */
@@ -1296,7 +1296,7 @@ export interface RuntimeEventData {
   "conversation.model.changed": { item: Extract<ThreadItem, { type: "modelChange" }> };
   "project.renamed": { project: ProjectState };
   "project.updated": { project: ProjectState };
-  /** What the project's format 2 plugins offer may have changed: read their panels and commands again. */
+  /** What the project's plugins offer may have changed: read their panels and commands again. */
   "project.plugins.changed": Record<string, never>;
   /** A plugin command the app runs needs the person to open an https link, such as a sign-in page. */
   "plugin.command.progress": { command: string; message: string; url?: string };

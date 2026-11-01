@@ -6,11 +6,8 @@ import sharp from "sharp";
 import { registerPluginIconRoutes, validatePluginIconImage } from "../src/daemon/plugin-icons.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PluginSetupManager, registerPluginSetupRoutes } from "../src/daemon/plugin-setup.js";
-import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
-import { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { LocalPluginAdapter, PluginCatalogService } from "../src/daemon/plugin-catalog.js";
+import { PluginMcpHost } from "../src/daemon/plugin-mcp-host.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
-import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
 import { readPluginBuilderInput, savePluginBuilderInput } from "../src/renderer/plugin-builder-drafts.js";
 
@@ -21,23 +18,18 @@ async function environment() {
   cleanup.push(() => rm(directory, { recursive: true, force: true }));
   const agentDir = path.join(directory, "pi-agent");
   await mkdir(agentDir);
-  const settings = new PluginSettingsStore(directory);
-  await settings.load();
-  const local = new LocalPluginStore(directory);
-  const capabilities = new PluginCapabilities(directory, agentDir, [local], local, settings);
-  await capabilities.configuration.load();
-  cleanup.push(() => capabilities.host.close());
-  const catalog = new PluginCatalogService([new LocalPluginAdapter(local)], settings);
+  const host = new PluginMcpHost();
+  cleanup.push(() => host.close());
   const invalidate = vi.fn();
   const services = new PluginServices({ directory: path.join(directory, "plugin-store") });
   cleanup.push(() => services.close());
-  function manager() { return new PluginSetupManager(directory, agentDir, capabilities, catalog, services, invalidate, async () => { throw new Error("No test model"); }); }
+  function manager() { return new PluginSetupManager(directory, agentDir, host, services, invalidate, async () => { throw new Error("No test model"); }); }
   const setup = manager();
   const app = Fastify();
   registerPluginSetupRoutes(app, setup);
-  registerPluginIconRoutes(app, [local]);
+  registerPluginIconRoutes(app, async () => undefined);
   cleanup.push(() => app.close());
-  return { directory, agentDir, settings, local, capabilities, services, setup, manager, app, invalidate };
+  return { directory, agentDir, host, services, setup, manager, app, invalidate };
 }
 const ID = "personal/design-review";
 async function writeDraft(directory: string, sessionId: string, mcp = false) {
@@ -170,7 +162,7 @@ describe("Plugin Builder", () => {
     expect(preview.plugin.icon).toEqual(asset);
     expect(preview.revision).not.toBe(draft.revision);
     expect((await app.inject({ method: "PUT", url: `/plugins/setup-sessions/${state.id}/icon`, payload: { revision: draft.revision, icon: asset } })).statusCode).toBe(409);
-    expect((await app.inject({ method: "PUT", url: `/plugins/setup-sessions/${state.id}/icon`, payload: { revision: preview.revision, icon: { type: "preset", id: "image" } } })).statusCode).toBe(409);
+    expect((await app.inject({ method: "PUT", url: `/plugins/setup-sessions/${state.id}/icon`, payload: { revision: preview.revision, icon: { type: "preset", id: "image" } } })).statusCode).toBe(400);
     await expect(setup.installDraft(state.id, draft.revision!)).rejects.toThrow("changed");
     await setup.installDraft(state.id, preview.revision);
     expect(services.index.get(ID)?.manifest.icon).toBe("./assets/icon.svg");
@@ -400,24 +392,15 @@ describe("Plugin Builder", () => {
     await expect(setup.create("acme/design-review", "edit")).rejects.toThrow("Only a plugin you made");
   });
 
-  it("deletes a plugin's configuration workspace and guards configuration mode from authoring", async () => {
-    const { setup, app, directory, local } = await environment();
-    const source = path.join(directory, "public-source");
-    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
-    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({ name: "public-tool", version: "1.0.0", description: "Public" }));
-    const { id } = await local.install(source, { type: "directory", path: source });
-    const created = await app.inject({ method: "POST", url: "/plugins/setup-sessions", payload: { pluginId: id, mode: "configure" } });
-    expect(created.statusCode).toBe(201);
-    const state = created.json();
-    expect(state.mode).toBe("configure");
-    await expect(setup.prepare(state.id, ".")).rejects.toThrow("cannot author");
-    await expect(setup.installDraft(state.id, "a".repeat(64))).rejects.toThrow("cannot install");
-    // A format 1 plugin stays what it is: it can be configured, not rebuilt.
-    expect(await setup.read(state.id)).toMatchObject({ pluginId: id });
-    expect((await app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}` })).statusCode).toBe(204);
-    expect((await setup.list()).map(item => item.id)).not.toContain(state.id);
-    await expect(setup.create(id, "edit")).rejects.toThrow("Select an installed plugin");
-    expect((await setup.create(id)).mode).toBe("configure");
+  it("leaves out sessions that configured an older kind of plugin", async () => {
+    const { setup, directory } = await environment();
+    const id = "11111111-2222-4333-8444-555555555555";
+    await mkdir(path.join(directory, "plugin-setup", id), { recursive: true });
+    await writeFile(path.join(directory, "plugin-setup", id, "state.json"), JSON.stringify({ id, mode: "configure", pluginId: "personal:tool" }));
+    expect(await setup.list()).toEqual([]);
+    await expect(setup.read(id)).rejects.toThrow("no longer available");
+    // A plugin to work on opens the person's own one to edit; there is no configuring mode.
+    await expect(setup.create("personal:tool")).rejects.toThrow("Select an installed plugin");
   });
 
   it("deletes conversation history across restart while retaining the draft", async () => {

@@ -41,7 +41,7 @@ export function usePluginProjectTypes(): { types?: AvailableProjectType[]; faile
   return { types, failed, retry: () => setAttempt((value) => value + 1) };
 }
 
-/** The enabled format 2 plugins a new project can turn on; `choices` is undefined until they load. */
+/** The enabled plugins a new project can turn on; `choices` is undefined until they load. */
 export function useProjectPluginChoices(): { choices?: ProjectPluginChoice[]; failed: boolean; retry: () => void } {
   const [choices, setChoices] = useState<ProjectPluginChoice[]>();
   const [failed, setFailed] = useState(false);

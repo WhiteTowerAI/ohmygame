@@ -475,21 +475,6 @@ body {
   transition: color 140ms ease;
 }
 
-.plugin-connection-status {
-  padding: 0;
-  border: 0;
-  color: #aab2b4;
-  background: transparent;
-  font-size: 11px;
-  cursor: pointer;
-}
-.plugin-connection-status:hover {
-  color: #fff;
-}
-.plugin-connection-status.is-enabled {
-  color: var(--success);
-}
-
 .settings-panel > h3,
 .settings-panel-header h3 {
   color: var(--text);
@@ -4228,9 +4213,7 @@ select.settings-search-input {
 .plugin-file-picker-name.is-empty {
   color: var(--text-faint);
 }
-.plugin-install-dialog .plugin-install-error {
-  color: var(--danger);
-}
+
 .plugin-install-dialog footer {
   display: flex;
   justify-content: flex-end;
@@ -4282,37 +4265,6 @@ select.settings-search-input {
   max-height: 100%;
 }
 
-.plugin-row-copy {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
-}
-
-.plugin-row-copy strong {
-  overflow: hidden;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.plugin-row-copy > span {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.plugin-row-copy small {
-  overflow: hidden;
-  color: var(--text-faint);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .plugin-switch {
   position: relative;
   width: 32px;
@@ -4351,11 +4303,6 @@ select.settings-search-input {
   opacity: 0.4;
 }
 
-.plugins-inline-error {
-  margin: 10px 0;
-  color: var(--danger);
-  font-size: 11px;
-}
 .plugins-installed {
   container: plugins / inline-size;
   margin-top: 28px;
@@ -4455,41 +4402,6 @@ select.settings-search-input {
 
 .plugin-components.is-disabled > div {
   opacity: 0.55;
-}
-
-.plugin-component-row {
-  display: grid;
-  min-height: 54px;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.plugin-component-row:last-child {
-  border-bottom: 0;
-}
-
-.plugin-component-row .plugin-row-copy strong {
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 16px;
-}
-
-.plugin-component-row .plugin-row-copy > span {
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 15px;
-}
-
-.plugin-component-icon {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border-radius: 7px;
-  color: var(--text-muted);
 }
 
 .model-preview {
@@ -12985,29 +12897,10 @@ summary.work-summary:hover {
 .plugin-configuration input, .plugin-configuration select, .plugin-oauth input, .plugin-install-dialog textarea, .plugin-install-dialog select { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; color: inherit; background: var(--surface); font: inherit; }
 .plugin-configuration input[type="checkbox"] { width: 18px; }
 .plugin-configuration small { color: var(--text-muted); font-size: 12px; }
-.plugin-dependencies, .plugin-mcp { color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
-.plugin-dependencies > [role="alert"] { margin: 8px 0 0; color: var(--danger); }
-.plugin-dependency-checks {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 6px 16px;
-  margin: 0;
-  padding: 10px 12px 12px 50px;
-  border-top: 1px solid var(--border);
-  list-style: none;
-  font-size: 11px;
-  overflow-wrap: anywhere;
-}
-.plugin-dependency-checks li { display: contents; }
-.plugin-dependency-checks strong { font-weight: 500; }
-.plugin-dependency-checks .is-ok strong { color: var(--success); }
-.plugin-dependency-checks .is-warning strong { color: var(--text); }
-.plugin-dependency-checks .is-error strong { color: var(--danger); }
-.plugin-dependencies > [role="alert"], .plugin-mcp > [role="alert"] { margin: 12px 0 0; color: var(--danger); overflow-wrap: anywhere; }
-.plugin-mcp-service + .plugin-mcp-service, .plugin-mcp-connection { margin-top: 8px; }
-.plugin-mcp-row { min-height: 64px; grid-template-columns: 28px minmax(0, 1fr) auto auto; gap: 10px; padding: 12px; border-bottom: 0; }
-.plugin-mcp-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.plugin-mcp-service > :not(.plugin-mcp-row) { border-top: 1px solid var(--border); }
+.plugin-mcp { color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+
+.plugin-mcp > [role="alert"] { margin: 12px 0 0; color: var(--danger); overflow-wrap: anywhere; }
+
 .plugin-mcp-result, .plugin-oauth { padding: 12px; }
 .plugin-mcp-result > strong { color: var(--text); font-size: 11px; font-weight: 500; }
 .plugin-mcp-result pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; font-size: 11px; line-height: 1.6; }
@@ -13015,24 +12908,10 @@ summary.work-summary:hover {
 .plugin-oauth > button { justify-self: start; }
 .plugin-oauth label { font-size: 11px; }
 .plugin-oauth input { min-width: 0; font-size: 12px; }
-.plugin-mcp-editor { display: grid; gap: 12px; padding: 12px; }
-.plugin-mcp-editor label { display: grid; min-width: 0; gap: 8px; font-size: 11px; }
-.plugin-mcp-editor textarea { width: 100%; padding: 12px; font: 11px/1.6 monospace; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
-.plugin-mcp-editor > div { display: flex; flex-wrap: wrap; gap: 8px; }
-.plugin-mcp-editor small { color: var(--text-muted); font-size: 11px; }
-.plugin-mcp-connection { grid-template-columns: minmax(0, 1fr) auto; padding: 12px; border-bottom: 0; }
-.plugin-mcp-connection > a { text-decoration: none; }
-.plugin-mcp-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
-.plugin-change-notice { margin: 0; color: var(--text-muted); font-size: 11px; }
+
 .plugin-configuration { font-size: 12px; }
 .plugin-configuration form > button, .plugin-configuration label > button { justify-self: start; }
 .plugin-install-dialog { max-height: 90dvh; overflow: auto; }
-@media (max-width: 600px) {
-  .plugin-mcp-row { grid-template-columns: 24px minmax(0, 1fr) auto; row-gap: 8px; }
-  .plugin-mcp-actions { grid-column: 2 / -1; grid-row: 2; }
-  .plugin-mcp-row > .plugin-switch { grid-column: 3; grid-row: 1; }
-}
-
 .cloud-quota-details { display: grid; gap: 12px; }
 .cloud-quota-row { display: grid; min-width: 0; gap: 7px; }
 .cloud-quota-row-heading { display: flex; justify-content: space-between; gap: 12px; color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -13062,9 +12941,6 @@ summary.work-summary:hover {
   font: inherit;
   font-size: 12px;
 }
-.plugin-component-icon.is-ready { color: var(--success); }
-/* Rows without a switch do not keep MCP's empty fourth column. */
-.plugin-dependencies .plugin-mcp-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
 
 /* Audio controls use the same surfaces and focus states as the canvas composer. */
 .canvas-audio-options {
