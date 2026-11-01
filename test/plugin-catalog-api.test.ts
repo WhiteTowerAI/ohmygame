@@ -93,6 +93,39 @@ describe("plugin catalog API", () => {
     });
   });
 
+  it("offers the newest version of a plugin that suits the project", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-versions-"));
+    const version = async (number: string, appliesTo: string[]) => {
+      const folder = path.join(root, number);
+      await mkdir(path.join(folder, ".ohmygame-plugin"), { recursive: true });
+      await mkdir(path.join(folder, "skills", "tools"), { recursive: true });
+      await writeFile(path.join(folder, "skills", "tools", "SKILL.md"), "---\nname: tools\ndescription: Tools.\n---\n");
+      await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+        id: "acme/tools", version: number, engines: { "ohmygame-api": "^2.0.0" },
+        displayName: "Tools", description: "Tools.", appliesTo, contributes: { skills: "./skills/" },
+      }));
+      return folder;
+    };
+    const older = await version("1.0.0", ["general"]);
+    const newer = await version("2.0.0", ["interactive-story"]);
+    const addBundled = PluginServices.prototype.addBundled;
+    vi.spyOn(PluginServices.prototype, "addBundled").mockImplementation(async function (this: PluginServices, directory) {
+      const results = await addBundled.call(this, directory);
+      await this.index.add(older);
+      await this.index.add(newer);
+      await this.grants.consent("acme/tools", []);
+      return results;
+    });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-versions-api-")) });
+    apps.push(app);
+    await app.ready();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
+    const view = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json();
+    expect(view.plugins.find((plugin: { id: string }) => plugin.id === "acme/tools")).toMatchObject({ version: "1.0.0" });
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/tools`, payload: { version: "1.0.0" } })).statusCode).toBe(204);
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/tools`, payload: { version: "2.0.0" } })).statusCode).toBe(409);
+  });
+
   it("lists format 2 plugins with their settings, switches them, and keeps bundled ones installed", async () => {
     // Indexing the bundled plugins finishes after a project is made, as on a slow machine.
     let indexBundled!: () => void;

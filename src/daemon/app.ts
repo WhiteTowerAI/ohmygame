@@ -113,7 +113,7 @@ import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { registerPluginPortabilityRoutes } from "./plugin-portability.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
 import { PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
-import { localizePluginString } from "./plugin-index.js";
+import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
@@ -1291,13 +1291,15 @@ export function createApp(options: AppOptions = {}) {
     // One that doesn't suit the project's type is offered only to turn off, if it is on.
     // A file that says `general` leaves the app's kind (a Web game, say) to say more.
     const projectType = resolved?.ok && resolved.file.type !== "general" ? resolved.file.type : project.type;
-    const offered = pluginServices.index.entries()
-      .filter((entry) => pluginAppliesTo(entry.manifest.appliesTo, projectType) || projectTypePlugin(projectType) === entry.id)
-      .map((entry) => entry.id);
-    const ids = [...new Set([...states.map((state) => state.id), ...offered])];
+    // Each plugin's newest version that suits the project is the one to turn on.
+    const offered = new Map<string, PluginIndexEntry>();
+    for (const entry of pluginServices.index.entries())
+      if (!offered.has(entry.id) && (pluginAppliesTo(entry.manifest.appliesTo, projectType) || projectTypePlugin(projectType) === entry.id))
+        offered.set(entry.id, entry);
+    const ids = [...new Set([...states.map((state) => state.id), ...offered.keys()])];
     const items = ids.map((id): ProjectPluginItem => {
       const state = states.find((item) => item.id === id);
-      const entry = state?.entry ?? pluginServices.index.get(id);
+      const entry = state?.entry ?? offered.get(id) ?? pluginServices.index.get(id);
       const requested = entry ? capabilityGrants(entry.manifest) : [];
       const grant = pluginServices.grants.plugin(id);
       return {
