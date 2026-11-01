@@ -1125,6 +1125,7 @@ const zhCN: typeof en = {
       disabled: "已在整个应用中关闭",
       "needs-consent": "等待你允许它请求的权限",
       "needs-approval": "还没有在这个项目中允许",
+      "not-applicable": "不适用于这类项目",
     },
   },
   conversations: {

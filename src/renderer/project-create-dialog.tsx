@@ -15,7 +15,7 @@ import type {
   PromptAttachment,
   PromptMode,
 } from "../shared/contracts.js";
-import { pluginProjectType } from "../shared/project-runtime.js";
+import { pluginAppliesTo, pluginProjectType, projectFileTypeFor } from "../shared/project-runtime.js";
 import type { ProjectPluginChoice } from "../shared/plugins.js";
 import { t } from "./i18n.js";
 import "./project-create-dialog.css";
@@ -197,7 +197,7 @@ export function ProjectCreateDialog({
       // Plugins chosen on Home for this project alone; the person allowed what they ask for there.
       for (const plugin of firstMessage?.projectPlugins ?? []) {
         // A plugin's own type turns it on; the app's Godot type does not.
-        if (plugin.providesTypes.includes(type)) continue;
+        if (plugin.providesTypes.includes(type) || !pluginAppliesTo(plugin.appliesTo, projectFileTypeFor(type))) continue;
         if (!plugin.consented) await consentToPlugin(plugin.id, plugin.capabilities);
         await setProjectPluginVersion(project.id, plugin.id, plugin.version);
       }

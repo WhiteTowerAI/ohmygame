@@ -66,6 +66,15 @@ describe("plugin catalog API", () => {
     // Plugins from the Plugins page that work with web games are on, for every such project.
     expect(view.global.map((plugin: { id: string }) => plugin.id)).toContain("ohmygame:web-game-studio");
     expect(view.global.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame:godot");
+    // Godot and Unreal suit General projects (appliesTo), which a Web game's ohmygame.json says it is.
+    expect(view.plugins.map((plugin: { id: string }) => plugin.id)).toEqual(expect.arrayContaining(["ohmygame/godot", "ohmygame/unreal-engine"]));
+    // An Interactive Story neither lists nor turns them on.
+    const story = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
+    const storyView = (await app.inject({ method: "GET", url: `/projects/${story.id}/plugins?locale=en` })).json();
+    expect(storyView.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/godot");
+    expect(storyView.plugins.map((plugin: { id: string }) => plugin.id)).not.toContain("ohmygame/unreal-engine");
+    expect((await app.inject({ method: "PUT", url: `/projects/${story.id}/plugins/ohmygame/godot`, payload: { version: "1.0.0" } })).json())
+      .toEqual({ error: "ohmygame/godot doesn't work in interactive-story projects" });
     const godot = view.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/godot");
     expect(godot).toMatchObject({ displayName: "Godot", version: "1.0.0", providesType: false });
     expect(godot.used).toBeUndefined();
@@ -80,7 +89,41 @@ describe("plugin catalog API", () => {
     const choices = (await app.inject({ method: "GET", url: "/project-plugins?locale=en" })).json();
     expect(choices.find((plugin: { id: string }) => plugin.id === "ohmygame/godot")).toMatchObject({
       displayName: "Godot", version: "1.0.0", providesTypes: ["ohmygame/godot:godot-game"], consented: expect.any(Boolean),
+      appliesTo: ["general", "ohmygame/godot:godot-game"],
     });
+  });
+
+  it("offers the newest version of a plugin that suits the project", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-versions-"));
+    const version = async (number: string, appliesTo: string[]) => {
+      const folder = path.join(root, number);
+      await mkdir(path.join(folder, ".ohmygame-plugin"), { recursive: true });
+      await mkdir(path.join(folder, "skills", "tools"), { recursive: true });
+      await writeFile(path.join(folder, "skills", "tools", "SKILL.md"), "---\nname: tools\ndescription: Tools.\n---\n");
+      await writeFile(path.join(folder, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+        id: "acme/tools", version: number, engines: { "ohmygame-api": "^2.0.0" },
+        displayName: "Tools", description: "Tools.", appliesTo, contributes: { skills: "./skills/" },
+      }));
+      return folder;
+    };
+    const older = await version("1.0.0", ["general"]);
+    const newer = await version("2.0.0", ["interactive-story"]);
+    const addBundled = PluginServices.prototype.addBundled;
+    vi.spyOn(PluginServices.prototype, "addBundled").mockImplementation(async function (this: PluginServices, directory) {
+      const results = await addBundled.call(this, directory);
+      await this.index.add(older);
+      await this.index.add(newer);
+      await this.grants.consent("acme/tools", []);
+      return results;
+    });
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-versions-api-")) });
+    apps.push(app);
+    await app.ready();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
+    const view = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json();
+    expect(view.plugins.find((plugin: { id: string }) => plugin.id === "acme/tools")).toMatchObject({ version: "1.0.0" });
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/tools`, payload: { version: "1.0.0" } })).statusCode).toBe(204);
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/tools`, payload: { version: "2.0.0" } })).statusCode).toBe(409);
   });
 
   it("lists format 2 plugins with their settings, switches them, and keeps bundled ones installed", async () => {

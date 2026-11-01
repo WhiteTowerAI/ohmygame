@@ -30,7 +30,7 @@ import { ActivityLog } from "./activity-log.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
-import { buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
+import { buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
@@ -113,7 +113,7 @@ import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { registerPluginPortabilityRoutes } from "./plugin-portability.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
 import { PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
-import { localizePluginString } from "./plugin-index.js";
+import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
@@ -125,7 +125,7 @@ import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectKind, projectKindAt } from "./project-types.js";
 import { LegacyMcpConfiguration } from "./legacy-mcp.js";
 import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail, type ProjectPluginChoice, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
-import { CORE_PROJECT_TYPES } from "../shared/project-file.js";
+import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
@@ -1288,10 +1288,18 @@ export function createApp(options: AppOptions = {}) {
       .map(({ id, displayName, description, icon, iconRevision }) => ({ id, displayName, description, ...(icon ? { icon } : {}), ...(iconRevision ? { iconRevision } : {}) }));
     const resolved = await resolveProjectPlugins({ folder: project.workspacePath, index: pluginServices.index, grants: pluginServices.grants }).catch(() => undefined);
     const states = resolved?.ok ? resolved.plugins : [];
-    const ids = [...new Set([...states.map((state) => state.id), ...pluginServices.index.entries().map((entry) => entry.id)])];
+    // One that doesn't suit the project's type is offered only to turn off, if it is on.
+    // The type the project file says, or will say once a plugin is turned on.
+    const projectType = resolved?.ok ? resolved.file.type : (CORE_PROJECT_TYPES as readonly string[]).includes(project.type) ? project.type : "general";
+    // Each plugin's newest version that suits the project is the one to turn on.
+    const offered = new Map<string, PluginIndexEntry>();
+    for (const entry of pluginServices.index.entries())
+      if (!offered.has(entry.id) && (pluginAppliesTo(entry.manifest.appliesTo, projectType) || projectTypePlugin(projectType) === entry.id))
+        offered.set(entry.id, entry);
+    const ids = [...new Set([...states.map((state) => state.id), ...offered.keys()])];
     const items = ids.map((id): ProjectPluginItem => {
       const state = states.find((item) => item.id === id);
-      const entry = state?.entry ?? pluginServices.index.get(id);
+      const entry = state?.entry ?? offered.get(id) ?? pluginServices.index.get(id);
       const requested = entry ? capabilityGrants(entry.manifest) : [];
       const grant = pluginServices.grants.plugin(id);
       return {
@@ -1324,6 +1332,7 @@ export function createApp(options: AppOptions = {}) {
         capabilities: requested,
         consented: Boolean(grant && missingGrants(requested, grant.allowed).length === 0),
         providesTypes: (entry.manifest.contributes?.projectTypes ?? []).map((type) => `${id}:${type.id}`),
+        ...(entry.manifest.appliesTo ? { appliesTo: entry.manifest.appliesTo } : {}),
       }];
     });
   });

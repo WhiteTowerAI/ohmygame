@@ -56,7 +56,7 @@ beforeEach(() => {
     skills: [],
   };
   projectPlugins = [
-    { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", capabilities: [], consented: true, providesTypes: ["ohmygame/godot:godot-game"] },
+    { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", capabilities: [], consented: true, providesTypes: ["ohmygame/godot:godot-game"], appliesTo: ["general", "ohmygame/godot:godot-game", "acme/tiles:tile-map"] },
     { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", capabilities: ["network:tiles.example.com"], consented: false, providesTypes: ["acme/tiles:tile-map"] },
   ];
   localStorage.clear();
@@ -339,6 +339,19 @@ describe("Home prompt box", () => {
     await type("Make a maze");
     await send();
     expect(onSubmit.mock.calls[0]![0].projectPlugins.map((plugin: ProjectPluginChoice) => plugin.id)).toEqual(["acme/tiles"]);
+
+    // One whose appliesTo leaves out the chosen type isn't offered.
+    await chooseType("Interactive Story");
+    await act(async () => pluginButton().click());
+    expect([...document.querySelectorAll('[role="group"][aria-label="On in this project only"] [role="menuitemcheckbox"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
+      .toEqual(["Tiles"]);
+    await act(async () => pluginButton().click());
+    // A Web game is a General project in its ohmygame.json, so Godot suits it.
+    await chooseType("Web Game");
+    await act(async () => pluginButton().click());
+    expect([...document.querySelectorAll('[role="group"][aria-label="On in this project only"] [role="menuitemcheckbox"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
+      .toEqual(["Godot", "Tiles"]);
+    await act(async () => pluginButton().click());
 
     // A plugin that adds the chosen type is on in that project already.
     await chooseType("Tile Map");

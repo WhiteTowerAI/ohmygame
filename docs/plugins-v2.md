@@ -145,6 +145,14 @@ shows it in the call's progress.
   the version the project uses, its status, what it asks for, and whether the
   person allowed that. Turning on one never allowed asks first, then posts
   the consent. The type's plugin stays on.
+- A plugin's `appliesTo` names the project types it works in (none means
+  all); the type's own plugin always works in it. For a plugin turned on per
+  project, that is the type `ohmygame.json` says: `general` (which a Web
+  game or Asset Canvas project's file says too), `interactive-story`, or a
+  plugin type. The sheet leaves out one that doesn't suit the project unless
+  it is on, offering the newest version that does; turning it on is refused,
+  and one the file asks for anyway resolves as `not-applicable`, so it
+  doesn't run. Home offers only plugins that suit the chosen type.
 - Home: the composer's type menu lists the app's types, then plugins' types
   from `GET /project-types`, then a link to the plugins that add types
   (`#/plugins?adds=projectType`). The type picks the starting plugin. The plugin menu beside the type

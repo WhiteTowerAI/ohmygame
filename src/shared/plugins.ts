@@ -402,7 +402,7 @@ export interface ProjectPluginItem {
   /** Provides the project's type, so it stays on. */
   providesType: boolean;
   /** Why a plugin the project asks for is not running. */
-  status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "needs-consent" | "needs-approval";
+  status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "not-applicable" | "needs-consent" | "needs-approval";
   /** What it asks to be allowed, such as `network:api.example.com`. */
   capabilities: string[];
   /** The person allowed what it asks for when it was installed. */
@@ -413,6 +413,8 @@ export interface ProjectPluginItem {
 export interface ProjectPluginChoice extends Pick<ProjectPluginItem, "id" | "displayName" | "description" | "version" | "capabilities" | "consented"> {
   /** The project types it adds, as `publisher/name:type`; a project of one of them has it on already. */
   providesTypes: string[];
+  /** The project types it works in (`appliesTo`); absent means every type. */
+  appliesTo?: string[];
 }
 
 export interface ProjectPluginsView {
