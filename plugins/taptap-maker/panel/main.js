@@ -163,8 +163,11 @@ function h(tag, attributes = {}, ...children) {
  * until it runs again.
  */
 function command(label, name, { input, variant, disabled, done, key = name } = {}) {
+  // A failure before the run starts, such as bad input, has no start to undo.
+  let started = false;
   const finish = () => {
-    state.running--;
+    if (started) state.running--;
+    started = false;
     redraw();
   };
   return h(
@@ -177,6 +180,7 @@ function command(label, name, { input, variant, disabled, done, key = name } = {
       props: input === undefined ? {} : { input },
       on: {
         "omg-command-start": () => {
+          started = true;
           state.running++;
           state.errors.delete(key);
         },
