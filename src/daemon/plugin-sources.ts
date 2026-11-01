@@ -320,12 +320,17 @@ export function parseNpmName(input: string): { scope: string; name: string; vers
   return { scope, name, ...(version ? { version } : {}) };
 }
 
-/** A repository's page, optionally at a branch, tag or commit. */
+/**
+ * A repository's page, optionally at a branch or tag. A commit can't be named:
+ * GitHub serves its forks' commits through it too, so a commit wouldn't show that
+ * the repository's maintainers published the package, which the origin claims.
+ */
 export function parseGitHubUrl(input: string): { repository: string; ref?: string } {
   const text = input.trim().replace(/^(?:https:\/\/)?(?:www\.)?github\.com\//i, "");
-  const match = /^([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:\/(?:tree|commit)\/([A-Za-z0-9][A-Za-z0-9._-]*))?\/?$/.exec(text);
+  const match = /^([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:\/tree\/([A-Za-z0-9][A-Za-z0-9._-]*))?\/?$/.exec(text);
   if (!match || text === input.trim() || /^\.+$/.test(match[2]!) || match[3]?.includes(".."))
     throw new PluginSourceError(`Enter a GitHub repository, like https://github.com/publisher/plugin, not "${input.trim()}".`);
+  if (match[3] && /^[0-9a-f]{7,40}$/i.test(match[3])) throw new PluginSourceError("Name a branch or tag, not a commit.");
   return { repository: `${match[1]}/${match[2]}`, ...(match[3] ? { ref: match[3] } : {}) };
 }
 

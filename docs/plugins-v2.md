@@ -242,7 +242,7 @@ the source again and refuses a package whose digest isn't the one reviewed.
 | Source | What's accepted | What's checked |
 | --- | --- | --- |
 | npm, from `registry.npmjs.org` or `registry.npmmirror.com` | `@publisher/name` or `@publisher/ohmygame-plugin-name` for the plugin `publisher/name`, optionally `@version` | The download's host and its SHA-512; the scope is the plugin's publisher and the version is the package's |
-| GitHub | A public repository's URL, optionally `/tree/<ref>` or `/commit/<sha>`, with the package at its top | Pinned to the commit it resolves to, recorded as the plugin's origin |
+| GitHub | A public repository's URL, optionally `/tree/<branch or tag>`, with the package at its top | Pinned to the commit it resolves to, recorded as the plugin's origin. A URL can't name a commit: GitHub serves forks' commits through the repository too |
 | This computer | A folder (desktop app) or an uploaded `.tgz` | As any package |
 
 - A package allows nothing when it's added. What it asks for waits for the person

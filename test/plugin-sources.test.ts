@@ -130,8 +130,7 @@ describe("source names", () => {
     expect(parseGitHubUrl("https://github.com/acme/maker")).toEqual({ repository: "acme/maker" });
     expect(parseGitHubUrl("github.com/acme/maker.git/")).toEqual({ repository: "acme/maker" });
     expect(parseGitHubUrl("https://github.com/acme/maker/tree/v1.0")).toEqual({ repository: "acme/maker", ref: "v1.0" });
-    expect(parseGitHubUrl(`https://github.com/acme/maker/commit/${"a".repeat(40)}`)).toEqual({ repository: "acme/maker", ref: "a".repeat(40) });
-    for (const bad of ["acme/maker", "http://github.com/acme/maker", "https://evil.example/acme/maker", "https://github.com.evil.example/acme/maker", "https://github.com/acme/..", "https://github.com/acme/maker?x=1", "https://github.com/acme/maker/tree/a..b", "https://github.com/acme/maker/blob/main/x"])
+    for (const bad of ["acme/maker", "http://github.com/acme/maker", "https://evil.example/acme/maker", "https://github.com.evil.example/acme/maker", "https://github.com/acme/..", "https://github.com/acme/maker?x=1", "https://github.com/acme/maker/tree/a..b", "https://github.com/acme/maker/blob/main/x", `https://github.com/acme/maker/commit/${"a".repeat(40)}`, `https://github.com/acme/maker/tree/${"a".repeat(40)}`, "https://github.com/acme/maker/tree/abc1234"])
       expect(() => parseGitHubUrl(bad), bad).toThrow(PluginSourceError);
   });
 });
