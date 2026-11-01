@@ -291,18 +291,15 @@ const LOCK_STALE_MS = 2 * 60 * 60 * 1000;
 /**
  * On Windows a file another process is deleting can still be seen until its
  * last handle closes, and opening, linking over or deleting it then fails
- * with EPERM. For lock files that means the same as EEXIST or ENOENT: another
- * process is changing it, so try again.
+ * with EPERM: for a lock file, another process is changing it, so try again.
+ * A file that stays so for longer than LINGER_TRIES × LINGER_WAIT_MS isn't
+ * being deleted but is out of reach, as a read-only one, and its error is
+ * reported.
  */
-export function busy(error, platform = process.platform) {
-  return error?.code === "EEXIST" || (platform === "win32" && error?.code === "EPERM");
+export function lingering(error, platform = process.platform) {
+  return platform === "win32" && error?.code === "EPERM";
 }
 
-/**
- * How long a lock file another process is deleting may linger. One still
- * there after that can't be deleted, as a read-only one on Windows, and its
- * error is reported.
- */
 const LINGER_TRIES = 20;
 const LINGER_WAIT_MS = 25;
 
@@ -313,7 +310,8 @@ async function remove(file) {
       await rm(file, { force: true });
       return;
     } catch (error) {
-      if (!busy(error) || tries >= LINGER_TRIES) throw error;
+      if (!lingering(error)) throw error;
+      if (tries >= LINGER_TRIES) throw new Error(`Could not delete ${path.basename(file)}: ${error.message}`, { cause: error });
       await new Promise((resolve) => setTimeout(resolve, LINGER_WAIT_MS));
     }
   }
@@ -333,31 +331,28 @@ export async function withLock(directory, name, work, { signal, onWait } = {}) {
   const own = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}`;
   await writeFile(own, String(process.pid), { mode: 0o600 });
   try {
-    // In a row, the lock was neither there to read nor free to take.
-    let vanished = 0;
+    // Rounds in a row in which a lock file was lingering on Windows.
+    let lingered = 0;
     for (;;) {
       if (signal?.aborted) throw new Cancelled();
-      let failure;
+      let holder;
       try {
-        await link(own, file);
-        break;
+        try {
+          await link(own, file);
+          break;
+        } catch (error) {
+          if (error.code !== "EEXIST") throw error;
+        }
+        holder = await stale(file);
+        if (holder !== undefined && holder !== false) await reclaim(file);
       } catch (error) {
-        if (!busy(error)) throw error;
-        failure = error;
-      }
-      const holder = await stale(file);
-      if (holder === undefined) {
-        // Gone, or going: on Windows a deleted lock lingers for a moment.
-        // One that never goes, or never lets itself be read, isn't lingering.
-        if (++vanished >= LINGER_TRIES * 4) throw failure;
+        if (!lingering(error) || ++lingered >= LINGER_TRIES) throw error;
         await new Promise((resolve) => setTimeout(resolve, LINGER_WAIT_MS));
         continue;
       }
-      vanished = 0;
-      if (holder !== false) {
-        await reclaim(file);
-        continue;
-      }
+      lingered = 0;
+      // Gone, or taken over: try again at once.
+      if (holder !== false) continue;
       if (!told) {
         told = true;
         onWait?.();
@@ -387,7 +382,8 @@ async function reclaim(file) {
   try {
     await writeFile(guard, String(process.pid), { flag: "wx", mode: 0o600 });
   } catch (error) {
-    if (!busy(error)) throw error;
+    // A guard lingering on Windows goes to the caller, which waits or gives up.
+    if (error.code !== "EEXIST") throw error;
     const info = await stat(guard).catch(() => undefined);
     if (info && Date.now() - info.mtimeMs > RECLAIM_STALE_MS) await remove(guard);
     else await new Promise((resolve) => setTimeout(resolve, 100));
@@ -417,7 +413,7 @@ async function stale(file) {
       return error.code === "ESRCH" ? text : false;
     }
   } catch (error) {
-    if (error.code === "ENOENT" || busy(error)) return undefined;
+    if (error.code === "ENOENT") return undefined;
     throw error;
   }
 }
