@@ -33,8 +33,6 @@ export class ConnectionError extends Error {
 interface ConnectionRecord {
   id: string;
   displayName: string;
-  /** The adapter's server name; OAuth sign-ins are stored by it, so it never changes. */
-  runtimeName: string;
   enabled: boolean;
   projectTypes?: ProjectType[];
 }
@@ -88,7 +86,7 @@ export class ConnectionService {
     for (const record of Object.values(this.#state.connections)) {
       if (!record.enabled || (projectType && record.projectTypes?.length && !record.projectTypes.includes(projectType))) continue;
       try {
-        mcpServers[record.runtimeName] = { ...this.#resolve(record), disabled: false };
+        mcpServers[runtimeName(record)] = { ...this.#resolve(record), disabled: false };
       } catch (cause) {
         if (!(cause instanceof PluginConfigurationError)) throw cause;
       }
@@ -110,7 +108,7 @@ export class ConnectionService {
     const { disabled: _disabled, ...template } = structuredClone(input.definition);
     const definition = protectDefinitions({ [SERVER]: template }, fields, values, allowSecrets)[SERVER]!;
     const id = this.#freeId(slug(displayName));
-    const record: ConnectionRecord = { id, displayName, runtimeName: `connection-${id}`, enabled: input.definition.disabled !== true };
+    const record: ConnectionRecord = { id, displayName, enabled: input.definition.disabled !== true };
     const owner = ownerOf(record);
     await this.configuration.setOverride({ plugin: owner, serverId: SERVER, definition, fields, values, definitions: { [SERVER]: definition } });
     await this.#mutate((next) => {
@@ -197,7 +195,7 @@ export class ConnectionService {
     ].filter((value): value is string => typeof value === "string" && value.length > 0);
     const redact = (text: string) => this.configuration.redact(owner, text, secrets);
     try {
-      const result = await this.host.probe(owner.id, record.runtimeName, definition, this.agentDirectory, action, input);
+      const result = await this.host.probe(owner.id, runtimeName(record), definition, this.agentDirectory, action, input);
       if (result.message) result.message = redact(result.message);
       return result;
     } catch (cause) {
@@ -209,7 +207,7 @@ export class ConnectionService {
     const template = this.#template(record);
     let status: ConnectionSummary["status"] = record.enabled ? "enabled" : "disabled";
     const configured = !this.configuration.view(ownerOf(record)).missing.length;
-    const runtime = this.host.status(record.runtimeName);
+    const runtime = this.host.status(runtimeName(record));
     if (record.enabled) {
       try {
         this.#resolve(record);
@@ -289,6 +287,11 @@ export class ConnectionService {
     this.#writes = result.catch(() => {});
     return result;
   }
+}
+
+/** The adapter's server name; OAuth sign-ins are stored by it, so it never changes. */
+function runtimeName(record: Pick<ConnectionRecord, "id">): string {
+  return `connection-${record.id}`;
 }
 
 function ownerOf(record: Pick<ConnectionRecord, "id">): ConfigurationOwner {
