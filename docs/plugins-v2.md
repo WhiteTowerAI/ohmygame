@@ -158,8 +158,11 @@ shows it in the call's progress.
   (`#/plugins?adds=projectType`). The type picks the starting plugin. The plugin menu beside the type
   takes any number of starting plugins, sent as mentions in the order chosen,
   and lists `GET /project-plugins`, the enabled format 2 plugins a new project
-  can turn on for itself; the type's own plugin is left out. Creating the project posts each one's consent, if still needed, and
-  turns it on once the project exists.
+  can turn on for itself, except those that add project types: they are
+  picked as the type, and a project of another type turns them on in its
+  Plugins sheet. With starting plugins to pick, the menu leaves that list out
+  while it is empty. Creating the project posts each one's consent, if still
+  needed, and turns it on once the project exists.
 
 ## Plugins for every project
 

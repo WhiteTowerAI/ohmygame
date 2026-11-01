@@ -85,7 +85,8 @@ export function HomePluginMenu({ starters, chosen, locked, onChosen, choices, se
                 icon={<PluginGlyph plugin={plugin} size={18} />} onClick={() => toggleStarter(plugin)} />
             ))}
           </div> : null}
-          <div className="home-plugin-section" role="group" aria-label={t("home.projectPlugins")}>
+          {/* With starting plugins to pick, an empty list of the others is left out. */}
+          {choices.length || failed || !starters.length ? <div className="home-plugin-section" role="group" aria-label={t("home.projectPlugins")}>
             <div className="home-plugin-heading">{t("home.projectPlugins")}</div>
             {choices.map((choice) => (
               <PluginRow key={choice.id} checked={selected.includes(choice.id)} title={choice.displayName} detail={choice.description}
@@ -98,7 +99,7 @@ export function HomePluginMenu({ starters, chosen, locked, onChosen, choices, se
               {t("home.noProjectPlugins")}{" "}
               <a href={pluginHash()} onClick={() => setOpen(false)}>{t("home.browsePlugins")}</a>
             </p> : null}
-          </div>
+          </div> : null}
         </div>
       </Popover>
       {consent ? <Dialog open title={t("projectPlugins.consentTitle", { name: consent.displayName })} onClose={() => setConsent(undefined)}

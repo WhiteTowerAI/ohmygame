@@ -162,8 +162,8 @@ export function ProjectPromptCreator({ draftKey, placeholder, disabled: creating
   // Until plugins load, the draft's own extras stand, so neither sending nor editing drops them.
   const extraMentions = capabilitiesLoaded ? extras.map(toPluginMention) : extraPlugins ?? [];
   const ideas: readonly IdeaKey[] = TYPE_IDEAS[type] ?? (starter && starter.name in IDEAS ? IDEAS[starter.name as keyof typeof IDEAS] : undefined) ?? GENERAL_IDEAS;
-  // A plugin that adds the chosen type is on in its projects already; one that doesn't suit it isn't offered.
-  const projectPlugins = projectPluginChoices.filter((plugin) => !plugin.providesTypes.includes(type) && pluginAppliesTo(plugin.appliesTo, projectFileTypeFor(type)));
+  // Plugins that add types are picked in the Type menu. The other plugins must suit this project's file type.
+  const projectPlugins = projectPluginChoices.filter((plugin) => !plugin.providesTypes.length && pluginAppliesTo(plugin.appliesTo, projectFileTypeFor(type)));
   /** The prompt as sent: the skill, the chosen plugins in order, then the text. */
   const withExtras = (text: string, others = extraMentions) =>
     others.reduceRight((rest, mention) => formatPluginInvocation(mention, rest), text);
