@@ -97,14 +97,16 @@ const changed = () => changes.dispatchEvent(new Event("change"));
  * the plugin's commands, by its manifest id, when clicked. `input` is JSON,
  * or set the `input` property. While it runs, the button is busy and shows
  * the command's progress beside it, and other command buttons wait unless
- * they are `concurrent`. A failure shows beside it unless it is `quiet`.
+ * they are `concurrent`. A failure shows beside it unless it is `quiet`,
+ * and is its `error` attribute until the next run, so a page that draws the
+ * button again can pass it on.
  *
  * Events: `omg-command-start` (cancelable, before it runs),
  * `omg-command-result` with `detail.result`, and `omg-command-error` with
  * `detail.error`, cancelable to show the failure yourself.
  */
 class OmgCommandButton extends OmgButton {
-  static observedAttributes = [...OmgButton.observedAttributes, "command", "input", "concurrent", "quiet"];
+  static observedAttributes = [...OmgButton.observedAttributes, "command", "input", "concurrent", "quiet", "error"];
   static styles = [
     BUTTON,
     css(`
@@ -167,7 +169,7 @@ class OmgCommandButton extends OmgButton {
     this.#running = true;
     if (!this.hasAttribute("concurrent")) running.add(this);
     this.busy = true;
-    text(this.part("error"), "");
+    this.removeAttribute("error");
     changed();
     try {
       const host = await connection;
@@ -191,10 +193,15 @@ class OmgCommandButton extends OmgButton {
     }
   }
 
+  update() {
+    super.update();
+    text(this.part("error"), this.getAttribute("error"));
+  }
+
   #fail(error) {
     const command = this.getAttribute("command");
     const event = new CustomEvent("omg-command-error", { bubbles: true, composed: true, cancelable: true, detail: { command, error: error.message } });
-    if (this.dispatchEvent(event) && !this.hasAttribute("quiet")) text(this.part("error"), error.message);
+    if (this.dispatchEvent(event) && !this.hasAttribute("quiet")) this.setAttribute("error", error.message);
   }
 }
 
