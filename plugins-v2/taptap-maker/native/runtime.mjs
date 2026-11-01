@@ -298,12 +298,24 @@ export function busy(error, platform = process.platform) {
   return error?.code === "EEXIST" || (platform === "win32" && error?.code === "EPERM");
 }
 
+/**
+ * How long a lock file another process is deleting may linger. One still
+ * there after that can't be deleted, as a read-only one on Windows, and its
+ * error is reported.
+ */
+const LINGER_TRIES = 20;
+const LINGER_WAIT_MS = 25;
+
 /** Removes a lock file, which another process may be removing too. */
 async function remove(file) {
-  try {
-    await rm(file, { force: true });
-  } catch (error) {
-    if (!busy(error)) throw error;
+  for (let tries = 1; ; tries++) {
+    try {
+      await rm(file, { force: true });
+      return;
+    } catch (error) {
+      if (!busy(error) || tries >= LINGER_TRIES) throw error;
+      await new Promise((resolve) => setTimeout(resolve, LINGER_WAIT_MS));
+    }
   }
 }
 
@@ -321,20 +333,27 @@ export async function withLock(directory, name, work, { signal, onWait } = {}) {
   const own = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}`;
   await writeFile(own, String(process.pid), { mode: 0o600 });
   try {
+    // In a row, the lock was neither there to read nor free to take.
+    let vanished = 0;
     for (;;) {
       if (signal?.aborted) throw new Cancelled();
+      let failure;
       try {
         await link(own, file);
         break;
       } catch (error) {
         if (!busy(error)) throw error;
+        failure = error;
       }
       const holder = await stale(file);
       if (holder === undefined) {
         // Gone, or going: on Windows a deleted lock lingers for a moment.
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        // One that never goes, or never lets itself be read, isn't lingering.
+        if (++vanished >= LINGER_TRIES * 4) throw failure;
+        await new Promise((resolve) => setTimeout(resolve, LINGER_WAIT_MS));
         continue;
       }
+      vanished = 0;
       if (holder !== false) {
         await reclaim(file);
         continue;
