@@ -903,6 +903,24 @@ describe("plugin releases", () => {
     }
   });
 
+  it("drops only the bundled copy of a plugin for every project from the index, keeping a version installed apart", async () => {
+    const dir = await temporary();
+    const services = new PluginServices({ directory: path.join(dir, "store") });
+    try {
+      const apart = path.join(dir, "blender");
+      await cp(path.join(BUNDLED, "blender"), apart, { recursive: true });
+      await editManifest(apart, (manifest) => (manifest.version = "9.0.0"));
+      await services.index.load();
+      // As an earlier version of the app might have indexed it.
+      expect((await services.index.add(path.join(BUNDLED, "blender"))).ok).toBe(true);
+      expect((await services.index.add(apart)).ok).toBe(true);
+      await services.addBundled(BUNDLED);
+      expect(services.index.versions("ohmygame/blender").map((entry) => entry.version)).toEqual(["9.0.0"]);
+    } finally {
+      await services.close();
+    }
+  });
+
   it("indexes the app's own format 2 plugins and allows what they ask for, except one that starts off", async () => {
     const dir = await temporary();
     const services = new PluginServices({ directory: path.join(dir, "store"), bundledOff: ["ohmygame/taptap-maker"] });

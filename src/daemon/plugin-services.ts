@@ -479,7 +479,9 @@ export class PluginServices {
       // catalog shows it with the format 1 bundled plugins (BundledPluginStore).
       const checked = await indexPluginPackage(root);
       if (checked.ok && checked.entry.id.startsWith("ohmygame/") && isAppWidePlugin(checked.entry.manifest)) {
-        if (this.index.versions(checked.entry.id).length) await this.index.remove(checked.entry.id);
+        // Only the copy indexed from this folder; a version installed apart stays.
+        for (const stale of this.index.versions(checked.entry.id))
+          if (path.resolve(stale.root) === path.resolve(root)) await this.index.remove(stale.id, stale.version);
         continue;
       }
       const result = await this.index.add(root);
