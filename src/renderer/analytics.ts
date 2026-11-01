@@ -6,8 +6,10 @@ export function initializeAnalytics(): void {
   if (!key || !host) return;
 
   const scrubber = new AnalyticsUrlScrubber(window.location.pathname);
-  // posthog-js is large; keep it out of the startup bundle.
-  void import("posthog-js").then(({ posthog }) => posthog.init(key, {
+  // posthog-js is large; keep it out of the startup bundle. The CSP allows no
+  // remote scripts, so use the build that loads none. Remote config still
+  // arrives as JSON, and autocapture waits for it.
+  void import("posthog-js/dist/module.no-external.js").then(({ posthog }) => posthog.init(key, {
     api_host: host,
     autocapture: true,
     // Routes live in the hash; the pathname is the install path and never changes.
@@ -15,6 +17,8 @@ export function initializeAnalytics(): void {
     capture_pageleave: true,
     disable_session_recording: true,
     person_profiles: "identified_only",
+    // Sentry reports errors; remote config must not turn this on as well.
+    capture_exceptions: false,
     before_send: (event) => {
       if (!event) return event;
       scrubber.scrub(event, window.location.href);
