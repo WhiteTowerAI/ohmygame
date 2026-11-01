@@ -329,6 +329,11 @@ const zhCN: typeof en = {
       currentSource: "当前来源",
       status: "网络状态",
     },
+    usageData: {
+      title: "使用数据",
+      description: "帮助我们了解哪些功能好用，更快修复报错。登录后，这些数据会关联到你的 OhMyGame 账号。",
+      toggle: "发送使用数据",
+    },
   },
   capability: {
     language: "语言",
