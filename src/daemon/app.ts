@@ -28,7 +28,7 @@ import Fastify, { LogController, type FastifyReply, type FastifyRequest } from "
 import { daemonLoggerOptions, logFailedRequests } from "./request-log.js";
 import { ActivityLog } from "./activity-log.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type PluginMention, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
@@ -124,7 +124,9 @@ import { PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectKind, projectKindAt } from "./project-types.js";
 import { LegacyMcpConfiguration } from "./legacy-mcp.js";
-import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail, type ProjectPluginChoice, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { ConnectionService } from "./connections.js";
+import { registerConnectionRoutes } from "./connection-routes.js";
+import { PERSONAL_MARKETPLACE, hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail, type ProjectPluginChoice, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
@@ -816,6 +818,11 @@ export function createApp(options: AppOptions = {}) {
   );
   const localPlugins = new LocalPluginStore(dataDirectory);
   const pluginCapabilities = new PluginCapabilities(dataDirectory, piAgentDirectory, [bundledPlugins, localPlugins], localPlugins, pluginSettings);
+  const connections = new ConnectionService(dataDirectory, piAgentDirectory, pluginCapabilities.configuration, pluginCapabilities.host);
+  pluginCapabilities.movedToConnections = (pluginId, serverId) => connections.moved(pluginId, serverId);
+  /** A plugin whose every MCP server moved to Connections, with nothing else, isn't listed anymore. */
+  const movedToConnections = (plugin: PluginDetail) => !plugin.skills.length && Boolean(plugin.mcpServers?.length) &&
+    plugin.mcpServers!.every((server) => connections.moved(plugin.id, server.id));
   const summarizePlugin = (plugin: PluginDetail): PluginSummary => ({
     ...pluginSummary(plugin),
     mcpServerCount: plugin.mcpServers?.length ?? 0,
@@ -824,8 +831,20 @@ export function createApp(options: AppOptions = {}) {
   });
   const plugins = new PluginCatalogService([
     new BundledPluginAdapter(bundledPlugins, summarizePlugin),
-    new LocalPluginAdapter(localPlugins, summarizePlugin),
+    new LocalPluginAdapter({
+      list: async () => {
+        const result = await localPlugins.list();
+        return { ...result, plugins: result.plugins.filter((plugin) => !movedToConnections(plugin)) };
+      },
+      read: (id) => localPlugins.read(id),
+    }, summarizePlugin),
   ], pluginSettings, (plugin) => preinstalledPlugins.decorate(plugin));
+  /** A saved prompt may still mention a plugin whose servers are connections now; those run anyway. Only Personal plugins move. */
+  const withoutMovedPlugins = async (mentions: readonly PluginMention[]) => (await Promise.all(mentions.map(async (mention) => {
+    if (mention.marketplaceId !== PERSONAL_MARKETPLACE.id) return mention;
+    const plugin = await localPlugins.read(`personal:${mention.name}`).catch(() => undefined);
+    return plugin && movedToConnections(plugin) ? undefined : mention;
+  }))).filter((mention): mention is PluginMention => mention !== undefined);
   const withPluginCapabilities = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => plugin ? pluginCapabilities.decorate(plugin) : plugin;
   let agents: AgentManager;
   const snapshotWorkspace = (project: ProjectState) => projectWrites.snapshot(project.id, async () => {
@@ -941,13 +960,13 @@ export function createApp(options: AppOptions = {}) {
     ...await resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type),
     ...await pluginServices.skills(project.workspacePath).catch(() => []),
   ];
-  /** The MCP servers a project's sessions start: format 1 plugins' for its type, then its format 2 plugins'. */
+  /** The MCP servers a project's sessions start: format 1 plugins' for its type, the person's connections, then its format 2 plugins'. */
   const projectMcp = async (project: ProjectState): Promise<EffectiveMcpConfig> => {
     const [legacy, servers] = await Promise.all([
       pluginCapabilities.effective(project.type),
       pluginServices.mcpServers(project.workspacePath).catch(() => ({})),
     ]);
-    return { ...legacy, mcpServers: { ...legacy.mcpServers, ...servers } };
+    return { ...legacy, mcpServers: { ...legacy.mcpServers, ...connections.effective(project.type).mcpServers, ...servers } };
   };
   /** Stops a session's MCP calls once one of the servers it started with is turned off or changed. */
   const projectMcpGuard = (project: ProjectState, started: EffectiveMcpConfig): McpGuard => async () => {
@@ -1111,6 +1130,7 @@ export function createApp(options: AppOptions = {}) {
   projectWrites.install(app);
   const canvasStore = registerCanvasRoutes(app, { projects, library, tools });
   registerPluginCapabilityRoutes(app, { capabilities: pluginCapabilities, plugins, invalidate: invalidatePluginSessions });
+  registerConnectionRoutes(app, { connections, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginCapabilities, plugins, localPlugins, invalidatePluginSessions, async ref => {
     const runtime = await getModelRuntime();
     const model = await availableModel(ref.provider, ref.id);
@@ -1145,7 +1165,7 @@ export function createApp(options: AppOptions = {}) {
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), connections.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
     await migrateMaker();
@@ -1166,6 +1186,14 @@ export function createApp(options: AppOptions = {}) {
     if (examplesWarning) app.log.warn(examplesWarning);
     await localPlugins.list();
     await pluginCapabilities.migrate(legacyMcp);
+    // The old `mcp.json` became personal plugins above; those, and the ones
+    // "Add MCP" made, become connections.
+    const moving = await connections.migrate({
+      plugins: async () => (await localPlugins.list()).plugins.map((plugin) => pluginSettings.decorate(plugin)),
+      capabilities: pluginCapabilities,
+    }).catch((err: unknown) => [{ pluginId: "", serverId: "", error: err }]);
+    for (const { pluginId, serverId, error } of moving)
+      app.log.warn({ err: error, pluginId, serverId }, "Could not move an MCP server to Connections; it keeps running from its plugin");
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -3304,7 +3332,7 @@ export function createApp(options: AppOptions = {}) {
       if (!request.body?.prompt?.trim() && !request.body?.images?.length && !request.body?.attachments?.length) return reply.code(400).send({ error: "Prompt or attachment is required" });
       let mentions;
       try {
-        mentions = await plugins.validateMentions(request.body.mentions ?? []);
+        mentions = await plugins.validateMentions(await withoutMovedPlugins(request.body.mentions ?? []));
         if (mentions.some((mention) => !hasPluginMentionToken(request.body.prompt, mention))) {
           return reply.code(400).send({ error: "Plugin mention is missing from the prompt" });
         }

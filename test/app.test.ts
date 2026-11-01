@@ -1,4 +1,5 @@
 import { mp3Fixture } from "./audio-fixtures.js";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -872,8 +873,12 @@ describe("daemon", () => {
 
   it("validates Plugin mentions and sends Codex references to Pi", async () => {
     const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
+    const piAgentDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-agent-"));
+    // An MCP server from the old mcp.json, a plugin once and a connection now.
+    await writeFile(path.join(piAgentDirectory, "mcp.json"), JSON.stringify({ mcpServers: { docs: { url: "https://docs.example.com/mcp" } } }));
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-api-")),
+      piAgentDirectory,
       createSession: async () => ({
         messages: [],
         prompt,
@@ -907,6 +912,12 @@ describe("daemon", () => {
     expect(accepted.statusCode).toBe(202);
     expect(rejected.statusCode).toBe(400);
     expect(rejected.json()).toEqual({ error: "Plugin Missing is not installed" });
+
+    // A saved prompt still mentioning the plugin sends; the connection runs anyway.
+    const moved = { name: `mcp-docs-${createHash("sha256").update("docs").digest("hex").slice(0, 6)}`, displayName: "docs", marketplaceId: "personal" };
+    const later = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const resent = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${later.id}/turns`, payload: { prompt: "Use @docs", mentions: [moved] } });
+    expect(resent.statusCode).toBe(202);
   });
 
   it("returns the skills loaded by the current conversation session", async () => {

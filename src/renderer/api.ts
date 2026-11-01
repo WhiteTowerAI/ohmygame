@@ -1605,8 +1605,32 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-export async function createMcpPlugin(input: import("../shared/plugins.js").CreateMcpPluginRequest): Promise<PluginDetail> {
-  return request("/plugins/mcp", { method: "POST", body: JSON.stringify(input) });
+export async function listConnections(): Promise<import("../shared/connections.js").ConnectionSummary[]> {
+  return request("/connections");
+}
+export async function createConnection(input: import("../shared/connections.js").CreateConnectionRequest): Promise<import("../shared/connections.js").ConnectionSummary> {
+  return request("/connections", { method: "POST", body: JSON.stringify(input) });
+}
+export async function updateConnection(id: string, input: import("../shared/connections.js").UpdateConnectionRequest): Promise<import("../shared/connections.js").ConnectionSummary> {
+  return request(`/connections/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+export async function deleteConnection(id: string): Promise<void> {
+  await request(`/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+export async function readConnectionDefinition(id: string): Promise<{ definition: import("../shared/plugins.js").McpServerDefinition }> {
+  return request(`/connections/${encodeURIComponent(id)}/definition`);
+}
+export async function saveConnectionDefinition(id: string, definition: import("../shared/plugins.js").McpServerDefinition): Promise<import("../shared/connections.js").ConnectionSummary> {
+  return request(`/connections/${encodeURIComponent(id)}/definition`, { method: "PUT", body: JSON.stringify({ definition }) });
+}
+export async function readConnectionConfiguration(id: string): Promise<import("../shared/plugins.js").PluginConfigurationView> {
+  return request(`/connections/${encodeURIComponent(id)}/configuration`);
+}
+export async function saveConnectionConfiguration(id: string, values: import("../shared/plugins.js").PluginConfigurationValues): Promise<import("../shared/plugins.js").PluginConfigurationView> {
+  return request(`/connections/${encodeURIComponent(id)}/configuration`, { method: "PUT", body: JSON.stringify({ values }) });
+}
+export async function testConnection(id: string, action: "test" | "auth-start" | "auth-complete" = "test", input?: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
+  return request(`/connections/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(input ? { input } : {}) });
 }
 export async function readPluginConfiguration(id: string): Promise<import("../shared/plugins.js").PluginConfigurationView> {
   return request(`/plugins/${encodeURIComponent(id)}/configuration`);

@@ -9,7 +9,7 @@ export type SidebarPage =
   | "plugins"
   | "community";
 
-export type SettingsSection = "general" | "account" | "billing" | "appearance" | "providers" | "agents" | "web-search" | "network" | "mcp-server" | "about";
+export type SettingsSection = "general" | "account" | "billing" | "appearance" | "providers" | "agents" | "web-search" | "network" | "connections" | "mcp-server" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
 export type ProjectSort = "updated" | "name";
 export interface ProjectListFilters {
@@ -56,7 +56,6 @@ export function parseAppRoute(hash: string): AppRoute {
     }
   }
   const settingsMatch = /^#\/settings(?:\/(general|account|billing|appearance|providers|agents|web-search|network|connections|mcp-server|about))?$/.exec(hash);
-  if (settingsMatch?.[1] === "connections") return { page: "plugins" };
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? DEFAULT_SETTINGS_SECTION };
   // Every agent, OhMyGame's own included, has its own settings page.
   const agentMatch = /^#\/settings\/agents\/([a-z0-9-]+)$/.exec(hash);

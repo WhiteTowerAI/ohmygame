@@ -1,6 +1,6 @@
 # Native OhMyGame plugins
 
-Plugins is the single place to install Skills and MCP services, change configuration, test connections, and authorize services. A plugin may bundle Skills (including supporting scripts, references, and assets), existing MCP servers, or both.
+Plugins is the place to install Skills and the MCP services that come with them, change configuration, test connections, and authorize services. A plugin may bundle Skills (including supporting scripts, references, and assets), existing MCP servers, or both. MCP servers the person adds on their own are [connections](#connections), in Settings.
 
 ## Browse plugins
 
@@ -195,7 +195,7 @@ The legacy `connections` manifest field is a provider reference. It neither owns
 
 ## Installation and AI assistance
 
-The Add plugin menu supports folder/Git installation, manual MCP configuration, and a dedicated AI assistant. Existing MCP configuration JSON can be pasted into the manual dialog. Credentials in environment/header fields are extracted into private configuration rather than copied into the generated package. The detail page offers configuration forms, definition editing, tests, and HTTP authorization controls.
+The Add plugin menu supports folder/Git installation and a dedicated AI assistant. Its **Add MCP** entry opens Settings → MCP Connections. The detail page offers configuration forms, definition editing, tests, and HTTP authorization controls.
 
 The library groups plugins into OhMyGame's (public) and **Personal**. OhMyGame's contains plugins provided by OhMyGame, including bundled and preinstalled packages, plus catalog entries whose trusted adapter marks the marketplace as official. Personal contains user-created plugins and user imports from folders, Git repositories, and third-party marketplaces. These are display groups: plugin IDs, original marketplace identities, and configuration keys are preserved. Imported archives always enter Personal, even when their source metadata came from a public catalog. Installed plugins in both groups have switches, including bundled plugins. Bundled packages cannot be uninstalled.
 
@@ -265,9 +265,60 @@ only through explicit editing, reinstalling, or importing. Per-turn editing
 snapshots will reuse the shared workspace checkpoint system once it is
 available to Plugin Builder; this change adds no separate snapshot store.
 
+## Connections
+
+MCP servers the person adds themselves are connections (Settings → **MCP
+Connections**; `src/daemon/connections.ts`, `src/daemon/connection-routes.ts`,
+`src/renderer/connections-settings.tsx`). The agent can use them in every
+project, or only in the project types a connection is limited to.
+
+- **Adding:** by URL, by command and arguments, or by pasting the
+  `mcpServers` JSON another app uses (each server becomes a connection named
+  after its key). Credentials in environment variables, headers, URLs and
+  arguments are taken out of the definition into encrypted configuration, as
+  for plugins; the definition editor shows `${config.*}` references in their
+  place. Unlike a plugin's HTTP server, a connection may use OAuth and any
+  other option the MCP adapter supports.
+- **Storage:** `<data>/connections.json` lists them. Each connection's
+  definition, values and secrets are in the plugin configuration store (the
+  same encryption key), owned by `connection:<id>`.
+- **Runtime:** a connection runs under a fixed runtime name
+  (`connection-<id>`, or the name it had as a plugin), which its OAuth
+  sign-in is stored by. Project sessions start format 1 plugins' servers,
+  then connections, then the project's format 2 plugins'. Any change restarts
+  the sessions using them.
+- **API:** `GET`, `POST /connections`; `GET`, `PATCH`, `DELETE
+  /connections/:id`; `GET`, `PUT /connections/:id/definition` and
+  `/configuration`; `POST /connections/:id/test`, `/auth-start` and
+  `/auth-complete`. `POST /plugins/mcp`, which made a plugin holding only MCP
+  servers, is gone.
+
+### Moving MCP plugins to connections
+
+At startup, every server of a Personal plugin with MCP servers and no Skills
+(made by the old **Add MCP**, imported from the old `mcp.json`, or installed
+from the person's own folder or archive) becomes a connection. Plugins from a
+marketplace keep their servers, so their updates still apply. It keeps the template in use (an edited
+one included), the configuration values and secrets it uses (copied
+encrypted), its switch, its project types, and its runtime name, so its OAuth
+sign-in carries over. A command that ran in the plugin's folder (by default,
+or with a relative working directory inside it) gets a copy of that folder in
+`<data>/connections/<id>/`. A relative working directory that points outside
+the folder keeps resolving against the plugin's folder.
+
+The plugin itself is left installed and unchanged, so an older app still
+finds it; it is no longer listed in Plugins and its servers no longer run from
+it. A saved prompt that still mentions it sends without that mention. Each moved server is recorded in `connections.json`, so an interrupted
+move finishes on the next start without a duplicate, and a deleted connection
+stays deleted. A server that can't move keeps running from its plugin and is
+tried again at the next start. Plugins with Skills keep their MCP servers
+until format 1 is removed.
+
 ## Migration
 
-On first startup, application-level `pi-agent/mcp.json` is backed up to `mcp.json.pre-plugins.bak`. Each existing connection becomes a native plugin with its full definition, enabled state, and original runtime server ID. An old `ohmygame-godot` connection stays only in the backup: Godot is a format 2 plugin with its own MCP server now. Import progress and provider ownership are persisted so retrying migration does not duplicate packages. The original file and backup remain available for recovery; subsequent runtime configuration comes from Plugins. The old Connections UI route redirects to Plugins, and its CRUD API is retired.
+On first startup, application-level `pi-agent/mcp.json` is backed up to `mcp.json.pre-plugins.bak`. Each existing connection becomes a native plugin with its full definition, enabled state, and original runtime server ID. An old `ohmygame-godot` connection stays only in the backup: Godot is a format 2 plugin with its own MCP server now. Import progress and provider ownership are persisted so retrying migration does not duplicate packages. The original file and backup remain available for recovery; subsequent runtime configuration comes from Plugins. The old `#/settings/connections` route opens MCP Connections again; the old settings CRUD API stays retired.
+
+Those plugins then move to connections, as [above](#moving-mcp-plugins-to-connections).
 
 The migration reader never modifies the old file or creates a missing one. A retry replays credentials and switches for an unfinished import before recording ownership, including when installation succeeded but configuration persistence was interrupted.
 
