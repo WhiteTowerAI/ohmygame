@@ -90,4 +90,18 @@ describe("player preview startup", () => {
     expect((await app.inject({ method: "POST", url: `/projects/${legacy.id}/preview?reuse=1` })).statusCode).toBe(409);
     expect((await app.inject({ method: "POST", url: "/projects/missing/preview?reuse=1" })).statusCode).toBe(404);
   });
+
+  it("allows an asset canvas to reuse a static preview for a nested HTML page", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-canvas-preview-"));
+    const app = createApp({ dataDirectory });
+    cleanups.push(async () => { await app.close(); await rm(dataDirectory, { recursive: true, force: true }); });
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Canvas", type: "asset-canvas" } })).json();
+    await mkdir(path.join(project.workspacePath, "game"), { recursive: true });
+    await writeFile(path.join(project.workspacePath, "game", "index.html"), "<p>Playable canvas output</p>");
+    const open = () => app.inject({ method: "POST", url: `/projects/${project.id}/preview?reuse=1` });
+    const response = await open();
+    expect(response.statusCode, response.body).toBe(200);
+    expect((await open()).json().url).toBe(response.json().url);
+    expect(await (await fetch(new URL("/game/index.html", response.json().url))).text()).toContain("Playable canvas output");
+  });
 });

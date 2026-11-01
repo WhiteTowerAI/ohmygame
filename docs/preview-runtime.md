@@ -9,6 +9,12 @@ Preview, controls Web preview, Play and Web playtesting. Canvas's separate
 **Default models** button controls generation models. Neither setting selects
 or installs a game engine.
 
+Asset Canvas also offers a **Preview** panel. Opening a workspace HTML link in
+Chat or choosing **Preview** on an HTML file node starts an isolated static
+preview and opens that file, including its relative assets. Opening the canvas
+alone does not start a preview, install dependencies, or run project scripts.
+Other workspace file links continue to open in Code.
+
 ## Startup configuration
 
 Run settings are saved per project and copied when duplicating it. Startup

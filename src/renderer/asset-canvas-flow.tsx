@@ -32,7 +32,7 @@ export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> 
   /** Project-relative path of a file node. */
   path?: string;
   directory?: true;
-  fileRuntime?: { onReveal?: () => void };
+  fileRuntime?: { onReveal?: () => void; onPreview?: () => void };
   documentId?: string;
   documentRuntime?: DocumentNodeRuntime;
   prompt?: string;

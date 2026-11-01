@@ -464,6 +464,7 @@ export function FileNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
         <div className="story-media-empty">
           <Icon size={30} />
           <span title={filePath}>{filePath}</span>
+          {data.fileRuntime?.onPreview ? <button className="canvas-asset-retry nodrag" type="button" aria-label={t("markdown.openInPreview", { path: filePath })} onClick={data.fileRuntime.onPreview}>{t("workspace.tab.preview")}</button> : null}
           {data.fileRuntime?.onReveal ? <button className="canvas-asset-retry nodrag" type="button" onClick={data.fileRuntime.onReveal}>{t("assetCanvas.showInFolder")}</button> : null}
         </div>
       </div>

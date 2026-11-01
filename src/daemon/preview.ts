@@ -78,9 +78,13 @@ export class PreviewCancelledError extends Error {
 /** An automatic start found nothing to run yet, which is expected before the first files exist. */
 class PreviewNotReadyError extends ProjectWorkspaceError {}
 
-/** A web story plays its own page through the project preview, like a Web Game. */
+/** Stories and canvas HTML files use the same isolated preview as web games. */
 function previewable(project: ProjectState): boolean {
-  return supportsWebPreview(project) || project.type === "interactive-story";
+  return supportsWebPreview(project) || project.type === "interactive-story" || project.type === "asset-canvas";
+}
+
+function shouldWatchPreview(project: ProjectState): boolean {
+  return project.type === "asset-canvas" ? project.preview.status === "ready" : supportsWebPreview(project);
 }
 
 /** The status command of a plugin-built preview; the watcher rebuilds it on changes. */
@@ -145,7 +149,7 @@ export class PreviewManager {
       if (project.preview.status === "stopped")
         this.#update(project, { stopReason: "recovery" });
     }
-    if (!session.watcher && supportsWebPreview(project)) this.#watch(session);
+    if (!session.watcher && shouldWatchPreview(project)) this.#watch(session);
     if (first && automatic) void this.automatic(project).catch(() => {});
   }
 
@@ -175,7 +179,7 @@ export class PreviewManager {
         Date.now() + (this.options.leaseTimeoutMs ?? 75_000),
       );
       session.idleSince = undefined;
-      if (!session.watcher && supportsWebPreview(project)) this.#watch(session);
+      if (!session.watcher && shouldWatchPreview(project)) this.#watch(session);
     } else this.release(project, id);
   }
 
@@ -220,6 +224,7 @@ export class PreviewManager {
   #automaticAllowed(session: PreviewSession): boolean {
     return (
       this.#sessions.get(session.project.id) === session &&
+      session.project.type !== "asset-canvas" &&
       supportsWebPreview(session.project) &&
       session.project.previewAutoStart !== false &&
       !session.paused &&
@@ -285,6 +290,7 @@ export class PreviewManager {
         "Enable Web preview in project settings first.",
       );
     const session = this.#session(project);
+    if (project.type === "asset-canvas" && session.leases.size && !session.watcher) this.#watch(session);
     const operation: PreviewOperation = {
       automatic,
       controller: new AbortController(),
@@ -298,14 +304,14 @@ export class PreviewManager {
     let child: ChildProcess | undefined;
     let began = false;
     try {
-      const built = buildsWebPreview(project);
+      const built = project.type !== "asset-canvas" && buildsWebPreview(project);
       if (built && !this.options.webBuild)
         throw new ProjectWorkspaceError(
           "This project's preview needs its plugin, which isn't available here.",
         );
-      // A web story is its own page: the folder is served as it is, whatever
-      // scripts it carries. A plugin-built game is served once it is built.
-      const workspace = built
+      // A canvas serves workspace files as-is, without running its scripts.
+      // A web story serves its own page; a plugin-built game serves its build.
+      const workspace = built || project.type === "asset-canvas"
         ? {
             runnable: true,
             mode: "static" as const,

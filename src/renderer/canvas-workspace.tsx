@@ -30,7 +30,7 @@ class CanvasSaveFailure extends Error {
   constructor(cause: unknown) { super(cause instanceof Error ? cause.message : String(cause), { cause }); }
 }
 
-export function CanvasWorkspace({ project, documents, headerActionsTarget = null, onLeaveReady, onSaveReady, onContextChange, initialNodeId, onInitialNodeHandled, onProjectUpdated }: {
+export function CanvasWorkspace({ project, documents, headerActionsTarget = null, onLeaveReady, onSaveReady, onContextChange, initialNodeId, onInitialNodeHandled, onProjectUpdated, onOpenWorkspaceFile }: {
   project: ProjectState;
   /** The project's documents, when the workspace shares them with the design document panel. */
   documents?: CanvasDocumentsState;
@@ -42,6 +42,7 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
   initialNodeId?: string;
   onInitialNodeHandled?: () => void;
   onProjectUpdated?: (project: ProjectState) => void;
+  onOpenWorkspaceFile?: (path: string) => void;
 }) {
   const [writeVersion] = useState(() => workspaceVersion(project.id));
   const singleBoard = project.type === "asset-canvas";
@@ -182,7 +183,7 @@ export function CanvasWorkspace({ project, documents, headerActionsTarget = null
       await resolve(version);
       setBoardConflict(undefined);
     })}>{version === "remote" ? t("canvas.useDisk") : t("canvas.keepMine")}</button>)}</CanvasNotice> : null}
-    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} initialNodeId={initialNodeId} onInitialNodeHandled={onInitialNodeHandled} /> : <div className="design-loading">{docs.loadError ? <span>{t("canvas.restoreWorkspace")}</span> : <LoaderCircle size={22} className="spin" />}</div>}
+    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} onOpenWorkspaceFile={onOpenWorkspaceFile} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} initialNodeId={initialNodeId} onInitialNodeHandled={onInitialNodeHandled} /> : <div className="design-loading">{docs.loadError ? <span>{t("canvas.restoreWorkspace")}</span> : <LoaderCircle size={22} className="spin" />}</div>}
     {boardOptions && workspace && optionsBoard ? <CanvasContextMenu screenPosition={boardOptions} label={t("canvas.boardOptions", { name: optionsBoard.name })} onClose={() => setBoardOptions(undefined)}>
       <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size={14} /><span>{t("common.rename")}</span></button>
       {([-1, 1] as const).map((direction) => <button type="button" role="menuitem" key={direction} disabled={workspace.boards.findIndex((board) => board.id === optionsBoard.id) === (direction === -1 ? 0 : workspace.boards.length - 1)} onClick={() => { setBoardOptions(undefined); void run(async () => { await flush(); await changeCanvasBoard(project.id, optionsBoard.id, { direction }, writeVersion); await docsRef.current.refresh(); }); }}>{direction === -1 ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}<span>{direction === -1 ? t("canvas.moveUp") : t("canvas.moveDown")}</span></button>)}

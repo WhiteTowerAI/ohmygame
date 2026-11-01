@@ -25,12 +25,13 @@ const FILE_ICON_EXTENSIONS: Record<Exclude<WorkspaceFileIconKind, "file">, Reado
   model: new Set(["blend", "dae", "fbx", "glb", "gltf", "obj", "stl"]),
 };
 
-export const MarkdownContent = memo(function MarkdownContent({ text, className = "", workspacePath, baseDir, onOpenWorkspaceFile, renderImage }: {
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "", workspacePath, baseDir, onOpenWorkspaceFile, previewHtmlLinks = false, renderImage }: {
   text: string;
   className?: string;
   workspacePath?: string;
   baseDir?: string;
   onOpenWorkspaceFile?: (path: string) => void;
+  previewHtmlLinks?: boolean;
   renderImage?: (src: string | undefined, alt: string | undefined) => ReactNode;
 }) {
   // Stable component types keep loaded images mounted when only Markdown text changes.
@@ -41,7 +42,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
       if (filePath) {
         const iconKind = workspaceFileIconKind(filePath);
         const FileIcon = FILE_ICON_COMPONENTS[iconKind];
-        return <a className="workspace-file-link" data-file-kind={iconKind} href={href} title={t("markdown.openInCode", { path: filePath })} onClick={(event) => {
+        return <a className="workspace-file-link" data-file-kind={iconKind} href={href} title={t(previewHtmlLinks && isHtmlWorkspaceFile(filePath) ? "markdown.openInPreview" : "markdown.openInCode", { path: filePath })} onClick={(event) => {
           event.preventDefault();
           onOpenWorkspaceFile?.(filePath);
         }}><FileIcon size={13} aria-hidden="true" />{children}</a>;
@@ -49,7 +50,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
       return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
     },
     pre: MarkdownCodeBlock,
-  }), [workspacePath, baseDir, onOpenWorkspaceFile, renderImage]);
+  }), [workspacePath, baseDir, onOpenWorkspaceFile, previewHtmlLinks, renderImage]);
 
   return (
     <div className={`markdown-content${className ? ` ${className}` : ""}`}>
@@ -59,6 +60,11 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
     </div>
   );
 });
+
+export function isHtmlWorkspaceFile(path: string): boolean {
+  const name = path.split("/").at(-1)?.toLowerCase() ?? "";
+  return name.endsWith(".html") || name.endsWith(".htm");
+}
 
 export function workspaceFileIconKind(filePath: string): WorkspaceFileIconKind {
   const name = filePath.split("/").at(-1)?.toLocaleLowerCase() ?? "";

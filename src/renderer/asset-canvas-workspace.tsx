@@ -96,6 +96,7 @@ import type { CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 import { t } from "./i18n.js";
 import { canvasImportKind, droppedFolders, isIgnoredImportPath, type DroppedFolder } from "./canvas-file-import.js";
 import { importCanvasCsv } from "../shared/canvas-table.js";
+import { isHtmlWorkspaceFile, workspaceLinkPath } from "./markdown-content.js";
 import { type AssetCanvasFlowNode, errorMessage, type AssetCanvasFlowData, OUTPUT_HANDLE, titleCase, nodeModel3D, type Animate3DNodeRuntime, type AudioNodeRuntime, type MediaNodeRuntime, type ReferenceMediaNodeRuntime, type ImageNodeRuntime, type VideoNodeRuntime, sameImageModel, sameModel, type MediaReferenceView, nodeModel3DConfig, modelRef } from "./asset-canvas-flow.js";
 import { TextNode, ImageNode, VideoNode, SpeechNode, AudioSceneNode, SoundEffectNode, MusicNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, audioOperationForNode, FolderImportDialog } from "./asset-canvas-nodes.js";
 export { canvasHistoryKey } from "./asset-canvas-nodes.js";
@@ -171,7 +172,7 @@ const STORY_NODE_TYPES: NodeTypes = {
   file: FileNode,
 };
 
-export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, hidden = false, storage, documents, tables, assets: localAssets, conflicted = false, overlay, onSaveReady, onSyncReady, onResolveReady, onStatusChange, onSelectionChange, expandedDocument }: {
+export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, hidden = false, storage, documents, tables, assets: localAssets, conflicted = false, overlay, onSaveReady, onSyncReady, onResolveReady, onStatusChange, onSelectionChange, onOpenWorkspaceFile, expandedDocument }: {
   project: ProjectState;
   initialNodeId?: string;
   onInitialNodeHandled?: () => void;
@@ -187,6 +188,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   onResolveReady?: (resolve: ((version: "local" | "remote") => Promise<void>) | undefined) => void;
   onStatusChange?: (status: "loading" | "saved" | "saving" | "error" | "sync-error" | "load-error") => void;
   onSelectionChange?: (nodes: AssetCanvasNode[]) => void;
+  onOpenWorkspaceFile?: (path: string) => void;
   expandedDocument?: { id: string; nodeId?: string; busy?: boolean; onClose(): void };
 }) {
   const projectId = project.id;
@@ -1348,7 +1350,11 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     }
     if (node.type === "file") {
       const reveal = window.ohMyGameDesktop?.openProjectFile;
-      return { ...node, data: { ...node.data, fileRuntime: { onReveal: reveal && node.data.path ? () => { void reveal(projectId, node.data.path!, "reveal").catch((cause) => setNotice({ kind: "action", message: errorMessage(cause) })); } : undefined } } };
+      const file = workspaceLinkPath(node.data.path?.split("/").map(encodeURIComponent).join("/"), project.workspacePath);
+      return { ...node, data: { ...node.data, fileRuntime: {
+        onReveal: reveal && node.data.path ? () => { void reveal(projectId, node.data.path!, "reveal").catch((cause) => setNotice({ kind: "action", message: errorMessage(cause) })); } : undefined,
+        onPreview: project.type === "asset-canvas" && !node.data.directory && file && isHtmlWorkspaceFile(file) && onOpenWorkspaceFile ? () => onOpenWorkspaceFile(file) : undefined,
+      } } };
     }
     if (node.type === "document") return { ...node, data: { ...node.data, documentRuntime: { ...nodeReferencesRuntime(node), referenceSource: { boardId: storage.boardId, nodeId: node.id }, design: documents, document: documents.documents.find((doc) => doc.id === node.data.documentId), models: textModelCatalog.models, modelStatus: textModelCatalog.status, defaultModel: defaultTextModel, defaultReasoningLevel: textModelCatalog.defaultReasoningLevel } } };
     if (node.type === "asset") return {

@@ -53,6 +53,7 @@ interface AgentTimelineProps {
   projectId?: string;
   workspacePath?: string;
   onOpenWorkspaceFile?: (path: string) => void;
+  previewHtmlLinks?: boolean;
   revisionDisabled?: boolean;
   onRevise?: (prompt: string) => Promise<boolean>;
   /** Shows under each finished turn what it changed in the workspace, with a way to undo it. */
@@ -67,7 +68,7 @@ interface AgentTimelineProps {
   plugins?: ConversationCapabilities["plugins"];
 }
 
-const WorkspaceLinkContext = createContext<{ workspacePath?: string; onOpenWorkspaceFile?: (path: string) => void }>({});
+const WorkspaceLinkContext = createContext<{ workspacePath?: string; onOpenWorkspaceFile?: (path: string) => void; previewHtmlLinks?: boolean }>({});
 const PluginsContext = createContext<ConversationCapabilities["plugins"]>([]);
 const NO_PLUGINS: ConversationCapabilities["plugins"] = [];
 const completedDisplays = new WeakMap<ThreadTurn, TurnDisplay>();
@@ -79,7 +80,7 @@ function turnDisplay(turn: ThreadTurn): TurnDisplay {
   return display;
 }
 
-export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS }: AgentTimelineProps) {
+export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, previewHtmlLinks, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -88,7 +89,7 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
   const [submitting, setSubmitting] = useState(false);
   const turns = useMemo(() => mergeCompletedCompactionTurns(sourceTurns), [sourceTurns]);
   const displays = useMemo(() => turns.map(turnDisplay), [turns]);
-  const workspaceLinks = useMemo(() => ({ workspacePath, onOpenWorkspaceFile }), [workspacePath, onOpenWorkspaceFile]);
+  const workspaceLinks = useMemo(() => ({ workspacePath, onOpenWorkspaceFile, previewHtmlLinks }), [workspacePath, onOpenWorkspaceFile, previewHtmlLinks]);
   const activeIndex = turns.findIndex((turn) => turn.status === "inProgress");
   const latestSteeringIndex = turns.findLastIndex((turn) => turn.steering);
   const steeringPending = activeIndex >= 0 && latestSteeringIndex > activeIndex;

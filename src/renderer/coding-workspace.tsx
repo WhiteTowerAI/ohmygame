@@ -96,6 +96,8 @@ interface CodingWorkspaceProps {
   onDesignContextChange?: (context: import("../shared/contracts.js").PromptContext | undefined) => void;
   onProjectUpdated?: (project: ProjectState) => void;
   openFileRequest?: { path: string; id: number };
+  openPreviewRequest?: { projectId: string; path: string; id: number };
+  onOpenWorkspaceFile?: (path: string) => void;
   /** The design document the next message references, by its workspace path. */
   referencedDocument?: string;
   /** References a design document in the next message, or stops referencing it. */
@@ -142,6 +144,8 @@ export function CodingWorkspace({
   onDesignContextChange,
   onProjectUpdated,
   openFileRequest,
+  openPreviewRequest,
+  onOpenWorkspaceFile,
   referencedDocument,
   onReferenceDocument,
   onQuoteDocument,
@@ -149,8 +153,14 @@ export function CodingWorkspace({
   onPickingChange,
   panels,
 }: CodingWorkspaceProps) {
-  const supportsPreview = supportsWebPreview(project);
-  const hasPreview = supportsWebPreview(project);
+  const canvasFilePreview = project?.type === "asset-canvas";
+  const [appliedPreviewRequest, setAppliedPreviewRequest] = useState<{ projectId: string; id: number }>();
+  const awaitingCanvasFile = canvasFilePreview && (
+    !openPreviewRequest || openPreviewRequest.projectId !== project?.id ||
+    appliedPreviewRequest?.projectId !== openPreviewRequest.projectId || appliedPreviewRequest.id !== openPreviewRequest.id
+  );
+  const supportsPreview = supportsWebPreview(project) || canvasFilePreview;
+  const hasPreview = supportsPreview;
   const visible = panels?.visible ?? new Set<CodingView>([canvasOpen ? "canvas" : hasPreview ? "preview" : "code"]);
   const shows = (view: CodingView) => visible.has(view);
   const show = (view: CodingView) => panels?.onShow(view);
@@ -200,8 +210,8 @@ export function CodingWorkspace({
   const player = useWebGamePlayer(supportsPreview ? project?.id : undefined, previewBaseUrl, preview?.revision, preview?.pages?.find((page) => page.source === "player")?.path);
   const nativePreview = typeof window !== "undefined" && window.ohMyGameDesktop?.webGamePlayer?.preview;
   const gameClient = nativePreview ? player.client ?? previewClient : previewClient;
-  const previewPageUrl = previewBaseUrl ? isolatedPreviewUrl(new URL(previewPath, previewBaseUrl).toString(), "editor", gameClient) : undefined;
-  const currentPreviewUrl = previewBaseUrl ? isolatedPreviewUrl(new URL(actualPreviewPath, previewBaseUrl).toString(), "editor", gameClient) : undefined;
+  const previewPageUrl = previewBaseUrl && !awaitingCanvasFile ? isolatedPreviewUrl(new URL(previewPath, previewBaseUrl).toString(), "editor", gameClient) : undefined;
+  const currentPreviewUrl = previewBaseUrl && !awaitingCanvasFile ? isolatedPreviewUrl(new URL(actualPreviewPath, previewBaseUrl).toString(), "editor", gameClient) : undefined;
   const previewStage = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -215,6 +225,15 @@ export function CodingWorkspace({
     setPreviewPath(project?.previewPath ?? "/");
     setActualPreviewPath(project?.previewPath ?? "/");
   }, [project?.id, project?.previewPath]);
+
+  useEffect(() => {
+    if (!openPreviewRequest || openPreviewRequest.projectId !== project?.id) return;
+    const path = `/${openPreviewRequest.path.split("/").map(encodeURIComponent).join("/")}`;
+    setPreviewPath(path);
+    setActualPreviewPath(path);
+    setKnownPaths((current) => current.includes(path) ? current : [...current, path]);
+    setAppliedPreviewRequest({ projectId: openPreviewRequest.projectId, id: openPreviewRequest.id });
+  }, [openPreviewRequest?.id, project?.id]);
 
   useEffect(() => {
     if (preview?.status !== "ready") setPreviewPath(actualPreviewPath);
@@ -360,7 +379,7 @@ export function CodingWorkspace({
   }, [picking]);
 
   const canPlay = !player.open && (!project || preview?.status === "waiting" || preview?.status === "starting");
-  const playButton = supportsPreview ? <Button
+  const playButton = supportsPreview && !awaitingCanvasFile ? <Button
     size="sm"
     variant="ghost"
     className={`preview-play-button${player.open ? " is-active" : ""}`}
@@ -390,17 +409,17 @@ export function CodingWorkspace({
           paths={knownPaths}
           status={preview?.status}
           previewUrl={currentPreviewUrl}
-          refreshDisabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
+          refreshDisabled={!project || awaitingCanvasFile || preview?.status === "waiting" || preview?.status === "starting"}
           refreshLabel={preview?.status === "ready" ? t("workspace.reloadPreview") : t("workspace.restartPreview")}
           viewport={viewport}
           agentPlaytestWatch={agentPlaytestWatch}
           agentPlaytestWatchPending={agentPlaytestWatchPending}
           picking={picking}
-          pickDisabled={!project || preview?.status !== "ready" || player.open}
-          onOpenSettings={() => setProjectSettingsOpen(true)}
+          pickDisabled={!project || awaitingCanvasFile || preview?.status !== "ready" || player.open}
+          onOpenSettings={canvasFilePreview ? undefined : () => setProjectSettingsOpen(true)}
           onNavigate={navigatePreview}
           onRefresh={refreshPreview}
-          onRestart={() => onRestart()}
+          onRestart={awaitingCanvasFile ? undefined : () => onRestart()}
           onTogglePicking={() => void setPicking(!picking)}
           onToggleAgentPlaytestWatch={() => void toggleAgentPlaytestWatch()}
           onViewportChange={setViewport}
@@ -414,9 +433,10 @@ export function CodingWorkspace({
             <PreviewView
               project={project} client={gameClient} onAskAgent={onAskAgent} onLogs={() => setLogsOpen(true)} onOpenFile={(path) => { openCode(path); void selectFile(path); }} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport}
               pausedAfterRecovery={previewPaused}
+              awaitingCanvasFile={awaitingCanvasFile}
               active={shows("preview")} playerOpen={player.open} suspended={player.suspended} pending={player.pending || player.checking}
               error={player.error} onPlay={playGame} stageRef={previewStage}
-              onRetry={() => onRestart()} onSettings={() => setProjectSettingsOpen(true)}
+              onRetry={awaitingCanvasFile ? undefined : () => onRestart()} onSettings={canvasFilePreview ? undefined : () => setProjectSettingsOpen(true)}
             />
             </ErrorBoundary>
             {picking ? <span className="preview-pick-hint" role="status">{t("workspace.pickHint")}</span> : null}
@@ -434,7 +454,7 @@ export function CodingWorkspace({
     canvas: project ? {
       toolbar: <div className="viewer-publish design-header-actions" ref={setDesignHeaderActions} />,
       body: <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
-        project={project} documents={documents} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onSaveReady={registerCanvasSave} onContextChange={onDesignContextChange}
+        project={project} documents={documents} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onSaveReady={registerCanvasSave} onContextChange={onDesignContextChange} onOpenWorkspaceFile={onOpenWorkspaceFile}
       /></Suspense>,
     } : undefined,
     code: {
@@ -553,10 +573,10 @@ function PreviewControls({
   agentPlaytestWatchPending: boolean;
   picking: boolean;
   pickDisabled: boolean;
-  onOpenSettings: () => void;
+  onOpenSettings?: () => void;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
-  onRestart: () => void;
+  onRestart?: () => void;
   onTogglePicking: () => void;
   onToggleAgentPlaytestWatch: () => void;
   onViewportChange: (viewport: PreviewViewport) => void;
@@ -578,9 +598,8 @@ function PreviewControls({
       <IconButton size="sm" className="preview-refresh-button" label={refreshLabel} disabled={refreshDisabled} onClick={onRefresh}><RefreshCw size={14} /></IconButton>
       <DropdownMenu placement="bottom-end" trigger={(props) => <IconButton {...props} size="sm" label={t("workspace.moreActions")}><MoreHorizontal size={14} /></IconButton>} items={[
         ...(previewUrl ? [{ label: t("workspace.openInBrowser"), icon: <ExternalLink size={14} />, onSelect: () => openPreviewInBrowser(previewUrl) }] : []),
-        { label: t("workspace.restartPreview"), icon: <RotateCcw size={14} />, disabled: status === "waiting" || status === "starting", onSelect: onRestart },
-        "separator",
-        { label: t("projectSettings.title"), icon: <Wrench size={14} />, onSelect: onOpenSettings },
+        { label: t("workspace.restartPreview"), icon: <RotateCcw size={14} />, disabled: !onRestart || status === "waiting" || status === "starting", onSelect: () => onRestart?.() },
+        ...(onOpenSettings ? ["separator" as const, { label: t("projectSettings.title"), icon: <Wrench size={14} />, onSelect: onOpenSettings }] : []),
       ]} />
     </div>
   );
@@ -804,11 +823,12 @@ export function playerViewport(viewport: PreviewViewport): { width: number; heig
   return { width: 1280, height: 720 };
 }
 
-export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, reload, revision, url, viewport, active = true, playerOpen = false, suspended = false, pending = false, pausedAfterRecovery = false, error, onPlay, onRetry, onSettings, stageRef }: {
+export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, reload, revision, url, viewport, active = true, playerOpen = false, suspended = false, pending = false, pausedAfterRecovery = false, awaitingCanvasFile = false, error, onPlay, onRetry, onSettings, stageRef }: {
   client?: string; onAskAgent?: (text: string) => void; onOpenFile?: (path: string) => void; onLogs?: () => void;
   project?: ProjectState; reload: number; revision: number; url?: string; viewport: PreviewViewport;
   active?: boolean; playerOpen?: boolean; suspended?: boolean; pending?: boolean; error?: string; onPlay?: () => void;
   pausedAfterRecovery?: boolean;
+  awaitingCanvasFile?: boolean;
   stageRef?: React.Ref<HTMLDivElement>;
   onRetry?: () => void; onSettings?: () => void;
 }) {
@@ -855,7 +875,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
   function scheduleCoverCapture(element: HTMLElement): void {
     frame.current = element;
     clearTimeout(captureTimer.current);
-    if (!project || !window.ohMyGameDesktop?.capturePage) return;
+    if (!project || project.type === "asset-canvas" || !window.ohMyGameDesktop?.capturePage) return;
     captureTimer.current = setTimeout(() => {
       if (captureBlocked.current) return;
       void captureProjectCover(project.id, element, native ? () => native.capture(project.id) : undefined).catch(() => {});
@@ -887,7 +907,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
           {playerOpen && onPlay ? <button type="button" className="preview-return-button" disabled={pending} onClick={onPlay}>{t("workspace.returnToGame")}</button> : null}
         </div>
       </div> : !showFrame ? <div className="preview-status-panel">
-        <PreviewState status={preview?.status} error={preview?.error} phase={preview?.phase} startedAt={preview?.startedAt} />
+        {awaitingCanvasFile ? <div className="preview-empty-state"><p className="preview-empty-title">{t("workspace.canvasPreviewTitle")}</p><p className="preview-empty-description">{t("workspace.canvasPreviewDescription")}</p></div> : <PreviewState status={preview?.status} error={preview?.error} phase={preview?.phase} startedAt={preview?.startedAt} />}
         {(pausedAfterRecovery || preview?.stopReason === "recovery") && preview?.status === "stopped" ? <p>{t("workspace.pausedAfterRecovery")}</p> : null}
         {preview?.status === "stopped" && preview.stopReason === "manual" ? <p>{t("workspace.stoppedManual")}</p> : preview?.status === "stopped" && preview.stopReason === "idle" ? <p>{t("workspace.stoppedIdle")}</p> : preview?.status === "stopped" && project?.previewAutoStart === false ? <p>{t("workspace.autoDisabled")}</p> : null}
         {onRetry && (preview?.status === "error" || preview?.status === "stopped") ? <div className="preview-recovery-actions">

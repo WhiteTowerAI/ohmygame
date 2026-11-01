@@ -30,10 +30,10 @@ describe("workspace layouts", () => {
     expect(tabs(presetLayout("art", STORY)).center).toBe("*canvas,story,design,code,assets");
     expect(tabs(presetLayout("code", STORY)).center).toBe("*code,story,design,canvas,assets");
     expect(presetsFor(["chat", "canvas"])).toEqual(["default"]);
-    // An asset canvas opens on its canvas, with its files in a Code panel.
+    // An asset canvas opens on its canvas, with Preview and Code beside it.
     const canvas = panelsOf({ type: "asset-canvas" });
-    expect(canvas).toEqual(["chat", "canvas", "code"]);
-    expect(tabs(presetLayout("default", canvas)).center).toBe("*canvas,code");
+    expect(canvas).toEqual(["chat", "canvas", "game", "code"]);
+    expect(tabs(presetLayout("default", canvas)).center).toBe("*canvas,game,code");
     // Art brings the canvas forward, not the design document.
     expect(tabs(presetLayout("art", GAME)).center).toBe("*canvas,game,design,code,assets");
   });

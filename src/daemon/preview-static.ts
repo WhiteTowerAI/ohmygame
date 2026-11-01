@@ -6,6 +6,7 @@ import path from "node:path";
 
 export const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
   ".js": "text/javascript",
   ".mjs": "text/javascript",
   ".css": "text/css",

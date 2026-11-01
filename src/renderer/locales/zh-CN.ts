@@ -1302,6 +1302,8 @@ const zhCN: typeof en = {
     noOutput: "还没有输出。",
     previewSource: "预览",
     emptyTitle: "预览会显示在这里",
+    canvasPreviewTitle: "选择要预览的 HTML 文件",
+    canvasPreviewDescription: "打开对话中的 HTML 链接，或在画布文件上选择预览。",
     emptyDescription: "在 Agent 面板中描述你的游戏，就能生成可试玩的版本。",
     allowPopups: "请允许弹出窗口，以便在新窗口中试玩游戏。",
     windowClosed: "游戏窗口已关闭。",
@@ -3317,6 +3319,7 @@ const zhCN: typeof en = {
   },
   markdown: {
     openInCode: "在代码中打开 {{path}}",
+    openInPreview: "在预览中打开 {{path}}",
     code: "代码",
   },
   canvasNode: {
