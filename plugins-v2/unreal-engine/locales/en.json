@@ -1,0 +1,10 @@
+{
+  "displayName": "Unreal Engine",
+  "description": "Inspect scenes and edit actors through Unreal MCP.",
+  "longDescription": "Inspect scenes and edit actors through the official experimental Unreal MCP documented for Unreal Engine 5.8. Requires an Editor with the plugin enabled and its MCP server running on this computer; available operations depend on the enabled toolsets. Turn it on in each project that uses it.",
+  "example.1": "Inspect the connected Unreal project's identity, level, and available toolsets without editing.",
+  "example.2": "Add a named cube actor to a test level, save it, and report the verification evidence.",
+  "config.endpoint": "Local Unreal MCP URL",
+  "config.endpoint.description": "The URL of the selected Unreal Editor's experimental MCP server on this computer (127.0.0.1 or localhost, any port). Start the server in that Editor before testing.",
+  "mcp.title": "Unreal MCP"
+}

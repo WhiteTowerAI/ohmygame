@@ -83,8 +83,8 @@ shows it in the call's progress.
 - MCP servers (`contributes.mcpServers`) of a project's active plugins start
   in its agent sessions beside format 1 plugins' servers, through the same
   MCP host (`PluginServices.mcpServers`). A server runs a `command` listed in
-  `capabilities.processes`, from the plugin's folder or its `cwd`; HTTP
-  servers wait for a way to keep redirects within `capabilities.network`.
+  `capabilities.processes`, from the plugin's folder or its `cwd`, or is an
+  HTTP server at a `url`, with optional `headers` (see below).
   The app sets `OHMYGAME_PLUGIN_DATA_DIR` in its `env` to the plugin's data
   folder; the manifest can't set that name itself.
   Its `args` and `env` may name settings as `${config.field}`; a server waits
@@ -99,9 +99,22 @@ shows it in the call's progress.
   each of the adapter's tools runs and again by the adapter's approval
   request before each MCP call, including calls a script makes. A script
   already running can still start a server that hadn't started, but every
-  call to it is refused. When a format 1 HTTP server reports an expired
-  session, the adapter reconnects and resends a call it already approved
-  without asking again, so that one call can still finish after the change.
+  call to it is refused. When an HTTP server reports an expired session, the
+  adapter reconnects and resends a call it already approved without asking
+  again, so that one call can still finish after the change.
+- An HTTP MCP server's `url` must be https, or http on this computer
+  (`127.0.0.1`, `localhost`), carry no user name or password, and be on a
+  host `capabilities.network` lists: an entry names a host with any port, or
+  `host:port` for one port. Its `url` and `headers` may name settings; a URL
+  can't carry a secret, and a header's secret needs `capabilities.secrets`.
+  The manifest check tries the URL with its settings' defaults, saving a
+  setting refuses a value that would move the URL outside those hosts, and a
+  server whose URL is still outside them (a value saved by hand) is left out.
+  The app hands the adapter (`pi-mcp-adapter`, patched in
+  `patches/pi-mcp-adapter@2.27.0.patch`) the URL's origin as
+  `allowedOrigins`: every request stays on it, redirects are refused, the
+  URL and headers are used as written (no `${VAR}` or `!command`), and OAuth,
+  header commands and the failure probe are off.
 - A typed project's preview follows the plugin version its `ohmygame.json`
   pins; the app updates what it recorded when that file changes and at
   startup. A `native` preview runs outside the app, so the project has no

@@ -273,7 +273,7 @@ describe("plugin catalog API", () => {
     await app.ready();
 
     const catalog = await app.inject({ method: "GET", url: "/plugins" });
-    const detail = await app.inject({ method: "GET", url: "/plugins/ohmygame%3Aunreal-engine" });
+    const detail = await app.inject({ method: "GET", url: "/plugins/ohmygame%3Aunity" });
 
     expect(catalog.statusCode).toBe(200);
     expect(catalog.json()).toMatchObject({
@@ -286,7 +286,6 @@ describe("plugin catalog API", () => {
         { id: "ohmygame:threejs-world", installed: true },
         { id: "ohmygame:tiled", installed: true, beta: true, enabled: false },
         { id: "ohmygame:unity", installed: true, beta: true, enabled: false },
-        { id: "ohmygame:unreal-engine", installed: true, beta: true, enabled: false },
         { id: "ohmygame:web-game-studio", installed: true },
         { id: "ohmygame:wechat-minigame", installed: true, beta: true, enabled: false },
       ],
@@ -294,9 +293,8 @@ describe("plugin catalog API", () => {
     });
     expect(catalog.json().plugins.every((plugin: Record<string, unknown>) => !("longDescription" in plugin))).toBe(true);
     expect(detail.json()).toMatchObject({
-      id: "ohmygame:unreal-engine",
+      id: "ohmygame:unity",
       longDescription: expect.any(String),
-      mcpServers: [{ id: "unreal" }],
       defaultPrompts: expect.any(Array),
       projectTypes: ["general"],
     });
@@ -304,18 +302,25 @@ describe("plugin catalog API", () => {
 
   it("stores the Plugin switch together with MCP capabilities", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-settings-api-"));
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mcp-source-"));
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+      name: "editor-bridge", version: "1.0.0", description: "Local editor MCP", mcpServers: "./mcp.json",
+    }));
+    await writeFile(path.join(source, "mcp.json"), JSON.stringify({ mcpServers: { editor: { url: "http://127.0.0.1:8000/mcp", lifecycle: "lazy" } } }));
     const app = createApp({ dataDirectory });
     apps.push(app);
     await app.ready();
+    await app.inject({ method: "POST", url: "/plugins/install", payload: { type: "directory", path: source } });
 
     const updated = await app.inject({
       method: "PUT",
-      url: "/plugins/ohmygame%3Aunreal-engine/settings",
+      url: "/plugins/personal%3Aeditor-bridge/settings",
       payload: { enabled: false, components: {} },
     });
 
     expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toMatchObject({ enabled: false, mcpServers: [{ id: "unreal", status: "disabled" }] });
+    expect(updated.json()).toMatchObject({ enabled: false, mcpServers: [{ id: "editor", status: "disabled" }] });
   });
 
   it("migrates Pi MCP configuration into an installed plugin", async () => {

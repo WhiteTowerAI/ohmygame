@@ -21,7 +21,7 @@ export interface PluginCatalogAdapter {
 }
 
 /** Bundled format 1 plugins that format 2 plugins turned on per project replaced. */
-const RETIRED_BUNDLED_PLUGINS: ReadonlySet<string> = new Set(["godot"]);
+const RETIRED_BUNDLED_PLUGINS: ReadonlySet<string> = new Set(["godot", "unreal-engine"]);
 
 export class PluginCatalogService {
   constructor(

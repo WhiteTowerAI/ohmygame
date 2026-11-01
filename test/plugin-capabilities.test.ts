@@ -49,16 +49,13 @@ async function environment() {
   return { directory, agentDir, settings, local, bundled, service };
 }
 describe("native plugin capabilities", () => {
-  it("excludes optional beta workflows until enabled and scopes their Skills and Unreal MCP", async () => {
-    const { service, bundled, settings } = await environment();
-    const optionalNames = ["aseprite", "cocos-creator", "douyin-minigame", "tiled", "unity", "unreal-engine", "wechat-minigame"];
+  it("excludes optional beta workflows until enabled and scopes their Skills", async () => {
+    const { bundled, settings } = await environment();
+    const optionalNames = ["aseprite", "cocos-creator", "douyin-minigame", "tiled", "unity", "wechat-minigame"];
     const optional = optionalNames.map(name => bundled.read(`ohmygame:${name}`)!);
     const roots = optional.map(plugin => bundled.installedPath(plugin.id)!);
     const initialSkills = await resolvePluginSkillPaths([bundled], settings, "general");
     expect(initialSkills.filter(file => roots.some(root => file.startsWith(`${root}${path.sep}`)))).toEqual([]);
-    const unreal = bundled.read("ohmygame:unreal-engine")!;
-    const unrealName = service.runtimeName(unreal.id, "unreal");
-    expect((await service.effective("general")).mcpServers).not.toHaveProperty(unrealName);
 
     for (const plugin of optional) await settings.update(plugin, { enabled: true, components: {} });
     for (const projectType of ["general", "web-game", "godot-game", "asset-canvas"] as const) {
@@ -67,18 +64,10 @@ describe("native plugin capabilities", () => {
         const skill = path.join(bundled.installedPath(plugin.id)!, plugin.skills[0]!.id);
         expect(skills.includes(skill)).toBe(projectType === "general" || plugin.name === "aseprite" || plugin.name === "tiled");
       }
-      const servers = (await service.effective(projectType)).mcpServers;
-      if (projectType === "general") {
-        expect(servers[unrealName]).toMatchObject({ url: "http://127.0.0.1:8000/mcp", lifecycle: "lazy" });
-      } else {
-        expect(servers).not.toHaveProperty(unrealName);
-      }
     }
-    await service.configuration.update(unreal, { endpoint: "http://127.0.0.1:8100/mcp" });
-    expect((await service.effective("general")).mcpServers[unrealName]).toMatchObject({ url: "http://127.0.0.1:8100/mcp" });
-    await settings.update(unreal, { enabled: false, components: {} });
-    expect((await service.effective("general")).mcpServers).not.toHaveProperty(unrealName);
-    expect(await resolvePluginSkillPaths([bundled], settings, "general")).not.toContain(path.resolve("plugins/unreal-engine/skills/unreal-game/SKILL.md"));
+    const unity = bundled.read("ohmygame:unity")!;
+    await settings.update(unity, { enabled: false, components: {} });
+    expect(await resolvePluginSkillPaths([bundled], settings, "general")).not.toContain(path.join(bundled.installedPath(unity.id)!, unity.skills[0]!.id));
   });
 
   it("resolves a format 1 plugin's configuration in its MCP server", async () => {
@@ -574,6 +563,66 @@ describe("native plugin capabilities", () => {
     expect(result).toMatchObject({ status: "connected", toolCount: 1 });
     expect(authorization).toBe("Bearer test-secret");
     expect(JSON.stringify(result)).not.toContain("test-secret");
+  }, 45_000);
+  it("keeps an HTTP server restricted to its origins there: no redirects, probes or interpreted headers", async () => {
+    const { service, agentDir } = await environment();
+    const listen = async (handler: Parameters<typeof createServer>[1]) => {
+      const server = createServer(handler);
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+      return `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    };
+    let elsewhere = 0;
+    const other = await listen((_req, res) => {
+      elsewhere++;
+      res.writeHead(404);
+      res.end();
+    });
+    const redirecting = await listen((_req, res) => {
+      res.writeHead(307, { location: `${other}/mcp` });
+      res.end();
+    });
+    const headers: Record<string, string | undefined> = {};
+    const working = await listen(async (req, res) => {
+      if (req.method !== "POST") {
+        res.writeHead(405);
+        res.end();
+        return;
+      }
+      headers.secret = req.headers["x-secret"] as string | undefined;
+      headers.home = req.headers["x-home"] as string | undefined;
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      const message = JSON.parse(body);
+      if (message.id === undefined) {
+        res.writeHead(202);
+        res.end();
+        return;
+      }
+      const result = message.method === "initialize"
+        ? { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "restricted", version: "1.0.0" } }
+        : { tools: [{ name: "inspect", inputSchema: { type: "object" } }] };
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+    });
+    const probe = (key: string, definition: Record<string, unknown>) => service.host.probe(key, key, definition, agentDir, "test");
+
+    // Headers are sent as written: no command runs, no variable expands.
+    expect(await probe("working", {
+      url: `${working}/mcp`,
+      allowedOrigins: [working],
+      headers: { "X-Secret": "!echo leaked", "X-Home": "${HOME}" },
+    })).toMatchObject({ status: "connected", toolCount: 1 });
+    expect(headers).toEqual({ secret: "!echo leaked", home: "${HOME}" });
+
+    // A redirect elsewhere is refused, and the failure isn't probed past it.
+    expect(await probe("redirecting", { url: `${redirecting}/mcp`, allowedOrigins: [redirecting] })).toMatchObject({ status: "failed" });
+    expect(elsewhere).toBe(0);
+
+    // A URL outside its origins, or a restriction that can't be read, reaches nothing.
+    expect(await probe("outside", { url: `${other}/mcp`, allowedOrigins: [working] })).toMatchObject({ status: "failed" });
+    expect(await probe("empty", { url: `${other}/mcp`, allowedOrigins: [] })).toMatchObject({ status: "failed" });
+    expect(elsewhere).toBe(0);
   }, 45_000);
   it("executes real MCP tools through a plugin session and keeps an independent provider enabled", async () => {
     const { service, settings, directory, local } = await environment();

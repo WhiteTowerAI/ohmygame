@@ -132,6 +132,7 @@ import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { exportProjectArchive, importProjectArchive, ProjectArchiveError } from "./project-archive.js";
 import { LEGACY_MAKER_ID, migrateLegacyMakerProjects } from "./legacy-maker.js";
 import { LEGACY_GODOT_ID, migrateLegacyGodotPath, migrateLegacyGodotProjects } from "./legacy-godot.js";
+import { LEGACY_UNREAL_ID, migrateLegacyUnreal } from "./legacy-unreal.js";
 import { MAX_PROJECT_COVER_BYTES, MAX_PROJECT_LOGO_BYTES } from "./project-covers.js";
 import { PROJECT_ICONS, PROJECT_TONES } from "../shared/project-appearance.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE, PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
@@ -1154,6 +1155,12 @@ export function createApp(options: AppOptions = {}) {
       services: pluginServices,
       warn: (message, err) => app.log.warn({ err }, message),
     }).catch((err: unknown) => app.log.warn({ err }, "Could not move Godot's executable setting"));
+    await migrateLegacyUnreal({
+      configuration: pluginCapabilities.configuration,
+      services: pluginServices,
+      legacyEnabled: pluginSettings.storedEnabled(LEGACY_UNREAL_ID),
+      warn: (message, err) => app.log.warn({ err }, message),
+    }).catch((err: unknown) => app.log.warn({ err }, "Could not move Unreal Engine's settings"));
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);

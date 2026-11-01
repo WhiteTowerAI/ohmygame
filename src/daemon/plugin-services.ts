@@ -8,7 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PLUGIN_DATA_ENV } from "../shared/plugin-manifest.js";
+import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, mcpUrlIssue, PLUGIN_DATA_ENV } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
@@ -229,12 +229,6 @@ export class PluginServices {
     });
   }
 
-  /**
-   * The MCP servers of a project's active plugins, for agent sessions to
-   * start beside the format 1 plugins' servers, keyed by a name unique to
-   * the plugin and server. A server is left out until the settings it names
-   * are filled in.
-   */
   /** A plugin's data folder; ids are `publisher/name`, so it stays under `dataDirectory`. */
   dataFolder(id: string): string {
     // Ids come from routes too; only a real id names a folder inside the store.
@@ -242,6 +236,13 @@ export class PluginServices {
     return path.join(this.dataDirectory, ...id.split("/"));
   }
 
+  /**
+   * The MCP servers of a project's active plugins, for agent sessions to
+   * start beside the format 1 plugins' servers, keyed by a name unique to
+   * the plugin and server. A server is left out until the settings it names
+   * are filled in, and an HTTP server while its URL is outside
+   * `capabilities.network`.
+   */
   async mcpServers(folder: string): Promise<Record<string, McpServerDefinition>> {
     await this.ready();
     this.#watch(folder);
@@ -258,25 +259,36 @@ export class PluginServices {
       const values = this.values.forNative(entry);
       for (const server of entry.manifest.contributes?.mcpServers ?? []) {
         if (configReferences(server).some((name) => values[name] === undefined)) continue;
-        const fill = <T>(value: T): T => JSON.parse(
-          JSON.stringify(value),
-          (_key, item: unknown) => typeof item === "string"
-            ? item.replace(/\$\{config\.([a-zA-Z0-9]+)\}/g, (_match, name: string) => String(values[name]))
-            : item,
-        ) as T;
-        const { id, title: _title, tools, cwd, timeoutSeconds, ...launch } = fill(server);
+        const name = `plugin-${createHash("sha256").update(entry.id).digest("hex").slice(0, 12)}-v2-${server.id}`;
+        const filled = fillConfigReferences(server, values);
+        const timeout = filled.timeoutSeconds ? { requestTimeoutMs: filled.timeoutSeconds * 1000 } : {};
+        if ("url" in filled) {
+          // A setting can move the endpoint, but not past what the person allowed.
+          if (mcpUrlIssue(filled.url, entry.manifest.capabilities?.network)) continue;
+          servers[name] = {
+            url: filled.url,
+            ...(filled.headers ? { headers: filled.headers } : {}),
+            // The adapter keeps every request on this origin, uses the URL and
+            // headers as written, and turns off OAuth and redirects.
+            allowedOrigins: [new URL(filled.url).origin],
+            includeTools: filled.tools,
+            ...timeout,
+            disabled: false,
+          };
+          continue;
+        }
+        const { id: _id, title: _title, tools, cwd, timeoutSeconds: _timeout, ...launch } = filled;
         const definition = { ...launch, cwd: path.resolve(entry.root, cwd ?? ".") };
         // A setting's value is checked as the manifest's own values were.
         if (mcpServerSyntaxIssue(definition)) continue;
         const dataFolder = this.dataFolder(entry.id);
         await mkdir(dataFolder, { recursive: true, mode: 0o700 });
-        const name = `plugin-${createHash("sha256").update(entry.id).digest("hex").slice(0, 12)}-v2-${id}`;
         servers[name] = {
           ...definition,
           env: { ...definition.env, [PLUGIN_DATA_ENV]: dataFolder },
           literalEnv: true,
           includeTools: tools,
-          ...(timeoutSeconds ? { requestTimeoutMs: timeoutSeconds * 1000 } : {}),
+          ...timeout,
           disabled: false,
         };
       }

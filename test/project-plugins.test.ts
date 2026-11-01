@@ -30,6 +30,7 @@ import type { ProjectState } from "../src/shared/contracts.js";
 import { LEGACY_MAKER_ID, MAKER_PLUGIN, MAKER_TYPE, migrateLegacyMakerProjects } from "../src/daemon/legacy-maker.js";
 import { GODOT_PLUGIN, GODOT_TYPE, LEGACY_GODOT_ID, migrateLegacyGodotPath, migrateLegacyGodotProjects } from "../src/daemon/legacy-godot.js";
 import { GODOT_PLUGIN_MCP_SERVER_ID } from "../src/shared/mcp.js";
+import { LEGACY_UNREAL_ID, migrateLegacyUnreal, UNREAL_PLUGIN } from "../src/daemon/legacy-unreal.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins-v2");
 const BUNDLED = path.join(import.meta.dirname, "../plugins-v2");
@@ -267,6 +268,55 @@ describe("project plugins", () => {
       }]);
       await services.values.update(entry, { godotPath: "/opt/Godot" });
       expect(await server()).toMatchObject([{ env: { OHMYGAME_GODOT_SETTING: "/opt/Godot" } }]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("connects to the bundled Unreal's MCP server only on this computer, at the port the person sets", async () => {
+    const services = new PluginServices({ directory: await temporary(), bundled: BUNDLED, bundledOff: [UNREAL_PLUGIN] });
+    try {
+      await services.ready();
+      const entry = services.index.get(UNREAL_PLUGIN)!;
+      const folder = await temporary();
+      await writeProjectFile(folder, (file) => file, { type: "general", plugins: { [UNREAL_PLUGIN]: entry.version } });
+      // It starts off, and a General project approves it itself.
+      expect(await services.mcpServers(folder)).toEqual({});
+      await services.consent(UNREAL_PLUGIN, capabilityGrants(entry.manifest));
+      await services.setEnabled(UNREAL_PLUGIN, true);
+      expect(await services.mcpServers(folder)).toEqual({});
+      await services.grants.approve(await projectFolderKey(folder), UNREAL_PLUGIN, capabilityGrants(entry.manifest));
+      // The adapter keeps it on that origin, with OAuth, redirects and URL expansion off.
+      expect(Object.values(await services.mcpServers(folder))).toEqual([{
+        url: "http://127.0.0.1:8000/mcp",
+        allowedOrigins: ["http://127.0.0.1:8000"],
+        includeTools: ["list_toolsets", "describe_toolset", "call_tool"],
+        disabled: false,
+      }]);
+      await services.configure(UNREAL_PLUGIN, { endpoint: "http://localhost:8100/mcp" });
+      expect(Object.values(await services.mcpServers(folder))).toMatchObject([{ url: "http://localhost:8100/mcp", allowedOrigins: ["http://localhost:8100"] }]);
+      // A setting can't move it past the hosts the person allowed.
+      for (const endpoint of ["http://192.168.1.5:8000/mcp", "https://example.com/mcp", "http://user:secret@127.0.0.1:8000/mcp"])
+        await expect(services.configure(UNREAL_PLUGIN, { endpoint })).rejects.toThrow(endpoint);
+      expect(Object.values(await services.mcpServers(folder))).toMatchObject([{ url: "http://localhost:8100/mcp" }]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("leaves out an HTTP MCP server whose saved URL is outside what the plugin may reach", async () => {
+    const directory = await temporary();
+    // As one saved by hand, or before the check, would be.
+    await writeFile(path.join(directory, "configuration.json"), JSON.stringify({ version: 1, plugins: { [UNREAL_PLUGIN]: { endpoint: { type: "text", value: "http://192.168.1.5:8000/mcp" } } } }));
+    const services = new PluginServices({ directory, bundled: BUNDLED });
+    try {
+      await services.ready();
+      const entry = services.index.get(UNREAL_PLUGIN)!;
+      const folder = await temporary();
+      await writeProjectFile(folder, (file) => file, { type: "general", plugins: { [UNREAL_PLUGIN]: entry.version } });
+      await services.grants.approve(await projectFolderKey(folder), UNREAL_PLUGIN, capabilityGrants(entry.manifest));
+      expect(services.values.view(entry).endpoint).toEqual({ type: "text", value: "http://192.168.1.5:8000/mcp" });
+      expect(await services.mcpServers(folder)).toEqual({});
     } finally {
       await services.close();
     }
@@ -859,3 +909,68 @@ describe("Godot projects from before format 2", () => {
   });
 });
 
+
+describe("format 1 Unreal Engine", () => {
+  const open: PluginServices[] = [];
+  afterEach(async () => {
+    await Promise.all(open.splice(0).map((services) => services.close()));
+  });
+  async function setup(legacyEnabled: boolean | undefined, stored?: Record<string, string | boolean>) {
+    const services = new PluginServices({ directory: path.join(await temporary(), "store"), bundled: BUNDLED, bundledOff: [UNREAL_PLUGIN] });
+    open.push(services);
+    let values = stored;
+    const configuration = {
+      storedValues: (id: string) => (id === LEGACY_UNREAL_ID && values ? { ...values } : undefined),
+      remove: async (id: string) => {
+        if (id === LEGACY_UNREAL_ID) values = undefined;
+      },
+    };
+    const warnings: string[] = [];
+    const migrate = () => migrateLegacyUnreal({ configuration, services, legacyEnabled, warn: (message) => warnings.push(message) });
+    const endpoint = async () => {
+      await services.ready();
+      const view = services.values.view(services.index.get(UNREAL_PLUGIN)!).endpoint;
+      return view && "value" in view ? view.value : undefined;
+    };
+    return { services, migrate, endpoint, warnings, legacy: () => values };
+  }
+
+  it("turns the format 2 plugin on for someone who used it, with their endpoint, and forgets the old values", async () => {
+    const { services, migrate, endpoint, legacy } = await setup(true, { endpoint: "http://127.0.0.1:8100/mcp" });
+    await migrate();
+    expect(services.grants.plugin(UNREAL_PLUGIN)).toEqual({ enabled: true, allowed: ["network:127.0.0.1", "network:localhost"] });
+    expect(await endpoint()).toBe("http://127.0.0.1:8100/mcp");
+    expect(legacy()).toBeUndefined();
+    // Projects still turn it on themselves.
+    const folder = await temporary();
+    await writeProjectFile(folder, (file) => file, { type: "general" });
+    expect(await services.mcpServers(folder)).toEqual({});
+    // Once is enough: turning it off afterwards sticks.
+    await services.setEnabled(UNREAL_PLUGIN, false);
+    await migrate();
+    expect(services.grants.plugin(UNREAL_PLUGIN)?.enabled).toBe(false);
+  });
+
+  it("leaves it off for someone who never turned it on, and keeps an endpoint the person already chose", async () => {
+    const off = await setup(undefined, { endpoint: "http://localhost:9000/mcp" });
+    await off.migrate();
+    expect(off.services.grants.plugin(UNREAL_PLUGIN)).toEqual({ enabled: false, allowed: [] });
+    expect(await off.endpoint()).toBe("http://localhost:9000/mcp");
+
+    const chosen = await setup(false, { endpoint: "http://127.0.0.1:8100/mcp" });
+    await chosen.services.ready();
+    await chosen.services.configure(UNREAL_PLUGIN, { endpoint: "http://127.0.0.1:8200/mcp" });
+    await chosen.migrate();
+    expect(await chosen.endpoint()).toBe("http://127.0.0.1:8200/mcp");
+    expect(chosen.services.grants.plugin(UNREAL_PLUGIN)?.enabled).toBe(false);
+    expect(chosen.legacy()).toBeUndefined();
+  });
+
+  it("doesn't move an endpoint that isn't on this computer, and says so", async () => {
+    const { migrate, endpoint, warnings, legacy } = await setup(true, { endpoint: "http://192.168.1.5:8000/mcp" });
+    await migrate();
+    expect(await endpoint()).toBe("http://127.0.0.1:8000/mcp");
+    expect(warnings).toEqual([expect.stringContaining("http://192.168.1.5:8000/mcp")]);
+    expect(legacy()).toBeUndefined();
+  });
+});

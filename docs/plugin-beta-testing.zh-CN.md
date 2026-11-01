@@ -127,8 +127,9 @@ runtime evidence. Keep existing scenes and other Editor projects unchanged.
 没有该插件，记为“前置条件不满足”，不要自动升级或装社区桥接。
 
 在该 Editor 控制台执行 `ModelContextProtocol.StartServer`，在 OhMyGame 插件中把
-Local Unreal MCP URL 配成对应的 loopback 地址，默认 `http://127.0.0.1:8000/mcp`。
-启用 Unreal Engine，测试连接。默认只发现 3 个工具是工具搜索模式，仍需做真实调用。
+本地 Unreal MCP 地址配成对应的本机地址（`127.0.0.1` 或 `localhost`，端口不限），
+默认 `http://127.0.0.1:8000/mcp`。启用 Unreal Engine，再在测试用的通用项目的插件里
+开启它。默认只发现 3 个工具是工具搜索模式，仍需做真实调用。
 
 **发送：**
 

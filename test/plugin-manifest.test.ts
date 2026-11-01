@@ -186,10 +186,46 @@ describe("plugin manifest format 2", () => {
       "/contributes/mcpServers/0/env OHMYGAME_PLUGIN_DATA_DIR is set by the app",
     ]);
     expect(messages(server({ timeoutSeconds: 3601 }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/timeoutSeconds"));
-    // HTTP servers wait for a guard on redirects.
-    expect(messages(server({ url: "https://localhost/mcp" }))).toEqual([
-      "/contributes/mcpServers/0 must not have additional properties",
+    // A server is a process or an HTTP endpoint, never both.
+    expect(messages(server({ url: "https://localhost/mcp" })).length).toBeGreaterThan(0);
+  });
+
+  it("checks HTTP MCP servers against the hosts the plugin may reach", () => {
+    const server = (fields: object, capabilities: object = { network: ["127.0.0.1", "api.example.com:8443"] }) => ({
+      ...minimal,
+      configuration: {
+        endpoint: { type: "text", title: "Endpoint", default: "http://127.0.0.1:8000/mcp" },
+        token: { type: "secret", title: "Token" },
+      },
+      capabilities,
+      contributes: { mcpServers: [{ id: "editor", title: "Editor", tools: ["call_tool"], ...fields }] },
+    });
+    // Any port of a host listed alone; plain HTTP only on this computer.
+    expect(messages(server({ url: "${config.endpoint}" }))).toEqual([]);
+    expect(messages(server({ url: "https://api.example.com:8443/mcp" }))).toEqual([]);
+    expect(messages(server({ url: "https://api.example.com/mcp" }))).toEqual([
+      "/contributes/mcpServers/0/url https://api.example.com/mcp is on api.example.com, which capabilities.network doesn't list",
     ]);
+    expect(messages(server({ url: "http://api.example.com:8443/mcp" }))).toEqual([
+      "/contributes/mcpServers/0/url http://api.example.com:8443/mcp must use https, or http on this computer (127.0.0.1 or localhost)",
+    ]);
+    expect(messages(server({ url: "http://user:pass@127.0.0.1/mcp" }))).toEqual([
+      "/contributes/mcpServers/0/url http://user:pass@127.0.0.1/mcp can't carry a user name or password",
+    ]);
+    expect(messages(server({ url: "${config.endpoint}" }, {}))).toEqual([
+      "/contributes/mcpServers/0/url an HTTP server needs capabilities.network",
+      "/contributes/mcpServers/0/url http://127.0.0.1:8000/mcp is on 127.0.0.1:8000, which capabilities.network doesn't list",
+    ]);
+    // A secret goes in a header, which needs capabilities.secrets.
+    expect(messages(server({ url: "https://api.example.com:8443/${config.token}" }))).toEqual([
+      "/contributes/mcpServers/0/url token is a secret, which a URL can't carry; send it in a header",
+    ]);
+    expect(messages(server({ url: "${config.endpoint}", headers: { Authorization: "Bearer ${config.token}" } }))).toEqual([
+      "/contributes/mcpServers/0/headers token is a secret, which needs capabilities.secrets",
+    ]);
+    expect(messages(server({ url: "${config.endpoint}", headers: { Authorization: "Bearer ${config.token}" } }, { network: ["127.0.0.1"], secrets: true }))).toEqual([]);
+    // Adapter-only knobs aren't part of the contract.
+    expect(messages(server({ url: "${config.endpoint}", auth: "oauth" }))).not.toEqual([]);
   });
 
   it("closes keyed records and never throws on bad values", () => {
@@ -973,13 +1009,13 @@ describe("plugin releases", () => {
 
   it("indexes the app's own format 2 plugins and allows what they ask for, except one that starts off", async () => {
     const dir = await temporary();
-    const services = new PluginServices({ directory: path.join(dir, "store"), bundledOff: ["ohmygame/taptap-maker"] });
+    const services = new PluginServices({ directory: path.join(dir, "store"), bundledOff: ["ohmygame/taptap-maker", "ohmygame/unreal-engine"] });
     try {
       const results = await services.addBundled(BUNDLED);
       expect(results.map((result) => (result.ok ? [] : result.issues))).toEqual(results.map(() => []));
       expect(services.grants.plugin("ohmygame/godot")?.allowed).toEqual(expect.arrayContaining(["native"]));
       // Those that only add Skills apply to every project they suit; the catalog shows them.
-      expect(services.index.entries().map((entry) => entry.id).sort()).toEqual(["ohmygame/godot", "ohmygame/taptap-maker"]);
+      expect(services.index.entries().map((entry) => entry.id).sort()).toEqual(["ohmygame/godot", "ohmygame/taptap-maker", "ohmygame/unreal-engine"]);
       expect(services.grants.plugin("ohmygame/game-studio")).toBeUndefined();
       // It asks for consent when the person turns it on, and stays as they leave it.
       expect(services.grants.plugin("ohmygame/taptap-maker")).toEqual({ enabled: false, allowed: [] });

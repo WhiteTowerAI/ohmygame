@@ -15,18 +15,18 @@ describe("plugin runtime", () => {
     await store.load();
     const settings = await settingsStore();
     const before = await resolvePluginSkills([store], settings, "general");
-    expect(before.some(skill => skill.pluginDisplayName === "Unreal Engine")).toBe(false);
+    expect(before.some(skill => skill.pluginDisplayName === "Unity")).toBe(false);
     expect(before.some(skill => skill.pluginDisplayName === "Blender")).toBe(true);
 
-    const unreal = store.read("ohmygame:unreal-engine")!;
-    await settings.update(unreal, { enabled: true, components: {} });
-    const unrealSkills = (await resolvePluginSkills([store], settings, "general"))
-      .filter(skill => skill.pluginDisplayName === "Unreal Engine")
+    const unity = store.read("ohmygame:unity")!;
+    await settings.update(unity, { enabled: true, components: {} });
+    const unitySkills = (await resolvePluginSkills([store], settings, "general"))
+      .filter(skill => skill.pluginDisplayName === "Unity")
       .map(skill => path.basename(path.dirname(skill.path)))
       .sort();
-    expect(unrealSkills).toEqual(["unreal-game"]);
-    expect((await resolvePluginSkills([store], settings, "godot-game")).some(skill => skill.pluginDisplayName === "Unreal Engine")).toBe(false);
-    await settings.update(unreal, { enabled: false, components: {} });
+    expect(unitySkills).toEqual(["unity-game"]);
+    expect((await resolvePluginSkills([store], settings, "godot-game")).some(skill => skill.pluginDisplayName === "Unity")).toBe(false);
+    await settings.update(unity, { enabled: false, components: {} });
     expect(await resolvePluginSkills([store], settings, "general")).toEqual(before);
   });
 
@@ -34,12 +34,12 @@ describe("plugin runtime", () => {
     const store = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
     await store.load();
     const settings = await settingsStore();
-    await settings.update(store.read("ohmygame:unreal-engine")!, { enabled: true, components: {} });
+    await settings.update(store.read("ohmygame:unity")!, { enabled: true, components: {} });
     const skills = await resolvePluginSkills([store], settings, "general");
     const target = await mkdtemp(path.join(tmpdir(), "ohmygame-staged-skills-"));
     const staged = await stageSkills(pluginSkillFolders(skills), target);
     expect(staged).toHaveLength(skills.length);
-    expect(staged).toEqual(expect.arrayContaining(["unreal-game", "game-studio", "blender-assets"]));
+    expect(staged).toEqual(expect.arrayContaining(["unity-game", "game-studio", "blender-assets"]));
   });
 
   it("keeps Game Studio isolated from Web Game skills and honors its disabled setting", async () => {

@@ -148,7 +148,7 @@ describe("desktop runtime packaging", () => {
         ) as Configuration;
         const runtimeFiles = [...files, ".ohmygame-node-version"];
         const sharedFiles = {
-          "plugins/skill.txt": "plugins/skill.txt",
+          "plugins-v2/skill.txt": "plugins-v2/skill.txt",
           "integrations/skills/ohmygame-studio/SKILL.md":
             "integrations/skills/ohmygame-studio/SKILL.md",
           ".runtime/preinstalled-plugins/skill.txt":
