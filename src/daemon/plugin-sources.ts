@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -55,6 +55,8 @@ interface FetchedPackage {
 
 export class PluginSources {
   #origins: Promise<Record<string, PluginOrigin>> | undefined;
+  /** Checking a package may join, recording its origin and installing it happen as one step. */
+  #adding: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly services: PluginServices,
@@ -94,16 +96,16 @@ export class PluginSources {
         throw new PluginSourceError((cause as Error).message);
       }
       fetched.check?.(entry);
-      await this.#assertCanJoin(entry, fetched.origin);
       return await use(fetched, entry);
     } finally {
       if (fetched.removeAfter) await rm(fetched.removeAfter, { recursive: true, force: true });
     }
   }
 
-  #preview(fetched: FetchedPackage, entry: PluginIndexEntry, locale: string | undefined): Promise<PluginAddPreview> {
+  async #preview(fetched: FetchedPackage, entry: PluginIndexEntry, locale: string | undefined): Promise<PluginAddPreview> {
+    await this.#assertCanJoin(entry, fetched.origin);
     const language = locale === "zh-CN" ? "zh-CN" : "en";
-    return Promise.resolve({
+    return {
       ...(fetched.source ? { source: fetched.source } : {}),
       digest: entry.digest,
       id: entry.id,
@@ -117,16 +119,22 @@ export class PluginSources {
       settings: Boolean(entry.manifest.configuration),
       installedVersions: this.services.index.versions(entry.id).map((installed) => installed.version),
       ...(fetched.origin ? { origin: fetched.origin } : {}),
-    });
+    };
   }
 
   async #install(fetched: FetchedPackage, entry: PluginIndexEntry, digest: string): Promise<PluginIndexEntry> {
     if (entry.digest !== digest) throw new PluginSourceError("This package changed after you reviewed it. Review it again.");
-    const present = this.services.index.get(entry.id, entry.version);
-    if (present?.digest === entry.digest) return present;
-    const installed = await this.services.installAdded(fetched.root);
-    await this.#recordOrigin(`${installed.id}@${installed.version}`, fetched.origin);
-    return installed;
+    const run = this.#adding.then(async () => {
+      await this.#assertCanJoin(entry, fetched.origin);
+      const present = this.services.index.get(entry.id, entry.version);
+      if (present?.digest === entry.digest) return present;
+      // The origin goes first: if it can't be saved nothing is installed, and
+      // one left by an install that fails belongs to no installed version.
+      await this.#recordOrigin(`${entry.id}@${entry.version}`, fetched.origin);
+      return this.services.installAdded(fetched.root);
+    });
+    this.#adding = run.catch(() => undefined);
+    return run;
   }
 
   /**
@@ -162,6 +170,8 @@ export class PluginSources {
     return this.#inTemporaryFolder(async (folder) => {
       const root = path.join(folder, "package");
       await cp(real, root, { recursive: true, verbatimSymlinks: true });
+      // Checks follow a link at the top of a package, so it can't be one.
+      if (!(await lstat(root)).isDirectory()) throw new PluginSourceError(`There is no folder at ${source.path}.`);
       return { root, source };
     });
   }

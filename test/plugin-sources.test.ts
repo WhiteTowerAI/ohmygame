@@ -379,6 +379,44 @@ describe("PluginSources", () => {
     await close();
   });
 
+  it("lets only one of two packages racing for a version in", async () => {
+    const { sources, services, close } = await setup();
+    const first = tgz(...pluginEntries("package/"));
+    const second = tgz(...pluginEntries("package/"), tarEntry("package/extra.txt", "other"));
+    const [one, two] = await Promise.all([sources.inspectFile(first, "en"), sources.inspectFile(second, "en")]);
+    const results = await Promise.allSettled([sources.installFile(first, one.digest), sources.installFile(second, two.digest)]);
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+    expect(services.index.get("acme/maker")?.digest).toBe(one.digest);
+    await close();
+  });
+
+  it("installs nothing when it can't record where a package came from", async () => {
+    const pack = npmPackage("@acme/maker", tgz(...pluginEntries("package/")));
+    const { sources, services, directory, close } = await setup(pack.routes, pack.files);
+    const preview = await sources.inspect(npm, "en");
+    const origins = path.join(directory, "plugin-store", "origins.json");
+    await mkdir(path.join(origins, "in-the-way"), { recursive: true });
+    await expect(sources.install(preview.source!, preview.digest)).rejects.toThrow();
+    expect(services.index.get("acme/maker")).toBeUndefined();
+    await rm(origins, { recursive: true });
+    await sources.install(preview.source!, preview.digest);
+    expect(await sources.origin("acme/maker", "1.0.0")).toMatchObject({ type: "npm" });
+    await close();
+  });
+
+  it("doesn't count an origin left from before an uninstall", async () => {
+    const pack = npmPackage("@acme/maker", tgz(...pluginEntries("package/")));
+    const { sources, services, close } = await setup(pack.routes, pack.files);
+    const preview = await sources.inspect(npm, "en");
+    await sources.install(preview.source!, preview.digest);
+    await services.uninstall("acme/maker");
+    const local = tgz(...pluginEntries("package/"), tarEntry("package/extra.txt", "local"));
+    await sources.installFile(local, (await sources.inspectFile(local, "en")).digest);
+    expect(await sources.origin("acme/maker", "1.0.0")).toBeUndefined();
+    await expect(sources.inspect(npm, "en")).rejects.toThrow("another package on this computer");
+    await close();
+  });
+
   it("doesn't let an uninstall delete what an install just placed", async () => {
     const { services, directory, close } = await setup();
     const folder = await folderPackage(directory);
