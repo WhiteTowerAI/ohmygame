@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import type { PluginManifestV2 } from "../shared/plugin-manifest.js";
-import { pluginApiIssue } from "../shared/plugin-manifest.js";
+import { isAppWidePlugin, pluginApiIssue } from "../shared/plugin-manifest.js";
 import { pluginAppliesTo } from "../shared/project-runtime.js";
 import {
   PROJECT_FILE_NAME,
@@ -348,6 +348,8 @@ export async function resolveProjectPlugins({
   if (!read.ok) return read;
   const owner = projectTypePlugin(read.file.type);
   const plugins = Object.entries(read.file.plugins ?? {})
+    // It applies by itself; a project listing it doesn't load it a second time.
+    .filter(([id, version]) => !appliesByItself(index, id, version))
     .sort(([a], [b]) =>
       a === owner ? -1 : b === owner ? 1 : a.localeCompare(b),
     )
@@ -404,6 +406,22 @@ export async function resolveProjectPlugins({
   return { ok: true, file: read.file, typeReady, plugins };
 }
 
+/**
+ * Whether the plugin's newest version applies to projects without them turning
+ * it on. A project naming an older version that asks for more still needs it.
+ */
+export function appliesByItself(index: PluginIndex, id: string, version?: string): boolean {
+  const newest = index.get(id);
+  if (!newest || !isAppWidePlugin(newest.manifest)) return false;
+  const named = version ? index.get(id, version) : undefined;
+  return !named || isAppWidePlugin(named.manifest);
+}
+
+function refuseAppWide(index: PluginIndex, id: string, version: string): void {
+  if (appliesByItself(index, id, version))
+    throw new Error(`${id} applies to every project it suits, so a project can't turn it on`);
+}
+
 /** Skills agents get in a project: those of its active plugins. */
 export function projectSkills(
   resolved: Extract<ProjectPlugins, { ok: true }>,
@@ -436,9 +454,11 @@ export async function createProjectPlugins({
   index: PluginIndex;
   grants: PluginGrants;
 }): Promise<ProjectFile> {
-  for (const [id, version] of Object.entries(plugins))
+  for (const [id, version] of Object.entries(plugins)) {
+    refuseAppWide(index, id, version);
     if (!index.get(id, version))
       throw new Error(`${id}@${version} is not installed`);
+  }
   // One real path for the write and the approvals, so a link changed in
   // between can't move the approvals to another folder.
   await mkdir(folder, { recursive: true });
@@ -490,6 +510,7 @@ export async function setProjectPlugin({
     await grants.revoke(key, id);
     return file;
   }
+  refuseAppWide(index, id, version);
   const entry = index.get(id, version);
   if (!entry) throw new Error(`${id}@${version} is not installed`);
   const file = await writeProjectFileAt(key, (current) => {

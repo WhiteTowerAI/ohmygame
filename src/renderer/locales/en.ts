@@ -1125,6 +1125,7 @@ const en = {
     uninstall: "Uninstall",
     uninstallTitle: "Uninstall {{name}} {{version}}?",
     uninstallHint: "Projects that use this version stop running the plugin until you install it again or move them to another version.",
+    uninstallAppWideHint: "Its Skills stop applying in your projects until you install it again.",
     notInstalled: "This plugin isn't installed.",
   },
   projectPlugins: {

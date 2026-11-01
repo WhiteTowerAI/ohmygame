@@ -33,6 +33,7 @@ const row = (version: string, overrides: Partial<StorePlugin> = {}): StorePlugin
   capabilities: ["native", "network:api.example.com"],
   grants: { enabled: true, allowed: ["native"] },
   bundled: false,
+  appWide: false,
   settings: [
     { name: "path", type: "path", title: "Engine path" },
     { name: "token", type: "secret", title: "Token" },
@@ -215,6 +216,35 @@ it("offers a new project of the plugin's own type over a general one", async () 
   await act(async () => button("Build a level").click());
   await act(async () => document.querySelector<HTMLButtonElement>(".project-switcher-footer button")!.click());
   expect(onTry).toHaveBeenCalledWith({ turnOn: "ohmygame/godot", newProjectType: "godot-game" }, "Build a level", undefined);
+});
+
+it("tries a plugin that applies by itself by mentioning it, in projects of a kind it names", async () => {
+  const onTry = vi.fn(async () => {});
+  const [group] = groupStorePlugins([row("1.0.0", {
+    id: "acme/worlds", displayName: "Worlds", capabilities: [], grants: { enabled: true, allowed: [] }, settings: [], appWide: true,
+    examples: ["Build a world"], appliesTo: ["web-game"],
+    adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 1 },
+  })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} onTry={onTry} />));
+  expect(document.body.textContent).not.toContain("Plugins sheet");
+  await act(async () => button("Build a world").click());
+  const picker = () => document.querySelector(".project-switcher")?.textContent ?? document.body.textContent ?? "";
+  expect(picker()).toContain("Web game");
+  expect(picker()).not.toContain("Godot game");
+  await act(async () => document.querySelector<HTMLButtonElement>(".project-switcher-footer button")!.click());
+  expect(onTry).toHaveBeenCalledWith({ mention: { name: "worlds", marketplaceId: "acme", displayName: "Worlds" }, newProjectType: "web-game" }, "Build a world", undefined);
+});
+
+it("says a preinstalled plugin came with the app, where from, and that it can be uninstalled", async () => {
+  const [group] = groupStorePlugins([row("1.0.0", {
+    capabilities: [], grants: { enabled: true, allowed: [] }, settings: [], appWide: true, preinstalled: true,
+    origin: { type: "github", repository: "example/tools", commit: "abc123" },
+  })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));
+  expect(document.querySelector("h1")!.textContent).toContain("Included");
+  expect(document.querySelector<HTMLAnchorElement>('a[href="https://github.com/example/tools"]')).not.toBeNull();
+  await act(async () => button("Uninstall").click());
+  expect(document.body.textContent).toContain("Its Skills stop applying");
 });
 
 it("goes back to About when the open tab goes away with the newest version", async () => {

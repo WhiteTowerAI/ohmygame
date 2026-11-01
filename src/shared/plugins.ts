@@ -2,6 +2,7 @@ import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { PROJECT_TYPE_IDS, type PluginMention, type ProjectType } from "./contracts.js";
 import { PLUGIN_ICON_PRESETS, type PluginIconPresetId } from "./plugin-icons.js";
+import type { PluginCategory } from "./plugin-manifest.js";
 
 export type PluginOrigin =
   | { type: "github"; repository: string; commit: string; release?: string }
@@ -378,6 +379,12 @@ export interface StorePlugin {
   grants: { enabled: boolean; allowed: string[] } | null;
   /** Ships with the app, so it can't be uninstalled. */
   bundled: boolean;
+  /** Installed with the app from another repository; it can be uninstalled. */
+  preinstalled?: boolean;
+  origin?: PluginOrigin;
+  /** Only adds Skills, so it applies to every project it suits without a project turning it on. */
+  appWide: boolean;
+  categories?: PluginCategory[];
   /** Still being checked on real projects. */
   beta?: boolean;
   icon?: PluginIcon;

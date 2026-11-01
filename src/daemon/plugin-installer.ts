@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, type InstallPluginRequest, type PluginDetail, type PluginManifest } from "../shared/plugins.js";
+import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, type InstallPluginRequest, type PluginDetail } from "../shared/plugins.js";
 import { extractArchive, type ArchiveExtractionFailure } from "./archive-extraction.js";
 import { LocalPluginError, validatePluginBundle, type LocalPluginStore } from "./local-plugins.js";
 import { discoverPlugins, type DiscoveredPlugin } from "./plugin-discovery.js";
@@ -25,26 +25,6 @@ export async function inspectPluginSource(input: InstallPluginRequest, git: GitR
     await validatePluginBundle(root);
     return discoverPlugins(root);
   });
-}
-
-export async function installPreparedPlugin(
-  store: LocalPluginStore,
-  input: { pluginId: string; releaseId: string; manifest: PluginManifest; archive: Buffer },
-): Promise<PluginDetail> {
-  const temporaryRoot = await mkdtemp(path.join(tmpdir(), "ohmygame-preinstalled-plugin-"));
-  const archivePath = path.join(temporaryRoot, "plugin.zip");
-  const source = path.join(temporaryRoot, "plugin");
-  try {
-    await writeFile(archivePath, input.archive, { flag: "wx" });
-    await mkdir(source);
-    await extractPluginArchive(archivePath, source);
-    return await store.installPrepared(source, { type: "preinstalled", pluginId: input.pluginId, releaseId: input.releaseId }, input.manifest);
-  } catch (cause) {
-    if (cause instanceof LocalPluginError) throw cause;
-    throw new LocalPluginError(`Could not install preinstalled Plugin: ${cause instanceof Error ? cause.message : String(cause)}`);
-  } finally {
-    await rm(temporaryRoot, { recursive: true, force: true });
-  }
 }
 
 async function withResolvedSource<T>(

@@ -1,14 +1,11 @@
-// Between the two plugin formats. A format 1 plugin that only adds Skills
-// becomes a format 2 package (bundled plugins, by script, in place; any other
-// format 1 package's Skills, by `convertFormat1Package`, into a new folder);
-// a format 2 package that only adds Skills is shown in the catalog as format 1
-// bundled plugins are, until the two catalogs merge.
+// From format 1 to format 2. A format 1 plugin that only adds Skills becomes a
+// format 2 package (bundled plugins, by script, in place; any other format 1
+// package's Skills, by `convertFormat1Package`, into a new folder).
 import { copyFile, lstat, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
-import { isAppWidePlugin, type PluginCategory } from "../shared/plugin-manifest.js";
+import type { PluginCategory } from "../shared/plugin-manifest.js";
 import type { PluginManifest, ResolvedPluginManifest } from "../shared/plugins.js";
-import { indexPluginPackage, localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
+import { indexPluginPackage, type PluginIndexEntry } from "./plugin-index.js";
 import { Document, isMap, parseDocument } from "yaml";
 import { parseSkillMetadata } from "./skill-metadata.js";
 
@@ -58,43 +55,6 @@ export function convertFormat1Manifest(
     strings,
   };
 }
-
-/**
- * The format 1 shape the catalog shows for a bundled format 2 plugin that
- * applies to every project it suits. Undefined for any other plugin, and for
- * one that suits only plugin types, which the catalog can't express.
- */
-export function catalogManifest(
-  entry: Pick<PluginIndexEntry, "manifest" | "strings">,
-  { enabledByDefault }: { enabledByDefault: boolean },
-): ResolvedPluginManifest | undefined {
-  const { manifest } = entry;
-  if (!isAppWidePlugin(manifest)) return undefined;
-  const projectTypes = manifest.appliesTo?.filter((type): type is ProjectType => (PROJECT_TYPE_IDS as readonly string[]).includes(type));
-  // An empty list would read as "every project type".
-  if (manifest.appliesTo && !projectTypes?.length) return undefined;
-  const text = (value: string) => localizePluginString(entry, value, "en");
-  const name = manifest.id.slice(manifest.id.indexOf("/") + 1);
-  return {
-    name,
-    version: manifest.version,
-    description: text(manifest.description),
-    skills: manifest.contributes!.skills!,
-    enabledByDefault,
-    interface: {
-      displayName: text(manifest.displayName),
-      shortDescription: text(manifest.description),
-      ...(manifest.longDescription ? { longDescription: text(manifest.longDescription) } : {}),
-      ...(manifest.examples ? { defaultPrompt: manifest.examples.map(text) } : {}),
-      ...(manifest.beta ? { beta: true } : {}),
-      ...(manifest.icon ? { icon: { type: "asset" as const, path: manifest.icon } } : {}),
-      // The format 1 schema's literal union infers as never; the values are checked above.
-      ...(projectTypes?.length ? { projectTypes: projectTypes as FormatOneProjectTypes } : {}),
-    },
-  };
-}
-
-type FormatOneProjectTypes = NonNullable<NonNullable<ResolvedPluginManifest["interface"]>["projectTypes"]>;
 
 /** What a format 1 package has besides Skills; `convertFormat1Package` leaves it to the caller. */
 const NOT_SKILLS = ["mcpServers", "configuration", "connections", "requirements"] as const;

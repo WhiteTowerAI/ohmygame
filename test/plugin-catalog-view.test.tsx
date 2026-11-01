@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PluginDetail, PluginSummary } from "../src/shared/plugins.js";
+import type { PluginDetail, PluginSummary, StorePlugin } from "../src/shared/plugins.js";
 import { PluginsSettings } from "../src/renderer/plugins.js";
 
 function plugin(
@@ -27,34 +27,56 @@ function plugin(
   };
 }
 
+function storePlugin(name: string, displayName: string, overrides: Partial<StorePlugin> = {}): StorePlugin {
+  return {
+    id: `ohmygame/${name}`,
+    version: "1.0.0",
+    displayName,
+    description: "Fixture tool",
+    capabilities: [],
+    grants: { enabled: true, allowed: [] },
+    bundled: true,
+    appWide: true,
+    examples: [],
+    settings: [],
+    skills: [],
+    adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 },
+    ...overrides,
+  };
+}
+
 let container: HTMLDivElement, root: ReturnType<typeof createRoot>;
 let catalog: PluginSummary[];
+let store: StorePlugin[];
 let skills: Record<string, PluginDetail["skills"]>;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   catalog = [
-    plugin("game-studio", "Game Studio"),
-    plugin("web-game-studio", "Web Game Studio"),
-    plugin("threejs-world", "Three.js World"),
-    plugin("cocos-creator", "Cocos Creator", false),
-    plugin("unity", "Unity", false),
-    plugin("unreal-engine", "Unreal Engine", false),
-    plugin("wechat-minigame", "WeChat Mini Games", false),
-    plugin("douyin-minigame", "Douyin Mini Games", false),
-    plugin("blender", "Blender"),
-    plugin("img2threejs", "Image to Three.js"),
-    plugin("aseprite", "Aseprite", false),
-    plugin("tiled", "Tiled", false),
     plugin("new-tool", "New tool"),
     plugin("zebra", "Zebra", true, true),
     plugin("alpha", "Alpha", false, true),
   ].reverse();
-  Object.assign(catalog.find((item) => item.id === "ohmygame:wechat-minigame")!, {
+  Object.assign(catalog.find((item) => item.id === "ohmygame:new-tool")!, {
     projectTypes: ["web-game"], skillCount: 1, mcpServerCount: 1,
   });
+  const off = { grants: { enabled: false, allowed: [] } };
+  store = [
+    storePlugin("game-studio", "Game Studio", { categories: ["workflow"], skills: [{ id: "skills/design/SKILL.md", name: "design-game", description: "Design a game" }] }),
+    storePlugin("web-game-studio", "Web Game Studio", { categories: ["workflow"] }),
+    storePlugin("threejs-world", "Three.js World", { categories: ["workflow"] }),
+    storePlugin("cocos-creator", "Cocos Creator", { ...off, categories: ["engine"] }),
+    storePlugin("unity", "Unity", { ...off, categories: ["engine"] }),
+    storePlugin("wechat-minigame", "WeChat Mini Games", { ...off, categories: ["publishing"] }),
+    storePlugin("douyin-minigame", "Douyin Mini Games", { ...off, categories: ["publishing"] }),
+    storePlugin("blender", "Blender", { categories: ["art"] }),
+    storePlugin("img2threejs", "Image to Three.js", { bundled: false, preinstalled: true, categories: ["art"] }),
+    storePlugin("aseprite", "Aseprite", { ...off, categories: ["art"] }),
+    storePlugin("tiled", "Tiled", { ...off, categories: ["art"] }),
+    storePlugin("unreal-engine", "Unreal Engine", { ...off, appWide: false, categories: ["engine"], adds: { projectTypes: [], panels: [], commands: [], mcpServers: ["Unreal"], tools: 0, skills: 0 } }),
+  ];
   skills = {
-    "ohmygame:game-studio": [{ id: "skills/plan/SKILL.md", name: "plan-game", description: "Plan a game", enabled: true }],
-    "ohmygame:wechat-minigame": [{ id: "skills/publish/SKILL.md", name: "publish-wechat", enabled: true }],
+    "ohmygame:new-tool": [{ id: "skills/plan/SKILL.md", name: "plan-game", description: "Plan a game", enabled: true }],
+    "personal:alpha": [{ id: "skills/publish/SKILL.md", name: "publish-wechat", enabled: true }],
     "personal:zebra": [{ id: "skills/stripes/SKILL.md", name: "stripes", enabled: false }],
   };
   vi.stubGlobal(
@@ -66,6 +88,12 @@ beforeEach(() => {
       );
       if (route === "/health") return Response.json({ status: "ok" });
       if (route === "/plugins/setup-sessions") return Response.json([]);
+      if (route === "/plugin-store/plugins") return Response.json(store);
+      if (init.method === "PUT" && route.startsWith("/plugin-store/") && route.endsWith("/enabled")) {
+        const id = route.slice("/plugin-store/".length, -"/enabled".length);
+        store.find((plugin) => plugin.id === id)!.grants = { enabled: JSON.parse(String(init.body)).enabled, allowed: [] };
+        return new Response(null, { status: 204 });
+      }
       if (route === "/plugins")
         return Response.json({ plugins: catalog, errors: [] });
       if (init.method === "PUT" && route.endsWith("/settings")) {
@@ -146,39 +174,29 @@ async function search(value: string, label = "Search plugins") {
 }
 
 describe("plugin catalog browsing", () => {
-  it("groups public plugins in curated order and retains unknown plugins", async () => {
+  it("groups plugins by the categories they declare, apart from those a project turns on", async () => {
     await renderCatalog();
     const sections = [...container.querySelectorAll(".plugins-section")];
     expect(
       sections.map((section) => section.querySelector("h2")?.textContent),
     ).toEqual([
       "Game creation 3",
-      "Engines & platforms 5",
+      "Engines & platforms 4",
       "Art & assets 4",
       "Other plugins 1",
+      "Turned on per project 1",
       "Personal 2",
     ]);
-    expect(cards(sections[0])).toEqual([
-      "Game Studio",
-      "Web Game Studio",
-      "Three.js World",
-    ]);
-    expect(cards(sections[1])).toEqual([
-      "Cocos Creator",
-      "Unity",
-      "Unreal Engine",
-      "WeChat Mini Games",
-      "Douyin Mini Games",
-    ]);
-    expect(cards(sections[2])).toEqual([
-      "Blender",
-      "Image to Three.js",
-      "Aseprite",
-      "Tiled",
-    ]);
+    expect(cards(sections[0])).toEqual(["Game Studio", "Three.js World", "Web Game Studio"]);
+    expect(cards(sections[1])).toEqual(["Cocos Creator", "Douyin Mini Games", "Unity", "WeChat Mini Games"]);
+    expect(cards(sections[2])).toEqual(["Aseprite", "Blender", "Image to Three.js", "Tiled"]);
     expect(cards(sections[3])).toEqual(["New tool"]);
-    expect(cards(sections[4])).toEqual(["Alpha", "Zebra"]);
-    expect(sections[4].textContent).toContain("Create a plugin with AI");
+    expect(cards(sections[4])).toEqual(["Unreal Engine"]);
+    expect(cards(sections[5])).toEqual(["Alpha", "Zebra"]);
+    expect(sections[5].textContent).toContain("Create a plugin with AI");
+    // Each says how it applies.
+    expect(sections[0].textContent).toContain("Every project");
+    expect(sections[4].textContent).toContain("Per project");
   });
 
   it("expands and collapses an individual group", async () => {
@@ -208,7 +226,7 @@ describe("plugin catalog browsing", () => {
   it("searches every plugin without group expansion", async () => {
     await renderCatalog();
     await search("Mini Games");
-    expect(cards()).toEqual(["WeChat Mini Games", "Douyin Mini Games"]);
+    expect(cards()).toEqual(["Douyin Mini Games", "WeChat Mini Games"]);
     expect(container.querySelectorAll(".plugins-section h2")).toHaveLength(0);
     expect(container.textContent).not.toContain("View all");
     await search("a");
@@ -259,8 +277,6 @@ describe("plugin catalog browsing", () => {
   });
 
   it("switches tabs with the arrow keys and filters Browse by source and project type", async () => {
-    catalog.find((item) => item.id === "ohmygame:blender")!.projectTypes = ["godot-game"];
-    catalog.find((item) => item.id === "ohmygame:unity")!.projectTypes = ["general"];
     await renderCatalog();
     const tabs = [
       ...container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
@@ -288,8 +304,8 @@ describe("plugin catalog browsing", () => {
     await act(async () => category.click());
     expect(container.querySelector('[aria-label="Works with"]')).toBeNull();
     await pick("Category", "MCP");
-    expect(cards()).toEqual(["WeChat Mini Games"]);
-    const card = [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes("WeChat Mini Games"))!;
+    expect(cards()).toEqual(["New tool", "Unreal Engine"]);
+    const card = [...container.querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes("New tool"))!;
     expect([...card.querySelectorAll(".plugins-tag")].map((tag) => tag.textContent)).toEqual(["Web Game", "1 skill", "MCP"]);
   });
 
@@ -300,14 +316,17 @@ describe("plugin catalog browsing", () => {
     const sections = [...container.querySelectorAll(".plugins-section")];
     expect(sections.map((section) => section.querySelector("h2")?.textContent)).toEqual([
       "From plugins 2",
-      "Personal 1",
+      "Personal 2",
     ]);
-    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Skills3");
+    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Skills4");
+    // A format 2 plugin's Skills go on and off with it.
+    expect(container.textContent).toContain("design-game");
+    expect(container.querySelector('[aria-label="Disable design-game"]')).toBeNull();
     expect(container.querySelector<HTMLInputElement>('[aria-label="Search skills"]')).not.toBeNull();
     // A disabled plugin's skills cannot be switched on their own.
     expect(container.querySelector<HTMLButtonElement>('[aria-label="Disable publish-wechat"]')?.disabled).toBe(true);
     await click("Disable plan-game");
-    expect(skills["ohmygame:game-studio"]![0]!.enabled).toBe(false);
+    expect(skills["ohmygame:new-tool"]![0]!.enabled).toBe(false);
     expect(container.querySelector('[aria-label="Enable plan-game"]')?.getAttribute("aria-checked")).toBe("false");
     await search("stripes", "Search skills");
     expect(container.textContent).not.toContain("plan-game");

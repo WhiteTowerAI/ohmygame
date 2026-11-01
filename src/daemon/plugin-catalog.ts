@@ -1,6 +1,5 @@
 import type { PluginMention } from "../shared/contracts.js";
 import {
-  OHMYGAME_MARKETPLACE,
   PERSONAL_MARKETPLACE,
   type PluginCatalog,
   type PluginDetail,
@@ -94,23 +93,6 @@ export class LocalPluginAdapter implements PluginCatalogAdapter {
   async list(): Promise<PluginCatalogResult> {
     const result = await this.plugins.list();
     return { plugins: result.plugins.map(this.summarize), errors: result.errors };
-  }
-
-  async read(id: string): Promise<PluginDetail | undefined> {
-    return this.plugins.read(id);
-  }
-}
-
-export class BundledPluginAdapter implements PluginCatalogAdapter {
-  readonly marketplace = OHMYGAME_MARKETPLACE;
-
-  constructor(
-    private readonly plugins: { list(): PluginDetail[]; read(id: string): PluginDetail | undefined },
-    private readonly summarize: (plugin: PluginDetail) => PluginSummary = pluginSummary,
-  ) {}
-
-  async list(): Promise<PluginCatalogResult> {
-    return { plugins: this.plugins.list().map(this.summarize) };
   }
 
   async read(id: string): Promise<PluginDetail | undefined> {

@@ -34,7 +34,7 @@ beforeEach(() => {
   document.body.append(host);
   root = createRoot(host);
   view = {
-    global: [{ id: "ohmygame:web-game-studio", displayName: "Web Game Studio", description: "Build web games." }],
+    global: [{ id: "ohmygame/web-game-studio", displayName: "Web Game Studio", description: "Build web games." }],
     plugins: [
       { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", used: "1.0.0", providesType: true, status: "active", capabilities: [], consented: true },
       { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", providesType: false, capabilities: ["network:tiles.example.com"], consented: false },

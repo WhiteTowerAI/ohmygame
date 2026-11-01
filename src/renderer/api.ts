@@ -797,7 +797,7 @@ function pluginPath(id: string): string {
 }
 
 export async function getHomeComposerCapabilities(): Promise<ConversationCapabilities> {
-  return request("/composer/capabilities");
+  return request(`/composer/capabilities?locale=${encodeURIComponent(language)}`);
 }
 
 export async function installPlugin(input: InstallPluginRequest): Promise<PluginDetail> {
@@ -1270,7 +1270,7 @@ export async function getConversationContextUsage(projectId: string, conversatio
 }
 
 export async function getConversationCapabilities(projectId: string, conversationId: string): Promise<ConversationCapabilities> {
-  return request(`/projects/${projectId}/conversations/${conversationId}/capabilities`);
+  return request(`/projects/${projectId}/conversations/${conversationId}/capabilities?locale=${encodeURIComponent(language)}`);
 }
 
 export async function approvePlan(projectId: string, conversationId: string): Promise<PromptResponse> {

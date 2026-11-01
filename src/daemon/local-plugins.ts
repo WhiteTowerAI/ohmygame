@@ -98,14 +98,6 @@ export class LocalPluginStore {
     return this.#mutate(() => this.#install(sourcePath, provenance, manifest, marketplace));
   }
 
-  async installPrepared(
-    sourcePath: string,
-    provenance: Extract<PluginProvenance, { type: "preinstalled" }>,
-    manifest: PluginManifest,
-  ): Promise<PluginDetail> {
-    return this.#mutate(() => this.#install(sourcePath, provenance, manifest, OHMYGAME_MARKETPLACE, true));
-  }
-
   async installAuthored(sourcePath: string): Promise<PluginDetail> {
     return this.#mutate(async () => {
       const manifest = await readPluginManifest(sourcePath);

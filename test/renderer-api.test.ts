@@ -324,7 +324,7 @@ describe("renderer project API", () => {
 
     await getHomeComposerCapabilities();
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/composer/capabilities", expect.objectContaining({ headers: {} }));
+    expect(fetchMock).toHaveBeenCalledWith("/api/composer/capabilities?locale=en", expect.objectContaining({ headers: {} }));
   });
 
   it("updates settings and removes personal plugins through the unified API", async () => {
@@ -719,7 +719,7 @@ describe("renderer project API", () => {
       skills: [{ name: "review", description: "Review changes" }],
     });
     expect(fetchMock).toHaveBeenLastCalledWith(
-      "/api/projects/project-1/conversations/conversation-1/capabilities",
+      "/api/projects/project-1/conversations/conversation-1/capabilities?locale=en",
       expect.any(Object),
     );
   });

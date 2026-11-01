@@ -52,6 +52,18 @@ export function pluginAppliesTo(appliesTo: readonly string[] | undefined, type: 
 }
 
 /**
+ * Whether a plugin that applies by itself suits a project. It goes by the
+ * project's own kind (a Web game, an Asset Canvas), which the project file
+ * doesn't keep apart from `general`, or by the plugin type the project is.
+ */
+export function appWidePluginSuits(
+  appliesTo: readonly string[] | undefined,
+  project: { type: string; pluginType?: { id: string } | undefined },
+): boolean {
+  return pluginAppliesTo(appliesTo, project.type) || Boolean(project.pluginType && appliesTo?.includes(project.pluginType.id));
+}
+
+/**
  * The type a project of this kind records in `ohmygame.json`, which plugins'
  * `appliesTo` is matched against: the app kinds that aren't project file
  * types (a Web game, an Asset Canvas) are `general` there.

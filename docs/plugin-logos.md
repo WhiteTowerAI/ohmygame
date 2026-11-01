@@ -25,8 +25,8 @@ Image to Three.js is a preinstalled third-party package from `img2threejs/img2th
 locked in `config/preinstalled-plugins.json`. Its build-only `assets` directory
 (`config/plugin-assets/img2threejs`) is copied into the package's `assets/`
 before `bun run prepare:preinstalled-plugins` converts it to a format 2 package
-(`convertFormat1Package`). The catalog shows it the way it shows bundled format 2
-plugins that only add Skills, as `ohmygame:img2threejs`.
+(`convertFormat1Package`). The app installs it as `ohmygame/img2threejs`, and the
+Plugins page shows it like the bundled plugins that only add Skills.
 These files participate in the preparation fingerprint and final archive checksum.
 Change the prepared release ID and checksum when shipping updated assets so existing
 installations receive them through the normal preinstalled-package update path.
