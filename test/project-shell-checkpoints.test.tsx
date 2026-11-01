@@ -3,6 +3,7 @@ import path from "node:path";
 import { act, useEffect, type ComponentProps, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { promptText, typePrompt } from "./prompt-field.js";
 import type { DesktopRuntimeState } from "../src/shared/desktop-runtime.js";
 import type {
   CheckpointChangeItem,
@@ -247,6 +248,54 @@ async function click(name: string) {
 }
 
 describe("project shell layout", () => {
+  it("binds the displayed Codex model before retrying a conversation that has no saved model", async () => {
+    const model = { provider: "codex-cli", providerName: "Codex", id: "gpt-6.1-sol", name: "GPT-6.1-Sol", reasoningLevels: [], nativeReasoningLevels: ["low"] };
+    const modelRoute = "/projects/project/conversations/conversation/model";
+    const turnRoute = "/projects/project/conversations/conversation/turns";
+    const daemon = await openProject((route, init) => {
+      if (route.startsWith("/models?")) return Response.json({ models: [model], defaultReasoningLevel: "medium" });
+      if (route === modelRoute && init.method === "PUT") return Response.json({ model: { provider: model.provider, id: model.id }, nativeReasoningLevel: "low" });
+      if (route === turnRoute && init.method === "POST") return Response.json({ turnId: "new-turn" }, { status: 202 });
+      return undefined;
+    });
+    expect(container.textContent).toContain("GPT-6.1-Sol");
+    await typePrompt("Try again", container);
+    await click("Send prompt");
+    const calls = daemon.requests.filter((request) => request.route === modelRoute || request.route === turnRoute);
+    expect(calls.map((request) => [request.method, request.route])).toEqual([["PUT", modelRoute], ["POST", turnRoute]]);
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ provider: "codex-cli", id: "gpt-6.1-sol" });
+    expect(JSON.parse(calls[1]!.body!).prompt).toBe("Try again");
+  });
+
+  it("keeps the draft and does not send when the displayed model cannot be bound", async () => {
+    const model = { provider: "codex-cli", providerName: "Codex", id: "gpt-6.1-sol", name: "GPT-6.1-Sol", reasoningLevels: [], nativeReasoningLevels: ["low"] };
+    const daemon = await openProject((route, init) => {
+      if (route.startsWith("/models?")) return Response.json({ models: [model], defaultReasoningLevel: "medium" });
+      if (route.endsWith("/conversation/model") && init.method === "PUT") return Response.json({ error: "Model is not available" }, { status: 400 });
+      return undefined;
+    });
+    await typePrompt("Try again", container);
+    await click("Send prompt");
+    expect(daemon.requests.some((request) => request.method === "POST" && request.route.endsWith("/turns"))).toBe(false);
+    expect(promptText(container)).toBe("Try again");
+    expect(container.textContent).toContain("Model is not available");
+  });
+
+  it("keeps an existing conversation's saved model when sending", async () => {
+    const model = { provider: "codex-cli", providerName: "Codex", id: "gpt-6.1-sol", name: "GPT-6.1-Sol", reasoningLevels: [], nativeReasoningLevels: ["low"] };
+    const saved = { provider: model.provider, id: model.id };
+    const conversation = { ...detail("live-turn"), settings: { model: saved } };
+    const daemon = await openProject((route, init) => {
+      if (route.startsWith("/models?")) return Response.json({ models: [model], defaultReasoningLevel: "medium" });
+      if (route.endsWith("/turns") && init.method === "POST") return Response.json({ turnId: "new-turn" }, { status: 202 });
+      return undefined;
+    }, conversation);
+    await typePrompt("Continue", container);
+    await click("Send prompt");
+    expect(daemon.requests.some((request) => request.method === "PUT" && request.route.endsWith("/conversation/model"))).toBe(false);
+    expect(daemon.requests.some((request) => request.method === "POST" && request.route.endsWith("/turns"))).toBe(true);
+  });
+
   it("opens the design route on the canvas panel and keeps a closed chat closed across project updates", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const daemon = await openProject(() => undefined, detail("live-turn"), {

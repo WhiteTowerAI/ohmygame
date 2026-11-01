@@ -608,12 +608,21 @@ export function ProjectShell({
   const chatContexts = [playableSurface?.chip, ...(storyShown ? playableChat?.attachments ?? [] : []).map((attachment) => attachment.chip), ...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : []),
     ...previewPicks.map(({ key, context }) => ({ key, kind: context.kind, label: context.label }))].filter((chip) => chip !== undefined);
 
+  // Older conversations can have no saved model even while the picker shows a fallback.
+  // Bind that displayed choice on the next send, before asking an agent to run.
+  async function bindDisplayedModel(): Promise<void> {
+    if (!project || !conversation || state.settings.model || !effectiveModel || currentConversationBusy || state.agent.status === "running" || state.agent.status === "cancelling") return;
+    const settings = await setConversationModel(project.id, conversation.id, effectiveModel);
+    dispatch({ type: "conversation-settings", settings });
+  }
+
   async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[] = [], references: PromptReference[] = [], designContexts: PromptContext[] = []): Promise<boolean> {
     if (!project || !conversation) return false;
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
       await saveDesign.current?.();
+      await bindDisplayedModel();
       const surface = playableSurface;
       const previewContexts = storyShown ? playableChat?.attachments ?? [] : [];
       const previewImage = previewContexts.length ? await playableChat?.capture().catch(() => undefined) : undefined;
@@ -651,6 +660,7 @@ export function ProjectShell({
     const surface = playableChat?.surface;
     try {
       await saveDesign.current?.();
+      await bindDisplayedModel();
       await sendPrompt(project.id, conversation.id, text, surface?.references ?? [], [], "normal", [], [], [...(surface ? [surface.context] : []), ...contexts]);
       revealPanel("chat");
       return true;
