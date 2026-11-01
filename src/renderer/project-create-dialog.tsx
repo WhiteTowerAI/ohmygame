@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { consentToPlugin, createConversation, createProject, getHomeComposerCapabilities, getProjectLocation, listProjects, setProjectPluginVersion } from "./api.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { activePluginMentions } from "./composer-mentions.js";
-import { LoaderCircle } from "./icons.js";
+import { Folder, LoaderCircle } from "./icons.js";
 import { saveHomePrompt } from "./prompt-history.js";
 import { defaultProjectName, PROJECT_TYPES } from "./project-types.js";
 import { isAppProjectType, MORE_TYPES, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes, useProjectPluginChoices } from "./project-type-choices.js";
@@ -121,11 +121,11 @@ export function ProjectCreateDialog({
     && (isAppProjectType(wanted) || installedPluginTypes.types !== undefined)
     && (isAppProjectType(type) || pluginChoices !== undefined);
   const [workspacePath, setWorkspacePath] = useState(initialWorkspacePath);
-  // Settings → General → Project location, where a project without a chosen folder goes.
-  const [defaultLocation, setDefaultLocation] = useState<string>();
+  // Where a project without a chosen folder goes: Settings → General → Project location, else OhMyGame's own storage.
+  const [defaultLocation, setDefaultLocation] = useState<{ location?: string; storage?: string }>({});
   useEffect(() => {
     let active = true;
-    void getProjectLocation().then((value) => { if (active) setDefaultLocation(value.location); }).catch(() => undefined);
+    void getProjectLocation().then((value) => { if (active) setDefaultLocation(value); }).catch(() => undefined);
     return () => { active = false; };
   }, []);
   const [selectingWorkspace, setSelectingWorkspace] = useState(false);
@@ -236,7 +236,9 @@ export function ProjectCreateDialog({
 
   if (!shown) return null;
 
-  const location = workspacePath ?? (defaultLocation ? t("createDialog.inLocation", { path: defaultLocation }) : t("createDialog.managedFolder"));
+  // A folder the person chose or set is shown as its path; OhMyGame's own storage by name, its path on hover.
+  const locationPath = workspacePath ?? defaultLocation.location;
+  const locationTitle = locationPath ?? defaultLocation.storage;
   return (
     <Dialog open onClose={close} title={t("createDialog.newProject")} size="md"
       footer={<>
@@ -277,14 +279,19 @@ export function ProjectCreateDialog({
             </ul>
           </div>
         ) : null}
-        <Field label={t("creator.workspace")}>
+        {/* Only a folder shown by its path needs saying how it is used. */}
+        <Field label={t("creator.workspace")} hint={workspacePath ? t("createDialog.usesFolder") : locationPath ? t("createDialog.newFolder") : undefined}>
           {(props) => (
+            // One box with the folder and its buttons, as tall as the fields above; a folder is only chosen with the button.
             <div className="new-project-location">
-              <Input {...props} readOnly value={location} title={location} />
-              <Button disabled={creating || selectingWorkspace} onClick={() => void chooseWorkspace()}>
+              <Folder size={14} className="new-project-location-icon" aria-hidden="true" />
+              <output {...props} className={`new-project-location-path${locationPath ? " is-path" : ""}`} title={locationTitle}>
+                <bdi>{locationPath ?? t("settings.general.projectLocationDefault")}</bdi>
+              </output>
+              <Button size="sm" disabled={creating || selectingWorkspace} onClick={() => void chooseWorkspace()}>
                 {selectingWorkspace ? t("createDialog.opening") : workspacePath ? t("createDialog.chooseAnother") : t("creator.chooseFolder")}
               </Button>
-              {workspacePath ? <Button variant="ghost" disabled={creating} onClick={() => setWorkspacePath(undefined)}>{t("common.clear")}</Button> : null}
+              {workspacePath ? <Button size="sm" variant="ghost" disabled={creating} onClick={() => setWorkspacePath(undefined)}>{t("common.clear")}</Button> : null}
             </div>
           )}
         </Field>
