@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import path from "node:path";
-import { act, useEffect, type ComponentProps } from "react";
+import { act, useEffect, type ComponentProps, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopRuntimeState } from "../src/shared/desktop-runtime.js";
@@ -18,6 +18,7 @@ let container: HTMLDivElement;
 beforeEach(() => {
   vi.resetModules();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  localStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -101,8 +102,9 @@ async function openProject(
       typeof import("../src/renderer/project-shell.js").ProjectShell
     >,
     "initialPrompt" | "onInitialPromptHandled" | "onOpenConversation" | "view"
-  >> = {},
+  >> & { wrap?: (shell: ReactNode) => ReactNode } = {},
 ) {
+  const { wrap = (shell: ReactNode) => shell, ...props } = shellProps;
   Object.defineProperty(window, "ohMyGameDesktop", {
     configurable: true,
     value: {
@@ -204,21 +206,22 @@ async function openProject(
   const { ProjectShell } = await import("../src/renderer/project-shell.js");
   const { AuthProvider } = await import("../src/renderer/auth.js");
   updateRuntimeConnection(READY);
-  await act(async () =>
+  const render = (conversationId: string) => act(async () =>
     root.render(
       <AuthProvider>
-        <ProjectShell
+        {wrap(<ProjectShell
           projectId="project"
-          conversationId="conversation"
+          conversationId={conversationId}
           onOpenConversation={() => {}}
-          onHome={() => {}}
-          {...shellProps}
-        />
+          onNavigate={() => {}} onHome={() => {}}
+          {...props}
+        />)}
       </AuthProvider>,
     ),
   );
+  await render("conversation");
   await settle();
-  return daemon;
+  return Object.assign(daemon, { route: render });
 }
 
 const settle = () =>
@@ -244,20 +247,33 @@ async function click(name: string) {
 }
 
 describe("project shell layout", () => {
-  it("opens General Game Design with chat expanded and preserves manual toggles across project updates", async () => {
+  it("opens the design route on the canvas panel and keeps a closed chat closed across project updates", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const daemon = await openProject(() => undefined, detail("live-turn"), {
       view: "design",
     });
-    const collapsed = () =>
-      container
-        .querySelector(".workspace-shell")!
-        .classList.contains("workspace-shell-agent-collapsed");
+    const tabs = (area: string) =>
+      [...container.querySelectorAll(`.dock-area-${area} .dock-tab`)].map(
+        (tab) =>
+          `${tab.classList.contains("is-active") ? "*" : ""}${tab.querySelector(".dock-tab-label")!.textContent}`,
+      );
+    const menuItem = (name: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find(
+        (item) => item.textContent?.trim() === name,
+      )!;
 
-    expect(collapsed()).toBe(false);
-    expect(button("Hide agent")).toBeDefined();
-    await click("Hide agent");
-    expect(collapsed()).toBe(true);
+    // A General project without a preview offers no game panel. The design
+    // route brings its canvas forward, beside the design document.
+    expect(tabs("left")).toEqual(["*Chat"]);
+    expect(tabs("center")).toEqual(["Code", "Design", "*Canvas", "Assets"]);
+    const composer = document.querySelector(".composer");
+    expect(composer).not.toBeNull();
+    await click("Close Chat");
+    expect(container.querySelector(".dock-area-left")).toBeNull();
+    // With the chat closed, its composer floats over the middle, and only
+    // there: the same one, moved rather than made again, so it keeps its state.
+    expect(document.querySelectorAll(".composer")).toHaveLength(1);
+    expect(container.querySelector(".dock-area-center .floating-chat .composer")).toBe(composer);
 
     await act(async () =>
       daemon.send(1, "workspace.restored", {
@@ -266,10 +282,135 @@ describe("project shell layout", () => {
       }),
     );
     await settle();
-    expect(collapsed()).toBe(true);
+    expect(container.querySelector(".dock-area-left")).toBeNull();
+    expect(
+      JSON.parse(localStorage.getItem("ohmygame-workspace-layout")!)
+        .layout.left.panels,
+    ).toEqual([]);
 
-    await click("Show agent");
-    expect(collapsed()).toBe(false);
+    await click("Layout and panels");
+    await act(async () => menuItem("Chat").click());
+    await settle();
+    expect(tabs("left")).toEqual(["*Chat"]);
+    expect(container.querySelector(".floating-chat")).toBeNull();
+    expect(document.querySelector(".agent-pane .agent-body > .chat-input > .composer")).toBe(composer);
+  });
+});
+
+describe("format 2 plugins in the project shell", () => {
+  it("holds the initial message until a plugin type's project is set up, opening the panel that sets it up", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    let ready = false;
+    const handled = vi.fn();
+    const daemon = await openProject(
+      (route, init) => {
+        if (route === "/projects/project")
+          return Response.json({
+            id: "project", name: "Native", type: "general", webPreviewEnabled: false, workspacePath: "/tmp/project",
+            updatedAt: new Date(0).toISOString(), preview: { status: "stopped" },
+            pluginType: { id: "acme/maker:maker", plugin: "acme/maker", preview: "native" },
+          });
+        if (route.startsWith("/projects/project/plugin-panels")) return Response.json([
+          { id: "setup", plugin: "acme/maker", version: "1.0.0", title: "Maker setup", area: "right", capabilities: {}, commands: [], url: "about:blank" },
+        ]);
+        if (route.endsWith("/turns") && init.method === "POST" && !ready)
+          return Response.json({ error: "Connect a Maker project first", code: "project-not-ready", panel: "acme/maker:setup" }, { status: 409 });
+        return undefined;
+      },
+      detail("live-turn"),
+      { initialPrompt: { generation: 1, prompt: "Build my Maker game", mentions: [], images: [], mode: "normal" }, onInitialPromptHandled: handled },
+    );
+    await settle();
+    expect(handled).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Your initial message has not been sent.");
+    expect(container.textContent).toContain("Connect a Maker project first");
+    expect(container.querySelector(".paused-initial-prompt pre")?.textContent).toBe("Build my Maker game");
+    const tabs = () => [...container.querySelectorAll(".dock-area-right .dock-tab-label")].map((tab) => tab.textContent);
+    // Closed, the panel comes back when the message is refused again.
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Maker setup"]')!.click());
+    expect(tabs()).not.toContain("Maker setup");
+    await click("Send original message");
+    expect(tabs()).toContain("Maker setup");
+    expect(handled).not.toHaveBeenCalled();
+    ready = true;
+    await click("Send original message");
+    expect(handled).toHaveBeenCalledOnce();
+    const sent = daemon.requests.filter((request) => request.method === "POST" && request.route.endsWith("/turns"));
+    expect(sent).toHaveLength(3);
+    expect(JSON.parse(sent[2]!.body!).prompt).toBe("Build my Maker game");
+  });
+
+  it("shows a plugin's panel where it asks, and runs its menu command with Undo", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    const { ToastProvider } = await import("../src/renderer/ui/index.js");
+    const daemon = await openProject((route, init) => {
+      if (route.startsWith("/projects/project/plugin-panels")) return Response.json([
+        { id: "preview", plugin: "acme/maker", version: "1.0.0", title: "Maker preview", area: "right", capabilities: {}, commands: ["upload"], url: "about:blank" },
+        { id: "hidden", plugin: "acme/maker", version: "1.0.0", title: "Hidden", area: "right", when: "project.type == 'web-game'", capabilities: {}, commands: [], url: "about:blank" },
+        // Shown because a plugin without panels or commands is active here.
+        { id: "tools", plugin: "acme/maker", version: "1.0.0", title: "Tool log", area: "bottom", when: "project.plugin('acme/tools')", capabilities: {}, commands: [], url: "about:blank" },
+      ]);
+      if (route.startsWith("/projects/project/plugins")) return Response.json({ global: [], plugins: [
+        { id: "acme/tools", displayName: "Tools", description: "", version: "1.0.0", used: "1.0.0", status: "active", providesType: false, capabilities: [], consented: true },
+      ] });
+      if (route.startsWith("/projects/project/plugin-commands") && init.method === "POST") return Response.json({ result: null, change: { id: "change-1", changed: ["build/index.html"] } });
+      if (route.startsWith("/projects/project/plugin-commands")) return Response.json([
+        { id: "acme/maker:upload", plugin: "acme/maker", title: "Upload build", slots: [{ slot: "project.menu" }], run: { native: "upload" } },
+        // The manifest only checks the prefix, so a link can still be malformed.
+        { id: "acme/maker:docs", plugin: "acme/maker", title: "Open docs", slots: [{ slot: "project.menu" }], run: { url: "https://[" } },
+      ]);
+      if (route === "/projects/project/plugin-changes/change-1/undo") return new Response(null, { status: 204 });
+    }, detail("live-turn"), { wrap: (shell) => <ToastProvider>{shell}</ToastProvider> });
+    await settle();
+    const tabs = (area: string) => [...container.querySelectorAll(`.dock-area-${area} .dock-tab-label`)].map((tab) => tab.textContent);
+    // A panel whose `when` doesn't hold here stays out.
+    expect(tabs("right")).toEqual(["Maker preview"]);
+    expect(tabs("bottom")).toEqual(["Tool log"]);
+    const frame = container.querySelector<HTMLIFrameElement>(".dock-area-right iframe.plugin-frame")!;
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+
+    // Moving or closing the panel keeps its page, as with the built-in panels.
+    const view = frame.closest(".dock-view");
+    expect(view).not.toBeNull();
+    const tab = [...container.querySelectorAll(".dock-area-right .dock-tab")].find((entry) => entry.textContent?.includes("Maker preview"))!;
+    await act(async () => tab.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 })));
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find((entry) => entry.textContent?.trim() === "Move to Bottom")!.click());
+    await settle();
+    expect(tabs("bottom")).toEqual(["Tool log", "Maker preview"]);
+    // happy-dom has no moveBefore, so the moved iframe reloads here; the view holding it is the same.
+    expect(container.querySelector(".dock-area-bottom iframe.plugin-frame[title='Maker preview']")?.closest(".dock-view")).toBe(view);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Maker preview"]')!.click());
+    expect(view!.isConnected).toBe(true);
+
+    await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find((entry) => entry.textContent?.trim() === "Open docs")!.click());
+    expect(document.querySelector(".ui-toasts")?.textContent).toContain("isn't a valid web address");
+    expect(container.querySelector(".project-name")).not.toBeNull();
+
+    await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
+    const item = [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")].find((entry) => entry.textContent?.trim() === "Upload build")!;
+    await act(async () => item.click());
+    await settle();
+    expect(daemon.requests.find((request) => request.route === "/projects/project/plugin-commands" && request.method === "POST")?.body).toBe(JSON.stringify({ command: "acme/maker:upload" }));
+    expect(document.querySelector(".ui-toasts")?.textContent).toContain("Upload build finished");
+    await act(async () => document.querySelector<HTMLButtonElement>(".ui-toast-action")!.click());
+    await settle();
+    expect(daemon.requests.some((request) => request.route === "/projects/project/plugin-changes/change-1/undo" && request.method === "POST")).toBe(true);
+
+    // A running command's sign-in link opens only once the person sees its host.
+    await act(async () => daemon.send(1, "plugin.command.progress", { command: "acme/maker:upload", message: "Plain link", url: "http://maker.example.com/device" }));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => daemon.send(2, "plugin.command.progress", { command: "acme/maker:upload", message: "Sign in to Maker", url: "https://maker.example.com/device?code=AB12" }));
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Sign in to Maker");
+    expect(dialog.textContent).toContain("maker.example.com");
+
+    // An edit to ohmygame.json outside the app reaches the open project.
+    const reads = () => daemon.requests.filter((request) => request.route.startsWith("/projects/project/plugin-panels")).length;
+    const before = reads();
+    await act(async () => daemon.send(3, "project.plugins.changed", {}));
+    await settle();
+    expect(reads()).toBe(before + 1);
   });
 });
 
@@ -301,6 +442,31 @@ describe("checkpoints in the project shell", () => {
     expect(daemon.requests.some((request) => request.route.endsWith("/model") && request.method === "PUT")).toBe(false);
   });
 
+  it("keeps a conversation opened while the previous one was being archived", async () => {
+    let archived!: () => void;
+    const onOpenConversation = vi.fn();
+    const other = { ...detail("turn").conversation, id: "other", title: "Other" };
+    const daemon = await openProject((route, init) => {
+      if (route === "/projects/project/conversations") return Response.json([detail("turn").conversation, other]);
+      if (route === "/projects/project/conversations/other") return Response.json({ ...detail("turn"), conversation: other });
+      if (route.endsWith("/conversation/archive") && init.method === "POST") return new Promise((resolve) => { archived = () => resolve(new Response(null, { status: 204 })); });
+    }, undefined, { onOpenConversation });
+    await act(async () => container.querySelector<HTMLButtonElement>(".conversation-trigger")!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Archive Chat"]')!.click());
+    await daemon.route("other");
+    onOpenConversation.mockClear();
+    await act(async () => archived());
+    await settle();
+    expect(onOpenConversation).not.toHaveBeenCalled();
+  });
+
+  it("shows why a project could not open instead of failing to render", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await openProject((route) => route === "/projects/project" ? Response.json({ error: "Project storage is unreadable" }, { status: 500 }) : undefined);
+    expect(container.textContent).toContain("Project storage is unreadable");
+    expect(errors.mock.calls.some((call) => String(call[0]).includes("hooks"))).toBe(false);
+  });
+
   it("refreshes the account picker after a profile is deleted in settings", async () => {
     let removed = false;
     const chat = detail("turn");
@@ -320,77 +486,6 @@ describe("checkpoints in the project shell", () => {
     expect(daemon.requests.some((request) => request.route.endsWith("/account-profile") && request.method === "PUT")).toBe(false);
   });
 
-  it("retains the initial message after cancelling plugin setup and allows sending it after connection", async () => {
-    let ready = false;
-    const handled = vi.fn();
-    const daemon = await openProject(
-      (route) => {
-        if (route === "/projects/project")
-          return Response.json({
-            id: "project",
-            name: "Native",
-            type: "general",
-            webPreviewEnabled: false,
-            workspacePath: "/tmp/project",
-            updatedAt: new Date(0).toISOString(),
-            preview: { status: "stopped" },
-            integration: { pluginId: "fixture", preview: "external" },
-          });
-        if (route.startsWith("/plugins/fixture/integration"))
-          return Response.json({
-            pluginId: "fixture",
-            action: "status",
-            running: false,
-            result: {
-              connection: { status: ready ? "ready" : "needs-setup" },
-              project: ready ? { id: "existing" } : null,
-            },
-          });
-        return undefined;
-      },
-      detail("live-turn"),
-      {
-        initialPrompt: {
-          generation: 1,
-          prompt: "Build my Maker game",
-          mentions: [],
-          images: [],
-          mode: "normal",
-        },
-        onInitialPromptHandled: handled,
-      },
-    );
-    expect(container.querySelector('[role="dialog"]')).toBeTruthy();
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>(
-          '[role="dialog"] [aria-label="Close"]',
-        )!
-        .click(),
-    );
-    expect(handled).not.toHaveBeenCalled();
-    expect(container.textContent).toContain(
-      "Your initial message has not been sent.",
-    );
-    expect(
-      container.querySelector(".paused-initial-prompt pre")?.textContent,
-    ).toBe("Build my Maker game");
-    expect(
-      daemon.requests.some(
-        (request) =>
-          request.method === "POST" && request.route.endsWith("/turns"),
-      ),
-    ).toBe(false);
-    ready = true;
-    await click("Send original message");
-    expect(handled).toHaveBeenCalledOnce();
-    const sent = daemon.requests.filter(
-      (request) =>
-        request.method === "POST" && request.route.endsWith("/turns"),
-    );
-    expect(sent).toHaveLength(1);
-    expect(JSON.parse(sent[0]!.body!).prompt).toBe("Build my Maker game");
-  });
   it("undoes a turn through the conflict choice and marks it without reading the conversation again", async () => {
     const daemon = await openProject((route, init) => {
       if (route === `${BASE}/changes`)
@@ -859,6 +954,113 @@ describe("checkpoints in the project shell", () => {
     expect(container.querySelector(".turn-changes-result")!.textContent).toBe(
       "2 files were put back.",
     );
+  });
+
+  it("saves pending edits before it exports, and exports nothing when saving fails", async () => {
+    let saved!: () => void;
+    const save = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { saved = resolve; }))
+      .mockRejectedValueOnce(new Error("Disk full"));
+    vi.doMock(CODING_WORKSPACE, () => ({
+      CodingWorkspace: ({ onDesignSaveReady }: { onDesignSaveReady: (save: (() => Promise<void>) | undefined) => void }) => {
+        useEffect(() => onDesignSaveReady(save), [onDesignSaveReady]);
+        return null;
+      },
+    }));
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:archive"), revokeObjectURL: vi.fn() }));
+    const daemon = await openProject((route) =>
+      route === "/projects/project/export" ? new Response(new Blob(["zip"])) : undefined);
+    const exported = () => daemon.requests.filter((request) => request.route === "/projects/project/export").length;
+    const exportArchive = async () => {
+      await act(async () => container.querySelector<HTMLButtonElement>(".project-name")!.click());
+      await act(async () => [...document.querySelectorAll<HTMLElement>(".ui-menu-item")]
+        .find((item) => item.textContent?.includes("Export"))!.click());
+      await settle();
+    };
+
+    await exportArchive();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(exported()).toBe(0);
+    await act(async () => saved());
+    await settle();
+    expect(exported()).toBe(1);
+
+    await exportArchive();
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(exported()).toBe(1);
+    expect(document.body.textContent).toContain("Disk full");
+  });
+
+  it("reopens a story's closed Code panel to show a file the chat links to", async () => {
+    const PLAYABLE = path.resolve("src/renderer/playable-editor-workspace.tsx");
+    vi.doMock(PLAYABLE, () => ({ PlayableEditorWorkspace: () => <p>Story editor</p> }));
+    const linked = detail("live-turn");
+    linked.turns[0]!.items[1] = { ...linked.turns[0]!.items[1]!, text: "Edited [the story](story/scenes.json)." } as never;
+    try {
+      await openProject((route) => route === "/projects/project" ? Response.json({
+        id: "project", name: "Test", type: "interactive-story", workspacePath: "/tmp/project",
+        updatedAt: new Date(0).toISOString(), preview: { status: "stopped" },
+      }) : undefined, linked);
+      // A story offers a canvas too, but its panels belong to the story editor.
+      expect(container.textContent).toContain("Story editor");
+      const codeTab = () => [...container.querySelectorAll('[role="tab"]')].find((tab) => tab.getAttribute("aria-label") === "Code");
+      expect(codeTab()).toBeDefined();
+      await click("Close Code");
+      expect(codeTab()).toBeUndefined();
+      await act(async () => container.querySelector<HTMLAnchorElement>(".workspace-file-link")!.click());
+      await settle();
+      expect(codeTab()?.getAttribute("aria-selected")).toBe("true");
+    } finally {
+      vi.doUnmock(PLAYABLE);
+    }
+  });
+
+  it("publishes from the top bar's Publish menu, or exports the web build there after saving", async () => {
+    const publishDialog = vi.fn();
+    const save = vi.fn(async () => {});
+    vi.doMock(CODING_WORKSPACE, () => ({
+      CodingWorkspace: (props: { publishDialog?: string; onDesignSaveReady: (save: (() => Promise<void>) | undefined) => void }) => {
+        publishDialog(props.publishDialog);
+        useEffect(() => props.onDesignSaveReady(save), [props.onDesignSaveReady]);
+        return null;
+      },
+    }));
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:build"), revokeObjectURL: vi.fn() }));
+    const downloads: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { downloads.push(this.download); });
+    const daemon = await openProject((route) =>
+      route === "/projects/project/build" ? new Response(new Blob(["zip"])) : undefined);
+    const menuItem = async (label: string) => {
+      await click("Publish");
+      await act(async () => [...document.querySelectorAll<HTMLElement>(".ui-menu-item")]
+        .find((item) => item.textContent?.includes(label))!.click());
+      await settle();
+    };
+
+    expect(publishDialog).not.toHaveBeenCalledWith("open");
+    await menuItem("Publish to the OhMyGame community");
+    expect(publishDialog).toHaveBeenLastCalledWith("open");
+
+    // A story's or other editor's pending save finishes before the build reads the files.
+    let saved!: () => void;
+    const { desktopSave } = await import("../src/renderer/desktop-save.js");
+    const unregister = desktopSave.register(() => new Promise<void>((resolve) => { saved = resolve; }));
+    const built = () => daemon.requests.filter((request) => request.route === "/projects/project/build");
+    try {
+      await menuItem("Export web build");
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(built()).toHaveLength(0);
+      await click("Publish");
+      const publishItem = [...document.querySelectorAll<HTMLButtonElement>(".ui-menu-item")]
+        .find((item) => item.textContent?.includes("Publish to the OhMyGame community"))!;
+      expect(publishItem.disabled).toBe(true);
+      await act(async () => saved());
+      await settle();
+    } finally {
+      unregister();
+    }
+    expect(built()).toHaveLength(1);
+    expect(downloads).toEqual(["Test (web).zip"]);
   });
 
   it("asks before it puts the files back after a restore that was cut off, and shows why that failed", async () => {

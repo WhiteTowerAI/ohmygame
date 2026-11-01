@@ -51,6 +51,8 @@
   border-radius: var(--radius-md);
   background: var(--color-stage);
   box-shadow: inset 0 0 0 1px var(--color-border);
+  /* The lab's body is 13px; the app's isn't, so fields set their own size. */
+  font-size: var(--text-md);
   transition: box-shadow var(--duration-fast);
 }
 
@@ -130,6 +132,7 @@
   background: var(--color-stage);
   box-shadow: inset 0 0 0 1px var(--color-border);
   font: inherit;
+  font-size: var(--text-md);
   line-height: 1.55;
   resize: vertical;
 }
@@ -225,7 +228,8 @@
   padding: 0;
   border: 0;
   border-radius: var(--radius-pill);
-  background: var(--color-border-strong);
+  /* Dark enough that the thumb and the track both stand out when off (3:1). */
+  background: var(--color-text-tertiary);
   cursor: pointer;
   transition: background var(--duration-fast);
 }
@@ -315,6 +319,11 @@
 }
 
 /* select and combobox */
+.ui-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .ui-select {
   display: flex;
   align-items: center;
@@ -326,6 +335,7 @@
   background: var(--color-stage);
   box-shadow: inset 0 0 0 1px var(--color-border);
   color: var(--color-text);
+  font-size: var(--text-md);
   text-align: left;
   cursor: pointer;
 }

@@ -121,7 +121,7 @@ async function fixture() {
       expect(user.text).toBe(prompt);
       expect(user.changes).toBeDefined();
       return user;
-    });
+    }, { timeout: 15_000 });
   };
   const lease = () =>
     app.inject({
@@ -262,7 +262,7 @@ it("lets a preview finish starting while a text-only turn takes snapshots", asyn
 });
 
 it("automatically starts a preview when an agent creates browser output", async () => {
-  const { project, runtime, readProject, chat, lease } = await fixture();
+  const { runtime, readProject, chat, lease } = await fixture();
   await lease();
   let calls = 0;
   runtime.streamSimple = () =>

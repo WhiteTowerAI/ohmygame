@@ -19,7 +19,8 @@ export function supportsWebPreview(
 ): boolean {
   return (
     buildsWebPreview(project) ||
-    (project?.integration?.preview !== "external" &&
+    (!project?.integration &&
+      project?.pluginType?.preview !== "native" &&
       (project?.type === "web-game" ||
         (project?.type === "general" && project.webPreviewEnabled === true)))
   );
@@ -32,12 +33,34 @@ export function buildsWebPreview(
   return project?.pluginType?.preview === "web-build";
 }
 
-export function supportsProjectPreview(project?: Pick<ProjectState, "type" | "webPreviewEnabled" | "integration" | "pluginType">): boolean {
-  return supportsWebPreview(project) || project?.integration?.preview === "external";
-}
 
 /** Only an unambiguous compatibility intersection may change a new workspace's
  * type. Asset/helper plugins with no restriction never choose its engine. */
+/** App project kinds that are plugin types now; the app's own routing still names them. */
+export const PLUGIN_PROJECT_KINDS = {
+  "godot-game": "ohmygame/godot:godot-game",
+} as const satisfies Record<string, string>;
+
+/**
+ * Whether a format 2 plugin suits a project type, by its `appliesTo` (none
+ * means every type). An app kind that is a plugin type now matches either name.
+ */
+export function pluginAppliesTo(appliesTo: readonly string[] | undefined, type: string): boolean {
+  if (!appliesTo) return true;
+  const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
+  const names = [type, kinds[type], ...Object.keys(kinds).filter((kind) => kinds[kind] === type)];
+  return names.some((name) => name !== undefined && appliesTo.includes(name));
+}
+
+/**
+ * The type a project of this kind records in `ohmygame.json`, which plugins'
+ * `appliesTo` is matched against: the app kinds that aren't project file
+ * types (a Web game, an Asset Canvas) are `general` there.
+ */
+export function projectFileTypeFor(type: string): string {
+  return type === "interactive-story" || type.includes(":") || type in PLUGIN_PROJECT_KINDS ? type : "general";
+}
+
 export function pluginProjectType(current: ProjectType, plugins: readonly { projectTypes?: ProjectType[] }[]): ProjectType | undefined {
   const compatible = PROJECT_TYPE_IDS.filter((type) => plugins.every((plugin) => !plugin.projectTypes?.length || plugin.projectTypes.includes(type)));
   return compatible.includes(current) ? current : compatible.length === 1 ? compatible[0] : undefined;

@@ -3,12 +3,13 @@ import { PREVIEW_SETTING_KEYS } from "./preview-settings.js";
 
 /**
  * A project archive is a ZIP file holding this manifest at its root, the
- * project's workspace below `workspace/` and, when the project has one, its
- * cover as `cover.webp`.
+ * project's workspace below `workspace/` and, when the project has them, its
+ * cover as `cover.webp` and its uploaded logo as `logo.webp`.
  */
 export const PROJECT_ARCHIVE_MANIFEST = "ohmygame-project.json";
 export const PROJECT_ARCHIVE_WORKSPACE = "workspace";
 export const PROJECT_ARCHIVE_COVER = "cover.webp";
+export const PROJECT_ARCHIVE_LOGO = "logo.webp";
 export const PROJECT_ARCHIVE_FORMAT = "ohmygame-project";
 export const PROJECT_ARCHIVE_VERSION = 1;
 
@@ -32,6 +33,7 @@ export const PROJECT_ARCHIVE_SETTING_KEYS = [
   "previewPath",
   "previewViewport",
   "mediaModelDefaults",
+  "appearance",
   ...PREVIEW_SETTING_KEYS,
 ] as const satisfies readonly (keyof ProjectState)[];
 

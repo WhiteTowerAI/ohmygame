@@ -1,29 +1,33 @@
-import { useState } from "react";
-import { Bot, Check, ExternalLink, Globe2, InfoCircle, Palette, Plug, Server, UserRound, Wifi } from "./icons.js";
+import { useEffect, useState, type ReactNode } from "react";
+import { Cloud, ExternalLink, Globe2, MessageCircle } from "./icons.js";
+import githubMark from "@lobehub/icons-static-svg/icons/github.svg";
 import { useAuth } from "./auth.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
-import { AgentsSettings, type AgentsView } from "./agents-settings.js";
+import { AgentsSettings, OHMYGAME_AGENT } from "./agents-settings.js";
 import { PageFrame } from "./page-frame.js";
 import type { AppNavigationTarget, SettingsSection } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
+import { BrandLogo } from "./brand-logo.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { useDesktopUpdate } from "./use-desktop-update.js";
-import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
+import { SETTINGS_NAV as NAV } from "./settings-sections.js";
+import {
+  readAppearance, readChatFont, readPalette, setAppearance as persistAppearance, setChatFont, setPalette,
+  type Appearance, type ChatFont, type Palette,
+} from "./appearance.js";
+import { ConnectionsSettings } from "./connections-settings.js";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { NetworkSettingsPanel } from "./network-settings.js";
 import { ExternalAgentsSettings } from "./external-agents-settings.js";
-import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js";
-import { SegmentedControl } from "./segmented-control.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
 import { ChangelogPanel } from "./changelog-panel.js";
-import { exportDiagnostics } from "./api.js";
-import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
+import { exportDiagnostics, getProjectLocation, setProjectLocation } from "./api.js";
+import { readGeneralPreferences, setGeneralPreference, type GeneralPreferences } from "./general-preferences.js";
+import { Badge, Button, Progress, SegmentedControl, Select, Spinner, Switch, Tooltip } from "./ui/index.js";
+import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
+import "./settings.css";
 
 const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
-const CHAT_LAYOUT_OPTIONS: readonly { value: ChatLayout; label: string }[] = [
-  { value: "left", label: t("settings.appearance.left") },
-  { value: "right", label: t("settings.appearance.right") },
-];
 const LANGUAGE_OPTIONS: readonly { value: LanguagePreference; label: string }[] = [
   { value: "system", label: t("settings.appearance.system") },
   // Language names stay in their own language so people can find theirs.
@@ -31,58 +35,60 @@ const LANGUAGE_OPTIONS: readonly { value: LanguagePreference; label: string }[] 
   { value: "zh-CN", label: "简体中文" },
 ];
 
-const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: typeof UserRound }> = [
-  { section: "providers", label: t("settings.nav.providers"), icon: Server },
-  { section: "agents", label: t("settings.nav.agents"), icon: Bot },
-  { section: "account", label: t("settings.nav.account"), icon: UserRound },
-  { section: "appearance", label: t("settings.nav.appearance"), icon: Palette },
-  { section: "web-search", label: t("settings.nav.webSearch"), icon: Globe2 },
-  { section: "network", label: t("settings.nav.network"), icon: Wifi },
-  { section: "mcp-server", label: t("settings.nav.mcpServer"), icon: Plug },
-  { section: "about", label: t("settings.nav.about"), icon: InfoCircle },
-];
-
-export function SettingsPage({ section, onSectionChange, onNavigate, onOpenOnboarding }: {
+export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOpenOnboarding }: {
   section: SettingsSection;
-  onSectionChange: (section: SettingsSection) => void;
+  /** An agent's own page under Agents (`#/settings/agents/<id>`). */
+  agent?: string;
+  onSectionChange: (section: SettingsSection, agent?: string) => void;
   onNavigate: (page: AppNavigationTarget) => void;
   onOpenOnboarding?: () => void;
 }) {
   const [modelsView, setModelsView] = useState<ModelsView>({ page: "providers" });
-  const [agentsView, setAgentsView] = useState<AgentsView>({ page: "agents" });
 
   function chooseSection(next: SettingsSection): void {
     if (next === "providers") setModelsView({ page: "providers" });
-    if (next === "agents") setAgentsView({ page: "agents" });
     onSectionChange(next);
   }
 
+  // Billing is hidden from the list but still answers its link.
+  const current = NAV.flatMap((group) => group.items).find((item) => item.section === section)
+    ?? (section === "billing" ? { label: t("settings.nav.billing") } : undefined);
+  // An agent's own page draws its own head.
+  const inDetail = section === "agents" && Boolean(agent);
   return (
     <PageFrame active="settings" onNavigate={onNavigate} aside={
-      <nav className="settings-page-nav" aria-label={t("settings.nav.label")}>
-        <div className="settings-page-nav-title">{t("common.settings")}</div>
-        {SETTINGS_SECTIONS.map((item) => {
-          const Icon = item.icon;
-          const active = section === item.section;
-          return (
-            <button className={`settings-page-nav-item${active ? " is-active" : ""}`} type="button" aria-current={active ? "page" : undefined} onClick={() => chooseSection(item.section)} key={item.section}>
-              <Icon size={16} />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
+      <nav className="settings-nav" aria-label={t("settings.nav.label")}>
+        <div className="settings-nav-title">{t("common.settings")}</div>
+        {NAV.map((group, index) => (
+          <div className="settings-nav-group" key={index}>
+            {group.heading ? <div className="settings-nav-heading">{group.heading}</div> : null}
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              const active = section === item.section;
+              return (
+                <button className={`settings-nav-item${active ? " is-current" : ""}`} type="button" aria-current={active ? "page" : undefined} onClick={() => chooseSection(item.section)} key={item.section}>
+                  <Icon size={16} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
     }>
-      <main className="settings-page-content">
+      <main className="settings-scroll">
         <WindowDragRegion />
-        <div className="settings-page-inner">
+        <div className="settings-body">
+          {!inDetail && current ? <header className="settings-head"><h1>{current.label}</h1></header> : null}
+          {section === "general" ? <GeneralSettings /> : null}
+          {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "account" ? <AccountSettings /> : null}
           {section === "billing" ? <BillingSettings /> : null}
-          {section === "appearance" ? <AppearanceSettings /> : null}
-          {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} onOpenAgents={() => chooseSection("agents")} /> : null}
-          {section === "agents" ? <AgentsSettings view={agentsView} onViewChange={setAgentsView} onOpenProviders={() => chooseSection("providers")} /> : null}
+          {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} onOpenAgents={() => chooseSection("agents")} onOpenChatModel={() => onSectionChange("agents", OHMYGAME_AGENT)} /> : null}
+          {section === "agents" ? <AgentsSettings agent={agent} onOpen={(id) => onSectionChange("agents", id)} onBack={() => onSectionChange("agents")} onOpenSection={chooseSection} onOpenPlugins={() => onNavigate("plugins")} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
           {section === "network" ? <NetworkSettingsPanel /> : null}
+          {section === "connections" ? <ConnectionsSettings /> : null}
           {section === "mcp-server" ? <ExternalAgentsSettings /> : null}
           {section === "about" ? <AboutSettings onOpenNetwork={() => chooseSection("network")} onOpenOnboarding={onOpenOnboarding} /> : null}
         </div>
@@ -91,160 +97,250 @@ export function SettingsPage({ section, onSectionChange, onNavigate, onOpenOnboa
   );
 }
 
-async function openBillingDashboard(): Promise<void> {
-  if (window.ohMyGameDesktop?.openExternal) {
-    await window.ohMyGameDesktop.openExternal(BILLING_DASHBOARD_URL);
-  } else {
-    window.open(BILLING_DASHBOARD_URL, "_blank", "noopener,noreferrer");
-  }
-}
+// ---------- general ----------
 
-function BillingSettings() {
-  return (
-    <section className="settings-panel settings-overview-panel settings-billing-panel">
-      <header className="settings-panel-header"><h3>{t("settings.billing.title")}</h3></header>
-      <p>{t("settings.billing.description")}</p>
-      <button className="settings-primary-button" type="button" onClick={() => void openBillingDashboard()}>
-        <span>{t("settings.billing.open")}</span>
-        <ExternalLink size={14} aria-hidden="true" />
-      </button>
-    </section>
-  );
-}
-
-function AppearanceSettings() {
-  const [appearance, setAppearance] = useState<Appearance>(readAppearance);
-  const [chatLayout, updateChatLayout] = useState<ChatLayout>(readChatLayout);
+function GeneralSettings() {
   const [language, updateLanguage] = useState<LanguagePreference>(readLanguagePreference);
-
-  function chooseAppearance(next: Appearance): void {
-    setAppearance(next);
-    persistAppearance(next);
+  const [preferences, updatePreferences] = useState<GeneralPreferences>(readGeneralPreferences);
+  const desktop = Boolean(window.ohMyGameDesktop);
+  const mod = window.ohMyGameDesktop?.platform === "darwin" || navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl";
+  function change<K extends keyof GeneralPreferences>(key: K, value: GeneralPreferences[K]): void {
+    setGeneralPreference(key, value);
+    updatePreferences((current) => ({ ...current, [key]: value }));
   }
-
-  function chooseChatLayout(next: ChatLayout): void {
-    updateChatLayout(next);
-    setChatLayout(next);
-  }
-
-  function chooseLanguage(next: LanguagePreference): void {
-    updateLanguage(next);
-    setLanguagePreference(next);
-  }
-
   return (
-    <section className="settings-panel settings-overview-panel settings-appearance-panel">
-      <header className="settings-panel-header"><h3>{t("settings.nav.appearance")}</h3></header>
-      <div className="settings-appearance-group">
-        <h4 className="settings-section-heading">{t("settings.appearance.theme")}</h4>
-        <fieldset className="settings-theme-options" aria-label={t("settings.appearance.theme")}>
-          <ThemeOption appearance="system" selected={appearance === "system"} onSelect={chooseAppearance} />
-          <ThemeOption appearance="light" selected={appearance === "light"} onSelect={chooseAppearance} />
-          <ThemeOption appearance="dark" selected={appearance === "dark"} onSelect={chooseAppearance} />
-        </fieldset>
-      </div>
-      <div className="settings-appearance-group">
-        <h4 className="settings-section-heading">{t("settings.appearance.workspace")}</h4>
-        <div className="settings-chat-layout-row">
-          <span className="settings-chat-layout-label">{t("settings.appearance.chatPosition")}</span>
-          <SegmentedControl className="settings-chat-layout-control" label={t("settings.appearance.chatPositionLabel")} options={CHAT_LAYOUT_OPTIONS} value={chatLayout} onChange={chooseChatLayout} />
-        </div>
-        <div className="settings-chat-layout-row">
-          <span className="settings-chat-layout-label">{t("settings.appearance.language")}</span>
-          <SegmentedControl className="settings-chat-layout-control" label={t("settings.appearance.languageLabel")} options={LANGUAGE_OPTIONS} value={language} onChange={chooseLanguage} />
-        </div>
-      </div>
-    </section>
+    <>
+      <SettingsGroup>
+        <SettingsRow title={t("settings.general.openTo")} description={t("settings.general.openToHint")}>
+          <Select size="sm" label={t("settings.general.openTo")} value={preferences.openTo} onChange={(value) => change("openTo", value)} options={[
+            { value: "home", label: t("settings.general.openToHome") },
+            { value: "last", label: t("settings.general.openToLast") },
+          ]} />
+        </SettingsRow>
+        <SettingsRow title={t("settings.appearance.language")} description={t("settings.general.languageHint")}>
+          <Select size="sm" label={t("settings.appearance.languageLabel")} options={LANGUAGE_OPTIONS} value={language} onChange={(next) => {
+            updateLanguage(next);
+            setLanguagePreference(next);
+          }} />
+        </SettingsRow>
+        <ProjectLocationRow />
+      </SettingsGroup>
+      <SettingsGroup title={t("settings.general.conversation")}>
+        <SettingsRow title={t("settings.general.sendKey")} description={preferences.sendKey === "enter" ? t("settings.general.sendEnterHint") : t("settings.general.sendModEnterHint", { mod })}>
+          <SegmentedControl size="sm" label={t("settings.general.sendKey")} value={preferences.sendKey} onChange={(value) => change("sendKey", value)} options={[
+            { value: "enter", label: "Enter" },
+            { value: "mod-enter", label: `${mod} Enter` },
+          ]} />
+        </SettingsRow>
+      </SettingsGroup>
+      <SettingsGroup title={t("settings.general.notifications")}>
+        <SettingsRow title={t("settings.general.runNotifications")} description={t("settings.general.runNotificationsHint")}>
+          <Switch label={t("settings.general.runNotifications")} checked={preferences.runNotifications} onChange={(value) => change("runNotifications", value)} />
+        </SettingsRow>
+        <SettingsRow title={t("settings.general.runSound")} description={t("settings.general.runSoundHint")}>
+          <Switch label={t("settings.general.runSound")} checked={preferences.runSound} onChange={(value) => change("runSound", value)} />
+        </SettingsRow>
+      </SettingsGroup>
+      {desktop ? (
+        <SettingsGroup title={t("settings.general.system")}>
+          <SettingsRow title={t("settings.general.keepAwake")} description={t("settings.general.keepAwakeHint")}>
+            <Switch label={t("settings.general.keepAwake")} checked={preferences.keepAwake} onChange={(value) => change("keepAwake", value)} />
+          </SettingsRow>
+          {window.ohMyGameDesktop?.updates?.setAutomatic ? (
+            <SettingsRow title={t("settings.general.autoUpdate")} description={t("settings.general.autoUpdateHint")}>
+              <Switch label={t("settings.general.autoUpdate")} checked={preferences.autoUpdate} onChange={(value) => change("autoUpdate", value)} />
+            </SettingsRow>
+          ) : null}
+        </SettingsGroup>
+      ) : null}
+    </>
   );
 }
 
-function ThemeOption({ appearance, selected, onSelect }: {
-  appearance: Appearance;
-  selected: boolean;
-  onSelect: (appearance: Appearance) => void;
-}) {
-  const label = t(`settings.appearance.${appearance}`);
+/** Where new projects go when no folder is chosen for them. */
+function ProjectLocationRow() {
+  const [location, setLocation] = useState<string>();
+  const [storage, setStorage] = useState<string>();
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const choose = window.ohMyGameDesktop?.selectProjectDirectory;
+  useEffect(() => {
+    let active = true;
+    void getProjectLocation()
+      .then((value) => { if (active) { setLocation(value.location); setStorage(value.storage); setLoaded(true); } })
+      .catch((cause) => { if (active) setError(errorMessage(cause)); });
+    return () => { active = false; };
+  }, []);
+  async function save(next: string | undefined): Promise<void> {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const saved = await setProjectLocation(next);
+      setLocation(saved.location);
+      setStorage(saved.storage);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function pick(): Promise<void> {
+    const selected = await choose?.();
+    if (selected) await save(selected);
+  }
   return (
-    <button
-      className={`settings-theme-option is-${appearance}${selected ? " is-selected" : ""}`}
-      type="button"
-      aria-pressed={selected}
-      onClick={() => onSelect(appearance)}
-    >
-      <ThemePreview appearance={appearance} />
-      <span className="settings-theme-option-label">
-        <span>{label}</span>
-        {selected ? <Check size={16} aria-hidden="true" /> : null}
-      </span>
+    <>
+      <SettingsRow title={t("settings.general.projectLocation")} description={t("settings.general.projectLocationHint")}>
+        {loaded ? <span className="settings-mono settings-muted settings-location" title={location ?? storage}><bdi>{location ?? storage ?? t("settings.general.projectLocationDefault")}</bdi></span> : null}
+        {location ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save(undefined)}>{t("settings.general.projectLocationReset")}</Button> : null}
+        {choose ? <Button size="sm" disabled={busy || !loaded} onClick={() => void pick()}>{t("settings.general.projectLocationChange")}</Button> : null}
+      </SettingsRow>
+      {error ? <div className="settings-pad"><SettingsNote tone="danger">{error}</SettingsNote></div> : null}
+    </>
+  );
+}
+
+// ---------- appearance ----------
+
+/** A small drawing of the app in one theme: sidebar, sheet, a line of text. */
+function ThemePreview({ appearance, palette }: { appearance: "light" | "dark"; palette: Palette }) {
+  return (
+    <span className="theme-preview" data-appearance={appearance} data-palette={palette} aria-hidden="true">
+      <span className="theme-preview-rail"><i /><i /><i /></span>
+      <span className="theme-preview-sheet"><i /><i /><b /></span>
+    </span>
+  );
+}
+
+function ThemeTile({ selected, label, description, onSelect, children }: {
+  selected: boolean;
+  label: string;
+  description?: string;
+  onSelect: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button type="button" role="radio" aria-checked={selected} className={`theme-tile${selected ? " is-selected" : ""}`} onClick={onSelect}>
+      {children}
+      <span>{label}{description ? <small>{description}</small> : null}</span>
     </button>
   );
 }
 
-function ThemePreview({ appearance }: { appearance: Appearance }) {
-  if (appearance === "system") {
-    return <span className="settings-theme-preview is-system" aria-hidden="true">
-      <span className="settings-theme-system-layer">
-        <span className="settings-theme-preview-sidebar" />
-        <ThemePreviewContent />
-      </span>
-      <span className="settings-theme-system-layer is-dark">
-        <span className="settings-theme-preview-sidebar" />
-        <ThemePreviewContent />
-      </span>
-    </span>;
-  }
-  return <span className="settings-theme-preview" aria-hidden="true">
-    <span className="settings-theme-preview-sidebar" />
-    <ThemePreviewContent />
-  </span>;
+function AppearanceSettings() {
+  const [appearance, updateAppearance] = useState<Appearance>(readAppearance);
+  const [palette, updatePalette] = useState<Palette>(readPalette);
+  const [chatFont, updateChatFont] = useState<ChatFont>(readChatFont);
+  const system = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  const shown = appearance === "system" ? system : appearance;
+  const themes: Appearance[] = ["system", "light", "dark"];
+  const palettes: Palette[] = ["neutral", "warm", "contrast"];
+  return (
+    <>
+      <SettingsGroup title={t("settings.appearance.theme")} bare>
+        <div className="theme-tiles" role="radiogroup" aria-label={t("settings.appearance.theme")}>
+          {themes.map((value) => (
+            <ThemeTile key={value} selected={appearance === value} label={t(`settings.appearance.${value}`)} onSelect={() => {
+              updateAppearance(value);
+              persistAppearance(value);
+            }}>
+              {value === "system" ? (
+                <span className="theme-preview-split"><ThemePreview appearance="light" palette={palette} /><ThemePreview appearance="dark" palette={palette} /></span>
+              ) : <ThemePreview appearance={value} palette={palette} />}
+            </ThemeTile>
+          ))}
+        </div>
+      </SettingsGroup>
+      <SettingsGroup title={t("settings.appearance.palette")} description={t("settings.appearance.paletteHint")} bare>
+        <div className="theme-tiles" role="radiogroup" aria-label={t("settings.appearance.palette")}>
+          {palettes.map((value) => (
+            <ThemeTile key={value} selected={palette === value} label={t(`settings.appearance.palettes.${value}`)} description={t(`settings.appearance.palettes.${value}Hint`)} onSelect={() => {
+              updatePalette(value);
+              setPalette(value);
+            }}>
+              <ThemePreview appearance={shown} palette={value} />
+            </ThemeTile>
+          ))}
+        </div>
+      </SettingsGroup>
+      <SettingsGroup title={t("settings.appearance.text")}>
+        <SettingsRow title={t("settings.appearance.chatFont")} description={<span className={`font-sample${chatFont === "serif" ? " is-serif" : ""}`}>{t("settings.appearance.chatFontSample")}</span>}>
+          <SegmentedControl size="sm" label={t("settings.appearance.chatFont")} value={chatFont} onChange={(next) => {
+            updateChatFont(next);
+            setChatFont(next);
+          }} options={[
+            { value: "sans", label: t("settings.appearance.fontDefault") },
+            { value: "serif", label: t("settings.appearance.fontSerif") },
+          ]} />
+        </SettingsRow>
+      </SettingsGroup>
+    </>
+  );
 }
 
-function ThemePreviewContent() {
-  return <span className="settings-theme-preview-content">
-    <i />
-    <i />
-    <i />
-  </span>;
-}
+// ---------- account and billing ----------
 
 function AccountSettings() {
   const auth = useAuth();
   const [error, setError] = useState<string>();
+  if (auth.state.status !== "signed-in") {
+    const loading = auth.state.status === "loading";
+    return (
+      <SettingsGroup>
+        <SettingsRow title={loading ? t("settings.account.loading") : t("settings.account.signedOut")} description={t("settings.account.signedOutHint")}>
+          <Button variant="primary" disabled={loading} onClick={auth.openSignIn}>{t("common.signIn")}</Button>
+        </SettingsRow>
+      </SettingsGroup>
+    );
+  }
+  const { user } = auth.state;
   return (
-    <section className="settings-panel settings-overview-panel settings-account-panel">
-      <header className="settings-panel-header"><h3>{t("settings.nav.account")}</h3></header>
-      {auth.state.status === "signed-in" ? (
-        <div className="settings-account-row">
-          <div className="settings-account-profile">
-            <UserAvatar className="settings-account-avatar" name={auth.state.user.name} avatarUrl={auth.state.user.avatarUrl} />
-            <span className="settings-account-copy">
-              <small>{t("settings.account.signedInAs")}</small>
-              <strong>{auth.state.user.name}</strong>
-              {auth.state.user.email ? <span>{auth.state.user.email}</span> : null}
-            </span>
+    <>
+      <SettingsGroup>
+        <div className="settings-identity">
+          <UserAvatar className="settings-avatar" name={user.name} avatarUrl={user.avatarUrl} />
+          <div className="settings-identity-text">
+            <strong>{user.name}</strong>
+            <span>{user.email ? t("settings.account.signedInWith", { email: user.email }) : t("settings.account.signedInAs")}</span>
           </div>
-          <button className="settings-danger-button" type="button" onClick={() => void auth.signOut().catch((cause) => setError(errorMessage(cause)))}>{t("common.signOut")}</button>
+          <Button onClick={() => void auth.signOut().catch((cause) => setError(errorMessage(cause)))}>{t("common.signOut")}</Button>
         </div>
-      ) : (
-        <button className="settings-primary-button" type="button" onClick={auth.openSignIn}>{t("common.signIn")}</button>
-      )}
-      {error ? <p className="settings-error" role="alert">{error}</p> : null}
-    </section>
+      </SettingsGroup>
+      {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
+    </>
   );
 }
+
+async function openExternal(url: string): Promise<void> {
+  if (window.ohMyGameDesktop?.openExternal) await window.ohMyGameDesktop.openExternal(url);
+  else window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function BillingSettings() {
+  return (
+    <SettingsGroup>
+      <SettingsRow title={t("settings.billing.title")} description={t("settings.billing.description")}>
+        <Button icon={<ExternalLink size={14} />} onClick={() => void openExternal(BILLING_DASHBOARD_URL)}>{t("settings.billing.open")}</Button>
+      </SettingsRow>
+    </SettingsGroup>
+  );
+}
+
+// ---------- about ----------
+
+const PROJECT_LINKS = [
+  { href: "https://github.com/WhiteTowerAI/ohmygame", title: () => "GitHub", icon: <span className="settings-about-github" aria-hidden="true" style={{ maskImage: `url("${githubMark}")` }} /> },
+  { href: "https://ohmygame.ai", title: () => t("settings.about.website"), icon: <Globe2 size={16} aria-hidden="true" /> },
+  { href: "https://github.com/WhiteTowerAI/ohmygame/issues", title: () => t("settings.about.reportIssue"), icon: <MessageCircle size={16} aria-hidden="true" /> },
+];
 
 function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () => void; onOpenOnboarding?: () => void }) {
   const update = useDesktopUpdate();
   const [copied, setCopied] = useState(false);
   const updates = window.ohMyGameDesktop?.updates;
   const status = update?.status;
-  const message = status?.type === "up-to-date" ? t("settings.about.upToDate")
-    : status?.type === "checking" ? t("settings.about.checking")
-      : status?.type === "available" ? t("settings.about.available", { version: status.version })
-        : status?.type === "downloading" ? t("settings.about.downloading", { percent: status.percent })
-          : status?.type === "ready" ? t("settings.about.ready", { version: status.version })
-            : status?.type === "installing" ? t("settings.about.installing")
-              : status?.type === "error" ? status.title : null;
+  const version = update?.currentVersion ?? __APP_VERSION__;
   const retry = () => {
     if (status?.type !== "error" || !updates) return;
     if (status.retry === "download") void updates.download();
@@ -254,7 +350,7 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
   const copyDetails = async () => {
     if (status?.type !== "error") return;
     await navigator.clipboard.writeText([
-      `OhMyGame ${update?.currentVersion ?? __APP_VERSION__}`,
+      `OhMyGame ${version}`,
       `Update ${status.phase}/${status.code}`,
       status.detail,
     ].join("\n"));
@@ -263,58 +359,88 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
   };
   return (
     <>
-      <section className="settings-panel settings-overview-panel">
-        <header className="settings-panel-header"><h3>{t("settings.nav.about")}</h3></header>
-        <div className="settings-about-summary">
-          <div className="settings-about-identity">
-            <img className="settings-about-logo" src={brandMark} alt="" />
-            <div className="settings-about-copy">
-              <div className="settings-about-product">
-                <strong>OhMyGame</strong>
-                <span>v{update?.currentVersion ?? __APP_VERSION__}</span>
-              </div>
-              {updates && message ? <p className="settings-about-status" role="status">{message}</p> : null}
-            </div>
+      <SettingsGroup label={t("settings.nav.about")}>
+        <div className="settings-identity">
+          <span className="settings-about-logo"><BrandLogo size={44} /></span>
+          <div className="settings-identity-text">
+            <strong>OhMyGame</strong>
+            <span className="settings-mono">v{version}</span>
           </div>
-          {updates && status?.type !== "downloading" && status?.type !== "installing" ? (
-            <div className="settings-about-actions">
-              {status?.type === "available" ? (
-                <button className="settings-primary-button" type="button" onClick={() => void updates.download()}>{t("settings.about.download")}</button>
-              ) : status?.type === "ready" ? (
-                <button className="settings-primary-button" type="button" onClick={() => void updates.install()}>{t("settings.about.restart")}</button>
-              ) : status?.type === "error" ? (
-                <button className="settings-primary-button" type="button" onClick={retry}>{t("common.tryAgain")}</button>
-              ) : (
-                <button className="settings-secondary-button" type="button" disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</button>
-              )}
-            </div>
-          ) : null}
+          <nav className="settings-about-links" aria-label={t("settings.about.projectLinks")}>
+            {PROJECT_LINKS.map((link) => (
+              // The card clips what overflows it, so the tooltip floats above the page.
+              <Tooltip key={link.href} content={link.title()} placement="bottom">
+                <a className="ui-icon-button ui-icon-button-md" href={link.href} target="_blank" rel="noreferrer"
+                  aria-label={link.title()}>{link.icon}</a>
+              </Tooltip>
+            ))}
+          </nav>
+          {updates ? <UpdateControl status={status} onRetry={retry} /> : null}
         </div>
         {status?.type === "error" ? (
-          <div className="settings-update-error" role="alert">
-            <p>{status.message}</p>
-            {status.dataSafe ? <p className="settings-update-data-safe">{t("settings.about.dataSafe")}</p> : null}
-            <details>
+          <div className="settings-pad settings-form" role="alert">
+            <div>
+              <p>{status.message}</p>
+              {status.dataSafe ? <p className="settings-muted">{t("settings.about.dataSafe")}</p> : null}
+            </div>
+            <details className="settings-details">
               <summary>{t("common.technicalDetails")}</summary>
               <code>{status.detail}</code>
             </details>
-            <div className="settings-about-actions">
-              {status.code === "network" ? <button className="settings-secondary-button" type="button" onClick={onOpenNetwork}>{t("settings.about.networkSettings")}</button> : null}
-              <button className="settings-secondary-button" type="button" onClick={() => void copyDetails()}>{copied ? t("common.copied") : t("common.copyDetails")}</button>
+            <div className="settings-actions is-start">
+              {status.code === "network" ? <Button size="sm" onClick={onOpenNetwork}>{t("settings.about.networkSettings")}</Button> : null}
+              <Button size="sm" variant="ghost" onClick={() => void copyDetails()}>{copied ? t("common.copied") : t("common.copyDetails")}</Button>
             </div>
           </div>
         ) : null}
-        <nav className="settings-about-links" aria-label={t("settings.about.projectLinks")}>
-          <a href="https://github.com/WhiteTowerAI/ohmygame" target="_blank" rel="noreferrer">GitHub</a>
-          <a href="https://ohmygame.ai" target="_blank" rel="noreferrer">{t("settings.about.website")}</a>
-          <a href="https://github.com/WhiteTowerAI/ohmygame/issues" target="_blank" rel="noreferrer">{t("settings.about.reportIssue")}</a>
-        </nav>
-        {onOpenOnboarding ? <div><button className="settings-secondary-button" type="button" onClick={onOpenOnboarding}>{t("onboarding.reopen")}</button></div> : null}
-      </section>
+      </SettingsGroup>
+      {onOpenOnboarding ? (
+        <SettingsGroup label={t("settings.about.gettingStarted")}>
+          <SettingsRow title={t("settings.about.gettingStarted")} description={t("settings.about.gettingStartedHint")}>
+            <Button size="sm" variant="ghost" onClick={onOpenOnboarding}>{t("onboarding.reopen")}</Button>
+          </SettingsRow>
+        </SettingsGroup>
+      ) : null}
+      <ChangelogPanel currentVersion={version} availableRelease={update?.availableRelease} />
       <DiagnosticsSettings />
-      <ChangelogPanel currentVersion={update?.currentVersion ?? __APP_VERSION__} availableRelease={update?.availableRelease} />
     </>
   );
+}
+
+// The update, in whatever state the sidebar shows it.
+function UpdateControl({ status, onRetry }: { status?: NonNullable<ReturnType<typeof useDesktopUpdate>>["status"]; onRetry: () => void }) {
+  const updates = window.ohMyGameDesktop?.updates;
+  if (!updates) return null;
+  switch (status?.type) {
+    case "available":
+      return <div className="settings-actions">
+        <Badge tone="ink">{t("settings.about.available", { version: status.version })}</Badge>
+        <span className="settings-about-actions"><Button variant="primary" onClick={() => void updates.download()}>{t("settings.about.download")}</Button></span>
+      </div>;
+    case "downloading":
+      return <div className="settings-progress" role="status">
+        <Progress value={status.percent / 100} label={t("settings.about.downloading", { percent: status.percent })} />
+        <span>{t("settings.about.downloading", { percent: status.percent })}</span>
+      </div>;
+    case "ready":
+      return <div className="settings-actions">
+        <Badge tone="success">{t("settings.about.ready", { version: status.version })}</Badge>
+        <span className="settings-about-actions"><Button variant="primary" onClick={() => void updates.install()}>{t("settings.about.restart")}</Button></span>
+      </div>;
+    case "installing":
+      return <span className="settings-muted" role="status">{t("settings.about.installing")}</span>;
+    case "error":
+      return <div className="settings-actions">
+        <Badge tone="danger">{status.title}</Badge>
+        <span className="settings-about-actions"><Button onClick={onRetry}>{t("common.tryAgain")}</Button></span>
+      </div>;
+    default:
+      return <div className="settings-actions">
+        {status?.type === "up-to-date" ? <Badge tone="success">{t("settings.about.upToDate")}</Badge> : null}
+        {status?.type === "checking" ? <Spinner label={t("settings.about.checking")} /> : null}
+        <span className="settings-about-actions"><Button icon={<Cloud size={14} />} disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</Button></span>
+      </div>;
+  }
 }
 
 function DiagnosticsSettings() {
@@ -347,19 +473,19 @@ function DiagnosticsSettings() {
     }
   };
   return (
-    <section className="settings-panel settings-overview-panel settings-diagnostics-panel">
-      <header className="settings-panel-header"><h3>{t("settings.diagnostics.title")}</h3></header>
-      <p>{t("settings.diagnostics.description")}</p>
-      <div className="settings-diagnostics-actions">
-        <button className="settings-secondary-button" type="button" disabled={exporting} onClick={() => void download()}>
+    <SettingsGroup title={t("settings.diagnostics.title")} description={t("settings.diagnostics.description")}>
+      <SettingsRow title={t("settings.diagnostics.exportTitle")}>
+        <Button disabled={exporting} onClick={() => void download()}>
           {exporting ? t("settings.diagnostics.exporting") : t("settings.diagnostics.export")}
-        </button>
-        {openLogsDirectory ? (
-          <button className="settings-secondary-button" type="button" onClick={() => void openLogs()}>{t("settings.diagnostics.openLogs")}</button>
-        ) : null}
-      </div>
-      {error ? <p className="settings-error" role="alert">{error}</p> : null}
-    </section>
+        </Button>
+      </SettingsRow>
+      {openLogsDirectory ? (
+        <SettingsRow title={t("settings.diagnostics.logsTitle")}>
+          <Button onClick={() => void openLogs()}>{t("settings.diagnostics.openLogs")}</Button>
+        </SettingsRow>
+      ) : null}
+      {error ? <div className="settings-pad"><SettingsNote tone="danger">{error}</SettingsNote></div> : null}
+    </SettingsGroup>
   );
 }
 

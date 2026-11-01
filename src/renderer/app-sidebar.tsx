@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { cloneElement, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import {
   ArrowDownToLine,
   ArrowLeft,
@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  CirclePlus,
   DangerCircle,
   Gamepad2,
   Globe2,
@@ -13,25 +14,28 @@ import {
   Image,
   InfoCircle,
   LogIn,
+  MessageCircle,
   PanelToggle,
   Plug,
   RefreshCircle,
   Search,
   Settings,
   UserRound,
-  Wallet,
 } from "./icons.js";
-import { getProjectCover, listProjects, waitForRuntime } from "./api.js";
+import { getProjectCover, getProjectLogo, listConversations, listProjects, waitForRuntime } from "./api.js";
 import { useAuth } from "./auth.js";
 import { BrandLogo } from "./brand-logo.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
-import { projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
+import { ProjectCreateDialog } from "./project-create-dialog.js";
+import { communityProfileHash, conversationHash, createdProjectView, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
+import { DropdownMenu, IconButton, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
 import { useDesktopUpdate } from "./use-desktop-update.js";
 import { UserAvatar } from "./user-avatar.js";
-import type { ProjectState } from "../shared/contracts.js";
-import { t } from "./i18n.js";
+import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
+import { language, t } from "./i18n.js";
+import { openCommandMenu, shortcut } from "./command-menu.js";
+import { hasWindowsTitleBar } from "./desktop-window-frame.js";
 import "./app-sidebar.css";
 
 export type SidebarActive = SidebarPage | "settings";
@@ -40,6 +44,8 @@ const MIN_WIDTH = 200;
 const MAX_WIDTH = 360;
 const DEFAULT_WIDTH = 232;
 const RECENT_LIMIT = 8;
+// Home shows the recent projects too, so the pages' sidebar keeps a few and links to the rest.
+const SIDEBAR_RECENT = 5;
 const WIDTH_KEY = "ohmygame-sidebar-width";
 const COLLAPSED_KEY = "ohmygame-sidebar-collapsed";
 const RECENT_OPEN_KEY = "ohmygame-sidebar-recent-open";
@@ -110,7 +116,7 @@ export function useSidebarLayout(): { className: string; style?: CSSProperties }
 // Recent projects, newest first. Pages that load the project list hand it over
 // so a rename or removal shows here without another request; on the others the
 // sidebar asks for it.
-const PAGES_WITH_PROJECT_LIST = new Set<SidebarActive>(["home", "projects", "general", "web-game", "interactive-story", "godot", "asset-canvas"]);
+const PAGES_WITH_PROJECT_LIST = new Set<SidebarActive>(["home", "projects"]);
 let recentProjects: ProjectState[] = [];
 const recentListeners = new Set<() => void>();
 
@@ -119,6 +125,12 @@ export function publishRecentProjects(projects: readonly ProjectState[]): void {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, RECENT_LIMIT);
   for (const listener of recentListeners) listener();
+}
+
+/** Shows a project's new name or cover in the list without asking again. */
+export function refreshRecentProject(project: ProjectState): void {
+  if (!recentProjects.some((item) => item.id === project.id)) return;
+  publishRecentProjects(recentProjects.map((item) => (item.id === project.id ? project : item)));
 }
 
 function subscribeRecent(listener: () => void): () => void {
@@ -142,43 +154,48 @@ function useRecentProjects(active?: SidebarActive): ProjectState[] {
   return useSyncExternalStore(subscribeRecent, () => recentProjects, () => recentProjects);
 }
 
-// Covers load once per project version and stay while the app runs.
-const covers = new Map<string, { version: string; url: Promise<string | undefined> }>();
+// Covers and logos load once per project version and stay while the app runs.
+const images = new Map<string, { version: string; url: Promise<string | undefined> }>();
 
-function coverUrl(project: ProjectState): Promise<string | undefined> {
-  const cached = covers.get(project.id);
+function imageUrl(project: ProjectState, kind: "cover" | "logo"): Promise<string | undefined> {
+  const key = `${kind}:${project.id}`;
+  const cached = images.get(key);
   if (cached?.version === project.updatedAt) return cached.url;
-  const url = getProjectCover(project.id)
-    .then((cover) => (cover ? URL.createObjectURL(cover) : undefined))
+  const url = (kind === "logo" ? getProjectLogo(project.id) : getProjectCover(project.id))
+    .then((image) => (image ? URL.createObjectURL(image) : undefined))
     .catch(() => undefined);
   void cached?.url.then((previous) => previous && URL.revokeObjectURL(previous));
-  covers.set(project.id, { version: project.updatedAt, url });
+  images.set(key, { version: project.updatedAt, url });
   return url;
 }
 
-function SidebarCover({ project, className }: { project: ProjectState; className: string }) {
+/**
+ * A recent project's mark: its uploaded logo, the default icon it chose, its
+ * cover, or else the default template, with the icon centred at the given size.
+ */
+function SidebarCover({ project, className, iconSize }: { project: ProjectState; className: string; iconSize: number }) {
+  const appearance = project.appearance;
+  const kind = appearance?.logo ? "logo" : appearance?.icon || appearance?.cover === "template" ? undefined : "cover";
   const [url, setUrl] = useState<string>();
   useEffect(() => {
+    setUrl(undefined);
+    if (!kind) return;
     let disposed = false;
-    void coverUrl(project).then((next) => {
+    void imageUrl(project, kind).then((next) => {
       if (!disposed) setUrl(next);
     });
     return () => {
       disposed = true;
     };
-  }, [project.id, project.updatedAt]);
+  }, [project.id, project.updatedAt, kind]);
   return (
     <span className={className} aria-hidden="true">
-      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={project.id} />}
+      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={project.id} appearance={appearance} size={iconSize} />}
     </span>
   );
 }
 
 /** The shortcut the app uses for settings. */
-function settingsShortcut(): string {
-  const platform = window.ohMyGameDesktop?.platform;
-  return (platform ? platform === "darwin" : /Mac/.test(navigator.platform)) ? "⌘," : "Ctrl+,";
-}
 
 // The Navigation API (Chromium) says whether there is somewhere to go; the
 // buttons stay enabled where it is missing.
@@ -187,7 +204,8 @@ interface NavigationLike extends EventTarget {
   canGoForward: boolean;
 }
 
-function useHistoryState() {
+/** Whether the window can go back and forward, as the title bars show it. */
+export function useHistoryState() {
   const navigationApi = (window as unknown as { navigation?: NavigationLike }).navigation;
   const read = () => ({ back: navigationApi?.canGoBack ?? true, forward: navigationApi?.canGoForward ?? true });
   const [state, setState] = useState(read);
@@ -203,21 +221,36 @@ function useHistoryState() {
   return state;
 }
 
-function SidebarItem({ icon, label, dot, active = false, onClick }: {
+function SidebarItem({ icon, label, shortcut: keys, dot, active = false, onClick }: {
   icon: ReactNode;
   label: string;
+  /** The keyboard shortcut, shown at the end while the sidebar is expanded. */
+  shortcut?: string;
   /** Marks the icon, so it shows in the collapsed sidebar too. */
   dot?: "accent" | "warning";
   active?: boolean;
   onClick: () => void;
 }) {
   return (
-    <button type="button" className={`sidebar-item${active ? " is-active" : ""}`} title={label}
-      aria-current={active ? "page" : undefined} onClick={onClick}>
-      <span className="sidebar-item-icon" aria-hidden="true">{icon}{dot ? <span className={`sidebar-dot is-${dot}`} /> : null}</span>
-      <span className="sidebar-item-label">{label}</span>
-    </button>
+    <SidebarTip label={label}>
+      <button type="button" className={`sidebar-item${active ? " is-active" : ""}`}
+        aria-current={active ? "page" : undefined} onClick={onClick}>
+        <span className="sidebar-item-icon" aria-hidden="true">{icon}{dot ? <span className={`sidebar-dot is-${dot}`} /> : null}</span>
+        <span className="sidebar-item-label">{label}</span>
+        {keys ? <kbd className="sidebar-item-shortcut">{keys}</kbd> : null}
+      </button>
+    </SidebarTip>
   );
+}
+
+// Collapsed, an item is only its icon, so its name shows beside it on hover;
+// expanded, a long name cut off by the width shows in full the same way.
+function SidebarTip({ label, children }: { label: string; children: ReactElement<Record<string, unknown>> }) {
+  const { collapsed } = useSidebarPreferences();
+  // Collapsed, the label is hidden, so the button carries its name itself.
+  return collapsed
+    ? <Tooltip content={label} placement="right">{cloneElement(children, { "aria-label": label })}</Tooltip>
+    : cloneElement(children, { title: label });
 }
 
 // The expanded sidebar's right edge: drag or use the arrow keys to resize,
@@ -293,13 +326,14 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
         ) : null}
         <div className="sidebar-head">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => onNavigate("home")}>
-            <BrandLogo size={22} /><span>OhMyGame</span>
+            {/* Collapsed, the logo stands alone above the project icons, at their size as in a project's rail. */}
+            <BrandLogo size={collapsed ? 32 : 22} /><span>OhMyGame</span>
           </button>
           {mac || collapsed ? null : toggleButton}
         </div>
         <div className="sidebar-group">
           {collapsed && !mac && !narrow ? <SidebarItem icon={<PanelToggle size={18} />} label={t("sidebar.expand")} onClick={toggle} /> : null}
-          <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={() => searchProjects(onNavigate)} />
+          <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} shortcut={shortcut("k")} onClick={openCommandMenu} />
         </div>
         <div className="sidebar-group">
           {SECTIONS.map((item) => (
@@ -321,14 +355,16 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
                 {t("sidebar.recent")}<ChevronRight size={12} className="sidebar-label-caret" />
               </button>
             )}
-            {recentOpen ? projects.map((project) => {
+            {recentOpen ? projects.slice(0, SIDEBAR_RECENT).map((project) => {
               const open = () => { window.location.hash = projectHash(project.id); };
               return collapsed ? (
-                <button key={project.id} type="button" className="sidebar-app" title={project.name} aria-label={project.name} onClick={open}>
-                  <SidebarCover project={project} className="sidebar-app-cover" />
-                </button>
+                <SidebarTip key={project.id} label={project.name}>
+                  <button type="button" className="sidebar-app" aria-label={project.name} onClick={open}>
+                    <SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />
+                  </button>
+                </SidebarTip>
               ) : (
-                <SidebarItem key={project.id} icon={<SidebarCover project={project} className="sidebar-cover" />} label={project.name} onClick={open} />
+                <SidebarItem key={project.id} icon={<SidebarCover project={project} className="sidebar-cover" iconSize={12} />} label={project.name} onClick={open} />
               );
             }) : null}
           </div>
@@ -344,27 +380,218 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
   );
 }
 
-// Until the command menu moves over, search is the project list's search field.
-let projectSearchRequested = false;
+const HOVER_OPEN = 220;
+const HOVER_CLOSE = 160;
 
-/** Whether the Projects page should focus its search field on mount, once. */
-export function takeProjectSearchFocus(): boolean {
-  const requested = projectSearchRequested;
-  projectSearchRequested = false;
-  return requested;
+/** The open project's conversations, for its icon in the rail. */
+export interface RailConversations {
+  items: readonly ConversationSummary[];
+  current?: string;
+  onOpen: (conversationId: string) => void;
+  onNew: () => void;
 }
 
-function searchProjects(onNavigate: (page: AppNavigationTarget) => void): void {
-  const field = document.querySelector<HTMLInputElement>("#projects-search-input");
-  if (field) {
-    field.focus();
-    return;
+/** "Edited 3 hours ago", from when a project or conversation last changed. */
+export function editedAgo(value: string, now = Date.now()): string {
+  const seconds = Math.round((new Date(value).getTime() - now) / 1000);
+  const format = new Intl.RelativeTimeFormat(language, { numeric: "auto" });
+  for (const [unit, size] of [["year", 31_536_000], ["month", 2_592_000], ["day", 86_400], ["hour", 3_600], ["minute", 60]] as const) {
+    if (Math.abs(seconds) >= size) return format.format(Math.round(seconds / size), unit);
   }
-  projectSearchRequested = true;
-  onNavigate("projects");
+  return format.format(0, "second");
 }
 
-function openSettings(section: "account" | "billing" | "about"): void {
+// A recent project in the rail. Hovering it lists that project's
+// conversations, so switching between them, or to another project, is one move.
+// From the keyboard, the right arrow opens the list and the arrows move through
+// it; the left arrow or Escape goes back to the icon.
+function RailProject({ project, open: openProject, conversations }: {
+  project: ProjectState;
+  open: (hash: string) => void;
+  /** Given for the open project; other projects load theirs on hover. */
+  conversations?: RailConversations;
+}) {
+  const anchor = useRef<HTMLButtonElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const timer = useRef<number>(undefined);
+  const focusFirst = useRef(false);
+  const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState<readonly ConversationSummary[]>();
+  const active = !!conversations;
+  const items = conversations?.items ?? loaded ?? [];
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useEffect(() => {
+    if (!open || active) return;
+    let disposed = false;
+    void listConversations(project.id).then((next) => {
+      if (!disposed) setLoaded(next);
+    }).catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [open, active, project.id]);
+  const focusInside = () => !!body.current?.contains(document.activeElement);
+  const menuItems = () => [...(body.current?.querySelectorAll<HTMLButtonElement>(".rail-popover-item") ?? [])];
+  useEffect(() => {
+    if (!open || !focusFirst.current) return;
+    const first = menuItems()[0];
+    if (!first) return;
+    focusFirst.current = false;
+    first.focus();
+  }, [open, items.length]);
+  const hover = (next: boolean) => {
+    window.clearTimeout(timer.current);
+    // The pointer leaving doesn't close a list the keyboard is in.
+    if (!next && focusInside()) return;
+    timer.current = window.setTimeout(() => setOpen(next), next ? HOVER_OPEN : HOVER_CLOSE);
+  };
+  // Closing now also drops a pending hover, which would open it again. Focus
+  // inside the list goes back to the icon.
+  const close = () => {
+    window.clearTimeout(timer.current);
+    focusFirst.current = false;
+    if (focusInside()) anchor.current?.focus();
+    setOpen(false);
+  };
+  const pick = (conversationId: string) => {
+    close();
+    if (conversations) conversations.onOpen(conversationId);
+    else openProject(conversationHash(project.id, conversationId));
+  };
+  return (
+    <>
+      <button ref={anchor} type="button" className={`sidebar-app${active ? " is-active" : ""}`} aria-label={project.name}
+        aria-current={active ? "page" : undefined} aria-haspopup="dialog" aria-expanded={open}
+        onClick={() => {
+          close();
+          if (!active) openProject(projectHash(project.id));
+        }}
+        onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowRight") return;
+          event.preventDefault();
+          window.clearTimeout(timer.current);
+          focusFirst.current = true;
+          setOpen(true);
+          menuItems()[0]?.focus();
+        }}
+        onBlur={(event) => {
+          // Leaving before the list loaded cancels moving into it.
+          if (!focusFirst.current || body.current?.contains(event.relatedTarget as Node | null)) return;
+          close();
+        }}>
+        <SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />
+      </button>
+      <Popover open={open} onClose={close} anchor={anchor} placement="right-start" className="rail-popover"
+        label={t("sidebar.projectConversations", { name: project.name })}>
+        <div ref={body} onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}
+          onKeyDown={(event) => {
+            const list = menuItems();
+            const at = list.indexOf(document.activeElement as HTMLButtonElement);
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              const step = event.key === "ArrowDown" ? 1 : -1;
+              list[(at + step + list.length) % list.length]?.focus();
+            } else if (event.key === "ArrowLeft") close();
+            else return;
+            event.preventDefault();
+          }}
+          onBlur={(event) => {
+            const next = event.relatedTarget as Node | null;
+            if (next && (body.current?.contains(next) || anchor.current?.contains(next))) return;
+            close();
+          }}>
+          <div className="rail-popover-head">
+            <strong>{project.name}</strong>
+            <small>{t("sidebar.editedAgo", { time: editedAgo(project.updatedAt) })}</small>
+          </div>
+          {[...items].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map((item) => (
+            <button key={item.id} type="button" className={`rail-popover-item${item.id === conversations?.current ? " is-current" : ""}`}
+              aria-current={item.id === conversations?.current ? "true" : undefined} onClick={() => pick(item.id)}>
+              <MessageCircle size={14} />
+              <span>{item.title}</span>
+              <small>{editedAgo(item.updatedAt)}</small>
+            </button>
+          ))}
+          {conversations ? (
+            <button type="button" className="rail-popover-item rail-popover-new" onClick={() => {
+              close();
+              conversations.onNew();
+            }}>
+              <CirclePlus size={14} /><span>{t("projectShell.newConversation")}</span>
+            </button>
+          ) : null}
+        </div>
+      </Popover>
+    </>
+  );
+}
+
+// Inside a project the app's sections step aside: the rail keeps the way home,
+// the recent projects (with their conversations on hover), a new project,
+// search and the account. The pages' sidebar comes back on the way out.
+// `onLeave` runs before anything here leaves the project, so the project can
+// save first.
+export function ProjectRail({ projectId, project, conversations, onNavigate, onLeave }: {
+  projectId: string;
+  /** The open project, listed even when it isn't among the recent ones. */
+  project?: ProjectState;
+  conversations?: RailConversations;
+  onNavigate: (page: AppNavigationTarget) => void;
+  onLeave: (go: () => void) => void;
+}) {
+  const latest = useRecentProjects();
+  const recent = !project || latest.some((item) => item.id === project.id)
+    ? latest : [...latest.slice(0, RECENT_LIMIT - 1), project];
+  const history = useHistoryState();
+  const [creating, setCreating] = useState(false);
+  const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
+  const openHash = (hash: string) => onLeave(() => { window.location.hash = hash; });
+  return (
+    <nav className="sidebar project-rail" aria-label={t("sidebar.projectNavigation")}>
+      {/* Back and forward lead the title bar: here, over the rail, beside the
+          macOS window controls or at the window's edge where the system draws
+          the title bar; on Windows they follow the window's menus instead. */}
+      {!hasWindowsTitleBar() ? (
+        <div className="sidebar-titlebar">
+          <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => onLeave(() => window.history.back())}><ArrowLeft size={16} /></IconButton>
+          <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => onLeave(() => window.history.forward())}><ArrowRight size={16} /></IconButton>
+        </div>
+      ) : null}
+      <div className="sidebar-head">
+        <Tooltip content={t("sidebar.home")} placement="right-start">
+          <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => leaveTo("home")}>
+            {/* the size of the project icons below it */}
+            <BrandLogo size={32} />
+          </button>
+        </Tooltip>
+      </div>
+      <div className="sidebar-group sidebar-recent">
+        {recent.map((project) => (
+          <RailProject key={project.id} project={project} open={openHash}
+            conversations={project.id === projectId ? conversations : undefined} />
+        ))}
+        <Tooltip content={t("sidebar.newProject")} placement="right-start">
+          <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => setCreating(true)}>
+            <CirclePlus size={16} />
+          </button>
+        </Tooltip>
+      </div>
+      {creating ? <ProjectCreateDialog
+        onClose={() => setCreating(false)}
+        onOpenProject={(id) => { setCreating(false); openHash(projectHash(id)); }}
+        onCreated={(created) => { setCreating(false); openHash(projectHash(created.id, createdProjectView(created.type))); }}
+      /> : null}
+      <span className="sidebar-spacer" />
+      <div className="sidebar-group">
+        <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={openCommandMenu} />
+        <UpdateItem />
+        <AccountMenu active={false} avatarSize={28} onNavigate={leaveTo} />
+      </div>
+    </nav>
+  );
+}
+
+function openSettings(section: "account" | "about"): void {
   window.location.hash = settingsHash(section);
 }
 
@@ -375,12 +602,13 @@ function AccountMenu({ active, avatarSize, onNavigate }: { active: boolean; avat
   const signedIn = auth.state.status === "signed-in" ? auth.state.user : undefined;
   const loading = auth.state.status === "loading";
   const name = signedIn?.name ?? (loading ? t("sidebar.loadingAccount") : t("common.signIn"));
-  const settings: MenuEntry = { label: t("common.settings"), icon: <Settings size={16} />, shortcut: settingsShortcut(), onSelect: () => onNavigate("settings") };
+  const settings: MenuEntry = { label: t("common.settings"), icon: <Settings size={16} />, shortcut: shortcut(","), onSelect: () => onNavigate("settings") };
   const about: MenuEntry = { label: t("sidebar.about"), icon: <InfoCircle size={16} />, onSelect: () => openSettings("about") };
   const items: MenuEntry[] = signedIn ? [
     settings,
     { label: t("sidebar.account"), icon: <UserRound size={16} />, onSelect: () => openSettings("account") },
-    { label: t("sidebar.billing"), icon: <Wallet size={16} />, onSelect: () => openSettings("billing") },
+    // The games you published, to edit or unpublish.
+    { label: t("community.myGames"), icon: <Globe2 size={16} />, onSelect: () => { window.location.hash = communityProfileHash(signedIn.id); } },
     "separator",
     about,
   ] : [

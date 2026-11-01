@@ -1,0 +1,16 @@
+{
+  "displayName": "TapTap Maker",
+  "description": "用官方 Maker CLI 制作 TapTap Maker 游戏(UrhoX/Lua):新建或连接 Maker 项目，用 Maker Runtime 预览，并提交构建。需要 Maker 账号和 Python 3.8 或更高版本。",
+  "type.title": "TapTap Maker 游戏",
+  "type.description": "TapTap Maker 上的 UrhoX/Lua 游戏。在它的面板里登录，并新建或连接 Maker 项目。",
+  "panel.title": "TapTap Maker",
+  "command.status": "检查 Maker 状态",
+  "command.ready": "检查项目是否已设置好",
+  "command.prepare": "准备 Maker",
+  "command.signIn": "登录 Maker",
+  "command.projects": "列出 Maker 项目",
+  "command.create": "新建 Maker 项目",
+  "command.bind": "连接 Maker 项目",
+  "command.preview": "控制 Maker 预览",
+  "mcp.title": "TapTap Maker"
+}

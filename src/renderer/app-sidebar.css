@@ -208,16 +208,6 @@
   object-fit: cover;
 }
 
-.sidebar-cover .project-cover-placeholder svg {
-  width: 12px;
-  height: 12px;
-}
-
-.sidebar-app-cover .project-cover-placeholder svg {
-  width: 18px;
-  height: 18px;
-}
-
 .sidebar-spacer {
   flex: 1;
 }
@@ -325,7 +315,15 @@
   gap: var(--space-3);
 }
 
+.sidebar-item-shortcut {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
 .is-sidebar-collapsed .sidebar-brand span,
+.is-sidebar-collapsed .sidebar-item-shortcut,
 .is-sidebar-collapsed .sidebar-item-label {
   display: none;
 }
@@ -508,7 +506,9 @@
   font-weight: var(--weight-medium);
 }
 
-/* The Windows menu bar sits above the frame; match it to the app background. */
-.desktop-window-frame:has(.page-frame) {
+/* The Windows title bar sits above the frame; match it to the app around it. */
+.desktop-window-frame:has(:is(.page-frame, .project-frame)) {
   --window-chrome-background: var(--color-app);
+  --window-chrome-text: var(--color-text-secondary);
+  --window-chrome-hover: var(--color-hover);
 }

@@ -2,8 +2,9 @@ import { useRef, useState, type ReactNode } from "react";
 import { LoaderCircle, X } from "./icons.js";
 import "./canvas-notice.css";
 import { t } from "./i18n.js";
+import { IconButton } from "./ui/index.js";
 
-export function CanvasNotice({ message, detail, tone = "neutral", className = "", actionLabel, onAction, onDismiss, children }: {
+export function CanvasNotice({ message, detail, tone = "neutral", className = "", actionLabel, onAction, onDismiss, dismissible = true, children }: {
   message: string;
   detail?: string;
   tone?: "neutral" | "error" | "warning";
@@ -11,6 +12,8 @@ export function CanvasNotice({ message, detail, tone = "neutral", className = ""
   actionLabel?: string;
   onAction?: () => Promise<unknown>;
   onDismiss?: () => void;
+  /** False for a notice whose controls are the only way out of its state. */
+  dismissible?: boolean;
   children?: ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
@@ -32,6 +35,6 @@ export function CanvasNotice({ message, detail, tone = "neutral", className = ""
         setFailure({ identity, detail: cause instanceof Error ? cause.message : String(cause) });
       }).finally(() => { pending.current = false; setBusy(false); });
     }}>{busy ? <><LoaderCircle size={12} className="spin" />{t("notice.retrying")}</> : actionLabel ?? t("common.retry")}</button> : null}
-    <button type="button" className="canvas-notice-close" aria-label={t("notice.dismissLabel")} title={t("notice.dismiss")} onClick={() => { setDismissed(identity); onDismiss?.(); }}><X size={13} /></button>
+    {dismissible ? <IconButton size="sm" className="canvas-notice-close" label={t("notice.dismissLabel")} onClick={() => { setDismissed(identity); onDismiss?.(); }}><X size={13} /></IconButton> : null}
   </div>;
 }

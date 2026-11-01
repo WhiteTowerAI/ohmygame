@@ -307,6 +307,21 @@ describe("canvas table storage", () => {
     expect(storage.sessions.get("items")!.issue).toBeUndefined();
   });
 
+  it("marks a failed re-read so the same workspace can retry it", async () => {
+    const { storage, base, api } = fixture();
+    await storage.sync(workspace(base));
+    const remote = { table: { ...base.table, title: "External edit" }, revision: "remote" };
+    api.get.mockRejectedValueOnce(new Error("Offline"));
+    await storage.sync(workspace(remote));
+    expect(storage.readFailed).toBe(true);
+    expect(storage.sessions.get("items")!.issue).toBe("Offline");
+    api.get.mockResolvedValue(remote);
+    await storage.sync(workspace(remote));
+    expect(storage.readFailed).toBe(false);
+    expect(storage.sessions.get("items")!.issue).toBeUndefined();
+    expect(storage.sessions.get("items")!.local.title).toBe("External edit");
+  });
+
   it.each(["conflict", "missing", "save-error"])(
     "saves unrelated tables when another table has a %s",
     async (problem) => {

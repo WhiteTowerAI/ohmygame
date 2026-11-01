@@ -110,7 +110,7 @@ describePublishContract("remote publish", () => {
     await writeFile(path.join(project.workspacePath, "assets", "clip.mp4"), videoContents);
     await writePublishableGraph(project.workspacePath, "assets/clip.mp4");
 
-    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/build` });
+    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/build` });
     expect(built.statusCode).toBe(200);
     expect(built.headers["content-type"]).toBe("application/zip");
 
@@ -130,7 +130,7 @@ describePublishContract("remote publish", () => {
     await writeFile(path.join(project.workspacePath, "assets", "clip.webm"), randomBytes(26 * 1024 * 1024));
     await writePublishableGraph(project.workspacePath, "assets/clip.webm");
 
-    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/build` });
+    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/build` });
 
     expect(built.statusCode, built.body).toBe(200);
     expect(built.rawPayload.length).toBeGreaterThan(25 * 1024 * 1024);

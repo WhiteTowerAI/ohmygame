@@ -1,4 +1,3 @@
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   FULL_ACCESS_PERMISSION_MODES,

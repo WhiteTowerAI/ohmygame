@@ -1,0 +1,604 @@
+/* Plugins: the catalog's three tabs and a plugin's page. Layout only; controls are ui components. */
+
+.plugins-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding-bottom: var(--space-6);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+.plugins-page .sidebar-page-header {
+  padding-bottom: 0;
+}
+
+.plugins-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.plugins-toolbar > .ui-input {
+  width: min(280px, 100%);
+}
+
+.plugins-panel,
+.plugin-tab,
+.plugin-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.plugin-tab[hidden] {
+  display: none;
+}
+
+.plugins-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.plugins-section h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.plugins-count {
+  margin-left: 4px;
+  color: var(--color-text-tertiary);
+  font-weight: var(--weight-regular);
+}
+
+.plugins-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.plugins-note {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.plugins-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6) 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-md);
+}
+
+.plugins-filters,
+.plugins-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* cards: two a row, the switch beside the card's link */
+.plugins-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.plugin-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 68px;
+  padding: 0 var(--space-3) 0 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  transition: background var(--duration-fast);
+}
+
+.plugin-card:hover {
+  background: var(--color-hover);
+}
+
+.plugin-card-link {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  align-self: stretch;
+  padding: var(--space-3) 0 var(--space-3) var(--space-3);
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plugin-card-link:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.plugin-card.is-off .plugin-tile {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
+.plugin-card-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plugin-card-text strong {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.plugin-card-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-card-text small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.plugin-card-create {
+  padding: var(--space-3);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  cursor: pointer;
+}
+
+.plugin-card-create:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.plugin-card-create .plugin-tile {
+  color: var(--color-text-secondary);
+}
+
+.plugin-tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+}
+
+.plugin-tile-large {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-lg);
+}
+
+.plugins-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 4px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.plugins-tag {
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+}
+
+.plugins-verified {
+  flex: none;
+  color: var(--color-accent);
+}
+
+.plugins-installed-label {
+  flex: none;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* the AI workspaces under Personal (plugin-builder.tsx) */
+.plugins-page .plugins-installed {
+  margin-top: 0;
+}
+
+.plugins-page .plugins-installed h2 {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.plugins-install-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* a plugin's page */
+.plugins-back {
+  margin: var(--space-6) 0 calc(var(--space-2) * -1) calc(var(--space-2) * -1);
+}
+
+.plugin-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.plugin-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.plugin-head-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.plugin-head h1 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.plugin-head p {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-md);
+  line-height: 1.55;
+}
+
+.plugin-head-actions {
+  position: relative;
+  flex: none;
+  align-self: flex-start;
+}
+
+.plugin-head-actions .plugin-try-popover {
+  top: 36px;
+  right: 0;
+  left: auto;
+  width: 300px;
+}
+
+.plugin-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  align-items: start;
+  gap: var(--space-6);
+}
+
+.plugin-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.plugin-long {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-md);
+  line-height: 1.7;
+  white-space: pre-line;
+}
+
+.plugin-prompt-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.plugin-prompt {
+  max-width: 100%;
+  padding: 5px var(--space-3);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast),
+    color var(--duration-fast);
+}
+
+.plugin-prompt:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.plugin-prompt:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* skills fold open to show their SKILL.md */
+.plugin-skill-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.plugin-skill {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.plugin-skill-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.plugin-skill-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 48px;
+  padding: var(--space-2) 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plugin-skill-caret {
+  flex: none;
+  color: var(--color-text-tertiary);
+  transition: transform var(--duration-fast);
+}
+
+.plugin-skill.is-open .plugin-skill-caret {
+  transform: rotate(90deg);
+}
+
+.plugin-skill-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plugin-skill-copy > span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.plugin-skill-content {
+  max-height: 360px;
+  padding: 0 0 var(--space-3) 22px;
+  overflow-y: auto;
+  color: var(--color-text-secondary);
+  font-size: var(--text-md);
+  line-height: 1.6;
+}
+
+/* the side card */
+.plugin-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+}
+
+.plugin-side h2 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.plugin-props {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 6px var(--space-2);
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+.plugin-props dt {
+  color: var(--color-text-tertiary);
+}
+
+.plugin-props dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.plugin-props a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.plugin-props a:hover {
+  text-decoration: underline;
+}
+
+/* A format 2 plugin's versions, each with its own Uninstall (plugin-store.tsx). */
+.plugin-store-versions {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plugin-store-versions li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.plugin-store-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plugin-store-adds {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-md);
+}
+
+.plugin-store-adds li {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: var(--space-2);
+}
+
+.plugin-store-adds span {
+  color: var(--color-text-tertiary);
+}
+
+.plugin-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.plugin-side-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+/* The configuration, integration, MCP and dependency panels keep their own
+   markup; inside this page they take the page's surfaces and buttons. */
+.plugins-page .plugin-components {
+  margin-top: 0;
+}
+
+.plugins-page .plugin-components > h2 {
+  margin-bottom: var(--space-3);
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.plugins-page .plugin-components > div {
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+}
+
+:root[data-appearance] .plugins-page :is(.plugin-detail-primary, .plugin-detail-secondary) {
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  transition:
+    background var(--duration-fast),
+    opacity var(--duration-fast);
+}
+
+:root[data-appearance] .plugins-page .plugin-detail-primary {
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+}
+
+:root[data-appearance] .plugins-page .plugin-detail-primary:hover:not(:disabled) {
+  background: var(--color-ink);
+  opacity: 0.88;
+}
+
+:root[data-appearance] .plugins-page .plugin-detail-secondary {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+:root[data-appearance] .plugins-page .plugin-detail-secondary:hover:not(:disabled) {
+  background: var(--color-selected);
+  color: var(--color-text);
+}
+
+:root[data-appearance] .plugins-page :is(.plugin-detail-primary, .plugin-detail-secondary):disabled {
+  opacity: 0.4;
+}
+
+@media (max-width: 960px) {
+  .plugin-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .plugins-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .plugins-page .sidebar-page-title-row {
+    flex-wrap: wrap;
+  }
+
+  .plugins-toolbar {
+    width: 100%;
+  }
+
+  .plugins-toolbar > .ui-input {
+    flex: 1;
+    width: auto;
+  }
+}

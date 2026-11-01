@@ -16,18 +16,22 @@ import { WorkspaceFileBrowser } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
-import { WorkspaceShell, WorkspaceAgentPane, WorkspaceBackButton } from "./workspace-shell.js";
+import { WorkspaceShell, WorkspaceAgentPane } from "./workspace-shell.js";
 import { ComposerActions } from "./composer-actions.js";
-import { readChatLayout } from "./chat-layout.js";
 import { pluginBuilderHash, pluginHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { readPluginBuilderInput, removePluginBuilderInput, savePluginBuilderInput } from "./plugin-builder-drafts.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { ArrowLeft, Check, ChevronRight, FileCode2, FileText, LoaderCircle, Package, MessageSquarePlus, PanelToggle,
-  MoreHorizontal, Plug, RefreshCw, Settings, Trash2 } from "./icons.js";
+  MoreHorizontal, Plug, RefreshCw, Settings, Sparkles, Trash2 } from "./icons.js";
+import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton } from "./ui/index.js";
 import "./plugin-builder.css";
 import { t } from "./i18n.js";
 
+/**
+ * The AI workspaces under the Plugins page: each conversation that creates,
+ * edits or configures a plugin, to pick up again.
+ */
 export function PluginBuilderSessions() {
   const generation = useReadyRuntimeGeneration();
   const [sessions, setSessions] = useState<PluginSetupSummary[]>([]);
@@ -38,11 +42,11 @@ export function PluginBuilderSessions() {
       .catch(cause => { if (active) setError(message(cause)); });
     return () => { active = false; };
   }, [generation]);
-  if (error) return <p className="plugins-inline-error" role="alert">{t("pluginBuilder.loadFailed", { error })}</p>;
+  if (error) return <Alert tone="danger" title={t("pluginBuilder.loadFailed", { error })} />;
   if (!sessions.length) return null;
-  return <section className="plugins-installed" aria-label={t("pluginBuilder.workspaces")}>
-    <h2>{t("pluginBuilder.continue")}</h2>
-    <div className="plugin-builder-sessions-grid">{sessions.map(session => <PluginBuilderSessionCard key={session.id} session={session}
+  return <section className="plugins-section" aria-label={t("pluginBuilder.workspaces")}>
+    <h2>{t("pluginBuilder.continue")} <span className="plugins-count">{sessions.length}</span></h2>
+    <div className="plugins-grid">{sessions.map(session => <PluginBuilderSessionCard key={session.id} session={session}
       onDeleted={() => setSessions(current => current.filter(item => item.id !== session.id))}
       onError={cause => setError(message(cause))} />)}</div>
   </section>;
@@ -53,56 +57,38 @@ function PluginBuilderSessionCard({ session, onDeleted, onError }: {
   onDeleted: () => void;
   onError: (cause: unknown) => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const actions = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (event: MouseEvent) => {
-      if (!actions.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setMenuOpen(false);
-      trigger.current?.focus();
-    };
-    document.addEventListener("mousedown", close);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [menuOpen]);
+  const working = session.status === "working";
   const remove = () => {
-    if (removing || session.status === "working") return;
-    setMenuOpen(false);
-    if (!window.confirm(t("pluginBuilder.confirmDelete", { title: session.title }))) return;
+    setConfirming(false);
     setRemoving(true);
-    void deletePluginWorkspace(session.id).then(() => {
-      onDeleted();
-    }, cause => {
+    void deletePluginWorkspace(session.id).then(onDeleted, cause => {
       onError(cause);
       setRemoving(false);
     });
   };
-  return <article className="plugin-builder-session-card">
-    <a className="plugin-builder-session-link" href={pluginBuilderHash(session.id)}>
-      <span className="plugin-builder-session-icon"><Package size={17} /></span>
-      <span className="plugin-builder-session-copy"><strong>{session.title}</strong><small>{t(`pluginBuilder.mode.${session.mode ?? "create"}`)} · {statusLabel(session.status)}</small></span>
+  return <article className="plugin-card plugin-builder-session-card">
+    <a className="plugin-card-link" href={pluginBuilderHash(session.id)}>
+      <span className="plugin-tile">{working ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}</span>
+      <span className="plugin-card-text">
+        <strong className="plugin-card-name">{session.title}</strong>
+        <small>{t(`pluginBuilder.mode.${session.mode ?? "create"}`)} · {statusLabel(session.status)}</small>
+      </span>
     </a>
-    <div className="plugin-builder-session-actions" ref={actions}>
-      <button ref={trigger} className="plugin-builder-session-menu-button" type="button" aria-label={t("pluginBuilder.workspaceActions", { title: session.title })}
-        aria-haspopup="menu" aria-expanded={menuOpen} disabled={removing} onClick={() => setMenuOpen(current => !current)}>
+    <DropdownMenu placement="bottom-end" items={[
+      { label: t("common.delete"), icon: <Trash2 size={14} />, danger: true, disabled: working, onSelect: () => setConfirming(true) },
+    ]} trigger={(props) => (
+      <IconButton {...props} size="sm" disabled={removing} label={t("pluginBuilder.workspaceActions", { title: session.title })}>
         <MoreHorizontal size={16} />
-      </button>
-      {menuOpen ? <div className="plugin-builder-session-menu" role="menu">
-        <button className="plugin-builder-session-delete" type="button" role="menuitem" disabled={session.status === "working"} onClick={remove}>
-          <Trash2 size={14} />{t("common.delete")}
-        </button>
-      </div> : null}
-    </div>
+      </IconButton>
+    )} />
+    <Dialog open={confirming} onClose={() => setConfirming(false)} size="sm"
+      title={t("pluginBuilder.deleteTitle", { title: session.title })} description={t("pluginBuilder.deleteDescription")}
+      footer={<>
+        <Button onClick={() => setConfirming(false)}>{t("common.cancel")}</Button>
+        <Button variant="primary" onClick={remove}>{t("common.delete")}</Button>
+      </>} />
   </article>;
 }
 
@@ -138,8 +124,8 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
   const [operation, setOperation] = useState<string>();
   const [retry, setRetry] = useState(0);
   const [fileRequest, updateFileRequest] = useState<{ path: string; id: number }>();
-  const [chatLayout] = useState(readChatLayout);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
+  const [confirming, setConfirming] = useState<"conversation" | "workspace">();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const timeline = useRef<HTMLDivElement>(null);
   const following = useRef(true);
@@ -229,7 +215,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
       case "overview":
         return <>
           {draft?.errors.length ? <p className="plugin-builder-error" role="alert">{draft.errors.join(" ")}</p> : null}
-          {plugin ? <PluginOverview plugin={plugin} setupId={draftPlugin ? sessionId : undefined} disabled={disabled} onEditIcon={draftPlugin && !draft?.errors.length ? () => setIconEditing(true) : undefined} onChooseView={setView} onChooseFile={file => { setView("files"); setFileRequest(file); }} /> : <EmptyView label={t("pluginBuilder.noDraft")} />}
+          {plugin ? <PluginOverview plugin={plugin} setupId={draftPlugin ? sessionId : undefined} disabled={disabled} onEditIcon={draftPlugin && !draft?.errors.length ? () => setIconEditing(true) : undefined} onChooseView={setView} onChooseFile={file => { setView("files"); setFileRequest(file); }} /> : <EmptyView label={t("pluginBuilder.noDraft")} description={t("pluginBuilder.noDraftHint")} />}
           {iconEditing && draftPlugin && draft?.revision ? <PluginIconPicker plugin={draftPlugin} setupId={sessionId} files={draft.files} disabled={disabled} onClose={() => setIconEditing(false)} onSave={async change => {
             setOperation("saving-icon");
             try {
@@ -271,7 +257,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
   }
 
   const goToPlugins = () => { window.location.hash = pluginHash(); };
-  return <WorkspaceShell className="plugin-builder-shell" chatLayout={chatLayout} agentCollapsed={agentCollapsed}
+  return <WorkspaceShell className="plugin-builder-shell" agentCollapsed={agentCollapsed}
     onHome={goToPlugins} homeLabel={t("pluginBuilder.backToPlugins")} homeIcon={ArrowLeft} onExpandAgent={() => setAgentCollapsed(false)}
     agent={<WorkspaceAgentPane label={t("pluginBuilder.assistant")}
       actions={<>
@@ -280,14 +266,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
           {operation === "creating" ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
         </button>
         <button className="icon-button pane-header-action" type="button" disabled={disabled || !state?.turns.length}
-          title={t("pluginBuilder.deleteConversation")} aria-label={t("pluginBuilder.deleteConversation")} onClick={() => {
-            if (!window.confirm(t("pluginBuilder.confirmDeleteConversation"))) return;
-            void action("clearing", async () => {
-              const next = await clearPluginSetupConversation(sessionId);
-              setInput(current => ({ ...current, prompt: "" }));
-              setSnapshot(current => current ? { ...current, state: next } : current);
-            });
-          }}><Trash2 size={14} /></button>
+          title={t("pluginBuilder.deleteConversation")} aria-label={t("pluginBuilder.deleteConversation")} onClick={() => setConfirming("conversation")}><Trash2 size={14} /></button>
         <button className="icon-button pane-header-action" type="button" onClick={() => setAgentCollapsed(true)} title={t("projectShell.hideAgent")} aria-label={t("projectShell.hideAgent")}><PanelToggle size={14} /></button>
       </>}
       bodyRef={timeline} onScroll={event => {
@@ -316,11 +295,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
       <section className="viewer-pane plugin-builder-preview" aria-label={t("pluginBuilder.preview")} data-active-tab={view === "files" ? "code" : view}>
         <header className="pane-header viewer-header window-drag-handle">
           <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-          <div className={`viewer-navigation${chatLayout === "right" ? " is-chat-right" : ""}`}>
-            {chatLayout === "right" ? <>
-              <WorkspaceBackButton onClick={goToPlugins} label={t("pluginBuilder.backToPlugins")} icon={ArrowLeft} />
-              {agentCollapsed ? <button className="icon-button pane-header-action" type="button" title={t("workspace.showAgent")} aria-label={t("workspace.showAgent")} onClick={() => setAgentCollapsed(false)}><PanelToggle size={14} /></button> : null}
-            </> : null}
+          <div className="viewer-navigation">
             <WorkspaceTabs tabs={TABS} active={view} onChange={setView} label={t("pluginBuilder.views")} />
           </div>
           <div className="viewer-publish">
@@ -336,13 +311,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
             })} /> : null}
             {state ? <button className="icon-button pane-header-action" type="button" disabled={disabled}
               title={draft?.path ? t("pluginBuilder.deleteDraft") : t("pluginBuilder.deleteWorkspace")} aria-label={draft?.path ? t("pluginBuilder.deleteDraft") : t("pluginBuilder.deleteWorkspace")}
-              onClick={() => {
-                if (!window.confirm(t("pluginBuilder.confirmDelete", { title: state.title }))) return;
-                void action("deleting", async () => {
-                  await deletePluginWorkspace(sessionId);
-                  goToPlugins();
-                });
-              }}><Trash2 size={14} /></button> : null}
+              onClick={() => setConfirming("workspace")}><Trash2 size={14} /></button> : null}
             {draftPlugin && !configuring ? <button className="publish-button workspace-publish-button" type="button" disabled={disabled || Boolean(draft?.errors.length) || upToDate} onClick={() => void action("installing", async () => {
               if (!draft?.revision) return;
               try { await installPluginDraft(sessionId, draft.revision); }
@@ -352,6 +321,25 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
         </header>
         <div className={`plugin-builder-preview-content is-${view}`}>{previewContent()}</div>
       </section>
+      <Dialog open={confirming !== undefined} onClose={() => setConfirming(undefined)} size="sm"
+        title={confirming === "workspace" ? t("pluginBuilder.deleteTitle", { title: state?.title ?? "" }) : t("pluginBuilder.deleteConversationTitle")}
+        description={confirming === "workspace" ? t("pluginBuilder.deleteDescription") : t("pluginBuilder.deleteConversationDescription")}
+        footer={<>
+          <Button onClick={() => setConfirming(undefined)}>{t("common.cancel")}</Button>
+          <Button variant="primary" onClick={() => {
+            const target = confirming;
+            setConfirming(undefined);
+            if (target === "workspace") void action("deleting", async () => {
+              await deletePluginWorkspace(sessionId);
+              goToPlugins();
+            });
+            else void action("clearing", async () => {
+              const next = await clearPluginSetupConversation(sessionId);
+              setInput(current => ({ ...current, prompt: "" }));
+              setSnapshot(current => current ? { ...current, state: next } : current);
+            });
+          }}>{t("common.delete")}</Button>
+        </>} />
   </WorkspaceShell>;
 }
 
@@ -412,8 +400,8 @@ function PluginChecks({ draft, disabled, operation, onTest }: {
   </div>;
 }
 
-function EmptyView({ label }: { label: string }) {
-  return <div className="plugin-builder-preview-empty"><span>{label}</span></div>;
+function EmptyView({ label, description }: { label: string; description?: string }) {
+  return <div className="plugin-builder-preview-empty"><Empty icon={<Sparkles size={20} />} title={label} description={description} /></div>;
 }
 function statusLabel(status: PluginSetupSummary["status"]): string {
   return t(`pluginBuilder.status.${status}`);

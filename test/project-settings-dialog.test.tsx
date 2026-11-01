@@ -7,9 +7,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectState } from "../src/shared/contracts.js";
 const inspectProjectPreview = vi.fn(async () => ({}));
 const updateProjectRunSettings = vi.fn<() => Promise<ProjectState>>();
+const setProjectAppearance = vi.fn<(id: string, appearance: object) => Promise<ProjectState>>();
 vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   inspectProjectPreview,
   updateProjectRunSettings,
+  getProjectCover: vi.fn(async () => undefined),
+  getProjectCoverState: vi.fn(async () => ({ mode: "auto" })),
+  getProjectLogo: vi.fn(async () => undefined),
+  setProjectAppearance,
+  setProjectCover: vi.fn(),
+  setProjectCoverMode: vi.fn(),
+  setProjectLogo: vi.fn(),
 }));
 const { ProjectSettingsDialog } =
   await import("../src/renderer/project-settings-dialog.js");
@@ -33,9 +41,8 @@ describe("ProjectSettingsDialog", () => {
           onSaved: () => {},
         }),
       );
-      expect(html).toContain('role="switch" aria-label="Web preview"');
-      expect(/aria-label="Web preview"[^>]*checked=""/.test(html)).toBe(
-        webPreviewEnabled,
+      expect(html).toContain(
+        `role="switch" aria-checked="${webPreviewEnabled}" aria-label="Web preview"`,
       );
       expect(
         html.includes('fieldset class="project-settings-section" disabled=""'),
@@ -236,5 +243,19 @@ describe("preview settings drafts", () => {
         previewViewport,
       }),
     );
+  });
+
+  it("saves a chosen icon and the template cover at once, without saving the form", async () => {
+    vi.mocked(setProjectAppearance).mockImplementation(async (_id, appearance) => ({ ...project, appearance }));
+    const radio = (name: string) => container.querySelector<HTMLButtonElement>(`[role="radio"][aria-label="${name}"]`)!;
+    // The default icons stay folded until asked for.
+    expect(radio("Rocket")).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>(".project-appearance-library-toggle")!.click());
+    await act(async () => radio("Rocket").click());
+    expect(setProjectAppearance).toHaveBeenLastCalledWith(project.id, { icon: "rocket" });
+    expect(radio("Rocket").getAttribute("aria-checked")).toBe("true");
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) => button.textContent === "Template")!.click());
+    expect(setProjectAppearance).toHaveBeenLastCalledWith(project.id, { icon: "rocket", cover: "template" });
+    expect(updateProjectRunSettings).not.toHaveBeenCalled();
   });
 });

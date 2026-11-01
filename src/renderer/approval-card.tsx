@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ThreadItem } from "../shared/contracts.js";
 import type { ApprovalDecision } from "../shared/agent-runtimes.js";
 import { Terminal } from "./icons.js";
+import { Button } from "./ui/index.js";
 import { t } from "./i18n.js";
 
 interface ApprovalCardProps {
@@ -81,7 +82,7 @@ export function ApprovalCard({
         <p className="approval-card-reason">{details.reason}</p>
       ) : null}
       {details.paths?.length ? (
-        <ul>
+        <ul className="approval-card-paths">
           {details.paths.map((entry, index) => (
             <li key={`${entry.path}:${index}`}>
               <span>
@@ -105,18 +106,17 @@ export function ApprovalCard({
         </p>
       ) : null}
       <footer>
-        <button
-          type="button"
-          className="settings-secondary-button"
+        <Button
+          size="sm"
+          variant="primary"
           disabled={submitting}
-          onClick={() => void decide("deny")}
+          onClick={() => void decide("allow")}
         >
-          {t("approval.deny")}
-        </button>
+          {t("approval.allow")}
+        </Button>
         {details.always ? (
-          <button
-            type="button"
-            className="settings-secondary-button"
+          <Button
+            size="sm"
             disabled={submitting}
             onClick={() => void decide("allow-always")}
           >
@@ -125,16 +125,17 @@ export function ApprovalCard({
                 ? "approval.alwaysAllow"
                 : "approval.allowSession",
             )}
-          </button>
+          </Button>
         ) : null}
-        <button
-          type="button"
-          className="settings-primary-button"
+        <Button
+          size="sm"
+          variant="ghost"
+          className="approval-card-deny"
           disabled={submitting}
-          onClick={() => void decide("allow")}
+          onClick={() => void decide("deny")}
         >
-          {t("approval.allow")}
-        </button>
+          {t("approval.deny")}
+        </Button>
       </footer>
     </section>
   );

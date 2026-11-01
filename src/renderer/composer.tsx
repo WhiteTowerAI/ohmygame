@@ -1,4 +1,4 @@
-import { FileText, X } from "./icons.js";
+import { Clock, DangerCircle, FileText, X } from "./icons.js";
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference } from "../shared/contracts.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
@@ -10,7 +10,8 @@ import { PlanStatus } from "./plan-status.js";
 import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 import { formatChatPrompt, PromptContextIcon, type ChatContextChip } from "./chat-reference.js";
-import { useComposerContextMenu } from "./composer-context-menu.js";
+import { useComposerContextMenu, type ComposerPluginCommands } from "./composer-context-menu.js";
+import type { ProjectPluginCommand } from "../shared/plugins.js";
 import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, parseSkillInvocation, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
 import { getCanvasDocument } from "./canvas-api.js";
@@ -18,6 +19,7 @@ import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { composerDrafts, type ComposerDraft } from "./composer-drafts.js";
 import { t } from "./i18n.js";
 import type { AgentContextUsage } from "../shared/contracts.js";
+import { ComposerStatus } from "./composer-status.js";
 import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
 import { LIMIT_RESUME_PROMPT, limitResumeAt } from "./limit-resume.js";
 
@@ -49,7 +51,8 @@ interface ComposerProps {
   onInitialDraftHandled?: () => void;
   onSubmit: (prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[], references: PromptReference[], contexts: PromptContext[]) => Promise<boolean>;
   onCompact: (instructions?: string) => Promise<void>;
-  onContextUsage: () => Promise<AgentContextUsage | undefined>;
+  /** `passive` reads what is known without loading the agent's session. */
+  onContextUsage: (passive?: boolean) => Promise<AgentContextUsage | undefined>;
   onCancelPlan: () => Promise<boolean>;
   onModelChange: (model: AgentModel) => void;
   onReasoningChange: (level: AgentReasoningLevel) => void;
@@ -63,6 +66,9 @@ interface ComposerProps {
   onRemoveContext?: (key: string) => void;
   canPublish?: boolean;
   onPublish?: () => void;
+  /** Format 2 plugin commands for the "/" list and the + menu; the project shell runs them. */
+  pluginCommands?: ComposerPluginCommands;
+  onPluginCommand?: (command: ProjectPluginCommand) => void;
 }
 
 export function Composer({
@@ -103,6 +109,8 @@ export function Composer({
   onRemoveContext,
   canPublish,
   onPublish,
+  pluginCommands,
+  onPluginCommand,
 }: ComposerProps) {
   const [draftSession] = useState(() => composerDrafts.get(
     projectId && conversationId ? { projectId, conversationId } : undefined,
@@ -314,6 +322,8 @@ export function Composer({
     contextPercent,
     canPublish: publishAvailable,
     usageLimits: isAgentRuntimeId(model?.provider) ? runtimeUsage?.limits : undefined,
+    pluginCommands,
+    onPluginCommand,
   });
 
   useEffect(() => {
@@ -330,6 +340,16 @@ export function Composer({
     });
     return () => { disposed = true; };
   }, [showCompactCommand, running, modelStatus, model?.provider, model?.id, conversationId, accountProfileId, contextMenu.open]);
+
+  // The status line under the composer follows each finished response.
+  const [statusUsage, setStatusUsage] = useState<AgentContextUsage>();
+  useEffect(() => {
+    if (!conversationId || running) return;
+    let disposed = false;
+    void onContextUsage(true).then((usage) => { if (!disposed) setStatusUsage(usage); }).catch(() => {});
+    return () => { disposed = true; };
+  }, [conversationId, running, model?.provider, model?.id]);
+  useEffect(() => setStatusUsage(undefined), [conversationId]);
 
   useEffect(() => {
     if (resumeArmedAt === undefined) return;
@@ -437,8 +457,12 @@ export function Composer({
         onSteer={(turnId) => { void onSteerPending(turnId); }}
         onEdit={(item) => { void editPending(item); }}
       />
-      {notice || attachmentError ? <p className="composer-error" role="alert">{attachmentError ?? notice}</p> : null}
-      {resumeAt !== undefined && !running ? <div className="composer-resume" role="status">
+      {notice || attachmentError ? <div className="composer-notice composer-error" role="alert">
+        <DangerCircle size={14} aria-hidden="true" />
+        <span>{attachmentError ?? notice}</span>
+      </div> : null}
+      {resumeAt !== undefined && !running ? <div className="composer-notice composer-resume" role="status">
+        <Clock size={14} aria-hidden="true" />
         <span>{t(resumeArmedAt !== undefined ? "composer.resume.armed" : "composer.resume.available", { time: new Date(resumeAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) })}</span>
         <button type="button" disabled={resumeArmedAt === undefined && !conversationReady} onClick={() => setResumeArmedAt(resumeArmedAt === undefined ? resumeAt : undefined)}>{t(resumeArmedAt !== undefined ? "composer.resume.cancel" : "composer.resume.arm")}</button>
       </div> : null}
@@ -513,6 +537,7 @@ export function Composer({
         value={prompt}
         variant="project"
       />
+      <ComposerStatus usage={runtimeUsage ?? statusUsage} />
     </div>
   );
 }

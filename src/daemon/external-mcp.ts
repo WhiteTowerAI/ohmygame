@@ -15,6 +15,7 @@ import {
   EXTERNAL_MCP_CONTRACT_VERSION,
   EXTERNAL_MCP_SERVER_NAME,
   type ExternalMcpCatalog,
+  type ExternalMcpClientActivity,
   type ExternalMcpEndpoint,
 } from "../shared/external-mcp.js";
 import { matchesBearerToken } from "./access.js";
@@ -151,7 +152,18 @@ interface Session {
   /** Chosen with open_project; roots no longer change it. */
   explicit: boolean;
   usedAt: number;
+  /** The `clientInfo.name` the client sent with `initialize`. */
+  client?: string;
 }
+
+/** Remembered while the daemon runs, for Settings → MCP Server's recent connections. */
+interface ClientActivity {
+  name: string;
+  usedAt: number;
+  calls: number;
+}
+
+const RECENT_CLIENT_LIMIT = 8;
 
 type JobStatus = "running" | "succeeded" | "failed" | "cancelled";
 
@@ -208,6 +220,7 @@ export class ExternalMcpService {
   readonly #directory: string;
   readonly #sessions = new Map<string, Session>();
   readonly #jobs = new Map<string, Job>();
+  readonly #clients = new Map<string, ClientActivity>();
   #enabled = false;
   #token?: string;
   #url?: string;
@@ -270,7 +283,8 @@ export class ExternalMcpService {
     );
     let session: Session | undefined;
     if (initializing) {
-      session = { id: randomUUID(), explicit: false, usedAt: this.#now() };
+      const client = clientName(messages.find((message) => method(message) === "initialize"));
+      session = { id: randomUUID(), explicit: false, usedAt: this.#now(), ...(client ? { client } : {}) };
       this.#sessions.set(session.id, session);
     } else {
       if (!request.sessionId)
@@ -286,6 +300,8 @@ export class ExternalMcpService {
         };
     }
     session.usedAt = this.#now();
+    const calls = messages.filter((message) => method(message) === "tools/call").length;
+    if (session.client) this.#noteClient(session.client, calls);
     await this.#bindRoots(session, request.roots);
     const answers: unknown[] = [];
     for (const message of messages) {
@@ -299,6 +315,23 @@ export class ExternalMcpService {
       headers,
       body: Array.isArray(request.body) ? answers : answers[0],
     };
+  }
+
+  /** Clients that connected since the daemon started, most recent first. */
+  recentClients(): ExternalMcpClientActivity[] {
+    this.#prune();
+    const open = new Set([...this.#sessions.values()].map((session) => session.client));
+    return [...this.#clients.values()]
+      .sort((left, right) => right.usedAt - left.usedAt)
+      .map((client) => ({ name: client.name, lastUsedAt: new Date(client.usedAt).toISOString(), calls: client.calls, active: open.has(client.name) }));
+  }
+
+  #noteClient(name: string, calls: number): void {
+    const known = this.#clients.get(name);
+    this.#clients.delete(name);
+    this.#clients.set(name, { name, usedAt: this.#now(), calls: (known?.calls ?? 0) + calls });
+    // The oldest is first in insertion order.
+    if (this.#clients.size > RECENT_CLIENT_LIMIT) this.#clients.delete(this.#clients.keys().next().value!);
   }
 
   /** Ends a session the client closed with DELETE. */
@@ -716,6 +749,13 @@ function describe(project: ProjectState) {
     type: project.type,
     workspacePath: project.workspacePath,
   };
+}
+
+function clientName(message: unknown): string | undefined {
+  const params = message && typeof message === "object" ? (message as { params?: unknown }).params : undefined;
+  const info = params && typeof params === "object" ? (params as { clientInfo?: unknown }).clientInfo : undefined;
+  const name = info && typeof info === "object" ? (info as { name?: unknown }).name : undefined;
+  return typeof name === "string" && name.trim() ? name.trim().slice(0, 80) : undefined;
 }
 
 function method(message: unknown): unknown {

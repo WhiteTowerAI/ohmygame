@@ -33,8 +33,6 @@ files:
     to: node_modules/typebox/build
 
 extraResources:
-  - from: plugins
-    to: plugins
   - from: plugins-v2
     to: plugins-v2
   - from: packages/plugin-ui

@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, ChevronRight, Code2, ExternalLink, LoaderCircle, Pencil, Search, Server, Plus, Plug, RefreshCw, Settings, Trash2, UserRound } from "./icons.js";
+import { ChevronDown, ChevronRight, CirclePlus, Code2, ExternalLink, LoaderCircle, Pencil, Server, RefreshCw, SettingsMinimal, Trash2, UserRound } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   CustomProviderDetails,
@@ -45,7 +45,9 @@ import { Provider3DBalance } from "./provider-3d-balance.js";
 import { MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
 import { openModelAuthExternal as openExternal, useModelProviderAuth } from "./use-model-provider-auth.js";
-import { SegmentedControl } from "./segmented-control.js";
+import { Badge, Button, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
+import { useAgentModels } from "./model-selector.js";
+import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, cloudQuotaSummary, CloudQuotaDetails } from "./cloud-quota.js";
 import { getCloudQuotas, MODELS_CHANGED_EVENT } from "./api.js";
@@ -74,13 +76,13 @@ const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
   audio: t("capability.audio"),
 };
 
-export function ModelsSettings({ view, onViewChange, onOpenAgents }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void }) {
+export function ModelsSettings({ view, onViewChange, onOpenAgents, onOpenChatModel }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void; onOpenChatModel?: () => void }) {
   const openProvider = (provider: ProviderSummary): void => onViewChange({ page: "provider", provider });
-  if (view.page === "providers") return <ProviderList onProvider={openProvider} />;
+  if (view.page === "providers") return <ProviderList onProvider={openProvider} onOpenChatModel={onOpenChatModel} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} onOpenAgents={onOpenAgents} />;
 }
 
-function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {
+function ProviderList({ onProvider, onOpenChatModel }: { onProvider: (provider: ProviderSummary) => void; onOpenChatModel?: () => void }) {
   const auth = useAuth();
   const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
@@ -160,45 +162,51 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
   const filteredProviders = [...connectedProviders, ...freeProviders, ...popularProviders, ...localProviders, ...moreProviders];
   const filtering = capability !== "all" || Boolean(normalizedQuery);
   return (
-    <section className="settings-panel settings-overview-panel">
-      <header className="settings-panel-header">
-        <h3>{t("providers.title")}</h3>
-        <label className="settings-provider-search">
-          <Search size={14} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("providers.search")} aria-label={t("providers.search")} />
-        </label>
-      </header>
+    <>
+      <div className="settings-toolbar">
+        <SearchInput value={query} onChange={setQuery} placeholder={t("providers.search")} label={t("providers.search")} />
+        <span className="settings-spacer" />
+        <Button icon={<CirclePlus size={14} />} onClick={() => setAdding("custom")}>{t("providers.add")}</Button>
+      </div>
+      <Tabs variant="pills" label={t("providers.filterLabel")} tabs={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
       {adding ? <CustomProviderDialog initialProvider={adding === "custom" ? undefined : LOCAL_MODEL_PROVIDERS[adding]} onClose={() => setAdding(undefined)} onSaved={() => {
         setAdding(undefined);
         setQuery("");
         setCapability("all");
         void listProviders().then(setProviders).catch((cause) => setError(errorMessage(cause)));
       }} /> : null}
-      <div className="settings-provider-list">
-        <div className="settings-provider-toolbar">
-          <SegmentedControl className="settings-provider-filters" label={t("providers.filterLabel")} options={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
-          <button className="settings-add-button settings-provider-add" type="button" onClick={() => setAdding("custom")}><Plus size={13} />{t("providers.add")}</button>
-        </div>
-        {capability !== "language" ? <GlobalMediaModelDefaults capability={capability} /> : null}
-        {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />{t("providers.loadingProviders")}</div> : null}
-        {!loading && visibleProviders.length === 0 ? <p className="settings-empty">{t("providers.noMatch")}</p> : null}
-        {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={filteredProviders} onProvider={openProvider} /> : null}
-        {!filtering && connectedProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.connected")} providers={connectedProviders} onProvider={openProvider} /> : null}
-        {!filtering && freeProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.free")} providers={freeProviders} onProvider={openProvider} /> : null}
-        {!filtering && popularProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.popular")} providers={popularProviders} onProvider={openProvider} /> : null}
-        {!filtering && localProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.local")} providers={localProviders} onProvider={openProvider} /> : null}
-        {!filtering && moreProviders.length ? (
-          <section className="settings-provider-group">
-            <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
-              <span>{t("providers.group.more")} <small>({moreProviders.length})</small></span>
-              <ChevronDown size={14} />
-            </button>
-            {moreOpen ? moreProviders.map((provider) => <ProviderRow {...rowActions} provider={provider} onProvider={openProvider} key={provider.id} />) : null}
-          </section>
-        ) : null}
-        {error ? <p className="settings-error" role="alert">{error}</p> : null}
-      </div>
-    </section>
+      {!normalizedQuery ? <GlobalMediaModelDefaults capability={capability} leading={onOpenChatModel && (capability === "all" || capability === "language") ? <ChatModelRow onOpen={onOpenChatModel} /> : undefined} /> : null}
+      {loading ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingProviders")}</div> : null}
+      {!loading && visibleProviders.length === 0 ? <SettingsNote>{t("providers.noMatch")}</SettingsNote> : null}
+      {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={filteredProviders} onProvider={openProvider} /> : null}
+      {!filtering && connectedProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.connected")} providers={connectedProviders} onProvider={openProvider} /> : null}
+      {!filtering && freeProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.free")} providers={freeProviders} onProvider={openProvider} /> : null}
+      {!filtering && popularProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.popular")} providers={popularProviders} onProvider={openProvider} /> : null}
+      {!filtering && localProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.local")} providers={localProviders} onProvider={openProvider} /> : null}
+      {!filtering && moreProviders.length ? (
+        <SettingsGroup label={t("providers.group.more")} title={
+          <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
+            {t("providers.group.more")} <span className="settings-count">{moreProviders.length}</span>
+            <ChevronDown size={14} />
+          </button>
+        } bare={!moreOpen}>
+          {moreOpen ? moreProviders.map((provider) => <ProviderRow {...rowActions} provider={provider} onProvider={openProvider} key={provider.id} />) : null}
+        </SettingsGroup>
+      ) : null}
+      {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
+    </>
+  );
+}
+
+/** The chat model belongs to the agent; this row shows it and leads there. */
+function ChatModelRow({ onOpen }: { onOpen: () => void }) {
+  const catalog = useAgentModels({ agentRuntimes: true });
+  const chosen = catalog.defaultModel;
+  const model = chosen ? catalog.models.find((item) => item.provider === chosen.provider && item.id === chosen.id) : undefined;
+  return (
+    <SettingsRow title={t("settings.providers.chatModel")} description={model ? t("settings.providers.chatModelCurrent", { model: model.name }) : t("settings.providers.chatModelHint")} onClick={onOpen}>
+      <IconButton size="sm" label={t("settings.providers.chatModel")} onClick={onOpen}><ChevronRight size={16} /></IconButton>
+    </SettingsRow>
   );
 }
 
@@ -206,42 +214,55 @@ type ProviderRowActions = { onToggle: (provider: ProviderSummary, enabled: boole
 
 function ProviderGroup({ detail, onProvider, providers, title, ...actions }: { detail?: string; onProvider: (provider: ProviderSummary) => void; providers: ProviderSummary[]; title: string } & ProviderRowActions) {
   return (
-    <section className="settings-provider-group">
-      <h4>{title}</h4>
+    <SettingsGroup label={title} title={<>{title} <span className="settings-count">{providers.length}</span></>}>
       {providers.map((provider) => <ProviderRow {...actions} provider={provider} detail={detail} featured={provider.id === "openrouter"} onProvider={onProvider} key={provider.id} />)}
-    </section>
+    </SettingsGroup>
   );
 }
 
 function ProviderRow({ detail, featured = false, onProvider, provider, onToggle, pending }: { detail?: string; featured?: boolean; onProvider: (provider: ProviderSummary) => void; provider: ProviderSummary } & ProviderRowActions) {
   const combined = provider.id === "hyper3d";
-  const ActionIcon = combined ? Settings : provider.status === "connecting" ? LoaderCircle : provider.status === "error" ? RefreshCw : provider.configured ? Settings : Plug;
   const actionLabel = combined ? t("providers.manageHyper3d") : t("providers.rowAction", { action: providerAction(provider), name: provider.name });
+  const labels = [...provider.capabilities.map((capability) => PROVIDER_CAPABILITY_LABELS[capability]), ...(provider.custom && !isLocalModelProvider(provider) ? [t("providers.custom")] : [])];
+  const busy = provider.status === "connecting" || pending.has(provider.id);
   return (
-    <div className={`settings-provider-row${featured ? " is-featured" : ""}`}>
-      <ProviderMark provider={provider} />
-      <span className="settings-provider-copy">
-        <strong className="settings-provider-name"><span>{provider.name}</span>{featured ? <small>{t("providers.recommended")}</small> : null}</strong>
-        <span className="settings-provider-details">
-          <span className="settings-provider-description">{provider.managed ? cloudQuotaSummary(provider.cloud) : providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
-          <span className="settings-provider-capabilities" aria-label={t("providers.labels", { labels: [...provider.capabilities.map((capability) => PROVIDER_CAPABILITY_LABELS[capability]), ...(provider.custom && !isLocalModelProvider(provider) ? [t("providers.custom")] : [])].join(", ") })}>
-            {provider.capabilities.map((capability) => <small key={capability}>{PROVIDER_CAPABILITY_LABELS[capability]}</small>)}
-            {provider.custom && !isLocalModelProvider(provider) ? <small>{t("providers.custom")}</small> : null}
+    <SettingsRow
+      className="settings-provider-row"
+      icon={<ProviderMark provider={provider} />}
+      title={<><span className="settings-provider-name">{provider.name}</span>{featured && !provider.configured ? <Badge tone="outline">{t("providers.recommended")}</Badge> : null}</>}
+      description={
+        <span className="settings-meta settings-provider-details">
+          <span className="settings-provider-description">{provider.managed ? cloudQuotaSummary(provider.cloud) : providerDescription(provider)}{detail ? <> · {detail}</> : null}</span>
+          <span className="settings-meta" aria-label={t("providers.labels", { labels: labels.join(", ") })}>
+            {labels.map((label) => <span className="settings-cap" key={label}>{label}</span>)}
           </span>
         </span>
-      </span>
-      {combined || provider.configured ? <label className="settings-toggle settings-provider-toggle" title={provider.enabled !== false ? t("common.enabled") : t("common.disabled")}>
-        <input type="checkbox" role="switch" aria-label={t("providers.enableProvider", { name: provider.name })} checked={provider.enabled !== false} disabled={pending.has(provider.id)} onChange={(event) => onToggle(provider, event.target.checked)} /><span aria-hidden="true" />
-      </label> : provider.status === "not_configured" ? null : <em className={`settings-provider-status is-${provider.status}`}>{providerStatus(provider)}</em>}
-      <button className="icon-button settings-provider-action" type="button" data-tooltip={actionLabel} aria-label={actionLabel} disabled={provider.status === "connecting" || pending.has(provider.id)} onClick={() => onProvider(provider)}><ActionIcon size={17} className={provider.status === "connecting" ? "spin" : undefined} aria-hidden="true" /></button>
-    </div>
+      }
+      onClick={busy ? undefined : () => onProvider(provider)}
+    >
+      {combined || provider.configured ? (
+        <Switch label={t("providers.enableProvider", { name: provider.name })} checked={provider.enabled !== false} disabled={pending.has(provider.id)} onChange={(enabled) => onToggle(provider, enabled)} />
+      ) : provider.status === "not_configured" ? null : <span className={`settings-provider-status is-${provider.status}`}>{providerStatus(provider)}</span>}
+      {combined || provider.configured ? (
+        <IconButton size="sm" label={actionLabel} disabled={busy} onClick={() => onProvider(provider)}><SettingsMinimal size={16} /></IconButton>
+      ) : (
+        <Button size="sm" aria-label={actionLabel} disabled={busy} icon={provider.status === "connecting" ? <LoaderCircle size={14} className="spin" /> : provider.status === "error" ? <RefreshCw size={14} /> : undefined} onClick={() => onProvider(provider)}>
+          {provider.status === "error" ? t("common.retry") : t("providers.action.connect")}
+        </Button>
+      )}
+    </SettingsRow>
   );
 }
 
-function ProviderMark({ provider }: { provider: Pick<ProviderSummary, "id" | "preset"> }) {
+// A provider without a logo shows its initial, as the model picker does.
+function ProviderMark({ provider }: { provider: Pick<ProviderSummary, "id" | "preset" | "name"> }) {
   const icon = PROVIDER_ICONS[isLocalModelProvider(provider) ? provider.preset : provider.id];
-  if (!icon) return <span className="settings-provider-mark-slot" aria-hidden="true"><Server size={20} /></span>;
-  return <span className={`settings-provider-mark is-${icon.tone}`} aria-hidden="true"><img src={icon.src} alt="" /></span>;
+  const initial = provider.name.trim().charAt(0).toUpperCase();
+  return (
+    <span className={`settings-mark${icon ? ` is-${icon.tone}` : initial ? " is-initial" : ""}`} aria-hidden="true">
+      {icon ? <img src={icon.src} alt="" /> : initial || <Server size={18} />}
+    </span>
+  );
 }
 
 export function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void; onOpenAgents?: () => void }) {
@@ -295,12 +316,12 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
       <p className="settings-detail-hint">{t("codexImages.managedOptions")}</p>
       {current.error ? <p className="settings-detail-hint">{current.error}</p> : null}
       <div className="settings-form-actions">
-        <button type="button" className="settings-secondary-button" disabled={busy} onClick={() => void recheck()}><RefreshCw size={13} className={busy ? "spin" : undefined} />{t("codexImages.checkAgain")}</button>
-        {current.authStatus === "signed-out" ? <button type="button" className="settings-secondary-button" disabled={busy} onClick={() => void login()}>{t("common.signIn")}</button> : null}
-        {onOpenAgents ? <button type="button" className="settings-secondary-button" onClick={onOpenAgents}>{t("agents.open")}</button> : null}
+        <Button disabled={busy} onClick={() => void recheck()}><RefreshCw size={13} className={busy ? "spin" : undefined} />{t("codexImages.checkAgain")}</Button>
+        {current.authStatus === "signed-out" ? <Button disabled={busy} onClick={() => void login()}>{t("common.signIn")}</Button> : null}
+        {onOpenAgents ? <Button onClick={onOpenAgents}>{t("agents.open")}</Button> : null}
       </div>
       {command ? <p className="settings-detail-hint">{t("codingAgents.loginCommand")} <code>{command}</code></p> : null}
-      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
     </section>
     <ProviderImageModels key={revision} providerId="codex-cli" />
   </section>;
@@ -347,7 +368,7 @@ function Hyper3DProviderDetail({ provider, onBack, onRemoved }: { provider: Prov
     <ProviderDeleteConfirmation provider={keyProvider ?? current} deletion={deletion} disabled={savingKey} />
     <FreeCloudAccount provider={account} refreshing={refreshing} onRefresh={() => void refreshRef.current(true)} />
     {keyProvider ? <Native3DProviderKeyForm key={String(keyProvider.configured)} provider={keyProvider} deletion={deletion} onSavingChange={setSavingKey} /> : null}
-    {error ? <p className="settings-error" role="alert">{error}</p> : null}
+    {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
     <ProviderModels key={`${userId}-${keyProvider?.configured}-${modelsRevision}`} providerId="hyper3d" additionalProviderId={account?.id}
       sourceLabels={{ hyper3d: keyProvider?.configured ? t("providers.hyper3d.yourKey") : t("providers.hyper3d.keyRequired"), [HYPER3D_CONNECTION_ID]: t("providers.hyper3d.freeAccount") }} />
   </section>;
@@ -364,13 +385,13 @@ function FreeCloudAccount({ provider, refreshing, onRefresh }: { provider?: Prov
       <div className="settings-provider-setting-row settings-provider-auth-row">
         <span className="settings-search-field-label">{t("providers.account")}</span>
         <span className="settings-provider-setting-value" title={auth.state.status === "signed-in" ? auth.state.user.email : undefined}>{auth.state.status === "signed-in" ? auth.state.user.email ?? auth.state.user.name : t("providers.ohMyGameAccount")}</span>
-        {needsSignIn ? <button type="button" className="settings-add-button" onClick={auth.openSignIn}>{t("common.signIn")}</button> : null}
+        {needsSignIn ? <Button onClick={auth.openSignIn}>{t("common.signIn")}</Button> : null}
       </div>
     </div>
     <section className="settings-detail-section provider-models" aria-label={t("providers.quota.title")}>
       <div className="provider-models-heading">
         <h4>{t("providers.quota.title")}</h4>
-        {userId ? <button type="button" className="settings-secondary-button settings-voice-sample" disabled={refreshing} onClick={onRefresh} aria-label={t("providers.quota.refresh")} data-tooltip={t("providers.quota.refresh")}><RefreshCw size={15} className={refreshing ? "spin" : undefined} aria-hidden="true" /></button> : null}
+        {userId ? <IconButton size="sm" disabled={refreshing} onClick={onRefresh} label={t("providers.quota.refresh")}><RefreshCw size={15} className={refreshing ? "spin" : undefined} aria-hidden="true" /></IconButton> : null}
       </div>
       {quota ? <CloudQuotaDetails quota={quota} /> : <p className="settings-detail-hint" role="status">{needsSignIn ? t("providers.quota.signIn") : refreshing ? t("providers.quota.checking") : cloudQuotaSummary(cloud)}</p>}
       {quota && cloud?.availability !== "ready" ? <p className="settings-detail-hint" role="status">{cloud?.availability === "personal_exhausted" ? t("providers.quota.exhausted") : cloudQuotaSummary(cloud)}</p> : null}
@@ -411,7 +432,7 @@ function FreeCloudProviderDetail({ provider, onBack }: { provider: ProviderSumma
       <ProviderEnableControl provider={current} onChanged={() => refreshRef.current()} />
     </ProviderDetailHeader>
     <FreeCloudAccount provider={current} refreshing={refreshing} onRefresh={() => refreshRef.current(true)} />
-    {error ? <p className="settings-error" role="alert">{error}</p> : null}
+    {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
     <ProviderModels key={`${provider.id}-${userId}-${modelsRevision}`} providerId={provider.id} />
   </section>;
 }
@@ -454,12 +475,12 @@ function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: Provide
             placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })}
             disabled={saving || deletion.busy}
           />
-          <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>
+          <Button variant="primary" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>
             {saving ? t("common.saving") : t("common.save")}
-          </button>
+          </Button>
         </div>
       </form>
-      {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
+      {error || deletion.error ? <p className="settings-note is-danger" role="alert">{deletion.error ?? error}</p> : null}
       {provider.configured && provider.id === "volcengine-ark" ? <ProviderImageModels key={`seedream-${modelsRevision}`} providerId={provider.id} /> : null}
       {provider.configured ? <SeedanceModels key={`seedance-${modelsRevision}`} providerId={provider.id} /> : null}
     </section>
@@ -504,12 +525,12 @@ function MinimaxAuthView({ provider, onBack, onCompleted }: { provider: Provider
             placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })}
             disabled={saving || deletion.busy}
           />
-          <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>
+          <Button variant="primary" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>
             {saving ? t("common.saving") : t("common.save")}
-          </button>
+          </Button>
         </div>
       </form>
-      {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
+      {error || deletion.error ? <p className="settings-note is-danger" role="alert">{deletion.error ?? error}</p> : null}
       {provider.configured ? <SeedanceModels key={`minimax-${modelsRevision}`} providerId={provider.id} /> : null}
     </section>
   );
@@ -532,7 +553,7 @@ function AudioProviderAuthView({ provider, onBack, onCompleted }: { provider: Pr
         {provider.configured ? <><ProviderDeleteButton deletion={deletion} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setRevision((value) => value + 1)} /></> : null}
       </ProviderDetailHeader>
       <ProviderDeleteConfirmation provider={provider} deletion={deletion} />
-      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
       <DoubaoServiceSettings key={`${provider.id}-${revision}-${defaultVoiceId ?? ""}`} provider={provider} defaultVoiceId={defaultVoiceId} onChanged={onCompleted} />
     </section>
   );
@@ -607,9 +628,9 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
               <option value="__custom">{t("providers.voiceSelectCustom")}</option>
             </select>
             {usesCustomVoice ? null : <DoubaoVoiceSample voiceId={defaultVoiceId} className="settings-secondary-button settings-voice-sample" />}
-            <button className="settings-primary-button" type="submit" disabled={savingVoice}>
+            <Button variant="primary" type="submit" disabled={savingVoice}>
               {savingVoice ? t("common.saving") : t("common.save")}
-            </button>
+            </Button>
           </div>
           {usesCustomVoice ? <input
             id="volcengine-tts-voice-id"
@@ -622,7 +643,7 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
             placeholder={t("providers.defaultVoiceIdPlaceholder")}
             disabled={savingVoice}
           /> : null}
-          {voiceError ? <p className="settings-error" role="alert">{voiceError}</p> : null}
+          {voiceError ? <p className="settings-note is-danger" role="alert">{voiceError}</p> : null}
         </form>
       ) : null}
       {provider.configured ? (
@@ -637,12 +658,12 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
               maxLength={500}
               disabled={previewBusy}
             />
-            <button className="settings-primary-button" type="button" title={speech ? t("providers.previewHint") : t("providers.seedPreviewHint")} disabled={previewBusy || !previewText.trim() || provider.enabled === false} onClick={() => void runPreview()}>
+            <Button variant="primary" title={speech ? t("providers.previewHint") : t("providers.seedPreviewHint")} disabled={previewBusy || !previewText.trim() || provider.enabled === false} onClick={() => void runPreview()}>
               {previewBusy ? <span className="settings-loading-inline"><LoaderCircle className="spin" size={14} />{t("common.loading")}</span> : t("providers.previewAction")}
-            </button>
+            </Button>
           </div>
           {previewUrl ? <audio controls src={previewUrl} className="settings-audio-preview" /> : null}
-          {previewError ? <p className="settings-error" role="alert">{previewError}</p> : null}
+          {previewError ? <p className="settings-note is-danger" role="alert">{previewError}</p> : null}
         </section>
       ) : null}
       <form className="settings-detail-field" onSubmit={(event) => void saveKey(event)}>
@@ -657,11 +678,11 @@ function DoubaoServiceSettings({ provider, defaultVoiceId: savedVoiceId, onChang
               placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })}
               disabled={savingKey}
             />
-            <button className="settings-primary-button" type="submit" disabled={savingKey || !apiKey.trim()}>
+            <Button variant="primary" type="submit" disabled={savingKey || !apiKey.trim()}>
               {savingKey ? t("common.saving") : t("common.save")}
-            </button>
+            </Button>
           </div>
-          {keyError ? <p className="settings-error" role="alert">{keyError}</p> : null}
+          {keyError ? <p className="settings-note is-danger" role="alert">{keyError}</p> : null}
       </form>
       {provider.configured ? <AudioModels providerId={provider.id} /> : null}
     </>
@@ -691,7 +712,7 @@ function AudioModels({ providerId }: { providerId: string }) {
       <div className="provider-models-heading">
         <h4>{t("providers.audioModels")} <small>{models?.length ?? ""}</small></h4>
       </div>
-      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
       {models ? (
         <div className="provider-models-list" role="list" aria-label={t("providers.audioModels")}>
           {models.map((model) => (
@@ -706,7 +727,7 @@ function AudioModels({ providerId }: { providerId: string }) {
           ))}
           {!models.length && !error ? <p className="settings-empty">{emptyMessage}</p> : null}
         </div>
-      ) : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+      ) : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
     </section>
   );
 }
@@ -734,7 +755,7 @@ function ProviderImageModels({ providerId }: { providerId: string }) {
       <div className="provider-models-heading">
         <h4>{t("providers.imageModels")} <small>{models?.length ?? ""}</small></h4>
       </div>
-      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
       {models ? (
         <div className="provider-models-list" role="list" aria-label={t("providers.imageModels")}>
           {models.map((model) => (
@@ -749,7 +770,7 @@ function ProviderImageModels({ providerId }: { providerId: string }) {
           ))}
           {!models.length && !error ? <p className="settings-empty">{emptyMessage}</p> : null}
         </div>
-      ) : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+      ) : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
     </section>
   );
 }
@@ -772,7 +793,7 @@ function SeedanceModels({ providerId }: { providerId: string }) {
       <div className="provider-models-heading">
         <h4>{t("providers.videoModels")} <small>{models?.length ?? ""}</small></h4>
       </div>
-      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      {error ? <p className="settings-note is-danger" role="alert">{error}</p> : null}
       {models ? (
         <div className="provider-models-list" role="list" aria-label={t("providers.videoModels")}>
           {models.map((model) => (
@@ -787,7 +808,7 @@ function SeedanceModels({ providerId }: { providerId: string }) {
           ))}
           {!models.length ? <p className="settings-empty">{t("providers.noVideoModels")}</p> : null}
         </div>
-      ) : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
+      ) : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
     </section>
   );
 }
@@ -809,22 +830,24 @@ function useProviderDeletion(providerId: string, onRemoved?: () => void) {
 }
 
 function ProviderAdvanced({ children, defaultOpen = true }: { children: ReactNode; defaultOpen?: boolean }) {
-  return <details className="settings-provider-advanced" open={defaultOpen}>
-    <summary>{t("common.advanced")}<ChevronDown size={12} aria-hidden="true" /></summary>
-    <div className="settings-provider-advanced-body">{children}</div>
+  return <details className="settings-details settings-provider-advanced" open={defaultOpen}>
+    <summary>{t("common.advanced")}</summary>
+    <div className="settings-form">{children}</div>
   </details>;
 }
 
 function ProviderDeleteButton({ deletion, disabled = false, label = t("providers.delete.button") }: { deletion: ReturnType<typeof useProviderDeletion>; disabled?: boolean; label?: string }) {
-  return <button className="icon-button settings-provider-setting-edit settings-provider-delete" type="button" aria-label={label} data-tooltip={label} aria-expanded={deletion.confirming} disabled={deletion.busy || disabled} onClick={() => deletion.setConfirming((value) => !value)}><Trash2 size={15} aria-hidden="true" /></button>;
+  return <IconButton className="settings-provider-delete" label={label} aria-expanded={deletion.confirming} disabled={deletion.busy || disabled} onClick={() => deletion.setConfirming((value) => !value)}><Trash2 size={16} /></IconButton>;
 }
 
 function ProviderDeleteConfirmation({ provider, deletion, disabled = false }: { provider: ProviderSummary; deletion: ReturnType<typeof useProviderDeletion>; disabled?: boolean }) {
   if (!deletion.confirming) return null;
-  return <div className="settings-provider-delete-confirmation" role="group" aria-label={t("providers.delete.confirmation")}>
+  return <div className="settings-note settings-provider-delete-confirmation" role="group" aria-label={t("providers.delete.confirmation")}>
     <span>{provider.id === "hyper3d" ? t("providers.delete.hyper3d") : provider.custom ? t("providers.delete.custom") : t("providers.delete.builtIn")}{!provider.custom && provider.credentialType === "oauth" ? t("providers.delete.subscriptionKept") : null}</span>
-    <button className="settings-danger-button" type="button" disabled={deletion.busy || disabled} onClick={() => void deletion.remove()}>{deletion.busy ? t("common.deleting") : provider.id === "hyper3d" ? t("providers.delete.removeKey") : t("providers.delete.button")}</button>
-    <button className="settings-secondary-button" type="button" disabled={deletion.busy} onClick={() => deletion.setConfirming(false)}>{t("common.cancel")}</button>
+    <span className="settings-actions">
+      <Button size="sm" variant="ghost" disabled={deletion.busy} onClick={() => deletion.setConfirming(false)}>{t("common.cancel")}</Button>
+      <Button size="sm" className="settings-danger-button" disabled={deletion.busy || disabled} onClick={() => void deletion.remove()}>{deletion.busy ? t("common.deleting") : provider.id === "hyper3d" ? t("providers.delete.removeKey") : t("providers.delete.button")}</Button>
+    </span>
   </div>;
 }
 
@@ -882,10 +905,10 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
       {fields.map(({ field, label, value }) => <div className="settings-provider-setting-row" key={field}>
         <span className="settings-search-field-label">{label}</span>
         <span className="settings-provider-setting-value" title={field === "apiKey" ? undefined : value}>{value}</span>
-        <button className="settings-secondary-button settings-voice-sample" type="button" aria-label={t("providers.edit", { label })} data-tooltip={t("providers.edit", { label })} disabled={deleting || openingEditor || Boolean(editing)} onClick={() => void openEditor(field)}><Pencil size={15} aria-hidden="true" /></button>
+        <IconButton size="sm" label={t("providers.edit", { label })} disabled={deleting || openingEditor || Boolean(editing)} onClick={() => void openEditor(field)}><Pencil size={15} aria-hidden="true" /></IconButton>
       </div>)}
-    </div> : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />{t("providers.loadingConfiguration")}</div> : null}
-    {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
+    </div> : !error ? <div className="settings-loading-row"><LoaderCircle className="spin" size={16} />{t("providers.loadingConfiguration")}</div> : null}
+    {error || deletion.error ? <p className="settings-note is-danger" role="alert">{deletion.error ?? error}</p> : null}
     {provider.configured ? [...balanceConnections].map(([connection, model]) => <Provider3DBalance key={connection} model={{ provider: provider.id, id: model.id }} label={balanceConnections.size > 1 ? t("providers.apiBalance", { model: model.name }) : undefined} />) : null}
     {settings ? <ProviderModels key={modelsRevision} providerId={provider.id} onEditModels={() => void openEditor("models")} /> : null}
     {editing && settings ? <CustomProviderDialog settings={settings} initialFocus={editing} onClose={() => setEditing(undefined)} onSaved={(value) => { setSettings(value); setEditing(undefined); setModelsRevision((revision) => revision + 1); }} /> : null}
@@ -937,12 +960,12 @@ function Native3DProviderKeyForm({ provider, deletion, onSaved, onSavingChange }
       <div className="settings-detail-inline">
         <input id={`${provider.id}-api-key`} className="settings-search-input" type="password" autoComplete="off" spellCheck={false} value={apiKey} onChange={(event) => setApiKey(event.target.value)}
           placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })} disabled={saving || deletion.busy} />
-        <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>{saving ? t("common.saving") : t("common.save")}</button>
+        <Button variant="primary" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>{saving ? t("common.saving") : t("common.save")}</Button>
       </div>
     </form>
     {provider.id === "hyper3d" ? <p className="settings-detail-hint">{t("providers.hyper3d.keyHint")}</p> : null}
     {provider.configured ? <Provider3DBalance model={{ provider: provider.id, id: MODEL3D_CONNECTION_ID }} /> : null}
-    {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
+    {error || deletion.error ? <p className="settings-note is-danger" role="alert">{deletion.error ?? error}</p> : null}
   </>;
 }
 
@@ -1041,29 +1064,29 @@ function ConnectedProvider({ provider, onBack, onRemoved }: { provider: Provider
         {displayedProvider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={Boolean(editing) || endpoint.saving} /><ProviderEnableControl provider={displayedProvider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
       </ProviderDetailHeader>
       {displayedProvider.configured ? <ProviderDeleteConfirmation provider={{ ...displayedProvider, credentialType: chatConnected ? credentialType : undefined }} deletion={deletion} disabled={Boolean(editing) || endpoint.saving} /> : null}
-      {!chatConnected ? <div className="settings-detail-section"><h4>{t("openAIImages.chatTitle")}</h4><p className="settings-detail-hint">{t("openAIImages.chatHint")}</p><div className="settings-form-actions">{provider.methods.map((method) => <button type="button" className="settings-secondary-button" key={method.type} disabled={Boolean(editing) || deletion.busy} onClick={() => edit(method.type)}>{authMethodLabel(method)}</button>)}</div>{authEditor}</div> : null}
+      {!chatConnected ? <div className="settings-detail-section"><h4>{t("openAIImages.chatTitle")}</h4><p className="settings-detail-hint">{t("openAIImages.chatHint")}</p><div className="settings-form-actions">{provider.methods.map((method) => <Button key={method.type} disabled={Boolean(editing) || deletion.busy} onClick={() => edit(method.type)}>{authMethodLabel(method)}</Button>)}</div>{authEditor}</div> : null}
       {chatConnected ? <section className="settings-detail-section" aria-label={t("providers.connection.title")}>
         <div className="provider-models-heading">
           <h4>{t("providers.connection.title")}</h4>
           {alternateMethod ? <div className="provider-models-heading-actions">
-            <button className="settings-secondary-button" type="button" disabled={Boolean(editing) || deletion.busy} onClick={() => edit(alternateMethod)}>{alternateMethod === "oauth" ? t("providers.useBrowserSignIn") : t("providers.useApiKey")}</button>
+            <Button disabled={Boolean(editing) || deletion.busy} onClick={() => edit(alternateMethod)}>{alternateMethod === "oauth" ? t("providers.useBrowserSignIn") : t("providers.useApiKey")}</Button>
           </div> : null}
         </div>
         <div className="settings-provider-connection">
           {credentialType === "oauth" ? <div className="settings-provider-setting-row settings-provider-auth-row">
             <span className="settings-search-field-label">{t("providers.signIn")}</span>
             <span className="settings-provider-setting-value">{oauthName ? t("providers.connection.signedInWith", { name: oauthName }) : t("providers.connection.signedIn")}</span>
-            {oauthMethod ? <button className="settings-secondary-button" type="button" disabled={Boolean(editing) || deletion.busy} onClick={() => edit("oauth")}>{t("providers.connection.reconnect")}</button> : <span />}
+            {oauthMethod ? <Button disabled={Boolean(editing) || deletion.busy} onClick={() => edit("oauth")}>{t("providers.connection.reconnect")}</Button> : <span />}
           </div> : <div className="settings-provider-setting-row">
             <span className="settings-search-field-label">{t("providers.apiKey")}</span>
             <span className="settings-provider-setting-value" aria-label={t("providers.apiKeyConfigured")}>••••••••</span>
-            {canEditKey ? <button className="settings-secondary-button settings-voice-sample" type="button" aria-label={t("providers.editApiKey")} data-tooltip={t("providers.editApiKey")} aria-expanded={editing === "api_key"} disabled={Boolean(editing) || deletion.busy} onClick={() => edit("api_key")}><Pencil size={15} aria-hidden="true" /></button> : <span />}
+            {canEditKey ? <IconButton size="sm" label={t("providers.editApiKey")} aria-expanded={editing === "api_key"} disabled={Boolean(editing) || deletion.busy} onClick={() => edit("api_key")}><Pencil size={15} aria-hidden="true" /></IconButton> : <span />}
           </div>}
           {authEditor}
         </div>
       </section> : null}
-      {displayedError ? <p className="settings-error" role="alert">{displayedError}</p> : null}
-      {notice ? <p className="settings-success" role="status">{notice}</p> : null}
+      {displayedError ? <p className="settings-note is-danger" role="alert">{displayedError}</p> : null}
+      {notice ? <p className="settings-note is-success" role="status">{notice}</p> : null}
       {chatConnected ? <ProviderModels key={modelsRevision} providerId={provider.id} /> : null}
       {provider.id === "openai" ? <OpenAIImageModels revision={modelsRevision} disabled={deletion.busy || Boolean(editing)} onChanged={setImageConnected} /> : provider.capabilities.includes("image") ? <ProviderImageModels key={`images-${modelsRevision}`} providerId={provider.id} /> : null}
       {showsEndpoint || showsTransport ? <ProviderAdvanced>
@@ -1071,13 +1094,13 @@ function ConnectedProvider({ provider, onBack, onRemoved }: { provider: Provider
           <div className="settings-provider-setting-row">
             <span className="settings-search-field-label">{t("providers.baseUrl")}</span>
             <span className="settings-provider-setting-value" title={endpoint.savedBaseUrl}>{endpoint.loading ? t("common.loading") : endpoint.savedBaseUrl || t("providers.unavailable")}</span>
-            <button className="settings-secondary-button settings-voice-sample" type="button" aria-label={t("providers.editBaseUrl")} data-tooltip={t("providers.editBaseUrl")} aria-expanded={editing === "endpoint"} disabled={Boolean(editing) || endpoint.loading || deletion.busy} onClick={() => edit("endpoint")}><Pencil size={15} aria-hidden="true" /></button>
+            <IconButton size="sm" label={t("providers.editBaseUrl")} aria-expanded={editing === "endpoint"} disabled={Boolean(editing) || endpoint.loading || deletion.busy} onClick={() => edit("endpoint")}><Pencil size={15} aria-hidden="true" /></IconButton>
           </div>
           {editing === "endpoint" ? <form className="settings-provider-setting-editor settings-detail-section" onSubmit={(event) => void saveEndpoint(event)}>
             <BaseUrlField endpoint={endpoint} />
             <div className="settings-form-actions">
-              <button className="settings-secondary-button" type="button" disabled={endpoint.saving} onClick={() => { endpoint.reset(); setEditing(undefined); setError(undefined); }}>{t("common.cancel")}</button>
-              <button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || !endpoint.baseUrl.trim() || !endpoint.dirty}>{endpoint.saving ? t("common.saving") : t("common.save")}</button>
+              <Button disabled={endpoint.saving} onClick={() => { endpoint.reset(); setEditing(undefined); setError(undefined); }}>{t("common.cancel")}</Button>
+              <Button variant="primary" type="submit" disabled={endpoint.loading || endpoint.saving || !endpoint.baseUrl.trim() || !endpoint.dirty}>{endpoint.saving ? t("common.saving") : t("common.save")}</Button>
             </div>
           </form> : null}
         </section> : null}
@@ -1138,8 +1161,8 @@ export function ActiveProviderAuth({ provider, method, inline = false, onBack, o
             )}
           </label>
           <div className="settings-form-actions">
-            <button className="settings-secondary-button" type="button" onClick={() => void cancel()}>{t("common.cancel")}</button>
-            <button className="settings-primary-button" type="submit" disabled={auth.responding || endpoint.loading || endpoint.saving || (editsEndpoint && !endpoint.baseUrl.trim()) || (prompt.value.type !== "select" && !prompt.value.optional && !answer.trim())}>{editingKey && prompt.value.type === "secret" ? t("providers.saveKey") : t("common.continue")}</button>
+            <Button onClick={() => void cancel()}>{t("common.cancel")}</Button>
+            <Button variant="primary" type="submit" disabled={auth.responding || endpoint.loading || endpoint.saving || (editsEndpoint && !endpoint.baseUrl.trim()) || (prompt.value.type !== "select" && !prompt.value.optional && !answer.trim())}>{editingKey && prompt.value.type === "secret" ? t("providers.saveKey") : t("common.continue")}</Button>
           </div>
         </form>
       ) : (
@@ -1153,36 +1176,30 @@ export function ActiveProviderAuth({ provider, method, inline = false, onBack, o
           </div>
           {notification?.type === "device_code" ? <div className="settings-device-code">{notification.userCode}</div> : null}
           <div className="settings-form-actions">
-            <button className="settings-secondary-button" type="button" onClick={() => void cancel()}>{t("common.cancel")}</button>
-            {external ? <button className="settings-primary-button" type="button" onClick={() => void openExternal(external)}><ExternalLink size={14} />{method === "oauth" ? t("providers.openBrowserAgain") : t("providers.openBrowser")}</button> : null}
+            <Button onClick={() => void cancel()}>{t("common.cancel")}</Button>
+            {external ? <Button variant="primary" onClick={() => void openExternal(external)}><ExternalLink size={14} />{method === "oauth" ? t("providers.openBrowserAgain") : t("providers.openBrowser")}</Button> : null}
           </div>
           {browserFallback && prompt ? (
             <form className="settings-detail-field settings-auth-fallback" onSubmit={(event) => void respond(event)}>
               <label className="settings-detail-hint" htmlFor="model-auth-redirect">{t("providers.redirectHint")}</label>
               <div className="settings-detail-inline">
                 <input id="model-auth-redirect" className="settings-search-input" value={answer} placeholder={prompt.value.type === "manual_code" ? prompt.value.placeholder : undefined} onChange={(event) => setAnswer(event.target.value)} spellCheck={false} />
-                <button className="settings-secondary-button" type="submit" disabled={auth.responding || !answer.trim()}>{t("common.continue")}</button>
+                <Button type="submit" disabled={auth.responding || !answer.trim()}>{t("common.continue")}</Button>
               </div>
             </form>
           ) : null}
         </div>
       )}
-      {displayedError ? <p className="settings-error" role="alert">{displayedError}</p> : null}
+      {displayedError ? <p className="settings-note is-danger" role="alert">{displayedError}</p> : null}
     </section>
   );
 }
 
 function ProviderDetailHeader({ provider, onBack, children, description }: { provider: ModelProviderSummary; onBack: () => void; children?: ReactNode; description?: string }) {
   return (
-    <header className="settings-provider-detail-header">
-      <button className="icon-button settings-provider-back" type="button" onClick={onBack} aria-label={t("common.back")}><ArrowLeft size={16} /></button>
-      <ProviderMark provider={provider} />
-      <span className="settings-provider-heading">
-        <h3>{provider.name}</h3>
-        <small>{description ?? providerDescription(provider)}</small>
-      </span>
+    <SettingsDetailHead mark={<ProviderMark provider={provider} />} title={provider.name} description={description ?? providerDescription(provider)} onBack={onBack} backLabel={t("settings.providers.back")}>
       {children}
-    </header>
+    </SettingsDetailHead>
   );
 }
 
@@ -1201,13 +1218,11 @@ function ProviderEnableControl({ provider, onChanged, disabled = false, label }:
     catch (cause) { setEnabled(previous); setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
-  return <div className="settings-provider-enable-control">
-    <label className="settings-provider-enable-label" title={enabled ? t("providers.availableForRequests") : t("providers.disabledKept")}>
-      <small>{enabled ? t("common.enabled") : t("common.disabled")}</small>
-      <span className="settings-toggle"><input type="checkbox" role="switch" aria-label={label ?? t("providers.enableProvider", { name: provider.name })} checked={enabled} disabled={busy || disabled} onChange={(event) => void toggle(event.target.checked)} /><span aria-hidden="true" /></span>
-    </label>
-    {error ? <p className="settings-error" role="alert">{error}</p> : null}
-  </div>;
+  return <span className="settings-provider-enable-control" title={enabled ? t("providers.availableForRequests") : t("providers.disabledKept")}>
+    <small className="settings-muted">{enabled ? t("common.enabled") : t("common.disabled")}</small>
+    <Switch label={label ?? t("providers.enableProvider", { name: provider.name })} checked={enabled} disabled={busy || disabled} onChange={(next) => void toggle(next)} />
+    {error ? <span className="settings-provider-enable-error" role="alert">{error}</span> : null}
+  </span>;
 }
 
 function DetailSectionHeader({ title, description }: { title: string; description: string }) {

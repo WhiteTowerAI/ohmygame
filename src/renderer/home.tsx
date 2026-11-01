@@ -1,32 +1,45 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Plus, RefreshCw } from "./icons.js";
-import { useEffect, useRef, useState } from "react";
-import type { PluginMention, ProjectState, ProjectType, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
-import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
+import { FilePlus, Import, RefreshCw } from "./icons.js";
+import { useEffect, useState } from "react";
+import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
+import { listProjects, waitForRuntime } from "./api.js";
 import { ExampleShelf, useExamples } from "./examples.js";
 import { publishRecentProjects } from "./app-sidebar.js";
 import { PageFrame } from "./page-frame.js";
-import { ProjectCard } from "./project-card.js";
-import { ProjectCreateDialog } from "./project-create-dialog.js";
-import { ProjectRenameDialog } from "./project-rename-dialog.js";
-import { projectDeletionConfirmation } from "./project-deletion.js";
+import { ProjectCard, useProjectActions } from "./project-card.js";
+import { pickProjectFolder, ProjectCreateDialog, type FirstMessage } from "./project-create-dialog.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
-import { GAME_PROJECT_TYPES } from "./project-types.js";
-import { createdProjectView, projectsHash, type AppNavigationTarget } from "./routes.js";
+import { createdProjectView, type AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { useProjectShelfLayout } from "./use-project-shelf-layout.js";
 import { useProjectActivity } from "./use-project-activity.js";
-import "./studios.css";
+import { Button } from "./ui/index.js";
+import "./home.css";
+import type { OnboardingStart } from "./onboarding.js";
 import { t } from "./i18n.js";
 
 interface HomeProps {
   inert?: boolean;
+  /** Where setup's last step sent the person; Home acts on it once. */
+  start?: OnboardingStart;
+  onStartHandled?: () => void;
   onNavigate: (page: AppNavigationTarget) => void;
   onCreate: (project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
   onOpen: (projectId: string, view?: "design") => void;
 }
 
-export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps) {
+/** What the new-project dialog opens with, if it is open. */
+interface CreateRequest {
+  firstMessage?: FirstMessage;
+  /** Empties Home's prompt box once the first message has been sent. */
+  clearDraft?: () => void;
+  workspacePath?: string;
+}
+
+// Home is where every project starts: the prompt creates the project at once,
+// with the prompt as its first message, and opens the new-project dialog only
+// when something needs the person; Start blank and Import folder open it.
+export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onStartHandled }: HomeProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -34,13 +47,12 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
   // Renames, removals and automatic names reach the sidebar too.
   useEffect(() => { if (phase === "ready") publishRecentProjects(projects); }, [phase, projects]);
   const [loadError, setLoadError] = useState<string>();
-  const [projectActionError, setProjectActionError] = useState<string>();
-  const [projectType, setProjectType] = useState<ProjectType>("web-game");
-  const [createOpen, setCreateOpen] = useState(false);
-  const [renameTarget, setRenameTarget] = useState<ProjectState>();
-  const renameTrigger = useRef<HTMLElement | null>(null);
+  const [importError, setImportError] = useState<string>();
+  const [creating, setCreating] = useState<CreateRequest>();
   const { examples, covers: exampleCovers } = useExamples();
   const { sectionRef, columns, recentProjectLimit } = useProjectShelfLayout();
+  const projectActions = useProjectActions(loadProjects);
+  const canImportFolder = !!window.ohMyGameDesktop?.selectProjectDirectory;
 
   async function loadProjects() {
     setPhase("loading");
@@ -57,115 +69,115 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
   }
 
   useEffect(() => { void loadProjects(); }, [serviceGeneration]);
-  async function rename(project: ProjectState, input: string) {
-    const name = input.trim();
-    if (!name || name === project.name) return;
-    await runProjectAction(() => renameProject(project.id, name));
-  }
 
-  async function duplicate(project: ProjectState) {
-    await runProjectAction(() => duplicateProject(project.id));
-  }
-
-  async function remove(project: ProjectState) {
-    if (!window.confirm(projectDeletionConfirmation(project))) return;
-    await runProjectAction(() => deleteProject(project.id));
-  }
-
-  async function runProjectAction(action: () => Promise<unknown>) {
-    setProjectActionError(undefined);
+  // An existing folder opens its project if it has one, or becomes a new project's workspace.
+  async function importFolder(): Promise<void> {
+    setImportError(undefined);
     try {
-      await action();
-      await loadProjects();
+      const picked = await pickProjectFolder();
+      if (!picked) return;
+      if ("owner" in picked) onOpen(picked.owner.id);
+      else setCreating({ workspacePath: picked.path });
     } catch (error) {
-      setProjectActionError(errorMessage(error));
+      setImportError(errorMessage(error));
     }
   }
+
+  useEffect(() => {
+    if (!start || inert) return;
+    onStartHandled?.();
+    if (start === "blank") setCreating({});
+    else if (start === "import") void importFolder();
+    else document.querySelector<HTMLElement>(".home-hero textarea, .home-hero [contenteditable=\"true\"]")?.focus();
+  }, [start, inert]);
 
   const visibleProjects = projects.slice(0, recentProjectLimit);
   // Two rows, so every example type has room; Home scrolls when the window is short.
   const visibleExamples = examples.slice(0, columns * 2);
 
+  // While a prompt's project is being made, the page waits for it rather than lose it.
   return (
-    <PageFrame active="home" inert={inert} onNavigate={onNavigate}>
-
-      <section className="home-content home-content-fitted">
+    <PageFrame active="home" inert={inert || !!creating?.firstMessage} onNavigate={onNavigate}>
+      <main className="home-page">
         <WindowDragRegion />
-        <div className="home-start">
-          <h1>{t("home.title")}</h1>
-          <ProjectPromptCreator
-            draftKey="home"
-            projectType={projectType}
-            projectTypes={GAME_PROJECT_TYPES}
-            placeholder={t("home.placeholder")}
-            onProjectTypeChange={setProjectType}
-            onOpenProject={onOpen}
-            onCreate={onCreate}
-          />
-          <button className="home-start-blank" type="button" onClick={() => setCreateOpen(true)}>
-            <Plus size={14} />{t("home.startBlank")}
-          </button>
-        </div>
+        <div className="home-body">
+          <section className="home-hero">
+            <h1>{t("home.title")}</h1>
+            <ProjectPromptCreator
+              draftKey="home"
+              placeholder={t("home.placeholder")}
+              disabled={!!creating?.firstMessage}
+              onSubmit={(firstMessage, clearDraft) => setCreating({ firstMessage, clearDraft })}
+              starts={<>
+                <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} disabled={!!creating} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
+                {canImportFolder ? <Button variant="ghost" size="sm" icon={<Import size={14} />} disabled={!!creating} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
+              </>}
+            />
+            {importError ? <p className="home-notice" role="alert">{importError}</p> : null}
+          </section>
 
-        <section ref={sectionRef} className="home-recent studio-projects" aria-labelledby="projects-heading">
-          <div className="studio-section-heading">
-            <h2 id="projects-heading">{t("projects.recent")}</h2>
-            {phase === "error" ? (
-              <button className="studio-text-link" type="button" onClick={() => void loadProjects()}>
-                <RefreshCw size={14} />{t("common.retry")}
-              </button>
-            ) : projects.length > recentProjectLimit ? (
-              <a className="studio-text-link" href={projectsHash()}>{t("common.showAll")}</a>
+          <section ref={sectionRef} className="home-section home-recent" aria-labelledby="projects-heading">
+            <header className="home-section-head">
+              <h2 id="projects-heading">{t("projects.recent")}</h2>
+              {phase === "error" ? (
+                <Button size="sm" variant="ghost" icon={<RefreshCw size={14} />} onClick={() => void loadProjects()}>{t("common.retry")}</Button>
+              ) : projects.length ? (
+                <Button size="sm" variant="ghost" onClick={() => onNavigate("projects")}>{t("home.allProjects")}</Button>
+              ) : null}
+            </header>
+
+            {phase === "loading" ? <ProjectGridSkeleton count={recentProjectLimit} /> : null}
+            {phase === "error" ? <p className="home-project-state" role="alert">{loadError}</p> : null}
+            {phase === "ready" && projects.length === 0 ? <p className="home-project-state">{t("projects.none")}</p> : null}
+            {phase === "ready" && projects.length > 0 ? (
+              <div className="home-grid">
+                {visibleProjects.map((project) => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    agentStatus={activity.get(project.id)}
+                    onOpen={() => onOpen(project.id)}
+                    actions={projectActions.actionsFor(project)}
+                  />
+                ))}
+              </div>
             ) : null}
-          </div>
+            {projectActions.error ? <p className="home-notice" role="alert">{projectActions.error}</p> : null}
+          </section>
 
-          {phase === "loading" ? <ProjectGridSkeleton count={recentProjectLimit} /> : null}
-          {phase === "error" ? <p className="home-project-state" role="alert">{loadError}</p> : null}
-          {phase === "ready" && projects.length === 0 ? (
-            <p className="home-project-state">
-              {t("projects.none")}
-            </p>
-          ) : null}
-          {phase === "ready" && projects.length > 0 ? (
-            <div className="studio-project-grid">
-              {visibleProjects.map((project) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  agentStatus={activity.get(project.id)}
-                  onOpen={() => onOpen(project.id)}
-                  actions={{ onRename: () => {
-                    renameTrigger.current = document.querySelector<HTMLElement>('.project-card-menu[aria-expanded="true"]');
-                    setRenameTarget(project);
-                  }, onDuplicate: () => void duplicate(project), onDelete: () => void remove(project) }}
-                />
-              ))}
-            </div>
-          ) : null}
-          {projectActionError ? <p className="home-notice" role="alert">{projectActionError}</p> : null}
-        </section>
-        {visibleExamples.length > 0 ? <section className="home-discover home-explore studio-examples" aria-labelledby="home-examples-heading">
-          <div className="studio-section-heading"><h2 id="home-examples-heading">{t("home.explore")}</h2></div>
-          <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen} />
-        </section> : null}
-      </section>
-      {renameTarget ? <ProjectRenameDialog name={renameTarget.name} returnFocus={renameTrigger.current} onClose={() => setRenameTarget(undefined)} onConfirm={(name) => {
-        const project = renameTarget;
-        setRenameTarget(undefined);
-        void rename(project, name);
-      }} /> : null}
-      {createOpen ? <ProjectCreateDialog initialType={projectType} projectTypes={GAME_PROJECT_TYPES} onClose={() => setCreateOpen(false)} onCreated={(project) => {
-        setCreateOpen(false);
-        onOpen(project.id, createdProjectView(project.type));
-      }} /> : null}
+          {visibleExamples.length > 0 ? <section className="home-section home-explore" aria-labelledby="home-examples-heading">
+            <header className="home-section-head">
+              <h2 id="home-examples-heading">{t("home.explore")}</h2>
+              <Button size="sm" variant="ghost" onClick={() => onNavigate("community")}>{t("home.toCommunity")}</Button>
+            </header>
+            <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen} />
+          </section> : null}
+        </div>
+      </main>
+      {projectActions.dialogs}
+      {creating ? <ProjectCreateDialog
+        firstMessage={creating.firstMessage}
+        direct={!!creating.firstMessage}
+        initialWorkspacePath={creating.workspacePath}
+        onClose={() => setCreating(undefined)}
+        onOpenProject={(projectId) => { setCreating(undefined); onOpen(projectId); }}
+        onCreated={(project, start) => {
+          setCreating(undefined);
+          if (start) {
+            creating.clearDraft?.();
+            onCreate(project, start.conversationId, start.prompt, start.mentions, [], start.mode, start.attachments);
+          }
+          else onOpen(project.id, createdProjectView(project.type));
+        }}
+      /> : null}
     </PageFrame>
   );
 }
 
 function ProjectGridSkeleton({ count }: { count: number }) {
   return (
-    <div className="studio-project-grid" aria-label={t("projects.loading")}>
-      {Array.from({ length: count }, (_, item) => <div className="studio-project-skeleton" key={item} />)}
+    <div className="home-grid" aria-label={t("projects.loading")}>
+      {Array.from({ length: count }, (_, item) => <div className="home-project-skeleton" key={item} />)}
     </div>
   );
 }

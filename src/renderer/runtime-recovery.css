@@ -1,32 +1,67 @@
+/* Over every page while the background service is away; nothing under it is torn down. */
 .runtime-notice {
   position: fixed;
-  top: 44px;
+  top: 52px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 10000;
   display: flex;
   align-items: flex-start;
-  gap: 20px;
-  width: min(620px, calc(100vw - 48px));
-  padding: 16px 20px;
-  border: 1px solid var(--border, #555);
-  border-radius: 12px;
-  background: var(--surface, #252525);
-  color: var(--text, #eee);
-  box-shadow: 0 8px 32px #0004;
-  font-size: 13px;
+  gap: var(--space-4);
+  width: min(560px, calc(100vw - 32px));
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--color-text);
+  font-family: var(--font-sans);
   -webkit-app-region: no-drag;
 }
-.runtime-notice > div {
-  min-width: 0;
+.runtime-notice-body {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
-.runtime-notice p,
+.runtime-notice strong {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+.runtime-notice strong > svg {
+  flex: none;
+  color: var(--color-danger);
+}
+.runtime-notice p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+.runtime-notice summary {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.runtime-notice pre {
+  max-height: 180px;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--color-stage);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .preview-diagnostic p {
   margin: 6px 0 0;
   opacity: 0.75;
 }
-.runtime-notice pre,
 .pane-error-boundary pre,
 .preview-diagnostic pre,
 .paused-initial-prompt pre {
@@ -36,12 +71,10 @@
   overflow-wrap: anywhere;
   font-size: 12px;
 }
-.runtime-notice details,
 .pane-error-boundary details,
 .preview-diagnostic details {
   margin-top: 8px;
 }
-.runtime-notice button,
 .pane-error-boundary button,
 .preview-recovery-actions button,
 .paused-initial-prompt button,

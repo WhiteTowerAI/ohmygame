@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { communityProfileHash, communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, playtestHash, pluginHash, pluginBuilderHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
+import { communityProfileHash, communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, playtestHash, pluginBrowseHash, pluginHash, pluginBuilderHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
     expect(parseAppRoute("")).toEqual({ page: "home" });
     expect(parseAppRoute("#/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/unknown")).toEqual({ page: "home" });
-    for (const page of ["projects", "library", "general", "web-game", "interactive-story", "godot", "asset-canvas"] as const) {
+    for (const page of ["projects", "library"] as const) {
       expect(parseAppRoute(`#/${page}`)).toEqual({ page });
       expect(sidebarHash(page)).toBe(`#/${page}`);
+    }
+    // The studio pages are gone; their old links open Home.
+    for (const page of ["general", "web-game", "interactive-story", "godot", "asset-canvas"]) {
+      expect(parseAppRoute(`#/${page}`)).toEqual({ page: "home" });
     }
     expect(sidebarHash("home")).toBe("#/");
     expect(sidebarHash("community")).toBe("#/community/games");
@@ -50,6 +54,9 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/plugins/personal%3Agame%20tools")).toEqual({ page: "plugins", pluginId: "personal:game tools" });
     expect(parseAppRoute("#/plugins")).toEqual({ page: "plugins" });
     expect(parseAppRoute("#/settings/plugins")).toEqual({ page: "plugins" });
+    // More types… opens the marketplace at the plugins that add a project type.
+    expect(parseAppRoute(pluginBrowseHash("projectType"))).toEqual({ page: "plugins", adds: "projectType" });
+    expect(parseAppRoute("#/plugins?adds=unknown")).toEqual({ page: "home" });
     expect(parseAppRoute("#/settings/plugins/personal%3Agame%20tools")).toEqual({ page: "plugins", pluginId: "personal:game tools" });
     expect(parseAppRoute("#/plugins/%")).toEqual({ page: "plugins" });
     expect(parseAppRoute("#/settings/plugins/%")).toEqual({ page: "plugins" });
@@ -81,13 +88,15 @@ describe("renderer routes", () => {
   });
 
   it("parses and formats Settings routes", () => {
-    expect(DEFAULT_SETTINGS_SECTION).toBe("providers");
-    expect(parseAppRoute("#/settings")).toEqual({ page: "settings", section: "providers" });
-    for (const section of ["account", "billing", "appearance", "providers", "agents", "web-search", "network", "mcp-server", "about"] as const) {
+    expect(DEFAULT_SETTINGS_SECTION).toBe("general");
+    expect(parseAppRoute("#/settings")).toEqual({ page: "settings", section: "general" });
+    for (const section of ["general", "account", "billing", "appearance", "providers", "agents", "web-search", "network", "connections", "mcp-server", "about"] as const) {
       expect(parseAppRoute(`#/settings/${section}`)).toEqual({ page: "settings", section });
       expect(settingsHash(section)).toBe(`#/settings/${section}`);
     }
-    expect(parseAppRoute("#/settings/connections")).toEqual({ page: "plugins" });
+    expect(parseAppRoute("#/settings/agents/claude-code-cli")).toEqual({ page: "settings", section: "agents", agent: "claude-code-cli" });
+    expect(settingsHash("agents", "ohmygame")).toBe("#/settings/agents/ohmygame");
+    expect(settingsHash("providers", "ohmygame")).toBe("#/settings/providers");
     expect(parseAppRoute("#/settings/usage")).toEqual({ page: "home" });
     expect(parseAppRoute("#/settings/plans")).toEqual({ page: "home" });
     expect(parseAppRoute("#/settings/unknown")).toEqual({ page: "home" });

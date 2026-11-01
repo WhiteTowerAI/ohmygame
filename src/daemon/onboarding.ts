@@ -24,13 +24,15 @@ export class OnboardingStore {
   async load(): Promise<void> {
     try {
       const value = JSON.parse(await readFile(this.#filePath, "utf8"));
+      // Setup's last step was "media" before it became "start".
+      const step = value?.step === "media" ? "start" : value?.step;
       if (
         value?.version !== 1 ||
         !["pending", "completed", "skipped"].includes(value.status) ||
-        !["welcome", "connect", "media"].includes(value.step)
+        !["welcome", "connect", "start"].includes(step)
       )
         throw new Error("Invalid onboarding state");
-      this.#state = { version: 1, status: value.status, step: value.step };
+      this.#state = { version: 1, status: value.status, step };
       this.#initialized = true;
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;

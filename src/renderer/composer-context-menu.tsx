@@ -1,49 +1,63 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import type { AgentUsageLimit, ConversationCapabilities } from "../shared/contracts.js";
 import { AgentUsageInline } from "./agent-usage.js";
-import { FileText, Lightbulb, Plus, Share2, Upload, WandSparkles } from "./icons.js";
+import { ClipboardList, FileText, Paperclip, Plug, Plus, Share2, Sparkles, WandSparkles } from "./icons.js";
 import { attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
 import { matchingMentions, mentionQuery, slashCommandQuery, skillDisplayName, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { t } from "./i18n.js";
 import { PluginGlyph } from "./plugin-icons.js";
+import { DropdownMenu, type MenuEntry } from "./ui/index.js";
+import type { ProjectPluginCommand } from "../shared/plugins.js";
 
-type ContextAction = "files" | "design" | "plan" | "compact" | "publish";
+type ContextAction = "plan" | "compact" | "publish";
 interface ContextMenuItem {
   id: string;
-  section: "Add" | "Commands" | "Plugins" | "Skills";
+  section: "Commands" | "Plugins" | "Skills";
   label: string;
   description: string;
   source?: string;
-  command?: "plan" | "compact" | "publish";
+  /** What "/" types for it. */
+  command?: string;
   action?: ContextAction;
   mention?: ComposerMention;
+  pluginCommand?: ProjectPluginCommand;
 }
 
-export function composerContextItems({ capabilities, query, planning, canTogglePlanning, supportsDesign, showCompact = false, contextPercent, canPublish = false }: {
+/** The plugin commands the composer shows: in the "/" list and in the + menu. */
+export interface ComposerPluginCommands {
+  slash: ProjectPluginCommand[];
+  add: ProjectPluginCommand[];
+}
+
+/** A plugin command's "/" name: its `slash`, or its own id. */
+const slashName = (command: ProjectPluginCommand) => command.slash ?? command.id.slice(command.id.indexOf(":") + 1);
+
+/**
+ * What a typed "/", "@" or "$" offers: "/" the commands and skills, "@" the
+ * plugins and skills, "$" the skills. With no query it is the "/" list, as
+ * the + menu opens it. Attaching files and the modes live in the + menu.
+ */
+export function composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact = false, contextPercent, canPublish = false, pluginCommands = [] }: {
   capabilities: ConversationCapabilities;
   query?: ComposerMentionQuery;
   planning: boolean;
   canTogglePlanning: boolean;
-  supportsDesign: boolean;
   showCompact?: boolean;
   contextPercent?: number;
   canPublish?: boolean;
+  pluginCommands?: ProjectPluginCommand[];
 }): ContextMenuItem[] {
-  const actions: ContextMenuItem[] = query?.trigger === "$" ? [] : query?.trigger === "/" ? [
+  const trigger = query?.trigger ?? "/";
+  const actions: ContextMenuItem[] = trigger !== "/" ? [] : [
     ...(canTogglePlanning ? [{ id: "plan", command: "plan" as const, section: "Commands" as const, label: t("planMode.mode"), description: planning ? t("planMode.turnOff") : t("planMode.turnOn"), action: "plan" as const }] : []),
     ...(showCompact ? [{ id: "compact", command: "compact" as const, section: "Commands" as const, label: t("planMode.compact"), description: `${t("planMode.compactHint")}${contextPercent === undefined ? "" : t("planMode.full", { percent: contextPercent })}`, action: "compact" as const }] : []),
     ...(canPublish ? [{ id: "publish", command: "publish" as const, section: "Commands" as const, label: t("contextMenu.publish"), description: t("contextMenu.publishHint"), action: "publish" as const }] : []),
-  ] : [
-    { id: "files", section: "Add", label: t("contextMenu.attachFiles"), description: t("contextMenu.attachFilesHint"), action: "files" },
-    ...(supportsDesign ? [{ id: "design", section: "Add" as const, label: t("contextMenu.design"), description: t("contextMenu.designHint"), action: "design" as const }] : []),
-    ...(canTogglePlanning ? [{ id: "plan", section: "Add" as const, label: t("planMode.mode"), description: planning ? t("planMode.turnOff") : t("planMode.turnOn"), action: "plan" as const }] : []),
+    ...pluginCommands.map((command): ContextMenuItem => ({ id: `command:${command.id}`, command: slashName(command), section: "Commands", label: command.title, description: command.title, source: command.plugin, pluginCommand: command })),
   ];
   const search = query?.query ?? "";
   return [
-    ...actions.filter((item) => item.command
-      ? item.command.startsWith(search) || (item.command === "compact" && search.startsWith("compact "))
-      : `${item.label} ${item.description}`.toLowerCase().includes(search)),
-    ...matchingMentions(planning ? { plugins: capabilities.plugins, skills: [] } : capabilities, query ?? { start: 0, end: 0, trigger: "@", query: "" }).map((mention): ContextMenuItem => {
+    ...actions.filter((item) => item.command!.startsWith(search) || (item.command === "compact" && search.startsWith("compact "))),
+    ...matchingMentions(planning ? { plugins: capabilities.plugins, skills: [] } : capabilities, query ?? { start: 0, end: 0, trigger: "/", query: "" }).map((mention): ContextMenuItem => {
       const skillName = mention.type === "skill" ? skillDisplayName(mention.value.name) : undefined;
       return {
         id: mention.type === "plugin" ? `plugin:${mention.value.id}` : `skill:${mention.value.name}`,
@@ -57,7 +71,7 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
   ];
 }
 
-export function useComposerContextMenu({ prompt, cursor, textarea, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onPublish, onMention, onChange, onSelectionChange, contextPercent, canPublish, usageLimits }: {
+export function useComposerContextMenu({ prompt, cursor, textarea, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onPublish, onMention, onChange, onSelectionChange, contextPercent, canPublish, usageLimits, pluginCommands, onPluginCommand }: {
   prompt: string;
   cursor: number;
   textarea: RefObject<HTMLTextAreaElement | null>;
@@ -77,28 +91,32 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
   canPublish?: boolean;
   /** A coding agent's account quota, shown under the commands when they are opened with "/". */
   usageLimits?: AgentUsageLimit[];
+  pluginCommands?: ComposerPluginCommands;
+  onPluginCommand?: (command: ProjectPluginCommand) => void;
 }) {
   const id = useId();
   const menu = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
   const filesInput = useRef<HTMLInputElement>(null);
-  const [openedByButton, setOpenedByButton] = useState(false);
+  // The + menu opens the "/" or "@" list without typing it.
+  const [openedWith, setOpenedWith] = useState<"/" | "@">();
   const [dismissed, setDismissed] = useState<string>();
   const [selected, setSelected] = useState(0);
   const candidate = mentionQuery(prompt, cursor) ?? slashCommandQuery(prompt, cursor);
   const mentionKey = candidate ? `${candidate.start}:${candidate.trigger}:${candidate.query}` : undefined;
-  const query = mentionKey === dismissed ? undefined : candidate;
-  const open = !disabled && (openedByButton || Boolean(query));
-  const items = composerContextItems({ capabilities, query, planning, canTogglePlanning, supportsDesign: Boolean(onDesignReference), showCompact: Boolean(onCompact), contextPercent, canPublish });
+  const typed = mentionKey === dismissed ? undefined : candidate;
+  const query: ComposerMentionQuery | undefined = typed ?? (openedWith ? { start: cursor, end: cursor, trigger: openedWith, query: "" } : undefined);
+  const open = !disabled && Boolean(query);
+  const items = composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact: Boolean(onCompact), contextPercent, canPublish, pluginCommands: onPluginCommand ? pluginCommands?.slash : undefined });
   const selectedIndex = Math.min(selected, Math.max(0, items.length - 1));
 
-  useEffect(() => setSelected(0), [query?.start, query?.trigger, query?.query, openedByButton]);
+  useEffect(() => setSelected(0), [query?.start, query?.trigger, query?.query]);
   useEffect(() => {
     if (!mentionKey) setDismissed(undefined);
+    else setOpenedWith(undefined);
   }, [mentionKey]);
   useEffect(() => {
     if (disabled) {
-      setOpenedByButton(false);
+      setOpenedWith(undefined);
       setDismissed(mentionKey);
     }
   }, [disabled]);
@@ -106,7 +124,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     if (!open) return;
     const closeOutside = (event: Event) => {
       const target = event.target as Node;
-      if (target === textarea.current || menu.current?.contains(target) || trigger.current?.contains(target)) return;
+      if (target === textarea.current || menu.current?.contains(target)) return;
       close();
     };
     document.addEventListener("pointerdown", closeOutside);
@@ -118,8 +136,16 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
   }, [open, mentionKey]);
 
   function close(): void {
-    setOpenedByButton(false);
+    setOpenedWith(undefined);
     setDismissed(mentionKey);
+  }
+
+  function openList(trigger: "/" | "@"): void {
+    setDismissed(undefined);
+    setSelected(0);
+    setOpenedWith(trigger);
+    // The menu hands focus back to its button as it closes; the list belongs to the field.
+    requestAnimationFrame(() => textarea.current?.focus());
   }
 
   function select(item: ContextMenuItem): void {
@@ -129,21 +155,19 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
       return;
     }
     if (item.action === "compact") {
-      close();
       onCompact?.();
       textarea.current?.focus();
       return;
     }
     // Actions consume the search token, leaving the message draft intact.
-    if (query) {
+    if (query && query.end > query.start) {
       onChange(`${prompt.slice(0, query.start)}${prompt.slice(query.end).replace(/^\s+/, "")}`);
       onSelectionChange(query.start);
       requestAnimationFrame(() => textarea.current?.setSelectionRange(query.start, query.start));
     }
-    if (item.action === "files") filesInput.current?.click();
-    else if (item.action === "design") onDesignReference?.();
-    else if (item.action === "plan") onTogglePlanning();
+    if (item.action === "plan") onTogglePlanning();
     else if (item.action === "publish") onPublish?.();
+    else if (item.pluginCommand) onPluginCommand?.(item.pluginCommand);
     textarea.current?.focus();
   }
 
@@ -176,31 +200,30 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     return true;
   }
 
+  const addItems: MenuEntry[] = [
+    { label: t("contextMenu.attachFiles"), icon: <Paperclip size={14} />, onSelect: () => filesInput.current?.click() },
+    ...(onDesignReference ? [{ label: t("contextMenu.design"), icon: <FileText size={14} />, onSelect: onDesignReference }] : []),
+    ...(canTogglePlanning ? ["separator" as const, { label: t("planMode.mode"), icon: <ClipboardList size={14} />, checked: planning, onSelect: onTogglePlanning }] : []),
+    "separator",
+    ...(onPluginCommand && pluginCommands?.add.length ? pluginCommands.add.map((command): MenuEntry => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => onPluginCommand(command) })) : []),
+    { label: t("contextMenu.commandsAndSkills"), icon: <Sparkles size={14} />, shortcut: "/", onSelect: () => openList("/") },
+    ...(capabilities.plugins.length ? [{ label: t("contextMenu.mentionPlugin"), icon: <Plug size={14} />, shortcut: "@", onSelect: () => openList("@") }] : []),
+  ];
+
   return {
     open,
     handleKeyDown,
     button: <>
-      <button
-        ref={trigger}
-        className="icon-button composer-attach-button"
-        type="button"
-        disabled={disabled}
-        aria-label={t("contextMenu.trigger")}
-        title={t("contextMenu.trigger")}
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        aria-haspopup="listbox"
-        onKeyDown={handleKeyDown}
-        onClick={() => {
-          if (open) close();
-          else {
-            setOpenedByButton(true);
-            setDismissed(undefined);
-            setSelected(0);
-          }
-          textarea.current?.focus();
-        }}
-      ><Plus size={17} /></button>
+      <DropdownMenu placement="top-start" items={addItems} trigger={(props) => (
+        <button
+          {...props}
+          className="icon-button composer-attach-button"
+          type="button"
+          disabled={disabled}
+          aria-label={t("contextMenu.trigger")}
+          title={t("contextMenu.trigger")}
+        ><Plus size={16} /></button>
+      )} />
       <input ref={filesInput} className="visually-hidden" type="file" multiple tabIndex={-1} aria-hidden="true" onChange={(event) => {
         const files = attachmentFiles([...(event.target.files ?? [])]);
         if (files.length) onFiles(files);
@@ -208,13 +231,14 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
         textarea.current?.focus();
       }} />
     </>,
-    overlay: open ? <ComposerContextMenu id={id} menuRef={menu} items={items} selected={selectedIndex} onSelect={select} onHover={setSelected} usageLimits={query?.trigger === "/" ? usageLimits : undefined} /> : null,
+    overlay: open ? <ComposerContextMenu id={id} menuRef={menu} trigger={query?.trigger ?? "/"} items={items} selected={selectedIndex} onSelect={select} onHover={setSelected} usageLimits={query?.trigger === "/" ? usageLimits : undefined} /> : null,
     suggestions: open ? { id, activeId: items[selectedIndex] ? `${id}-${items[selectedIndex].id}` : undefined } : undefined,
   };
 }
 
-function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover, usageLimits }: {
+function ComposerContextMenu({ id, menuRef, trigger, items, selected, onSelect, onHover, usageLimits }: {
   id: string;
+  trigger: "/" | "@" | "$";
   usageLimits?: AgentUsageLimit[];
   menuRef: RefObject<HTMLDivElement | null>;
   items: ContextMenuItem[];
@@ -227,7 +251,8 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover, 
     const element = menuRef.current;
     const anchor = element?.closest(".prompt-box");
     if (!element || !anchor) return;
-    const pane = anchor.closest(".agent-body, .home-content");
+    // The floating bar's composer is bounded by the area it floats over.
+    const pane = anchor.closest(".agent-body, .home-page, .dock-body");
     const content = anchor.closest(".desktop-window-content");
     const updateHeight = () => {
       const anchorRect = anchor.getBoundingClientRect();
@@ -243,8 +268,15 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover, 
       const below = Math.max(0, bottom - anchorRect.bottom - 12);
       // Include the section heading, first option, and menu padding.
       const minimumMenuHeight = 84;
-      const openBelow = above < minimumMenuHeight && below >= minimumMenuHeight;
+      // Home's composer sits high on the page, so its menu drops below it;
+      // a chat's sits at the bottom, so its menu rises. Either way the menu
+      // takes the other side when that one fits it and its own side doesn't.
+      const wanted = Math.min(400, Math.max(minimumMenuHeight, element.scrollHeight));
+      const preferBelow = anchor.classList.contains("prompt-box-home");
+      const [first, second] = preferBelow ? [below, above] : [above, below];
+      const firstSide = first >= wanted || (second < wanted && first >= second);
       const openInside = above < minimumMenuHeight && below < minimumMenuHeight;
+      const openBelow = !openInside && (preferBelow ? firstSide : !firstSide);
       element.classList.toggle("is-below", openBelow);
       element.classList.toggle("is-inside", openInside);
       element.style.top = openInside ? `${Math.max(0, top - anchorRect.top + 6)}px` : "";
@@ -279,7 +311,7 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover, 
     else if (row.bottom > boundary.bottom - 6) element.scrollTop += row.bottom - boundary.bottom + 6;
   }, [selected, items[selected]?.id, menuRef]);
 
-  return <div ref={menuRef} id={id} className="composer-command-menu composer-context-menu" role="listbox" aria-label={t("contextMenu.label")} onMouseDown={(event) => event.preventDefault()}>
+  return <div ref={menuRef} id={id} className="composer-command-menu composer-context-menu" role="listbox" aria-label={t(`contextMenu.list.${trigger === "/" ? "commands" : trigger === "@" ? "mentions" : "skills"}`)} onMouseDown={(event) => event.preventDefault()}>
     {items.length ? items.map((item, index) => <Fragment key={item.id}>
       {item.section !== items[index - 1]?.section ? <div className="composer-context-menu-section" role="presentation">{t(`contextMenu.section.${item.section}`)}</div> : null}
       <button
@@ -294,11 +326,12 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover, 
         onMouseEnter={() => onHover(index)}
         onClick={() => onSelect(item)}
       >
-        {item.action === "files" ? <Upload size={16} /> : item.action === "design" ? <FileText size={16} /> : item.action === "plan" ? <Lightbulb size={16} /> : item.action === "compact" ? <FileText size={16} /> : item.action === "publish" ? <Share2 size={16} /> : item.mention?.type === "plugin" ? <PluginGlyph plugin={item.mention.value} size={16} /> : <WandSparkles size={16} />}
-        <span>{item.label}</span>
-        <small>{item.description}</small>
+        <span className="composer-context-menu-icon">{item.action === "plan" ? <ClipboardList size={14} /> : item.action === "compact" ? <FileText size={14} /> : item.action === "publish" ? <Share2 size={14} /> : item.mention?.type === "plugin" ? <PluginGlyph plugin={item.mention.value} size={14} /> : item.pluginCommand ? <Plug size={14} /> : <WandSparkles size={14} />}</span>
+        <span className={item.command ? "composer-context-menu-command" : undefined}>{item.command ? `/${item.command}` : item.label}</span>
+        <small>{item.command ? item.label : item.description}</small>
       </button>
     </Fragment>) : <div className="composer-context-menu-empty" role="status">{t("contextMenu.noMatch")}</div>}
     {usageLimits?.length ? <div className="composer-context-menu-usage" role="status" aria-label={t("agentUsage.title")}><AgentUsageInline limits={usageLimits} compact /></div> : null}
+    <div className="composer-context-menu-foot" aria-hidden="true"><kbd>↑↓</kbd>{t("contextMenu.keys.select")}<kbd>↵</kbd>{t("contextMenu.keys.use")}<kbd>esc</kbd>{t("contextMenu.keys.close")}</div>
   </div>;
 }

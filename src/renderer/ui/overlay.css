@@ -152,6 +152,8 @@
   padding: var(--space-4);
   background: rgb(0 0 0 / 45%);
   animation: ui-fade-in var(--duration-base) var(--ease-out);
+  /* Over the desktop title bar, clicks reach the modal instead of dragging the window. */
+  app-region: no-drag;
 }
 
 @keyframes ui-fade-in {
@@ -316,4 +318,107 @@
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   cursor: pointer;
+}
+
+/* The command menu: a search field over a grouped list, near the top. */
+/* Above every popover (the highest is 1200), so one left open stays beneath;
+   modal dialogs never sit under it, since the menu waits for them to close. */
+.ui-command-backdrop {
+  z-index: 1400;
+  place-items: start center;
+  padding-top: 14vh;
+}
+
+.ui-command {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: 60vh;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-float);
+  animation: ui-dialog-in var(--duration-base) var(--ease-out);
+}
+
+.ui-command-input {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  height: 48px;
+  padding: 0 var(--space-3) 0 var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-tertiary);
+}
+
+.ui-command-input input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-lg);
+}
+
+.ui-command-input input::placeholder {
+  color: var(--color-text-secondary);
+}
+
+.ui-command kbd {
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.ui-command-list {
+  overflow: auto;
+  padding: var(--space-1) var(--space-2) var(--space-2);
+}
+
+.ui-command-heading {
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.ui-command-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 36px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+
+.ui-command-item.is-active {
+  background: var(--color-hover);
+}
+
+.ui-command-icon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 18px;
+  color: var(--color-text-secondary);
+}
+
+.ui-command-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-command-empty {
+  margin: 0;
+  padding: var(--space-6) var(--space-4);
+  color: var(--color-text-secondary);
+  text-align: center;
 }

@@ -1,6 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile, stat, realpath, rm } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import type {
   SessionManager,
@@ -24,7 +23,7 @@ import {
   type AgentAccountProfileStatus,
 } from "../../shared/agent-runtimes.js";
 import type { SkillCatalogItem } from "../agent.js";
-import type { EffectiveMcpConfig, PluginMcpHost } from "../plugin-mcp-host.js";
+import type { EffectiveMcpConfig, McpGuard, PluginMcpHost } from "../plugin-mcp-host.js";
 import { AGENT_RUNTIME_DEFINITIONS } from "./definitions.js";
 import {
   AgentRuntimeCompatibilityError,
@@ -41,7 +40,7 @@ import {
   runCli,
   type AuthProbe,
 } from "./discovery.js";
-import { agentEnvironment, loginShellPath } from "./environment.js";
+import { agentEnvironment, loginShellPath, systemConfigDirectory } from "./environment.js";
 import { AgentProcess, stopAgentProcesses } from "./process.js";
 import {
   recoverAgentProcesses,
@@ -79,6 +78,7 @@ async function withinModelsWait<T>(load: Promise<T>): Promise<T | undefined> {
   ]).finally(() => clearTimeout(timer));
 }
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
+const LIMITS_VERSION = 2;
 
 interface ProbeCache {
   signature: string;
@@ -104,6 +104,7 @@ export interface NativeSessionRequest {
     config: EffectiveMcpConfig;
     host: PluginMcpHost;
     agentDir: string;
+    guard?: McpGuard;
   };
   skillDirectories: string[];
   instructions: string;
@@ -170,9 +171,14 @@ export class AgentRuntimeService {
       const stored = JSON.parse(
         await readFile(path.join(this.#root, "limits.json"), "utf8"),
       ) as Record<string, unknown>;
-      for (const [id, limits] of Object.entries(stored))
-        if ((isAgentRuntimeId(id) || ACCOUNT_RUNTIME_IDS.some((runtime) => id.startsWith(`${runtime}:`))) && Array.isArray(limits))
+      const current = stored.version === LIMITS_VERSION;
+      const reports = current && stored.limits && typeof stored.limits === "object" ? stored.limits as Record<string, unknown> : stored;
+      for (const [id, limits] of Object.entries(reports)) {
+        const known = isAgentRuntimeId(id) || ACCOUNT_RUNTIME_IDS.some((runtime) => id.startsWith(`${runtime}:`));
+        // Before version 2, System default reported for whichever folder OhMyGame was launched with.
+        if (known && Array.isArray(limits) && (current || !isAccountRuntimeId(id)))
           this.#limits.set(id, limits.filter(isUsageLimit));
+      }
     } catch {
       // No limits reported yet, or a damaged file: they arrive with the next report.
     }
@@ -190,7 +196,7 @@ export class AgentRuntimeService {
         await mkdir(this.#root, { recursive: true, mode: 0o700 });
         await writeFile(
           path.join(this.#root, "limits.json"),
-          `${JSON.stringify(Object.fromEntries(this.#limits))}\n`,
+          `${JSON.stringify({ version: LIMITS_VERSION, limits: Object.fromEntries(this.#limits) })}\n`,
         );
       })
       .catch(() => {});
@@ -384,12 +390,7 @@ export class AgentRuntimeService {
       if (!this.#deleting.has(`${id}:${loginProfileId}`)) this.#invalidate(id, loginProfileId);
       this.#logins.delete(cacheKey);
     };
-    const location = id === "claude-code-cli" ? ["CLAUDE_CONFIG_DIR", env.CLAUDE_CONFIG_DIR] : id === "codex-cli" ? ["CODEX_HOME", env.CODEX_HOME] : undefined;
-    const loginCommand = location?.[1]
-      ? process.platform === "win32"
-        ? `$env:${location[0]} = '${location[1].replaceAll("'", "''")}'; & '${binary.path.replaceAll("'", "''")}' ${id === "codex-cli" ? "login" : "auth login"}`
-        : `${location[0]}='${location[1].replaceAll("'", "'\\''")}' '${binary.path.replaceAll("'", "'\\''")}' ${id === "codex-cli" ? "login" : "auth login"}`
-      : definition.loginCommand;
+    const loginCommand = signInCommand(id, binary.path, env);
     if (id === "codex-cli") {
       const server = new CodexAppServer(binary.path, this.#root, env, {
         notification: (method) => {
@@ -461,12 +462,12 @@ export class AgentRuntimeService {
     const definition = AGENT_RUNTIME_DEFINITIONS[request.runtime];
     if (!settings.enabled)
       throw new Error(
-        `${definition.name} is turned off. Turn it on in Providers & Models to continue.`,
+        `${definition.name} is turned off. Turn it on in Settings → Agents to continue.`,
       );
     const binary = await resolveBinary(request.runtime, settings.binaryPath);
     if (!binary)
       throw new Error(
-        `${definition.name} is not installed. Install it, then check again in Providers & Models.`,
+        `${definition.name} is not installed. Install it, then check again in Settings → Agents.`,
       );
     const probe = await this.#probe(request.runtime, binary, false, request.profileId);
     if (probe?.requirementError) throw probe.requirementError;
@@ -495,6 +496,7 @@ export class AgentRuntimeService {
         pluginTool = await request.pluginMcp.host.tool(
           request.pluginMcp.config,
           request.pluginMcp.agentDir,
+          request.pluginMcp.guard,
         );
       }
     } catch {
@@ -725,9 +727,7 @@ export class AgentRuntimeService {
       if (directory === managedRoot || directory.startsWith(`${managedRoot}${path.sep}`))
         throw new Error("Managed account directories cannot be imported");
       // Naming System default's directory explicitly gives Claude another Keychain entry and global config file.
-      const system = runtime === "claude-code-cli"
-        ? process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude")
-        : process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+      const system = systemConfigDirectory(runtime);
       if (directory === await realpath(system).catch(() => path.resolve(system)))
         throw new Error("System default already uses this configuration directory");
     }
@@ -906,7 +906,7 @@ export class AgentRuntimeService {
         diagnostics.push({
           code: "signed-out",
           message: `${definition.name} is not signed in`,
-          command: definition.loginCommand,
+          command: signInCommand(id, binary.path, env),
         });
       const result: ProbeCache = {
         signature: binary.signature,
@@ -1012,6 +1012,25 @@ export class AgentRuntimeService {
     this.#modelLoads.set(cacheKey, work);
     return work;
   }
+}
+
+/**
+ * The sign-in command a person can run for an account. A profile names its
+ * folder. System default clears the variable, which the person's terminal may
+ * set even when OhMyGame was launched without it.
+ */
+function signInCommand(id: AgentRuntimeId, binaryPath: string, env: Record<string, string>): string {
+  const variable = id === "claude-code-cli" ? "CLAUDE_CONFIG_DIR" : id === "codex-cli" ? "CODEX_HOME" : undefined;
+  if (!variable) return AGENT_RUNTIME_DEFINITIONS[id].loginCommand;
+  const directory = env[variable];
+  const args = id === "codex-cli" ? "login" : "auth login";
+  if (process.platform === "win32") {
+    const run = `& '${binaryPath.replaceAll("'", "''")}' ${args}`;
+    // Assigning $null removes the variable, without an error when it is absent.
+    return `$env:${variable} = ${directory ? `'${directory.replaceAll("'", "''")}'` : "$null"}; ${run}`;
+  }
+  const run = `'${binaryPath.replaceAll("'", "'\\''")}' ${args}`;
+  return directory ? `${variable}='${directory.replaceAll("'", "'\\''")}' ${run}` : `env -u ${variable} ${run}`;
 }
 
 function isUsageLimit(value: unknown): value is AgentUsageLimit {

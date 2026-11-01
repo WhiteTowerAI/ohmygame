@@ -4,7 +4,7 @@ import { clipboardFiles, pasteNativeFiles, transferredFiles } from "../src/rende
 import { canvasImportKind, droppedFolders, isIgnoredImportPath } from "../src/renderer/canvas-file-import.js";
 import { appendAttachments, attachmentFiles, uploadAttachments } from "../src/renderer/composer-attachments.js";
 import * as api from "../src/renderer/api.js";
-import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENT_BYTES } from "../src/shared/file-transfer.js";
+import { MAX_ATTACHMENT_BYTES } from "../src/shared/file-transfer.js";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 

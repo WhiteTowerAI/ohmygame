@@ -2,10 +2,11 @@
 
 A project archive is a ZIP file that moves one project to another computer or
 keeps a copy outside OhMyGame's data folder. **Export project** in a project
-card's menu saves one for any project type. Story settings → **Export project**
-uses the same archive format and export service, after saving the editor's changes.
-**Import project** on the Projects page creates a new project from it. You can
-also drag one ZIP archive onto the Projects page. Both entry points use the
+card's menu saves one for any project type. **Export project** in an open
+project's name menu uses the same archive format and export service, after
+saving the editors' changes.
+**Import project ZIP…** in the Projects page's **New project** menu creates a
+new project from it. You can also drag one ZIP archive onto the Projects page. Both entry points use the
 same import checks. Import one archive at a time.
 
 Start with `src/daemon/project-archive.ts`, `src/shared/project-archive.ts`
@@ -20,6 +21,7 @@ and `src/renderer/project-card.tsx`. The focused suites are
 | `ohmygame-project.json` | The manifest: format, version, project settings and cover mode.        |
 | `workspace/`            | The project's workspace files.                                         |
 | `cover.webp`            | The project's stored cover, when it has one. A story thumbnail is not. |
+| `logo.webp`             | The project's uploaded logo, when it has one.                          |
 
 The manifest looks like this:
 
@@ -39,8 +41,10 @@ The manifest looks like this:
 }
 ```
 
-`project` holds the name, type, plugin integration, preview and run settings,
-and media model defaults: the keys listed in `PROJECT_ARCHIVE_SETTING_KEYS`.
+`project` holds the name, type, plugin type (or a format 1 Maker project's
+integration, moved to the format 2 type on import), preview and run settings,
+media model defaults and appearance: the keys listed in
+`PROJECT_ARCHIVE_SETTING_KEYS`.
 A key is present only when the project sets it. `cover.mode` says whether the
 cover was chosen by hand (`custom`) or captured automatically (`auto`).
 
@@ -88,6 +92,8 @@ memory. Import then works like **Duplicate**:
 - Canvas generation history in `canvas/jobs.json` is bound to the new id;
 - an Interactive Story gets the current agent instructions and schemas;
 - the cover is restored with its mode;
+- the logo is restored when `appearance.logo` names one; when `logo.webp` is
+  missing or not a WebP image, the project shows its icon instead;
 - preview readiness is checked again.
 
 Settings pass the same checks as saved project settings. An archive from a

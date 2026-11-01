@@ -4,6 +4,7 @@ import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
 import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
+import { forgetLastProject } from "./general-preferences.js";
 import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
 import {
   RUNTIME_EVENT_TYPES,
@@ -27,7 +28,6 @@ import {
   type MediaModelDefaults,
   type ImageModel,
   type ImageModelCatalog,
-  type ImageModelRef,
   type ModelAuthEvent,
   type ModelAuthMethod,
   type ModelProviderEndpointSettings,
@@ -52,6 +52,7 @@ import {
   type ProjectRunSettings,
   type ProjectFileOpenMode,
   type ProjectActivitySnapshot,
+  type ProjectAppearance,
   type ProjectCoverMode,
   type ProjectCoverState,
   type ProjectState,
@@ -88,13 +89,13 @@ import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
-import type { ExternalAgentClientId, ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
+import type { ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerBridge } from "../shared/web-game-player.js";
 import type { NetworkConnectionTest, NetworkSettings, NetworkSettingsState } from "../shared/network-settings.js";
 import { composerDrafts } from "./composer-drafts.js";
 import type { OnboardingState, UpdateOnboardingRequest } from "../shared/onboarding.js";
-import { t } from "./i18n.js";
+import { language, t } from "./i18n.js";
 
 const API_BASE = "/api";
 
@@ -136,6 +137,10 @@ declare global {
       openExternal: (url: string) => Promise<void>;
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
       restartApp?: () => Promise<void>;
+      /** Holds off system sleep while an agent works (Settings → General). */
+      setKeepAwake?: (enabled: boolean) => Promise<void>;
+      /** Brings the main window forward, for a notification the person clicked. */
+      focusWindow?: () => Promise<void>;
       onPrepareClose?: (listener: () => Promise<void>) => () => void;
       onCancelClose?: (listener: (error: string) => void) => () => void;
       windowMenu?: {
@@ -148,6 +153,7 @@ declare global {
       selectProjectDirectory: () => Promise<string | undefined>;
       /** Older desktop builds do not write log files. */
       openLogsDirectory?: () => Promise<void>;
+      removeProject?: (projectId: string) => Promise<void>;
       /** Builds the diagnostics ZIP without the background service, for when it is not running. */
       exportDiagnostics?: () => Promise<Uint8Array<ArrayBuffer>>;
       clipboard: {
@@ -185,6 +191,8 @@ declare global {
         check: () => Promise<void>;
         download: () => Promise<void>;
         install: () => Promise<void>;
+        /** Downloads found releases by itself and installs them on quit. */
+        setAutomatic?: (enabled: boolean) => Promise<void>;
         onState: (listener: (state: DesktopUpdateState) => void) => () => void;
       };
       auth: {
@@ -309,9 +317,28 @@ export async function importProject(file: File): Promise<ProjectState> {
   return response.json() as Promise<ProjectState>;
 }
 
+/** Electron prefixes errors from the main process with the channel; the reason follows. */
+function ipcError(cause: unknown): Error {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return new Error(message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, ""));
+}
+
+/** Whether removing a project keeps its files: the desktop app puts OhMyGame's own copies in the Trash. */
+export function projectRemovalKeepsFiles(): boolean {
+  return typeof window !== "undefined" && typeof window.ohMyGameDesktop?.removeProject === "function";
+}
+
+/**
+ * Takes a project out of OhMyGame. In the desktop app nothing is deleted: a
+ * folder the person chose stays, and a project in OhMyGame's storage goes to
+ * the Trash. Elsewhere a project in OhMyGame's storage is deleted.
+ */
 export async function deleteProject(projectId: string): Promise<void> {
-  await request(`/projects/${projectId}`, { method: "DELETE" });
+  const remove = window.ohMyGameDesktop?.removeProject;
+  if (remove) await remove(projectId).catch((cause: unknown) => { throw ipcError(cause); });
+  else await request(`/projects/${projectId}`, { method: "DELETE" });
   composerDrafts.deleteProject(projectId);
+  forgetLastProject(projectId);
 }
 
 /** Conversations list coding agents' models too; canvas text and other one-off generation use OhMyGame's own models only. */
@@ -632,20 +659,21 @@ export async function updateWebSearchSettings(input: UpdateWebSearchSettings): P
   return request("/settings/web-search", { method: "PUT", body: JSON.stringify(input) });
 }
 
+/** Settings → General → Project location; no location means OhMyGame's own storage. */
+export async function getProjectLocation(): Promise<{ location?: string; storage?: string }> {
+  return request("/settings/project-location");
+}
+
+export async function setProjectLocation(location: string | undefined): Promise<{ location?: string; storage?: string }> {
+  return request("/settings/project-location", { method: "PUT", body: JSON.stringify({ location: location ?? null }) });
+}
+
 export async function getExternalAgentSettings(): Promise<ExternalAgentSettings> {
   return request("/settings/external-agents");
 }
 
 export async function updateExternalAgentSettings(input: UpdateExternalAgentSettings): Promise<ExternalAgentSettings> {
   return request("/settings/external-agents", { method: "PUT", body: JSON.stringify(input) });
-}
-
-export async function connectExternalAgent(id: ExternalAgentClientId): Promise<ExternalAgentSettings> {
-  return request(`/settings/external-agents/clients/${id}`, { method: "PUT" });
-}
-
-export async function disconnectExternalAgent(id: ExternalAgentClientId): Promise<ExternalAgentSettings> {
-  return request(`/settings/external-agents/clients/${id}`, { method: "DELETE" });
 }
 
 export async function listExploreGames(accessToken?: string, options: CommunityGamesQuery = {}): Promise<CommunityGame[]> {
@@ -694,6 +722,64 @@ function communityHeaders(accessToken?: string): Record<string, string> {
 
 export async function listPlugins(): Promise<PluginCatalog> {
   return request("/plugins");
+}
+
+export async function getProjectPlugins(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginsView> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugins?locale=${encodeURIComponent(language)}`);
+}
+
+/** Plugins a project about to be created can turn on for itself. */
+export async function listProjectPluginChoices(): Promise<import("../shared/plugins.js").ProjectPluginChoice[]> {
+  return request(`/project-plugins?locale=${encodeURIComponent(language)}`);
+}
+
+/** A project type from GET /project-types: a core one, or `publisher/name:type` from a plugin. */
+export interface AvailableProjectType {
+  id: string;
+  title: string;
+  description?: string;
+  plugin?: { id: string; version: string };
+}
+
+export async function listProjectTypes(): Promise<AvailableProjectType[]> {
+  return request(`/project-types?locale=${encodeURIComponent(language)}`);
+}
+
+/** Turns a plugin on in a project at a version, or off with `null`. `id` is `publisher/name`. */
+export async function setProjectPluginVersion(projectId: string, id: string, version: string | null): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}`, { method: "PUT", body: JSON.stringify({ version }) });
+}
+
+/** Allows what a plugin asks for, as the person agreed in the app. */
+export async function consentToPlugin(id: string, allowed: string[]): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/consent`, { method: "POST", body: JSON.stringify({ allowed }) });
+}
+
+/** Installed format 2 plugins, one row per version. */
+export async function listStorePlugins(): Promise<import("../shared/plugins.js").StorePlugin[]> {
+  return request(`/plugin-store/plugins?locale=${encodeURIComponent(language)}`);
+}
+
+/** The app switch for a format 2 plugin: off, it runs in no project. */
+export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
+}
+
+export async function uninstallStorePlugin(id: string, version: string): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}`, { method: "DELETE" });
+}
+
+export async function readStorePluginConfiguration(id: string): Promise<import("../shared/plugins.js").StorePluginConfiguration> {
+  return request(`/plugin-store/${pluginPath(id)}/configuration`);
+}
+
+/** Saves some settings; `null` puts one back to its default. */
+export async function saveStorePluginConfiguration(id: string, changes: Record<string, string | boolean | null>): Promise<import("../shared/plugins.js").StorePluginConfiguration> {
+  return request(`/plugin-store/${pluginPath(id)}/configuration`, { method: "PUT", body: JSON.stringify(changes) });
+}
+
+function pluginPath(id: string): string {
+  return id.split("/").map(encodeURIComponent).join("/");
 }
 
 export async function getHomeComposerCapabilities(): Promise<ConversationCapabilities> {
@@ -769,8 +855,9 @@ export async function exportDiagnostics(): Promise<{ blob: Blob; fileName: strin
   }
 }
 
-export async function buildInteractiveStory(projectId: string, version?: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/projects/${projectId}/interactive-story/build`), {
+/** Downloads the game as it publishes, to host on another site. */
+export async function buildWebGame(projectId: string, version?: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/build`), {
     method: "POST",
     headers: projectRuntimeHeaders(projectId, version),
   });
@@ -900,6 +987,25 @@ export async function setProjectCover(projectId: string, cover: Blob, source: Pr
 
 export async function setProjectCoverMode(projectId: string, mode: ProjectCoverMode): Promise<void> {
   await request(`/projects/${projectId}/cover/state`, { method: "PUT", body: JSON.stringify({ mode }) });
+}
+
+export async function setProjectAppearance(projectId: string, appearance: Omit<ProjectAppearance, "logo">): Promise<ProjectState> {
+  return request(`/projects/${projectId}/appearance`, { method: "PUT", body: JSON.stringify(appearance) });
+}
+
+export async function getProjectLogo(projectId: string): Promise<Blob | undefined> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/logo`), { headers: runtimeHeaders() });
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+export async function setProjectLogo(projectId: string, logo: Blob | undefined): Promise<ProjectState> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/logo`), logo
+    ? { method: "PUT", headers: { "content-type": "image/webp", ...projectRuntimeHeaders(projectId) }, body: logo }
+    : { method: "DELETE", headers: projectRuntimeHeaders(projectId) });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<ProjectState>;
 }
 
 export async function listWorkspaceFiles(projectId: string): Promise<WorkspaceFile[]> {
@@ -1061,6 +1167,22 @@ export async function renameConversation(
   });
 }
 
+export async function archiveConversation(projectId: string, conversationId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/archive`, { method: "POST" });
+}
+
+export async function listArchivedConversations(projectId: string): Promise<ConversationSummary[]> {
+  return request(`/projects/${projectId}/conversations/archived`);
+}
+
+export async function unarchiveConversation(projectId: string, conversationId: string): Promise<ConversationSummary> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/unarchive`, { method: "POST" });
+}
+
+export async function deleteArchivedConversation(projectId: string, conversationId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/archived/${conversationId}`, { method: "DELETE" });
+}
+
 export async function setConversationModel(
   projectId: string,
   conversationId: string,
@@ -1127,8 +1249,9 @@ export async function compactConversation(projectId: string, conversationId: str
   });
 }
 
-export async function getConversationContextUsage(projectId: string, conversationId: string): Promise<AgentContextUsage | undefined> {
-  const result = await request<{ contextUsage?: AgentContextUsage }>(`/projects/${projectId}/conversations/${conversationId}/context-usage`);
+/** `passive` reads what is known without loading the conversation's agent session. */
+export async function getConversationContextUsage(projectId: string, conversationId: string, passive = false): Promise<AgentContextUsage | undefined> {
+  const result = await request<{ contextUsage?: AgentContextUsage }>(`/projects/${projectId}/conversations/${conversationId}/context-usage${passive ? "?passive=1" : ""}`);
   return result.contextUsage;
 }
 
@@ -1261,6 +1384,8 @@ export class ApiError extends Error {
     readonly conflicts?: string[],
     /** Those paths cannot be put back, whatever the request says to do with them. */
     readonly blocked?: boolean,
+    /** The plugin panel, `publisher/name:panel`, that can resolve the refusal. */
+    readonly panel?: string,
   ) {
     super(message);
   }
@@ -1287,9 +1412,9 @@ export async function request<T>(path: string, init: WorkspaceRequestInit = {}):
 }
 
 async function responseError(response: Response): Promise<ApiError> {
-  const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; conflicts?: unknown; blocked?: unknown };
+  const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; conflicts?: unknown; blocked?: unknown; panel?: unknown };
   const conflicts = Array.isArray(body.conflicts) && body.conflicts.every((path) => typeof path === "string") ? body.conflicts as string[] : undefined;
-  return new ApiError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status }), response.status, body.code, conflicts, body.blocked === true || undefined);
+  return new ApiError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status }), response.status, body.code, conflicts, body.blocked === true || undefined, typeof body.panel === "string" ? body.panel : undefined);
 }
 
 async function streamProjectEvents(
@@ -1480,8 +1605,32 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-export async function createMcpPlugin(input: import("../shared/plugins.js").CreateMcpPluginRequest): Promise<PluginDetail> {
-  return request("/plugins/mcp", { method: "POST", body: JSON.stringify(input) });
+export async function listConnections(): Promise<import("../shared/connections.js").ConnectionSummary[]> {
+  return request("/connections");
+}
+export async function createConnection(input: import("../shared/connections.js").CreateConnectionRequest): Promise<import("../shared/connections.js").ConnectionSummary> {
+  return request("/connections", { method: "POST", body: JSON.stringify(input) });
+}
+export async function updateConnection(id: string, input: import("../shared/connections.js").UpdateConnectionRequest): Promise<import("../shared/connections.js").ConnectionSummary> {
+  return request(`/connections/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+export async function deleteConnection(id: string): Promise<void> {
+  await request(`/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+export async function readConnectionDefinition(id: string): Promise<{ definition: import("../shared/plugins.js").McpServerDefinition }> {
+  return request(`/connections/${encodeURIComponent(id)}/definition`);
+}
+export async function saveConnectionDefinition(id: string, definition: import("../shared/plugins.js").McpServerDefinition): Promise<import("../shared/connections.js").ConnectionSummary> {
+  return request(`/connections/${encodeURIComponent(id)}/definition`, { method: "PUT", body: JSON.stringify({ definition }) });
+}
+export async function readConnectionConfiguration(id: string): Promise<import("../shared/plugins.js").PluginConfigurationView> {
+  return request(`/connections/${encodeURIComponent(id)}/configuration`);
+}
+export async function saveConnectionConfiguration(id: string, values: import("../shared/plugins.js").PluginConfigurationValues): Promise<import("../shared/plugins.js").PluginConfigurationView> {
+  return request(`/connections/${encodeURIComponent(id)}/configuration`, { method: "PUT", body: JSON.stringify({ values }) });
+}
+export async function testConnection(id: string, action: "test" | "auth-start" | "auth-complete" = "test", input?: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
+  return request(`/connections/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(input ? { input } : {}) });
 }
 export async function readPluginConfiguration(id: string): Promise<import("../shared/plugins.js").PluginConfigurationView> {
   return request(`/plugins/${encodeURIComponent(id)}/configuration`);
@@ -1574,6 +1723,10 @@ export async function stopPreview(projectId: string): Promise<{ preview: Project
 export async function acquirePreview(projectId: string, leaseId: string, automatic = false, paused = false): Promise<void> {
   await request(`/projects/${projectId}/preview/leases/${leaseId}`, { method: "PUT", body: JSON.stringify({ automatic, paused }) });
 }
+/** Turns the preview page's next click into a `preview.picked` event, or stops that. */
+export async function setPreviewPicking(projectId: string, client: string, active: boolean): Promise<void> {
+  await request(`/projects/${projectId}/preview/picking`, { method: "PUT", body: JSON.stringify({ client, active }) });
+}
 export async function releasePreview(projectId: string, leaseId: string): Promise<void> {
   await request(`/projects/${projectId}/preview/leases/${leaseId}`, { method: "DELETE" });
 }
@@ -1581,21 +1734,6 @@ export async function inspectProjectPreview(projectId: string, settings: Project
   return request(`/projects/${projectId}/preview/inspect`, { method: "POST", body: JSON.stringify(settings) });
 }
 
-export function getPluginIntegration(pluginId: string, projectId?: string): Promise<import("../shared/plugin-integration.js").PluginIntegrationState> {
-  return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`);
-}
-export function runPluginIntegration(pluginId: string, action: import("../shared/plugin-integration.js").PluginIntegrationAction, projectId?: string, remoteProjectId?: string): Promise<import("../shared/plugin-integration.js").PluginIntegrationState> {
-  return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`, { method: "POST", body: JSON.stringify({ action, ...(remoteProjectId ? { projectId: remoteProjectId } : {}) }) });
-}
-export function cancelPluginIntegration(pluginId: string, projectId?: string): Promise<{ ok: true }> {
-  return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`, { method: "DELETE" });
-}
-export function clearProjectIntegration(projectId: string): Promise<ProjectState> {
-  return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "DELETE" });
-}
-export function setProjectIntegration(projectId: string, pluginId: string): Promise<ProjectState> {
-  return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "PUT", body: JSON.stringify({ pluginId }) });
-}
 
 export function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
 export async function previewSeedAudio(prompt: string): Promise<Blob> {
@@ -1629,7 +1767,21 @@ export async function setPluginPageValue(projectId: string, plugin: string, key:
   await request(`/projects/${encodeURIComponent(projectId)}/plugin-storage/${plugin}/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value }) });
 }
 
+/** The format 2 plugin commands a project offers. */
+export async function listProjectPluginCommands(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCommand[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands?locale=${encodeURIComponent(language)}`);
+}
+
+/** What plugins changed in a project outside a turn, newest first. */
+export async function listProjectPluginChanges(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginChange[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-changes`);
+}
+
+export async function undoProjectPluginChange(projectId: string, changeId: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-changes/${encodeURIComponent(changeId)}/undo`, { method: "POST" });
+}
+
 /** Runs a format 2 plugin command, `publisher/name:command`, whose code runs in its plugin. */
-export async function runPluginCommand(projectId: string, command: string): Promise<{ result: unknown; change?: { id: string; changed: string[] } }> {
-  return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands`, { method: "POST", body: JSON.stringify({ command }) });
+export async function runPluginCommand(projectId: string, command: string, input?: unknown): Promise<{ result: unknown; change?: { id: string; changed: string[] } }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands`, { method: "POST", body: JSON.stringify({ command, input }) });
 }

@@ -1,0 +1,172 @@
+diff --git a/mcp-auth-flow.ts b/mcp-auth-flow.ts
+index 01ce95acb73a630c9c3a4be8e399604819fb1307..db326c31b99679325483616dffcfd0016b582425 100644
+--- a/mcp-auth-flow.ts
++++ b/mcp-auth-flow.ts
+@@ -973,6 +973,8 @@ export async function removeAuth(serverName: string, options: AuthenticateOption
+ export function supportsOAuth(definition: ServerEntry): boolean {
+   // OAuth requires a URL
+   if (!definition.url) return false
++  // A server restricted to its origins never discovers or signs in elsewhere.
++  if (definition.allowedOrigins !== undefined) return false
+   
+   // Explicitly disabled via auth: false or oauth: false
+   if (definition.auth === false) return false
+diff --git a/restricted-origins.ts b/restricted-origins.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..79a6d8c1ed223f5d5f91f5dc950949a023809fb4
+--- /dev/null
++++ b/restricted-origins.ts
+@@ -0,0 +1,50 @@
++// A host that embeds the adapter can restrict an HTTP server to exact origins
++// with `allowedOrigins`. Such a server's requests never leave those origins:
++// its URL and headers are used as written (no environment expansion or
++// command secrets), redirects are refused rather than followed, and nothing
++// else (OAuth discovery, header commands, failure probes) reaches the network
++// on its behalf.
++import type { ServerEntry } from "./types.ts";
++
++/** The server's allowed origins, or undefined when it has no restriction. */
++export function restrictedOrigins(definition: Pick<ServerEntry, "allowedOrigins">): string[] | undefined {
++  const origins = definition.allowedOrigins;
++  if (origins === undefined) return undefined;
++  // A restriction that can't be read restricts everything rather than nothing.
++  if (!Array.isArray(origins) || origins.length === 0) throw new Error("allowedOrigins must list at least one origin");
++  for (const origin of origins) {
++    let parsed: URL;
++    try {
++      parsed = new URL(origin);
++    } catch {
++      throw new Error(`allowedOrigins has an invalid origin: ${String(origin)}`);
++    }
++    if (typeof origin !== "string" || parsed.origin !== origin || !/^https?:$/.test(parsed.protocol))
++      throw new Error(`allowedOrigins has an invalid origin: ${String(origin)}`);
++  }
++  return origins;
++}
++
++/** Why a restricted server's definition asks for something its restriction rules out, or undefined. */
++export function restrictionConflict(definition: ServerEntry): string | undefined {
++  if (definition.requestHeadersCommand !== undefined) return "requestHeadersCommand";
++  if (definition.auth !== undefined && definition.auth !== false) return "auth";
++  if (definition.oauth !== undefined && definition.oauth !== false) return "oauth";
++  if (definition.bearerToken !== undefined || definition.bearerTokenEnv !== undefined || definition.bearerTokenStore !== undefined) return "bearer tokens";
++  return undefined;
++}
++
++/** A fetch that only reaches the given origins and refuses redirects. */
++export function createOriginGuardedFetch(origins: readonly string[], base: typeof fetch = fetch): typeof fetch {
++  const allowed = new Set(origins);
++  return (async (input: string | URL | Request, init?: RequestInit) => {
++    const url = new URL(input instanceof Request ? input.url : String(input));
++    if (!allowed.has(url.origin)) throw new Error(`MCP request to ${url.origin} is outside this server's allowed origins`);
++    const response = await base(input, { ...init, redirect: "manual" });
++    if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
++      await response.body?.cancel().catch(() => {});
++      throw new Error(`MCP server at ${url.origin} answered with a redirect (${response.status}), which this server doesn't follow`);
++    }
++    return response;
++  }) as typeof fetch;
++}
+diff --git a/server-manager.ts b/server-manager.ts
+index 0835943f326962d355a600e3a4fdead00bc8209e..713099a54130c90c644c9ef83aa479af2920efcc 100644
+--- a/server-manager.ts
++++ b/server-manager.ts
+@@ -62,6 +62,7 @@ import {
+   wrapTransportWithMcpTrace,
+ } from "./mcp-trace.ts";
+ import { createRequestHeadersCommandFetch } from "./request-headers-command.ts";
++import { createOriginGuardedFetch, restrictedOrigins, restrictionConflict } from "./restricted-origins.ts";
+ 
+ const MAX_CAPTURED_STDERR_BYTES = 8 * 1024;
+ const MAX_CAPTURED_STDERR_LINES = 3;
+@@ -651,6 +652,8 @@ export class McpServerManager {
+ 
+   private async enrichHttpConnectionError(definition: ServerDefinition, error: unknown): Promise<Error> {
+     const originalMessage = error instanceof Error ? error.message : String(error);
++    // The probe would reach the network outside a restricted server's origins.
++    if (definition.allowedOrigins !== undefined) return error instanceof Error ? error : new Error(originalMessage);
+     try {
+       const probe = await probeMcpEndpoint(resolveServerUrl(definition)!);
+       return new Error(`${originalMessage} — probe: ${probe.classification}`, { cause: error });
+@@ -849,12 +852,16 @@ export class McpServerManager {
+     throwIfAborted(signal);
+     const serverUrl = resolveServerUrl(definition)!;
+     const url = new URL(serverUrl);
++    const origins = restrictedOrigins(definition);
++    const conflict = origins ? restrictionConflict(definition) : undefined;
++    if (conflict) throw new Error(`MCP server "${serverName}" is restricted to its origins and can't use ${conflict}`);
+ 
+     // Resolve secret commands only for this connection attempt, without
+     // mutating the persisted configuration.
+-    const hasCommandHeader = Object.values(definition.headers ?? {})
++    // A restricted server's headers are used as written: no commands, no environment.
++    const hasCommandHeader = !origins && Object.values(definition.headers ?? {})
+       .some(value => value.startsWith("!") && !value.startsWith("!!"));
+-    const headers = resolveCommandSecretsRecord(
++    const headers = origins ? { ...definition.headers } : resolveCommandSecretsRecord(
+       definition.headers,
+       key => `MCP server "${serverName}" HTTP header "${key}"`,
+     ) ?? {};
+@@ -883,9 +890,11 @@ export class McpServerManager {
+     }
+ 
+     const requestInit = Object.keys(headers).length > 0 ? { headers } : undefined;
+-    const requestFetch = definition.requestHeadersCommand
+-      ? createRequestHeadersCommandFetch(definition.requestHeadersCommand)
+-      : undefined;
++    const requestFetch = origins
++      ? createOriginGuardedFetch(origins)
++      : definition.requestHeadersCommand
++        ? createRequestHeadersCommandFetch(definition.requestHeadersCommand)
++        : undefined;
+     const createAuthProvider = (): McpOAuthProvider => new McpOAuthProvider(
+       serverName,
+       serverUrl,
+diff --git a/types.ts b/types.ts
+index 1f95cf42e312286a4ca81fccc84ab1cc56a769f8..59483313e282f227d6803ed7d731b6aca4054d12 100644
+--- a/types.ts
++++ b/types.ts
+@@ -382,6 +382,12 @@ export interface ServerEntry {
+   headers?: Record<string, string>;
+   /** Add or replace HTTP headers by running a trusted command for each request. */
+   requestHeadersCommand?: HttpRequestHeadersCommand;
++  /**
++   * Origins (`scheme://host:port`) this HTTP server may reach, set by the
++   * embedding host. When present, its URL and headers are used as written,
++   * redirects are refused, and OAuth, header commands and failure probes are off.
++   */
++  allowedOrigins?: string[];
+   /** 
+    * Authentication type:
+    * - 'oauth' - Use OAuth 2.1 (auto-discovers endpoints, supports dynamic client registration)
+diff --git a/utils.ts b/utils.ts
+index 59d2c79179e785711b3cd2131ee2373e88809070..38a88e4eab35cde350e7184a85abd3a357f10ef5 100644
+--- a/utils.ts
++++ b/utils.ts
+@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
+ import { homedir, platform } from "node:os";
+ import { extname, isAbsolute, join } from "node:path";
+ import type { McpConfig, ServerEntry } from "./types.ts";
++import { restrictedOrigins } from "./restricted-origins.ts";
+ 
+ async function execOpen(pi: ExtensionAPI, target: string, browser?: string, signal?: AbortSignal) {
+   const os = platform();
+@@ -164,11 +165,17 @@ export function resolveCommandSecretsRecord(
+   ]));
+ }
+ 
+-export function resolveServerUrl(definition: Pick<ServerEntry, "url">): string | undefined {
++export function resolveServerUrl(definition: Pick<ServerEntry, "url" | "allowedOrigins">): string | undefined {
+   if (definition.url == null) return undefined;
+   if (typeof definition.url !== "string") {
+     throw new Error("MCP server URL must be a string");
+   }
++  // A restricted server's URL is used as written, and must be one of its origins.
++  if (definition.allowedOrigins !== undefined) {
++    const origins = restrictedOrigins(definition)!;
++    if (!origins.includes(new URL(definition.url).origin)) throw new Error("MCP server URL is outside its allowed origins");
++    return definition.url;
++  }
+ 
+   const missing = getMissingEnvVars(definition.url);
+   if (missing.length > 0) {

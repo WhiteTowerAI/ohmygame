@@ -4,6 +4,7 @@ import {
   type PreviewMode,
 } from "../shared/preview-settings.js";
 import { ChevronDown, ExternalLink, LoaderCircle, X } from "./icons.js";
+import { Button, IconButton, Switch } from "./ui/index.js";
 import {
   useEffect,
   useId,
@@ -21,6 +22,7 @@ import type {
 } from "../shared/contracts.js";
 import { inspectProjectPreview, updateProjectRunSettings } from "./api.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
+import { ProjectAppearanceSettings } from "./project-appearance-settings.js";
 import { t } from "./i18n.js";
 
 const PREVIEW_VIEWPORT_LABEL_KEYS = {
@@ -93,30 +95,33 @@ export function ProjectSettingsDialogFrame({
 
   return (
     <div
-      className="project-settings-backdrop"
+      className="ui-backdrop project-settings-backdrop"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose();
       }}
     >
       <section
         ref={dialog}
-        className="project-settings-dialog"
+        className="ui-dialog ui-dialog-md project-settings"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
       >
-        <header>
-          <h2 id={titleId}>{t("projectSettings.title")}</h2>
-          <button
-            type="button"
+        <div className="ui-dialog-head">
+          <h2 id={titleId} className="ui-dialog-title">
+            {t("projectSettings.title")}
+          </h2>
+          <IconButton
+            size="sm"
+            label={t("common.close")}
+            className="ui-dialog-close"
             disabled={busy}
             onClick={onClose}
-            aria-label={t("common.close")}
           >
             <X size={16} />
-          </button>
-        </header>
+          </IconButton>
+        </div>
         {children}
       </section>
     </div>
@@ -140,8 +145,8 @@ export function ProjectSettingsDialog({
   onClose: () => void;
   onSaved: (project: ProjectState) => Promise<void> | void;
 }) {
-  const previewToggle = useRef<HTMLInputElement>(null);
-  const automaticToggle = useRef<HTMLInputElement>(null);
+  const previewToggle = useRef<HTMLButtonElement>(null);
+  const automaticToggle = useRef<HTMLButtonElement>(null);
   const [webPreviewEnabled, setWebPreviewEnabled] = useState(
     supportsWebPreview(project),
   );
@@ -307,13 +312,15 @@ export function ProjectSettingsDialog({
       onClose={onClose}
     >
       <form
-        className="project-run-settings"
+        className="project-settings-form project-run-settings"
         onSubmit={(event) => void submit(event)}
       >
+        <div className="ui-dialog-body">
         <section className="project-settings-project" aria-label={t("projectSettings.project")}>
           <span>{t("projectSettings.project")}</span>
           <strong title={project.name}>{project.name}</strong>
         </section>
+        <ProjectAppearanceSettings project={project} disabled={saving} />
         <section
           className="project-settings-switches"
           aria-label={t("projectSettings.previewAccess")}
@@ -321,36 +328,26 @@ export function ProjectSettingsDialog({
           {project.type === "general" ? (
             <div className="project-settings-preview-toggle">
               <strong>{t("projectSettings.webPreview")}</strong>
-              <label className="settings-toggle">
-                <input
-                  ref={previewToggle}
-                  type="checkbox"
-                  role="switch"
-                  aria-label={t("projectSettings.webPreview")}
-                  checked={webPreviewEnabled}
-                  disabled={saving || project.integration?.preview === "external"}
-                  onChange={(event) =>
-                    setWebPreviewEnabled(event.target.checked)
-                  }
-                />
-                <span aria-hidden="true" />
-              </label>
+              <Switch
+                ref={previewToggle}
+                size="sm"
+                label={t("projectSettings.webPreview")}
+                checked={webPreviewEnabled}
+                disabled={saving || !!project.integration || project.pluginType?.preview === "native"}
+                onChange={setWebPreviewEnabled}
+              />
             </div>
           ) : null}
           <div className="project-settings-preview-toggle">
             <strong>{t("projectSettings.automaticPreview")}</strong>
-            <label className="settings-toggle">
-              <input
-                ref={automaticToggle}
-                type="checkbox"
-                role="switch"
-                aria-label={t("projectSettings.automaticPreview")}
-                checked={previewAutoStart}
-                disabled={saving || !webPreviewEnabled}
-                onChange={(event) => setPreviewAutoStart(event.target.checked)}
-              />
-              <span aria-hidden="true" />
-            </label>
+            <Switch
+              ref={automaticToggle}
+              size="sm"
+              label={t("projectSettings.automaticPreview")}
+              checked={previewAutoStart}
+              disabled={saving || !webPreviewEnabled}
+              onChange={setPreviewAutoStart}
+            />
           </div>
         </section>
         <section
@@ -553,20 +550,18 @@ export function ProjectSettingsDialog({
               className="project-settings-preview-actions"
               disabled={saving}
             >
-              <button
-                className="project-settings-browser"
-                type="button"
+              <Button
+                size="sm"
                 disabled={previewStartDisabled}
                 onClick={() => previewActions.onRestart()}
               >
                 {project.preview.status === "ready"
                   ? t("projectSettings.restartPreview")
                   : t("projectSettings.startPreview")}
-              </button>
+              </Button>
               {previewActions.onStop ? (
-                <button
-                  className="project-settings-browser"
-                  type="button"
+                <Button
+                  size="sm"
                   disabled={
                     !["ready", "starting"].includes(project.preview.status)
                   }
@@ -575,34 +570,33 @@ export function ProjectSettingsDialog({
                   {project.preview.status === "starting"
                     ? t("projectSettings.cancelStartup")
                     : t("projectSettings.stopPreview")}
-                </button>
+                </Button>
               ) : null}
-              <button
-                className="project-settings-browser"
-                type="button"
+              <Button
+                size="sm"
                 onClick={previewActions.onLogs}
               >
                 {t("projectSettings.previewLogs")}
-              </button>
+              </Button>
               {(project.previewMode ?? "auto") !== "static" &&
               project.previewMode !== "command" &&
               project.preview.command !== "Serve static files" ? (
-                <button
-                  className="project-settings-browser"
-                  type="button"
+                <Button
+                  size="sm"
                   disabled={previewStartDisabled}
                   onClick={() => previewActions.onRestart(true)}
                 >
                   {t("projectSettings.reinstall")}
-                </button>
+                </Button>
               ) : null}
             </fieldset>
           </details>
         ) : null}
         {webPreviewEnabled && previewUrl ? (
-          <button
-            className="project-settings-browser"
-            type="button"
+          <Button
+            size="sm"
+            className="project-settings-open"
+            icon={<ExternalLink size={14} />}
             disabled={saving}
             onClick={() =>
               window.open(
@@ -612,28 +606,28 @@ export function ProjectSettingsDialog({
               )
             }
           >
-            <ExternalLink size={14} />
             {t("projectSettings.openInBrowser")}
-          </button>
+          </Button>
         ) : null}
         {error ? (
           <p className="project-settings-error" role="alert">
             {error}
           </p>
         ) : null}
-        <footer>
-          <button type="button" disabled={saving} onClick={onClose}>
+        </div>
+        <div className="ui-dialog-footer">
+          <Button disabled={saving} onClick={onClose}>
             {t("common.cancel")}
-          </button>
-          <button
-            className="project-settings-submit"
+          </Button>
+          <Button
+            variant="primary"
             type="submit"
             disabled={saving}
+            icon={saving ? <LoaderCircle className="spin" size={14} /> : undefined}
           >
-            {saving ? <LoaderCircle className="spin" size={14} /> : null}
             {t("common.save")}
-          </button>
-        </footer>
+          </Button>
+        </div>
       </form>
     </ProjectSettingsDialogFrame>
   );

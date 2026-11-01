@@ -1,4 +1,5 @@
 import type { ProjectType } from "../shared/contracts.js";
+import { PLUGIN_CONTRIBUTIONS, type PluginContribution } from "../shared/plugins.js";
 import { isProjectType } from "../shared/project-runtime.js";
 
 export type SidebarPage =
@@ -6,14 +7,9 @@ export type SidebarPage =
   | "projects"
   | "library"
   | "plugins"
-  | "general"
-  | "web-game"
-  | "interactive-story"
-  | "godot"
-  | "asset-canvas"
   | "community";
 
-export type SettingsSection = "account" | "billing" | "appearance" | "providers" | "agents" | "web-search" | "network" | "mcp-server" | "about";
+export type SettingsSection = "general" | "account" | "billing" | "appearance" | "providers" | "agents" | "web-search" | "network" | "connections" | "mcp-server" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
 export type ProjectSort = "updated" | "name";
 export interface ProjectListFilters {
@@ -23,10 +19,10 @@ export interface ProjectListFilters {
 }
 type SidebarRoutePage = Exclude<SidebarPage, "community" | "projects" | "plugins">;
 
-export const DEFAULT_SETTINGS_SECTION: SettingsSection = "providers";
+export const DEFAULT_SETTINGS_SECTION: SettingsSection = "general";
 
 const SIDEBAR_PAGES = new Set<SidebarRoutePage>([
-  "home", "library", "general", "web-game", "interactive-story", "godot", "asset-canvas",
+  "home", "library",
 ]);
 
 export type AppRoute =
@@ -34,8 +30,9 @@ export type AppRoute =
   | ({ page: "projects" } & ProjectListFilters)
   | { page: "community" }
   | { page: "community-profile"; authorId: string }
-  | { page: "plugins"; pluginId?: string }
-  | { page: "settings"; section: SettingsSection }
+  /** `adds` opens the marketplace filtered to plugins that add that. */
+  | { page: "plugins"; pluginId?: string; adds?: PluginContribution }
+  | { page: "settings"; section: SettingsSection; agent?: string }
   | { page: "plugin-builder"; sessionId: string }
   | { page: "game"; gameId: string }
   | { page: "playtest"; projectId: string }
@@ -46,6 +43,10 @@ export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
   const builderMatch = /^#\/plugins\/builder\/([0-9a-f-]{36})$/.exec(hash);
   if (builderMatch?.[1]) return { page: "plugin-builder", sessionId: builderMatch[1] };
+  const browseMatch = /^#\/plugins\?adds=([a-zA-Z]+)$/.exec(hash);
+  if (browseMatch?.[1] && (PLUGIN_CONTRIBUTIONS as readonly string[]).includes(browseMatch[1])) {
+    return { page: "plugins", adds: browseMatch[1] as PluginContribution };
+  }
   const pluginMatch = /^#\/(?:settings\/)?plugins(?:\/([^/]+))?$/.exec(hash);
   if (pluginMatch) {
     try {
@@ -54,9 +55,11 @@ export function parseAppRoute(hash: string): AppRoute {
       return { page: "plugins" };
     }
   }
-  const settingsMatch = /^#\/settings(?:\/(account|billing|appearance|providers|agents|web-search|network|connections|mcp-server|about))?$/.exec(hash);
-  if (settingsMatch?.[1] === "connections") return { page: "plugins" };
+  const settingsMatch = /^#\/settings(?:\/(general|account|billing|appearance|providers|agents|web-search|network|connections|mcp-server|about))?$/.exec(hash);
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? DEFAULT_SETTINGS_SECTION };
+  // Every agent, OhMyGame's own included, has its own settings page.
+  const agentMatch = /^#\/settings\/agents\/([a-z0-9-]+)$/.exec(hash);
+  if (agentMatch?.[1]) return { page: "settings", section: "agents", agent: agentMatch[1] };
   const communityMatch = /^#\/community(?:\/games)?$/.exec(hash);
   if (communityMatch) return { page: "community" };
   const profileMatch = /^#\/community\/creators\/([^/]+)$/.exec(hash);
@@ -132,8 +135,8 @@ export function sidebarHash(page: SidebarPage): string {
   return page === "community" ? communityHash() : `#/${page}`;
 }
 
-export function settingsHash(section: SettingsSection): string {
-  return `#/settings/${section}`;
+export function settingsHash(section: SettingsSection, agent?: string): string {
+  return agent && section === "agents" ? `#/settings/agents/${agent}` : `#/settings/${section}`;
 }
 
 export function projectsHash({ projectType, query, sort }: ProjectListFilters = {}): string {
@@ -146,6 +149,11 @@ export function projectsHash({ projectType, query, sort }: ProjectListFilters = 
 
 export function pluginHash(pluginId?: string): string {
   return `#/plugins${pluginId ? `/${encodeURIComponent(pluginId)}` : ""}`;
+}
+
+/** The marketplace, showing the plugins that add `adds`. */
+export function pluginBrowseHash(adds: PluginContribution): string {
+  return `#/plugins?adds=${adds}`;
 }
 
 export function pluginBuilderHash(sessionId: string): string {

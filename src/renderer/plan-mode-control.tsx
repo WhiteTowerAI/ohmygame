@@ -1,4 +1,4 @@
-import { CircleX, Lightbulb } from "./icons.js";
+import { ClipboardList, X } from "./icons.js";
 import { t } from "./i18n.js";
 
 interface PlanModeIndicatorProps {
@@ -6,15 +6,16 @@ interface PlanModeIndicatorProps {
   onExit: () => void;
 }
 
+/** Plan mode while it is on: a chip beside the + button, closed with its ×. */
 export function PlanModeIndicator({ disabled, onExit }: PlanModeIndicatorProps) {
   return (
-    <div className="composer-plan-mode" aria-label={t("planMode.active")}>
+    <span className="composer-plan-mode" aria-label={t("planMode.active")}>
+      <ClipboardList size={13} aria-hidden="true" />
+      {t("planMode.mode")}
       <button type="button" disabled={disabled} onClick={onExit} title={t("planMode.exit")} aria-label={t("planMode.exit")}>
-        <Lightbulb className="composer-plan-icon" size={15} aria-hidden="true" />
-        <CircleX className="composer-plan-close" size={15} aria-hidden="true" />
-        <span>{t("planMode.plan")}</span>
+        <X size={11} aria-hidden="true" />
       </button>
-    </div>
+    </span>
   );
 }
 

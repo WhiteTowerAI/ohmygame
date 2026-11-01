@@ -13,6 +13,8 @@ import {
   updateNetworkSettings,
 } from "./api.js";
 import { t } from "./i18n.js";
+import { Button, Field, Input, SegmentedControl } from "./ui/index.js";
+import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 
 const SOURCE_LABELS: Record<EffectiveNetworkProxy["source"], string> = {
   manual: t("network.source.manual"),
@@ -98,13 +100,7 @@ export function NetworkSettingsPanel() {
   }
 
   if (!state || !form)
-    return (
-      <section className="settings-panel settings-overview-panel">
-        <p className={error ? "settings-error" : "settings-loading"}>
-          {error ?? t("network.loading")}
-        </p>
-      </section>
-    );
+    return error ? <SettingsNote tone="danger">{error}</SettingsNote> : <div className="settings-loading-row">{t("network.loading")}</div>;
 
   const manual = form.mode === "manual";
   const dirty =
@@ -116,162 +112,127 @@ export function NetworkSettingsPanel() {
     state.detected.source !== "environment" &&
     state.settings.mode === "auto" &&
     form.mode === "auto";
+  const locked = Boolean(busy);
   return (
     <form
-      className="settings-panel settings-overview-panel settings-network-panel"
+      className="settings-form settings-network-panel"
       onSubmit={(event) => {
         event.preventDefault();
         void perform("save");
       }}
     >
-      <header className="settings-panel-header">
-        <h3>{t("network.title")}</h3>
-      </header>
-      <fieldset className="settings-network-fields" disabled={Boolean(busy)}>
-        <div className="settings-network-mode">
-          <span className="settings-search-field-label">{t("network.proxy")}</span>
-          <div
-            className="settings-provider-options"
-            role="radiogroup"
-            aria-label={t("network.modeLabel")}
-            aria-describedby="network-proxy-mode-hint"
-          >
-            {(
-              [
-                ["direct", t("network.direct")],
-                ["manual", t("network.manual")],
-                ["auto", t("network.automatic")],
-              ] as const
-            ).map(([mode, label]) => (
-              <label className="settings-provider-option" key={mode}>
-                <input
-                  type="radio"
-                  name="network-proxy-mode"
-                  value={mode}
-                  checked={form.mode === mode}
-                  onChange={() => update({ mode })}
-                />
-                <span className="settings-provider-option-label">{label}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-        <p
-          className="settings-detail-hint settings-network-mode-hint"
-          id="network-proxy-mode-hint"
-        >
-          {MODE_HINTS[form.mode]}
-        </p>
-        {manual ? (
-          <label className="settings-detail-field">
-            <span className="settings-search-field-label">{t("network.proxyUrl")}</span>
-            <input
-              className="settings-search-input"
-              type="url"
-              required
-              placeholder="http://127.0.0.1:7890"
-              value={form.proxyUrl}
-              onChange={(event) => update({ proxyUrl: event.target.value })}
-              spellCheck={false}
-              autoComplete="off"
-            />
-            <small className="settings-detail-hint">
-              {t("network.clashHint")}
-            </small>
-          </label>
+      <SettingsGroup title={t("network.proxy")}>
+        <SettingsRow title={t("settings.network.mode")} description={MODE_HINTS[form.mode]}>
+          <SegmentedControl
+            size="sm"
+            label={t("network.modeLabel")}
+            value={form.mode}
+            onChange={(mode) => update({ mode })}
+            options={[
+              { value: "auto", label: t("network.automatic"), disabled: locked },
+              { value: "manual", label: t("network.manual"), disabled: locked },
+              { value: "direct", label: t("network.direct"), disabled: locked },
+            ]}
+          />
+        </SettingsRow>
+        {form.mode === "auto" ? (
+          <SettingsRow title={t("settings.network.currentSource")} description={proxyDescription(state.detected)}>
+            {canDetect ? (
+              <Button size="sm" disabled={locked} onClick={() => void perform("detect")}>
+                {busy === "detect" ? t("network.detecting") : t("network.detect")}
+              </Button>
+            ) : null}
+          </SettingsRow>
         ) : null}
-        <details>
-          <summary>{t("common.advanced")}</summary>
-          <div className="settings-network-advanced">
-            <label className="settings-detail-field">
-              <span className="settings-search-field-label">
-                {t("network.bypass")}
-              </span>
-              <input
-                className="settings-search-input"
+        {/* Direct connections use no proxy, so there is nothing to bypass. */}
+        {form.mode !== "direct" ? <div className="settings-pad settings-form">
+          {manual ? (
+            <Field label={t("network.proxyUrl")} hint={t("network.clashHint")}>
+              {(props) => (
+                <Input
+                  {...props}
+                  type="url"
+                  required
+                  placeholder="http://127.0.0.1:7890"
+                  value={form.proxyUrl}
+                  disabled={locked}
+                  onChange={(event) => update({ proxyUrl: event.target.value })}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              )}
+            </Field>
+          ) : null}
+          <Field label={t("network.bypass")} hint={t("network.bypassHint")}>
+            {(props) => (
+              <Input
+                {...props}
                 value={form.noProxy}
+                disabled={locked}
                 onChange={(event) => update({ noProxy: event.target.value })}
                 placeholder="example.com, .internal.example"
                 spellCheck={false}
                 autoComplete="off"
               />
-              <small className="settings-detail-hint">
-                {t("network.bypassHint")}
-              </small>
-            </label>
-            {canDetect ? (
-              <button
-                className="settings-add-button"
-                type="button"
-                onClick={() => void perform("detect")}
-              >
-                {busy === "detect" ? t("network.detecting") : t("network.detect")}
-              </button>
-            ) : null}
-          </div>
-        </details>
-      </fieldset>
+            )}
+          </Field>
+        </div> : null}
+      </SettingsGroup>
       {dirty || state.requiresRestart || saved || state.detected.warning ? (
-        <div className="settings-network-status" aria-label={t("network.status")}>
-          {dirty ? <p>{t("network.unsaved")}</p> : null}
+        <div className="settings-form" aria-label={t("network.status")} role="group">
+          {dirty ? <SettingsNote>{t("network.unsaved")}</SettingsNote> : null}
           {state.requiresRestart ? (
-            <div className="settings-network-restart">
-              <p role="status">
-                {saved ? t("network.savedPrefix") : ""}
-                {window.ohMyGameDesktop?.restartApp
-                  ? t("network.restartToApply")
-                  : window.ohMyGameDesktop ? t("network.restartAppToApply") : t("network.restartServiceToApply")}
-              </p>
-              {window.ohMyGameDesktop?.restartApp ? (
-                <button
-                  className="settings-secondary-button"
-                  type="button"
-                  disabled={Boolean(busy)}
-                  onClick={() => void restart()}
-                >
-                  {busy === "restart" ? t("network.restarting") : t("network.restartNow")}
-                </button>
-              ) : null}
-            </div>
+            <SettingsNote role="status">
+              <span className="settings-note-row">
+                <span>
+                  {saved ? t("network.savedPrefix") : ""}
+                  {window.ohMyGameDesktop?.restartApp
+                    ? t("network.restartToApply")
+                    : window.ohMyGameDesktop ? t("network.restartAppToApply") : t("network.restartServiceToApply")}
+                </span>
+                {window.ohMyGameDesktop?.restartApp ? (
+                  <Button size="sm" disabled={locked} onClick={() => void restart()}>
+                    {busy === "restart" ? t("network.restarting") : t("network.restartNow")}
+                  </Button>
+                ) : null}
+              </span>
+            </SettingsNote>
           ) : saved ? (
-            <p role="status">{t("network.saved")}</p>
+            <SettingsNote tone="success" role="status">{t("network.saved")}</SettingsNote>
           ) : null}
-          {state.detected.warning ? <p>{state.detected.warning}</p> : null}
+          {state.detected.warning ? <SettingsNote>{state.detected.warning}</SettingsNote> : null}
         </div>
       ) : null}
-      {result ? (
-        <p
-          className={result.reachable ? "settings-success" : "settings-error"}
-          role="status"
-          title={`HTTP ${result.statusCode ?? "—"} · ${proxyDescription(result.route)}`}
-        >
-          {result.reachable
-            ? t("network.reachable", { ms: result.elapsedMs })
-            : (result.error ?? t("providers.status.failed"))}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="settings-error" role="alert">
-          {error}
-        </p>
-      ) : null}
-      <div className="settings-form-actions">
-        <button
-          className="settings-add-button"
-          type="button"
-          title={t("network.testHint")}
-          disabled={Boolean(busy) || (manual && !form.proxyUrl.trim())}
-          onClick={() => void perform("test")}
-        >
-          {busy === "test" ? t("network.testing") : t("network.test")}
-        </button>
-        <button
-          className="settings-primary-button"
+      <SettingsGroup title={t("settings.network.status")}>
+        <SettingsRow title={t("network.test")} description={t("network.testHint")}>
+          <Button
+            disabled={locked || (manual && !form.proxyUrl.trim())}
+            onClick={() => void perform("test")}
+          >
+            {busy === "test" ? t("network.testing") : t("network.test")}
+          </Button>
+        </SettingsRow>
+        {result ? (
+          <div className="settings-pad">
+            <SettingsNote tone={result.reachable ? "success" : "danger"} role="status">
+              <span title={`HTTP ${result.statusCode ?? "—"} · ${proxyDescription(result.route)}`}>
+                {result.reachable
+                  ? t("network.reachable", { ms: result.elapsedMs })
+                  : (result.error ?? t("providers.status.failed"))}
+              </span>
+            </SettingsNote>
+          </div>
+        ) : null}
+      </SettingsGroup>
+      {error ? <SettingsNote tone="danger">{error}</SettingsNote> : null}
+      <div className="settings-actions">
+        <Button
+          variant="primary"
           type="submit"
-          disabled={Boolean(busy) || !dirty || (manual && !form.proxyUrl.trim())}
+          disabled={locked || !dirty || (manual && !form.proxyUrl.trim())}
         >
           {busy === "save" ? t("common.saving") : t("common.save")}
-        </button>
+        </Button>
       </div>
     </form>
   );

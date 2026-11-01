@@ -13,16 +13,13 @@ import { CanvasBoardEditor } from "./asset-canvas-workspace.js";
 import { createCanvasBoardStorage, type CanvasBoardConflict, type CanvasBoardStorage } from "./canvas-board-storage.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
-import { useCanvasDocuments } from "./use-canvas-documents.js";
+import { useCanvasDocuments, type CanvasDocumentsState } from "./use-canvas-documents.js";
 import type { CanvasDocuments } from "./canvas-document-node.js";
-import { ArrowLeft, Check, ChevronLeft, ChevronRight, Code2, Layers3, LoaderCircle, MoreHorizontal, PanelToggle, Pencil, Plus, Trash2, X } from "./icons.js";
-import { WorkspaceBackButton } from "./workspace-shell.js";
+import { Check, ChevronLeft, ChevronRight, Layers3, LoaderCircle, MoreHorizontal, Pencil, Plus, Trash2, X } from "./icons.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { CanvasContextMenu } from "./editor-canvas.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { CanvasAssetProvider, canvasAssetSources } from "./use-workspace-asset-url.js";
-import { WorkspaceCodeView } from "./coding-workspace.js";
-import { WorkspaceTabs } from "./workspace-tabs.js";
 import "./game-design.css";
 import { ProjectMediaModelSettings } from "./media-model-defaults.js";
 import { CanvasNotice } from "./canvas-notice.js";
@@ -33,25 +30,23 @@ class CanvasSaveFailure extends Error {
   constructor(cause: unknown) { super(cause instanceof Error ? cause.message : String(cause), { cause }); }
 }
 
-export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveReady, onSaveReady, onContextChange, initialNodeId, onInitialNodeHandled, workspaceRevision = 0, openFileRequest, chatOnRight, chatCollapsed, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onProjectUpdated }: {
-  project: ProjectState; headerActionsTarget?: HTMLElement | null;
+export function CanvasWorkspace({ project, documents, headerActionsTarget = null, onLeaveReady, onSaveReady, onContextChange, initialNodeId, onInitialNodeHandled, onProjectUpdated }: {
+  project: ProjectState;
+  /** The project's documents, when the workspace shares them with the design document panel. */
+  documents?: CanvasDocumentsState;
+  /** Where its controls go, such as its panel's toolbar. Without one, an asset canvas has its own header. */
+  headerActionsTarget?: HTMLElement | null;
   onLeaveReady?: (leave: ((action: () => void) => void) | undefined) => void;
   onSaveReady?: (save: (() => Promise<void>) | undefined) => void;
   onContextChange?: (context: PromptContext | undefined) => void;
   initialNodeId?: string;
   onInitialNodeHandled?: () => void;
-  workspaceRevision?: number;
-  openFileRequest?: { path: string; id: number };
-  chatOnRight?: boolean;
-  chatCollapsed?: boolean;
-  onHome?: () => void;
-  homeLabel?: string;
-  onToggleChat?: () => void;
   onProjectUpdated?: (project: ProjectState) => void;
 }) {
   const [writeVersion] = useState(() => workspaceVersion(project.id));
   const singleBoard = project.type === "asset-canvas";
-  const docs = useCanvasDocuments(project.id), workspace = docs.workspace;
+  const own = useCanvasDocuments(project.id, !documents);
+  const docs = documents ?? own, workspace = docs.workspace;
   const tableStorage = useCanvasTables(project.id, workspace);
   const tablesRef = useRef(tableStorage); tablesRef.current = tableStorage;
   const [expandedTable, setExpandedTable] = useState<{ id: string; mode: "edit" | "preview" }>();
@@ -73,8 +68,6 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   const [saveAttempt, setSaveAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [boardStatus, setBoardStatus] = useState("loading");
-  const [workspaceView, setWorkspaceView] = useState<"canvas" | "code">("canvas");
-  const [codeRevision, setCodeRevision] = useState(0);
   const boardSave = useRef<(() => Promise<void>) | undefined>(undefined);
   const boardSync = useRef<(() => Promise<void>) | undefined>(undefined);
   const boardResolve = useRef<((version: "local" | "remote") => Promise<void>) | undefined>(undefined);
@@ -93,13 +86,6 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
     if (failure?.status === "rejected") throw failure.reason;
     setSyncRetryError(undefined);
   };
-  const changeView = useCallback((view: "canvas" | "code") => {
-    setWorkspaceView(view);
-    // Keep the canvas session and drafts alive; Code stays accessible if saving fails.
-    if (view === "code") void flush().then(() => setCodeRevision((value) => value + 1)).catch(() => {});
-  }, [flush]);
-  useEffect(() => { if (singleBoard && openFileRequest) changeView("code"); }, [singleBoard, openFileRequest?.id, changeView]);
-  useEffect(() => { if (initialNodeId) setWorkspaceView("canvas"); }, [initialNodeId]);
   const run = useCallback(async <T,>(operation: () => Promise<T>) => {
     setBusy(true); setError(undefined);
     try { return await operation(); } catch (cause) {
@@ -118,10 +104,9 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   const boardName = workspace?.boards.find((board) => board.id === activeId)?.name;
   const selectionContext = JSON.stringify({ total: selectedNodes.length, nodes: selectedNodes.slice(0, 25).map((node) => ({ id: node.id, name: canvasNodeTitle(node, workspace?.documents, workspace?.assets, tableContents).slice(0, 80), type: node.type, ...(node.type === "document" ? { source: canvasDocumentPath(node.data.documentId) } : node.type === "table" ? { source: canvasTablePath(node.data.tableId) } : node.type === "file" ? { source: node.data.path } : {}) })) });
   useEffect(() => {
-    if (singleBoard && workspaceView === "code") { onContextChange?.(undefined); return; }
     if (!activeId || !boardName) return;
     onContextChange?.({ kind: "canvas-board", label: `${singleBoard ? project.name : boardName}${selectedNodes.length ? t("canvas.selectedCount", { count: selectedNodes.length }) : ""}`.slice(0, 200), text: `Current canvas board: ${canvasBoardPath(activeId)}\nSelected nodes: ${selectionContext}\nAsset paths and descriptions: canvas/assets.json\nRead these current project files to resolve the user's references. Selected nodes identify what the message refers to; they do not limit the requested work. Read actual image files when evaluating their appearance.` });
-  }, [activeId, boardName, singleBoard, workspaceView, project.name, selectionContext, onContextChange]);
+  }, [activeId, boardName, singleBoard, project.name, selectionContext, onContextChange]);
   useEffect(() => { setSelectedNodes([]); }, [activeId]);
   useEffect(() => { setBoardConflict(undefined); }, [project.id, activeId]);
   useEffect(() => () => onContextChange?.(undefined), [onContextChange]);
@@ -175,18 +160,13 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
       onChange={(id) => void run(async () => { await flush(); setActiveId(id); setBoardStatus("loading"); })} />
   </div>;
   const settingsButton = <ProjectMediaModelSettings key={project.id} project={project} onSaved={(updated) => onProjectUpdated?.(updated)} />;
-  return <CanvasAssetProvider assets={assetPaths}><section className="viewer-pane design-workspace" data-active-tab={singleBoard ? workspaceView : undefined} aria-label={singleBoard ? t("canvas.assetCanvasWorkspace") : t("canvas.designWorkspace")}>
-    {singleBoard ? <header className="pane-header viewer-header interactive-story-header window-drag-handle">
-      <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-      <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
-        {chatOnRight && onHome ? <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={ArrowLeft} /> : null}
-        <WorkspaceTabs tabs={[{ id: "canvas", label: t("canvas.tab.canvas"), icon: Layers3 }, { id: "code", label: t("workspace.tab.code"), icon: Code2 }]} active={workspaceView} onChange={changeView} label={t("canvas.workspaceMode")} />
-      </div>
+  return <CanvasAssetProvider assets={assetPaths}><section className="viewer-pane design-workspace" aria-label={singleBoard ? t("canvas.assetCanvasWorkspace") : t("canvas.designWorkspace")}>
+    {singleBoard && !headerActionsTarget ? <header className="pane-header viewer-header interactive-story-header">
+      <div className="viewer-navigation" />
       <div className="viewer-controls-slot" />
       <div className="viewer-publish design-header-actions">
         {saveStatus}
         {settingsButton}
-        {chatOnRight && chatCollapsed && onToggleChat ? <button className="icon-button pane-header-action" type="button" title={t("workspace.showChat")} aria-label={t("workspace.showChat")} onClick={onToggleChat}><PanelToggle size={14} /></button> : null}
       </div>
     </header> : headerActionsTarget ? createPortal(<>{saveStatus}{settingsButton}</>, headerActionsTarget) : null}
     {error && error !== docs.error && error !== docs.loadError && error !== tableStorage.error ? <CanvasNotice className="design-notice" message={t("canvas.actionFailed")} detail={error} onDismiss={() => setError(undefined)} /> : null}
@@ -202,14 +182,13 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
       await resolve(version);
       setBoardConflict(undefined);
     })}>{version === "remote" ? t("canvas.useDisk") : t("canvas.keepMine")}</button>)}</CanvasNotice> : null}
-    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} hidden={singleBoard && workspaceView === "code"} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} initialNodeId={initialNodeId} onInitialNodeHandled={onInitialNodeHandled} /> : singleBoard && workspaceView === "code" ? null : <div className="design-loading">{docs.loadError ? <span>{t("canvas.restoreWorkspace")}</span> : <LoaderCircle size={22} className="spin" />}</div>}
-    {singleBoard && workspaceView === "code" ? <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + codeRevision} openFileRequest={openFileRequest} /> : null}
+    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} initialNodeId={initialNodeId} onInitialNodeHandled={onInitialNodeHandled} /> : <div className="design-loading">{docs.loadError ? <span>{t("canvas.restoreWorkspace")}</span> : <LoaderCircle size={22} className="spin" />}</div>}
     {boardOptions && workspace && optionsBoard ? <CanvasContextMenu screenPosition={boardOptions} label={t("canvas.boardOptions", { name: optionsBoard.name })} onClose={() => setBoardOptions(undefined)}>
       <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size={14} /><span>{t("common.rename")}</span></button>
       {([-1, 1] as const).map((direction) => <button type="button" role="menuitem" key={direction} disabled={workspace.boards.findIndex((board) => board.id === optionsBoard.id) === (direction === -1 ? 0 : workspace.boards.length - 1)} onClick={() => { setBoardOptions(undefined); void run(async () => { await flush(); await changeCanvasBoard(project.id, optionsBoard.id, { direction }, writeVersion); await docsRef.current.refresh(); }); }}>{direction === -1 ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}<span>{direction === -1 ? t("canvas.moveUp") : t("canvas.moveDown")}</span></button>)}
       <button type="button" role="menuitem" disabled={workspace.boards.length === 1} onClick={() => { setBoardOptions(undefined); setDialog({ type: "delete", id: optionsBoard.id }); }}><Trash2 size={14} /><span>{t("canvas.deleteBoard")}</span></button>
     </CanvasContextMenu> : null}
-    {expandedTable && tableStorage.sessions.get(expandedTable.id) && workspaceView !== "code" ? <div className="design-expanded-document canvas-expanded-table" role="dialog" aria-modal="true" aria-label={t("canvas.expandedTable")}>
+    {expandedTable && tableStorage.sessions.get(expandedTable.id) ? <div className="design-expanded-document canvas-expanded-table" role="dialog" aria-modal="true" aria-label={t("canvas.expandedTable")}>
       <ExpandedCanvasTable key={expandedTable.id} table={tableStorage.sessions.get(expandedTable.id)!.local} tables={tables} initialMode={expandedTable.mode} />
       <button className="design-expanded-close" type="button" title={t("canvas.backToCanvas")} aria-label={t("canvas.backToCanvas")} onClick={() => setExpandedTable(undefined)}><X size={16} /></button>
     </div> : null}

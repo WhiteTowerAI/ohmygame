@@ -253,6 +253,56 @@ describe("project archive export", () => {
     ).toBe(404);
   });
 
+  it("carries the chosen icon, template cover and uploaded logo through export, import and duplication", async () => {
+    const app = createApp({ dataDirectory: await temporaryDirectory() });
+    apps.push(app);
+    const project = (
+      await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game", name: "Logo game" } })
+    ).json();
+    await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/cover?source=auto`,
+      headers: { "content-type": "image/webp" },
+      payload: webp("automatic"),
+    });
+    await app.inject({ method: "PUT", url: `/projects/${project.id}/appearance`, payload: { icon: "rocket", tone: 2, cover: "template" } });
+    await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/logo`,
+      headers: { "content-type": "image/webp" },
+      payload: webp("logo"),
+    });
+
+    const archive = await readArchive((await app.inject({ method: "POST", url: `/projects/${project.id}/export` })).rawPayload);
+    expect(archive["logo.webp"]).toEqual(webp("logo"));
+    // The template replaces the cover, so there is none to pack.
+    expect(archive["cover.webp"]).toBeUndefined();
+    expect(JSON.parse(archive["ohmygame-project.json"]!.toString()).project.appearance)
+      .toEqual({ icon: "rocket", tone: 2, cover: "template", logo: true });
+
+    const imported = (await app.inject({
+      method: "POST",
+      url: "/projects/import",
+      headers: { "content-type": PROJECT_ARCHIVE_CONTENT_TYPE },
+      payload: await zipArchive(archive),
+    })).json();
+    const duplicate = (await app.inject({ method: "POST", url: `/projects/${project.id}/duplicate` })).json();
+    for (const copy of [imported, duplicate]) {
+      expect(copy.appearance).toEqual({ icon: "rocket", tone: 2, cover: "template", logo: true });
+      expect((await app.inject({ method: "GET", url: `/projects/${copy.id}/logo` })).rawPayload).toEqual(webp("logo"));
+    }
+
+    // An archive that names a logo without holding one falls back to the icon.
+    const { "logo.webp": _logo, ...withoutLogo } = archive;
+    const missing = (await app.inject({
+      method: "POST",
+      url: "/projects/import",
+      headers: { "content-type": PROJECT_ARCHIVE_CONTENT_TYPE },
+      payload: await zipArchive(withoutLogo),
+    })).json();
+    expect(missing.appearance).toEqual({ icon: "rocket", tone: 2, cover: "template" });
+  });
+
   it("counts the manifest even when the workspace is empty", async () => {
     const projects = new ProjectManager(await temporaryDirectory());
     const project = await projects.create("Empty project");
@@ -331,6 +381,18 @@ describe("project archive export", () => {
       ).toBe(0o111);
     },
   );
+
+  it("records that a Godot project from before format 2 came from an archive", async () => {
+    const projects = new ProjectManager(await temporaryDirectory());
+    const legacy = await projects.create("Godot", "godot-game");
+    const imported = await importProjectArchive(
+      new ProjectManager(await temporaryDirectory()),
+      await exportProjectArchive(legacy),
+    );
+    // So moving it to the Godot type, at any start, never allows Godot for its folder.
+    expect(imported).toMatchObject({ type: "godot-game", integration: { pluginId: "ohmygame:godot", imported: true } });
+    expect(imported.pluginType).toBeUndefined();
+  });
 
   it("counts the rewritten story graph instead of its smaller source", async () => {
     const library = new AssetLibrary(await temporaryDirectory());
@@ -832,6 +894,32 @@ describe("project archive import", () => {
     expect(await listFiles(unnamed.workspacePath)).not.toContain(".git/config");
   });
 
+  it("moves an imported format 1 Maker project to the Maker type without allowing its plugin", async () => {
+    const dataDirectory = await temporaryDirectory();
+    // The person used format 1 Maker; that never covers a folder from an archive.
+    await writeFile(path.join(dataDirectory, "plugin-settings.json"), JSON.stringify({ version: 2, plugins: { "ohmygame:taptap-maker": { enabled: true, components: {} } } }));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    await app.ready();
+    const response = await app.inject({
+      method: "POST",
+      url: "/projects/import",
+      headers: { "content-type": PROJECT_ARCHIVE_CONTENT_TYPE },
+      payload: await zipArchive({
+        "ohmygame-project.json": manifest({ name: "Maker game", type: "general", integration: { pluginId: "ohmygame:taptap-maker", preview: "external" } }),
+        "main.lua": "-- game",
+      }),
+    });
+    expect(response.statusCode).toBe(201);
+    const project = response.json();
+    expect(project.integration).toBeUndefined();
+    expect(project.pluginType).toEqual({ id: "ohmygame/taptap-maker:maker", plugin: "ohmygame/taptap-maker", preview: "native" });
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, "ohmygame.json"), "utf8"))).toMatchObject({ type: "ohmygame/taptap-maker:maker" });
+    const plugins = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json();
+    expect(plugins.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/taptap-maker")).toMatchObject({ consented: true });
+    expect(plugins.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/taptap-maker").status).not.toBe("active");
+  });
+
   it("answers import errors with their status through the API", async () => {
     const app = createApp({ dataDirectory: await temporaryDirectory() });
     apps.push(app);
@@ -893,12 +981,12 @@ async function listFiles(root: string, relative = ""): Promise<string[]> {
 }
 
 function zipArchive(
-  entries: Record<string, string | { contents: string; mode: number }>,
+  entries: Record<string, string | Buffer | { contents: string; mode: number }>,
 ): Promise<Buffer> {
   const zip = new ZipFile();
   for (const [name, entry] of Object.entries(entries)) {
     const { contents, mode } =
-      typeof entry === "string" ? { contents: entry, mode: 0o100644 } : entry;
+      typeof entry === "string" || Buffer.isBuffer(entry) ? { contents: entry, mode: 0o100644 } : entry;
     zip.addBuffer(Buffer.from(contents), name, { mode, compress: false });
   }
   return new Promise((resolve, reject) => {

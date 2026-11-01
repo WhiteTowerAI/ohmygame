@@ -10,6 +10,7 @@ import claudeCode from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
 import deepSeek from "@lobehub/icons-static-svg/icons/deepseek-color.svg";
 import fireworks from "@lobehub/icons-static-svg/icons/fireworks-color.svg";
 import githubCopilot from "@lobehub/icons-static-svg/icons/githubcopilot.svg";
+import gemini from "@lobehub/icons-static-svg/icons/gemini-color.svg";
 import google from "@lobehub/icons-static-svg/icons/google-color.svg";
 import googleVertex from "@lobehub/icons-static-svg/icons/vertexai-color.svg";
 import groq from "@lobehub/icons-static-svg/icons/groq.svg";
@@ -78,10 +79,12 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   nvidia: color(nvidia),
   openai: monochrome(openAI),
   "openai-codex": color(codex),
-  // Coding agent CLIs, listed with the providers in Providers & Models.
+  // Coding agent CLIs, listed in Agents.
   "claude-code-cli": color(claudeCode),
   "codex-cli": color(codex),
   "opencode-cli": monochrome(openCode),
+  // Not supported yet; Agents lists it as coming soon.
+  "gemini-cli": color(gemini),
   opencode: monochrome(openCode),
   "opencode-go": monochrome(openCode),
   openrouter: monochrome(openRouter),

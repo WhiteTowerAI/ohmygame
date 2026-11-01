@@ -1,0 +1,8 @@
+{
+  "displayName": "Web Game Studio",
+  "description": "Build and improve polished browser games.",
+  "longDescription": "A coordinated browser-game workflow covering architecture, Phaser, Three.js, React Three Fiber, UI, assets, and player-focused verification.",
+  "example.1": "Create a playable browser game from this idea.",
+  "example.2": "Add a feature to the current game without regressing existing play.",
+  "example.3": "Diagnose and fix a gameplay bug, then verify the affected flow."
+}

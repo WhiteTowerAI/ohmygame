@@ -1,0 +1,1445 @@
+/*
+ * Settings, inside the page frame: the section list in the sheet's side
+ * column, then one scrolling column of titled groups. A group is a card of
+ * rows (what it is on the left, the control on the right), as in the lab.
+ * Everything reads the ui tokens.
+ */
+
+/* ---------- section list ---------- */
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  /* The lab's body sets 1.5; the app's doesn't, which packed the list. */
+  line-height: 1.5;
+}
+
+.settings-nav-title {
+  padding: 0 var(--space-2) var(--space-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.settings-nav-group + .settings-nav-group {
+  margin-top: var(--space-3);
+}
+
+.settings-nav-heading {
+  padding: 0 var(--space-2) var(--space-1);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-nav-item:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.settings-nav-item:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.settings-nav-item.is-current {
+  background: var(--color-selected);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+/* ---------- the sheet ---------- */
+
+.settings-scroll {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+/* Long reading areas show their scrollbar only while the pointer is over them. */
+.settings-scroll:hover {
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 760px;
+  margin: 0 auto;
+  padding: var(--space-6) clamp(16px, 4vw, 40px) 80px;
+}
+
+/* A provider's details, in a dialog over the list. */
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 32px;
+}
+
+.settings-head h1,
+.settings-detail-title h1 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-body :is(h2, h3, h4, p) {
+  margin: 0;
+}
+
+.settings-body code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* ---------- groups and rows ---------- */
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-group > header {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: 0 var(--space-1);
+}
+
+.settings-group > header > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-group-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.settings-group h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-group header p {
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.settings-count {
+  color: var(--color-text-tertiary);
+  font-weight: var(--weight-regular);
+}
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+}
+
+/* Rows inside a card are divided by a hairline, as in Codex. */
+.settings-card > * + * {
+  box-shadow: inset 0 1px 0 var(--color-border);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 56px;
+  padding: var(--space-3) var(--space-4);
+}
+
+.settings-row.is-link {
+  cursor: pointer;
+  transition: background var(--duration-fast);
+}
+
+.settings-row.is-link:hover {
+  background: var(--color-hover);
+}
+
+.settings-row-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+}
+
+.settings-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-row-text strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-medium);
+}
+
+.settings-row-text > span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-row-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 60%;
+}
+
+.settings-row-chevron {
+  color: var(--color-text-tertiary);
+}
+
+.settings-pad {
+  padding: var(--space-4);
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Network is one form of groups; they keep the page's spacing. */
+.settings-form.settings-network-panel {
+  gap: var(--space-6);
+}
+
+.settings-inline {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.settings-inline > .ui-input,
+.settings-inline > .ui-select,
+.settings-inline > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.settings-actions.is-start {
+  justify-content: flex-start;
+}
+
+.settings-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-toolbar > .ui-input {
+  flex: 1;
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.settings-spacer {
+  flex: 1;
+}
+
+.settings-muted {
+  color: var(--color-text-tertiary);
+}
+
+/* A long folder path keeps its end, where the name is. */
+.settings-location {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+
+.settings-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* ---------- badges, notes, marks ---------- */
+
+.settings-cap {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: 18px;
+}
+
+.settings-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-note {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-note.is-success {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.settings-note.is-danger {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.settings-note p + p {
+  margin-top: var(--space-1);
+}
+
+.settings-loading-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 56px;
+  padding: 0 var(--space-4);
+  color: var(--color-text-tertiary);
+}
+
+/* A provider or agent logo, on a quiet tile so dark marks read in dark mode. */
+.settings-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  overflow: hidden;
+  border-radius: 7px;
+  color: var(--color-text-secondary);
+}
+
+.settings-mark img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.settings-mark.is-initial {
+  background: var(--color-selected);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+/* OhMyGame's own agent sits on a tile, as in the lab. */
+.settings-mark.is-brand {
+  background: var(--color-hover);
+}
+
+/* Black marks turn white on the dark tile; light marks keep a light tile; the
+   OhMyGame mark turns black in the light appearance. */
+[data-appearance="dark"] .settings-mark.is-monochrome img {
+  filter: invert(1);
+}
+
+[data-appearance="dark"] .settings-mark.is-light {
+  background: var(--gray-12);
+}
+
+.settings-detail-mark .settings-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+
+.settings-detail-mark .settings-mark img {
+  width: 32px;
+  height: 32px;
+}
+
+/* ---------- a page one step into a section ---------- */
+
+.settings-detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.settings-detail-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-detail-title p {
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.settings-detail-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ---------- appearance ---------- */
+
+.theme-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+
+.theme-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-tile > span:last-child {
+  display: flex;
+  flex-direction: column;
+  padding: 0 2px;
+}
+
+.theme-tile small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.theme-tile.is-selected {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.theme-tile:focus-visible {
+  outline: none;
+}
+
+.theme-tile .theme-preview,
+.theme-preview-split {
+  border-radius: var(--radius-md);
+  transition: box-shadow var(--duration-fast);
+}
+
+.theme-tile:hover .theme-preview,
+.theme-tile:hover .theme-preview-split,
+.theme-tile:focus-visible .theme-preview,
+.theme-tile:focus-visible .theme-preview-split {
+  box-shadow: 0 0 0 1px var(--color-border-strong);
+}
+
+.theme-tile.is-selected .theme-preview,
+.theme-tile.is-selected .theme-preview-split {
+  box-shadow: 0 0 0 2px var(--color-text);
+}
+
+/* Follow system: the light preview, with the dark one over its right half. */
+.theme-preview-split {
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+
+.theme-preview-split .theme-preview {
+  border-radius: 0;
+  box-shadow: none !important;
+}
+
+.theme-preview-split .theme-preview:last-child {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(0 0 0 50%);
+}
+
+/* The preview carries its own data-appearance and data-palette, so the token
+   rules give it that theme's greys. */
+.theme-preview {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 28% 1fr;
+  gap: 4px;
+  aspect-ratio: 16 / 10;
+  padding: 6px 6px 6px 0;
+  overflow: hidden;
+  background: var(--gray-0);
+}
+
+.theme-preview-rail,
+.theme-preview-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.theme-preview-rail {
+  padding: 4px 6px;
+}
+
+.theme-preview-sheet {
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--gray-2);
+}
+
+.theme-preview i,
+.theme-preview b {
+  display: block;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--gray-5);
+}
+
+.theme-preview-rail i:first-child {
+  width: 70%;
+  background: var(--gray-6);
+}
+
+.theme-preview-sheet i:first-child {
+  width: 60%;
+  background: var(--gray-9);
+}
+
+.theme-preview-sheet i:nth-child(2) {
+  width: 85%;
+}
+
+.theme-preview-sheet b {
+  height: 18px;
+  margin-top: auto;
+  border-radius: 4px;
+  background: var(--gray-3);
+}
+
+.font-sample {
+  color: var(--color-text-secondary);
+}
+
+.font-sample.is-serif {
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+}
+
+/* ---------- account and about ---------- */
+
+.settings-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.settings-identity-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-identity-text strong {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-identity-text span {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.settings-avatar {
+  width: 48px;
+  height: 48px;
+  flex: none;
+}
+
+.settings-about-logo {
+  display: grid;
+  flex: none;
+  width: 44px;
+  height: 44px;
+}
+
+.settings-progress {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--space-2);
+  width: 260px;
+  max-width: 100%;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.settings-progress > .ui-progress {
+  flex: 1;
+  min-width: 64px;
+}
+
+.settings-details {
+  font-size: var(--text-sm);
+}
+
+.settings-details > summary {
+  width: fit-content;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.settings-details > summary:hover {
+  color: var(--color-text);
+}
+
+.settings-details[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
+.settings-details code {
+  display: block;
+  max-height: 160px;
+  overflow: auto;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-stage);
+  box-shadow: var(--shadow-hairline);
+  white-space: pre-wrap;
+}
+
+/* Releases fold inside the card, as in the lab; the hairlines between rows divide them. */
+.settings-card > .ui-collapsible {
+  padding: 0 var(--space-4);
+  border-bottom: 0;
+}
+
+.ui-collapsible-body > .settings-changelog {
+  padding: 0;
+}
+
+.settings-changelog {
+  padding: var(--space-4);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.settings-changelog :is(h1, h2, h3, h4) {
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--color-text);
+  font-size: var(--text-md);
+}
+
+.settings-changelog :is(ul, ol) {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.settings-changelog a {
+  color: var(--color-text);
+}
+
+/* ---------- commands people copy ---------- */
+
+.settings-command {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-stage);
+  box-shadow: var(--shadow-hairline);
+}
+
+.settings-command code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 760px) {
+  .settings-row {
+    flex-wrap: wrap;
+  }
+
+  .settings-row-control {
+    max-width: none;
+  }
+}
+
+/* ---------- media defaults, as rows ---------- */
+
+.settings-generation-defaults .media-default-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: 48px;
+  padding: var(--space-2) var(--space-4);
+  font-weight: var(--weight-medium);
+}
+
+/* ---------- pages one step in (a provider, an agent) ----------
+ * Their parts are shared with other screens (provider models, account
+ * profiles, usage), so they keep their class names; inside Settings they take
+ * the group-and-card look. */
+
+.settings-body .settings-provider-detail,
+.settings-body .coding-agent-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  width: 100%;
+  padding: 0;
+}
+
+.settings-body .settings-detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0;
+  border: 0;
+}
+
+.settings-body :is(.settings-detail-section, .provider-models) > h4,
+.settings-body .provider-models-heading h4,
+.settings-body .settings-search-section-header h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-body .provider-models-heading h4 small,
+.settings-body .settings-count {
+  color: var(--color-text-tertiary);
+  font-size: inherit;
+  font-weight: var(--weight-regular);
+}
+
+.settings-body .provider-models-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+}
+
+.settings-body :is(.provider-models-heading-actions, .provider-models-controls) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-body .settings-search-section-header p,
+.settings-body .settings-detail-hint,
+.settings-body .cloud-quota-note,
+.settings-body .settings-empty {
+  margin: 0;
+  padding: 0 var(--space-1);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+/* Lists of models, connection settings, sign-in methods: cards of rows. */
+.settings-body :is(.provider-models-list, .settings-provider-connection, .settings-method-list, .cloud-quota-details) {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+}
+
+.settings-body :is(.provider-models-list, .settings-provider-connection, .settings-method-list, .cloud-quota-details) > * + * {
+  border-top: 0;
+  box-shadow: inset 0 1px 0 var(--color-border);
+}
+
+/* A balance reads as a settings row: label left, amount right. */
+.settings-body .cloud-quota-details > .cloud-quota-row-heading {
+  align-items: center;
+  min-height: 48px;
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-secondary);
+  font-size: var(--text-md);
+}
+
+.settings-body .cloud-quota-details > .cloud-quota-row-heading > span:last-child {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.settings-body .cloud-quota-details > .cloud-quota-note {
+  padding: var(--space-2) var(--space-4);
+}
+
+.settings-body .provider-models-list > .settings-empty {
+  padding: var(--space-4);
+}
+
+.settings-body .provider-model-row {
+  min-height: 48px;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.settings-body .provider-model-row:hover {
+  background: var(--color-hover);
+}
+
+.settings-body .provider-model-copy strong {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.settings-body .provider-model-copy small {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.settings-body .settings-provider-setting-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 160px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+}
+
+.settings-body .settings-provider-setting-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-body .settings-provider-setting-editor {
+  padding: var(--space-4);
+}
+
+.settings-body .cloud-quota-row {
+  padding: var(--space-3) var(--space-4);
+}
+
+.settings-body .settings-method-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-body .settings-method-row:hover {
+  background: var(--color-hover);
+}
+
+.settings-body .settings-method-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-body .settings-method-copy small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* Fields */
+.settings-body :is(.settings-detail-field, .settings-search-fields > label) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-body .settings-search-field-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.settings-body .settings-detail-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-body .settings-detail-inline > :is(input, select) {
+  flex: 1;
+}
+
+.settings-body :is(.settings-search-input, .provider-model-form input, .provider-model-form select) {
+  height: 32px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  outline: none;
+  background: var(--color-stage);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-md);
+  transition: box-shadow var(--duration-fast);
+}
+
+.settings-body :is(.settings-search-input, .provider-model-form input, .provider-model-form select):hover {
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
+.settings-body :is(.settings-search-input, .provider-model-form input, .provider-model-form select):focus {
+  box-shadow: inset 0 0 0 1px var(--color-text-tertiary);
+}
+
+/* Buttons the shared parts still draw themselves, matched to ui Button. */
+.settings-body :is(.settings-primary-button, .settings-secondary-button, .settings-add-button, .settings-danger-button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-hover);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.settings-body :is(.settings-secondary-button, .settings-add-button):hover:not(:disabled) {
+  background: var(--color-selected);
+}
+
+.settings-body .settings-primary-button {
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+}
+
+.settings-body .settings-primary-button:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+/* Destructive actions read as danger text on the quiet fill, as in ui menus. */
+.settings-body .settings-danger-button,
+.settings-body .ui-button.settings-danger-button {
+  background: var(--color-hover);
+  color: var(--color-danger);
+}
+
+.settings-body :is(.settings-primary-button, .settings-secondary-button, .settings-add-button, .settings-danger-button):disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.settings-body .settings-provider-setting-edit {
+  color: var(--color-text-secondary);
+}
+
+.settings-body .settings-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.settings-body .settings-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.settings-body .settings-provider-enable-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-body .settings-provider-enable-error {
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.settings-body .settings-provider-delete-confirmation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 0;
+}
+
+.settings-body .settings-provider-delete:hover:not(:disabled) {
+  color: var(--color-danger);
+}
+
+.settings-provider-status {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.settings-provider-status.is-error {
+  color: var(--color-danger);
+}
+
+.settings-provider-more {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.settings-provider-more[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.settings-note-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.settings-search-credential {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-agent-row .agent-usage-inline {
+  max-width: 220px;
+}
+
+/* ---------- the custom provider dialog on the ui Dialog ---------- */
+
+.custom-provider-form-body {
+  width: 100%;
+  overflow: visible;
+}
+
+.custom-provider-form-body > form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.custom-provider-form-body .custom-provider-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 0;
+  overflow: visible;
+}
+
+.custom-provider-form-body .project-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.custom-provider-form-body .project-settings-field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.custom-provider-form-body label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.custom-provider-form-body label small,
+.custom-provider-form-body .custom-provider-hint {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+}
+
+.custom-provider-form-body :is(input:not([type="checkbox"]), select) {
+  height: 32px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  outline: none;
+  background: var(--color-stage);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--weight-regular);
+}
+
+.custom-provider-form-body :is(input:not([type="checkbox"]), select):focus {
+  box-shadow: inset 0 0 0 1px var(--color-text-tertiary);
+}
+
+.custom-provider-form-body input[type="checkbox"] {
+  accent-color: var(--color-accent);
+}
+
+.custom-provider-form-body .project-settings-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.custom-provider-form-body .settings-secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-hover);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+/* A checkbox sits before its label, unlike the fields above it. */
+.custom-provider-form-body label:has(> input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-weight: var(--weight-regular);
+  cursor: pointer;
+}
+
+.custom-provider-form-body input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin: 0;
+}
+
+/* Native, so the form can focus it; drawn like the kit's select. :not() matches
+   the specificity of the field rule above, whose background would hide the caret. */
+.custom-provider-form-body select:not([multiple]) {
+  padding-right: 28px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23898989' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right var(--space-2) center;
+  background-repeat: no-repeat;
+  background-size: 14px;
+  cursor: pointer;
+}
+
+.custom-provider-form-body select:not([multiple]):hover:not(:focus) {
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
+.custom-provider-form-body :is(.custom-model-uses, .custom-model-choices) > legend {
+  margin-bottom: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.custom-provider-form-body .custom-model-uses > small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.custom-provider-form-body .custom-provider-capabilities {
+  gap: var(--space-2) var(--space-4);
+}
+
+.custom-provider-form-body .custom-provider-advanced {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.custom-provider-form-body .custom-model-use-settings {
+  border-top-color: var(--color-border);
+}
+
+.custom-provider-form-body .custom-provider-model-picker {
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.custom-provider-form-body .custom-provider-model-heading h3 {
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.custom-provider-form-body .custom-provider-model-heading h3 > small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+}
+
+/* The search box is the field; its input draws nothing of its own. */
+.custom-provider-form-body .custom-provider-model-search {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  height: 32px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-stage);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  color: var(--color-text-tertiary);
+}
+
+.custom-provider-form-body .custom-provider-model-search:focus-within {
+  box-shadow: inset 0 0 0 1px var(--color-text-tertiary);
+}
+
+.custom-provider-form-body .custom-provider-model-search input,
+.custom-provider-form-body .custom-provider-model-search input:focus {
+  flex: 1;
+  height: 100%;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.custom-provider-form-body .custom-provider-model-results {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.custom-provider-form-body .custom-provider-model-item + .custom-provider-model-item {
+  border-top-color: var(--color-border);
+}
+
+.custom-provider-form-body .custom-provider-model-row {
+  gap: var(--space-1);
+  padding-right: var(--space-2);
+}
+
+.custom-provider-form-body .custom-provider-model-row > button:last-child {
+  margin-right: 0;
+}
+
+.custom-provider-form-body .custom-provider-model-choice {
+  padding: var(--space-2) var(--space-3);
+}
+
+.custom-provider-form-body .custom-provider-model-choice:hover {
+  background: var(--color-hover);
+}
+
+.custom-provider-form-body .custom-provider-model-choice > span {
+  gap: 2px;
+}
+
+.custom-provider-form-body .custom-provider-model-choice strong {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.custom-provider-form-body .custom-provider-model-choice small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.custom-provider-form-body .custom-model-usage-badges > small {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+}
+
+.custom-provider-form-body .custom-provider-model-editor {
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.custom-provider-form-body .custom-provider-model-empty {
+  padding: var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.custom-provider-form-body .custom-provider-manual {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.custom-provider-form-body .custom-provider-manual > summary {
+  border-radius: var(--radius-md);
+}
+
+.custom-provider-form-body .custom-provider-manual > summary:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.custom-provider-form-body .custom-provider-manual > summary > svg:last-child {
+  color: var(--color-text-tertiary);
+}
+
+.custom-provider-form-body .custom-provider-manual-fields {
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.settings-body a.ui-button {
+  text-decoration: none;
+}
+
+.settings-select-busy {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Settings → MCP Connections: a row opens its tests, sign-in, definition and configuration below it. */
+.connection-item + .connection-item {
+  border-top: 1px solid var(--color-border);
+}
+.connection-detail {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) var(--space-3) calc(var(--space-3) + 28px);
+}
+.connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.connection-editor,
+.connection-form {
+  display: grid;
+  gap: var(--space-3);
+}
+.connection-editor textarea {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+.connection-error {
+  margin: 0;
+  color: var(--color-danger);
+}

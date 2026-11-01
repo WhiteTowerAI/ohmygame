@@ -129,9 +129,8 @@ kept in OhMyGame. See [coding agents](docs/coding-agents.md).
 
 ### 🔌 Use OhMyGame from Claude Code, Codex, and other agents
 
-Already working in another coding agent? Turn on **Settings → MCP Server →
-Allow other agents to use OhMyGame** and connect Claude Code or Codex with one
-click.
+Already working in another coding agent? Turn on **Settings → MCP Server** and
+add OhMyGame to Claude Code or Codex with the command shown there.
 They get OhMyGame's media generation with your providers, the canvas, and
 playtesting, plus a Skill that explains the workflow. DeepSeek Harness and
 other MCP clients can add the `ohmygame-studio` command shown there. See
@@ -263,13 +262,15 @@ See [the changelog](CHANGELOG.md) for changes in each release, or open
 
 OhMyGame ships without a model. On first launch, it walks you through setup:
 
-1. **Connect your AI.** Sign in to a model provider or paste an API key, or use
-   a Claude Code, Codex, or OpenCode CLI you already have. Use **+** to add a
-   custom or local endpoint. **Skip and start** enters without setup.
-2. **Add creative tools (optional).** Connect image, video, 3D, and audio
-   providers now or later in **Settings → Providers & Models**. A language
-   model alone can design and build a game. Generating media needs a
-   corresponding provider:
+1. **Get started.** Language and appearance follow your system; change them
+   anytime in Settings.
+2. **Choose your AI.** Use the built-in OhMyGame agent with a model provider
+   (sign in or paste an API key), or a Claude Code, Codex, or OpenCode CLI you
+   already have. Use **+** to add a
+   custom or local endpoint. **Skip this step** moves on without a model.
+
+   A language model alone can design and build a game. Generating media needs
+   a corresponding provider, which you connect in **Settings → Providers**:
 
    | To make                       | Connect                                                             |
    | ----------------------------- | ------------------------------------------------------------------- |
@@ -284,7 +285,8 @@ OhMyGame ships without a model. On first launch, it walks you through setup:
    uses your local Codex sign-in instead. See
    [OpenAI image connections](docs/custom-models.md#openai-image-connections).
 
-3. **Pick a model and describe your game** in the prompt box on the home screen.
+3. **Choose where to start:** describe a game in the prompt box on the home
+   screen, start a blank project, or import a folder you already have.
 
 Web search works without setup. Making games locally needs no account; sign in
 only to publish. Reopen this setup from **Settings → About → View getting started**.

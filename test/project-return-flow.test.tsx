@@ -14,9 +14,11 @@ const project: ProjectState = {
   preview: { status: "stopped" },
 };
 
-vi.doMock(path.resolve("src/renderer/asset-canvas-quick-start.ts"), () => ({
-  invalidateQuickStartModels: vi.fn(),
-  loadQuickStartModels: vi.fn(),
+vi.doMock(path.resolve("src/renderer/use-onboarding.ts"), () => ({
+  useOnboarding: () => ({
+    state: { status: "completed", step: "welcome" },
+    replaying: false,
+  }),
 }));
 vi.doMock(
   path.resolve("src/renderer/runtime-connection.ts"),
@@ -52,16 +54,16 @@ vi.doMock(path.resolve("src/renderer/project-card.tsx"), () => ({
   ProjectCard: ({ onOpen }: { onOpen: () => void }) => (
     <button onClick={onOpen}>Open Garden</button>
   ),
+  ProjectRow: () => null,
+  useProjectActions: () => ({ actionsFor: () => ({}), dialogs: null }),
 }));
-vi.doMock(path.resolve("src/renderer/game-studio-home.tsx"), () => ({
-  GameStudioHome: ({
-    onOpenProject,
+vi.doMock(path.resolve("src/renderer/home.tsx"), () => ({
+  Home: ({
+    onOpen,
     onCreate,
-  }: ComponentProps<
-    typeof import("../src/renderer/game-studio-home.js").GameStudioHome
-  >) => (
+  }: ComponentProps<typeof import("../src/renderer/home.js").Home>) => (
     <>
-      <button onClick={() => onOpenProject(project.id)}>
+      <button onClick={() => onOpen(project.id)}>
         Open recent project
       </button>
       <button
@@ -101,7 +103,7 @@ let container: HTMLDivElement;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  window.history.replaceState(null, "", "#/general");
+  window.history.replaceState(null, "", "#/");
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -121,9 +123,18 @@ async function click(text: string) {
   await act(async () => button!.click());
 }
 
+/** A Select's option; the list opens in a popover outside the page. */
+function option(text: string): HTMLButtonElement {
+  const found = [
+    ...document.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+  ].find((element) => element.textContent === text);
+  expect(found, text).toBeDefined();
+  return found!;
+}
+
 describe("project return flow", () => {
   it.each(["Open recent project", "Create project"])(
-    "returns to the studio after %s and project navigation",
+    "returns to Home after %s and project navigation",
     async (entry) => {
       await act(async () => root.render(<App />));
       await click(entry);
@@ -132,8 +143,8 @@ describe("project return flow", () => {
       expect(window.location.hash).toBe(
         "#/projects/garden/conversations/second/design",
       );
-      await click("Back to General Game");
-      expect(window.location.hash).toBe("#/general");
+      await click("Back to Home");
+      expect(window.location.hash).toBe("#/");
     },
   );
 
@@ -141,7 +152,7 @@ describe("project return flow", () => {
     window.history.replaceState(null, "", "#/projects?type=general");
     await act(async () => root.render(<App />));
     const input = container.querySelector<HTMLInputElement>(
-      "#projects-search-input",
+      ".projects-search input",
     )!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(
@@ -155,7 +166,7 @@ describe("project return flow", () => {
         .querySelector<HTMLButtonElement>('[aria-label="Sort projects"]')!
         .click(),
     );
-    await click("Name");
+    await act(async () => option("Name").click());
     const entry = window.location.hash;
     expect(entry).toBe("#/projects?type=general&q=Garden&sort=name");
     await click("Open Garden");
@@ -167,20 +178,20 @@ describe("project return flow", () => {
     await click("Back to Projects");
     expect(window.location.hash).toBe(entry);
     expect(
-      container.querySelector<HTMLInputElement>("#projects-search-input")!
+      container.querySelector<HTMLInputElement>(".projects-search input")!
         .value,
     ).toBe("Garden");
     expect(
-      container.querySelector<HTMLSelectElement>('[aria-label="Project type"]')!
-        .value,
-    ).toBe("general");
+      container.querySelector('[aria-label="Project type"]')!.textContent,
+    ).toBe("General Game");
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[aria-label="Sort projects"]')!
         .click(),
     );
     expect(
-      container.querySelector('[role="menuitem"].is-active')!.textContent,
+      document.querySelector('[role="option"][aria-selected="true"]')!
+        .textContent,
     ).toBe("Name");
   });
 });
@@ -207,7 +218,7 @@ describe("Playtest asking for its editor", () => {
     expect(window.location.hash).toBe("#/projects/garden/conversations/second");
     expect(shellProps.showStoryMap).toBe(true);
     await act(async () => shellProps.onStoryMapShown?.());
-    await click("Back to General Game");
+    await click("Back to Home");
     await click("Open recent project");
     expect(shellProps.showStoryMap).toBe(false);
   });

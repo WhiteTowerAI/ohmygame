@@ -4,7 +4,6 @@ import { Home } from "./home.js";
 import "./plugin-builder.css";
 import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, projectsHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { historyState, useAppNavigation } from "./app-navigation.js";
-import { invalidateQuickStartModels, loadQuickStartModels } from "./asset-canvas-quick-start.js";
 import { PageFrame } from "./page-frame.js";
 import { SidebarPageLayout } from "./sidebar-page.js";
 import type { SidebarActive } from "./app-sidebar.js";
@@ -15,9 +14,11 @@ import { pluginMentionToken } from "../shared/plugins.js";
 import { createConversation, createProject, getProject, MODELS_CHANGED_EVENT } from "./api.js";
 import type { ComposerDraft } from "./composer.js";
 import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Onboarding, OnboardingArrival, OnboardingLoading } from "./onboarding.js";
+import { Onboarding, OnboardingArrival, OnboardingLoading, type OnboardingStart } from "./onboarding.js";
 import { useOnboarding } from "./use-onboarding.js";
-import { usePluginIntegrationGate } from "./plugin-integration.js";
+import { CommandMenuHost } from "./command-menu.js";
+import { rememberLastProject } from "./general-preferences.js";
+import { useRunAlerts } from "./run-alerts.js";
 
 // Home and onboarding stay in the main chunk; every other route loads on first visit.
 const CommunityProfilePage = lazy(() => import("./community-profile.js").then((module) => ({ default: module.CommunityProfilePage })));
@@ -26,46 +27,38 @@ const GamePlayer = lazy(() => import("./games.js").then((module) => ({ default: 
 const LibraryPage = lazy(() => import("./library.js").then((module) => ({ default: module.LibraryPage })));
 const ProjectsPage = lazy(() => import("./projects.js").then((module) => ({ default: module.ProjectsPage })));
 const ProjectShell = lazy(() => import("./project-shell.js").then((module) => ({ default: module.ProjectShell })));
-const AssetCanvasHome = lazy(() => import("./asset-canvas-home.js").then((module) => ({ default: module.AssetCanvasHome })));
-const GameStudioHome = lazy(() => import("./game-studio-home.js").then((module) => ({ default: module.GameStudioHome })));
 const SettingsPage = lazy(() => import("./settings-page.js").then((module) => ({ default: module.SettingsPage })));
 const PluginsSettings = lazy(() => import("./plugins.js").then((module) => ({ default: module.PluginsSettings })));
 const PluginBuilder = lazy(() => import("./plugin-builder.js").then((module) => ({ default: module.PluginBuilder })));
 
 export function App() {
+  const navigation = useAppNavigation();
+  useRunAlerts((projectId) => navigation.navigate(projectHash(projectId)));
+  return <>
+    <AppRoute navigation={navigation} />
+    <CommandMenuHost navigate={navigation.navigate} />
+  </>;
+}
+
+function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigation> }) {
   const serviceGeneration = useReadyRuntimeGeneration();
-  const { route, navigate, projectReturnTo, projectBackLabel } = useAppNavigation();
+  const { route, navigate, projectReturnTo, projectBackLabel } = navigation;
   const onboarding = useOnboarding(route.page === "home");
   const [welcoming, setWelcoming] = useState(false);
+  const [start, setStart] = useState<OnboardingStart>();
   const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
-  const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
   const [playtestEditorProjectId, setPlaytestEditorProjectId] = useState<string>();
-  const creationGate = usePluginIntegrationGate();
 
-  // Provider catalogs are slow; load them now so asset canvas quick starts open without waiting.
+  // A reconnected runtime may have different providers; model pickers reload theirs.
   useEffect(() => {
-    invalidateQuickStartModels();
-    void loadQuickStartModels();
     if (serviceGeneration > 1) window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
-    const refresh = () => { invalidateQuickStartModels(); void loadQuickStartModels(); };
-    window.addEventListener(MODELS_CHANGED_EVENT, refresh);
-    return () => window.removeEventListener(MODELS_CHANGED_EVENT, refresh);
   }, [serviceGeneration]);
-
-  // ⌘, (Ctrl+, elsewhere) opens settings from anywhere, as the account menu shows.
-  useEffect(() => {
-    const openSettings = (event: KeyboardEvent) => {
-      if (event.key !== "," || event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey)) return;
-      event.preventDefault();
-      if (parseAppRoute(window.location.hash).page !== "settings") navigateToSidebarPage("settings");
-    };
-    window.addEventListener("keydown", openSettings);
-    return () => window.removeEventListener("keydown", openSettings);
-  });
 
   // A Playtest window that cannot play asks for its project's editor.
   const routeProjectId = route.page === "project" ? route.projectId : undefined;
+  // Settings → General can reopen it at the next launch.
+  useEffect(() => { if (routeProjectId) rememberLastProject(routeProjectId); }, [routeProjectId]);
   useEffect(() => window.ohMyGameDesktop?.onShowPlaytestEditor?.((projectId) => {
     if (projectId !== routeProjectId) openProject(projectId);
     setPlaytestEditorProjectId(projectId);
@@ -74,18 +67,18 @@ export function App() {
   if ((route.page === "home" || onboarding.replaying) && onboarding.state?.status === "pending") {
     return <Onboarding step={onboarding.state.step}
       onStepChange={(step) => onboarding.save({ status: "pending", step })}
-      onFinish={async (status) => { await onboarding.save({ status, step: onboarding.state?.step ?? "welcome" }); setWelcoming(true); navigate("#/"); }} />;
+      onFinish={async (status, next) => { await onboarding.save({ status, step: onboarding.state?.step ?? "welcome" }); setStart(next); setWelcoming(true); navigate("#/"); }} />;
   }
   if (route.page === "home" && !onboarding.state) return <OnboardingLoading error={onboarding.error} onRetry={onboarding.retry} />;
   if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} /></Suspense>;
   if (route.page === "settings") {
-    return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
+    return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} agent={route.agent} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
   }
-  if (route.page === "plugins") return <>{creationGate.dialog}<SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
-    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
-  </SidebarPageLayout></>;
+  if (route.page === "plugins") return <SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
+    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} adds={route.adds} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
+  </SidebarPageLayout>;
   if (route.page === "home") {
-    return <><Home inert={welcoming} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
+    return <><Home inert={welcoming} start={start} onStartHandled={() => setStart(undefined)} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
   }
   if (route.page === "community") {
     return <Suspense fallback={sidebarFallback("community")}><GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} /></Suspense>;
@@ -93,9 +86,7 @@ export function App() {
   if (route.page === "community-profile") return <Suspense fallback={sidebarFallback("community")}><CommunityProfilePage authorId={route.authorId} onNavigate={navigateToSidebarPage} onBack={goToGames} onOpenGame={ohMyGame} /></Suspense>;
   if (route.page === "game") return <Suspense fallback={sidebarFallback("community")}><GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} /></Suspense>;
   if (route.page === "projects") return <Suspense fallback={sidebarFallback("projects")}><ProjectsPage projectType={route.projectType} query={route.query} sort={route.sort} onFiltersChange={(filters, replace) => navigate(projectsHash(filters), { replace })} onNavigate={navigateToSidebarPage} onOpenProject={openProject} /></Suspense>;
-  if (route.page === "general" || route.page === "web-game" || route.page === "interactive-story" || route.page === "godot") return <Suspense fallback={sidebarFallback(route.page)}><GameStudioHome key={route.page} projectType={route.page === "godot" ? "godot-game" : route.page} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} /></Suspense>;
-  if (route.page === "asset-canvas") return <Suspense fallback={sidebarFallback("asset-canvas")}><AssetCanvasHome onNavigate={navigateToSidebarPage} onOpenProject={openAssetCanvasProject} /></Suspense>;
-  if (route.page === "library") return <Suspense fallback={sidebarFallback("library")}><LibraryPage onNavigate={navigateToSidebarPage} /></Suspense>;
+  if (route.page === "library") return <Suspense fallback={sidebarFallback("library")}><LibraryPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} /></Suspense>;
   if (route.page === "playtest") return null;
   if (route.page !== "project") return null;
   return (
@@ -111,13 +102,12 @@ export function App() {
       }}
       initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt : undefined}
       initialDraft={initialDraft && initialDraft.conversationId === route.conversationId ? initialDraft.draft : undefined}
-      initialCanvasNodeId={initialCanvasNode?.projectId === route.projectId ? initialCanvasNode.nodeId : undefined}
-      onInitialCanvasNodeHandled={() => setInitialCanvasNode(undefined)}
       showStoryMap={playtestEditorProjectId === route.projectId}
       onStoryMapShown={() => setPlaytestEditorProjectId(undefined)}
       onInitialPromptHandled={clearInitialPrompt}
       onInitialDraftHandled={() => setInitialDraft(undefined)}
       onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}
+      onNavigate={navigateToSidebarPage}
       onHome={() => navigate(projectReturnTo)}
       homeLabel={projectBackLabel}
     /></Suspense>
@@ -131,30 +121,17 @@ export function App() {
   function openCreatedProject(project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]): void {
     const connection = runtimeConnection();
     setInitialPrompt({ generation: connection.status === "ready" ? connection.generation : -1, conversationId, prompt, mentions, images, mode, attachments });
-    navigateToConversation(project.id, conversationId, false, project.integration ? undefined : createdProjectView(project.type));
+    navigateToConversation(project.id, conversationId, false, createdProjectView(project.type));
   }
 
   function openProject(projectId: string, view?: "design"): void {
     setInitialPrompt(undefined);
     setInitialDraft(undefined);
-    setInitialCanvasNode(undefined);
     navigate(projectHash(projectId, view));
   }
 
-  function openAssetCanvasProject(projectId: string, nodeId?: string): void {
-    setInitialPrompt(undefined);
-    setInitialDraft(undefined);
-    setInitialCanvasNode(nodeId ? { projectId, nodeId } : undefined);
-    navigate(projectHash(projectId));
-  }
-
   async function tryPlugin(plugin: PluginDetail, prompt: string, projectId?: string): Promise<void> {
-    let project = projectId ? await getProject(projectId) : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game", ...(plugin.integration ? { pluginId: plugin.id } : {}) });
-    if (!projectId && plugin.integration) {
-      const ready = await creationGate.ensure(project, plugin.id, { canCreate: !!plugin.integration.createProject });
-      if (!ready) return;
-      project = ready;
-    }
+    const project = projectId ? await getProject(projectId) : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game" });
     const conversation = await createConversation(project.id);
     const mention: PluginMention = {
       name: plugin.name,
@@ -166,7 +143,7 @@ export function App() {
       conversationId: conversation.id,
       draft: { prompt: `${pluginMentionToken(mention)} ${prompt}`, mentions: [mention] },
     });
-    navigateToConversation(project.id, conversation.id, false, project.integration ? undefined : createdProjectView(project.type));
+    navigateToConversation(project.id, conversation.id, false, createdProjectView(project.type));
   }
 
   function clearInitialPrompt(): void {
@@ -194,8 +171,9 @@ export function App() {
     navigate(hash);
   }
 
-  function navigateToSettingsSection(section: SettingsSection): void {
-    navigate(settingsHash(section), { replace: true, state: historyState() });
+  function navigateToSettingsSection(section: SettingsSection, agent?: string): void {
+    // An agent's page is a step into its section, so Back returns to the list.
+    navigate(settingsHash(section, agent), agent ? { state: historyState() } : { replace: true, state: historyState() });
   }
 
   function navigateToPlugin(pluginId?: string): void {
