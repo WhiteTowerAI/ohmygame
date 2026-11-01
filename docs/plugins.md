@@ -400,7 +400,7 @@ Featured and certified plugins won't use preview components.
 | `omg-log` | Monospace output that scrolls. `empty` text; `follow` keeps the latest line in view; the `text` property. |
 | `omg-empty` | What to show when there is nothing yet. `heading`, `description`; slots `icon` and actions. |
 | `omg-button` | The app's button. `variant`: `secondary`, `primary`, `ghost`, `danger`; `disabled`; `busy`. |
-| `omg-command-button` | Runs one of the plugin's commands by its manifest id. `command`, and `input` as JSON or a property. While running, it is busy, shows the command's progress, and other command buttons wait unless `concurrent`; a failure shows beside it unless `quiet`. Events: `omg-command-start` (cancelable), `omg-command-result`, `omg-command-error` (cancelable). |
+| `omg-command-button` | Runs one of the plugin's commands by its manifest id. `command`, and `input` as JSON or a property. While running, it is busy, shows the command's progress, and other command buttons wait unless `concurrent`; a failure shows beside it unless `quiet`, and stays its `error` attribute until the next run, so a page that draws it again can pass it on. Events: `omg-command-start` (cancelable), `omg-command-result`, `omg-command-error` (cancelable). |
 | `omg-select` | The app's select over its `<option>` children. `label` or `aria-label`, `value`, `disabled`; fires `change` and `input`. |
 
 The components connect to the app themselves, so a page may use them

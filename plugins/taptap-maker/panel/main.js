@@ -97,8 +97,13 @@ const state = {
   selected: "",
   visible: true,
   name: "",
-  /** Commands the panel's buttons are running; nothing redraws meanwhile. */
+  /**
+   * Commands the panel's buttons are running, with what they do after; the
+   * panel redraws once none is, so it never replaces a running button.
+   */
   running: 0,
+  /** Each button's last failure, by its key, so a redraw keeps it. */
+  errors: new Map(),
 };
 
 const request = (command, input) =>
@@ -109,28 +114,28 @@ host.on("visibility", ({ visible }) => {
   if (visible) void checkPreview();
 });
 
-document.addEventListener("omg-command-start", () => state.running++);
-for (const type of ["omg-command-result", "omg-command-error"])
-  document.addEventListener(type, () => {
-    state.running = Math.max(0, state.running - 1);
-  });
+const message = (error) => (error instanceof Error ? error.message : String(error));
+
+/** Draws the panel, unless a command is running: the last one to finish draws it. */
+function redraw() {
+  if (!state.running) render();
+}
 
 async function refreshStatus() {
   state.statusError = "";
   try {
-    state.status = await request("status");
-    if (state.status.project) state.preview = await request("preview", { action: "status" });
+    await takeStatus(await request("status"));
   } catch (error) {
-    state.statusError = error instanceof Error ? error.message : String(error);
+    state.statusError = message(error);
   }
-  render();
+  redraw();
 }
 
 async function checkPreview() {
   if (state.running || !state.status?.project) return;
   try {
     state.preview = await request("preview", { action: "status" });
-    if (!state.running) render();
+    redraw();
   } catch {
     // The next action reports a lasting failure.
   }
@@ -152,19 +157,40 @@ function h(tag, attributes = {}, ...children) {
   return node;
 }
 
-/** A button running one of the plugin's commands; `done` takes its result, then the panel redraws. */
-function command(label, name, { input, variant, disabled, done } = {}) {
+/**
+ * A button running one of the plugin's commands. `done` takes its result
+ * before the panel redraws; a failure stays beside the button, by `key`,
+ * until it runs again.
+ */
+function command(label, name, { input, variant, disabled, done, key = name } = {}) {
+  const finish = () => {
+    state.running--;
+    redraw();
+  };
   return h(
     "omg-command-button",
     {
       command: name,
       variant,
       disabled,
+      error: state.errors.get(key),
       props: input === undefined ? {} : { input },
       on: {
+        "omg-command-start": () => {
+          state.running++;
+          state.errors.delete(key);
+        },
         "omg-command-result": async (event) => {
-          await done?.(event.detail.result);
-          render();
+          try {
+            await done?.(event.detail.result);
+          } catch (error) {
+            state.errors.set(key, message(error));
+          }
+          finish();
+        },
+        "omg-command-error": (event) => {
+          state.errors.set(key, event.detail.error);
+          finish();
         },
       },
     },
@@ -175,7 +201,14 @@ function command(label, name, { input, variant, disabled, done } = {}) {
 /** A finished step returns the status; the preview's state comes with a project. */
 async function takeStatus(status) {
   state.status = status;
-  if (status.project) state.preview = await request("preview", { action: "status" }).catch(() => undefined);
+  state.statusError = "";
+  if (!status.project) return;
+  try {
+    state.preview = await request("preview", { action: "status" });
+  } catch (error) {
+    state.preview = undefined;
+    state.statusError = message(error);
+  }
 }
 
 const row = (...children) => h("omg-stack", { direction: "row", wrap: true }, ...children);
@@ -263,6 +296,7 @@ function previewStep(status) {
     command(label, "preview", {
       ...options,
       input: { action: name },
+      key: `preview:${name}`,
       done: (result) => {
         state.preview = result;
         if (name === "logs") state.logs = result.logs ?? "";
@@ -290,21 +324,21 @@ function previewStep(status) {
 
 function render() {
   const { status } = state;
+  // A failed check, of Maker or of the preview, with a way to check again.
+  const failure = state.statusError
+    ? h(
+        "omg-banner",
+        { tone: "bad", heading: text.statusFailed },
+        state.statusError,
+        h("omg-button", { slot: "actions", on: { click: () => void refreshStatus() } }, text.retry),
+      )
+    : undefined;
   if (!status) {
-    root.replaceChildren(
-      state.statusError
-        ? h(
-            "omg-banner",
-            { tone: "bad", heading: text.statusFailed },
-            state.statusError,
-            h("omg-button", { slot: "actions", on: { click: () => void refreshStatus() } }, text.retry),
-          )
-        : h("omg-status", { tone: "busy" }, text.checking),
-    );
+    root.replaceChildren(failure ?? h("omg-status", { tone: "busy" }, text.checking));
     return;
   }
   root.replaceChildren(
-    h("omg-steps", {}, setupStep(status.connection), accountStep(status.connection), projectStep(status), previewStep(status)),
+    ...[failure, h("omg-steps", {}, setupStep(status.connection), accountStep(status.connection), projectStep(status), previewStep(status))].filter(Boolean),
   );
 }
 

@@ -203,11 +203,17 @@ describe("page components", () => {
     await settle();
     expect(shadow(button, "error").textContent).toBe("Python 3.8 or later is required");
     expect(shadow(button, "error").getAttribute("role")).toBe("alert");
+    // The failure is an attribute, so a page drawing the button again keeps it.
+    expect(button.getAttribute("error")).toBe("Python 3.8 or later is required");
+    const drawn = html(`<omg-command-button command="prepare" error="Still failing">Prepare</omg-command-button>`);
+    expect(shadow(drawn, "error").textContent).toBe("Still failing");
+    document.body.replaceChildren(button);
 
     button.addEventListener("omg-command-error", (event) => event.preventDefault());
     shadow(button, "button").click();
     await settle();
     expect(shadow(button, "error").hidden).toBe(true);
+    expect(button.hasAttribute("error")).toBe(false);
 
     button.addEventListener("omg-command-start", (event) => event.preventDefault());
     calls = [];
