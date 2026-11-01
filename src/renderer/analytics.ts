@@ -3,7 +3,7 @@ import { AnalyticsUrlScrubber } from "./analytics-url.js";
 
 const USAGE_DATA_STORAGE_KEY = "ohmygame:usage-data";
 let configured = false;
-let enabled = readUsageDataEnabled();
+let enabled = storedUsageDataEnabled();
 let client: PostHog | undefined;
 let loading: Promise<void> | undefined;
 // Undefined until sign-in state is known; null while signed out.
@@ -15,6 +15,10 @@ export function initializeAnalytics(): void {
 }
 
 export function readUsageDataEnabled(): boolean {
+  return enabled;
+}
+
+function storedUsageDataEnabled(): boolean {
   try {
     return localStorage.getItem(USAGE_DATA_STORAGE_KEY) !== "off";
   } catch {
