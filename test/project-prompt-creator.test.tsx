@@ -49,14 +49,14 @@ beforeEach(() => {
   // Blender helps any project but does not start one, so the picker leaves it out.
   capabilities = {
     plugins: [
-      plugin("godot", "Godot", ["godot-game", "general"]),
+      plugin("game-studio", "Game Studio", ["general", "godot-game", "interactive-story"]),
       plugin("blender", "Blender"),
       plugin("web-game-studio", "Web Game Studio", ["web-game"]),
     ],
     skills: [],
   };
   projectPlugins = [
-    { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", capabilities: [], consented: true, providesTypes: ["ohmygame/godot:godot-game"] },
+    { id: "ohmygame/godot", displayName: "Godot", description: "Godot games.", version: "1.0.0", capabilities: [], consented: true, providesTypes: ["ohmygame/godot:godot-game"], appliesTo: ["general", "ohmygame/godot:godot-game", "acme/tiles:tile-map"] },
     { id: "acme/tiles", displayName: "Tiles", description: "Tile maps.", version: "2.1.0", capabilities: ["network:tiles.example.com"], consented: false, providesTypes: ["acme/tiles:tile-map"] },
   ];
   localStorage.clear();
@@ -154,11 +154,14 @@ describe("Home prompt box", () => {
     await act(async () => typePicker().click());
 
     await chooseType("Godot");
-    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Godot");
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Game Studio");
     // Only plugins that start this type are offered; Blender starts none.
     await act(async () => pluginButton().click());
-    expect(starterItems()).toEqual(["Godot"]);
+    expect(starterItems()).toEqual(["Game Studio"]);
     await act(async () => pluginButton().click());
+    // Godot's type has Godot's ideas, though Godot is no starter.
+    await chooseIdea("third-person");
+    expect(container.querySelector("textarea")!.value).toBe("Make a third-person 3D scene in Godot you can walk around");
 
     // A type no starter names starts with no plugin, and sends none.
     await chooseType("Tile Map");
@@ -352,6 +355,19 @@ describe("Home prompt box", () => {
     await send();
     expect(onSubmit.mock.calls[0]![0].projectPlugins.map((plugin: ProjectPluginChoice) => plugin.id)).toEqual(["acme/tiles"]);
 
+    // One whose appliesTo leaves out the chosen type isn't offered.
+    await chooseType("Interactive Story");
+    await act(async () => pluginButton().click());
+    expect([...document.querySelectorAll('[role="group"][aria-label="On in this project only"] [role="menuitemcheckbox"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
+      .toEqual(["Tiles"]);
+    await act(async () => pluginButton().click());
+    // A Web game is a General project in its ohmygame.json, so Godot suits it.
+    await chooseType("Web Game");
+    await act(async () => pluginButton().click());
+    expect([...document.querySelectorAll('[role="group"][aria-label="On in this project only"] [role="menuitemcheckbox"]')].map((item) => item.querySelector(".home-plugin-text > span")?.textContent))
+      .toEqual(["Godot", "Tiles"]);
+    await act(async () => pluginButton().click());
+
     // A plugin that adds the chosen type is on in that project already.
     await chooseType("Tile Map");
     await act(async () => pluginButton().click());
@@ -405,123 +421,6 @@ describe("Home prompt box", () => {
     const retry = [...document.querySelectorAll<HTMLButtonElement>(".home-plugin-empty button")].find((item) => item.textContent === "Retry")!;
     await act(async () => retry.click());
     expect(menuItem("Tiles")).toBeDefined();
-  });
-
-  it("offers a plugin that sets up its own projects as a type, which keeps that plugin on", async () => {
-    capabilities.plugins.push({ ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never });
-    await render();
-    await act(async () => typePicker().click());
-    expect(options()).toEqual(["Web Game", "Interactive Story", "Asset Canvas", "Godot", "General Game", "Tile Map", "TapTap Maker", "More types…"]);
-    await act(async () => typePicker().click());
-    // Another type does not offer it as a plugin; it would set up a second project.
-    await chooseType("General Game");
-    await act(async () => pluginButton().click());
-    expect(starterItems()).not.toContain("TapTap Maker");
-    await act(async () => pluginButton().click());
-
-    await chooseType("TapTap Maker");
-    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: TapTap Maker");
-    await act(async () => pluginButton().click());
-    expect(starterItems()[0]).toBe("TapTap Maker");
-    expect(menuItem("TapTap Maker")!.getAttribute("aria-disabled")).toBe("true");
-    await act(async () => menuItem("TapTap Maker")!.click());
-    expect(menuItem("TapTap Maker")!.getAttribute("aria-checked")).toBe("true");
-    await type("Make a puzzle");
-    await send();
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: "@TapTap Maker Make a puzzle",
-      type: "general",
-    }), expect.any(Function));
-  });
-
-  it("keeps a type's own plugin when the prompt is cleared, for plugins outside the starter list too", async () => {
-    capabilities.plugins.push({ ...plugin("island-maker", "Island Maker", ["general"]), integration: { createProject: true } as never });
-    await render();
-    await chooseType("Island Maker");
-    // /plan clears the prompt and its plugins; the type's plugin comes back.
-    await type("/plan");
-    await send();
-    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Island Maker");
-    await type("Make an island");
-    // Browsing history and coming back keeps the plugin once.
-    localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "Make a maze", mentions: [] }]));
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await render();
-    await historyKey("ArrowUp");
-    expect(container.querySelector("textarea")!.value).toBe("Make a maze");
-    await historyKey("ArrowDown");
-    expect(container.querySelector("textarea")!.value).toBe("Make an island");
-    await send();
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Island Maker Make an island", type: "general" }), expect.any(Function));
-  });
-
-  it("keeps a lead plugin from history in the prompt after the type's own plugin", async () => {
-    capabilities.plugins.push({ ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never });
-    const mention = { name: "blender", displayName: "Blender", marketplaceId: "bundled" };
-    localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Blender Make a maze", mentions: [mention] }]));
-    await render();
-    await chooseType("TapTap Maker");
-    await historyKey("ArrowUp");
-    expect(container.querySelector("textarea")!.value).toBe("@Blender Make a maze");
-    await send();
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: "@TapTap Maker @Blender Make a maze",
-      mentions: expect.arrayContaining([expect.objectContaining({ name: "taptap-maker" }), expect.objectContaining({ name: "blender" })]),
-    }), expect.any(Function));
-  });
-
-  it("keeps the order of plugins from history after the type's own plugin", async () => {
-    capabilities.plugins.push(
-      { ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never },
-      plugin("game-studio", "Game Studio", ["general"]),
-    );
-    const mentions = [{ name: "game-studio", displayName: "Game Studio", marketplaceId: "bundled" }, { name: "godot", displayName: "Godot", marketplaceId: "bundled" }];
-    localStorage.setItem("ohmygame.home-prompt-history", JSON.stringify([{ prompt: "@Game Studio @Godot Make a maze", mentions }]));
-    await render();
-    await chooseType("TapTap Maker");
-    await historyKey("ArrowUp");
-    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: TapTap Maker, Game Studio, Godot");
-    await send();
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@TapTap Maker @Game Studio @Godot Make a maze" }), expect.any(Function));
-  });
-
-  it("drops a remembered plugin type's plugin once that plugin is gone", async () => {
-    capabilities.plugins.push({ ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never });
-    await render();
-    await chooseType("TapTap Maker");
-    await type("Make a puzzle");
-    await act(async () => root.unmount());
-    capabilities.plugins.pop();
-    root = createRoot(container);
-    await render();
-    expect(typePicker().textContent).toBe("Web Game");
-    await send();
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@Web Game Studio Make a puzzle", type: "web-game" }), expect.any(Function));
-  });
-
-  it("keeps a remembered plugin type pending when plugins fail to load", async () => {
-    localStorage.setItem("ohmygame.home.projectType", "starter:taptap-maker@bundled");
-    pendingCapabilities = Promise.reject(new Error("Plugins unavailable"));
-    pendingCapabilities.catch(() => {});
-    await render();
-    await type("Make a puzzle");
-    expect(container.textContent).toContain("Plugins unavailable");
-    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
-  });
-
-  it("waits for plugins before sending a plugin's own type it remembered", async () => {
-    localStorage.setItem("ohmygame.home.projectType", "starter:taptap-maker@bundled");
-    let answer!: (value: ConversationCapabilities) => void;
-    pendingCapabilities = new Promise((resolve) => { answer = resolve; });
-    await render();
-    await type("Make a puzzle");
-    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
-    capabilities.plugins.push({ ...plugin("taptap-maker", "TapTap Maker", ["general"]), integration: { createProject: true } as never });
-    await act(async () => answer(capabilities));
-    expect(typePicker().textContent).toBe("TapTap Maker");
-    await send();
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "@TapTap Maker Make a puzzle", type: "general" }), expect.any(Function));
   });
 
   it("remembers the type, and leads to plugins that add types", async () => {

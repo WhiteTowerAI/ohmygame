@@ -1415,3 +1415,31 @@
   opacity: 0.6;
   pointer-events: none;
 }
+
+/* Settings → MCP Connections: a row opens its tests, sign-in, definition and configuration below it. */
+.connection-item + .connection-item {
+  border-top: 1px solid var(--color-border);
+}
+.connection-detail {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) var(--space-3) calc(var(--space-3) + 28px);
+}
+.connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.connection-editor,
+.connection-form {
+  display: grid;
+  gap: var(--space-3);
+}
+.connection-editor textarea {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+.connection-error {
+  margin: 0;
+  color: var(--color-danger);
+}

@@ -465,6 +465,50 @@
   text-decoration: underline;
 }
 
+/* A format 2 plugin's versions, each with its own Uninstall (plugin-store.tsx). */
+.plugin-store-versions {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plugin-store-versions li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.plugin-store-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plugin-store-adds {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-md);
+}
+
+.plugin-store-adds li {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: var(--space-2);
+}
+
+.plugin-store-adds span {
+  color: var(--color-text-tertiary);
+}
+
 .plugin-state {
   display: flex;
   align-items: center;

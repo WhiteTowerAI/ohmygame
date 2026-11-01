@@ -1,6 +1,6 @@
 import { movePanel, type AreaId, type AreaState, type Layout } from "./panel-layout.js";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
-import { supportsProjectPreview } from "../shared/project-runtime.js";
+import { supportsWebPreview } from "../shared/project-runtime.js";
 
 // One layout for every project. A project type only names the panels it
 // offers, in the order they open (the shape of a format 2 plugin's
@@ -13,6 +13,10 @@ const VERSION = 3;
 const AREAS = ["left", "center", "right", "bottom"] as const;
 
 export type WorkspacePanel = "chat" | "game" | "design" | "code" | "assets" | "story" | "canvas";
+/** A built-in panel, or a format 2 plugin's as `plugin:<publisher/name>:<panel>`. */
+export type PanelId = WorkspacePanel | `plugin:${string}`;
+/** Where plugin panels open, from their manifests; built-in panels need none. */
+export type PanelHomes = Readonly<Record<string, AreaId>>;
 export type Preset = "default" | "art" | "code";
 
 /**
@@ -28,37 +32,38 @@ const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
 };
 
 /** The panels a project offers: its type's, less the game where it has no preview. */
-export function panelsOf(project: Pick<ProjectState, "type"> & Parameters<typeof supportsProjectPreview>[0]): WorkspacePanel[] {
-  return TYPE_PANELS[project.type].filter((panel) => panel !== "game" || supportsProjectPreview(project));
+export function panelsOf(project: Pick<ProjectState, "type"> & Parameters<typeof supportsWebPreview>[0]): WorkspacePanel[] {
+  return TYPE_PANELS[project.type].filter((panel) => panel !== "game" || supportsWebPreview(project));
 }
 
 /** Where a panel opens when it isn't in the layout. */
-export const homeOf = (panel: WorkspacePanel): AreaId => panel === "chat" ? "left" : "center";
+export const homeOf = (panel: PanelId, homes?: PanelHomes): AreaId => homes?.[panel] ?? (panel === "chat" ? "left" : "center");
 
 /** The presets that make sense for these panels: Art and Code put the canvas or the code first. */
-export function presetsFor(offered: readonly WorkspacePanel[]): Preset[] {
+export function presetsFor(offered: readonly PanelId[]): Preset[] {
   const code = offered.includes("code");
   return ["default", ...(code && offered.includes("canvas") ? ["art" as const] : []), ...(code ? ["code" as const] : [])];
 }
 
-const area = (panels: WorkspacePanel[], size: number): AreaState => ({ panels, active: panels[0], size });
+const area = (panels: PanelId[], size: number): AreaState => ({ panels, active: panels[0], size });
 
 /**
  * The chat on the left and the rest in the middle in the type's order, the
  * first in front. A project with neither a game nor a story opens on its
- * code. Art and Code bring the canvas or the code forward.
+ * code. Art and Code bring the canvas or the code forward. Plugin panels
+ * open in the areas their plugins name.
  */
-export function presetLayout(preset: Preset, offered: readonly WorkspacePanel[]): Layout {
-  let middle = offered.filter((panel) => homeOf(panel) === "center");
+export function presetLayout(preset: Preset, offered: readonly PanelId[], homes?: PanelHomes): Layout {
+  let middle = offered.filter((panel) => homeOf(panel, homes) === "center");
   // A project with nothing to play opens on its code, unless it is a canvas.
   const playable = middle.some((panel) => panel === "game" || panel === "story");
-  const first: WorkspacePanel | undefined = preset === "art" ? "canvas" : preset === "code" || (!playable && offered.includes("design")) ? "code" : undefined;
+  const first: PanelId | undefined = preset === "art" ? "canvas" : preset === "code" || (!playable && offered.includes("design")) ? "code" : undefined;
   if (first && middle.includes(first)) middle = [first, ...middle.filter((panel) => panel !== first)];
   return {
-    left: area(offered.filter((panel) => homeOf(panel) === "left"), 380),
+    left: area(offered.filter((panel) => homeOf(panel, homes) === "left"), 380),
     center: area(middle, 0),
-    right: area([], 280),
-    bottom: area([], 240),
+    right: area(offered.filter((panel) => homeOf(panel, homes) === "right"), 280),
+    bottom: area(offered.filter((panel) => homeOf(panel, homes) === "bottom"), 240),
   };
 }
 
@@ -91,10 +96,10 @@ export function saveLayout(saved: SavedLayout): void {
 }
 
 /** What a project opens with: the saved arrangement, or the default. */
-export function openingLayout(offered: readonly WorkspacePanel[]): SavedLayout {
+export function openingLayout(offered: readonly PanelId[], homes?: PanelHomes): SavedLayout {
   const saved = readLayout();
   if (saved) return saved;
-  const layout = presetLayout("default", offered);
+  const layout = presetLayout("default", offered, homes);
   // The chat-side setting this replaced still decides where the chat first opens.
   if (!legacyChatRight() || !layout.left.panels.includes("chat")) return { layout, known: [] };
   const moved = movePanel(layout, "chat", "right");
@@ -123,17 +128,17 @@ function validLayout(layout: Layout): boolean {
  * preview turns on) opens where the default puts it; panels the person closed
  * stay closed.
  */
-export function fitLayout(saved: SavedLayout, offered: readonly WorkspacePanel[], fallback: Layout): Layout {
+export function fitLayout(saved: SavedLayout, offered: readonly PanelId[], fallback: Layout): Layout {
   const placed = new Set<string>();
   const next = { ...saved.layout };
   for (const id of AREAS) {
-    const panels = saved.layout[id].panels.filter((panel) => offered.includes(panel as WorkspacePanel) && !placed.has(panel));
+    const panels = saved.layout[id].panels.filter((panel) => offered.includes(panel as PanelId) && !placed.has(panel));
     panels.forEach((panel) => placed.add(panel));
     const active = [saved.layout[id].active, fallback[id].active].find((panel) => panel && panels.includes(panel));
     next[id] = { ...saved.layout[id], panels, active };
   }
   // New panels follow the default's order.
-  const order = new Set([...AREAS.flatMap((id) => fallback[id].panels as WorkspacePanel[]), ...offered]);
+  const order = new Set([...AREAS.flatMap((id) => fallback[id].panels as PanelId[]), ...offered]);
   for (const panel of order) {
     if (!offered.includes(panel) || placed.has(panel) || saved.known.includes(panel)) continue;
     const home = AREAS.find((id) => fallback[id].panels.includes(panel)) ?? homeOf(panel);
@@ -154,10 +159,10 @@ export function fitLayout(saved: SavedLayout, offered: readonly WorkspacePanel[]
  * story's arrangement doesn't move a game's panels. An area whose front tab
  * didn't change keeps the saved one, which may be another type's.
  */
-export function mergeLayout(saved: SavedLayout | undefined, before: Layout, next: Layout, offered: readonly WorkspacePanel[]): SavedLayout {
+export function mergeLayout(saved: SavedLayout | undefined, before: Layout, next: Layout, offered: readonly PanelId[]): SavedLayout {
   const layout = { ...next };
   if (saved) {
-    const mine = (panel: string) => offered.includes(panel as WorkspacePanel);
+    const mine = (panel: string) => offered.includes(panel as PanelId);
     for (const id of AREAS) {
       // The saved order, with this project's panels replaced by the new ones in turn.
       const queue = [...next[id].panels];
