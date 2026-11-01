@@ -49,6 +49,24 @@
       "minLength": 1,
       "maxLength": 300
     },
+    "longDescription": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "examples": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300
+      },
+      "minItems": 1,
+      "maxItems": 5
+    },
+    "beta": {
+      "type": "boolean"
+    },
     "icon": {
       "type": "string",
       "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.(?:svg|png|webp)$",
@@ -348,6 +366,27 @@
                   }
                 ]
               },
+              "ready": {
+                "type": "object",
+                "required": [
+                  "command",
+                  "panel"
+                ],
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "maxLength": 64
+                  },
+                  "panel": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "maxLength": 64
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Before a prompt is sent in a project of this type, the app runs this native command (no input), which returns { ready, message? }; when not ready, the prompt waits and the panel opens"
+              },
               "panels": {
                 "type": "array",
                 "items": {
@@ -401,6 +440,11 @@
                 "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.json$",
                 "minLength": 3,
                 "maxLength": 500
+              },
+              "timeoutSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600
               }
             },
             "additionalProperties": false
@@ -529,6 +573,21 @@
                         "type": "string",
                         "pattern": "^[a-z][a-zA-Z0-9]*$",
                         "maxLength": 64
+                      },
+                      "input": {
+                        "type": "string",
+                        "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+\\.json$",
+                        "minLength": 3,
+                        "maxLength": 500
+                      },
+                      "timeoutSeconds": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 3600
+                      },
+                      "changesFiles": {
+                        "type": "boolean",
+                        "description": "false when the command never changes project files, such as a status check: it then runs during a turn and keeps no Undo"
                       }
                     },
                     "additionalProperties": false
@@ -931,6 +990,132 @@
               }
             },
             "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "mcpServers": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "title",
+                  "command",
+                  "tools"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "maxLength": 64
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "command": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$",
+                    "maxLength": 100
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 2000
+                    },
+                    "maxItems": 50
+                  },
+                  "env": {
+                    "type": "object",
+                    "patternProperties": {
+                      "^[A-Za-z_][A-Za-z0-9_]{0,63}$": {
+                        "type": "string",
+                        "maxLength": 2000
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "cwd": {
+                    "type": "string",
+                    "pattern": "^\\./(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$))[^\\\\]+/?$",
+                    "minLength": 3,
+                    "maxLength": 500
+                  },
+                  "tools": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_.-]{1,100}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "uniqueItems": true
+                  },
+                  "timeoutSeconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "title",
+                  "url",
+                  "tools"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "maxLength": 64
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "url": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "headers": {
+                    "type": "object",
+                    "patternProperties": {
+                      "^[A-Za-z0-9-]{1,64}$": {
+                        "type": "string",
+                        "maxLength": 2000
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "tools": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_.-]{1,100}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "uniqueItems": true
+                  },
+                  "timeoutSeconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3600
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
           },
           "minItems": 1,
           "maxItems": 50

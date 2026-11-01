@@ -1,0 +1,63 @@
+{
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "ohmygame/unreal-engine",
+  "version": "1.0.0",
+  "engines": {
+    "ohmygame-api": "^2.0.0"
+  },
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "longDescription": "%longDescription%",
+  "examples": [
+    "%example.1%",
+    "%example.2%"
+  ],
+  "beta": true,
+  "icon": "./assets/icon.svg",
+  "categories": [
+    "engine"
+  ],
+  "appliesTo": [
+    "general"
+  ],
+  "capabilities": {
+    "network": [
+      "127.0.0.1",
+      "localhost"
+    ]
+  },
+  "configuration": {
+    "endpoint": {
+      "type": "text",
+      "title": "%config.endpoint%",
+      "description": "%config.endpoint.description%",
+      "default": "http://127.0.0.1:8000/mcp"
+    }
+  },
+  "contributes": {
+    "skills": "./skills/",
+    "mcpServers": [
+      {
+        "id": "unreal",
+        "title": "%mcp.title%",
+        "url": "${config.endpoint}",
+        "tools": [
+          "list_toolsets",
+          "describe_toolset",
+          "call_tool"
+        ]
+      }
+    ],
+    "settings": {
+      "groups": [
+        {
+          "rows": [
+            {
+              "field": "endpoint"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

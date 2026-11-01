@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
+import { BUNDLED_PLUGINS_OFF, BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 import { resolvePluginSkillPaths } from "../src/daemon/plugin-runtime.js";
 import { LegacyMcpConfiguration } from "../src/daemon/legacy-mcp.js";
 import { createApp } from "../src/daemon/app.js";
@@ -35,7 +35,7 @@ async function environment() {
   const settings = new PluginSettingsStore(directory);
   await settings.load();
   const local = new LocalPluginStore(directory);
-  const bundled = new BundledPluginStore(path.resolve("plugins"));
+  const bundled = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
   await bundled.load();
   const service = new PluginCapabilities(
     directory,
@@ -49,74 +49,55 @@ async function environment() {
   return { directory, agentDir, settings, local, bundled, service };
 }
 describe("native plugin capabilities", () => {
-  it("excludes optional beta workflows until enabled and scopes their Skills and Unreal MCP", async () => {
-    const { service, bundled, settings } = await environment();
-    const optionalNames = ["aseprite", "cocos-creator", "douyin-minigame", "tiled", "unity", "unreal-engine", "wechat-minigame"];
+  it("excludes optional beta workflows until enabled and scopes their Skills", async () => {
+    const { bundled, settings } = await environment();
+    const optionalNames = ["aseprite", "cocos-creator", "douyin-minigame", "tiled", "unity", "wechat-minigame"];
     const optional = optionalNames.map(name => bundled.read(`ohmygame:${name}`)!);
-    const roots = optional.map(plugin => path.resolve("plugins", plugin.name));
+    const roots = optional.map(plugin => bundled.installedPath(plugin.id)!);
     const initialSkills = await resolvePluginSkillPaths([bundled], settings, "general");
     expect(initialSkills.filter(file => roots.some(root => file.startsWith(`${root}${path.sep}`)))).toEqual([]);
-    const unreal = bundled.read("ohmygame:unreal-engine")!;
-    const unrealName = service.runtimeName(unreal.id, "unreal");
-    expect((await service.effective("general")).mcpServers).not.toHaveProperty(unrealName);
 
     for (const plugin of optional) await settings.update(plugin, { enabled: true, components: {} });
     for (const projectType of ["general", "web-game", "godot-game", "asset-canvas"] as const) {
       const skills = await resolvePluginSkillPaths([bundled], settings, projectType);
       for (const plugin of optional) {
-        const skill = path.resolve("plugins", plugin.name, plugin.skills[0]!.id);
+        const skill = path.join(bundled.installedPath(plugin.id)!, plugin.skills[0]!.id);
         expect(skills.includes(skill)).toBe(projectType === "general" || plugin.name === "aseprite" || plugin.name === "tiled");
       }
-      const servers = (await service.effective(projectType)).mcpServers;
-      if (projectType === "general") {
-        expect(servers[unrealName]).toMatchObject({ url: "http://127.0.0.1:8000/mcp", lifecycle: "lazy" });
-      } else {
-        expect(servers).not.toHaveProperty(unrealName);
-      }
     }
-    await service.configuration.update(unreal, { endpoint: "http://127.0.0.1:8100/mcp" });
-    expect((await service.effective("general")).mcpServers[unrealName]).toMatchObject({ url: "http://127.0.0.1:8100/mcp" });
-    await settings.update(unreal, { enabled: false, components: {} });
-    expect((await service.effective("general")).mcpServers).not.toHaveProperty(unrealName);
-    expect(await resolvePluginSkillPaths([bundled], settings, "general")).not.toContain(path.resolve("plugins/unreal-engine/skills/unreal-game/SKILL.md"));
+    const unity = bundled.read("ohmygame:unity")!;
+    await settings.update(unity, { enabled: false, components: {} });
+    expect(await resolvePluginSkillPaths([bundled], settings, "general")).not.toContain(path.join(bundled.installedPath(unity.id)!, unity.skills[0]!.id));
   });
 
-  it("resolves Godot configuration and scopes Maker to General projects", async () => {
-    const { service, bundled, settings } = await environment();
-    const godot = bundled.read("ohmygame:godot")!;
-    const godotName = service.runtimeName(godot.id, "godot");
-    expect(await service.definition(godot, "godot")).toMatchObject({
-      env: { GODOT_PATH: "godot" }, lifecycle: "lazy",
-    });
-    const godotSkill = path.resolve("plugins/godot/skills/godot-game/SKILL.md");
-    for (const projectType of ["general", "godot-game"] as const) {
-      expect((await service.effective(projectType)).mcpServers).toHaveProperty(godotName);
-      expect(await resolvePluginSkillPaths([bundled], settings, projectType)).toContain(godotSkill);
-    }
-    expect((await service.effective("web-game")).mcpServers).not.toHaveProperty(godotName);
-    expect(await resolvePluginSkillPaths([bundled], settings, "web-game")).not.toContain(godotSkill);
-    const probe = vi.spyOn(service.host, "probe").mockResolvedValue({ status: "connected", toolCount: 14, message: "godot: get_godot_version" });
-    expect((await service.test(godot, "godot")).message).toBe("godot: get_godot_version");
+  it("resolves a format 1 plugin's configuration in its MCP server", async () => {
+    const { service, local, directory } = await environment();
+    const source = path.join(directory, "engine-tool");
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+      name: "engine-tool",
+      version: "1.0.0",
+      description: "Drives a local engine",
+      configuration: { "engine-path": { type: "text", label: "Engine executable", default: "engine" } },
+      interface: { projectTypes: ["general"] },
+      mcpServers: "./mcp.json",
+    }));
+    await writeFile(path.join(source, "mcp.json"), JSON.stringify({
+      mcpServers: { engine: { command: "npx", args: ["-y", "engine-mcp@1.0.0"], env: { ENGINE_PATH: "${config.engine-path}" }, lifecycle: "lazy" } },
+    }));
+    const plugin = await local.install(source);
+    const name = service.runtimeName(plugin.id, "engine");
+    expect(await service.definition(plugin, "engine")).toMatchObject({ env: { ENGINE_PATH: "engine" }, lifecycle: "lazy" });
+    expect((await service.effective("general")).mcpServers).toHaveProperty(name);
+    expect((await service.effective("web-game")).mcpServers).not.toHaveProperty(name);
+    const probe = vi.spyOn(service.host, "probe").mockResolvedValue({ status: "connected", toolCount: 3, message: "engine: version" });
+    expect((await service.test(plugin, "engine")).message).toBe("engine: version");
     probe.mockRestore();
-    await service.configuration.update(godot, { "godot-path": "/custom/Godot" });
-    expect(await service.definition(godot, "godot")).toMatchObject({ env: { GODOT_PATH: "/custom/Godot" } });
-    expect(service.runtimeName(godot.id, "godot")).toBe(godotName);
-    await service.configuration.setLegacyOwner("ohmygame-godot", godot.id, "godot");
-    expect(service.runtimeName(godot.id, "godot")).toBe("ohmygame-godot");
-    const maker = bundled.read("ohmygame:taptap-maker")!;
-    const makerName = service.runtimeName(maker.id, "taptap-maker");
-    expect((await service.effective()).mcpServers).not.toHaveProperty(makerName);
-    expect((await service.effective("general")).mcpServers).not.toHaveProperty(makerName);
-    await settings.update(maker, { enabled: true, components: {} });
-    expect((await service.effective("general")).mcpServers[makerName]).toMatchObject({
-      args: ["./scripts/mcp.mjs"],
-      env: { OHMYGAME_PLUGIN_DATA_DIR: service.dataPath(maker.id) },
-      lifecycle: "lazy",
-      requestTimeoutMs: 3600000,
-      cwd: path.resolve("plugins/taptap-maker"),
-    });
-    expect((await service.effective("godot-game")).mcpServers).not.toHaveProperty(makerName);
-    expect((await service.effective("web-game")).mcpServers).not.toHaveProperty(makerName);
+    await service.configuration.update(plugin, { "engine-path": "/custom/Engine" });
+    expect(await service.definition(plugin, "engine")).toMatchObject({ env: { ENGINE_PATH: "/custom/Engine" } });
+    expect(service.runtimeName(plugin.id, "engine")).toBe(name);
+    await service.configuration.setLegacyOwner("old-engine", plugin.id, "engine");
+    expect(service.runtimeName(plugin.id, "engine")).toBe("old-engine");
   });
 
   it("reads credential masks without writes and preserves them on an explicit save", async () => {
@@ -583,6 +564,66 @@ describe("native plugin capabilities", () => {
     expect(authorization).toBe("Bearer test-secret");
     expect(JSON.stringify(result)).not.toContain("test-secret");
   }, 45_000);
+  it("keeps an HTTP server restricted to its origins there: no redirects, probes or interpreted headers", async () => {
+    const { service, agentDir } = await environment();
+    const listen = async (handler: Parameters<typeof createServer>[1]) => {
+      const server = createServer(handler);
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+      return `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    };
+    let elsewhere = 0;
+    const other = await listen((_req, res) => {
+      elsewhere++;
+      res.writeHead(404);
+      res.end();
+    });
+    const redirecting = await listen((_req, res) => {
+      res.writeHead(307, { location: `${other}/mcp` });
+      res.end();
+    });
+    const headers: Record<string, string | undefined> = {};
+    const working = await listen(async (req, res) => {
+      if (req.method !== "POST") {
+        res.writeHead(405);
+        res.end();
+        return;
+      }
+      headers.secret = req.headers["x-secret"] as string | undefined;
+      headers.home = req.headers["x-home"] as string | undefined;
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      const message = JSON.parse(body);
+      if (message.id === undefined) {
+        res.writeHead(202);
+        res.end();
+        return;
+      }
+      const result = message.method === "initialize"
+        ? { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "restricted", version: "1.0.0" } }
+        : { tools: [{ name: "inspect", inputSchema: { type: "object" } }] };
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+    });
+    const probe = (key: string, definition: Record<string, unknown>) => service.host.probe(key, key, definition, agentDir, "test");
+
+    // Headers are sent as written: no command runs, no variable expands.
+    expect(await probe("working", {
+      url: `${working}/mcp`,
+      allowedOrigins: [working],
+      headers: { "X-Secret": "!echo leaked", "X-Home": "${HOME}" },
+    })).toMatchObject({ status: "connected", toolCount: 1 });
+    expect(headers).toEqual({ secret: "!echo leaked", home: "${HOME}" });
+
+    // A redirect elsewhere is refused, and the failure isn't probed past it.
+    expect(await probe("redirecting", { url: `${redirecting}/mcp`, allowedOrigins: [redirecting] })).toMatchObject({ status: "failed" });
+    expect(elsewhere).toBe(0);
+
+    // A URL outside its origins, or a restriction that can't be read, reaches nothing.
+    expect(await probe("outside", { url: `${other}/mcp`, allowedOrigins: [working] })).toMatchObject({ status: "failed" });
+    expect(await probe("empty", { url: `${other}/mcp`, allowedOrigins: [] })).toMatchObject({ status: "failed" });
+    expect(elsewhere).toBe(0);
+  }, 45_000);
   it("executes real MCP tools through a plugin session and keeps an independent provider enabled", async () => {
     const { service, settings, directory, local } = await environment();
     const provider = await service.create({
@@ -664,6 +705,61 @@ describe("native plugin capabilities", () => {
       await close();
     }
     expect(service.host.status("shared-local")).toBeUndefined();
+  });
+
+  it("stops a session's MCP calls once its plugins change", async () => {
+    const { service, directory } = await environment();
+    const config = { mcpServers: { local: { command: process.execPath, args: [path.resolve("test/fixtures/plugin-mcp-server.mjs")] } } };
+    let reason: string | undefined;
+    const guard = async () => reason;
+    // A coding agent calls the mcp tool directly.
+    const native = await service.host.tool(config, directory, guard);
+    try {
+      const call = () => native.tool.execute("echo-call", { server: "local", tool: "local_echo", args: { value: "still on" } }, undefined, undefined, undefined as never);
+      expect(JSON.stringify(await call())).toContain("still on");
+      reason = "plugins changed";
+      await expect(call()).rejects.toThrow("plugins changed");
+    } finally {
+      await native.close();
+    }
+    // Pi asks the session's tool_call hook first, for the adapter's tools only.
+    reason = undefined;
+    const settingsManager = SettingsManager.inMemory({ packages: [] });
+    const loader = new DefaultResourceLoader({
+      cwd: directory,
+      agentDir: directory,
+      settingsManager,
+      noExtensions: true,
+      noSkills: true,
+      noContextFiles: true,
+      extensionFactories: [{ name: "plugin-mcp", factory: await service.host.extension(config, { guard }) }],
+    });
+    await loader.reload();
+    const { session } = await createAgentSession({
+      cwd: directory,
+      agentDir: directory,
+      settingsManager,
+      resourceLoader: loader,
+      noTools: "builtin",
+      sessionManager: SessionManager.inMemory(directory),
+    });
+    const close = service.host.manage(session);
+    try {
+      await session.bindExtensions({ mode: "rpc" });
+      const event = { type: "tool_call", toolCallId: "echo-call", toolName: "mcp", input: {} } as never;
+      // Calls made inside a tool call, as a script's are, skip that hook; the adapter's approval asks instead.
+      const mcp = session.getToolDefinition("mcp")!;
+      const nested = async () => JSON.stringify(await mcp.execute("echo-call", { server: "local", tool: "local_echo", args: { value: "nested" } },
+        undefined, undefined, session.extensionRunner.createToolContext("echo-call", undefined)));
+      expect(await session.extensionRunner.emitToolCall(event)).toBeUndefined();
+      expect(await nested()).toContain("nested");
+      reason = "plugins changed";
+      expect(await session.extensionRunner.emitToolCall(event)).toEqual({ block: true, reason: "plugins changed" });
+      expect(await session.extensionRunner.emitToolCall({ ...(event as object), toolName: "read" } as never)).toBeUndefined();
+      expect(await nested()).toContain("approval_denied");
+    } finally {
+      await close();
+    }
   });
 
   it("runs a persistent plugin assistant through a model tool call without a game project", async () => {

@@ -1,6 +1,5 @@
-import { PluginIntegrationPanel } from "./plugin-integration.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { AddMcpPluginDialog, PluginConfigurationPanel, PluginMcpPanel, PluginUninstallButton } from "./plugin-controls.js";
+import { PluginConfigurationPanel, PluginMcpPanel, PluginUninstallButton } from "./plugin-controls.js";
 import { PluginBuilderSessions } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import {
@@ -14,9 +13,7 @@ import {
   GitBranch,
   LoaderCircle,
   Package,
-  Plus,
   Play,
-  Plug,
   Search,
   Server,
   Sparkles,
@@ -45,6 +42,7 @@ import { SidebarPageHeader } from "./sidebar-page.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { MarkdownContent } from "./markdown-content.js";
+import { settingsHash } from "./routes.js";
 import { t } from "./i18n.js";
 import { PluginDependencyPanel, PluginExportButton, PluginImportDialog } from "./plugin-portability.js";
 import { Alert, Badge, Button, Dialog, DropdownMenu, Empty, Field, IconButton, Input, SearchInput, Select, Spinner, Switch, Tabs, type MenuEntry } from "./ui/index.js";
@@ -52,7 +50,7 @@ import "./plugins.css";
 
 const PLUGIN_CATEGORIES = [
   { id: "creation", plugins: ["ohmygame:game-studio", "ohmygame:web-game-studio", "ohmygame:threejs-world"] },
-  { id: "engines", plugins: ["ohmygame:godot", "ohmygame:taptap-maker", "ohmygame:cocos-creator", "ohmygame:unity", "ohmygame:unreal-engine", "ohmygame:wechat-minigame", "ohmygame:douyin-minigame"] },
+  { id: "engines", plugins: ["ohmygame:cocos-creator", "ohmygame:unity", "ohmygame:unreal-engine", "ohmygame:wechat-minigame", "ohmygame:douyin-minigame"] },
   { id: "assets", plugins: ["ohmygame:blender", "ohmygame:img2threejs", "ohmygame:aseprite", "ohmygame:tiled"] },
   { id: "other", plugins: [] },
 ] as const;
@@ -95,7 +93,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const [detailRetry, setDetailRetry] = useState(0);
   const detailRequest = useRef({ pluginId, retry: detailRetry });
   const [skillCatalog, setSkillCatalog] = useState<{ generation: number; plugins: PluginDetail[]; error?: string }>();
-  const [mcpOpen, setMcpOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [catalogRetry, setCatalogRetry] = useState(0);
   const [tab, setTab] = useState<CatalogTab>(initialAdds ? "browse" : "installed");
@@ -206,7 +203,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
       setDetailResult((current) => current?.pluginId === updated.id ? { pluginId: updated.id, plugin: updated } : current);
       setPlugins((items) => items.map((item) => item.id === updated.id ? pluginSummary(updated) : item));
       setSkillCatalog((current) => current && { ...current, plugins: current.plugins.map((item) => item.id === updated.id ? updated : item) });
-      if (updated.enabled && updated.integration) onPluginChange(updated.id);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -334,7 +330,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const addMenuItems: MenuEntry[] = [
     { label: t("plugins.browseMarket"), icon: <Store size={14} />, onSelect: () => setTab("browse") },
     { label: t("plugins.createWithAiMenu"), icon: <Sparkles size={14} />, onSelect: createWithAi },
-    { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => setMcpOpen(true) },
+    { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
     "separator",
     ...(typeof window !== "undefined" && window.ohMyGameDesktop ? [{ label: t("plugins.fromFolder"), icon: <FolderOpen size={14} />, onSelect: () => void installFromFolder() }] : []),
     { label: t("plugins.fromGit"), icon: <GitBranch size={14} />, onSelect: openGitInstallDialog },
@@ -485,7 +481,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
         {phase === "ready" ? tab === "browse" ? browseTab : tab === "skills" ? skillsTab : installedTab : null}
       </div>
     </>}
-    {mcpOpen ? <AddMcpPluginDialog onClose={() => setMcpOpen(false)} onInstalled={id => { setMcpOpen(false); capabilitiesChanged(); onPluginChange(id); }} /> : null}
     {importOpen ? <PluginImportDialog onClose={() => setImportOpen(false)} onInstalled={plugin => { setImportOpen(false); capabilitiesChanged(); onPluginChange(plugin.id); }} /> : null}
     <Dialog open={gitDialogOpen} onClose={() => { if (!adding) closeInstallDialog(); }}
       title={installCandidates.length ? t("plugins.choose") : t("plugins.installFromGit")}
@@ -785,7 +780,6 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         </div>
         <div className="plugin-tab plugin-settings" role="tabpanel" aria-label={t("common.settings")} hidden={shown !== "settings"}>
           <PluginConfigurationPanel plugin={plugin} onChanged={onCapabilitiesChanged} />
-          {plugin.enabled && plugin.integration ? <PluginIntegrationPanel key={plugin.id} pluginId={plugin.id} /> : null}
           <PluginMcpPanel plugin={plugin} onToggle={onMcpToggle} onAssist={onAssist} onChanged={onCapabilitiesChanged} />
           <PluginDependencyPanel plugin={plugin} />
         </div>

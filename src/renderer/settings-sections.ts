@@ -1,4 +1,4 @@
-import { Cpu, Globe2, InfoCircle, Key, Palette as PaletteIcon, Routing, Server, SettingsMinimal, User } from "./icons.js";
+import { Cpu, Globe2, InfoCircle, Key, Palette as PaletteIcon, Plug, Routing, Server, SettingsMinimal, User } from "./icons.js";
 import type { SettingsSection } from "./routes.js";
 import { t } from "./i18n.js";
 
@@ -16,6 +16,7 @@ export const SETTINGS_NAV: Array<{ heading?: string; items: Array<{ section: Set
     { section: "web-search", label: t("settings.nav.webSearch"), icon: Globe2 },
   ] },
   { heading: t("settings.nav.connections"), items: [
+    { section: "connections", label: t("settings.nav.mcpConnections"), icon: Plug },
     { section: "mcp-server", label: t("settings.nav.mcpServer"), icon: Server },
     { section: "network", label: t("settings.nav.network"), icon: Routing },
   ] },

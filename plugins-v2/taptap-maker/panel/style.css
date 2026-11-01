@@ -1,0 +1,17 @@
+main { display: grid; gap: 16px; max-width: 640px; }
+section { display: grid; gap: 8px; }
+h2 { margin: 0; font-size: 13px; font-weight: 600; }
+p { margin: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.actions .omg-select { flex: 1 1 200px; }
+.status { display: inline-flex; align-items: center; gap: 6px; }
+.status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--gray-6); }
+.status[data-tone="good"]::before { background: #30a46c; }
+.status[data-tone="bad"]::before { background: var(--hue-danger); }
+.error { color: var(--hue-danger); white-space: pre-wrap; }
+.progress { color: var(--gray-9); }
+pre {
+  margin: 0; max-height: 280px; overflow: auto; padding: 8px; border-radius: 6px;
+  background: var(--gray-0); border: 1px solid var(--gray-4);
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap;
+}

@@ -5,7 +5,7 @@ import { ZipFile } from "yazl";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { availableUpdates, downloadRelease, installRelease, readCatalog, releaseMessage } from "../src/daemon/plugin-releases.js";
 import { compileWhen, matchesWhen } from "../src/shared/plugin-when.js";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   cp,
   mkdir,
@@ -19,7 +19,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PLUGIN_INDEX_SCHEMA_VERSION,
   PluginIndex,
@@ -38,7 +38,7 @@ import {
 } from "../scripts/plugin-schema.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins-v2");
-const BUNDLED = path.join(import.meta.dirname, "../plugins");
+const BUNDLED = path.join(import.meta.dirname, "../plugins-v2");
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -158,6 +158,74 @@ describe("plugin manifest format 2", () => {
       "/contributes/providers/0/apiKey must name a secret configuration field",
       "/contributes/providers/0 list models or discover them",
     ]);
+  });
+
+  it("checks MCP servers against what the plugin may run and read", () => {
+    const server = (fields: object) => ({
+      ...minimal,
+      configuration: {
+        region: { type: "text", title: "Region" },
+        token: { type: "secret", title: "Token" },
+      },
+      capabilities: { processes: ["maker"] },
+      contributes: { mcpServers: [{ id: "maker", title: "Maker", command: "maker", tools: ["build"], ...fields }] },
+    });
+    // env is passed as written, so it may name variables.
+    expect(messages(server({ args: ["--region", "${config.region}"], env: { HOME_HINT: "${HOME}" } }))).toEqual([]);
+    expect(messages(server({ command: "node", env: { TOKEN: "${config.token}", MODE: "${config.mode}" } }))).toEqual([
+      "/contributes/mcpServers/0/command node must be listed in capabilities.processes",
+      "/contributes/mcpServers/0 token is a secret, which needs capabilities.secrets",
+      "/contributes/mcpServers/0 no configuration field mode",
+    ]);
+    // The adapter would read the app's environment into args and cwd.
+    expect(messages(server({ args: ["$env:HOME"] }))).toEqual([
+      "/contributes/mcpServers/0 args and cwd can't name environment variables",
+    ]);
+    // The app sets the data folder variable; a request may take up to an hour.
+    expect(messages(server({ env: { ohmygame_plugin_data_dir: "/tmp" }, timeoutSeconds: 3600 }))).toEqual([
+      "/contributes/mcpServers/0/env OHMYGAME_PLUGIN_DATA_DIR is set by the app",
+    ]);
+    expect(messages(server({ timeoutSeconds: 3601 }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/timeoutSeconds"));
+    // A server is a process or an HTTP endpoint, never both.
+    expect(messages(server({ url: "https://localhost/mcp" })).length).toBeGreaterThan(0);
+  });
+
+  it("checks HTTP MCP servers against the hosts the plugin may reach", () => {
+    const server = (fields: object, capabilities: object = { network: ["127.0.0.1", "api.example.com:8443"] }) => ({
+      ...minimal,
+      configuration: {
+        endpoint: { type: "text", title: "Endpoint", default: "http://127.0.0.1:8000/mcp" },
+        token: { type: "secret", title: "Token" },
+      },
+      capabilities,
+      contributes: { mcpServers: [{ id: "editor", title: "Editor", tools: ["call_tool"], ...fields }] },
+    });
+    // Any port of a host listed alone; plain HTTP only on this computer.
+    expect(messages(server({ url: "${config.endpoint}" }))).toEqual([]);
+    expect(messages(server({ url: "https://api.example.com:8443/mcp" }))).toEqual([]);
+    expect(messages(server({ url: "https://api.example.com/mcp" }))).toEqual([
+      "/contributes/mcpServers/0/url https://api.example.com/mcp is on api.example.com, which capabilities.network doesn't list",
+    ]);
+    expect(messages(server({ url: "http://api.example.com:8443/mcp" }))).toEqual([
+      "/contributes/mcpServers/0/url http://api.example.com:8443/mcp must use https, or http on this computer (127.0.0.1 or localhost)",
+    ]);
+    expect(messages(server({ url: "http://user:pass@127.0.0.1/mcp" }))).toEqual([
+      "/contributes/mcpServers/0/url http://user:pass@127.0.0.1/mcp can't carry a user name or password",
+    ]);
+    expect(messages(server({ url: "${config.endpoint}" }, {}))).toEqual([
+      "/contributes/mcpServers/0/url an HTTP server needs capabilities.network",
+      "/contributes/mcpServers/0/url http://127.0.0.1:8000/mcp is on 127.0.0.1:8000, which capabilities.network doesn't list",
+    ]);
+    // A secret goes in a header, which needs capabilities.secrets.
+    expect(messages(server({ url: "https://api.example.com:8443/${config.token}" }))).toEqual([
+      "/contributes/mcpServers/0/url token is a secret, which a URL can't carry; send it in a header",
+    ]);
+    expect(messages(server({ url: "${config.endpoint}", headers: { Authorization: "Bearer ${config.token}" } }))).toEqual([
+      "/contributes/mcpServers/0/headers token is a secret, which needs capabilities.secrets",
+    ]);
+    expect(messages(server({ url: "${config.endpoint}", headers: { Authorization: "Bearer ${config.token}" } }, { network: ["127.0.0.1"], secrets: true }))).toEqual([]);
+    // Adapter-only knobs aren't part of the contract.
+    expect(messages(server({ url: "${config.endpoint}", auth: "oauth" }))).not.toEqual([]);
   });
 
   it("closes keyed records and never throws on bad values", () => {
@@ -378,7 +446,7 @@ describe("plugin index", () => {
 
   it("indexes the format 2 Godot plugin with its type, tools and command", async () => {
     const result = await indexPluginPackage(
-      path.join(BUNDLED, "..", "plugins-v2", "godot"),
+      path.join(BUNDLED, "godot"),
     );
     expect(result.ok ? [] : result.issues).toEqual([]);
     if (!result.ok) return;
@@ -404,6 +472,56 @@ describe("plugin index", () => {
         "zh-CN",
       ),
     ).toBe("在 Godot 中运行");
+    expect(manifest.contributes?.mcpServers).toMatchObject([
+      { id: "godot", command: "node", args: ["./native/mcp.mjs"], env: { OHMYGAME_GODOT_SETTING: "${config.godotPath}" } },
+    ]);
+  });
+
+  it("starts godot-mcp with the Godot the plugin's tools find", async () => {
+    const dir = await temporary();
+    const godot = path.join(dir, "Godot", process.platform === "win32" ? "godot.exe" : "godot");
+    await mkdir(path.dirname(godot), { recursive: true });
+    await writeFile(godot, "", { mode: 0o755 });
+    const bin = path.join(dir, "bin");
+    await mkdir(bin);
+    // Stands in for npx: says what it was given, and exits as godot-mcp might.
+    if (process.platform === "win32") await writeFile(path.join(bin, "npx.cmd"), "@echo off\r\necho %GODOT_PATH% %*\r\nexit /b 3\r\n");
+    else await writeFile(path.join(bin, "npx"), '#!/bin/sh\necho "$GODOT_PATH $*"\nexit 3\n', { mode: 0o755 });
+    const { Path: _windowsPath, ...env } = process.env;
+    const result = spawnSync(process.execPath, [path.join(BUNDLED, "godot", "native", "mcp.mjs")], {
+      env: { ...env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? process.env.Path ?? ""}`, OHMYGAME_GODOT_SETTING: godot },
+      encoding: "utf8",
+    });
+    expect(result.stdout.trim()).toBe(`${godot} -y @coding-solo/godot-mcp@0.1.1`);
+    expect(result.status).toBe(3);
+  });
+
+  it.skipIf(process.platform === "win32")("stops what godot-mcp started when its launcher is stopped", async () => {
+    const dir = await temporary();
+    const pidFile = path.join(dir, "game.pid");
+    // Stands in for npx running godot-mcp with a game it started.
+    await writeFile(path.join(dir, "npx"), '#!/bin/sh\nsleep 60 &\necho $! > "$GAME_PID_FILE"\nwait\n', { mode: 0o755 });
+    const launcher = spawn(process.execPath, [path.join(BUNDLED, "godot", "native", "mcp.mjs")], {
+      env: { ...process.env, PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}`, GAME_PID_FILE: pidFile },
+      stdio: "ignore",
+    });
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    let game = 0;
+    await vi.waitFor(async () => {
+      game = Number(await readFile(pidFile, "utf8"));
+      expect(alive(game)).toBe(true);
+    }, { timeout: 10_000 });
+    const exited = new Promise((resolve) => launcher.once("exit", resolve));
+    launcher.kill("SIGTERM");
+    await exited;
+    await vi.waitFor(() => expect(alive(game)).toBe(false), { timeout: 5_000 });
   });
 
   it("reads strings only from display fields", async () => {
@@ -431,6 +549,18 @@ describe("plugin index", () => {
       },
       { path: "./locales/en.json", message: "missing %starter.unknown%" },
     ]);
+  });
+
+  it("counts only a locale file's own strings", async () => {
+    const dir = await gameStudio();
+    await editManifest(dir, (manifest) => {
+      manifest.contributes.commands[0].title = "%toString%";
+    });
+    const result = await indexPluginPackage(dir);
+    expect(result.ok ? [] : result.issues).toEqual([
+      { path: "./locales/en.json", message: "missing %toString%" },
+    ]);
+    expect(localizePluginString({ strings: { en: {} } }, "%constructor%", "zh-CN")).toBe("%constructor%");
   });
 
   it("refuses links and plugins for another plugin API", async () => {
@@ -871,13 +1001,40 @@ describe("plugin releases", () => {
     }
   });
 
-  it("indexes the app's own format 2 plugins and allows what they ask for", async () => {
+  it("drops only the bundled copy of a plugin for every project from the index, keeping a version installed apart", async () => {
     const dir = await temporary();
     const services = new PluginServices({ directory: path.join(dir, "store") });
     try {
-      const results = await services.addBundled(path.join(BUNDLED, "..", "plugins-v2"));
-      expect(results.every((result) => result.ok)).toBe(true);
+      const apart = path.join(dir, "blender");
+      await cp(path.join(BUNDLED, "blender"), apart, { recursive: true });
+      await editManifest(apart, (manifest) => (manifest.version = "9.0.0"));
+      await services.index.load();
+      // As an earlier version of the app might have indexed it.
+      expect((await services.index.add(path.join(BUNDLED, "blender"))).ok).toBe(true);
+      expect((await services.index.add(apart)).ok).toBe(true);
+      await services.addBundled(BUNDLED);
+      expect(services.index.versions("ohmygame/blender").map((entry) => entry.version)).toEqual(["9.0.0"]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("indexes the app's own format 2 plugins and allows what they ask for, except one that starts off", async () => {
+    const dir = await temporary();
+    const services = new PluginServices({ directory: path.join(dir, "store"), bundledOff: ["ohmygame/taptap-maker", "ohmygame/unreal-engine"] });
+    try {
+      const results = await services.addBundled(BUNDLED);
+      expect(results.map((result) => (result.ok ? [] : result.issues))).toEqual(results.map(() => []));
       expect(services.grants.plugin("ohmygame/godot")?.allowed).toEqual(expect.arrayContaining(["native"]));
+      // Those that only add Skills apply to every project they suit; the catalog shows them.
+      expect(services.index.entries().map((entry) => entry.id).sort()).toEqual(["ohmygame/godot", "ohmygame/taptap-maker", "ohmygame/unreal-engine"]);
+      expect(services.grants.plugin("ohmygame/game-studio")).toBeUndefined();
+      // It asks for consent when the person turns it on, and stays as they leave it.
+      expect(services.grants.plugin("ohmygame/taptap-maker")).toEqual({ enabled: false, allowed: [] });
+      await services.consent("ohmygame/taptap-maker", ["native"]);
+      await services.grants.setEnabled("ohmygame/taptap-maker", true);
+      await services.addBundled(BUNDLED);
+      expect(services.grants.plugin("ohmygame/taptap-maker")?.enabled).toBe(true);
     } finally {
       await services.close();
     }

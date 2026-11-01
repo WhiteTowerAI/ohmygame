@@ -759,8 +759,11 @@ colors following the app's light or dark theme. See the
 [dark](assets/community-gallery-dark.webp) and
 [light](assets/community-gallery-light.webp) examples (sample games).
 
-Author links open their public profile with listed works. **My profile** requires
-sign-in and includes deployed works. Profile cards open the game detail; they
+Author links open their public profile with listed works. **My games**, next to
+the search and in the account menu, opens your own profile; it requires sign-in
+and includes deployed works. While the gallery is open, the window coming back
+after a minute or more reloads the list in the background, keeping the grid if
+that fails. Profile cards open the game detail; they
 have no editing or unpublish controls. The game detail header shows **Edit game**
 and a **More game actions → Unpublish** menu only for the signed-in author,
 using the existing user and game author IDs without an extra ownership request.
