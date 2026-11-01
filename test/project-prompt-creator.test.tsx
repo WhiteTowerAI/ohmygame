@@ -49,7 +49,7 @@ beforeEach(() => {
   // Blender helps any project but does not start one, so the picker leaves it out.
   capabilities = {
     plugins: [
-      plugin("godot", "Godot", ["godot-game", "general"]),
+      plugin("game-studio", "Game Studio", ["general", "godot-game", "interactive-story"]),
       plugin("blender", "Blender"),
       plugin("web-game-studio", "Web Game Studio", ["web-game"]),
     ],
@@ -154,11 +154,14 @@ describe("Home prompt box", () => {
     await act(async () => typePicker().click());
 
     await chooseType("Godot");
-    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Godot");
+    expect(pluginButton().getAttribute("aria-label")).toBe("Plugins: Game Studio");
     // Only plugins that start this type are offered; Blender starts none.
     await act(async () => pluginButton().click());
-    expect(starterItems()).toEqual(["Godot"]);
+    expect(starterItems()).toEqual(["Game Studio"]);
     await act(async () => pluginButton().click());
+    // Godot's type has Godot's ideas, though Godot is no starter.
+    await chooseIdea("third-person");
+    expect(container.querySelector("textarea")!.value).toBe("Make a third-person 3D scene in Godot you can walk around");
 
     // A type no starter names starts with no plugin, and sends none.
     await chooseType("Tile Map");

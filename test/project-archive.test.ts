@@ -382,6 +382,18 @@ describe("project archive export", () => {
     },
   );
 
+  it("records that a Godot project from before format 2 came from an archive", async () => {
+    const projects = new ProjectManager(await temporaryDirectory());
+    const legacy = await projects.create("Godot", "godot-game");
+    const imported = await importProjectArchive(
+      new ProjectManager(await temporaryDirectory()),
+      await exportProjectArchive(legacy),
+    );
+    // So moving it to the Godot type, at any start, never allows Godot for its folder.
+    expect(imported).toMatchObject({ type: "godot-game", integration: { pluginId: "ohmygame:godot", imported: true } });
+    expect(imported.pluginType).toBeUndefined();
+  });
+
   it("counts the rewritten story graph instead of its smaller source", async () => {
     const library = new AssetLibrary(await temporaryDirectory());
     await library.load();

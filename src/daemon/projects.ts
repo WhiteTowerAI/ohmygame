@@ -1,4 +1,5 @@
 import { PREVIEW_SETTING_KEYS, previewSettings, validPreviewSettings, validatePreviewSettings, type ProjectPreviewSettings } from "../shared/preview-settings.js";
+import { LEGACY_GODOT_ID } from "./legacy-godot.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
@@ -445,6 +446,9 @@ export class ProjectManager {
         ...Object.fromEntries(PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => settings[key] !== undefined).map((key) => [key, settings[key]])),
         // Recorded with the project, so a later try to move it can't allow its plugin either.
         ...(settings.integration ? { integration: { ...settings.integration, imported: true } } : {}),
+        // A Godot project from before format 2 used format 1 Godot as its
+        // integration; recorded so moving it, now or later, never allows Godot for its folder.
+        ...(!settings.integration && settings.type === "godot-game" && !settings.pluginType ? { integration: { pluginId: LEGACY_GODOT_ID, imported: true } } : {}),
         version: 1, id, nameSource: "manual", updatedAt,
       };
       try {

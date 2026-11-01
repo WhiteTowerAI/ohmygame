@@ -36,7 +36,6 @@ beforeEach(() => {
     plugin("game-studio", "Game Studio"),
     plugin("web-game-studio", "Web Game Studio"),
     plugin("threejs-world", "Three.js World"),
-    plugin("godot", "Godot"),
     plugin("cocos-creator", "Cocos Creator", false),
     plugin("unity", "Unity", false),
     plugin("unreal-engine", "Unreal Engine", false),
@@ -154,7 +153,7 @@ describe("plugin catalog browsing", () => {
       sections.map((section) => section.querySelector("h2")?.textContent),
     ).toEqual([
       "Game creation 3",
-      "Engines & platforms 6",
+      "Engines & platforms 5",
       "Art & assets 4",
       "Other plugins 1",
       "Personal 2",
@@ -165,7 +164,6 @@ describe("plugin catalog browsing", () => {
       "Three.js World",
     ]);
     expect(cards(sections[1])).toEqual([
-      "Godot",
       "Cocos Creator",
       "Unity",
       "Unreal Engine",
@@ -198,12 +196,12 @@ describe("plugin catalog browsing", () => {
   it("keeps enabled and disabled cards in place when toggled", async () => {
     await renderCatalog();
     const before = cards();
-    await click("Disable Godot");
+    await click("Disable Blender");
     expect(cards()).toEqual(before);
     expect(
-      container.querySelector('[aria-label="Enable Godot"]'),
+      container.querySelector('[aria-label="Enable Blender"]'),
     ).not.toBeNull();
-    await click("Enable Godot");
+    await click("Enable Blender");
     expect(cards()).toEqual(before);
   });
 
@@ -261,13 +259,13 @@ describe("plugin catalog browsing", () => {
   });
 
   it("switches tabs with the arrow keys and filters Browse by source and project type", async () => {
-    catalog.find((item) => item.id === "ohmygame:godot")!.projectTypes = ["godot-game"];
+    catalog.find((item) => item.id === "ohmygame:blender")!.projectTypes = ["godot-game"];
     catalog.find((item) => item.id === "ohmygame:unity")!.projectTypes = ["general"];
     await renderCatalog();
     const tabs = [
       ...container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
     ];
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Installed16", "Browse", "Skills"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Installed15", "Browse", "Skills"]);
     tabs[0].focus();
     await act(async () =>
       tabs[0].dispatchEvent(
@@ -276,7 +274,7 @@ describe("plugin catalog browsing", () => {
     );
     expect(document.activeElement).toBe(tabs[1]);
     expect(tabs[1].getAttribute("aria-selected")).toBe("true");
-    expect(cards()).toHaveLength(16);
+    expect(cards()).toHaveLength(15);
     expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
 
     await pick("Source", "Other sources");

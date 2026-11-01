@@ -372,41 +372,15 @@ export class PluginCapabilities {
     if (this.configuration.migrated) return;
     const definitions = await legacy.readAndBackup();
     const owners = this.configuration.legacyOwners;
-    const godot = (await this.all()).find(
-      (plugin) => plugin.id === "ohmygame:godot",
-    );
-    if (
-      godot &&
-      !Object.hasOwn(definitions, "ohmygame-godot") &&
-      !owners["ohmygame-godot"]
-    )
-      await this.configuration.setLegacyOwner(
-        "ohmygame-godot",
-        godot.id,
-        "godot",
-      );
     for (const [id, definition] of Object.entries(definitions)) {
       if (owners[id]) continue;
       if (!isMcpServerDefinition(definition))
         throw new LocalPluginError(
           `Cannot migrate invalid MCP definition: ${id}`,
         );
-      if (id === "ohmygame-godot") {
-        const plugin = godot;
-        if (!plugin) continue;
-        // Preserve advanced/custom preset fields in the user override.
-        const bundled = await this.template(plugin, "godot");
-        const { disabled: _disabled, ...enabledDefinition } = definition;
-        if (JSON.stringify(bundled) !== JSON.stringify(enabledDefinition))
-          await this.setDefinition(plugin, "godot", definition);
-        if (definition.disabled === true)
-          await this.settings.update(plugin, {
-            enabled: false,
-            components: this.settings.resolve(plugin).components,
-          });
-        await this.configuration.setLegacyOwner(id, plugin.id, "godot");
-        continue;
-      }
+      // The bundled Godot is a format 2 plugin now, with its own MCP server;
+      // the old definition stays in the backup.
+      if (id === "ohmygame-godot") continue;
       const name = `mcp-${id.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${createHash("sha256").update(id).digest("hex").slice(0, 6)}`;
       let plugin = await this.localPlugins.read(`personal:${name}`);
       if (!plugin)

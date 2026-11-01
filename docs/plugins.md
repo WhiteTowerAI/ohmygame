@@ -267,7 +267,7 @@ available to Plugin Builder; this change adds no separate snapshot store.
 
 ## Migration
 
-On first startup, application-level `pi-agent/mcp.json` is backed up to `mcp.json.pre-plugins.bak`. Each existing connection becomes a native plugin with its full definition, enabled state, and original runtime server ID. Godot is owned by the bundled Godot plugin. Import progress and provider ownership are persisted so retrying migration does not duplicate packages. The original file and backup remain available for recovery; subsequent runtime configuration comes from Plugins. The old Connections UI route redirects to Plugins, and its CRUD API is retired.
+On first startup, application-level `pi-agent/mcp.json` is backed up to `mcp.json.pre-plugins.bak`. Each existing connection becomes a native plugin with its full definition, enabled state, and original runtime server ID. An old `ohmygame-godot` connection stays only in the backup: Godot is a format 2 plugin with its own MCP server now. Import progress and provider ownership are persisted so retrying migration does not duplicate packages. The original file and backup remain available for recovery; subsequent runtime configuration comes from Plugins. The old Connections UI route redirects to Plugins, and its CRUD API is retired.
 
 The migration reader never modifies the old file or creates a missing one. A retry replays credentials and switches for an unfinished import before recording ownership, including when installation succeeded but configuration persistence was interrupted.
 
@@ -278,10 +278,10 @@ validated, and default to enabled. Existing saved switch choices are
 preserved. Blender, like the other bundled plugins that only add Skills
 (Game Studio, Web Game Studio, Three.js World and the Beta workflows below),
 is a format 2 package in `plugins-v2/` that applies to every project it suits;
-see [Plugin format 2](plugins-v2.md#plugins-for-every-project). Godot and
-Unreal Engine remain format 1 packages in `plugins/` until format 2 can carry
-their MCP services. TapTap Maker is a format 2 plugin; see
-[TapTap Maker](#taptap-maker).
+see [Plugin format 2](plugins-v2.md#plugins-for-every-project). Godot is a
+format 2 plugin turned on per project. Unreal Engine remains a format 1
+package in `plugins/` until format 2 can carry HTTP MCP services. TapTap Maker
+is a format 2 plugin; see [TapTap Maker](#taptap-maker).
 
 - **Blender:** local Blender CLI/Python workflow for editable `.blend` sources,
   GLB delivery, and preview images. The export helper accepts an optional
@@ -292,14 +292,30 @@ their MCP services. TapTap Maker is a format 2 plugin; see
   without a target runtime, reimport the GLB into a clean Blender scene and leave
   runtime validation pending. No editor bridge/add-on is required. Use
   `--apply-modifiers` for baked static geometry; keep it off for shape-key export.
-- **Godot:** dedicated Godot Skill plus the existing pinned
-  `@coding-solo/godot-mcp@0.1.1`, available in both General Game and Godot Game
-  projects. Keep Web preview off when using General for native Godot development.
-  The Godot executable configuration defaults to
-  `godot` for upstream automatic discovery and can be replaced with an absolute
-  executable path. Check the actual engine version and import/run logs after
-  testing the MCP connection. Viewport capture and gameplay input are not
-  supplied by this MCP or the web `game_use` integration.
+- **Godot:** the format 2 `ohmygame/godot` plugin brings the Godot game type
+  (played in the game panel as a web build), native tools (`godot_status`,
+  `run_headless`, `export_web`), **Run in Godot**, a Godot Skill, and the
+  pinned `@coding-solo/godot-mcp@0.1.1` as its MCP server. Godot game projects
+  have it: creating one with the app's `godot-game` kind makes it the
+  plugin's type while the plugin is on, and at startup a Godot project from
+  before format 2 gets that type and an `ohmygame.json` pinning the bundled
+  version (`src/daemon/legacy-godot.ts`). Its folder is approved unless the
+  person had turned format 1 Godot off or the project came from an archive.
+  A General project turns Godot on in its plugins and approves it for its
+  folder, where the format 1 plugin applied to every General project.
+  Keep Web preview off when using General for native Godot development. The
+  **Godot executable** setting (`godotPath`) is an absolute path, or empty to
+  look in `GODOT_PATH`, the PATH and the usual install folders;
+  `native/godot.mjs` does that lookup for both the tools and the MCP server,
+  which `native/mcp.mjs` starts through `npx` (Node.js with npx is needed).
+  At startup, format 1's `godot-path` moves to it once, unless it was the
+  default `godot` or `godotPath` is already set; a command is looked up on the
+  PATH (`src/daemon/legacy-godot.ts`). Customized format 1 MCP definitions
+  for Godot don't carry over; they stay in `plugin-configuration.json` until
+  the move removes them. A draft that still mentions the format 1 Godot sends
+  without that mention. Check the actual engine version and import/run logs
+  after testing. Viewport capture and gameplay input are not supplied by this
+  MCP or the web `game_use` integration.
 
 For a local Blender integration check, set `BLENDER_EXECUTABLE` to its absolute
 executable path and run `bun run test -- test/blender-export.test.ts`. This

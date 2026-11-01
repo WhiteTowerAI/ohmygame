@@ -1,7 +1,7 @@
 # Plugin format 2
 
 Format 2 is the next plugin contract. It runs beside format 1 ([plugins.md](plugins.md)),
-which the Browse tab and format 1 Godot projects still use.
+which the Browse tab still uses.
 The app lists installed format 2 plugins on the Plugins page, turns them on
 per project, and shows their panels and commands in a project. Installing a
 signed release from the app is not built yet: no catalog or release keys
@@ -61,6 +61,7 @@ shows it in the call's progress.
 | Project file and decisions | `src/daemon/project-plugins.ts` | `test/project-plugins.test.ts` |
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
 | Bundled plugins for every project, conversion | `src/daemon/bundled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/convert-format-1-plugin.ts` | `test/bundled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
+| Godot and format 1 Godot's setting | `plugins-v2/godot/`, `src/daemon/legacy-godot.ts` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts` |
 | TapTap Maker and format 1 Maker projects | `plugins-v2/taptap-maker/`, `src/daemon/legacy-maker.ts` | `test/taptap-maker.test.ts`, `test/project-plugins.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |

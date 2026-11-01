@@ -50,6 +50,9 @@ describe("plugin catalog", () => {
       .resolves.toEqual([{ name: plugin.name, displayName: plugin.displayName, marketplaceId: "personal" }]);
     await expect(catalog.validateMentions([{ name: "missing", displayName: "Missing", marketplaceId: "personal" }]))
       .rejects.toThrow("not installed");
+    // The bundled format 1 Godot is gone; a draft that mentions it still sends.
+    await expect(catalog.validateMentions([{ name: "godot", displayName: "Godot", marketplaceId: "ohmygame" }]))
+      .resolves.toEqual([]);
   });
 
   it("keeps healthy catalog entries when an adapter reports a damaged plugin", async () => {

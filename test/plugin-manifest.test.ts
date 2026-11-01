@@ -5,7 +5,7 @@ import { ZipFile } from "yazl";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { availableUpdates, downloadRelease, installRelease, readCatalog, releaseMessage } from "../src/daemon/plugin-releases.js";
 import { compileWhen, matchesWhen } from "../src/shared/plugin-when.js";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   cp,
   mkdir,
@@ -19,7 +19,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PLUGIN_INDEX_SCHEMA_VERSION,
   PluginIndex,
@@ -436,6 +436,56 @@ describe("plugin index", () => {
         "zh-CN",
       ),
     ).toBe("在 Godot 中运行");
+    expect(manifest.contributes?.mcpServers).toMatchObject([
+      { id: "godot", command: "node", args: ["./native/mcp.mjs"], env: { OHMYGAME_GODOT_SETTING: "${config.godotPath}" } },
+    ]);
+  });
+
+  it("starts godot-mcp with the Godot the plugin's tools find", async () => {
+    const dir = await temporary();
+    const godot = path.join(dir, "Godot", process.platform === "win32" ? "godot.exe" : "godot");
+    await mkdir(path.dirname(godot), { recursive: true });
+    await writeFile(godot, "", { mode: 0o755 });
+    const bin = path.join(dir, "bin");
+    await mkdir(bin);
+    // Stands in for npx: says what it was given, and exits as godot-mcp might.
+    if (process.platform === "win32") await writeFile(path.join(bin, "npx.cmd"), "@echo off\r\necho %GODOT_PATH% %*\r\nexit /b 3\r\n");
+    else await writeFile(path.join(bin, "npx"), '#!/bin/sh\necho "$GODOT_PATH $*"\nexit 3\n', { mode: 0o755 });
+    const { Path: _windowsPath, ...env } = process.env;
+    const result = spawnSync(process.execPath, [path.join(BUNDLED, "godot", "native", "mcp.mjs")], {
+      env: { ...env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? process.env.Path ?? ""}`, OHMYGAME_GODOT_SETTING: godot },
+      encoding: "utf8",
+    });
+    expect(result.stdout.trim()).toBe(`${godot} -y @coding-solo/godot-mcp@0.1.1`);
+    expect(result.status).toBe(3);
+  });
+
+  it.skipIf(process.platform === "win32")("stops what godot-mcp started when its launcher is stopped", async () => {
+    const dir = await temporary();
+    const pidFile = path.join(dir, "game.pid");
+    // Stands in for npx running godot-mcp with a game it started.
+    await writeFile(path.join(dir, "npx"), '#!/bin/sh\nsleep 60 &\necho $! > "$GAME_PID_FILE"\nwait\n', { mode: 0o755 });
+    const launcher = spawn(process.execPath, [path.join(BUNDLED, "godot", "native", "mcp.mjs")], {
+      env: { ...process.env, PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}`, GAME_PID_FILE: pidFile },
+      stdio: "ignore",
+    });
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    let game = 0;
+    await vi.waitFor(async () => {
+      game = Number(await readFile(pidFile, "utf8"));
+      expect(alive(game)).toBe(true);
+    }, { timeout: 10_000 });
+    const exited = new Promise((resolve) => launcher.once("exit", resolve));
+    launcher.kill("SIGTERM");
+    await exited;
+    await vi.waitFor(() => expect(alive(game)).toBe(false), { timeout: 5_000 });
   });
 
   it("reads strings only from display fields", async () => {

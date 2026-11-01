@@ -88,6 +88,11 @@ export class PluginConfigurationStore {
       ([, owner]) => owner.pluginId === pluginId && owner.serverId === serverId,
     )?.[0];
   }
+  /** A plugin's saved nonsecret values, even when the plugin is gone, for moving them elsewhere. */
+  storedValues(pluginId: string): Record<string, string | boolean> | undefined {
+    const values = this.#state.plugins[pluginId]?.values;
+    return values ? { ...values } : undefined;
+  }
   override(pluginId: string, serverId: string): unknown {
     const ref = this.#state.serverOverrides?.[`${pluginId}/${serverId}`];
     return ref

@@ -81,28 +81,34 @@ describe("native plugin capabilities", () => {
     expect(await resolvePluginSkillPaths([bundled], settings, "general")).not.toContain(path.resolve("plugins/unreal-engine/skills/unreal-game/SKILL.md"));
   });
 
-  it("resolves Godot configuration", async () => {
-    const { service, bundled, settings } = await environment();
-    const godot = bundled.read("ohmygame:godot")!;
-    const godotName = service.runtimeName(godot.id, "godot");
-    expect(await service.definition(godot, "godot")).toMatchObject({
-      env: { GODOT_PATH: "godot" }, lifecycle: "lazy",
-    });
-    const godotSkill = path.resolve("plugins/godot/skills/godot-game/SKILL.md");
-    for (const projectType of ["general", "godot-game"] as const) {
-      expect((await service.effective(projectType)).mcpServers).toHaveProperty(godotName);
-      expect(await resolvePluginSkillPaths([bundled], settings, projectType)).toContain(godotSkill);
-    }
-    expect((await service.effective("web-game")).mcpServers).not.toHaveProperty(godotName);
-    expect(await resolvePluginSkillPaths([bundled], settings, "web-game")).not.toContain(godotSkill);
-    const probe = vi.spyOn(service.host, "probe").mockResolvedValue({ status: "connected", toolCount: 14, message: "godot: get_godot_version" });
-    expect((await service.test(godot, "godot")).message).toBe("godot: get_godot_version");
+  it("resolves a format 1 plugin's configuration in its MCP server", async () => {
+    const { service, local, directory } = await environment();
+    const source = path.join(directory, "engine-tool");
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+      name: "engine-tool",
+      version: "1.0.0",
+      description: "Drives a local engine",
+      configuration: { "engine-path": { type: "text", label: "Engine executable", default: "engine" } },
+      interface: { projectTypes: ["general"] },
+      mcpServers: "./mcp.json",
+    }));
+    await writeFile(path.join(source, "mcp.json"), JSON.stringify({
+      mcpServers: { engine: { command: "npx", args: ["-y", "engine-mcp@1.0.0"], env: { ENGINE_PATH: "${config.engine-path}" }, lifecycle: "lazy" } },
+    }));
+    const plugin = await local.install(source);
+    const name = service.runtimeName(plugin.id, "engine");
+    expect(await service.definition(plugin, "engine")).toMatchObject({ env: { ENGINE_PATH: "engine" }, lifecycle: "lazy" });
+    expect((await service.effective("general")).mcpServers).toHaveProperty(name);
+    expect((await service.effective("web-game")).mcpServers).not.toHaveProperty(name);
+    const probe = vi.spyOn(service.host, "probe").mockResolvedValue({ status: "connected", toolCount: 3, message: "engine: version" });
+    expect((await service.test(plugin, "engine")).message).toBe("engine: version");
     probe.mockRestore();
-    await service.configuration.update(godot, { "godot-path": "/custom/Godot" });
-    expect(await service.definition(godot, "godot")).toMatchObject({ env: { GODOT_PATH: "/custom/Godot" } });
-    expect(service.runtimeName(godot.id, "godot")).toBe(godotName);
-    await service.configuration.setLegacyOwner("ohmygame-godot", godot.id, "godot");
-    expect(service.runtimeName(godot.id, "godot")).toBe("ohmygame-godot");
+    await service.configuration.update(plugin, { "engine-path": "/custom/Engine" });
+    expect(await service.definition(plugin, "engine")).toMatchObject({ env: { ENGINE_PATH: "/custom/Engine" } });
+    expect(service.runtimeName(plugin.id, "engine")).toBe(name);
+    await service.configuration.setLegacyOwner("old-engine", plugin.id, "engine");
+    expect(service.runtimeName(plugin.id, "engine")).toBe("old-engine");
   });
 
   it("reads credential masks without writes and preserves them on an explicit save", async () => {
