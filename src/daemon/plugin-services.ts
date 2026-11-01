@@ -139,6 +139,14 @@ function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRe
   };
 }
 
+/** Publishers whose names only the app and the Plugin Builder can give out. */
+const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set(["ohmygame", PERSONAL_PUBLISHER]);
+
+export function assertAddablePlugin(id: string): void {
+  const publisher = id.slice(0, id.indexOf("/"));
+  if (RESERVED_PUBLISHERS.has(publisher)) throw new Error(`Plugins added from outside the app can't use the publisher "${publisher}": ${id}`);
+}
+
 export class PluginServices {
   readonly index: PluginIndex;
   readonly grants: PluginGrants;
@@ -148,6 +156,7 @@ export class PluginServices {
   readonly values: PluginValues;
   /** Where signed releases are unpacked; uninstalling deletes its folders. */
   readonly packagesDirectory: string;
+  #packageChanges: Promise<unknown> = Promise.resolve();
   readonly #bundledOff: ReadonlySet<string>;
   /** Holds each plugin's data folder, `<publisher>/<name>`. */
   readonly dataDirectory: string;
@@ -587,7 +596,11 @@ export class PluginServices {
    * asks for; the caller vouches for it. The same version replaces its older
    * copy, and a choice to turn the plugin off stays.
    */
-  async installManaged(source: string, { consent = true }: { consent?: boolean } = {}): Promise<PluginIndexEntry> {
+  installManaged(source: string, { consent = true }: { consent?: boolean } = {}): Promise<PluginIndexEntry> {
+    return this.#onePackageChangeAtATime(() => this.#installManaged(source, consent));
+  }
+
+  async #installManaged(source: string, consent: boolean): Promise<PluginIndexEntry> {
     await this.ready();
     const checked = await indexPluginPackage(source);
     if (!checked.ok) throw new Error(`Not a valid plugin: ${checked.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`).join("; ")}`);
@@ -627,22 +640,46 @@ export class PluginServices {
 
   /**
    * Installs a package the person made. These are all `personal/<name>`, so
-   * one can't replace what the app or a publisher ships. A new version of one
-   * that only adds Skills replaces its older versions; any other keeps them
-   * for the projects that name them.
+   * one can't replace what the app or a publisher ships.
    */
   async installPersonal(source: string, options: { consent: boolean }): Promise<PluginIndexEntry> {
     const checked = await indexPluginPackage(source);
     if (checked.ok && !checked.entry.id.startsWith(`${PERSONAL_PUBLISHER}/`))
       throw new Error(`The plugin's id must be ${PERSONAL_PUBLISHER}/<name>, not ${checked.entry.id}`);
-    const entry = await this.installManaged(source, options);
+    return this.#replacingAppWide(await this.installManaged(source, options));
+  }
+
+  /**
+   * Installs a package the person added from npm, GitHub or a file. It allows
+   * nothing: what it asks for waits for the person, in a project's Plugins
+   * sheet. It can't take a name the app or the Plugin Builder uses.
+   */
+  async installAdded(source: string): Promise<PluginIndexEntry> {
+    const checked = await indexPluginPackage(source);
+    if (checked.ok) assertAddablePlugin(checked.entry.id);
+    return this.#replacingAppWide(await this.installManaged(source, { consent: false }));
+  }
+
+  /** A new version of a plugin that only adds Skills replaces its older versions; any other keeps them for the projects that name them. */
+  async #replacingAppWide(entry: PluginIndexEntry): Promise<PluginIndexEntry> {
     if (isAppWidePlugin(entry.manifest))
       for (const older of this.index.versions(entry.id))
         if (older.version !== entry.version && isAppWidePlugin(older.manifest)) await this.uninstall(entry.id, older.version);
     return entry;
   }
 
-  async uninstall(id: string, version?: string): Promise<void> {
+  uninstall(id: string, version?: string): Promise<void> {
+    return this.#onePackageChangeAtATime(() => this.#uninstall(id, version));
+  }
+
+  /** Installing and uninstalling share folders, so one can't delete what the other just placed. */
+  #onePackageChangeAtATime<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.#packageChanges.then(work);
+    this.#packageChanges = run.catch(() => undefined);
+    return run;
+  }
+
+  async #uninstall(id: string, version?: string): Promise<void> {
     await this.ready();
     const removed = version
       ? [this.index.get(id, version)].filter((entry) => entry !== undefined)

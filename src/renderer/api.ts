@@ -87,7 +87,7 @@ import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse, NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
-import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
+import type { PluginCatalog, PluginDetail, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 import type { ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
@@ -800,12 +800,21 @@ export async function getHomeComposerCapabilities(): Promise<ConversationCapabil
   return request(`/composer/capabilities?locale=${encodeURIComponent(language)}`);
 }
 
-export async function installPlugin(input: InstallPluginRequest): Promise<PluginDetail> {
-  return request("/plugins/install", { method: "POST", body: JSON.stringify(input) });
+/** Reads a package without adding it, for the person to review. */
+export async function inspectAddedPlugin(source: import("../shared/plugins.js").PluginAddSource): Promise<import("../shared/plugins.js").PluginAddPreview> {
+  return request(`/plugin-sources/inspect?locale=${encodeURIComponent(language)}`, { method: "POST", body: JSON.stringify({ source }) });
 }
 
-export async function inspectPluginSource(input: InstallPluginRequest): Promise<PluginInstallInspection> {
-  return request("/plugins/inspect", { method: "POST", body: JSON.stringify(input) });
+export async function addPlugin(source: import("../shared/plugins.js").PluginAddSource, digest: string): Promise<{ id: string; version: string }> {
+  return request("/plugin-sources/install", { method: "POST", body: JSON.stringify({ source, digest }) });
+}
+
+export async function inspectPluginFile(file: Blob): Promise<import("../shared/plugins.js").PluginAddPreview> {
+  return uploadPluginPackage(`/plugin-sources/file/inspect?locale=${encodeURIComponent(language)}`, file);
+}
+
+export async function addPluginFile(file: Blob, digest: string): Promise<{ id: string; version: string }> {
+  return uploadPluginPackage(`/plugin-sources/file/install?digest=${encodeURIComponent(digest)}`, file);
 }
 
 export async function readPlugin(id: string): Promise<PluginDetail> {
@@ -1663,14 +1672,8 @@ export async function exportPluginArchive(id: string): Promise<Blob> {
   if (!response.ok) throw await responseError(response);
   return response.blob();
 }
-export async function inspectPluginArchive(file: Blob): Promise<import("../shared/plugin-portability.js").PluginArchivePreview> {
-  return uploadPluginArchive("/plugins/import/inspect", file);
-}
-export async function restorePluginArchive(file: Blob, revision?: string): Promise<PluginDetail> {
-  return uploadPluginArchive(`/plugins/import${revision ? `?revision=${encodeURIComponent(revision)}` : ""}`, file);
-}
-async function uploadPluginArchive<T>(route: string, file: Blob): Promise<T> {
-  const response = await fetch(apiUrl(route), { method: "POST", headers: { "content-type": "application/zip", ...runtimeHeaders() }, body: file });
+async function uploadPluginPackage<T>(route: string, file: Blob): Promise<T> {
+  const response = await fetch(apiUrl(route), { method: "POST", headers: { "content-type": "application/gzip", ...runtimeHeaders() }, body: file });
   if (!response.ok) throw await responseError(response);
   return response.json() as Promise<T>;
 }

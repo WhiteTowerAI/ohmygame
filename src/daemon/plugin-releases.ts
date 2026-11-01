@@ -245,7 +245,7 @@ export async function downloadRelease(url: string, file: string, maxBytes: numbe
   const limit = new Transform({
     transform(chunk: Buffer, _encoding, done) {
       received += chunk.byteLength;
-      if (received > maxBytes) done(new PluginReleaseError("The download is larger than its release says"));
+      if (received > maxBytes) done(new PluginReleaseError("The download is larger than allowed"));
       else done(null, chunk);
     },
   });

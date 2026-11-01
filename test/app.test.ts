@@ -50,7 +50,12 @@ describe("daemon", () => {
         buffer += decoder.decode(chunk, { stream: true });
         const blocks = buffer.split("\n\n");
         buffer = blocks.pop()!;
-        for (const block of blocks) if (block.startsWith("event: activity")) streamed.push(JSON.parse(block.split("data: ")[1]!).activity);
+        for (const block of blocks) {
+          if (!block.startsWith("event: activity")) continue;
+          // A snapshot also carries project names, so a new project can repeat the activity.
+          const { activity: current } = JSON.parse(block.split("data: ")[1]!);
+          if (JSON.stringify(streamed.at(-1)) !== JSON.stringify(current)) streamed.push(current);
+        }
       }
     })().catch(() => {});
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();

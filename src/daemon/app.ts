@@ -117,6 +117,7 @@ import { isAppWidePlugin, isPluginId } from "../shared/plugin-manifest.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
+import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
 import { appliesByItself, capabilityGrants, missingGrants, resolveProjectPlugins } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
@@ -126,7 +127,7 @@ import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedP
 import { ConnectionService } from "./connections.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, OHMYGAME_MARKETPLACE, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail, type ProjectPluginChoice, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, OHMYGAME_MARKETPLACE, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type InstallPluginRequest, type PluginAddSource, type PluginSettings, type PluginSummary, type PluginDetail, type ProjectPluginChoice, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
@@ -197,6 +198,8 @@ export interface AppOptions {
   pluginUiPort?: number;
   /** Keys whose signatures make a format 2 release installable, and the publishers each signs for. */
   pluginReleaseKeys?: PluginReleaseKeys;
+  /** Replaces the network for adding plugins from npm and GitHub, in tests. */
+  pluginSourceNetwork?: PluginSourceNetwork;
   preinstalledPluginsDirectory?: string;
   /** Examples prepared by scripts/prepare-examples.ts; omitted means no examples. */
   examplesDirectory?: string;
@@ -1216,9 +1219,10 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Querystring: { locale?: string } }>("/plugin-store/plugins", async (request): Promise<StorePlugin[]> => {
     await pluginServices.ready();
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
-    return pluginServices.index.entries().map((entry) => {
+    return Promise.all(pluginServices.index.entries().map(async (entry) => {
       const text = (value: string) => localizePluginString(entry, value, locale);
       const contributes = entry.manifest.contributes ?? {};
+      const added = await pluginSources.origin(entry.id, entry.version);
       return {
         id: entry.id,
         version: entry.version,
@@ -1228,6 +1232,7 @@ export function createApp(options: AppOptions = {}) {
         revision: entry.digest,
         grants: pluginServices.grants.plugin(entry.id) ?? null,
         bundled: bundledPluginEntry(entry.root),
+        ...(added ? { origin: added } : {}),
         ...preinstalledFields(entry),
         appWide: isAppWidePlugin(entry.manifest),
         ...(entry.manifest.categories ? { categories: entry.manifest.categories } : {}),
@@ -1256,7 +1261,73 @@ export function createApp(options: AppOptions = {}) {
           skills: entry.skills.length,
         },
       };
-    });
+    }));
+  });
+  const pluginSources = new PluginSources(pluginServices, path.join(path.dirname(pluginServices.packagesDirectory), "origins.json"), options.pluginSourceNetwork);
+  const pluginSourceBody = {
+    type: "object",
+    required: ["type"],
+    oneOf: [
+      {
+        required: ["name", "registry"], additionalProperties: false,
+        properties: { type: { const: "npm" }, name: { type: "string", minLength: 1, maxLength: 300 }, registry: { enum: [...PLUGIN_NPM_REGISTRIES] }, version: { type: "string", minLength: 1, maxLength: 256 } },
+      },
+      {
+        required: ["url"], additionalProperties: false,
+        properties: { type: { const: "github" }, url: { type: "string", minLength: 1, maxLength: 500 }, commit: { type: "string", pattern: "^[0-9a-f]{40}$" } },
+      },
+      {
+        required: ["path"], additionalProperties: false,
+        properties: { type: { const: "directory" }, path: { type: "string", minLength: 1, maxLength: 4096 } },
+      },
+    ],
+  } as const;
+  const pluginDigest = { type: "string", pattern: "^[0-9a-f]{64}$" } as const;
+  const pluginLocaleQuery = { type: "object", additionalProperties: false, properties: { locale: { type: "string", maxLength: 16 } } } as const;
+  const sourceReply = (reply: FastifyReply, cause: unknown) => {
+    if (cause instanceof PluginSourceError) return reply.code(cause.statusCode).send({ error: cause.message });
+    throw cause;
+  };
+  app.addContentTypeParser("application/gzip", { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES }, (_request, body, done) => done(null, body));
+  app.post<{ Body: { source: PluginAddSource }; Querystring: { locale?: string } }>("/plugin-sources/inspect", {
+    schema: { querystring: pluginLocaleQuery, body: { type: "object", required: ["source"], additionalProperties: false, properties: { source: pluginSourceBody } } },
+  }, async (request, reply) => {
+    try {
+      return await pluginSources.inspect(request.body.source, request.query.locale);
+    } catch (cause) {
+      return sourceReply(reply, cause);
+    }
+  });
+  app.post<{ Body: { source: PluginAddSource; digest: string } }>("/plugin-sources/install", {
+    schema: { body: { type: "object", required: ["source", "digest"], additionalProperties: false, properties: { source: pluginSourceBody, digest: pluginDigest } } },
+  }, async (request, reply) => {
+    try {
+      const { id, version } = await pluginSources.install(request.body.source, request.body.digest);
+      return await reply.code(201).send({ id, version });
+    } catch (cause) {
+      return sourceReply(reply, cause);
+    }
+  });
+  app.post<{ Body: Buffer; Querystring: { locale?: string } }>("/plugin-sources/file/inspect", {
+    bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES,
+    schema: { querystring: pluginLocaleQuery },
+  }, async (request, reply) => {
+    try {
+      return await pluginSources.inspectFile(request.body, request.query.locale);
+    } catch (cause) {
+      return sourceReply(reply, cause);
+    }
+  });
+  app.post<{ Body: Buffer; Querystring: { digest: string } }>("/plugin-sources/file/install", {
+    bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES,
+    schema: { querystring: { type: "object", required: ["digest"], additionalProperties: false, properties: { digest: pluginDigest } } },
+  }, async (request, reply) => {
+    try {
+      const { id, version } = await pluginSources.installFile(request.body, request.query.digest);
+      return await reply.code(201).send({ id, version });
+    } catch (cause) {
+      return sourceReply(reply, cause);
+    }
   });
   app.post<{ Body: { release: unknown } }>("/plugin-store/releases", {
     schema: { body: { type: "object", required: ["release"], additionalProperties: false, properties: { release: { type: "object" } } } },

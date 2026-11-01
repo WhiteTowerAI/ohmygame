@@ -8,8 +8,6 @@ import {
   CirclePlus,
   ExternalLink,
   FolderOpen,
-  GitBranch,
-  LoaderCircle,
   Package,
   Play,
   Server,
@@ -25,13 +23,11 @@ import {
   type PluginComponentSummary,
   type PluginContribution,
   type PluginDetail,
-  type InstallPluginRequest,
-  type PluginInstallCandidate,
   type PluginSettings,
   type PluginSummary,
   type StorePlugin,
 } from "../shared/plugins.js";
-import { inspectPluginSource, installPlugin, listPlugins, listStorePlugins, readPlugin, setStorePluginEnabled, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
+import { listPlugins, listStorePlugins, readPlugin, setStorePluginEnabled, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
 import { groupStorePlugins, type StorePluginGroup, StorePluginBrowseCard, StorePluginCard, storePluginContributions, StorePluginDetail, storePluginSearchText, StoreSkillCard } from "./plugin-store.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { projectTypeLabel } from "./project-types.js";
@@ -40,8 +36,9 @@ import { settingsHash } from "./routes.js";
 import { t } from "./i18n.js";
 import { SkillSection } from "./plugin-skills.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
-import { PluginDependencyPanel, PluginExportButton, PluginImportDialog } from "./plugin-portability.js";
-import { Alert, Badge, Button, Dialog, DropdownMenu, Empty, Field, Input, SearchInput, Select, Spinner, Switch, Tabs, type MenuEntry } from "./ui/index.js";
+import { PluginAddDialog } from "./plugin-add-dialog.js";
+import { PluginDependencyPanel, PluginExportButton } from "./plugin-portability.js";
+import { Alert, Badge, Button, DropdownMenu, Empty, SearchInput, Select, Spinner, Switch, Tabs, type MenuEntry } from "./ui/index.js";
 import "./plugins.css";
 
 /** The page's groups, by the categories a plugin declares. */
@@ -85,7 +82,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
   const [detailRetry, setDetailRetry] = useState(0);
   const detailRequest = useRef({ pluginId, retry: detailRetry });
   const [skillCatalog, setSkillCatalog] = useState<{ generation: number; plugins: PluginDetail[]; error?: string }>();
-  const [importOpen, setImportOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [catalogRetry, setCatalogRetry] = useState(0);
   const [tab, setTab] = useState<CatalogTab>(initialAdds ? "browse" : "installed");
   const [query, setQuery] = useState("");
@@ -97,12 +94,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     setAdds(initialAdds);
   }, [initialAdds]);
   const [updating, setUpdating] = useState<string>();
-  const [adding, setAdding] = useState<"install">();
-  const [gitDialogOpen, setGitDialogOpen] = useState(false);
-  const [gitUrl, setGitUrl] = useState("");
-  const [installSource, setInstallSource] = useState<InstallPluginRequest>();
-  const [installCandidates, setInstallCandidates] = useState<PluginInstallCandidate[]>([]);
-  const [selectedCandidate, setSelectedCandidate] = useState<string>();
   const [catalogWarning, setCatalogWarning] = useState<string>();
   const [error, setError] = useState<string>();
 
@@ -219,81 +210,6 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
 
   function capabilitiesChanged(): void { setCatalogRetry(v => v + 1); setDetailRetry(v => v + 1); }
 
-  async function installFromFolder(): Promise<void> {
-    setError(undefined);
-    try {
-      const selected = await window.ohMyGameDesktop?.selectPluginDirectory();
-      if (!selected) return;
-      await prepareInstall({ type: "directory", path: selected });
-    } catch (cause) {
-      setError(errorMessage(cause));
-    }
-  }
-
-  function openGitInstallDialog(): void {
-    setGitDialogOpen(true);
-    setGitUrl("");
-    setInstallSource(undefined);
-    setInstallCandidates([]);
-    setSelectedCandidate(undefined);
-    setError(undefined);
-  }
-
-  function closeInstallDialog(): void {
-    setGitDialogOpen(false);
-    setGitUrl("");
-    setInstallSource(undefined);
-    setInstallCandidates([]);
-    setSelectedCandidate(undefined);
-    setError(undefined);
-  }
-
-  async function installFromGit(): Promise<void> {
-    const url = gitUrl.trim();
-    const source = installSource ?? (url ? { type: "git" as const, url } : undefined);
-    if (!source) return;
-    if (!installCandidates.length) await prepareInstall(source);
-    else if (selectedCandidate) await installSelectedPlugin({ ...source, candidate: selectedCandidate });
-  }
-
-  async function prepareInstall(input: InstallPluginRequest): Promise<void> {
-    if (adding) return;
-    setAdding("install");
-    setError(undefined);
-    try {
-      const inspection = await inspectPluginSource(input);
-      if (inspection.candidates.length === 1) {
-        await installSelectedPlugin({ ...input, candidate: inspection.candidates[0]!.key }, true);
-        return;
-      }
-      setInstallSource(input);
-      setInstallCandidates(inspection.candidates);
-      setSelectedCandidate(inspection.candidates[0]?.key);
-      setGitDialogOpen(true);
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setAdding(undefined);
-    }
-  }
-
-  async function installSelectedPlugin(input: InstallPluginRequest, alreadyBusy = false): Promise<void> {
-    if (adding && !alreadyBusy) return;
-    if (!alreadyBusy) setAdding("install");
-    setError(undefined);
-    try {
-      const installedPlugin = await installPlugin(input);
-      // Reload like the other ways of adding a plugin, so Skills shows its skills too.
-      capabilitiesChanged();
-      closeInstallDialog();
-      onPluginChange(installedPlugin.id);
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setAdding(undefined);
-    }
-  }
-
   function createWithAi(): void {
     void openPluginBuilder().catch(cause => setError(errorMessage(cause)));
   }
@@ -331,9 +247,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     { label: t("plugins.createWithAiMenu"), icon: <Sparkles size={14} />, onSelect: createWithAi },
     { label: t("plugins.addMcp"), icon: <Server size={14} />, onSelect: () => { window.location.hash = settingsHash("connections"); } },
     "separator",
-    ...(typeof window !== "undefined" && window.ohMyGameDesktop ? [{ label: t("plugins.fromFolder"), icon: <FolderOpen size={14} />, onSelect: () => void installFromFolder() }] : []),
-    { label: t("plugins.fromGit"), icon: <GitBranch size={14} />, onSelect: openGitInstallDialog },
-    { label: t("pluginPortability.importMenu"), icon: <Package size={14} />, onSelect: () => setImportOpen(true) },
+    { label: t("pluginAdd.menu"), icon: <Package size={14} />, onSelect: () => setAddOpen(true) },
   ];
   const currentDetail = detailResult?.pluginId === pluginId ? detailResult : undefined;
   const detail = currentDetail?.plugin;
@@ -392,7 +306,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
       {browsed.map(plugin => <BrowseCard key={plugin.id} plugin={plugin} onOpen={() => onPluginChange(plugin.id)} />)}
       {browsedStore.map(group => <StorePluginBrowseCard key={group.plugin.id} group={group} onOpen={() => onPluginChange(group.plugin.id)} />)}
     </div> : <Empty title={t("plugins.noMatch")} description={t("plugins.browseEmpty")} action={<div className="plugins-empty-actions">
-      <Button icon={<GitBranch size={14} />} onClick={openGitInstallDialog}>{t("plugins.installFromGit")}</Button>
+      <Button icon={<Package size={14} />} onClick={() => setAddOpen(true)}>{t("pluginAdd.menu")}</Button>
       <Button icon={<Sparkles size={14} />} onClick={createWithAi}>{t("plugins.createWithAi")}</Button>
     </div>} />}
   </>;
@@ -475,7 +389,7 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
       <SidebarPageHeader title={t("plugins.title")} actions={<div className="plugins-toolbar">
         <SearchInput value={query} onChange={setQuery} placeholder={searchCopy.placeholder} label={searchCopy.label} />
         <DropdownMenu placement="bottom-end" items={addMenuItems} trigger={(props) => (
-          <Button {...props} variant="primary" disabled={Boolean(adding)} icon={adding ? <LoaderCircle className="spin" size={14} /> : <CirclePlus size={14} />}>{adding ? t("plugins.installing") : t("plugins.add")}</Button>
+          <Button {...props} variant="primary" icon={<CirclePlus size={14} />}>{t("plugins.add")}</Button>
         )} />
       </div>} />
       <Tabs<CatalogTab> variant="pills" label={t("plugins.title")} value={tab} onChange={setTab} tabs={[
@@ -484,33 +398,14 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
         { value: "skills", label: t("plugins.skills"), count: skillCatalog ? skills.length + storeSkills.length : undefined },
       ]} />
       <div className="plugins-panel" role="tabpanel" aria-label={tab === "installed" ? t("plugins.installedTab") : tab === "browse" ? t("plugins.browseTab") : t("plugins.skills")}>
-        {phase === "ready" && ((!gitDialogOpen && error) || catalogWarning) ? <Alert tone="danger" title={!gitDialogOpen && error ? error : catalogWarning} /> : null}
+        {phase === "ready" && (error || catalogWarning) ? <Alert tone="danger" title={error || catalogWarning} /> : null}
         {phase === "ready" && tab === "installed" && storeError ? <Alert tone="danger" title={storeError} /> : null}
         {phase === "loading" ? <PluginState>{t("plugins.loading")}</PluginState> : null}
         {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
         {phase === "ready" ? tab === "browse" ? browseTab : tab === "skills" ? skillsTab : installedTab : null}
       </div>
     </>}
-    {importOpen ? <PluginImportDialog onClose={() => setImportOpen(false)} onInstalled={plugin => { setImportOpen(false); capabilitiesChanged(); onPluginChange(plugin.id); }} /> : null}
-    <Dialog open={gitDialogOpen} onClose={() => { if (!adding) closeInstallDialog(); }}
-      title={installCandidates.length ? t("plugins.choose") : t("plugins.installFromGit")}
-      description={installCandidates.length ? t("plugins.selectFrom", { marketplace: installCandidates[0]!.marketplace.displayName }) : t("plugins.enterUrl")}
-      footer={<>
-        <Button disabled={Boolean(adding)} onClick={closeInstallDialog}>{t("common.cancel")}</Button>
-        <Button variant="primary" type="submit" form="plugin-install-form" disabled={Boolean(adding) || (installCandidates.length ? !selectedCandidate : !gitUrl.trim())}
-          icon={adding === "install" ? <LoaderCircle className="spin" size={14} /> : undefined}>{adding === "install" ? t("plugins.installing") : t("plugins.install")}</Button>
-      </>}>
-      <form id="plugin-install-form" className="plugins-install-form" onSubmit={(event) => { event.preventDefault(); void installFromGit(); }}>
-        {installCandidates.length ? <div className="plugin-install-candidates" role="radiogroup" aria-label={t("plugins.title")}>
-          {installCandidates.map((candidate) => <button type="button" role="radio" aria-checked={selectedCandidate === candidate.key} className={selectedCandidate === candidate.key ? "is-selected" : ""} key={candidate.key} onClick={() => setSelectedCandidate(candidate.key)}>
-            <span><strong>{candidate.displayName}</strong><small>{candidate.description}</small></span>
-            <span className="plugin-install-candidate-meta"><small>{t("plugins.skillCount", { count: candidate.skillCount })}</small><span className="plugin-install-candidate-radio" aria-hidden="true" /></span>
-          </button>)}
-        </div> : <Field label={t("plugins.repositoryUrl")}>{(props) => <Input {...props} autoFocus type="url" required disabled={Boolean(adding)} value={gitUrl}
-          placeholder="https://github.com/example/plugin" onChange={(event) => setGitUrl(event.target.value)} />}</Field>}
-        {error ? <Alert tone="danger" title={error} /> : null}
-      </form>
-    </Dialog>
+    {addOpen ? <PluginAddDialog onClose={() => setAddOpen(false)} onAdded={(id) => { setAddOpen(false); capabilitiesChanged(); onPluginChange(id); }} /> : null}
   </section>;
 
   function showCatalog(): void {
@@ -753,7 +648,7 @@ function PluginManagement({ plugin, updating, personal, onBrowse, onRemove, onTo
   onToggle: (enabled: boolean) => void;
   onAssist?: () => void;
 }): ReactNode {
-  const repository = plugin.origin?.repository;
+  const repository = plugin.origin && "repository" in plugin.origin ? plugin.origin.repository : undefined;
   const version = plugin.version;
   const canBrowse = personal && Boolean(window.ohMyGameDesktop);
   let source: ReactNode;

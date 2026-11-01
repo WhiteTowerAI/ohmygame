@@ -116,9 +116,9 @@ beforeEach(() => {
         )!;
         return Response.json({ ...item, skills: skills[item.id] ?? [], connections: [] });
       }
-      if (init.method === "POST" && route === "/plugins/inspect")
-        return Response.json({ candidates: [{ key: "fresh", name: "fresh", displayName: "Fresh" }] });
-      if (init.method === "POST" && route === "/plugins/install") {
+      if (init.method === "POST" && route === "/plugin-sources/inspect")
+        return Response.json({ source: { type: "github", url: "https://github.com/acme/fresh", commit: "a".repeat(40) }, digest: "b".repeat(64), id: "acme/fresh", version: "1.0.0", displayName: "Fresh", description: "Fresh", appWide: true, asks: [], skills: 1, mcpServers: [], settings: false, installedVersions: [] });
+      if (init.method === "POST" && route === "/plugin-sources/install") {
         const fresh = plugin("fresh", "Fresh", true, true);
         catalog.push(fresh);
         skills[fresh.id] = [{ id: "skills/fresh/SKILL.md", name: "fresh-skill", enabled: true }];
@@ -254,7 +254,7 @@ describe("plugin catalog browsing", () => {
       ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
     ];
     expect(items.map((item) => item.textContent)).toEqual(
-      expect.arrayContaining(["Browse plugins", "Create with AI…", "Install from Git…"]),
+      expect.arrayContaining(["Browse plugins", "Create with AI…", "Add plugin…"]),
     );
     expect(document.activeElement).toBe(items[0]);
     await act(async () =>
@@ -268,12 +268,12 @@ describe("plugin catalog browsing", () => {
     await act(async () => add.click());
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-        .find((item) => item.textContent?.startsWith("Install from Git"))!
+        .find((item) => item.textContent?.startsWith("Add plugin"))!
         .click(),
     );
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.querySelector(".ui-dialog-title")?.textContent).toBe(
-      "Install from Git",
+      "Add a plugin",
     );
   });
 
@@ -334,22 +334,25 @@ describe("plugin catalog browsing", () => {
     expect(container.textContent).toContain("stripes");
   });
 
-  it("shows a plugin's skills after installing it from Git", async () => {
+  it("shows a plugin's skills after adding it", async () => {
     await renderCatalog();
     await click("Skills");
     await vi.waitFor(() => expect(container.textContent).toContain("plan-game"));
     await click("Add");
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-        .find((item) => item.textContent?.startsWith("Install from Git"))!
+        .find((item) => item.textContent?.startsWith("Add plugin"))!
         .click(),
     );
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('.ui-dialog [role="tab"]')].find((item) => item.textContent === "GitHub")!.click());
     const url = document.querySelector<HTMLInputElement>('.ui-dialog input[type="url"]')!;
     await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(url, "https://example.com/fresh.git");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(url, "https://github.com/acme/fresh");
       url.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => url.form!.requestSubmit());
+    await vi.waitFor(() => expect(document.querySelector(".ui-dialog-title")?.textContent).toBe("Add Fresh?"));
+    await act(async () => document.querySelector<HTMLFormElement>("#plugin-add-form")!.requestSubmit());
     await vi.waitFor(() => expect(container.textContent).toContain("fresh-skill"));
   });
 });

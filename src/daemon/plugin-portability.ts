@@ -294,11 +294,6 @@ export function registerPluginPortabilityRoutes(
     options.capabilities,
     options.settings,
   );
-  app.addContentTypeParser(
-    "application/zip",
-    { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES },
-    (_request, body, done) => done(null, body),
-  );
   const fail = (reply: import("fastify").FastifyReply, cause: unknown) =>
     reply
       .code(cause instanceof LocalPluginError ? cause.statusCode : 400)
@@ -314,45 +309,6 @@ export function registerPluginPortabilityRoutes(
           .send(await portability.export(request.params.pluginId));
       } catch (cause) {
         return fail(reply, cause);
-      }
-    },
-  );
-  app.post<{ Body: Buffer }>(
-    "/plugins/import/inspect",
-    { bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES },
-    async (request, reply) => {
-      try {
-        return await portability.inspect(request.body);
-      } catch (cause) {
-        return fail(reply, cause);
-      }
-    },
-  );
-  app.post<{ Body: Buffer; Querystring: { revision?: string } }>(
-    "/plugins/import",
-    {
-      bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES,
-      schema: {
-        querystring: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            revision: { type: "string", pattern: "^[0-9a-f]{64}$" },
-          },
-        },
-      },
-    },
-    async (request, reply) => {
-      try {
-        return reply
-          .code(201)
-          .send(
-            await portability.restore(request.body, request.query.revision),
-          );
-      } catch (cause) {
-        return fail(reply, cause);
-      } finally {
-        options.invalidate();
       }
     },
   );

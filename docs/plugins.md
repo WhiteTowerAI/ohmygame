@@ -197,7 +197,7 @@ The legacy `connections` manifest field named a server imported from the old `mc
 
 ## Installation and AI assistance
 
-The Add plugin menu supports folder/Git installation and a dedicated AI assistant. Its **Add MCP** entry opens Settings → MCP Connections. The detail page offers configuration forms, definition editing, tests, and HTTP authorization controls.
+The Add plugin menu offers **Add plugin…** ([Adding a plugin](plugins-v2.md#adding-a-plugin)) and a dedicated AI assistant. Its **Add MCP** entry opens Settings → MCP Connections. The detail page offers configuration forms, definition editing, tests, and HTTP authorization controls.
 
 The library groups plugins into OhMyGame's (public) and **Personal**. OhMyGame's contains plugins provided by OhMyGame, including bundled and preinstalled packages, plus catalog entries whose trusted adapter marks the marketplace as official. Personal contains user-created plugins and user imports from folders, Git repositories, and third-party marketplaces. These are display groups: plugin IDs, original marketplace identities, and configuration keys are preserved. Imported archives always enter Personal, even when their source metadata came from a public catalog. Installed plugins in both groups have switches, including bundled plugins. Bundled packages cannot be uninstalled. A format 2 plugin that only adds Skills has one switch, with no switch per Skill.
 
@@ -221,24 +221,16 @@ Configuration assistance uses the same effective configuration, service-definiti
 
 Conversation history and structured tool activity come from the agent's session log and are returned as timeline turns; workspace listings load metadata only. `state.json` stores workspace purpose, package association, edit-source metadata, content revisions, and check results and uses atomic replacement. Shutdown and cancellation cover model lookup and session initialization as well as the active conversation. A workspace restored after an interrupted run explicitly reports interruption and can be continued with another message.
 
-### Export and restore
+### Export
 
-Installed Personal plugins can be exported as a ZIP package and restored from
-**Add plugin → Import plugin archive**. Preview shows the package before any
-installation. Replacing an installed Personal plugin requires confirmation and
-the revision from the preview; a concurrent package change requires a new
-preview. Public plugins cannot be replaced by imported archives.
+Installed Personal plugins can be exported as a ZIP package. The app no longer
+restores these archives, or installs format 1 plugins from a folder or Git
+repository; **Add plugin…** takes format 2 packages
+([Adding a plugin](plugins-v2.md#adding-a-plugin)).
 
 Exports contain native package metadata, Skills and supporting files, effective
-MCP templates, nonsecret configuration, and plugin/component switches. Imported
-formats are normalized to native metadata and retain their original Personal
-or third-party marketplace identity. An imported plugin does not take ownership
-of that marketplace, so the marketplace can still be installed from its folder
-or Git repository. `.ohmygame-plugin/backup.json` holds the
-versioned nonsecret restore data; ordinary native ZIP packages without this
-file can also be imported. Executable file permission is preserved without
-special permission bits. ZIP files are limited to 50 MB and extraction rejects
-unsafe paths, symbolic links, private hidden files, and `node_modules`.
+MCP templates, nonsecret configuration, and plugin/component switches.
+`.ohmygame-plugin/backup.json` holds the versioned nonsecret data.
 
 Platform-stored credentials, OAuth sessions, AI conversation history, and
 builder workspaces are excluded. Sensitive MCP literals in environment,
