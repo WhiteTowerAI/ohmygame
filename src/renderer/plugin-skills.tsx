@@ -7,7 +7,7 @@ import { MarkdownContent } from "./markdown-content.js";
 import { Alert, Button, IconButton, Spinner, Switch } from "./ui/index.js";
 
 /** A SKILL.md's metadata, which the row above its content already shows. */
-const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
+const FRONTMATTER = /^---[ \t]*\r?\n(?:[\s\S]*?\r?\n)??---[ \t]*(?:\r?\n|$)/;
 
 /** A Skill on a plugin's page; `enabled` only where Skills switch one by one. */
 export type SkillItem = Omit<PluginComponentSummary, "enabled"> & { enabled?: boolean };
