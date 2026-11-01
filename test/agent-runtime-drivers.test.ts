@@ -627,6 +627,83 @@ describe("Claude Code adapter", () => {
     }
   });
 
+  it("continues in the same Claude Code process after it reports the stopped turn's end", async () => {
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const users: Array<Record<string, unknown>> = [];
+    const clis = fakeCli((message, cli) => {
+      if (message.type === "control_request") {
+        cli.send({
+          type: "control_response",
+          response: { subtype: "success", request_id: message.request_id, response: {} },
+        });
+        if ((message.request as { subtype?: string } | undefined)?.subtype === "interrupt")
+          cli.send({ type: "result", subtype: "error_during_execution", is_error: true });
+      }
+      if (message.type === "user") {
+        users.push(message);
+        if (users.length === 1) {
+          cli.send({ type: "system", subtype: "init", session_id: "claude-1" });
+          started();
+        } else cli.send({ type: "result", subtype: "success" });
+      }
+    });
+    const ctx = await context();
+    const sessionManager = SessionManager.inMemory(ctx.workspacePath);
+    const session = new NativeCodingSession({
+      runtime: "claude-code-cli",
+      model: "sonnet",
+      sessionManager,
+      toolNames: [],
+      createDriver: () => new ClaudeCodeDriver(ctx),
+      requestApproval: async () => "deny",
+    });
+    cleanup.push(() => session.dispose());
+
+    const run = session.prompt("wait");
+    await ready;
+    await session.abort();
+    await run;
+    await session.prompt("carry on");
+
+    expect(clis).toHaveLength(1);
+    expect(clis[0]!.exited).toBeFalsy();
+    const text = JSON.stringify(users[1]);
+    expect(text).toContain("stopped the previous turn");
+    expect(text).toContain("carry on");
+    expect(text).not.toContain("conversation-handoff");
+  });
+
+  it("treats a missing session as expired when the process it continues was restarted", async () => {
+    const clis = fakeCli((message, cli) => {
+      if (message.type !== "user") {
+        if (message.type === "control_request")
+          cli.send({
+            type: "control_response",
+            response: { subtype: "success", request_id: message.request_id, response: {} },
+          });
+        return;
+      }
+      if (clis.length === 1) {
+        cli.send({ type: "system", subtype: "init", session_id: "claude-1" });
+        cli.send({ type: "result", subtype: "success" });
+      } else {
+        cli.send({ type: "result", subtype: "error_during_execution", is_error: true, errors: ["No conversation found with session ID: claude-1"] });
+      }
+    });
+    const driver = new ClaudeCodeDriver(await context());
+    cleanup.push(() => driver.dispose());
+    const run = (text: string) =>
+      driver.runTurn({ text, images: [], readOnly: false }, recordingSink().sink, new AbortController().signal);
+
+    await expect(run("first")).resolves.toEqual({ status: "completed" });
+    clis[0]!.exit(0);
+    await expect(run("second")).rejects.toBeInstanceOf(NativeSessionExpiredError);
+    expect(clis[1]!.args).toContain("--resume");
+  });
+
   it("stops a native process when interrupt is acknowledged without a terminal result", async () => {
     let started!: () => void;
     const ready = new Promise<void>((resolve) => {

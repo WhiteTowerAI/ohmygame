@@ -177,15 +177,27 @@ interface StoredNativeSession {
   state: "active" | "ready" | "invalid";
   sessionId?: string;
   profileId?: string;
+  interrupted?: true;
 }
 ```
 
 Only the latest matching `ready` marker on the current branch may resume.
-Write `active` before native work and `ready` only after successful completion;
-crashes, failed turns, cancellation, and interrupted writes cannot reuse a
-previous ready context. Invalidate on every rewind/edit/restore, even if the
-native ID is unchanged, and after intervening Pi work, incompatible model
-changes, or legacy metadata.
+Write `active` before native work and `ready` only after successful completion
+or a stop the CLI reported as finished. Crashes, failed turns, other
+cancellations, and interrupted writes cannot reuse a previous ready context.
+Invalidate on every rewind/edit/restore, even if the native ID is unchanged, and
+after intervening Pi work, incompatible model changes, or legacy metadata.
+
+When the person stops a turn, an adapter may return `resumable` once the CLI
+itself has reported that the turn ended, so nothing of it is still running. Only
+Claude Code does this today, on its terminal `result`. The marker is then `ready`
+with `interrupted`, and the next message, including after a restart, tells the
+agent the previous turn was stopped and may have left a tool partway. The agent
+keeps what it knew; a CLI that continues costs less at first but carries a larger
+context afterwards than a handoff does. Without that report, or when the bounded
+interrupt wait ends in stopping the process, the context is rebuilt as for any
+other failed turn. Codex and OpenCode rebuild it for every stop until their turn
+ends are proven separate from the next turn's events.
 
 When context is absent or invalid, start fresh with a deterministic, bounded
 handoff: recent visible turns, changed files, the structured plan, and restore

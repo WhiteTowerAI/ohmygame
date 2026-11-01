@@ -1,5 +1,5 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AgentManager, conversationItems } from "../src/daemon/agent.js";
 import { projectPiToolNames } from "../src/daemon/agent-tools.js";
 import { CHECKPOINT_ENTRY } from "../src/daemon/checkpoint-extension.js";
@@ -474,6 +474,121 @@ describe("coding agent sessions", () => {
     await Promise.all([run, cancelled]);
     expect(drivers.flatMap((driver) => driver.inputs)).toEqual([]);
     session.dispose();
+  });
+
+  describe("after the person stops a turn", () => {
+    const stoppedTurn = (reported: { status: "aborted"; resumable?: boolean }): Script =>
+      async (_input, sink, signal) => {
+        sink.nativeSession("native-1");
+        sink.text("a", "Working");
+        await new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        return reported;
+      };
+    const stop = async (session: NativeCodingSession, prompt: string) => {
+      const run = session.prompt(prompt);
+      // Stop only once the agent has named its session: a fixed delay raced a slow runner.
+      await vi.waitFor(() =>
+        expect(
+          session.sessionManager.getBranch().some(
+            (entry) =>
+              entry.type === "custom" &&
+              entry.customType === NATIVE_SESSION_ENTRY &&
+              (entry.data as { sessionId?: string } | undefined)?.sessionId === "native-1",
+          ),
+        ).toBe(true),
+      );
+      await session.abort();
+      await run;
+    };
+
+    it("continues the native session and says once that the turn was stopped", async () => {
+      const { session, sessionManager, drivers } = fixture([
+        stoppedTurn({ status: "aborted", resumable: true }),
+        async () => ({ status: "completed" }),
+        async () => ({ status: "completed" }),
+      ]);
+      await stop(session, "first");
+      expect(latestNativeSession(sessionManager.getBranch(), "claude-code-cli")).toMatchObject({
+        sessionId: "native-1",
+        interrupted: true,
+      });
+
+      await session.prompt("second");
+      await session.prompt("third");
+
+      expect(drivers).toHaveLength(1);
+      expect(drivers[0]!.disposed).toBeFalsy();
+      expect(drivers[0]!.inputs[1]!.text).toContain("stopped the previous turn");
+      expect(drivers[0]!.inputs[1]!.text).toContain("second");
+      expect(drivers[0]!.inputs[1]!.text).not.toContain("<conversation-handoff>");
+      expect(drivers[0]!.inputs[2]!.text).toBe("third");
+      expect(latestNativeSession(sessionManager.getBranch(), "claude-code-cli")?.interrupted).toBeUndefined();
+      session.dispose();
+    });
+
+    it("still says so after a restart", async () => {
+      const first = fixture([stoppedTurn({ status: "aborted", resumable: true })]);
+      await stop(first.session, "first");
+      first.session.dispose();
+
+      const second = fixture([async () => ({ status: "completed" })], first.sessionManager);
+      await second.session.prompt("second");
+
+      expect(second.drivers[0]!.resume).toBe("native-1");
+      expect(second.drivers[0]!.inputs[0]!.text).toContain("stopped the previous turn");
+      expect(second.drivers[0]!.inputs[0]!.text).not.toContain("<conversation-handoff>");
+      second.session.dispose();
+    });
+
+    it("rebuilds the context when the agent did not report the turn's end", async () => {
+      const { session, drivers } = fixture([
+        stoppedTurn({ status: "aborted" }),
+        async () => ({ status: "completed" }),
+      ]);
+      await stop(session, "first");
+      await session.prompt("second");
+
+      expect(drivers).toHaveLength(2);
+      expect(drivers[0]!.disposed).toBe(true);
+      expect(drivers[1]!.resume).toBeUndefined();
+      expect(drivers[1]!.inputs[0]!.text).toContain("<conversation-handoff>");
+      expect(drivers[1]!.inputs[0]!.text).not.toContain("stopped the previous turn");
+      session.dispose();
+    });
+
+    it("rebuilds the context when the agent had to be closed to stop it", async () => {
+      const { session, drivers } = fixture(
+        [
+          async (_input, sink, signal) => {
+            sink.nativeSession("native-1");
+            sink.text("a", "Working");
+            await new Promise<void>((resolve) =>
+              signal.addEventListener("abort", () => setTimeout(resolve, 30), { once: true }),
+            );
+            return { status: "aborted", resumable: true };
+          },
+          async () => ({ status: "completed" }),
+        ],
+        undefined,
+        { cancellationTimeoutMs: 1 },
+      );
+      await stop(session, "first");
+      await session.prompt("second");
+
+      expect(drivers).toHaveLength(2);
+      expect(drivers[1]!.inputs[0]!.text).toContain("<conversation-handoff>");
+      session.dispose();
+    });
+
+    it("hands off instead when the conversation moved to another account", async () => {
+      const { session, sessionManager } = fixture([stoppedTurn({ status: "aborted", resumable: true })]);
+      await stop(session, "first");
+      session.dispose();
+
+      expect(latestNativeSession(sessionManager.getBranch(), "claude-code-cli", "work")).toBeUndefined();
+    });
   });
 
   it("rebuilds context for legacy or interrupted native metadata", () => {
