@@ -1484,6 +1484,7 @@ const en = {
   },
   community: {
     myProfile: "My profile",
+    myGames: "My games",
     search: "Search",
     searchPlaceholder: "Games or creators",
     sortBy: "Sort by",
