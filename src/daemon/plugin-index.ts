@@ -374,7 +374,7 @@ function checkPackage(
     else strings[locale] = value as Record<string, string>;
   }
   for (const key of localizedKeys(manifest))
-    if (!strings.en?.[key]) issue("./locales/en.json", `missing %${key}%`);
+    if (!localeText(strings.en, key)) issue("./locales/en.json", `missing %${key}%`);
 
   if (issues.length) return { ok: false, issues };
   return {
@@ -400,7 +400,12 @@ export function localizePluginString(
 ): string {
   const key = /^%([A-Za-z0-9_.-]+)%$/.exec(value)?.[1];
   if (!key) return value;
-  return entry.strings[locale]?.[key] ?? entry.strings.en?.[key] ?? value;
+  return localeText(entry.strings[locale], key) ?? localeText(entry.strings.en, key) ?? value;
+}
+
+/** A locale file's own string for a key: `%toString%` names nothing. */
+function localeText(table: Record<string, string> | undefined, key: string): string | undefined {
+  return table && Object.hasOwn(table, key) ? table[key] : undefined;
 }
 
 type ContributionKind = Exclude<
