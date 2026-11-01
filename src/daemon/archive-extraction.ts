@@ -133,8 +133,11 @@ export async function extractTarball(
     entries += 1;
     bytes += size;
     if (entries > options.maxEntries || bytes > options.maxBytes) throw options.error("too-large");
-    const relative = safeEntryPath(longPath ?? tarPath(header), options);
+    // `tar -C folder .` starts every path with `./`, and lists the folder itself.
+    const name = (longPath ?? tarPath(header)).replace(/^(?:\.\/)+/, "");
     longPath = undefined;
+    if (type === "5" && (!name || name === ".")) continue;
+    const relative = safeEntryPath(name, options);
     const target = path.join(destination, relative);
     try {
       if (type === "5" || relative.endsWith("/")) {

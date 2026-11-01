@@ -242,8 +242,9 @@ export class PluginSources {
     const base = `https://api.github.com/repos/${repository}`;
     const name = ref ?? (await this.#gitHubJson<{ default_branch?: unknown }>(base, repository))?.default_branch;
     if (typeof name !== "string") throw new PluginSourceError(`Could not find ${repository} on GitHub. Private repositories can't be added.`);
-    let target = await this.#gitHubJson<GitObject>(`${base}/git/ref/heads/${encodeURIComponent(name)}`, repository);
-    target ??= await this.#gitHubJson<GitObject>(`${base}/git/ref/tags/${encodeURIComponent(name)}`, repository);
+    const refPath = name.split("/").map(encodeURIComponent).join("/");
+    let target = await this.#gitHubJson<GitObject>(`${base}/git/ref/heads/${refPath}`, repository);
+    target ??= await this.#gitHubJson<GitObject>(`${base}/git/ref/tags/${refPath}`, repository);
     if (!target) throw new PluginSourceError(`${repository} has no branch or tag named ${name}.`);
     // An annotated tag points at a tag object, which points at the commit.
     for (let depth = 0; target?.object?.type === "tag" && depth < 5; depth += 1)
@@ -343,7 +344,7 @@ export function parseNpmName(input: string): { scope: string; name: string; vers
 /** A repository's page, optionally at a branch or tag. */
 export function parseGitHubUrl(input: string): { repository: string; ref?: string } {
   const text = input.trim().replace(/^(?:https:\/\/)?(?:www\.)?github\.com\//i, "");
-  const match = /^([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:\/tree\/([A-Za-z0-9][A-Za-z0-9._-]*))?\/?$/.exec(text);
+  const match = /^([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:\/tree\/([A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*))?\/?$/.exec(text);
   if (!match || text === input.trim() || /^\.+$/.test(match[2]!) || match[3]?.includes(".."))
     throw new PluginSourceError(`Enter a GitHub repository, like https://github.com/publisher/plugin, not "${input.trim()}".`);
   return { repository: `${match[1]}/${match[2]}`, ...(match[3] ? { ref: match[3] } : {}) };

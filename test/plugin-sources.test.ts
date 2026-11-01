@@ -86,6 +86,14 @@ describe("extractTarball", () => {
     expect(await readFile(path.join(out, "pax", long), "utf8")).toBe("pax");
   });
 
+  it("takes paths that start with ./, as tar -C folder . writes them", async () => {
+    const out = await extract(tgz(tarEntry("./", "", { type: "5", mode: 0o755 }), tarEntry("./folder/", "", { type: "5", mode: 0o755 }), tarEntry("./folder/file.txt", "hi"), tarEntry("./top.txt", "top")));
+    expect(await readFile(path.join(out, "folder/file.txt"), "utf8")).toBe("hi");
+    expect(await readFile(path.join(out, "top.txt"), "utf8")).toBe("top");
+    await expect(extract(tgz(tarEntry("./../escape", "x")))).rejects.toThrow("invalid-path");
+    await expect(extract(tgz(tarEntry("./", "x")))).rejects.toThrow("invalid-path");
+  });
+
   it.each([
     ["a symbolic link", () => tarEntry("link", "", { type: "2", link: "/etc/passwd" }), "symbolic-link"],
     ["a hard link", () => tarEntry("link", "", { type: "1", link: "other" }), "symbolic-link"],
@@ -130,7 +138,8 @@ describe("source names", () => {
     expect(parseGitHubUrl("https://github.com/acme/maker")).toEqual({ repository: "acme/maker" });
     expect(parseGitHubUrl("github.com/acme/maker.git/")).toEqual({ repository: "acme/maker" });
     expect(parseGitHubUrl("https://github.com/acme/maker/tree/v1.0")).toEqual({ repository: "acme/maker", ref: "v1.0" });
-    for (const bad of ["acme/maker", "http://github.com/acme/maker", "https://evil.example/acme/maker", "https://github.com.evil.example/acme/maker", "https://github.com/acme/..", "https://github.com/acme/maker?x=1", "https://github.com/acme/maker/tree/a..b", "https://github.com/acme/maker/blob/main/x", `https://github.com/acme/maker/commit/${"a".repeat(40)}`])
+    expect(parseGitHubUrl("https://github.com/acme/maker/tree/release/1.0/")).toEqual({ repository: "acme/maker", ref: "release/1.0" });
+    for (const bad of ["acme/maker", "http://github.com/acme/maker", "https://evil.example/acme/maker", "https://github.com.evil.example/acme/maker", "https://github.com/acme/..", "https://github.com/acme/maker?x=1", "https://github.com/acme/maker/tree/a..b", "https://github.com/acme/maker/tree/a/../../b", "https://github.com/acme/maker/tree/a/./b", "https://github.com/acme/maker/blob/main/x", `https://github.com/acme/maker/commit/${"a".repeat(40)}`])
       expect(() => parseGitHubUrl(bad), bad).toThrow(PluginSourceError);
   });
 });
@@ -256,6 +265,15 @@ describe("PluginSources", () => {
     await sources.install(preview.source!, preview.digest);
     // Adding names the commit, so it asks GitHub for nothing newer.
     expect(requested).toEqual([download]);
+    await close();
+  });
+
+  it("finds a branch with a slash in its name", async () => {
+    const commit = "d".repeat(40);
+    const { sources, close } = await setup({
+      "https://api.github.com/repos/acme/maker/git/ref/heads/release/1.0": () => Response.json({ object: { type: "commit", sha: commit } }),
+    }, { [`https://codeload.github.com/acme/maker/tar.gz/${commit}`]: tgz(...pluginEntries("maker/")) });
+    expect((await sources.inspect({ type: "github", url: "https://github.com/acme/maker/tree/release/1.0" }, "en")).origin).toEqual({ type: "github", repository: "acme/maker", commit });
     await close();
   });
 
