@@ -9,6 +9,8 @@ const FAILURE_TURNS = 3;
 const MAX_FAILURES = 5;
 const MAX_FAILURE = 400;
 const MAX_PLAYTEST = 1_500;
+const MAX_PLAYTEST_ERRORS = 5;
+const MAX_PLAYTEST_ERROR = 300;
 const FILE_CHANGING_TOOLS = new Set(["write", "edit"]);
 
 /**
@@ -55,11 +57,17 @@ export function handoffSummary(
           turn: turns.length,
           text: `- ${name}${callSubject(call?.args)}: ${clip(text, MAX_FAILURE) || "failed"}`,
         });
-      } else if (name === "game_use")
+      } else if (name === "game_use") {
         playtest = playtestState(message.content) ?? playtest;
+      } else if (FILE_CHANGING_TOOLS.has(name)) {
+        const file = filePath(call?.args);
+        if (file) changed.add(file);
+      }
       continue;
     }
     if (message.role === "user") {
+      // How an earlier turn ended says nothing about a turn after it.
+      lastAssistant = undefined;
       const text = userText(message.content);
       if (text) turns.push([`User: ${clip(text)}`]);
     } else if (message.role === "assistant" && Array.isArray(message.content)) {
@@ -76,7 +84,7 @@ export function handoffSummary(
           const name = String(block.name ?? "tool");
           calls.set(String(block.id), { name, args: block.arguments });
           const file = filePath(block.arguments);
-          if (file) (FILE_CHANGING_TOOLS.has(name) ? changed : files).add(file);
+          if (file) files.add(file);
         }
       }
     }
@@ -185,22 +193,26 @@ function playtestState(content: unknown): string | undefined {
   const errors = logs
     .filter(
       (log): log is { message: unknown } =>
-        !!log && typeof log === "object" && (log as { level?: unknown }).level === "error",
+        !!log &&
+        typeof log === "object" &&
+        (log as { level?: unknown }).level === "error",
     )
-    .slice(-5)
-    .map((log) => clip(String(log.message), 300));
+    .slice(-MAX_PLAYTEST_ERRORS)
+    .map((log) => `Error: ${clip(String(log.message), MAX_PLAYTEST_ERROR)}`);
   const failedRequests = Array.isArray(snapshot.failedRequests)
     ? snapshot.failedRequests.length
     : 0;
-  return clip(
-    JSON.stringify({
-      ...(typeof snapshot.url === "string" ? { url: snapshot.url } : {}),
-      ...(snapshot.gameState !== undefined ? { gameState: snapshot.gameState } : {}),
-      ...(errors.length ? { errors } : {}),
-      ...(failedRequests ? { failedRequests } : {}),
-    }),
-    MAX_PLAYTEST,
-  );
+  // A large game state must not crowd out what went wrong, so each has its own limit.
+  return [
+    ...(typeof snapshot.url === "string"
+      ? [`URL: ${clip(snapshot.url, MAX_PLAYTEST_ERROR)}`]
+      : []),
+    ...errors,
+    ...(failedRequests ? [`Failed requests: ${failedRequests}`] : []),
+    ...(snapshot.gameState !== undefined
+      ? [`State: ${clip(JSON.stringify(snapshot.gameState) ?? "", MAX_PLAYTEST)}`]
+      : []),
+  ].join("\n");
 }
 
 function userText(content: unknown): string {

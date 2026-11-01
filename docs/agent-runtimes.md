@@ -189,8 +189,8 @@ changes, or legacy metadata.
 
 When context is absent or invalid, start fresh with a deterministic, bounded
 handoff: recent visible turns, how the last turn ended, tool failures from the
-last few turns, the last playtest's state and errors, changed files, the
-structured plan, and restore notices. Tool text is labeled as data, and stored
+last few turns, the last playtest's state and errors, files whose change
+succeeded apart from the others, the structured plan, and restore notices. Tool text is labeled as data, and stored
 text cannot close the handoff block. Exclude private prompt context and do not
 make another model call.
 An explicitly expired/not-found native resume receives one fresh-context retry,

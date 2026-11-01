@@ -238,6 +238,14 @@ describe("conversation handoff", () => {
       expect(summary).not.toContain("stopped the last turn");
     });
 
+    it("does not apply how a turn ended to a message sent after it", () => {
+      const session = SessionManager.inMemory("/tmp/p");
+      user(session, "build the boss");
+      assistant(session, [], { stopReason: "aborted" });
+      user(session, "build the shop instead");
+      expect(handoffSummary(session.getBranch())).not.toContain("stopped the last turn");
+    });
+
     it("keeps recent tool failures with what they were about and drops older ones", () => {
       const session = SessionManager.inMemory("/tmp/p");
       user(session, "old turn");
@@ -277,23 +285,49 @@ describe("conversation handoff", () => {
       const summary = handoffSummary(session.getBranch())!;
       expect(summary).toContain('"score":42');
       expect(summary).toContain("Boss sprite missing");
-      expect(summary).toContain('"failedRequests":1');
+      expect(summary).toContain("Failed requests: 1");
       expect(summary).not.toContain('"score":1');
       expect(summary).not.toContain("Start button");
       expect(summary).not.toContain("loaded");
     });
 
-    it("separates changed files from files that were only looked at", () => {
+    it("keeps errors when the game state is too large to fit", () => {
+      const session = SessionManager.inMemory("/tmp/p");
+      user(session, "playtest");
+      assistant(session, [toolCall("g", "game_use", { operation: "act" })]);
+      toolResult(session, "g", "game_use", JSON.stringify({
+        gameState: { map: "x".repeat(20_000) },
+        logs: [{ level: "error", message: "Boss sprite missing" }],
+        failedRequests: [{ url: "boss.png" }],
+      }));
+
+      const summary = handoffSummary(session.getBranch())!;
+      expect(summary).toContain("Boss sprite missing");
+      expect(summary).toContain("Failed requests: 1");
+      expect(summary).toContain("State: ");
+      expect(summary).not.toContain("x".repeat(1_501));
+    });
+
+    it("names only files whose change succeeded as changed", () => {
       const session = SessionManager.inMemory("/tmp/p");
       user(session, "go");
       assistant(session, [
         toolCall("r", "read", { path: "src/a.ts" }),
         toolCall("r2", "read", { path: "src/b.ts" }),
         toolCall("e", "edit", { path: "src/b.ts" }),
+        toolCall("e2", "edit", { path: "src/missing.ts" }),
+        toolCall("e3", "write", { path: "src/unfinished.ts" }),
       ]);
+      toolResult(session, "r", "read", "a");
+      toolResult(session, "r2", "read", "b");
+      toolResult(session, "e", "edit", "Edited");
+      toolResult(session, "e2", "edit", "File not found", true);
+
       const summary = handoffSummary(session.getBranch())!;
-      expect(summary).toContain("Files the earlier agent changed: src/b.ts");
-      expect(summary).toContain("Other files the earlier agent worked on: src/a.ts\n");
+      expect(summary).toContain("Files the earlier agent changed: src/b.ts\n");
+      expect(summary).toContain(
+        "Other files the earlier agent worked on: src/a.ts, src/missing.ts, src/unfinished.ts\n",
+      );
     });
 
     it("keeps stored text from closing the block early", () => {
