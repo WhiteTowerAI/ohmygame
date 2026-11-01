@@ -16,7 +16,6 @@ import {
 } from "./api.js";
 import { LoaderCircle, Plug, Trash2, WandSparkles } from "./icons.js";
 import { t } from "./i18n.js";
-import { pluginHash } from "./routes.js";
 
 export function PluginEnabledSwitch({ plugin, disabled, onToggle }: {
   plugin: Pick<PluginDetail, "displayName" | "enabled" | "installed">;
@@ -372,22 +371,8 @@ export function PluginMcpPanel({
         <div className="plugin-component-row plugin-mcp-connection" key={connection.id}>
           <span className="plugin-row-copy">
             <strong>{connection.name}</strong>
-            <span>
-              {connection.status === "not-configured"
-                ? t("pluginControls.providerNotInstalled")
-                : connection.enabled
-                  ? t("pluginControls.providedByAnother")
-                  : t("pluginControls.providerDisabled")}
-            </span>
+            <span>{t("pluginControls.providerNotInstalled")}</span>
           </span>
-          {connection.ownerPluginId ? (
-            <a
-              className="plugin-detail-secondary"
-              href={pluginHash(connection.ownerPluginId)}
-            >
-              {t("pluginControls.manageProvider")}
-            </a>
-          ) : null}
         </div>
       ))}
       {error ? <p role="alert">{error}</p> : null}

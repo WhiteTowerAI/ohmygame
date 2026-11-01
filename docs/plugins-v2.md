@@ -61,8 +61,8 @@ shows it in the call's progress.
 | Project file and decisions | `src/daemon/project-plugins.ts` | `test/project-plugins.test.ts` |
 | Hosts and native calls | `src/daemon/extension-hosts.ts`, `src/daemon/extension-host-process.ts`, `src/daemon/native-plugins.ts` | `test/extension-hosts.test.ts`, `scripts/test-node-runtime.mjs` |
 | Bundled plugins for every project, conversion | `src/daemon/bundled-plugins.ts`, `src/daemon/plugin-conversion.ts`, `scripts/convert-format-1-plugin.ts` | `test/bundled-plugins.test.ts`, `test/plugin-runtime.test.ts` |
-| Godot and format 1 Godot's setting | `plugins-v2/godot/`, `src/daemon/legacy-godot.ts` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts` |
-| TapTap Maker and format 1 Maker projects | `plugins-v2/taptap-maker/`, `src/daemon/legacy-maker.ts` | `test/taptap-maker.test.ts`, `test/project-plugins.test.ts` |
+| Godot | `plugins-v2/godot/` | `test/plugin-manifest.test.ts`, `test/project-plugins.test.ts` |
+| TapTap Maker | `plugins-v2/taptap-maker/` | `test/taptap-maker.test.ts` |
 | Services, tools, commands, settings | `src/daemon/plugin-services.ts`, `src/daemon/plugin-values.ts` | `test/extension-hosts.test.ts`, `test/external-mcp.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |

@@ -16,8 +16,6 @@ export interface ConnectionSummary {
   /** Only these project types use it; absent for every project. */
   projectTypes?: ProjectType[];
   configurationStatus: "ready" | "needs-configuration";
-  /** Where it came from when the app moved it here. */
-  migratedFrom?: { type: "plugin"; pluginId: string; serverId: string };
 }
 
 export interface CreateConnectionRequest {

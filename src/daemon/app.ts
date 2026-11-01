@@ -28,7 +28,7 @@ import Fastify, { LogController, type FastifyReply, type FastifyRequest } from "
 import { daemonLoggerOptions, logFailedRequests } from "./request-log.js";
 import { ActivityLog } from "./activity-log.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type PluginMention, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
@@ -123,18 +123,14 @@ import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage
 import { PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
 import { ExtensionHostError } from "./extension-hosts.js";
 import { adoptTypedProject, availableProjectTypes, buildWebPreview, createTypedProject, projectKind, projectKindAt } from "./project-types.js";
-import { LegacyMcpConfiguration } from "./legacy-mcp.js";
 import { ConnectionService } from "./connections.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
-import { PERSONAL_MARKETPLACE, hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail, type ProjectPluginChoice, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail, type ProjectPluginChoice, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { exportProjectArchive, importProjectArchive, ProjectArchiveError } from "./project-archive.js";
-import { LEGACY_MAKER_ID, migrateLegacyMakerProjects } from "./legacy-maker.js";
-import { LEGACY_GODOT_ID, migrateLegacyGodotPath, migrateLegacyGodotProjects } from "./legacy-godot.js";
-import { LEGACY_UNREAL_ID, migrateLegacyUnreal } from "./legacy-unreal.js";
 import { MAX_PROJECT_COVER_BYTES, MAX_PROJECT_LOGO_BYTES } from "./project-covers.js";
 import { PROJECT_ICONS, PROJECT_TONES } from "../shared/project-appearance.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE, PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
@@ -806,7 +802,6 @@ export function createApp(options: AppOptions = {}) {
   });
   // Indexing the bundled plugins starts now; every use of the plugin services waits for it.
   const pluginServicesReady = pluginServices.ready().catch((err: unknown) => app.log.warn({ err }, "Could not load the format 2 plugins"));
-  const legacyMcp = new LegacyMcpConfiguration(piAgentDirectory);
   const bundledPlugins = new BundledPluginStore(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"), {
     formatTwoDirectory: bundledPluginsV2,
     off: BUNDLED_PLUGINS_OFF,
@@ -819,10 +814,6 @@ export function createApp(options: AppOptions = {}) {
   const localPlugins = new LocalPluginStore(dataDirectory);
   const pluginCapabilities = new PluginCapabilities(dataDirectory, piAgentDirectory, [bundledPlugins, localPlugins], localPlugins, pluginSettings);
   const connections = new ConnectionService(dataDirectory, piAgentDirectory, pluginCapabilities.configuration, pluginCapabilities.host);
-  pluginCapabilities.movedToConnections = (pluginId, serverId) => connections.moved(pluginId, serverId);
-  /** A plugin whose every MCP server moved to Connections, with nothing else, isn't listed anymore. */
-  const movedToConnections = (plugin: PluginDetail) => !plugin.skills.length && Boolean(plugin.mcpServers?.length) &&
-    plugin.mcpServers!.every((server) => connections.moved(plugin.id, server.id));
   const summarizePlugin = (plugin: PluginDetail): PluginSummary => ({
     ...pluginSummary(plugin),
     mcpServerCount: plugin.mcpServers?.length ?? 0,
@@ -831,20 +822,8 @@ export function createApp(options: AppOptions = {}) {
   });
   const plugins = new PluginCatalogService([
     new BundledPluginAdapter(bundledPlugins, summarizePlugin),
-    new LocalPluginAdapter({
-      list: async () => {
-        const result = await localPlugins.list();
-        return { ...result, plugins: result.plugins.filter((plugin) => !movedToConnections(plugin)) };
-      },
-      read: (id) => localPlugins.read(id),
-    }, summarizePlugin),
+    new LocalPluginAdapter(localPlugins, summarizePlugin),
   ], pluginSettings, (plugin) => preinstalledPlugins.decorate(plugin));
-  /** A saved prompt may still mention a plugin whose servers are connections now; those run anyway. Only Personal plugins move. */
-  const withoutMovedPlugins = async (mentions: readonly PluginMention[]) => (await Promise.all(mentions.map(async (mention) => {
-    if (mention.marketplaceId !== PERSONAL_MARKETPLACE.id) return mention;
-    const plugin = await localPlugins.read(`personal:${mention.name}`).catch(() => undefined);
-    return plugin && movedToConnections(plugin) ? undefined : mention;
-  }))).filter((mention): mention is PluginMention => mention !== undefined);
   const withPluginCapabilities = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => plugin ? pluginCapabilities.decorate(plugin) : plugin;
   let agents: AgentManager;
   const snapshotWorkspace = (project: ProjectState) => projectWrites.snapshot(project.id, async () => {
@@ -1066,36 +1045,6 @@ export function createApp(options: AppOptions = {}) {
   pluginServices.onChange(invalidatePluginSessions);
   // The app records each plugin-typed project's type when it is created; the
   // project file can later pin a version whose type previews differently.
-  /** Moves Godot projects from before format 2 to its Godot type; see legacy-godot.ts. */
-  function migrateGodot(only?: string): Promise<void> {
-    return migrateLegacyGodotProjects({
-      projects,
-      services: pluginServices,
-      // Format 1 Godot was on unless the person turned it off; an archive's project records where it came from.
-      approve: pluginSettings.storedEnabled(LEGACY_GODOT_ID) !== false,
-      warn: (message, err) => app.log.warn({ err }, message),
-      onMigrated: (project) => {
-        agents.invalidateProjectSessions(project.id);
-        events.publish(project.id, "project.updated", { project: structuredClone(projects.get(project.id) ?? project) });
-      },
-      ...(only ? { only } : {}),
-    }).catch((err: unknown) => app.log.warn({ err }, "Could not move Godot projects to the format 2 plugin"));
-  }
-  /** Moves format 1 TapTap Maker projects to the format 2 plugin; see legacy-maker.ts. */
-  function migrateMaker(only?: string): Promise<void> {
-    return migrateLegacyMakerProjects({
-      projects,
-      services: pluginServices,
-      legacyEnabled: pluginSettings.storedEnabled(LEGACY_MAKER_ID) === true,
-      legacyDataFolder: pluginCapabilities.dataPath(LEGACY_MAKER_ID),
-      warn: (message, err) => app.log.warn({ err }, message),
-      onMigrated: (project) => {
-        agents.invalidateProjectSessions(project.id);
-        events.publish(project.id, "project.updated", { project: structuredClone(projects.get(project.id) ?? project) });
-      },
-      ...(only ? { only } : {}),
-    }).catch((err: unknown) => app.log.warn({ err }, "Could not move TapTap Maker projects to the format 2 plugin"));
-  }
   async function syncPluginType(project: ProjectState): Promise<void> {
     if (!project.pluginType) return;
     const recorded = await projectKindAt(project.workspacePath, pluginServices).catch(() => undefined);
@@ -1168,32 +1117,10 @@ export function createApp(options: AppOptions = {}) {
     }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), connections.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), doubaoVoiceSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     await Promise.all(projects.list().map((project) => syncPluginType(project).catch((err) => app.log.warn({ err, projectId: project.id }, "Could not update the project's plugin type"))));
-    await migrateMaker();
-    await migrateGodot();
-    await migrateLegacyGodotPath({
-      configuration: pluginCapabilities.configuration,
-      services: pluginServices,
-      warn: (message, err) => app.log.warn({ err }, message),
-    }).catch((err: unknown) => app.log.warn({ err }, "Could not move Godot's executable setting"));
-    await migrateLegacyUnreal({
-      configuration: pluginCapabilities.configuration,
-      services: pluginServices,
-      legacyEnabled: pluginSettings.storedEnabled(LEGACY_UNREAL_ID),
-      warn: (message, err) => app.log.warn({ err }, message),
-    }).catch((err: unknown) => app.log.warn({ err }, "Could not move Unreal Engine's settings"));
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
     await localPlugins.list();
-    await pluginCapabilities.migrate(legacyMcp);
-    // The old `mcp.json` became personal plugins above; those, and the ones
-    // "Add MCP" made, become connections.
-    const moving = await connections.migrate({
-      plugins: async () => (await localPlugins.list()).plugins.map((plugin) => pluginSettings.decorate(plugin)),
-      capabilities: pluginCapabilities,
-    }).catch((err: unknown) => [{ pluginId: "", serverId: "", error: err }]);
-    for (const { pluginId, serverId, error } of moving)
-      app.log.warn({ err: error, pluginId, serverId }, "Could not move an MCP server to Connections; it keeps running from its plugin");
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -2269,9 +2196,6 @@ export function createApp(options: AppOptions = {}) {
     if (!upload) return reply.code(400).send({ error: "Choose a project archive to import." });
     try {
       const imported = await importProjectArchive(projects, upload, { name: request.query.name });
-      // The project records that it came from an archive, so its folder waits for the person's approval.
-      if (imported.integration) await migrateMaker(imported.id);
-      if (imported.type === "godot-game" && !imported.pluginType) await migrateGodot(imported.id);
       return reply.code(201).send(projects.get(imported.id) ?? imported);
     } catch (cause) {
       if (cause instanceof ProjectArchiveError) return reply.code(cause.statusCode).send({ error: cause.message });
@@ -3332,7 +3256,7 @@ export function createApp(options: AppOptions = {}) {
       if (!request.body?.prompt?.trim() && !request.body?.images?.length && !request.body?.attachments?.length) return reply.code(400).send({ error: "Prompt or attachment is required" });
       let mentions;
       try {
-        mentions = await plugins.validateMentions(await withoutMovedPlugins(request.body.mentions ?? []));
+        mentions = await plugins.validateMentions(request.body.mentions ?? []);
         if (mentions.some((mention) => !hasPluginMentionToken(request.body.prompt, mention))) {
           return reply.code(400).send({ error: "Plugin mention is missing from the prompt" });
         }

@@ -434,16 +434,6 @@ export interface ProjectState extends ProjectPreviewSettings {
   updatedAt: string;
   workspacePath: string;
   /**
-   * A format 1 plugin integration the project used, kept only until the app
-   * moves the project to that plugin's format 2 type; nothing else reads it.
-   */
-  integration?: {
-    pluginId: string;
-    preview?: "external";
-    /** Came from an archive: moving it never allows the plugin for its folder. */
-    imported?: true;
-  };
-  /**
    * A format 2 plugin project type, `publisher/name:type`, and how its game is
    * previewed, recorded for the app's screens. `ohmygame.json` decides what runs.
    */

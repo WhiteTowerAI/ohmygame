@@ -365,23 +365,4 @@ describe("plugin catalog API", () => {
     expect(updated.statusCode).toBe(200);
     expect(updated.json()).toMatchObject({ enabled: false, mcpServers: [{ id: "editor", status: "disabled" }] });
   });
-
-  it("moves Pi MCP configuration to Connections without listing it as a plugin", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mcp-api-"));
-    const piAgentDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mcp-agent-"));
-    await writeFile(path.join(piAgentDirectory, "mcp.json"), JSON.stringify({
-      mcpServers: { figma: { url: "https://example.com/mcp" } },
-    }));
-    const app = createApp({ dataDirectory, piAgentDirectory });
-    apps.push(app);
-    await app.ready();
-
-    const listed = await app.inject({ method: "GET", url: "/plugins" });
-
-    expect(listed.json().plugins.filter((plugin: { marketplace: { id: string } }) => plugin.marketplace.id === "personal")).toEqual([]);
-    expect((await app.inject({ method: "GET", url: "/connections" })).json()).toMatchObject([{ id: "figma", displayName: "figma", transport: "http", enabled: true }]);
-    expect(JSON.parse(await readFile(path.join(piAgentDirectory, "mcp.json"), "utf8"))).toMatchObject({
-      mcpServers: { figma: { url: "https://example.com/mcp" } },
-    });
-  });
 });
