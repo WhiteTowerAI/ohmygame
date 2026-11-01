@@ -6,6 +6,7 @@ import { importProject, listProjects, waitForRuntime } from "./api.js";
 import { PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
 import { hasTransferredFiles } from "./file-transfer.js";
 import { ProjectCard, ProjectRow, useProjectActions } from "./project-card.js";
+import { useProjectsSelection } from "./projects-selection.js";
 import { pickProjectFolder, ProjectCreateDialog } from "./project-create-dialog.js";
 import { createdProjectView, type AppNavigationTarget, type ProjectListFilters, type ProjectSort } from "./routes.js";
 import { publishRecentProjects } from "./app-sidebar.js";
@@ -74,6 +75,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   const visibleProjects = useMemo(() => filterAndSortProjects(projects, query, sort, projectType), [projects, query, sort, projectType]);
   const filters = { projectType: projectType === "all" ? undefined : projectType, query, sort };
   const filtered = !!query.trim() || projectType !== "all";
+  const selection = useProjectsSelection(visibleProjects, load);
 
   function changeLayout(next: Layout): void {
     setLayout(next);
@@ -130,14 +132,14 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   ];
 
   const lists = layout === "grid" ? (
-    <div className="projects-grid">
+    <div className={`projects-grid${selection.selecting ? " is-selecting" : ""}`}>
       {visibleProjects.map((project) => (
         <ProjectCard key={project.id} project={project} agentStatus={activity.get(project.id)}
-          onOpen={() => onOpenProject(project.id)} actions={projectActions.actionsFor(project)} />
+          onOpen={() => onOpenProject(project.id)} actions={projectActions.actionsFor(project)} selection={selection.selectionFor(project)} />
       ))}
     </div>
   ) : (
-    <div className="projects-list" role="list" aria-label={t("projects.title")}>
+    <div className={`projects-list${selection.selecting ? " is-selecting" : ""}`} role="list" aria-label={t("projects.title")}>
       <div className="projects-list-head" aria-hidden="true">
         <span />
         <span>{t("common.name")}</span>
@@ -147,7 +149,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
       {visibleProjects.map((project) => (
         <div key={project.id} role="listitem">
           <ProjectRow project={project} agentStatus={activity.get(project.id)}
-            onOpen={() => onOpenProject(project.id)} actions={projectActions.actionsFor(project)} />
+            onOpen={() => onOpenProject(project.id)} actions={projectActions.actionsFor(project)} selection={selection.selectionFor(project)} />
         </div>
       ))}
     </div>
@@ -242,7 +244,9 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
         {phase !== "error" && visibleProjects.length > 0 ? lists : null}
         {dropActive ? <div className="projects-drop-overlay" role="status"><div className="projects-drop-message"><Import size={28} /><span>{t("projects.importDropHint")}</span></div></div> : null}
       </div>
+      {selection.bar}
       {projectActions.dialogs}
+      {selection.dialogs}
       {creating ? <ProjectCreateDialog
         initialType={projectType === "all" ? "web-game" : projectType}
         initialWorkspacePath={creating.workspacePath}
