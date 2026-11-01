@@ -74,7 +74,25 @@ describe("game use tool", () => {
       target: { runtime: "web", url: "http://127.0.0.1:43210/level-1?difficulty=hard" },
       viewport: { width: 390, height: 844 },
     }]);
-    expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining('"score": 10') });
+    expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining('"score":10') });
+  });
+
+  it("gives the model the whole snapshot without indentation and keeps the record complete", async () => {
+    const spaced = {
+      ...snapshot,
+      elements: [{ tag: "button", role: "button", name: "Start  game", text: "Start\n  game", visible: true, disabled: false }],
+      gameState: { note: "two  spaces\n  and a line break" },
+    } as unknown as PlaytestSnapshot;
+    const driver = new FakeDriver();
+    driver.request = async () => ({ operation: "inspect", snapshot: spaced });
+    const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
+
+    const result = await tool.execute("inspect-1", { operation: "inspect", sessionId: "session-1" }, undefined, undefined, {} as never);
+    const text = (result.content[0] as { text: string }).text;
+
+    expect(JSON.parse(text)).toEqual(spaced);
+    expect(text).toBe(JSON.stringify(spaced));
+    expect(result.details).toEqual({ playtest: spaced });
   });
 
   it("returns screenshots to the model as image content", async () => {
@@ -86,7 +104,7 @@ describe("game use tool", () => {
     }, undefined, undefined, {} as never);
 
     expect(result.content).toEqual([
-      { type: "text", text: expect.stringContaining('"likelyBlank": false') },
+      { type: "text", text: expect.stringContaining('"likelyBlank":false') },
       { type: "image", data: Buffer.from("jpeg").toString("base64"), mimeType: "image/jpeg" },
     ]);
   });

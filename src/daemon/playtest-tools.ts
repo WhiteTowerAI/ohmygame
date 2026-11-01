@@ -128,7 +128,7 @@ export function createGameUseTool(
               width: result.capture.width,
               height: result.capture.height,
               analysis: result.capture.analysis,
-            }, null, 2) },
+            }) },
             { type: "image", data: result.capture.data, mimeType: result.capture.mediaType },
           ],
           details: { playtestCapture: { ...result.capture, data: undefined } },
@@ -206,7 +206,8 @@ function requireCapability(
 function snapshotResult(snapshot: GameUseSnapshot) {
   const compact = compactSnapshot(snapshot);
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(compact, null, 2) }],
+    // Stays in the model's context and is resent with every later request, so no indentation.
+    content: [{ type: "text" as const, text: JSON.stringify(compact) }],
     details: { playtest: snapshot },
   };
 }
