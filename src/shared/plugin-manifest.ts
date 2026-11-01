@@ -472,6 +472,13 @@ export const PluginManifestV2Schema = Type.Object(
       ),
     ),
     capabilities: Type.Optional(Capabilities),
+    /** The plugin's pages: `preview` lets them load page components still in preview. */
+    ui: Type.Optional(
+      Type.Object(
+        { preview: Type.Optional(Type.Boolean()) },
+        { additionalProperties: false },
+      ),
+    ),
     configuration: Type.Optional(
       Type.Record(
         Type.String({ pattern: "^[a-z][a-zA-Z0-9]{0,63}$" }),
