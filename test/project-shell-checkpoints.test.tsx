@@ -1063,6 +1063,103 @@ describe("checkpoints in the project shell", () => {
     }
   });
 
+  it("opens a canvas HTML chat link in Preview and leaves other files in Code", async () => {
+    const requests = vi.fn();
+    vi.doMock(CODING_WORKSPACE, () => ({
+      CodingWorkspace: (props: { openPreviewRequest?: { path: string }; openFileRequest?: { path: string } }) => {
+        requests(props);
+        return null;
+      },
+    }));
+    const linked = detail("live-turn");
+    linked.turns[0]!.items[1] = { ...linked.turns[0]!.items[1]!, text: "[Play](game/index.html) [Notes](docs/notes.md)" } as never;
+    const daemon = await openProject((route) => {
+      if (route === "/projects/project") return Response.json({
+        id: "project", name: "Canvas", type: "asset-canvas", workspacePath: "/tmp/project",
+        updatedAt: new Date(0).toISOString(), preview: { status: "stopped" },
+      });
+      if (route === "/projects/project/preview?reuse=1") return Response.json({ url: "http://127.0.0.1:5001", title: "Canvas" });
+      return undefined;
+    }, linked);
+    const tab = (name: string) => [...container.querySelectorAll('[role="tab"]')].find((item) => item.getAttribute("aria-label") === name);
+    expect(tab("Preview")).toBeDefined();
+    expect(daemon.requests.some((request) => request.route === "/projects/project/preview?reuse=1")).toBe(false);
+    const lease = daemon.requests.find((request) => request.route.includes("/preview/leases/") && request.method === "PUT");
+    expect(JSON.parse(lease!.body!).automatic).toBe(false);
+
+    const links = container.querySelectorAll<HTMLAnchorElement>(".workspace-file-link");
+    expect(links[0]!.title).toBe("Open game/index.html in Preview");
+    await act(async () => links[0]!.click());
+    await settle();
+    expect(tab("Preview")?.getAttribute("aria-selected")).toBe("true");
+    expect(requests.mock.lastCall?.[0].openPreviewRequest.path).toBe("game/index.html");
+    expect(daemon.requests.filter((request) => request.route === "/projects/project/preview?reuse=1")).toHaveLength(1);
+
+    await act(async () => links[1]!.click());
+    await settle();
+    expect(tab("Code")?.getAttribute("aria-selected")).toBe("true");
+    expect(requests.mock.lastCall?.[0].openFileRequest.path).toBe("docs/notes.md");
+  });
+
+  it("saves a canvas before refreshing its Code panel", async () => {
+    let finish!: () => void;
+    const save = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const revisions = vi.fn();
+    vi.doMock(CODING_WORKSPACE, () => ({
+      CodingWorkspace: ({ onDesignSaveReady, workspaceRevision }: { onDesignSaveReady: (save: (() => Promise<void>) | undefined) => void; workspaceRevision: number }) => {
+        revisions(workspaceRevision);
+        useEffect(() => { onDesignSaveReady(save); return () => onDesignSaveReady(undefined); }, [onDesignSaveReady]);
+        return null;
+      },
+    }));
+    await openProject((route) => route === "/projects/project" ? Response.json({
+      id: "project", name: "Canvas", type: "asset-canvas", workspacePath: "/tmp/project",
+      updatedAt: new Date(0).toISOString(), preview: { status: "stopped" },
+    }) : undefined);
+    expect(save).not.toHaveBeenCalled();
+    await click("Code");
+    expect(save).toHaveBeenCalledOnce();
+    expect(revisions).toHaveBeenLastCalledWith(0);
+    await act(async () => finish());
+    await settle();
+    expect(revisions).toHaveBeenLastCalledWith(1);
+  });
+
+  it("navigates the canvas preview to the selected file on the isolated origin", async () => {
+    Object.defineProperty(window, "ohMyGameDesktop", { configurable: true, value: undefined });
+    const createElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation(((name: string, options?: ElementCreationOptions) => {
+      const element = createElement(name, options);
+      if (name === "iframe") {
+        const setAttribute = element.setAttribute.bind(element);
+        vi.spyOn(element, "setAttribute").mockImplementation((key, value) => setAttribute(key === "src" ? "data-test-src" : key, value));
+      }
+      return element;
+    }) as typeof document.createElement);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    const { updateRuntimeConnection } = await import("../src/renderer/runtime-connection.js");
+    const { CodingWorkspace } = await import("../src/renderer/coding-workspace.js");
+    updateRuntimeConnection(READY);
+    const project = {
+      id: "project", name: "Canvas", type: "asset-canvas" as const, workspacePath: "/tmp/project",
+      updatedAt: new Date(0).toISOString(), preview: { status: "ready" as const, url: "http://127.0.0.1:5001" },
+    };
+    const render = (path: string, id: number) => act(async () => root.render(<CodingWorkspace
+      project={project} publishing={false} workspaceRevision={0}
+      openPreviewRequest={{ projectId: project.id, path, id }}
+      onPublish={async () => false} onClosePublish={() => {}} onRestart={() => {}}
+    />));
+    await render("game/My Game#1.html", 1);
+    let frame = container.querySelector<HTMLIFrameElement>("iframe.preview-frame")!;
+    let target = new URL(frame.getAttribute("data-test-src")!);
+    expect(target.origin).toBe("http://127.0.0.1:5001");
+    expect(target.pathname).toBe("/game/My%20Game%231.html");
+    await render("game/other.htm", 2);
+    frame = container.querySelector<HTMLIFrameElement>("iframe.preview-frame")!;
+    target = new URL(frame.getAttribute("data-test-src")!);
+    expect(target.pathname).toBe("/game/other.htm");
+  });
+
   it("publishes from the top bar's Publish menu, or exports the web build there after saving", async () => {
     const publishDialog = vi.fn();
     const save = vi.fn(async () => {});

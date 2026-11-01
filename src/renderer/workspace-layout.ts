@@ -28,12 +28,12 @@ const TYPE_PANELS: Record<ProjectType, readonly WorkspacePanel[]> = {
   general: ["chat", "game", "design", "canvas", "code", "assets"],
   "godot-game": ["chat", "game", "design", "canvas", "code", "assets"],
   "interactive-story": ["chat", "story", "design", "canvas", "code", "assets"],
-  "asset-canvas": ["chat", "canvas", "code"],
+  "asset-canvas": ["chat", "canvas", "game", "code"],
 };
 
 /** The panels a project offers: its type's, less the game where it has no preview. */
 export function panelsOf(project: Pick<ProjectState, "type"> & Parameters<typeof supportsWebPreview>[0]): WorkspacePanel[] {
-  return TYPE_PANELS[project.type].filter((panel) => panel !== "game" || supportsWebPreview(project));
+  return TYPE_PANELS[project.type].filter((panel) => panel !== "game" || project.type === "asset-canvas" || supportsWebPreview(project));
 }
 
 /** Where a panel opens when it isn't in the layout. */

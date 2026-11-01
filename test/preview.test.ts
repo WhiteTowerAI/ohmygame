@@ -23,6 +23,32 @@ afterEach(async () => {
 });
 
 describe("PreviewManager", () => {
+  it("opens a canvas HTML file on an isolated static preview only when requested", async () => {
+    const workspacePath = await createWorkspace(false);
+    await mkdir(path.join(workspacePath, "game"));
+    await writeFile(path.join(workspacePath, "game", "index.html"), '<link rel="stylesheet" href="style.css"><p>Canvas game</p>');
+    await writeFile(path.join(workspacePath, "game", "style.css"), "body { color: red }");
+    await writeFile(path.join(workspacePath, "game", "other.htm"), "<p>Another page</p>");
+    await writeFile(path.join(workspacePath, ".env"), "private");
+    const project = { ...createProject(workspacePath), type: "asset-canvas" as const };
+    const manager = new PreviewManager(new RuntimeEventBus());
+    managers.push(manager);
+
+    manager.acquire(project, "editor", true);
+    await manager.automatic(project);
+    expect(project.preview.status).toBe("stopped");
+    await expect(readFile(path.join(workspacePath, "server.pid"))).rejects.toThrow();
+
+    const [url, sameUrl] = await Promise.all([manager.ensureStarted(project), manager.ensureStarted(project)]);
+    expect(sameUrl).toBe(url);
+    expect(project.preview.command).toBe("Serve static files");
+    expect(await (await fetch(new URL("/game/index.html", url))).text()).toContain("Canvas game");
+    expect(await (await fetch(new URL("/game/style.css", url))).text()).toContain("color: red");
+    expect((await fetch(new URL("/game/other.htm", url))).headers.get("content-type")).toContain("text/html");
+    expect((await fetch(new URL("/.env", url))).status).toBe(403);
+    await expect(readFile(path.join(workspacePath, "server.pid"))).rejects.toThrow();
+  });
+
   it("serves a web story's own page instead of running scripts the project carries", async () => {
     const workspacePath = await createWorkspace(false);
     await writeFile(path.join(workspacePath, "index.html"), "<p>story page</p>");

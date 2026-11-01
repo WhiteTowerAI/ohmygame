@@ -61,9 +61,11 @@ const { CanvasTableStorage } =
   await import("../src/renderer/canvas-table-storage.js");
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
+let boardStorage: CanvasBoardStorage;
 beforeEach(async () => {
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
   localStorage.clear();
   captured.props = undefined;
   const canvas = createAssetCanvasDocument();
@@ -91,7 +93,7 @@ beforeEach(async () => {
   canvas.editorLayout.nodes = Object.fromEntries(
     canvas.nodes.map((node) => [node.id, position]),
   );
-  const storage: CanvasBoardStorage = {
+  boardStorage = {
     key: "p:b",
     boardId: "b",
     load: async () => structuredClone(canvas),
@@ -114,7 +116,7 @@ beforeEach(async () => {
     root.render(
       <CanvasBoardEditor
         project={{ id: "p", type: "web-game" } as ProjectState}
-        storage={storage}
+        storage={boardStorage}
         documents={{ documents: [] } as unknown as CanvasDocuments}
         tables={{
           storage: new CanvasTableStorage("p"),
@@ -241,4 +243,38 @@ it("leaves Enter and Space in node controls to those controls", async () => {
     await press(target, " ");
     expect(flowNode("image").data.panelOpen).toBe(false);
   }
+});
+
+it("offers preview for a canvas HTML file without accepting traversal or other files", async () => {
+  const canvas = createAssetCanvasDocument();
+  const position = { x: 0, y: 0 };
+  canvas.nodes = [
+    { id: "html", type: "file", position, data: { path: "game/index.html" } },
+    { id: "special", type: "file", position, data: { path: "game/My Game#1.html" } },
+    { id: "code", type: "file", position, data: { path: "game/main.js" } },
+    { id: "outside", type: "file", position, data: { path: "../../outside.html" } },
+  ];
+  canvas.editorLayout.nodes = Object.fromEntries(canvas.nodes.map((node) => [node.id, position]));
+  const storage = { ...boardStorage, key: "p:preview", boardId: "preview", load: async () => structuredClone(canvas) };
+  const open = vi.fn();
+  await act(async () => root.render(<CanvasBoardEditor
+    key="preview" project={{ id: "p", type: "asset-canvas", workspacePath: "/tmp/project" } as ProjectState}
+    storage={storage} documents={{ documents: [] } as unknown as CanvasDocuments}
+    tables={{ storage: new CanvasTableStorage("p"), open: vi.fn(), add: vi.fn() }} assets={[]} onOpenWorkspaceFile={open}
+  />));
+  const actions = (id: string) => flowNode(id).data.fileRuntime as { onPreview?: () => void };
+  expect(actions("html").onPreview).toBeTypeOf("function");
+  actions("html").onPreview!();
+  expect(open).toHaveBeenCalledExactlyOnceWith("game/index.html");
+  actions("special").onPreview!();
+  expect(open).toHaveBeenLastCalledWith("game/My Game#1.html");
+  expect(actions("code").onPreview).toBeUndefined();
+  expect(actions("outside").onPreview).toBeUndefined();
+  const data = flowNode("html").data as import("../src/renderer/asset-canvas-flow.js").AssetCanvasFlowData;
+  const { FileNode } = await import("../src/renderer/asset-canvas-nodes.js");
+  const { ReactFlowProvider } = await import("@xyflow/react");
+  await act(async () => root.render(<ReactFlowProvider><FileNode data={data} selected={false} /></ReactFlowProvider>));
+  const button = container.querySelector<HTMLButtonElement>('[aria-label="Open game/index.html in Preview"]')!;
+  await act(async () => button.click());
+  expect(open).toHaveBeenLastCalledWith("game/index.html");
 });

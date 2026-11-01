@@ -57,4 +57,16 @@ describe("workspace file link icons", () => {
     expect(html).toContain('data-file-kind="code"');
     expect(html.match(/workspace-file-link/g)).toHaveLength(1);
   });
+
+  it("describes canvas HTML links as previews while keeping other links in Code", () => {
+    const html = renderToStaticMarkup(createElement(MarkdownContent, {
+      text: "[Play](game/index.html) [Source](game/main.js) [Site](https://example.com)",
+      workspacePath: "/tmp/game",
+      previewHtmlLinks: true,
+      onOpenWorkspaceFile: () => undefined,
+    }));
+    expect(html).toContain('title="Open game/index.html in Preview"');
+    expect(html).toContain('title="Open game/main.js in Code"');
+    expect(html).toContain('href="https://example.com" target="_blank"');
+  });
 });

@@ -1320,6 +1320,8 @@ const en = {
     noOutput: "No output yet.",
     previewSource: "Preview",
     emptyTitle: "Preview will appear here",
+    canvasPreviewTitle: "Choose an HTML file to preview",
+    canvasPreviewDescription: "Open an HTML link in Chat or choose Preview on a canvas file.",
     emptyDescription:
       "Describe your game in the agent panel to create a playable build.",
     allowPopups: "Allow popups to play this game in a new window.",
@@ -3392,6 +3394,7 @@ const en = {
   },
   markdown: {
     openInCode: "Open {{path}} in Code",
+    openInPreview: "Open {{path}} in Preview",
     code: "Code",
   },
   canvasNode: {

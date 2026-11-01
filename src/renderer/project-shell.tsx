@@ -48,6 +48,7 @@ import {
   ApiError,
   acquirePreview,
   buildWebGame,
+  ensureProjectPreview,
   exportProject,
   renameProject,
   releasePreview,
@@ -104,7 +105,8 @@ import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
 import { ProjectAppearanceDialog } from "./project-appearance-settings.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
-import { CodingWorkspace, WorkspaceCodeView } from "./coding-workspace.js";
+import { CodingWorkspace } from "./coding-workspace.js";
+import { isHtmlWorkspaceFile } from "./markdown-content.js";
 import { PlayableEditorWorkspace, type StoryView } from "./playable-editor-workspace.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
@@ -246,7 +248,7 @@ export function ProjectShell({
     const plugin = pluginPanels.get(id);
     if (plugin) return { title: plugin.title, icon: Plug, source: plugin.plugin };
     const builtIn = PANELS[id as WorkspacePanel];
-    return { title: builtIn.title(), icon: builtIn.icon };
+    return { title: id === "game" && state.project?.type === "asset-canvas" ? t("workspace.tab.preview") : builtIn.title(), icon: builtIn.icon };
   }
   const [publishing, setPublishing] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
@@ -256,6 +258,7 @@ export function ProjectShell({
   /** Set while a restore or an undo that was cut off has not been taken back, unless the user put the offer aside. */
   const [unfinishedRestore, setUnfinishedRestore] = useState(false);
   const [openFileRequest, setOpenFileRequest] = useState<{ path: string; id: number }>();
+  const [openPreviewRequest, setOpenPreviewRequest] = useState<{ projectId: string; path: string; id: number }>();
   const [modelChanging, setModelChanging] = useState(false);
   const [accountProfiles, setAccountProfiles] = useState<AgentAccountProfileStatus[]>([]);
   const [capabilities, setCapabilities] = useState<ConversationCapabilities>(EMPTY_CAPABILITIES);
@@ -331,7 +334,7 @@ export function ProjectShell({
       .then(() => { if (!disposed) setCanvasCodeRevision((value) => value + 1); });
     return () => { disposed = true; };
   }, [canvasCode]);
-  const coding = offered.includes("code") && !story && !canvasOnly;
+  const coding = offered.includes("code") && !story;
   const panelled = offered.includes("code") && !canvasOnly;
   const designShown = visible.includes("canvas");
   useEffect(() => { if (view === "design" && panelled) revealPanel("canvas"); }, [view, panelled]);
@@ -473,14 +476,14 @@ export function ProjectShell({
     };
   }, [projectId, runtime.generation, runtime.status]);
 
-  const previewSupported = supportsWebPreview(state.project);
+  const previewSupported = supportsWebPreview(state.project) || canvasOnly;
   useEffect(() => {
     if (!previewSupported || unfinishedRestore || runtime.status !== "ready") return;
     const leaseId = crypto.randomUUID();
-    void acquirePreview(projectId, leaseId, true, previewPaused).catch(() => {});
+    void acquirePreview(projectId, leaseId, !canvasOnly, previewPaused).catch(() => {});
     const timer = setInterval(() => { void acquirePreview(projectId, leaseId).catch(() => {}); }, 20_000);
     return () => { clearInterval(timer); void releasePreview(projectId, leaseId).catch(() => {}); };
-  }, [projectId, previewSupported, unfinishedRestore, runtime.generation, runtime.status]);
+  }, [projectId, previewSupported, canvasOnly, unfinishedRestore, runtime.generation, runtime.status]);
 
   useEffect(() => {
     if (!state.project || state.phase !== "ready" || !conversationId || state.conversation?.id === conversationId) return;
@@ -1101,12 +1104,17 @@ export function ProjectShell({
   ];
   const publishButton = project ? publishAction(project, { publishing, agentBusy }) : undefined;
 
-  // The code panel opens the file, and comes back if it was closed. A game's
-  // workspace brings it forward itself.
+  // Canvas HTML links open the isolated preview; other files open in Code.
   const openWorkspaceFile = useCallback((path: string): void => {
+    if (canvasOnly && isHtmlWorkspaceFile(path)) {
+      setOpenPreviewRequest((current) => ({ projectId, path, id: (current?.id ?? 0) + 1 }));
+      revealPanel("game");
+      void ensureProjectPreview(projectId).catch((cause) => dispatch({ type: "notice", message: errorMessage(cause) }));
+      return;
+    }
     if (story || canvasOnly) revealPanel("code");
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
-  }, [story, canvasOnly]);
+  }, [story, canvasOnly, projectId]);
   const addToChat = useCallback((text: string) => {
     if (!conversation) return;
     composerDrafts.get({ projectId, conversationId: conversation.id }).update({ reference: { text } });
@@ -1326,6 +1334,7 @@ export function ProjectShell({
               projectId={projectId}
               workspacePath={project.workspacePath}
               onOpenWorkspaceFile={openWorkspaceFile}
+              previewHtmlLinks={canvasOnly}
               waitingForInput={Boolean(questionnaire || approval)}
               changeControls={turnChanges}
               workspaceRevision={workspaceRevision}
@@ -1388,6 +1397,7 @@ export function ProjectShell({
                 projectId={projectId}
                 workspacePath={project?.workspacePath}
                 onOpenWorkspaceFile={project ? openWorkspaceFile : undefined}
+                previewHtmlLinks={canvasOnly}
                 revisionDisabled={agentBusy || restoring || unfinishedRestore || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
                 waitingForInput={Boolean(questionnaire || approval)}
                 onRevise={revisePrompt}
@@ -1409,9 +1419,11 @@ export function ProjectShell({
         <CodingWorkspace
           project={project}
           publishing={publishing}
-          workspaceRevision={workspaceRevision}
+          workspaceRevision={workspaceRevision + (canvasOnly ? canvasCodeRevision : 0)}
           previewPaused={previewPaused}
           openFileRequest={openFileRequest}
+          openPreviewRequest={openPreviewRequest}
+          onOpenWorkspaceFile={canvasOnly ? openWorkspaceFile : undefined}
           onPublish={publish}
           publishDialog={publishDialogStatus}
           onClosePublish={() => setPublishDialog(undefined)}
@@ -1470,9 +1482,6 @@ export function ProjectShell({
         const panel = pluginPanels.get(id);
         return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id)] : [];
       }) : null}
-      {project && canvasOnly && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={t("workspace.tab.code")}>
-        <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />
-      </main>, nodes.code.body) : null}
       </ErrorBoundary>
     </ProjectFrame>
     </>

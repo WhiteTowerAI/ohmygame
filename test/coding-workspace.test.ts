@@ -99,6 +99,17 @@ describe("coding workspace", () => {
     expect(html).not.toContain('aria-label="View publication"');
   });
 
+  it("asks for a canvas HTML file before showing a previously running preview", () => {
+    const html = renderToStaticMarkup(createElement(CodingWorkspace, {
+      project: { ...previewProject, type: "asset-canvas" },
+      publishing: false, workspaceRevision: 0,
+      onPublish: async () => false, onClosePublish: () => undefined, onRestart: () => undefined,
+    }));
+    expect(html).toContain("Choose an HTML file to preview");
+    expect(html).not.toContain("<iframe");
+    expect(html).not.toContain("preview-play-button");
+  });
+
   it("leaves Publish to the top bar after publishing", () => {
     const html = renderToStaticMarkup(createElement(CodingWorkspace, {
       project: {
