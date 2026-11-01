@@ -103,11 +103,6 @@ export function shortcutKeys(key: string): string[] {
   return [isMac() ? "⌘" : "Ctrl", key.toUpperCase()];
 }
 
-/** The same shortcut as its separate keys, each shown as a keycap. */
-export function shortcutKeys(key: string): string[] {
-  return [isMac() ? "⌘" : "Ctrl", key.toUpperCase()];
-}
-
 const PAGES: { page: SidebarPage; label: () => string; icon: typeof House }[] = [
   { page: "home", label: () => t("sidebar.home"), icon: House },
   { page: "projects", label: () => t("sidebar.projects"), icon: Gamepad2 },
