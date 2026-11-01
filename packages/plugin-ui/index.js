@@ -62,7 +62,7 @@ function bridge(port, hello) {
         port.postMessage(params === undefined ? { id, method } : { id, method, params });
       });
     },
-    /** `theme` and `visibility` events; returns a function that stops listening. */
+    /** `theme`, `visibility` and `progress` events; returns a function that stops listening. */
     on(name, listener) {
       if (!listeners.has(name)) listeners.set(name, new Set());
       listeners.get(name).add(listener);

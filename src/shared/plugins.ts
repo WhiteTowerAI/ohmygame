@@ -2,7 +2,6 @@ import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { PROJECT_TYPE_IDS, type PluginMention, type ProjectType } from "./contracts.js";
 import { PLUGIN_ICON_PRESETS, type PluginIconPresetId } from "./plugin-icons.js";
-import type { PluginIntegrationDefinition } from "./plugin-integration.js";
 
 export type PluginOrigin =
   | { type: "github"; repository: string; commit: string; release?: string }
@@ -111,7 +110,6 @@ export interface PluginSummary {
   displayName: string;
   description: string;
   projectTypes?: ProjectType[];
-  integration?: PluginIntegrationDefinition;
   icon?: PluginIcon;
   iconRevision?: string;
   version?: string;
@@ -131,13 +129,10 @@ export interface PluginSummary {
 export type PluginContribution = "projectType" | "skills" | "mcp" | "service";
 export const PLUGIN_CONTRIBUTIONS: readonly PluginContribution[] = ["projectType", "skills", "mcp", "service"];
 
-/** An integration that creates projects adds a project type; any other connects to a service. */
-export function pluginContributions(plugin: Pick<PluginSummary, "skillCount" | "mcpServerCount" | "integration">): PluginContribution[] {
+/** What a format 1 plugin adds; project types and services come from format 2 plugins. */
+export function pluginContributions(plugin: Pick<PluginSummary, "skillCount" | "mcpServerCount">): PluginContribution[] {
   return PLUGIN_CONTRIBUTIONS.filter((kind) =>
-    kind === "projectType" ? Boolean(plugin.integration?.createProject)
-      : kind === "skills" ? Boolean(plugin.skillCount)
-        : kind === "mcp" ? Boolean(plugin.mcpServerCount)
-          : Boolean(plugin.integration && !plugin.integration.createProject));
+    kind === "skills" ? Boolean(plugin.skillCount) : kind === "mcp" ? Boolean(plugin.mcpServerCount) : false);
 }
 
 export function pluginCollection(plugin: Pick<PluginSummary, "source" | "marketplace">): "public" | "personal" {
@@ -279,12 +274,6 @@ export const PluginManifestSchema = Type.Object({
   skills: Type.Optional(Type.Union([RelativePathSchema, Type.Array(RelativePathSchema, { minItems: 1, uniqueItems: true })])),
   connections: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
   mcpServers: Type.Optional(RelativePathSchema),
-  integration: Type.Optional(Type.Object({
-    entry: RelativePathSchema,
-    createProject: Type.Optional(Type.Boolean()),
-    projectFiles: Type.Optional(Type.Array(RelativePathSchema, { minItems: 1, maxItems: 20, uniqueItems: true })),
-    preview: Type.Optional(Type.Literal("external")),
-  }, { additionalProperties: false })),
   configuration: Type.Optional(Type.Record(IdentifierSchema, ConfigurationFieldSchema)),
   interface: Type.Optional(InterfaceSchema),
 }, { additionalProperties: false });
@@ -337,6 +326,70 @@ export function isPluginManifest(value: unknown): value is PluginManifest {
   });
 }
 
+/** A setting a format 2 plugin asks for, as its settings page shows it. */
+export interface StorePluginSetting {
+  name: string;
+  type: "text" | "secret" | "path" | "boolean" | "select";
+  title: string;
+  description?: string;
+  required?: boolean;
+  options?: string[];
+}
+
+/** One installed version of a format 2 plugin (GET /plugin-store/plugins). */
+export interface StorePlugin {
+  /** `publisher/name`. */
+  id: string;
+  version: string;
+  displayName: string;
+  description: string;
+  /** What it asks to be allowed, such as `network:api.example.com`. */
+  capabilities: string[];
+  /** The person's decisions; `null` before any. */
+  grants: { enabled: boolean; allowed: string[] } | null;
+  /** Ships with the app, so it can't be uninstalled. */
+  bundled: boolean;
+  settings: StorePluginSetting[];
+  /** What it adds, by title; tools and skills are counted. */
+  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; tools: number; skills: number };
+}
+
+/** What a format 2 plugin's settings page shows; secrets only say whether they are set. */
+export type StorePluginConfiguration = Record<
+  string,
+  | { type: Exclude<StorePluginSetting["type"], "secret">; value: string | boolean | null }
+  | { type: "secret"; configured: boolean }
+>;
+
+/** A format 2 plugin command a project offers (GET /projects/:id/plugin-commands). */
+export interface ProjectPluginCommand {
+  /** `publisher/name:command`. */
+  id: string;
+  plugin: string;
+  title: string;
+  slash?: string;
+  slots: Array<{ slot: string; when?: string }>;
+  run:
+    | { prompt: string; skill?: string; insert?: boolean }
+    | { tool: string; input?: unknown }
+    | { openPanel: string }
+    | { openSettings: true }
+    | { url: string }
+    | { native: string };
+}
+
+/** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */
+export interface ProjectPluginChange {
+  id: string;
+  plugin: string;
+  action: string;
+  title: string;
+  changed: string[];
+  at: string;
+  undone?: boolean;
+  failed?: string;
+}
+
 /** A plugin as one project sees it, for the project's Plugins sheet. */
 export interface ProjectPluginItem {
   id: string;
@@ -349,7 +402,7 @@ export interface ProjectPluginItem {
   /** Provides the project's type, so it stays on. */
   providesType: boolean;
   /** Why a plugin the project asks for is not running. */
-  status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "needs-consent" | "needs-approval";
+  status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "not-applicable" | "needs-consent" | "needs-approval";
   /** What it asks to be allowed, such as `network:api.example.com`. */
   capabilities: string[];
   /** The person allowed what it asks for when it was installed. */
@@ -360,6 +413,8 @@ export interface ProjectPluginItem {
 export interface ProjectPluginChoice extends Pick<ProjectPluginItem, "id" | "displayName" | "description" | "version" | "capabilities" | "consented"> {
   /** The project types it adds, as `publisher/name:type`; a project of one of them has it on already. */
   providesTypes: string[];
+  /** The project types it works in (`appliesTo`); absent means every type. */
+  appliesTo?: string[];
 }
 
 export interface ProjectPluginsView {

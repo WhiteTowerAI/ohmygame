@@ -378,6 +378,7 @@ describe("renderer service recovery", () => {
       }
       if (route === "/plugins") { catalogReads++; return Response.json({ plugins: [], errors: [] }); }
       if (route === "/plugins/test/configuration") return Response.json(configuration);
+      if (route === "/plugin-store/plugins") return Response.json([]);
       return Response.json({ status: "ok" });
     }));
     await act(async () => root.render(<PluginsSettings pluginId="test" onPluginChange={() => {}} onTryPlugin={async () => {}} />));
@@ -510,7 +511,7 @@ describe("pane and preview boundaries", () => {
     updateRuntimeConnection(ready(1));
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     const project: ProjectState = { id: "routes", name: "Routes", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/routes", preview: { status: "ready", url: "http://127.0.0.1:4000" } };
-    const props = { project, agentBusy: false, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, onStop: async () => {} };
+    const props = { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, onStop: async () => {} };
     await act(async () => root.render(createElement(CodingWorkspace, props)));
     const frame = container.querySelector("iframe")!;
     const client = new URL(frame.src).searchParams.get("__ohmygame_client")!;
@@ -560,7 +561,7 @@ describe("pane and preview boundaries", () => {
     panel.append(nodes.code.toolbar, nodes.code.body);
     document.body.append(panel);
     const panels = { nodes, visible: new Set(["code"] as const), onShow: () => {} };
-    await act(async () => root.render(createElement(CodingWorkspace, { project, agentBusy: false, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, panels })));
+    await act(async () => root.render(createElement(CodingWorkspace, { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, panels })));
     await act(async () => (document.querySelector('[aria-label="Project settings"]') as HTMLButtonElement).click());
     const logs = [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Preview logs")!;
     await act(async () => logs.click());

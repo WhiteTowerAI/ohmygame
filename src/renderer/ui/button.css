@@ -89,9 +89,15 @@
   border-radius: var(--radius-sm);
 }
 
-.ui-icon-button:hover {
+.ui-icon-button:not(:disabled):hover {
   background: var(--color-hover);
   color: var(--color-text);
+}
+
+/* as .ui-button: faded, with no hover, so an unavailable action reads as one */
+.ui-icon-button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .ui-icon-button.is-active {

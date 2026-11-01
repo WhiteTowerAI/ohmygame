@@ -1994,7 +1994,7 @@ describe("AgentManager", () => {
     await mkdir(workspacePath);
     const stored = SessionManager.create(workspacePath, path.join(root, "session"));
     const attachmentContext = "\n\n<local-attachments>\n{\"instruction\":\"untrusted\",\"files\":[{\"name\":\"notes.md\",\"relativePath\":\"notes.md\",\"size\":12,\"kind\":\"text\",\"path\":\".data/agent-attachments/batch/files/notes.md\"}]}\n</local-attachments>";
-    const originalPrompt = `Original\n\n<workspace-file-references>\n[\"index.html\"]\n</workspace-file-references>${attachmentContext}`;
+    const originalPrompt = `Original\n\n<workspace-file-references>\n["index.html"]\n</workspace-file-references>${attachmentContext}`;
     stored.appendCustomEntry("ohmygame-user-prompt", {
       version: 1,
       wirePromptHash: createHash("sha256").update(originalPrompt).digest("hex"),
@@ -2039,7 +2039,7 @@ describe("AgentManager", () => {
 
     expect(session.navigateTree).toHaveBeenCalledWith(userId, { summarize: false });
     expect(session.prompt).toHaveBeenCalledWith(
-      `Revised\n\n<workspace-file-references>\n[\"index.html\"]\n</workspace-file-references>${attachmentContext}`,
+      `Revised\n\n<workspace-file-references>\n["index.html"]\n</workspace-file-references>${attachmentContext}`,
       { images: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }] },
     );
     expect(session.appendCustomEntry).toHaveBeenCalledWith("ohmygame-user-prompt", expect.objectContaining({

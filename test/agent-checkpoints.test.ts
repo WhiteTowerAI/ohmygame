@@ -1739,7 +1739,7 @@ describe("Agent turn changes", () => {
   });
 
   it("puts the files back after a restore or an undo that was cut off", async () => {
-    const { app, base, project, send, file, ended, published } = await studio([
+    const { app, base, project, file, published } = await studio([
       { write: { "notes.txt": "written by the Agent" } },
       { hang: true },
     ]);
@@ -2085,7 +2085,7 @@ describe("Agent turn changes", () => {
   });
 
   it("starts no turn in the project while files are being put back, and says why", async () => {
-    const { app, base, project, another, post, send, ended, undo } =
+    const { app, project, another, post, send, ended, undo } =
       await studio([
         { write: { "notes.txt": "first" } },
         { say: "Wrote the notes." },

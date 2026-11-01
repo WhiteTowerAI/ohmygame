@@ -243,9 +243,6 @@ export function audioSettings(data: AudioSettings): AudioSettings {
 export function audioCanvasSettings(data: AudioCanvasSettings): AudioCanvasSettings {
   return { ...audioSettings(data), ...(data.subtitles !== undefined ? { subtitles: data.subtitles } : {}), ...(data.audioReferenceSerial !== undefined ? { audioReferenceSerial: data.audioReferenceSerial } : {}), ...(data.audioReferences ? { audioReferences: data.audioReferences } : {}) };
 }
-export function isAudioNodeType(type: string): type is "speech" | "sound-effect" | "music" | "audio-scene" {
-  return ["speech", "sound-effect", "music", "audio-scene"].includes(type);
-}
 /** Music and Audio creation nodes offer no audio settings; saved values are ignored. */
 export function audioNodeHasSettings(type: string): type is "speech" | "sound-effect" {
   return type === "speech" || type === "sound-effect";

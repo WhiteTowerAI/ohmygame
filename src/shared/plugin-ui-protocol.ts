@@ -40,7 +40,9 @@ export type PluginUiReply =
 /** What the host tells a page without being asked. */
 export type PluginUiEvent =
   | { event: "theme"; tokens: Record<string, string>; appearance: "dark" | "light" }
-  | { event: "visibility"; visible: boolean };
+  | { event: "visibility"; visible: boolean }
+  /** How one of the plugin's own commands is going while it runs, by its id in the manifest. */
+  | { event: "progress"; command: string; message: string };
 
 export interface PluginUiCapabilities {
   "project.selection"?: boolean;

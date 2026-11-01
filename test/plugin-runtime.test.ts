@@ -7,43 +7,43 @@ import type { LocalPluginStore } from "../src/daemon/local-plugins.js";
 import { pluginSkillFolders, resolvePluginSkillPaths, resolvePluginSkills } from "../src/daemon/plugin-runtime.js";
 import { stageSkills } from "../src/daemon/agent-runtimes/skills.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
-import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
+import { BUNDLED_PLUGINS_OFF, BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 
 describe("plugin runtime", () => {
-  it("only exposes Maker skills after the user enables the plugin", async () => {
-    const store = new BundledPluginStore(path.resolve("plugins"));
+  it("only exposes a plugin's skills after the user enables it", async () => {
+    const store = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
     await store.load();
     const settings = await settingsStore();
     const before = await resolvePluginSkills([store], settings, "general");
-    expect(before.some(skill => skill.pluginDisplayName === "TapTap Maker")).toBe(false);
+    expect(before.some(skill => skill.pluginDisplayName === "Unity")).toBe(false);
     expect(before.some(skill => skill.pluginDisplayName === "Blender")).toBe(true);
 
-    const maker = store.read("ohmygame:taptap-maker")!;
-    await settings.update(maker, { enabled: true, components: {} });
-    const makerSkills = (await resolvePluginSkills([store], settings, "general"))
-      .filter(skill => skill.pluginDisplayName === "TapTap Maker")
+    const unity = store.read("ohmygame:unity")!;
+    await settings.update(unity, { enabled: true, components: {} });
+    const unitySkills = (await resolvePluginSkills([store], settings, "general"))
+      .filter(skill => skill.pluginDisplayName === "Unity")
       .map(skill => path.basename(path.dirname(skill.path)))
       .sort();
-    expect(makerSkills).toEqual(["taptap-maker", "taptap-release"]);
-    expect((await resolvePluginSkills([store], settings, "godot-game")).some(skill => skill.pluginDisplayName === "TapTap Maker")).toBe(false);
-    await settings.update(maker, { enabled: false, components: {} });
+    expect(unitySkills).toEqual(["unity-game"]);
+    expect((await resolvePluginSkills([store], settings, "godot-game")).some(skill => skill.pluginDisplayName === "Unity")).toBe(false);
+    await settings.update(unity, { enabled: false, components: {} });
     expect(await resolvePluginSkills([store], settings, "general")).toEqual(before);
   });
 
   it("stages enabled plugin Skills for coding agent CLIs", async () => {
-    const store = new BundledPluginStore(path.resolve("plugins"));
+    const store = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
     await store.load();
     const settings = await settingsStore();
-    await settings.update(store.read("ohmygame:taptap-maker")!, { enabled: true, components: {} });
+    await settings.update(store.read("ohmygame:unity")!, { enabled: true, components: {} });
     const skills = await resolvePluginSkills([store], settings, "general");
     const target = await mkdtemp(path.join(tmpdir(), "ohmygame-staged-skills-"));
     const staged = await stageSkills(pluginSkillFolders(skills), target);
     expect(staged).toHaveLength(skills.length);
-    expect(staged).toEqual(expect.arrayContaining(["taptap-maker", "taptap-release", "game-studio", "blender-assets"]));
+    expect(staged).toEqual(expect.arrayContaining(["unity-game", "game-studio", "blender-assets"]));
   });
 
   it("keeps Game Studio isolated from Web Game skills and honors its disabled setting", async () => {
-    const store = new BundledPluginStore(path.resolve("plugins"));
+    const store = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
     await store.load();
     const settings = await settingsStore();
     const webBefore = await resolvePluginSkills([store], settings, "web-game");

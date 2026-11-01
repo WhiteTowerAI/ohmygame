@@ -51,7 +51,7 @@ beforeEach(async () => {
   desktopSave.cancel();
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
   await act(async () => root.render(<PlayableEditorWorkspace
-    project={{ id: "p", type: "interactive-story" } as ProjectState} agentBusy={false} publishing={false}
+    project={{ id: "p", type: "interactive-story" } as ProjectState} publishing={false}
     onPublish={async () => false} onClosePublish={() => {}}
   />));
   await act(async () => move(null, { x: 32, y: 64, zoom: 1.2 }));
@@ -100,7 +100,7 @@ it("saves the displayed viewport when close precedes the delayed move-end event"
 const nodes = Object.fromEntries((["story", "design", "canvas", "code", "assets"] as const).map((view) => [view, createPanelNodes()])) as Record<StoryView, PanelNodes>;
 async function renderPanels(visible: StoryView[]): Promise<void> {
   await act(async () => root.render(<PlayableEditorWorkspace
-    project={{ id: "p", name: "Close save", type: "interactive-story" } as ProjectState} agentBusy={false} publishing={false}
+    project={{ id: "p", name: "Close save", type: "interactive-story" } as ProjectState} publishing={false}
     onPublish={async () => false} onClosePublish={() => {}}
     panels={{ nodes, visible: new Set(visible), onShow: () => {} }}
   />));
@@ -129,7 +129,7 @@ it("gives the shell a design save that saves the design's documents, which the s
   flushDocuments.mockClear();
   let saveDesign: (() => Promise<void>) | undefined;
   await act(async () => root.render(<PlayableEditorWorkspace
-    project={{ id: "p", name: "Close save", type: "interactive-story" } as ProjectState} agentBusy={false} publishing={false}
+    project={{ id: "p", name: "Close save", type: "interactive-story" } as ProjectState} publishing={false}
     onPublish={async () => false} onClosePublish={() => {}}
     onDesignSaveReady={(save) => { saveDesign = save; }}
     panels={{ nodes, visible: new Set(["story", "design"]), onShow: () => {} }}
