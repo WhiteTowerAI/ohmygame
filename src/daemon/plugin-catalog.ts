@@ -20,9 +20,6 @@ export interface PluginCatalogAdapter {
   read(id: string): Promise<PluginDetail | undefined>;
 }
 
-/** Bundled format 1 plugins that format 2 plugins turned on per project replaced. */
-const RETIRED_BUNDLED_PLUGINS: ReadonlySet<string> = new Set(["godot", "unreal-engine"]);
-
 export class PluginCatalogService {
   constructor(
     private readonly adapters: readonly PluginCatalogAdapter[],
@@ -71,9 +68,6 @@ export class PluginCatalogService {
     const validated: PluginMention[] = [];
     for (const mention of mentions) {
       const plugin = catalog.plugins.find((candidate) => candidate.marketplace.id === mention.marketplaceId && candidate.name === mention.name);
-      // A draft from before a bundled plugin became format 2 still sends; the
-      // project's own plugins say what it uses now.
-      if (!plugin && mention.marketplaceId === "ohmygame" && RETIRED_BUNDLED_PLUGINS.has(mention.name)) continue;
       if (!plugin?.installed) throw new Error(`Plugin ${mention.displayName} is not installed`);
       if (!plugin.enabled) throw new Error(`Plugin ${mention.displayName} is disabled`);
       if (!validated.some((item) => item.name === plugin.name && item.marketplaceId === plugin.marketplace.id)) {

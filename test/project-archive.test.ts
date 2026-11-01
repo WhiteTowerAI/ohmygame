@@ -382,18 +382,6 @@ describe("project archive export", () => {
     },
   );
 
-  it("records that a Godot project from before format 2 came from an archive", async () => {
-    const projects = new ProjectManager(await temporaryDirectory());
-    const legacy = await projects.create("Godot", "godot-game");
-    const imported = await importProjectArchive(
-      new ProjectManager(await temporaryDirectory()),
-      await exportProjectArchive(legacy),
-    );
-    // So moving it to the Godot type, at any start, never allows Godot for its folder.
-    expect(imported).toMatchObject({ type: "godot-game", integration: { pluginId: "ohmygame:godot", imported: true } });
-    expect(imported.pluginType).toBeUndefined();
-  });
-
   it("counts the rewritten story graph instead of its smaller source", async () => {
     const library = new AssetLibrary(await temporaryDirectory());
     await library.load();
@@ -892,32 +880,6 @@ describe("project archive import", () => {
     );
     expect(unnamed.name).toBe("Untitled story");
     expect(await listFiles(unnamed.workspacePath)).not.toContain(".git/config");
-  });
-
-  it("moves an imported format 1 Maker project to the Maker type without allowing its plugin", async () => {
-    const dataDirectory = await temporaryDirectory();
-    // The person used format 1 Maker; that never covers a folder from an archive.
-    await writeFile(path.join(dataDirectory, "plugin-settings.json"), JSON.stringify({ version: 2, plugins: { "ohmygame:taptap-maker": { enabled: true, components: {} } } }));
-    const app = createApp({ dataDirectory });
-    apps.push(app);
-    await app.ready();
-    const response = await app.inject({
-      method: "POST",
-      url: "/projects/import",
-      headers: { "content-type": PROJECT_ARCHIVE_CONTENT_TYPE },
-      payload: await zipArchive({
-        "ohmygame-project.json": manifest({ name: "Maker game", type: "general", integration: { pluginId: "ohmygame:taptap-maker", preview: "external" } }),
-        "main.lua": "-- game",
-      }),
-    });
-    expect(response.statusCode).toBe(201);
-    const project = response.json();
-    expect(project.integration).toBeUndefined();
-    expect(project.pluginType).toEqual({ id: "ohmygame/taptap-maker:maker", plugin: "ohmygame/taptap-maker", preview: "native" });
-    expect(JSON.parse(await readFile(path.join(project.workspacePath, "ohmygame.json"), "utf8"))).toMatchObject({ type: "ohmygame/taptap-maker:maker" });
-    const plugins = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` })).json();
-    expect(plugins.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/taptap-maker")).toMatchObject({ consented: true });
-    expect(plugins.plugins.find((plugin: { id: string }) => plugin.id === "ohmygame/taptap-maker").status).not.toBe("active");
   });
 
   it("answers import errors with their status through the API", async () => {

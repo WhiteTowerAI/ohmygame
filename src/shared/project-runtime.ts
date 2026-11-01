@@ -15,12 +15,11 @@ export function isWebRuntimeProjectType(type: ProjectType): boolean {
 
 /** Capability is independent of the preview process's readiness or errors. */
 export function supportsWebPreview(
-  project?: Pick<ProjectState, "type" | "webPreviewEnabled" | "integration" | "pluginType">,
+  project?: Pick<ProjectState, "type" | "webPreviewEnabled" | "pluginType">,
 ): boolean {
   return (
     buildsWebPreview(project) ||
-    (!project?.integration &&
-      project?.pluginType?.preview !== "native" &&
+    (project?.pluginType?.preview !== "native" &&
       (project?.type === "web-game" ||
         (project?.type === "general" && project.webPreviewEnabled === true)))
   );

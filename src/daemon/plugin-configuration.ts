@@ -24,8 +24,6 @@ interface StoredConfiguration {
     }
   >;
   credentials: Record<string, string>;
-  legacyOwners: Record<string, { pluginId: string; serverId: string }>;
-  migrated: boolean;
   serverOverrides?: Record<string, string>;
   extraFields?: Record<string, Record<string, PluginConfigurationField>>;
 }
@@ -44,8 +42,6 @@ export class PluginConfigurationStore {
     version: 1,
     plugins: {},
     credentials: {},
-    legacyOwners: {},
-    migrated: false,
   };
   #key!: Buffer;
   #writes: Promise<unknown> = Promise.resolve();
@@ -65,12 +61,7 @@ export class PluginConfigurationStore {
       const state = JSON.parse(
         await readFile(this.filePath, "utf8"),
       ) as StoredConfiguration;
-      if (
-        state.version !== 1 ||
-        !state.plugins ||
-        !state.credentials ||
-        !state.legacyOwners
-      )
+      if (state.version !== 1 || !state.plugins || !state.credentials)
         throw new Error("Invalid plugin configuration store");
       this.#state = state;
     } catch (cause) {
@@ -79,22 +70,6 @@ export class PluginConfigurationStore {
   }
   get filePath(): string {
     return path.join(this.directory, "plugin-configuration.json");
-  }
-  get migrated(): boolean {
-    return this.#state.migrated;
-  }
-  get legacyOwners(): StoredConfiguration["legacyOwners"] {
-    return structuredClone(this.#state.legacyOwners);
-  }
-  legacyName(pluginId: string, serverId: string): string | undefined {
-    return Object.entries(this.#state.legacyOwners).find(
-      ([, owner]) => owner.pluginId === pluginId && owner.serverId === serverId,
-    )?.[0];
-  }
-  /** A plugin's saved nonsecret values, even when the plugin is gone, for moving them elsewhere. */
-  storedValues(pluginId: string): Record<string, string | boolean> | undefined {
-    const values = this.#state.plugins[pluginId]?.values;
-    return values ? { ...values } : undefined;
   }
   override(pluginId: string, serverId: string): unknown {
     const ref = this.#state.serverOverrides?.[`${pluginId}/${serverId}`];
@@ -161,59 +136,6 @@ export class PluginConfigurationStore {
           Object.entries(values).filter(([key]) => referenced.has(key)),
         ),
       );
-    });
-  }
-  /**
-   * Gives `to` a copy of `from`'s configuration: the values and secrets
-   * `definition` uses, its fields (as `to`'s own), and `definition` as the
-   * template of `to`'s server `serverId`. Secrets are copied encrypted, under
-   * new references, so either owner can be removed without the other losing
-   * them; `from` is left as it was.
-   */
-  async copyOwner({ from, fields, to, serverId, definition }: {
-    from: string;
-    fields: Record<string, PluginConfigurationField>;
-    to: string;
-    serverId: string;
-    definition: McpServerDefinition;
-  }): Promise<void> {
-    const used = new Set([...JSON.stringify(definition).matchAll(/\$\{config\.([a-z0-9_.-]+)\}/g)].map((match) => match[1]!));
-    await this.#mutate((next) => {
-      this.#remove(next, to);
-      const source = next.plugins[from];
-      const copied: { values: Record<string, string | boolean>; secretRefs: Record<string, string> } = { values: {}, secretRefs: {} };
-      const extras: Record<string, PluginConfigurationField> = {};
-      for (const key of used) {
-        const field = Object.hasOwn(fields, key) ? fields[key] : undefined;
-        if (!field) continue;
-        extras[key] = field;
-        if (source && Object.hasOwn(source.values, key)) copied.values[key] = source.values[key]!;
-        const ref = source && Object.hasOwn(source.secretRefs, key) ? source.secretRefs[key] : undefined;
-        if (ref && next.credentials[ref]) {
-          const copy = randomUUID();
-          next.credentials[copy] = next.credentials[ref]!;
-          copied.secretRefs[key] = copy;
-        }
-      }
-      next.plugins[to] = copied;
-      (next.extraFields ??= {})[to] = extras;
-      const ref = randomUUID();
-      (next.serverOverrides ??= {})[`${to}/${serverId}`] = ref;
-      next.credentials[ref] = this.#encrypt(JSON.stringify(definition));
-    });
-  }
-  async markMigrated(): Promise<void> {
-    await this.#mutate((next) => {
-      next.migrated = true;
-    });
-  }
-  async setLegacyOwner(
-    id: string,
-    pluginId: string,
-    serverId: string,
-  ): Promise<void> {
-    await this.#mutate((next) => {
-      next.legacyOwners[id] = { pluginId, serverId };
     });
   }
   fields(plugin: ConfigurationOwner): Record<string, PluginConfigurationField> {
@@ -332,9 +254,6 @@ export class PluginConfigurationStore {
       if (!key.startsWith(`${pluginId}/`)) continue;
       delete next.credentials[ref];
       delete next.serverOverrides![key];
-    }
-    for (const [key, owner] of Object.entries(next.legacyOwners)) {
-      if (owner.pluginId === pluginId) delete next.legacyOwners[key];
     }
   }
   redact(

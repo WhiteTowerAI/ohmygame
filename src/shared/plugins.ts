@@ -150,7 +150,6 @@ export interface PluginComponentSummary {
 
 export interface PluginConnectionSummary extends PluginComponentSummary {
   status?: "enabled" | "disabled" | "not-configured" | "connected" | "failed" | "needs-auth";
-  ownerPluginId?: string;
   toolCount?: number;
   transport?: "stdio" | "http";
 }

@@ -24,7 +24,6 @@ export const PROJECT_ARCHIVE_MAX_ENTRIES = 200_000;
 export const PROJECT_ARCHIVE_SETTING_KEYS = [
   "name",
   "type",
-  "integration",
   "pluginType",
   "webPreviewEnabled",
   "startupDirectory",

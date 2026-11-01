@@ -1,5 +1,4 @@
 import { PREVIEW_SETTING_KEYS, previewSettings, validPreviewSettings, validatePreviewSettings, type ProjectPreviewSettings } from "../shared/preview-settings.js";
-import { LEGACY_GODOT_ID } from "./legacy-godot.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
@@ -33,7 +32,6 @@ interface ProjectMetadata extends ProjectPreviewSettings {
   name: string;
   nameSource?: ProjectState["nameSource"];
   type: ProjectType;
-  integration?: ProjectState["integration"];
   pluginType?: ProjectState["pluginType"];
   updatedAt: string;
   webPreviewEnabled?: boolean;
@@ -54,7 +52,7 @@ interface ProjectMetadata extends ProjectPreviewSettings {
   appearance?: ProjectAppearance;
 }
 
-type MetadataChanges = Partial<Pick<ProjectMetadata, "integration" | "pluginType" | "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | "appearance" | keyof ProjectPreviewSettings>>;
+type MetadataChanges = Partial<Pick<ProjectMetadata, "pluginType" | "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | "appearance" | keyof ProjectPreviewSettings>>;
 
 export class ProjectLibraryReferenceError extends Error {}
 
@@ -305,7 +303,7 @@ export class ProjectManager {
     if (input.webPreviewEnabled !== undefined && typeof input.webPreviewEnabled !== "boolean") throw new ProjectWorkspaceError("Web preview enabled must be a boolean");
     try { validatePreviewSettings(input); } catch (cause) { throw new ProjectWorkspaceError((cause as Error).message); }
     const webPreviewEnabled = project.type === "general" ? input.webPreviewEnabled ?? project.webPreviewEnabled ?? false : true;
-    if (webPreviewEnabled && (project.integration || project.pluginType?.preview === "native")) throw new ProjectWorkspaceError("This project uses its plugin preview");
+    if (webPreviewEnabled && project.pluginType?.preview === "native") throw new ProjectWorkspaceError("This project uses its plugin preview");
     if (!isValidStartupDirectory(input.startupDirectory)) throw new ProjectWorkspaceError("Startup directory must be a relative path inside the project workspace");
     const startupDirectory = normalizeStartupDirectory(input.startupDirectory) ?? ".";
     const startupScript = normalizeStartupScript(input.startupScript);
@@ -364,18 +362,6 @@ export class ProjectManager {
     return project;
   }
 
-  /**
-   * Moves a project that used a format 1 integration to the format 2 plugin
-   * type that replaced it, once its project file names that type. Web preview
-   * stays off, as it was.
-   */
-  async migrateIntegration(id: string, pluginType: NonNullable<ProjectState["pluginType"]>): Promise<ProjectState> {
-    const project = this.#projects.get(id);
-    if (!project) throw new ProjectWorkspaceError("Project not found");
-    await this.#save(project, { integration: undefined, pluginType, ...(project.type === "general" ? { webPreviewEnabled: false } : {}) });
-    return project;
-  }
-
   async duplicate(id: string): Promise<ProjectState> {
     const source = this.#projects.get(id);
     if (!source) throw new Error(`Project not found: ${id}`);
@@ -388,7 +374,6 @@ export class ProjectManager {
       name: `${source.name} copy`,
       nameSource: "manual",
       type: source.type,
-      ...(source.integration ? { integration: source.integration } : {}),
       ...(source.pluginType ? { pluginType: source.pluginType } : {}),
       ...(source.type === "general" ? { webPreviewEnabled: source.webPreviewEnabled ?? false } : {}),
       updatedAt,
@@ -444,11 +429,6 @@ export class ProjectManager {
     try {
       const candidate = {
         ...Object.fromEntries(PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => settings[key] !== undefined).map((key) => [key, settings[key]])),
-        // Recorded with the project, so a later try to move it can't allow its plugin either.
-        ...(settings.integration ? { integration: { ...settings.integration, imported: true } } : {}),
-        // A Godot project from before format 2 used format 1 Godot as its
-        // integration; recorded so moving it, now or later, never allows Godot for its folder.
-        ...(!settings.integration && settings.type === "godot-game" && !settings.pluginType ? { integration: { pluginId: LEGACY_GODOT_ID, imported: true } } : {}),
         version: 1, id, nameSource: "manual", updatedAt,
       };
       try {
@@ -957,7 +937,6 @@ export class ProjectManager {
       await writeMetadata(this.#projectDirectory(project.id), metadata);
       for (const key of PREVIEW_SETTING_KEYS) { delete project[key]; }
       Object.assign(project, previewSettings(metadata));
-      project.integration = metadata.integration;
       if (metadata.pluginType) project.pluginType = metadata.pluginType;
       project.name = metadata.name;
       if (metadata.nameSource) project.nameSource = metadata.nameSource;
@@ -1044,7 +1023,6 @@ function projectState(
     name: metadata.name,
     ...(metadata.nameSource ? { nameSource: metadata.nameSource } : {}),
     type: metadata.type,
-    ...(metadata.integration ? { integration: metadata.integration } : {}),
     ...(metadata.pluginType ? { pluginType: metadata.pluginType } : {}),
     ...(metadata.type === "general" ? { webPreviewEnabled: metadata.webPreviewEnabled ?? false } : {}),
     updatedAt: metadata.updatedAt,
@@ -1065,7 +1043,7 @@ function projectState(
   };
 }
 
-async function isRunnableStartupWorkspace(project: Pick<ProjectState, "type" | "integration" | "pluginType" | "webPreviewEnabled" | "workspacePath" | "startupDirectory" | "startupScript" | keyof ProjectPreviewSettings>): Promise<boolean> {
+async function isRunnableStartupWorkspace(project: Pick<ProjectState, "type" | "pluginType" | "webPreviewEnabled" | "workspacePath" | "startupDirectory" | "startupScript" | keyof ProjectPreviewSettings>): Promise<boolean> {
   if (project.type === "general" && !supportsWebPreview(project)) return false;
   // Its plugin builds what the preview serves.
   if (buildsWebPreview(project)) return true;
@@ -1236,7 +1214,6 @@ function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): L
     validPreviewSettings(parsed) && parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
     (parsed.nameSource === undefined || ["default", "ai", "manual"].includes(parsed.nameSource)) &&
     (parsed.type === undefined || isProjectType(parsed.type)) &&
-    (parsed.integration === undefined || (typeof parsed.integration?.pluginId === "string" && !!parsed.integration.pluginId && (parsed.integration.preview === undefined || parsed.integration.preview === "external") && (parsed.integration.imported === undefined || parsed.integration.imported === true))) &&
     (parsed.pluginType === undefined || (typeof parsed.pluginType?.id === "string" && typeof parsed.pluginType.plugin === "string" && parsed.pluginType.id.startsWith(`${parsed.pluginType.plugin}:`) && ["web", "web-build", "native"].includes(parsed.pluginType.preview))) &&
     (parsed.webPreviewEnabled === undefined || typeof parsed.webPreviewEnabled === "boolean") &&
     (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
@@ -1268,7 +1245,6 @@ function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): L
         name: parsed.name.trim(),
         ...(parsed.nameSource ? { nameSource: parsed.nameSource } : {}),
         type,
-        ...(parsed.integration ? { integration: parsed.integration } : {}),
         ...(parsed.pluginType ? { pluginType: { id: parsed.pluginType.id, plugin: parsed.pluginType.plugin, preview: parsed.pluginType.preview } } : {}),
         ...(type === "general" ? { webPreviewEnabled: parsed.webPreviewEnabled ?? false } : {}),
         updatedAt,
@@ -1298,7 +1274,6 @@ function metadataFor(project: ProjectState): ProjectMetadata {
     name: project.name,
     ...(project.nameSource ? { nameSource: project.nameSource } : {}),
     type: project.type,
-    ...(project.integration ? { integration: project.integration } : {}),
     ...(project.pluginType ? { pluginType: project.pluginType } : {}),
     ...(project.type === "general" ? { webPreviewEnabled: project.webPreviewEnabled ?? false } : {}),
     updatedAt: project.updatedAt,

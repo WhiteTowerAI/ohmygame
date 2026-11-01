@@ -15,7 +15,6 @@ import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { LocalPluginStore } from "../src/daemon/local-plugins.js";
 import { BUNDLED_PLUGINS_OFF, BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 import { resolvePluginSkillPaths } from "../src/daemon/plugin-runtime.js";
-import { LegacyMcpConfiguration } from "../src/daemon/legacy-mcp.js";
 import { createApp } from "../src/daemon/app.js";
 import { PluginSetupManager } from "../src/daemon/plugin-setup.js";
 import {
@@ -96,8 +95,6 @@ describe("native plugin capabilities", () => {
     await service.configuration.update(plugin, { "engine-path": "/custom/Engine" });
     expect(await service.definition(plugin, "engine")).toMatchObject({ env: { ENGINE_PATH: "/custom/Engine" } });
     expect(service.runtimeName(plugin.id, "engine")).toBe(name);
-    await service.configuration.setLegacyOwner("old-engine", plugin.id, "engine");
-    expect(service.runtimeName(plugin.id, "engine")).toBe("old-engine");
   });
 
   it("reads credential masks without writes and preserves them on an explicit save", async () => {
@@ -240,39 +237,6 @@ describe("native plugin capabilities", () => {
         false,
       ),
     ).rejects.toThrow("secret configuration field");
-  });
-
-  it("recovers credentials when migration was interrupted after package installation", async () => {
-    const { service, local, agentDir } = await environment();
-    await writeFile(
-      path.join(agentDir, "mcp.json"),
-      JSON.stringify({
-        mcpServers: {
-          recoverable: {
-            url: "https://example.com/mcp",
-            headers: { Authorization: "Bearer recover-me" },
-            disabled: true,
-          },
-        },
-      }),
-    );
-    const interrupted = vi
-      .spyOn(service.configuration, "update")
-      .mockRejectedValueOnce(new Error("Interrupted write"));
-    const legacy = new LegacyMcpConfiguration(agentDir);
-    await expect(service.migrate(legacy)).rejects.toThrow("Interrupted write");
-    interrupted.mockRestore();
-    expect((await local.list()).plugins).toHaveLength(1);
-    await service.migrate(legacy);
-    const owner = service.configuration.legacyOwners.recoverable!;
-    const plugin = (await service.all()).find(
-      (item) => item.id === owner.pluginId,
-    )!;
-    expect(plugin.enabled).toBe(false);
-    expect(await service.definition(plugin, owner.serverId)).toMatchObject({
-      headers: { Authorization: "Bearer recover-me" },
-    });
-    expect((await local.list()).plugins).toHaveLength(1);
   });
 
   it("tracks model lookup during assistant shutdown and persists lookup failures", async () => {
@@ -457,46 +421,6 @@ describe("native plugin capabilities", () => {
     );
   });
 
-  it("migrates full legacy definitions once with stable IDs, disabled state and a backup", async () => {
-    const { service, directory, agentDir } = await environment();
-    const original = {
-      mcpServers: {
-        example: {
-          command: "node",
-          args: ["server.js"],
-          env: { TOKEN: "old-secret" },
-          disabled: true,
-          auth: "oauth",
-          oauth: { clientId: "client", clientSecret: "secret" },
-          includeTools: ["echo"],
-          lifecycle: "eager",
-        },
-      },
-    };
-    await writeFile(path.join(agentDir, "mcp.json"), JSON.stringify(original));
-    const manager = new LegacyMcpConfiguration(agentDir);
-    await service.migrate(manager);
-    const owner = service.configuration.legacyOwners.example!;
-    const plugin = (await service.all()).find((p) => p.id === owner.pluginId)!;
-    expect(plugin.enabled).toBe(false);
-    expect(service.runtimeName(plugin.id, owner.serverId)).toBe("example");
-    expect(await service.definition(plugin, owner.serverId)).toEqual(
-      original.mcpServers.example,
-    );
-    await service.configuration.update(plugin, {});
-    await service.migrate(manager);
-    expect(
-      (await service.all()).filter((p) => p.id === owner.pluginId),
-    ).toHaveLength(1);
-    expect(
-      JSON.parse(
-        await readFile(path.join(agentDir, "mcp.json.pre-plugins.bak"), "utf8"),
-      ).mcpServers.example,
-    ).toEqual(original.mcpServers.example);
-    expect(
-      await readFile(path.join(directory, "plugin-configuration.json"), "utf8"),
-    ).not.toContain("old-secret");
-  });
   it("connects to a real STDIO server, lists tools and shuts the process down", async () => {
     const { service, directory } = await environment();
     const pidFile = path.join(directory, "server.pid");
@@ -635,11 +559,7 @@ describe("native plugin capabilities", () => {
         },
       },
     });
-    await service.configuration.setLegacyOwner(
-      "shared-local",
-      provider.id,
-      "local",
-    );
+    const shared = service.runtimeName(provider.id, "local");
     const source = path.join(directory, "consumer");
     await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
     await writeFile(
@@ -654,11 +574,11 @@ describe("native plugin capabilities", () => {
     const consumer = await local.install(source);
     await settings.update(consumer, { enabled: false, components: {} });
     const config = await service.effective("web-game");
-    expect(config.mcpServers).toHaveProperty("shared-local");
+    expect(config.mcpServers).toHaveProperty(shared);
     expect(config.mcpServers).not.toHaveProperty("ohmygame-godot");
     expect((await service.decorate(consumer)).connections).toMatchObject([
-      { id: "shared-local", ownerPluginId: provider.id, status: "enabled" },
-      { id: "missing-provider", status: "not-configured" },
+      { id: "shared-local", enabled: false, status: "not-configured" },
+      { id: "missing-provider", enabled: false, status: "not-configured" },
     ]);
     const settingsManager = SettingsManager.inMemory({ packages: [] });
     const loader = new DefaultResourceLoader({
@@ -688,8 +608,8 @@ describe("native plugin capabilities", () => {
       const result = await mcp.execute(
         "echo-call",
         {
-          server: "shared-local",
-          tool: "shared-local_echo",
+          server: shared,
+          tool: `${shared}_echo`,
           args: { value: "actual tool result" },
         },
         undefined,
@@ -697,14 +617,14 @@ describe("native plugin capabilities", () => {
         session.extensionRunner.createToolContext("echo-call", undefined),
       );
       expect(JSON.stringify(result)).toContain("actual tool result");
-      expect(service.host.status("shared-local")).toMatchObject({
+      expect(service.host.status(shared)).toMatchObject({
         status: "connected",
         toolCount: 1,
       });
     } finally {
       await close();
     }
-    expect(service.host.status("shared-local")).toBeUndefined();
+    expect(service.host.status(shared)).toBeUndefined();
   });
 
   it("stops a session's MCP calls once its plugins change", async () => {
