@@ -322,8 +322,10 @@ describe("plugin pages", () => {
       const body = css.slice(start, css.indexOf("\n}", start)).replace(/\/\*[\s\S]*?\*\//g, "");
       return new Map([...body.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map(([, name, value]) => [name!, value!.replace(/\s+/g, " ").trim()]));
     };
-    const app = await readFile("src/renderer/ui/tokens.css", "utf8");
-    const page = await readFile("packages/plugin-ui/plugin-ui.css", "utf8");
+    // Windows checkouts may have CRLF line endings.
+    const read = async (file: string) => (await readFile(file, "utf8")).replace(/\r\n/g, "\n");
+    const app = await read("src/renderer/ui/tokens.css");
+    const page = await read("packages/plugin-ui/plugin-ui.css");
     const tokens = new Set<string>(PAGE_TOKENS);
     // Until the app sends its theme, a page has the app's own defaults.
     for (const [appSelector, pageSelector] of [
@@ -334,8 +336,8 @@ describe("plugin pages", () => {
       expect(Object.fromEntries(declared(page, pageSelector)), pageSelector).toEqual(Object.fromEntries(expected));
     }
     // Every token the styles read is one the app sends.
-    const read = new Set([...page.matchAll(/var\((--[a-z0-9-]+)/g)].map(([, name]) => name!));
-    expect([...read].filter((name) => !tokens.has(name))).toEqual([]);
+    const used = new Set([...page.matchAll(/var\((--[a-z0-9-]+)/g)].map(([, name]) => name!));
+    expect([...used].filter((name) => !tokens.has(name))).toEqual([]);
     // The panel's surface shows through the page.
     expect(declared(page, ":root").size).toBeGreaterThan(0);
     expect(page).toMatch(/:root \{[^}]*background: transparent;/);
