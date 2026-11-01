@@ -326,7 +326,8 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
         ) : null}
         <div className="sidebar-head">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => onNavigate("home")}>
-            <BrandLogo size={22} /><span>OhMyGame</span>
+            {/* Collapsed, the logo stands alone above the project icons, at their size as in a project's rail. */}
+            <BrandLogo size={collapsed ? 32 : 22} /><span>OhMyGame</span>
           </button>
           {mac || collapsed ? null : toggleButton}
         </div>
@@ -559,7 +560,8 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
       <div className="sidebar-head">
         <Tooltip content={t("sidebar.home")} placement="right-start">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => leaveTo("home")}>
-            <BrandLogo size={22} />
+            {/* the size of the project icons below it */}
+            <BrandLogo size={32} />
           </button>
         </Tooltip>
       </div>
