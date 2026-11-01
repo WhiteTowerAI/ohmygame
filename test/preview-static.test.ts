@@ -300,6 +300,7 @@ describe("plugin pages", () => {
     // Only the bridge and styles, until the plugin opts in to preview components.
     expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js;`);
     expect(csp).toContain(`style-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.css 'unsafe-inline'`);
+    expect(csp).not.toContain("/_ohmygame/ui/");
     expect(csp).toContain("connect-src 'none'");
     expect(csp).toContain("frame-ancestors http://localhost:5173");
     expect(csp).not.toContain("unsafe-eval");
@@ -331,10 +332,16 @@ describe("plugin pages", () => {
     const index = new PluginIndex(path.join(await directory(), "index.json"));
     const added = await index.add(await pluginPackage({ ui: { preview: true } }));
     expect(added.ok ? [] : added.issues).toEqual([]);
-    const server = await startPluginUiServer({ index, sdkDirectory: await directory() });
+    const sdk = await directory();
+    await mkdir(path.join(sdk, "ui/1"), { recursive: true });
+    await writeFile(path.join(sdk, "ui/1/index.js"), "import './layout.js';");
+    const server = await startPluginUiServer({ index, sdkDirectory: sdk });
     cleanups.push(() => server.close());
     const csp = (await fetch(server.panelUrl("acme/panel", "1.0.0", "main")!)).headers.get("content-security-policy")!;
-    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js ${server.url}/_ohmygame/ui/1/;`);
+    // The policy's source for components covers the file the server sends.
+    const source = `${server.url}/_ohmygame/ui/1/`;
+    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js ${source};`);
+    expect((await fetch(`${source}index.js`)).status).toBe(200);
   });
 
   it("styles pages with the app's tokens and defaults", async () => {

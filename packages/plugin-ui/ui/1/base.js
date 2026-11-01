@@ -18,6 +18,8 @@ const BASE = css(`
   :host([hidden]) { display: none !important; }
   *, *::before, *::after { box-sizing: inherit; }
   [hidden] { display: none !important; }
+  /* A paragraph placed in a component is spaced by the component, not by its margins. */
+  ::slotted(p) { margin: 0; }
   :focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
   @keyframes omg-spin { to { transform: rotate(360deg); } }
   .spinner {

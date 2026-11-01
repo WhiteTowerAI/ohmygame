@@ -6,7 +6,9 @@ const TONES = css(`
   :host([tone="good"]) { --tone: var(--color-success); }
   :host([tone="warning"]) { --tone: var(--color-warning); }
   :host([tone="bad"]) { --tone: var(--color-danger); }
-  :host([tone="info"]), :host([tone="busy"]) { --tone: var(--omg-accent, var(--color-accent)); }
+  /* The plugin's brand colour marks progress only; information is the app's accent. */
+  :host([tone="info"]) { --tone: var(--color-accent); }
+  :host([tone="busy"]) { --tone: var(--omg-accent, var(--color-accent)); }
 `);
 
 /** Gives an element a live-region role unless the page chose one. */

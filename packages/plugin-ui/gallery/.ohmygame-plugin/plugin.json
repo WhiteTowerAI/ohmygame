@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "demo/ui-gallery",
+  "version": "1.0.0",
+  "engines": { "ohmygame-api": "^2.0.0" },
+  "displayName": "Page components gallery",
+  "description": "Every OhMyGame page component in one panel, for checking how they look and behave. Add it from this folder; it isn't bundled.",
+  "icon": "./assets/icon.svg",
+  "entrypoints": { "native": "./native/index.mjs" },
+  "capabilities": { "native": true },
+  "ui": { "preview": true },
+  "contributes": {
+    "panels": [
+      { "id": "gallery", "title": "Components", "icon": "./assets/icon.svg", "area": "center", "entry": "./panel/index.html" }
+    ],
+    "commands": [
+      { "id": "work", "title": "Run a slow command", "run": { "native": "work", "timeoutSeconds": 60, "changesFiles": false } },
+      { "id": "fail", "title": "Run a failing command", "run": { "native": "fail", "timeoutSeconds": 60, "changesFiles": false } }
+    ]
+  }
+}

@@ -379,3 +379,9 @@ Featured and certified plugins won't use preview components.
 
 The components connect to the app themselves, so a page may use them
 without calling `connect()`.
+
+`packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
+shows every component in its states, with commands that report progress and
+fail. It isn't bundled: add it from that folder with **Add plugin…**, allow
+it, and turn it on in a project. `test/plugin-ui-components.test.ts` keeps it
+valid and using only documented components.

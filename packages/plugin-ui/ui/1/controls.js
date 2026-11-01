@@ -123,7 +123,8 @@ class OmgCommandButton extends OmgButton {
 
   constructor() {
     super();
-    this.addEventListener("click", () => void this.run());
+    // Only the button runs the command, not its progress or error beside it.
+    this.part("button").addEventListener("click", () => void this.run());
   }
 
   get input() {
@@ -162,16 +163,17 @@ class OmgCommandButton extends OmgButton {
     }
     const start = new CustomEvent("omg-command-start", { bubbles: true, composed: true, cancelable: true, detail: { command, input } });
     if (!this.dispatchEvent(start)) return undefined;
-    const host = await connection;
+    // Taken before anything waits, so a second click can't start another run.
     this.#running = true;
     if (!this.hasAttribute("concurrent")) running.add(this);
     this.busy = true;
     text(this.part("error"), "");
-    this.#stopProgress = host.on("progress", (value) => {
-      if (value.command === command) text(this.part("progress"), value.message);
-    });
     changed();
     try {
+      const host = await connection;
+      this.#stopProgress = host.on("progress", (value) => {
+        if (value.command === command) text(this.part("progress"), value.message);
+      });
       const result = await host.request("command.run", input === undefined ? { command } : { command, input });
       this.dispatchEvent(new CustomEvent("omg-command-result", { bubbles: true, composed: true, detail: { command, result } }));
       return result;
@@ -180,6 +182,7 @@ class OmgCommandButton extends OmgButton {
       return undefined;
     } finally {
       this.#stopProgress?.();
+      this.#stopProgress = undefined;
       this.#running = false;
       running.delete(this);
       this.busy = false;
@@ -227,11 +230,12 @@ class OmgSelect extends OmgElement {
   constructor() {
     super();
     const select = this.part("select");
-    for (const type of ["change", "input"])
-      select.addEventListener(type, () => {
-        this.setAttribute("value", select.value);
-        this.dispatchEvent(new Event(type, { bubbles: true }));
-      });
+    // `input` crosses the shadow boundary by itself; `change` doesn't.
+    select.addEventListener("input", () => this.setAttribute("value", select.value));
+    select.addEventListener("change", () => {
+      this.setAttribute("value", select.value);
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+    });
   }
 
   get value() {
@@ -252,12 +256,17 @@ class OmgSelect extends OmgElement {
     this.#observer.disconnect();
   }
 
-  /** The page's options, copied into the select; what is chosen stays chosen. */
+  /**
+   * The page's options, copied into the select. The `value` attribute
+   * chooses, and a choice sets it; without one, the option marked
+   * `selected` is chosen, as in a native select. A parser may add the
+   * options one at a time.
+   */
   #copyOptions() {
     const select = this.part("select");
-    const current = this.getAttribute("value") ?? select.value;
+    const sources = [...this.querySelectorAll("option")];
     select.replaceChildren(
-      ...[...this.querySelectorAll("option")].map((source) => {
+      ...sources.map((source) => {
         const option = document.createElement("option");
         option.value = source.value;
         option.textContent = source.textContent;
@@ -265,12 +274,8 @@ class OmgSelect extends OmgElement {
         return option;
       }),
     );
-    this.#choose(current);
-  }
-
-  #choose(value) {
-    const select = this.part("select");
-    if ([...select.options].some((option) => option.value === value)) select.value = value;
+    const chosen = this.getAttribute("value") ?? sources.find((source) => source.hasAttribute("selected"))?.value;
+    if (chosen !== undefined) select.value = chosen;
   }
 
   update() {
@@ -280,8 +285,9 @@ class OmgSelect extends OmgElement {
     if (name) select.setAttribute("aria-label", name);
     else select.removeAttribute("aria-label");
     select.disabled = this.hasAttribute("disabled");
+    // As a native select: a value no option has leaves nothing chosen.
     const value = this.getAttribute("value");
-    if (value !== null) this.#choose(value);
+    if (value !== null && select.value !== value) select.value = value;
   }
 }
 

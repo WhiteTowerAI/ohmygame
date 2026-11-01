@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { cp, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
 
 // The components load as the app serves them, next to the bridge at
 // /_ohmygame/plugin-ui.js, so they are copied into that layout first, in the
@@ -125,6 +126,21 @@ describe("page components", () => {
     await settle();
     expect([...native.options].map((option) => option.value)).toEqual(["a", "b", "c"]);
     expect(select.value).toBe("a");
+    // `input` already crosses the shadow boundary; it arrives once.
+    const inputs: Event[] = [];
+    select.addEventListener("input", (event) => inputs.push(event));
+    native.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    expect(inputs).toHaveLength(1);
+    // As a native select, a value no option has leaves nothing chosen.
+    select.value = "missing";
+    expect(select.value).toBe("");
+  });
+
+  it("starts on the option marked selected when it has no value", async () => {
+    const select = html<HTMLElement & { value: string }>(`<omg-select aria-label="Project"><option value="a">Alpha</option><option value="b" selected>Beta</option></omg-select>`);
+    await settle();
+    expect(select.value).toBe("b");
+    expect(shadow(select, "select").getAttribute("aria-label")).toBe("Project");
   });
 
   it("runs a command with its input, busy and showing progress, and makes other command buttons wait", async () => {
@@ -145,7 +161,7 @@ describe("page components", () => {
     expect(shadow(prepare!, "progress").textContent).toBe("Downloading…");
     expect((shadow(check!, "button") as HTMLButtonElement).disabled).toBe(true);
     // A busy button takes no second click.
-    prepare!.click();
+    shadow(prepare!, "button").click();
     await settle();
     expect(calls).toHaveLength(1);
     finish();
@@ -154,6 +170,30 @@ describe("page components", () => {
     expect(prepare!.hasAttribute("busy")).toBe(false);
     expect(shadow(prepare!, "progress").hidden).toBe(true);
     expect((shadow(check!, "button") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("starts one run however quickly it is clicked, and only from its button", async () => {
+    let finish!: () => void;
+    answer = (id) => {
+      finish = () => app.postMessage({ id, result: null });
+    };
+    document.body.innerHTML = `<omg-command-button command="prepare">Prepare</omg-command-button><omg-command-button command="status">Check</omg-command-button>`;
+    const [prepare, check] = document.querySelectorAll<HTMLElement>("omg-command-button");
+    shadow(prepare!, "button").click();
+    shadow(prepare!, "button").click();
+    shadow(check!, "button").click();
+    await settle();
+    expect(calls).toEqual([{ method: "command.run", params: { command: "prepare" } }]);
+    finish();
+    await settle();
+    // The failure text beside a button isn't the button.
+    answer = (id) => app.postMessage({ id, error: "Failed" });
+    shadow(prepare!, "button").click();
+    await settle();
+    calls = [];
+    shadow(prepare!, "error").click();
+    await settle();
+    expect(calls).toEqual([]);
   });
 
   it("shows a command's failure unless the page handles it, and lets the page cancel a run", async () => {
@@ -184,5 +224,17 @@ describe("page components", () => {
     await settle();
     expect(clicks).toEqual([]);
     expect(calls).toEqual([]);
+  });
+
+  it("keeps the gallery plugin valid and using only defined components", async () => {
+    const manifest = JSON.parse(await readFile("packages/plugin-ui/gallery/.ohmygame-plugin/plugin.json", "utf8"));
+    const checked = validatePluginManifest(manifest);
+    expect(checked.ok ? [] : checked.issues).toEqual([]);
+    expect(manifest.ui).toEqual({ preview: true });
+    const page = await readFile("packages/plugin-ui/gallery/panel/index.html", "utf8");
+    const used = new Set([...page.matchAll(/<(omg-[a-z-]+)/g)].map(([, name]) => name!));
+    expect([...used].filter((name) => !customElements.get(name))).toEqual([]);
+    const docs = await readFile("docs/plugins-v2.md", "utf8");
+    expect([...used].filter((name) => !docs.includes(`\`${name}\``))).toEqual([]);
   });
 });

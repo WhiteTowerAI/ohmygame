@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Page components</title>
+    <link rel="stylesheet" href="/_ohmygame/plugin-ui.css" />
+    <script type="module" src="/_ohmygame/ui/1/index.js"></script>
+    <script type="module" src="./main.js"></script>
+  </head>
+  <body>
+    <omg-page heading="Page components" description="Version 1, in preview. Each section shows one component in its states.">
+      <omg-section heading="omg-steps" description="A flow; the current step shows its content.">
+        <omg-steps id="steps">
+          <omg-step heading="Prepare" state="done"><span slot="summary">The tools are ready.</span><p>Download the tools.</p></omg-step>
+          <omg-step heading="Sign in" state="current"><p>Sign in to your account in the browser.</p></omg-step>
+          <omg-step heading="Connect a project"><span slot="summary">After you sign in.</span><p>Choose a project to connect.</p></omg-step>
+          <omg-step heading="Preview"><p>Start the preview.</p></omg-step>
+        </omg-steps>
+        <omg-stack direction="row" wrap>
+          <omg-button variant="primary" data-step="next">Next step</omg-button>
+          <omg-button data-step="fail">Fail this step</omg-button>
+        </omg-stack>
+        <omg-button variant="ghost" slot="actions" data-step="reset">Reset</omg-button>
+      </omg-section>
+
+      <omg-section heading="omg-command-button" description="Runs the plugin's commands. While one runs, the others wait.">
+        <omg-stack direction="row" wrap align="start">
+          <omg-command-button command="work" variant="primary">Run a slow command</omg-command-button>
+          <omg-command-button command="fail">Run a failing command</omg-command-button>
+        </omg-stack>
+        <omg-status id="result">No command has finished yet.</omg-status>
+      </omg-section>
+
+      <omg-section heading="omg-button">
+        <omg-stack direction="row" wrap>
+          <omg-button variant="primary">Primary</omg-button>
+          <omg-button>Secondary</omg-button>
+          <omg-button variant="ghost">Ghost</omg-button>
+          <omg-button variant="danger">Danger</omg-button>
+          <omg-button disabled>Disabled</omg-button>
+          <omg-button busy>Busy</omg-button>
+        </omg-stack>
+      </omg-section>
+
+      <omg-section heading="omg-status">
+        <omg-stack direction="row" gap="4" wrap>
+          <omg-status>Stopped</omg-status>
+          <omg-status tone="good">Running</omg-status>
+          <omg-status tone="warning">Out of date</omg-status>
+          <omg-status tone="bad">Didn't start</omg-status>
+          <omg-status tone="busy">Starting</omg-status>
+        </omg-stack>
+      </omg-section>
+
+      <omg-section heading="omg-banner">
+        <omg-banner tone="info" heading="Info">A new version of the tools is available.</omg-banner>
+        <omg-banner tone="good" heading="Done">The project is connected.</omg-banner>
+        <omg-banner tone="warning" heading="Warning">The preview is using files from before your last change.</omg-banner>
+        <omg-banner tone="bad" heading="Preparation failed">
+          Python 3.8 or later is required.
+          <omg-button slot="actions">Try again</omg-button>
+        </omg-banner>
+      </omg-section>
+
+      <omg-section heading="omg-select">
+        <omg-select id="select" label="Project" value="b">
+          <option value="">Choose a project</option>
+          <option value="a">Pixel garden</option>
+          <option value="b">Zombie farm</option>
+          <option value="c" disabled>Archived project</option>
+        </omg-select>
+        <omg-status id="chosen"></omg-status>
+      </omg-section>
+
+      <omg-section heading="omg-log">
+        <omg-log id="log" follow empty="No log lines yet."></omg-log>
+        <omg-stack direction="row" wrap>
+          <omg-button data-log="add">Add a line</omg-button>
+          <omg-button variant="ghost" data-log="clear">Clear</omg-button>
+        </omg-stack>
+      </omg-section>
+
+      <omg-section heading="omg-empty">
+        <omg-empty heading="No projects yet" description="This account has no projects. Create one to start.">
+          <omg-button variant="primary">Create a project</omg-button>
+        </omg-empty>
+      </omg-section>
+
+      <omg-section heading="omg-stack" description="Rows and columns spaced by the app's steps.">
+        <omg-stack direction="row" gap="1"><omg-status>gap 1</omg-status><omg-status>gap 1</omg-status></omg-stack>
+        <omg-stack direction="row" gap="6"><omg-status>gap 6</omg-status><omg-status>gap 6</omg-status></omg-stack>
+        <omg-stack direction="row" justify="between"><omg-status>between</omg-status><omg-status>between</omg-status></omg-stack>
+      </omg-section>
+    </omg-page>
+  </body>
+</html>
