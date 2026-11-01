@@ -215,7 +215,7 @@ Failure: exact error, reproduction steps, expected versus observed behavior
 需要 Git、Python 3.8+（含 venv/pip）和 Maker 账号。
 
 1. 在插件页打开 TapTap Maker（格式 2 插件，默认关闭），同意它需要的权限。
-2. 首页类型选「TapTap Maker」，填写需求并创建。项目应直接打开，首条消息暂不发送，并打开 Maker 面板；面板依次显示「环境」「账号」「Maker 项目」。点「准备」应显示下载进度；点「登录」应通过官方浏览器授权（先显示链接的域名再打开），不能要求在对话中提供 token，也不能修改 Codex/Cursor/Claude 配置。
+2. 首页类型选「TapTap Maker」，填写需求并创建。项目应直接打开，首条消息暂不发送，并打开 Maker 面板；面板显示步骤「准备 Maker」「登录」「新建或连接 Maker 项目」「预览」，当前步骤展开，完成的步骤收起为一行摘要。点「准备」应在按钮旁显示下载进度，其他按钮在此期间不可点；点「登录」应通过官方浏览器授权（先显示链接的域名再打开），不能要求在对话中提供 token，也不能修改 Codex/Cursor/Claude 配置。
 3. 在面板中「新建 Maker 项目」（默认用项目名），或「选择已有项目」后「连接」。完成后点「发送原消息」，消息应正常发出。关闭面板后再发送，面板应重新打开。
    创建成功后模拟本地拉取失败，重试必须继续初始化同一个 Maker 项目；结果未知时应提示改为连接已有项目，不能直接再创建一次。
 4. 新导入一个已经绑定的 Maker 目录，应识别为 Maker 项目并保留原绑定。在已有文件的项目中新建或连接，原有文件应保留，`.git/info/exclude` 应列出 `ohmygame.json`、`.ohmygame/` 和 `canvas/`；在本身已是 Git 仓库的文件夹中新建或连接，应被拒绝且不调用 Maker。

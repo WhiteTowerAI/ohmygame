@@ -530,11 +530,12 @@ that starts off; turn it on from **Plugins** in the main sidebar. It adds the
 Maker project type, whose game runs in Maker's own native Runtime window, so
 the project has no web preview and isn't published to Community.
 
-- **Maker panel:** prepares the pinned `@taptap/maker@0.0.39` CLI and its
-  Python/Lua diagnostics once in the plugin's data folder (Python 3.8+ with
-  venv/pip and Git are required), opens Maker's browser sign-in, creates or
-  connects the Maker project, and starts, refreshes and stops the preview,
-  with its logs. Sign-in stays in Maker's own store in the home folder. One
+- **Maker panel:** a flow of steps built from the page components, each
+  folding to a summary once done. It prepares the pinned
+  `@taptap/maker@0.0.39` CLI and its Python/Lua diagnostics once in the
+  plugin's data folder (Python 3.8+ with venv/pip and Git are required),
+  opens Maker's browser sign-in, creates or connects the Maker project, and
+  starts, refreshes and stops the preview, with its logs. Sign-in stays in Maker's own store in the home folder. One
   project prepares the CLI at a time; a cancelled step stops Maker's
   processes.
 - **Creating:** a new Maker project starts empty apart from `ohmygame.json`.
