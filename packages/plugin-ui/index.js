@@ -50,6 +50,8 @@ function bridge(port, hello) {
   };
   port.start();
   if (hello.theme) applyTheme(hello.theme);
+  // The app keeps the frame hidden until the page has its theme.
+  port.postMessage({ event: "ready" });
   return {
     /** Which plugin and project the page is for. */
     plugin: hello.plugin,

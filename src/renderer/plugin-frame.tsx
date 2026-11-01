@@ -138,10 +138,16 @@ export interface CommandProgress {
 export function connectPluginFrame(
   frame: Window,
   context: PluginPageContext,
+  /** Called when the page's bridge has applied the app's theme. */
+  onReady?: () => void,
 ): { send(event: PluginUiEvent): void; close(): void } {
   const channel = new MessageChannel();
   const port = channel.port1;
   port.onmessage = ({ data }) => {
+    if ((data as { event?: unknown } | null)?.event === "ready") {
+      onReady?.();
+      return;
+    }
     const read = readPluginUiRequest(data);
     if (!read.ok) {
       if (read.id !== undefined) port.postMessage({ id: read.id, error: read.error });
@@ -174,6 +180,11 @@ export function connectPluginFrame(
     close: () => port.close(),
   };
 }
+
+/** How long after its page loads a frame shows, when the page's bridge hasn't said it is ready. */
+export const PLUGIN_FRAME_REVEAL_AFTER_LOAD_MS = 500;
+/** The longest a frame stays hidden, loaded or not. */
+export const PLUGIN_FRAME_REVEAL_LATEST_MS = 3000;
 
 export function PluginFrame({
   url,
@@ -217,6 +228,14 @@ export function PluginFrame({
     const element = frame.current;
     if (!element) return;
     let loaded = false;
+    // The frame shows once its page has the app's theme, so the page's own
+    // defaults never flash: when the page's bridge says so, a moment after a
+    // page without one loads, and after a few seconds in any case, so a page
+    // that never finishes loading still shows.
+    const reveal = () => {
+      element.dataset.ready = "";
+    };
+    const timers = [setTimeout(reveal, PLUGIN_FRAME_REVEAL_LATEST_MS)];
     const onLoad = () => {
       if (loaded) {
         connection.current?.close();
@@ -225,14 +244,15 @@ export function PluginFrame({
         return;
       }
       loaded = true;
-      element.dataset.loaded = "";
-      if (element.contentWindow) connection.current = connectPluginFrame(element.contentWindow, stable);
+      timers.push(setTimeout(reveal, PLUGIN_FRAME_REVEAL_AFTER_LOAD_MS));
+      if (element.contentWindow) connection.current = connectPluginFrame(element.contentWindow, stable, reveal);
     };
     element.addEventListener("load", onLoad);
     // Theme changes reach the page as they happen.
     const observer = new MutationObserver(() => connection.current?.send(currentTheme()));
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-appearance", "style", "class"] });
     return () => {
+      timers.forEach(clearTimeout);
       element.removeEventListener("load", onLoad);
       observer.disconnect();
       connection.current?.close();

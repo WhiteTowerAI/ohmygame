@@ -334,7 +334,10 @@ its script is a module file next to it. The desktop app keeps the frame
 within its plugin version's files (`src/desktop/window.ts`); a page that
 loads again is replaced by a new frame at the panel's URL.
 
-The frame has no border and stays hidden until its page loads. A page that
+The frame has no border. It stays hidden until its page has the app's
+theme: the bridge tells the app once it has applied it, a page without the
+bridge shows half a second after it loads, and any page shows within three
+seconds. A page that
 links `/_ohmygame/plugin-ui.css` has a transparent root, so the panel's
 surface shows through, and the app's type, colours and controls. When it
 connects, and whenever the theme changes, the app sets the tokens in
