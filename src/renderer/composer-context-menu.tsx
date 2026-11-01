@@ -222,7 +222,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
           disabled={disabled}
           aria-label={t("contextMenu.trigger")}
           title={t("contextMenu.trigger")}
-        ><Plus size={17} /></button>
+        ><Plus size={16} /></button>
       )} />
       <input ref={filesInput} className="visually-hidden" type="file" multiple tabIndex={-1} aria-hidden="true" onChange={(event) => {
         const files = attachmentFiles([...(event.target.files ?? [])]);
