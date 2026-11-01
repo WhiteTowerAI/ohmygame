@@ -94,24 +94,23 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function selectCollection(name: string) {
-  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
-    .find(tab => tab.textContent === name)!.click());
+function section(name: string) {
+  return [...container.querySelectorAll<HTMLElement>(".plugins-section")]
+    .find(item => item.querySelector("h2")?.textContent?.startsWith(name))!;
 }
 
 describe("Plugin library", () => {
   it("shows beta metadata on the matching card without marking other plugins", async () => {
     plugins[0]!.beta = true;
     await act(async () => root.render(<PluginsSettings onPluginChange={() => {}} onTryPlugin={async () => {}} />));
-    const cards = [...container.querySelectorAll(".plugin-catalog-card")];
-    const betaCard = cards.find(card => card.textContent?.includes("Studio"))!;
-    expect(betaCard.querySelector(".plugin-beta")?.textContent).toBe("Beta");
+    const cards = [...container.querySelectorAll(".plugin-card")];
+    const betaCard = cards.find(card => card.querySelector(".plugin-card-name")?.textContent === "Studio")!;
+    expect(betaCard.querySelector(".ui-badge")?.textContent).toBe("Beta");
     expect(betaCard.querySelector('[aria-label="Disable Studio"]')).not.toBeNull();
-    await selectCollection("Personal");
-    expect(container.querySelector(".plugin-catalog-card .plugin-beta")).toBeNull();
+    expect(section("Personal").querySelector(".ui-badge")).toBeNull();
   });
 
-  it("groups official plugins under Public and user marketplace imports under Personal", async () => {
+  it("groups official plugins by category and user marketplace imports under Personal", async () => {
     await act(async () =>
       root.render(
         <PluginsSettings
@@ -120,21 +119,12 @@ describe("Plugin library", () => {
         />,
       ),
     );
-    expect(
-      container.querySelector('[role="tabpanel"]')
-        ?.textContent,
-    ).toContain("Studio");
-    expect(
-      container.querySelector('[role="tabpanel"]')
-        ?.textContent,
-    ).not.toContain("Community Review");
-    await selectCollection("Personal");
-    expect(container.querySelectorAll(".plugin-catalog-card")).toHaveLength(1);
-    expect(
-      container.querySelector('[role="tabpanel"]')
-        ?.textContent,
-    ).toContain("Community Review");
-    await selectCollection("Public");
+    expect(section("Other plugins").textContent).toContain("Studio");
+    expect(section("Other plugins").textContent).not.toContain("Community Review");
+    expect(section("Personal").querySelectorAll(".plugin-card-name")).toHaveLength(1);
+    expect(section("Personal").textContent).toContain("Community Review");
+    // The AI workspaces follow the Personal plugins.
+    expect(container.querySelector('[aria-label="Plugin workspaces"]')?.textContent).toContain("Configure Studio");
     const toggle = container.querySelector<HTMLButtonElement>(
       '[aria-label="Disable Studio"]',
     )!;
@@ -149,31 +139,30 @@ describe("Plugin library", () => {
     expect(window.location.hash).toBe("#/plugins");
   });
 
-  it("shows compact configuration workspaces with delete in the actions menu", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("shows AI workspaces as cards and asks before deleting one", async () => {
     await act(async () => root.render(<PluginBuilderSessions />));
-    expect(
-      container.querySelector(".plugin-builder-session-card"),
-    ).not.toBeNull();
-    expect(container.querySelector(".plugin-catalog-card")).toBeNull();
+    expect(container.querySelector(".plugin-builder-session-card")).not.toBeNull();
     const actions = container.querySelector<HTMLButtonElement>(
       '[aria-label="Actions for Configure Studio"]',
     )!;
-    await act(async () => actions.click());
-    const remove = [
-      ...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-    ].find((element) => element.textContent === "Delete")!;
-    await act(async () => remove.click());
-    expect(confirm).toHaveBeenCalledWith(
-      expect.stringContaining("Configure Studio"),
+    const chooseDelete = async () => {
+      await act(async () => actions.click());
+      await act(async () =>
+        [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+          .find((element) => element.textContent === "Delete")!
+          .click(),
+      );
+    };
+    await chooseDelete();
+    const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog()?.textContent).toContain("Delete “Configure Studio”?");
+    await act(async () =>
+      [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent === "Cancel")!.click(),
     );
     expect(removed).toEqual([]);
-    confirm.mockReturnValue(true);
-    await act(async () => actions.click());
+    await chooseDelete();
     await act(async () =>
-      [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-        .find((element) => element.textContent === "Delete")!
-        .click(),
+      [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent === "Delete")!.click(),
     );
     expect(removed).toEqual(["/plugins/setup-sessions/workspace"]);
     await vi.waitFor(() =>

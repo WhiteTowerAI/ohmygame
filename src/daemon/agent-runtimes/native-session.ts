@@ -52,6 +52,8 @@ export interface NativeToolResult {
     | { type: "image"; data: string; mimeType: string }
   >;
   details?: unknown;
+  /** The result as data, matching the tool's output schema. */
+  structuredContent?: unknown;
 }
 
 export type NativeTurnOutcome =

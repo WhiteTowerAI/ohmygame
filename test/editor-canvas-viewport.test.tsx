@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, type Ref } from "react";
 import { createRoot } from "react-dom/client";
 import type { Edge, Node, ReactFlowProps } from "@xyflow/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -8,16 +8,22 @@ import { EditorCanvas } from "../src/renderer/editor-canvas.js";
 const flow = vi.hoisted(() => ({
   props: undefined as ReactFlowProps<Node, Edge> | undefined,
   initialized: false,
+  /** Which canvas deleted its selection, by its id. */
+  deleted: [] as string[],
   fitView: vi.fn<() => Promise<boolean>>(),
   getViewport: vi.fn(() => ({ x: 80, y: 40, zoom: 0.4 })),
 }));
 
-vi.mock("@xyflow/react", () => ({
-  ReactFlow: (props: ReactFlowProps<Node, Edge>) => {
+vi.mock("@xyflow/react", async () => {
+  const { createContext, useContext } = await import("react");
+  // Each canvas's hooks answer for that canvas.
+  const CanvasId = createContext("");
+  return {
+  ReactFlow: (props: ReactFlowProps<Node, Edge> & { ref?: Ref<HTMLDivElement> }) => {
     flow.props = props;
     return (
-      <div data-testid="canvas" style={props.style}>
-        {props.children}
+      <div data-testid="canvas" className="react-flow" ref={props.ref} style={props.style}>
+        <CanvasId.Provider value={props.id ?? ""}>{props.children}</CanvasId.Provider>
       </div>
     );
   },
@@ -30,11 +36,20 @@ vi.mock("@xyflow/react", () => ({
   useStore: (selector: (state: object) => unknown) =>
     selector({ width: 1000, height: 700, transform: [0, 0, 1] }),
   useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
-  useReactFlow: () => ({
-    fitView: flow.fitView,
-    getViewport: flow.getViewport,
+  useReactFlow: () => {
+    const id = useContext(CanvasId);
+    return {
+      fitView: flow.fitView,
+      getViewport: flow.getViewport,
+      deleteElements: async () => { flow.deleted.push(id); return { deletedNodes: [], deletedEdges: [] }; },
+    };
+  },
+  useStoreApi: () => ({
+    getState: () => ({ nodes: [{ id: "selected", selected: true }], edges: [] }),
+    setState: () => {},
   }),
-}));
+  };
+});
 
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
@@ -120,4 +135,54 @@ it("reveals empty boards and boards with only hidden nodes without waiting for a
     expect(flow.fitView).not.toHaveBeenCalled();
     await act(async () => root.render(null));
   }
+});
+
+it("deletes only in the canvas used last while it is in sight, when canvases share the page", async () => {
+  flow.deleted = [];
+  const page = (assetsHidden: boolean) => (
+    <>
+      <div className="story-panel">
+        <EditorCanvas id="story" nodes={nodes} addControl={null} onOpenMenu={vi.fn()} deleteKeyCode={["Delete"]} />
+      </div>
+      <div hidden={assetsHidden}>
+        <div className="interactive-story-canvas" tabIndex={0}>
+          <EditorCanvas id="assets" nodes={nodes} addControl={null} onOpenMenu={vi.fn()} deleteKeyCode={["Delete"]} />
+        </div>
+      </div>
+      <button type="button">Elsewhere</button>
+    </>
+  );
+  await act(async () => root.render(page(false)));
+  // React Flow's own delete keys are off; the editor decides which canvas deletes.
+  expect(flow.props!.deleteKeyCode).toBeNull();
+  const canvasOf = (id: string) => [...container.querySelectorAll<HTMLElement>('[data-testid="canvas"]')][id === "story" ? 0 : 1]!;
+  const key = (target: Element) => act(async () => { target.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true })); });
+  const press = async (target: Element) => {
+    await act(async () => { target.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    await key(target);
+  };
+  await press(canvasOf("assets"));
+  expect(flow.deleted).toEqual(["assets"]);
+  // A click outside every canvas leaves the keys where they were.
+  await press(container.querySelector("button")!);
+  expect(flow.deleted).toEqual(["assets", "assets"]);
+  // With the canvas used last hidden, the one in sight takes them.
+  await act(async () => root.render(page(true)));
+  await press(container.querySelector("button")!);
+  expect(flow.deleted).toEqual(["assets", "assets", "story"]);
+  // Focus on an element around one canvas, as from the keyboard, hands it the keys.
+  await act(async () => root.render(page(false)));
+  flow.deleted = [];
+  await press(canvasOf("story"));
+  await act(async () => container.querySelector<HTMLElement>(".interactive-story-canvas")!.focus());
+  await key(canvasOf("story"));
+  expect(flow.deleted).toEqual(["story", "assets"]);
+  // Any other element around one canvas, such as its panel, is not that canvas.
+  await press(container.querySelector(".story-panel")!);
+  expect(flow.deleted).toEqual(["story", "assets", "assets"]);
+  // Typing in a field deletes nothing.
+  const field = document.createElement("input");
+  container.append(field);
+  await press(field);
+  expect(flow.deleted).toEqual(["story", "assets", "assets"]);
 });

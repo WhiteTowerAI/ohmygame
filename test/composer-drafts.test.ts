@@ -48,6 +48,11 @@ describe("conversation composer drafts", () => {
     expect(restored.submitting).toBe(false);
     expect(restored.focusRequestId).toBeUndefined();
     expect([...storage.values.values()][0]).not.toContain("attachment");
+
+    // Plugins chosen after a removed lead are a draft of their own.
+    const extras = createComposerDraftStore(storage).get({ ...scope, conversationId: "chat-b" });
+    extras.update({ extraPlugins: [plugin] });
+    expect(createComposerDraftStore(storage).get({ ...scope, conversationId: "chat-b" }).getSnapshot().extraPlugins).toEqual([plugin]);
   });
 
   it("preserves an initial capability draft without requiring a first keystroke", () => {
@@ -167,6 +172,21 @@ describe("conversation composer drafts", () => {
     session.update({ prompt: "my draft" });
     session.insertPrompt("fix the selected node");
     expect(store.get(scope).getSnapshot().prompt).toBe("my draft\nfix the selected node");
+  });
+
+  it("follows a draft without creating it, so the input box still sets it up", () => {
+    const store = createComposerDraftStore();
+    const watcher = vi.fn();
+    const stop = store.watch(scope, watcher);
+    expect(store.peek(scope)).toBeUndefined();
+
+    store.get(scope, { prompt: "build a maze", mentions: [] }, true).update({ reference: { text: "quoted" } });
+    expect(store.peek(scope)).toMatchObject({ prompt: "build a maze", planning: true, reference: { text: "quoted" } });
+    expect(watcher).toHaveBeenCalledTimes(2);
+
+    stop();
+    store.get(scope).update({ prompt: "changed" });
+    expect(watcher).toHaveBeenCalledTimes(2);
   });
 
   it("clears a pending focus request when its message was successfully submitted", () => {

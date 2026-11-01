@@ -39,8 +39,10 @@ export class ArtifactBuilder {
     return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES);
   }
 
-  async buildInteractiveStory(project: ProjectState): Promise<Buffer> {
-    if (project.type !== "interactive-story") throw new PublishError("Build requires an Interactive Story project");
+  /** The game as it would publish, without the size limit, for hosting elsewhere. */
+  async build(project: ProjectState): Promise<Buffer> {
+    if (project.pluginType?.preview === "native" || (project.type !== "interactive-story" && !isWebRuntimeProjectType(project.type)))
+      throw new PublishError("Build requires a Web Game, General Game or Interactive Story project");
     return this.#create(project);
   }
 

@@ -1,8 +1,8 @@
 import { isAccountRuntimeId, type AccountRuntimeId, type AccountProfileIds } from "../shared/agent-runtimes.js";
 import path from "node:path";
-import { readdir } from "node:fs/promises";
+import { mkdir, readdir, rename, rm } from "node:fs/promises";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import type { AgentModelRef, AgentReasoningLevel, ConversationSummary, PlanSessionState, ProjectState } from "../shared/contracts.js";
+import type { AgentModelRef, AgentReasoningLevel, AgentResponseStats, ConversationSummary, PlanSessionState, ProjectState } from "../shared/contracts.js";
 import { parseReasoningLevel } from "../shared/reasoning.js";
 import { ConversationCache, type ConversationInfo } from "./conversation-cache.js";
 import type { ConversationImageStore } from "./conversation-images.js";
@@ -18,6 +18,8 @@ export interface StoredConversation {
 
 export class ConversationManager {
   readonly #pending = new Map<string, { stored: StoredConversation; manager: SessionManager; titled: boolean }>();
+  /** The file operations on each conversation, one after another, so a rename never writes to a file being moved. */
+  readonly #fileOperations = new Map<string, Promise<unknown>>();
   readonly #cache: ConversationCache;
 
   constructor(
@@ -93,8 +95,65 @@ export class ConversationManager {
     return this.#pending.get(key(project.id, conversationId))?.stored;
   }
 
-  async rename(project: ProjectState, conversationId: string, title: string): Promise<ConversationSummary | undefined> {
-    return this.#rename(project, conversationId, title);
+  /**
+   * Archiving moves a conversation's session file aside, out of the list; it
+   * can come back, or be deleted from the archive for good.
+   */
+  archive(project: ProjectState, conversationId: string): Promise<boolean> {
+    return this.#serially(project, conversationId, () => this.#archive(project, conversationId));
+  }
+
+  async #archive(project: ProjectState, conversationId: string): Promise<boolean> {
+    const stored = await this.get(project, conversationId);
+    if (!stored) return false;
+    // A conversation without messages has no file yet; archiving drops it.
+    if (this.#pending.delete(key(project.id, conversationId))) return true;
+    await mkdir(archiveDirectory(project), { recursive: true });
+    await rename(stored.sessionPath, path.join(archiveDirectory(project), path.basename(stored.sessionPath)));
+    return true;
+  }
+
+  async archived(project: ProjectState): Promise<ConversationSummary[]> {
+    return (await this.#sessions(project, archiveDirectory(project)))
+      .map((session) => summary(project.id, session))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  unarchive(project: ProjectState, conversationId: string): Promise<ConversationSummary | undefined> {
+    return this.#serially(project, conversationId, () => this.#unarchive(project, conversationId));
+  }
+
+  async #unarchive(project: ProjectState, conversationId: string): Promise<ConversationSummary | undefined> {
+    const session = (await this.#sessions(project, archiveDirectory(project))).find((candidate) => candidate.id === conversationId);
+    if (!session) return undefined;
+    await rename(session.path, path.join(sessionDirectory(project), path.basename(session.path)));
+    return (await this.get(project, conversationId))?.summary;
+  }
+
+  /** Deletes an archived conversation; one still in the list must be archived first. */
+  deleteArchived(project: ProjectState, conversationId: string): Promise<boolean> {
+    return this.#serially(project, conversationId, () => this.#deleteArchived(project, conversationId));
+  }
+
+  async #deleteArchived(project: ProjectState, conversationId: string): Promise<boolean> {
+    const session = (await this.#sessions(project, archiveDirectory(project))).find((candidate) => candidate.id === conversationId);
+    if (!session) return false;
+    await rm(session.path, { force: true });
+    return true;
+  }
+
+  /** Renames a conversation in the list; one archived meanwhile is not found. */
+  rename(project: ProjectState, conversationId: string, title: string): Promise<ConversationSummary | undefined> {
+    return this.#serially(project, conversationId, () => this.#rename(project, conversationId, title));
+  }
+
+  #serially<T>(project: ProjectState, conversationId: string, operation: () => Promise<T>): Promise<T> {
+    const id = key(project.id, conversationId);
+    const result = (this.#fileOperations.get(id) ?? Promise.resolve()).then(operation, operation);
+    const settled = result.catch(() => {});
+    this.#fileOperations.set(id, settled);
+    void settled.then(() => { if (this.#fileOperations.get(id) === settled) this.#fileOperations.delete(id); });
+    return result;
   }
 
   setInitialTitle(project: ProjectState, conversationId: string, prompt: string): ConversationSummary | undefined {
@@ -154,6 +213,28 @@ export class ConversationManager {
     this.open(project, stored).appendModelChange(model.provider, model.id);
   }
 
+  /**
+   * The latest response's speed and cache use, and the context it filled,
+   * from the usage its provider reported. Context counts only until the
+   * conversation is compacted after it.
+   */
+  async lastResponse(project: ProjectState, stored: StoredConversation): Promise<(AgentResponseStats & { contextTokens?: number }) | undefined> {
+    const branch = (await this.view(project, stored)).getBranch();
+    const index = branch.findLastIndex((entry) => entry.type === "message" && entry.message.role === "assistant" && Boolean(entry.message.usage?.output));
+    const entry = branch[index];
+    if (entry?.type !== "message" || entry.message.role !== "assistant") return undefined;
+    const { usage, timestamp } = entry.message;
+    const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
+    const seconds = (Date.parse(entry.timestamp) - timestamp) / 1000;
+    const compacted = branch.slice(index + 1).some((later) => later.type === "compaction");
+    return {
+      outputTokens: usage.output,
+      ...(seconds >= 0.5 ? { tokensPerSecond: Math.round(usage.output / seconds) } : {}),
+      ...(prompt > 0 ? { cacheHitPercent: Math.round((usage.cacheRead / prompt) * 100) } : {}),
+      ...(compacted ? {} : { contextTokens: prompt + usage.output }),
+    };
+  }
+
   async reasoningLevel(project: ProjectState, stored: StoredConversation): Promise<AgentReasoningLevel | undefined> {
     const entry = (await this.view(project, stored)).getBranch().findLast((candidate) => candidate.type === "thinking_level_change");
     return entry?.type === "thinking_level_change" ? parseReasoningLevel(entry.thinkingLevel) : undefined;
@@ -211,8 +292,7 @@ export class ConversationManager {
     return { mode: state.mode, ...(state.plan ? { plan: state.plan } : {}) };
   }
 
-  async #sessions(project: ProjectState): Promise<ConversationInfo[]> {
-    const directory = sessionDirectory(project);
+  async #sessions(project: ProjectState, directory = sessionDirectory(project)): Promise<ConversationInfo[]> {
     const files = await readdir(directory).catch((cause: NodeJS.ErrnoException) => {
       if (cause.code === "ENOENT") return [];
       throw cause;
@@ -246,6 +326,11 @@ function summary(projectId: string, session: ConversationInfo): ConversationSumm
     updatedAt: session.modified.toISOString(),
     messageCount: session.messageCount,
   };
+}
+
+/** Where archived conversations' session files wait, inside the session folder. */
+function archiveDirectory(project: ProjectState): string {
+  return path.join(sessionDirectory(project), "archived");
 }
 
 /** The folder that holds the session files of a project's conversations. */

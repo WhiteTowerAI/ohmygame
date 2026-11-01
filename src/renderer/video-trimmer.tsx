@@ -3,23 +3,99 @@ import type { LibraryAsset } from "../shared/contracts.js";
 import { uploadLibraryAsset } from "./api.js";
 import { LoaderCircle, Scissors } from "./icons.js";
 import { t } from "./i18n.js";
+import { Button } from "./ui/index.js";
 import { trimVideo, trimmedVideoType, type VideoTrim } from "./video-trim.js";
 import { formatTime, VideoTrimEditor } from "./video-trim-editor.js";
 
 export { formatTime } from "./video-trim-editor.js";
 
-/** Asset Studio persistence wrapper: encoding and uploading never run in the shared editor. */
+/**
+ * Asset Studio persistence wrapper: encoding and uploading never run in the
+ * shared editor. With `onCancel`, an unchanged trim offers Cancel beside Save.
+ */
 export function VideoTrimmer({
   url,
   label,
   loadSource,
   onSave,
+  onCancel,
 }: {
   url: string;
   label: string;
   loadSource: () => Promise<Blob>;
   onSave: (video: Blob, trim: VideoTrim) => Promise<void>;
+  onCancel?: () => void;
 }) {
+  const { file, trim, setTrim, saving, error, save } = useVideoTrimSave(
+    loadSource,
+    onSave,
+  );
+
+  return (
+    <VideoTrimEditor
+      url={url}
+      label={label}
+      loadSource={file}
+      trim={trim}
+      onTrimChange={setTrim}
+      disabled={Boolean(saving)}
+      renderFooter={({ trim: selected, changed, reset, pause }) => (
+        <div className="video-trimmer-footer">
+          <span className="video-trimmer-summary" aria-live="polite">
+            {trimSummary(selected, changed)}
+          </span>
+          {error ? (
+            <span className="video-trimmer-error" role="alert">
+              {error}
+            </span>
+          ) : null}
+          {saving ? (
+            <>
+              <TrimProgress progress={saving.progress} />
+              <Button
+                disabled={saving.uploading}
+                onClick={() => saving.controller.abort()}
+              >
+                {t("common.cancel")}
+              </Button>
+            </>
+          ) : (
+            <>
+              {changed ? (
+                <Button variant="ghost" onClick={reset}>
+                  {t("videoTrim.reset")}
+                </Button>
+              ) : onCancel ? (
+                <Button variant="ghost" onClick={onCancel}>
+                  {t("common.cancel")}
+                </Button>
+              ) : null}
+              <Button
+                variant="primary"
+                icon={<Scissors size={14} />}
+                disabled={!changed}
+                title={t("videoTrim.saveTitle")}
+                onClick={() => selected && void save(selected, pause)}
+              >
+                {t("videoTrim.save")}
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+    />
+  );
+}
+
+/**
+ * The trim being edited and its save: encodes the kept part, then hands it to
+ * `onSave`. Encoding can be cancelled through `saving.controller`; the upload
+ * in `onSave` cannot, so `saving.uploading` marks when Cancel stops working.
+ */
+export function useVideoTrimSave(
+  loadSource: () => Promise<Blob>,
+  onSave: (video: Blob, trim: VideoTrim) => Promise<void>,
+) {
   const source = useRef<Promise<Blob> | undefined>(undefined);
   const pending = useRef(false);
   const [trim, setTrim] = useState<VideoTrim>();
@@ -75,75 +151,36 @@ export function VideoTrimmer({
     }
   };
 
+  return { file, trim, setTrim, saving, error, save };
+}
+
+/** What the trim footer says: the kept range, or how to choose one. */
+export function trimSummary(
+  trim: VideoTrim | undefined,
+  changed: boolean,
+): string {
+  return trim && changed
+    ? t("videoTrim.kept", {
+        start: formatTime(trim.start),
+        end: formatTime(trim.end),
+        length: (trim.end - trim.start).toFixed(1),
+      })
+    : t("videoTrim.hint");
+}
+
+export function TrimProgress({ progress }: { progress: number }) {
   return (
-    <VideoTrimEditor
-      url={url}
-      label={label}
-      loadSource={file}
-      trim={trim}
-      onTrimChange={setTrim}
-      disabled={Boolean(saving)}
-      renderFooter={({ trim: selected, changed, reset, pause }) => (
-        <div className="video-trimmer-footer">
-          <span className="video-trimmer-summary" aria-live="polite">
-            {selected && changed
-              ? t("videoTrim.kept", {
-                  start: formatTime(selected.start),
-                  end: formatTime(selected.end),
-                  length: (selected.end - selected.start).toFixed(1),
-                })
-              : t("videoTrim.hint")}
-          </span>
-          {error ? (
-            <span className="video-trimmer-error" role="alert">
-              {error}
-            </span>
-          ) : null}
-          {saving ? (
-            <>
-              <span
-                className="video-trimmer-progress"
-                role="progressbar"
-                aria-label={t("videoTrim.saving")}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(saving.progress * 100)}
-              >
-                <LoaderCircle className="spin" size={14} />
-                {t("videoTrim.savingPercent", {
-                  percent: Math.round(saving.progress * 100),
-                })}
-              </span>
-              <button
-                type="button"
-                disabled={saving.uploading}
-                onClick={() => saving.controller.abort()}
-              >
-                {t("common.cancel")}
-              </button>
-            </>
-          ) : (
-            <>
-              {changed ? (
-                <button type="button" onClick={reset}>
-                  {t("videoTrim.reset")}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="video-trimmer-save"
-                disabled={!changed}
-                title={t("videoTrim.saveTitle")}
-                onClick={() => selected && void save(selected, pause)}
-              >
-                <Scissors size={14} />
-                {t("videoTrim.save")}
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    />
+    <span
+      className="video-trimmer-progress"
+      role="progressbar"
+      aria-label={t("videoTrim.saving")}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(progress * 100)}
+    >
+      <LoaderCircle className="spin" size={14} />
+      {t("videoTrim.savingPercent", { percent: Math.round(progress * 100) })}
+    </span>
   );
 }
 

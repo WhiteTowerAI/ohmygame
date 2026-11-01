@@ -12,8 +12,8 @@ import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
 import { videoReferenceMode, videoReferenceAliases, sameVideoReference, resolveVideoMentions, videoReferenceLimit, videoReferenceAspectRatios } from "../shared/video-references.js";
 import { useEffect, useId, type CSSProperties, useState, useRef, useMemo, type SyntheticEvent } from "react";
 import { VideoReferencePrompt } from "./video-reference-prompt.js";
-import { type AudioAssetData, type AudioProviderCatalogStatus, type AudioOperation } from "../shared/audio.js";
-import { AudioCompanionDownloads, audioSettingsIssue, CanvasAudioControls } from "./canvas-audio-controls.js";
+import { audioNodeHasSettings, type AudioProviderCatalogStatus, type AudioOperation } from "../shared/audio.js";
+import { audioSettingsIssue, CanvasAudioControls } from "./canvas-audio-controls.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, canAffordCloudModel, CloudQuotaStatus } from "./cloud-quota.js";
 import { remeshPolycount, MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
@@ -40,7 +40,7 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
     <div className={`story-node story-text-node${selected ? " is-selected" : ""}`}>
       <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
       <div data-alignment-frame className="story-text-output">
-        <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} />
+        <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} className="is-text" />
         <CanvasTextarea
           className={selected ? "nodrag nowheel" : "nodrag"}
           aria-label={t("assetCanvas.textOutput")}
@@ -284,7 +284,8 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
     });
   };
   const prompt = combineAssetCanvasPrompt(runtime?.linkedPrompt, operation === "speech" ? data.text ?? "" : data.prompt ?? "");
-  const issue = (selectedModel?.protocol === "volcengine-tts-v3" && !data.voiceId && !runtime?.providers.find((provider) => provider.provider === selectedModel.provider)?.defaultVoiceId ? t("audioStudio.needVoice") : undefined) ?? (runtime?.referenceControls?.references.some((reference) => !reference.assetId) ? t("assetCanvas.missingNode") : undefined) ?? audioSettingsIssue(data, selectedModel) ?? (selectedModel?.capabilities.maxTextCharacters && prompt.length + (data.style?.length ?? 0) > selectedModel.capabilities.maxTextCharacters ? t("audioStudio.promptLimit", { count: selectedModel.capabilities.maxTextCharacters }) : undefined);
+  const settings = audioNodeHasSettings(operation);
+  const issue = (selectedModel?.protocol === "volcengine-tts-v3" && !data.voiceId && !runtime?.providers.find((provider) => provider.provider === selectedModel.provider)?.defaultVoiceId ? t("audioStudio.needVoice") : undefined) ?? (settings ? audioSettingsIssue(data, selectedModel) : undefined) ?? (selectedModel?.capabilities.maxTextCharacters && prompt.length + (data.style?.length ?? 0) > selectedModel.capabilities.maxTextCharacters ? t("audioStudio.promptLimit", { count: selectedModel.capabilities.maxTextCharacters }) : undefined);
   const canGenerate = !runtime?.busy && !runtime?.generating && !issue && Boolean(prompt.trim() && selectedModel);
   const label = operation === "music" ? t("assetCanvas.node.music") : operation === "speech" ? t("assetCanvas.node.speech") : operation === "audio-scene" ? t("audioStudio.scene") : t("assetCanvas.node.soundEffect");
 
@@ -300,7 +301,7 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
         onChange={(value) => change(operation === "speech" ? { text: value } : { prompt: value })}
       />
       {issue ? <p role="alert">{issue}</p> : null}
-      <CanvasAudioControls value={data} model={selectedModel} disabled={runtime?.busy} onChange={change} referenceControls={runtime?.referenceControls} />
+      {settings ? <CanvasAudioControls value={data} model={selectedModel} disabled={runtime?.busy} onChange={change} /> : null}
       {operation === "sound-effect" && selectedModel?.capabilities.supportsNegativePrompt ? <CanvasTextarea
         aria-label={t("assetCanvas.negativePrompt")}
         rows={2}
@@ -437,13 +438,13 @@ export function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
   const style = kind === "audio" ? { "--story-media-width": "300px", "--story-media-height": "132px" } as CSSProperties : mediaLayout.style;
   return (
     <div className={`story-node story-media-node story-library-asset-node story-library-${kind}-node${selected ? " is-selected" : ""}`} style={style}>
-      <CanvasNodeLabel icon={Icon} label={data.name || titleCase(kind)} details={data.nodeDetails} trailing={<small>{data.assetOrigin === "Project" ? t("assetCanvas.project") : t("assetCanvas.library")}</small>} />
+      <CanvasNodeLabel icon={Icon} label={data.name || titleCase(kind)} details={data.nodeDetails} className={`is-${kind}`} trailing={<small>{data.assetOrigin === "Project" ? t("assetCanvas.project") : t("assetCanvas.library")}</small>} />
       <div data-alignment-frame className="story-media-stage">
         {preview.url && kind !== "audio" ? <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt={data.name || t("assetCanvas.libraryImage")} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
         {preview.url && kind === "model" ? <ModelPreview source={preview.url} label={data.name || "3D model"} minHeight={220} interactive={false} /> : null}
-        {preview.url && kind === "audio" ? <CanvasAudio src={preview.url} data={data.audioAsset} /> : null}
+        {preview.url && kind === "audio" ? <CanvasAudio src={preview.url} /> : null}
         {!preview.url ? <div className="story-media-empty"><Icon size={34} /><strong>{data.assetError || preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset")}</strong>{data.assetError ? <span>{data.assetError}</span> : <CanvasAssetRecovery preview={preview} />}</div> : null}
       </div>
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
@@ -458,7 +459,7 @@ export function FileNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
   const Icon = data.directory ? Folder : Package;
   return (
     <div className={`story-node story-media-node story-file-node${selected ? " is-selected" : ""}`} style={{ "--story-media-width": "300px", "--story-media-height": "150px" } as CSSProperties}>
-      <CanvasNodeLabel icon={Icon} label={name} details={data.nodeDetails} trailing={data.directory ? <small>{t("assetCanvas.folder")}</small> : extension ? <small>{extension}</small> : undefined} />
+      <CanvasNodeLabel icon={Icon} label={name} details={data.nodeDetails} className="is-code" trailing={data.directory ? <small>{t("assetCanvas.folder")}</small> : extension ? <small>{extension}</small> : undefined} />
       <div data-alignment-frame className="story-media-stage">
         <div className="story-media-empty">
           <Icon size={30} />
@@ -766,12 +767,12 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
   const mediaStyle = audio ? { "--story-media-width": "520px", "--story-media-height": "170px" } as CSSProperties : mediaLayout.style;
   return (
     <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaStyle}>
-      <CanvasNodeLabel icon={Icon} label={label} details={details} />
+      <CanvasNodeLabel icon={Icon} label={label} details={details} className={`is-${kind === "animation" ? "model" : kind}`} />
       <div data-alignment-frame className={`story-media-stage${runtime?.generating ? " is-generating" : ""}`}>
         {preview.url ? kind === "audio" ? null : <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt={t("timeline.generatedImage")} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
-        {preview.url && audio ? <CanvasAudio src={preview.url} data={runtime && "audio" in runtime ? runtime.audio as AudioAssetData : undefined} /> : null}
+        {preview.url && audio ? <CanvasAudio src={preview.url} /> : null}
         {preview.url && threeD ? <ModelPreview source={preview.url} label={kind === "animation" ? t("assetCanvas.animated3d") : t("timeline.generated3d")} minHeight={220} interactive={false} /> : null}
         {!preview.url && !runtime?.generating ? (
           <div className="story-media-empty">
@@ -865,7 +866,7 @@ function CanvasVideo({ src, onLoadedMetadata }: {
   );
 }
 
-function CanvasAudio({ src, data }: { src: string; data?: AudioAssetData }) {
+function CanvasAudio({ src }: { src: string }) {
   const audio = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -899,9 +900,6 @@ function CanvasAudio({ src, data }: { src: string; data?: AudioAssetData }) {
         onLoadedMetadata={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
         onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
       />
-      <AudioCompanionDownloads data={data} />
-      {data?.subtitles?.sentences.length ? <select className="audio-subtitle-seek nodrag nopan" aria-label={t("audioStudio.transcript")} value="" onChange={(event) => { const sentence = data.subtitles!.sentences[Number(event.target.value)]; if (sentence && audio.current) { audio.current.currentTime = sentence.startMs / 1000; setCurrentTime(sentence.startMs / 1000); } }}><option value="">{t("audioStudio.transcript")}</option>{data.subtitles.sentences.map((sentence, index) => <option key={index} value={index}>{(sentence.startMs / 1000).toFixed(2)}s · {sentence.text}</option>)}</select> : null}
-      {data?.subtitles ? <p className="audio-current-subtitle">{data.subtitles.sentences.find((sentence) => currentTime * 1000 >= sentence.startMs && currentTime * 1000 < sentence.endMs)?.text ?? ""}</p> : null}
       <InlineVideoControls
         label={t("assetCanvas.media.audio.label")}
         playing={playing}

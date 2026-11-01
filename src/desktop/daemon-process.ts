@@ -24,6 +24,7 @@ export interface StartDaemonOptions {
   runtimeBin?: string;
   piAgentDirectory?: string;
   bundledPluginsDirectory?: string;
+  pluginUiDirectory?: string;
   preinstalledPluginsDirectory?: string;
   examplesDirectory?: string;
   /** How external agents start `ohmygame-mcp`, and the Skill they are given. */
@@ -33,6 +34,8 @@ export interface StartDaemonOptions {
   environment?: NodeJS.ProcessEnv;
   development?: boolean;
   healthTimeoutMs?: number;
+  /** How long `stop` waits for a graceful exit before killing the process tree. */
+  gracefulShutdownTimeoutMs?: number;
   handlePlaytestRequest?: (request: PlaytestRequest, signal: AbortSignal) => Promise<PlaytestResult>;
   resolveSystemProxy?: () => Promise<string>;
   onUnexpectedExit?: (error: Error) => void;
@@ -44,7 +47,8 @@ export interface StartDaemonOptions {
 
 export async function startDaemon(options: StartDaemonOptions): Promise<ManagedDaemon> {
   const port = await availablePort();
-  const runtime = { url: `http://127.0.0.1:${port}`, token: options.token };
+  const pluginUiPort = await availablePort();
+  const runtime = { url: `http://127.0.0.1:${port}`, token: options.token, pluginUiUrl: `http://127.0.0.1:${pluginUiPort}` };
   const environment = { ...(options.environment ?? process.env) };
   // Also discard inherited tokens, including case variants on Windows.
   for (const name of Object.keys(environment)) {
@@ -60,12 +64,14 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ELECTRON_RUN_AS_NODE: "1",
       DAEMON_HOST: "127.0.0.1",
       DAEMON_PORT: String(port),
+      OHMYGAME_PLUGIN_UI_PORT: String(pluginUiPort),
       OHMYGAME_DATA_DIR: path.resolve(options.dataDirectory),
       OHMYGAME_DAEMON_TOKEN_STDIN: "1",
       OHMYGAME_ALLOWED_ORIGINS: options.allowedOrigins.join(","),
       OHMYGAME_PROJECT_PROCESS_IPC: "1",
       ...(options.piAgentDirectory ? { PI_CODING_AGENT_DIR: path.resolve(options.piAgentDirectory) } : {}),
       ...(options.bundledPluginsDirectory ? { OHMYGAME_BUNDLED_PLUGINS_DIR: path.resolve(options.bundledPluginsDirectory) } : {}),
+      ...(options.pluginUiDirectory ? { OHMYGAME_PLUGIN_UI_DIR: path.resolve(options.pluginUiDirectory) } : {}),
       ...(options.preinstalledPluginsDirectory ? { OHMYGAME_PREINSTALLED_PLUGINS_DIR: path.resolve(options.preinstalledPluginsDirectory) } : {}),
       ...(options.examplesDirectory ? { OHMYGAME_EXAMPLES_DIR: path.resolve(options.examplesDirectory) } : {}),
       ...(options.logDirectory ? { OHMYGAME_LOG_DIR: path.resolve(options.logDirectory) } : {}),
@@ -147,7 +153,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
     ready = true;
   } catch (error) {
     stopped = true;
-    await stopChild(child);
+    await stopChild(child, options.gracefulShutdownTimeoutMs);
     await cleanup();
     throw error;
   }
@@ -160,7 +166,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       stopped = true;
       return stopping = (async () => {
         playtestRequests?.close();
-        await stopChild(child);
+        await stopChild(child, options.gracefulShutdownTimeoutMs);
         await closed;
       })();
     },
@@ -253,14 +259,14 @@ function startupError(message: string, output: string): Error {
   return new Error(detail ? `${message}\n\nDaemon output:\n${detail}` : message);
 }
 
-async function stopChild(child: ChildProcess): Promise<void> {
+async function stopChild(child: ChildProcess, gracefulTimeoutMs = GRACEFUL_SHUTDOWN_TIMEOUT_MS): Promise<void> {
   if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
   // IPC lets Windows close the daemon's services before taskkill. POSIX also
   // supports older daemons through SIGTERM; both paths share the shutdown gate.
   if (child.connected) child.send({ channel: "ohmygame:shutdown" }, () => {});
   if (process.platform !== "win32") child.kill("SIGTERM");
-  if (await exitsWithin(exited, GRACEFUL_SHUTDOWN_TIMEOUT_MS)) return;
+  if (await exitsWithin(exited, gracefulTimeoutMs)) return;
   if (process.platform === "win32") await signalProcessTree(child.pid, true);
   else child.kill("SIGKILL");
   if (!(await exitsWithin(exited, 5_000))) {

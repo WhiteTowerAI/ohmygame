@@ -113,7 +113,6 @@ export function PlayableNodeWorkbench({
   onPlayFromHere,
   onPlaytestAction,
   playtestBusy = false,
-  playtestDisabled = false,
   onChatContextChange,
 }: {
   projectId: string;
@@ -150,7 +149,6 @@ export function PlayableNodeWorkbench({
   onPlayFromHere?: (start: PlaytestStart) => void;
   onPlaytestAction?: (action: PlaytestAction) => void;
   playtestBusy?: boolean;
-  playtestDisabled?: boolean;
   onChatContextChange?: (state: PlayableChatState | undefined) => void;
   /** Puts a request in the chat prompt, for when it cannot be sent now. */
   onAskAgent?: (text: string) => void;
@@ -367,7 +365,7 @@ export function PlayableNodeWorkbench({
   // In the header, where the canvas has Playtest.
   const actions = <div className="story-node-editor-actions">
     <button type="button" className="icon-button pane-header-action" title={t("sceneWorkbench.replayTitle")} aria-label={t("sceneWorkbench.replay")} disabled={!runtime.definition} onClick={() => setSession((current) => current + 1)}><RotateCcw size={14} /></button>
-    {onPlayFromHere ? <PlaytestControls label={t("sceneWorkbench.playFromHere")} title={t("sceneWorkbench.playtestFromHere")} disabled={playtestDisabled} busy={playtestBusy} onOpen={() => onPlayFromHere({ nodeId: node.id })} onAction={onPlaytestAction} /> : null}
+    {onPlayFromHere ? <PlaytestControls label={t("sceneWorkbench.playFromHere")} title={t("sceneWorkbench.playtestFromHere")} busy={playtestBusy} onOpen={() => onPlayFromHere({ nodeId: node.id })} onAction={onPlaytestAction} /> : null}
   </div>;
 
   const previewPane = <WorkbenchPreview

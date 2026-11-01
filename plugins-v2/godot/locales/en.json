@@ -1,0 +1,14 @@
+{
+  "displayName": "Godot",
+  "description": "Make Godot games: a project type that plays in the game panel as a web build, tools and an MCP server to build scenes and run the game, and skills for scenes and scripts.",
+  "type.title": "Godot game",
+  "type.description": "A Godot 4 project. Needs Godot 4.3 or later with its web export templates.",
+  "command.run": "Run in Godot",
+  "config.godotPath": "Godot executable",
+  "config.godotPath.description": "Leave empty to use GODOT_PATH, then the PATH and the usual install folders.",
+  "longDescription": "Create scenes and scripts, import game assets, run scenes headless, launch the editor or the game, and read debug output. A Godot game project plays in the game panel as a web build; in other projects, turn Godot on in the project's plugins. Requires a local Godot 4 installation, and Node.js with npx for the Godot MCP server. Visual inspection and gameplay input need a separate supported workflow.",
+  "example.1": "Create a playable 3D scene in Godot.",
+  "example.2": "Inspect the current Godot project and suggest the next implementation step.",
+  "example.3": "Build a player controller for the current Godot scene.",
+  "mcp.title": "Godot MCP"
+}

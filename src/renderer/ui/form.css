@@ -1,0 +1,474 @@
+/* field */
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ui-field-inline {
+  display: grid;
+  grid-template-columns: minmax(120px, 200px) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.ui-field-inline .ui-field-label {
+  padding-top: 7px;
+}
+
+.ui-field-label {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.ui-field-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ui-field-hint,
+.ui-field-error {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.ui-field-error {
+  color: var(--color-danger);
+}
+
+/* input */
+.ui-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-stage);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  /* The lab's body is 13px; the app's isn't, so fields set their own size. */
+  font-size: var(--text-md);
+  transition: box-shadow var(--duration-fast);
+}
+
+.ui-input:hover {
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
+/* Typing focus is a firmer hairline, not a colored ring: the caret already
+   says where you are. Keyboard focus rings are for controls you tab to. */
+.ui-input:focus-within {
+  box-shadow: inset 0 0 0 1px var(--color-text-tertiary);
+}
+
+.ui-input:has([aria-invalid="true"]) {
+  box-shadow: inset 0 0 0 1px var(--color-danger);
+}
+
+.ui-input-md {
+  height: 32px;
+}
+.ui-input-sm {
+  height: 26px;
+  font-size: var(--text-sm);
+}
+
+.ui-input input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+}
+
+.ui-input input::placeholder,
+.ui-textarea::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.ui-input input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.ui-input input:disabled {
+  color: var(--color-text-tertiary);
+}
+
+.ui-input-affix {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.ui-input-clear {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-hover);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.ui-textarea {
+  min-height: 80px;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  outline: none;
+  background: var(--color-stage);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.ui-textarea:focus {
+  box-shadow: inset 0 0 0 1px var(--color-text-tertiary);
+}
+
+/* checkbox and radio */
+.ui-check {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+
+.ui-check.is-disabled {
+  color: var(--color-text-tertiary);
+  cursor: default;
+}
+
+.ui-check input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ui-check-box {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 4px;
+  background: var(--color-stage);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+  color: var(--color-on-accent);
+  transition: background var(--duration-fast);
+}
+
+.ui-check input:checked + .ui-check-box,
+.ui-check input[type="checkbox"]:indeterminate + .ui-check-box {
+  background: var(--color-accent);
+  box-shadow: none;
+}
+
+.ui-check input:focus-visible + .ui-check-box {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.ui-check-dash {
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.ui-radio .ui-check-box {
+  border-radius: 50%;
+}
+
+.ui-radio input:checked + .ui-check-box {
+  background: var(--color-stage);
+  box-shadow: inset 0 0 0 5px var(--color-accent);
+}
+
+.ui-check-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ui-check-text small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.ui-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* switch */
+.ui-switch {
+  position: relative;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  /* Dark enough that the thumb and the track both stand out when off (3:1). */
+  background: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: background var(--duration-fast);
+}
+
+.ui-switch-md {
+  width: 34px;
+  height: 20px;
+}
+.ui-switch-sm {
+  width: 28px;
+  height: 16px;
+}
+
+.ui-switch.is-on {
+  background: var(--color-accent);
+}
+
+.ui-switch:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ui-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  border-radius: 50%;
+  background: var(--color-control-thumb);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+.ui-switch.is-on .ui-switch-thumb {
+  background: var(--color-on-accent);
+}
+
+.ui-switch-md .ui-switch-thumb {
+  width: 16px;
+  height: 16px;
+}
+.ui-switch-sm .ui-switch-thumb {
+  width: 12px;
+  height: 12px;
+}
+.ui-switch-md.is-on .ui-switch-thumb {
+  transform: translateX(14px);
+}
+.ui-switch-sm.is-on .ui-switch-thumb {
+  transform: translateX(12px);
+}
+
+/* slider */
+.ui-slider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.ui-slider input {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--color-accent) var(--ui-slider-fill),
+    var(--color-border-strong) var(--ui-slider-fill)
+  );
+  appearance: none;
+  cursor: pointer;
+}
+
+.ui-slider input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-surface);
+  appearance: none;
+}
+
+.ui-slider-value {
+  min-width: 36px;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+/* select and combobox */
+.ui-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ui-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-stage);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  color: var(--color-text);
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-select:hover {
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
+.ui-select[aria-expanded="true"] {
+  box-shadow: inset 0 0 0 1px var(--color-text-tertiary);
+}
+
+.ui-select-md {
+  height: 32px;
+}
+.ui-select-sm {
+  height: 26px;
+  font-size: var(--text-sm);
+}
+
+.ui-select-value,
+.ui-select-placeholder {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-select-placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.ui-select-caret {
+  flex: none;
+  color: var(--color-text-tertiary);
+}
+
+.ui-listbox {
+  display: flex;
+  flex-direction: column;
+}
+
+.ui-listbox-empty {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.ui-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  padding: 5px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-option.is-active {
+  background: var(--color-hover);
+}
+
+.ui-option:disabled {
+  color: var(--color-text-tertiary);
+  cursor: default;
+}
+
+.ui-option-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--color-text-secondary);
+}
+
+.ui-option-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ui-option-text small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.ui-option-check {
+  flex: none;
+}
+
+/* filter chips */
+.ui-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ui-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast),
+    color var(--duration-fast);
+}
+
+.ui-filter-chip:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.ui-filter-chip.is-on {
+  background: var(--color-selected);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.ui-filter-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  opacity: 0.6;
+}

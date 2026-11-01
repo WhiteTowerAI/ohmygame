@@ -10,7 +10,7 @@ import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
 import { LocalPluginStore } from "../src/daemon/local-plugins.js";
 import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService } from "../src/daemon/plugin-catalog.js";
 import { discoverPlugins } from "../src/daemon/plugin-discovery.js";
-import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
+import { BUNDLED_PLUGINS_OFF, BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
 import { readPluginBuilderInput, savePluginBuilderInput } from "../src/renderer/plugin-builder-drafts.js";
@@ -25,7 +25,7 @@ async function environment() {
   const settings = new PluginSettingsStore(directory);
   await settings.load();
   const local = new LocalPluginStore(directory);
-  const bundled = new BundledPluginStore(path.resolve("plugins"));
+  const bundled = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
   await bundled.load();
   const capabilities = new PluginCapabilities(directory, agentDir, [bundled, local], local, settings);
   await capabilities.configuration.load();
@@ -420,7 +420,7 @@ describe("Plugin Builder", () => {
   });
 
   it("deletes conversation history across restart while retaining the draft and its credentials", async () => {
-    const { setup, directory, app, manager } = await environment();
+    const { setup, directory, manager } = await environment();
     const state = await setup.create();
     const draft = await setup.prepare(state.id, await writeDraft(directory, state.id, true));
     await setup.configuration(state.id, { key: "draft-key" });

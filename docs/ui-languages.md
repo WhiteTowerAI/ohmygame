@@ -9,7 +9,7 @@ languages use the same `{{placeholders}}`.
 ## How it works
 
 `src/renderer/i18n.ts` wraps [i18next](https://www.i18next.com/). It resolves
-the language once, when the page loads: the choice in **Settings → Appearance
+the language once, when the page loads: the choice in **Settings → General
 → Language**, or the first system language (any `zh*` locale uses Simplified
 Chinese). Changing the setting reloads the window, so module-level labels can
 call `t` directly. The module also sets `<html lang>` and exports `language`

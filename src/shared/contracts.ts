@@ -25,11 +25,21 @@ export interface AgentUsageLimit {
   resetsAt?: number;
 }
 
+/** The conversation's latest model response, as its usage recorded it. */
+export interface AgentResponseStats {
+  outputTokens: number;
+  /** Output tokens over the response's time, when it was long enough to tell. */
+  tokensPerSecond?: number;
+  /** Prompt tokens read from the provider's cache, as a share of all prompt tokens. */
+  cacheHitPercent?: number;
+}
+
 export interface AgentContextUsage {
   tokens: number | null;
   contextWindow: number;
   percent: number | null;
   limits?: AgentUsageLimit[];
+  lastResponse?: AgentResponseStats;
 }
 
 export interface ModelRef {
@@ -370,13 +380,26 @@ export interface ProjectCoverState {
   mode: ProjectCoverMode;
 }
 
+/** An element the person picked in a web game's preview, to point the agent at it. */
+export interface PreviewPick {
+  tag: string;
+  /** Its accessible name or text, shortened. */
+  text?: string;
+  /** A CSS path from the document. */
+  selector: string;
+  /** In the page's CSS pixels. */
+  box: { x: number; y: number; width: number; height: number };
+  /** The page it was on. */
+  path: string;
+}
+
 export interface PreviewRuntimeState {
   status: PreviewStatus;
   url?: string;
   error?: string;
   diagnostic?: import("./preview-diagnostics.js").PreviewDiagnostic;
   diagnostics?: import("./preview-diagnostics.js").PreviewDiagnostic[];
-  phase?: "checking" | "installing" | "launching" | "connecting";
+  phase?: "checking" | "building" | "installing" | "launching" | "connecting";
   startedAt?: string;
   logs?: string;
   command?: string;
@@ -390,6 +413,18 @@ export interface PreviewRuntimeState {
 
 export type ProjectNameSource = "default" | "ai" | "manual";
 
+/** How a project shows in the sidebar and on its card, set in project settings. */
+export interface ProjectAppearance {
+  /** A default library icon, replacing the one picked from the project ID. */
+  icon?: import("./project-appearance.js").ProjectIcon;
+  /** The default template's background tone, from 0 to 3. */
+  tone?: number;
+  /** Shows the default template instead of a captured or uploaded cover. */
+  cover?: "template";
+  /** Set while the project has an uploaded logo. */
+  logo?: true;
+}
+
 export interface ProjectState extends ProjectPreviewSettings {
   id: string;
   name: string;
@@ -398,8 +433,21 @@ export interface ProjectState extends ProjectPreviewSettings {
   type: ProjectType;
   updatedAt: string;
   workspacePath: string;
-  /** The plugin owns the binding file; OhMyGame stores only its identity and presentation. */
-  integration?: { pluginId: string; preview?: "external" };
+  /**
+   * A format 1 plugin integration the project used, kept only until the app
+   * moves the project to that plugin's format 2 type; nothing else reads it.
+   */
+  integration?: {
+    pluginId: string;
+    preview?: "external";
+    /** Came from an archive: moving it never allows the plugin for its folder. */
+    imported?: true;
+  };
+  /**
+   * A format 2 plugin project type, `publisher/name:type`, and how its game is
+   * previewed, recorded for the app's screens. `ohmygame.json` decides what runs.
+   */
+  pluginType?: { id: string; plugin: string; preview: "web" | "web-build" | "native" };
   /** General Game's explicit Web preview opt-in; missing means disabled. */
   webPreviewEnabled?: boolean;
   /** Directory, relative to the workspace root, in which the Web Game preview starts. */
@@ -421,6 +469,7 @@ export interface ProjectState extends ProjectPreviewSettings {
   workspaceAvailable?: boolean;
   preview: PreviewRuntimeState;
   publication?: PublicationState;
+  appearance?: ProjectAppearance;
 }
 
 export interface ProjectRunSettings extends ProjectPreviewSettings {
@@ -664,7 +713,7 @@ export interface PromptReference {
  * conversation shows only the label.
  */
 export interface PromptContext {
-  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "playable-moment" | "design-document" | "canvas-board";
+  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "playable-moment" | "design-document" | "canvas-board" | "preview-element";
   label: string;
   text: string;
 }
@@ -909,6 +958,8 @@ export interface CreateProjectRequest {
   /** Absolute path returned by the desktop directory picker. */
   workspacePath?: string;
   pluginId?: string;
+  /** A format 2 plugin project type, `publisher/name:type` (see GET /project-types). */
+  projectType?: string;
 }
 /** `reasoningLevel` is for a Pi model and `nativeReasoningLevel` for a coding agent's. */
 export interface CreateConversationRequest {
@@ -960,7 +1011,6 @@ export interface ConversationCapabilities {
     icon?: import("./plugins.js").PluginIcon;
     iconRevision?: string;
     projectTypes?: ProjectType[];
-    integration?: import("./plugin-integration.js").PluginIntegrationDefinition;
   }>;
   skills: Array<{
     name: string;
@@ -1256,7 +1306,13 @@ export interface RuntimeEventData {
   "conversation.model.changed": { item: Extract<ThreadItem, { type: "modelChange" }> };
   "project.renamed": { project: ProjectState };
   "project.updated": { project: ProjectState };
+  /** What the project's format 2 plugins offer may have changed: read their panels and commands again. */
+  "project.plugins.changed": Record<string, never>;
+  /** A plugin command the app runs needs the person to open an https link, such as a sign-in page. */
+  "plugin.command.progress": { command: string; message: string; url?: string };
   "preview.updated": { preview: PreviewRuntimeState };
+  /** Without a pick, the person cancelled. */
+  "preview.picked": { client: string; pick?: PreviewPick };
   "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; revision?: "last-turn" };
   "checkpoint.created": { checkpointId: string };
   "checkpoint.completed": { checkpointId: string } & Pick<TurnChanges, "files" | "items">;
@@ -1287,7 +1343,10 @@ export const RUNTIME_EVENT_TYPES = [
   "conversation.model.changed",
   "project.renamed",
   "project.updated",
+  "project.plugins.changed",
+  "plugin.command.progress",
   "preview.updated",
+  "preview.picked",
   "agent.started",
   "checkpoint.created",
   "checkpoint.completed",

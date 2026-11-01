@@ -28,24 +28,23 @@ it("shows the saved choice and preserves it when saving a new transport fails", 
   await act(async () =>
     root.render(<ProviderResponsesTransport providerId="relay" />),
   );
-  const select = host.querySelector("select")!;
+  const select = () => host.querySelector<HTMLButtonElement>(".ui-select")!;
+  async function choose(label: string) {
+    await act(async () => select().click());
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent?.includes(label))!;
+    await act(async () => option.click());
+  }
   expect(get).toHaveBeenCalledWith("relay");
-  expect(select.value).toBe("sse");
+  expect(select().textContent).toContain("HTTP / SSE");
   update.mockRejectedValueOnce(new Error("Could not save transport"));
-  await act(async () => {
-    select.value = "websocket";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  await choose("WebSocket");
   expect(update).toHaveBeenCalledWith("relay", "websocket");
-  expect(select.value).toBe("sse");
+  expect(select().textContent).toContain("HTTP / SSE");
   expect(host.querySelector('[role="alert"]')?.textContent).toBe(
     "Could not save transport",
   );
   update.mockResolvedValueOnce({ mode: "websocket" });
-  await act(async () => {
-    select.value = "websocket";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  expect(select.value).toBe("websocket");
+  await choose("WebSocket");
+  expect(select().textContent).toContain("WebSocket");
   expect(host.querySelector('[role="alert"]')).toBeNull();
 });

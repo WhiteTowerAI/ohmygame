@@ -28,7 +28,8 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     let active = true;
     void import("@google/model-viewer").then(() => {
       if (active) setComponentReady(true);
-    }).catch(() => {
+    }).catch((error: unknown) => {
+      console.error("3D viewer failed to load", error);
       if (active) setComponentError(true);
     });
     return () => { active = false; };

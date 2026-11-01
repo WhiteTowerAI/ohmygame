@@ -1,11 +1,14 @@
 # Agent request errors
 
-Model request failures appear as a single collapsed row in the chat timeline.
-Expand the row to see actionable guidance, full diagnostics and a footer copy
-icon. Copy success briefly shows a checkmark before the icon resets.
-Unclassified failures include an ellipsized provider response in the summary.
-Only the current reconnect attempt uses the activity shimmer; later model or
-tool activity stops it, and successful retries disappear.
+A turn that ends on a model request failure shows one card in the chat
+timeline: the failure's title and what to do about it. **Details** opens the
+full diagnostics, and **Copy diagnostics** copies them, briefly confirming.
+Unclassified failures add the provider's response, on one line, under the
+title. Where the guidance points to Settings (model setup, credentials, the
+local CLI, or the network and proxy), **Open settings** goes to that page.
+A reconnect attempt is a single row instead. Only the current one uses the
+activity shimmer; later model or tool activity stops it, and successful
+retries disappear.
 
 Authentication, account limits, request compatibility, provider server errors,
 DNS, TLS, timeouts and interrupted responses have distinct presentations.

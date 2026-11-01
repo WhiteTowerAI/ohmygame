@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
+import { rmdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, powerSaveBlocker, session, shell } from "electron";
 import { clipboardFilePaths, loadClipboardFiles } from "./file-clipboard.js";
 import { installExternalMcpLauncher, markExternalMcpApp } from "./external-mcp-install.js";
 import { DaemonSupervisor } from "./daemon-supervisor.js";
@@ -236,6 +237,30 @@ handle("ohmygame:reveal-plugin-skill", async (event, pluginId: unknown, skillId:
   if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid Plugin Skill path");
   shell.showItemInFolder(result.path);
 });
+// Removes a project from OhMyGame. The daemon moves the files of a project in
+// its own storage aside and says where; they go to the Trash from there, so
+// removing never deletes what the person made.
+handle("ohmygame:remove-project", async (event, projectId: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid project source");
+  if (!validRouteId(projectId) || !daemon) throw new Error("Invalid project");
+  const response = await fetch(`${daemon.runtime.url}/projects/${encodeURIComponent(projectId)}?keep=1`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${daemon.runtime.token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => undefined) as { error?: unknown } | undefined;
+    throw new Error(typeof body?.error === "string" ? body.error : "The project could not be removed");
+  }
+  const result = await response.json() as { movedTo?: unknown };
+  if (result.movedTo === undefined) return;
+  if (typeof result.movedTo !== "string" || !path.isAbsolute(result.movedTo)) throw new Error("Invalid removed project folder");
+  try {
+    await shell.trashItem(result.movedTo);
+  } catch {
+    throw new Error(`The project was removed, but its files could not be moved to the Trash. They are in ${result.movedTo}`);
+  }
+  await rmdir(path.dirname(result.movedTo)).catch(() => {});
+});
 handle("ohmygame:open-logs-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid logs folder source");
   mkdirSync(logDirectory, { recursive: true, mode: 0o700 });
@@ -457,6 +482,30 @@ handle("ohmygame:update-state", () => updater?.state() ?? null);
 handle("ohmygame:check-for-update", () => (updateChecks ? updateChecks.manual() : updater?.check()));
 handle("ohmygame:download-update", () => updater?.download());
 handle("ohmygame:install-update", () => updater?.install());
+// Settings → General: the main window says when an agent is working and the person wants no sleep.
+let keepAwakeBlocker: number | undefined;
+function setKeepAwake(enabled: boolean): void {
+  if (enabled && keepAwakeBlocker === undefined) keepAwakeBlocker = powerSaveBlocker.start("prevent-app-suspension");
+  else if (!enabled && keepAwakeBlocker !== undefined) {
+    powerSaveBlocker.stop(keepAwakeBlocker);
+    keepAwakeBlocker = undefined;
+  }
+}
+handle("ohmygame:set-keep-awake", (event, enabled: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid keep-awake source");
+  setKeepAwake(enabled === true);
+});
+handle("ohmygame:focus-window", (event) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) throw new Error("Invalid focus source");
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
+handle("ohmygame:set-automatic-updates", (event, enabled: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid update source");
+  if (typeof enabled !== "boolean") throw new Error("Invalid automatic update setting");
+  updater?.setAutomatic(enabled);
+});
 handle("ohmygame:restart-app", (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid restart source");
   if (quitting) return;
@@ -530,6 +579,7 @@ try {
     allowedOrigins: [rendererOrigin],
     piAgentDirectory: process.env.PI_CODING_AGENT_DIR ?? path.join(app.getPath("userData"), "pi-agent"),
     bundledPluginsDirectory: app.isPackaged ? path.join(process.resourcesPath, "plugins") : undefined,
+    pluginUiDirectory: app.isPackaged ? path.join(process.resourcesPath, "plugin-ui") : undefined,
     preinstalledPluginsDirectory: app.isPackaged
       ? path.join(process.resourcesPath, "preinstalled-plugins")
       : path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),
@@ -632,7 +682,8 @@ async function openMainWindow(): Promise<void> {
         }).catch(() => {});
       });
       window.once("closed", () => {
-        if (mainWindow === window) { mainWindow = undefined; rendererClose = undefined; }
+        // Only the main window asks to stay awake, so nothing is left to release it.
+        if (mainWindow === window) { mainWindow = undefined; rendererClose = undefined; setKeepAwake(false); }
         webGamePlayers.close();
         for (const playtest of playtestWindows.values()) {
           void Promise.resolve(playtest).then((window) => window.close(), () => {});

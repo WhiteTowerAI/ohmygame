@@ -398,8 +398,12 @@ describe("Markdown design workspace", () => {
     stopped.abort();
     await expect(abandoned).rejects.toThrow();
     expect((await store.jobs(project.id)).find((job) => job.id === manual.id)).toMatchObject({ status: "running" });
+    // The manual run may finish only once this call has joined it: finishing saves its output to the node.
+    const join = vi.spyOn(store, "generateNode");
     const followed = tool.execute("follow", { boardId, nodeId: node.id }, undefined, undefined, {} as never);
-    await expect.poll(() => generate.mock.calls.length).toBe(1);
+    await expect.poll(() => join.mock.calls.length).toBe(1);
+    expect(await join.mock.results[0]!.value).toMatchObject({ id: manual.id, reused: "running" });
+    join.mockRestore();
     release();
     const first = await followed;
     expect(first.content[0]).toMatchObject({ text: expect.stringContaining("was already generating") });
@@ -964,7 +968,7 @@ describe("design merge and validation", () => {
   });
 });
 
-it("saves scene references and subtitle companions outside temporary runs", async () => {
+it("reads legacy scene settings but omits references, subtitles and audio settings from new generations", async () => {
   const model = { provider: "volcengine-seed-audio", id: "seed-audio-1.0" };
   const subtitles = { text: "Welcome", sentences: [{ text: "Welcome", startMs: 100, endMs: 800, words: [{ text: "Welcome", startMs: 100, endMs: 800 }] }] };
   const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("fixture audio"), mediaType: "audio/wav", model, metadata: { durationMs: 1000, originalDurationMs: 1200, providerRequestId: "trace-scene" }, subtitles });
@@ -977,13 +981,18 @@ it("saves scene references and subtitle companions outside temporary runs", asyn
   await store.generateNode(project.id, boardId, "scene");
   const job = await waitForJob(store, project.id);
   expect(job.status).toBe("succeeded");
-  expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "audio-scene", pitch: -3, volume: 10, subtitles: true, references: [{ id: "Audio1", type: "audio", assetId: reference.id }] }), expect.any(AbortSignal));
+  expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "audio-scene" }), expect.any(AbortSignal));
+  // Audio creation offers no audio settings, so saved ones are not sent.
+  for (const key of ["pitch", "volume", "output"]) expect(generate.mock.calls[0]![0]).not.toHaveProperty(key);
+  expect(generate.mock.calls[0]![0]).not.toHaveProperty("subtitles");
+  expect(generate.mock.calls[0]![0]).not.toHaveProperty("references");
   const output = job.run!.files.find((file) => file.role === "audio")!;
   const manifest = await readCanvasAssets(project.workspacePath), asset = manifest.assets[output.assetId!]!;
-  expect(asset.audio?.subtitles).toEqual(subtitles);
-  expect(await readFile(path.join(project.workspacePath, `${asset.path}.srt`), "utf8")).toContain("00:00:00,100 --> 00:00:00,800");
-  expect(JSON.parse(await readFile(path.join(project.workspacePath, `${asset.path}.audio.json`), "utf8"))).toMatchObject({ metadata: { originalDurationMs: 1200 }, subtitles });
+  expect(asset.audio).not.toHaveProperty("subtitles");
+  await expect(readFile(path.join(project.workspacePath, `${asset.path}.srt`))).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(readFile(path.join(project.workspacePath, `${asset.path}.vtt`))).rejects.toMatchObject({ code: "ENOENT" });
+  expect(JSON.parse(await readFile(path.join(project.workspacePath, `${asset.path}.audio.json`), "utf8"))).toMatchObject({ metadata: { originalDurationMs: 1200 } });
   await expect(readFile(path.join(directory, "tools/runs", job.run!.id, "run.json"))).rejects.toMatchObject({ code: "ENOENT" });
   const restored = new AssetLibrary(directory); await restored.load();
-  expect(restored.get(output.assetId!)?.audio?.subtitles).toEqual(subtitles);
+  expect(restored.get(output.assetId!)?.audio?.metadata?.originalDurationMs).toBe(1200);
 });

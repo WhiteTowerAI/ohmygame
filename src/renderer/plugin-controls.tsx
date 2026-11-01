@@ -6,7 +6,6 @@ import type {
   PluginMcpResult,
 } from "../shared/plugins.js";
 import {
-  createMcpPlugin,
   readPluginDraftConfiguration,
   savePluginDraftConfiguration,
   readPluginConfiguration,
@@ -47,11 +46,16 @@ export function PluginConfigurationPanel({
   plugin,
   setupId,
   compact = false,
+  load,
+  store,
   onChanged,
 }: {
-  plugin: PluginDetail;
+  plugin: Pick<PluginDetail, "id" | "configuration">;
   setupId?: string;
   compact?: boolean;
+  /** Reads and saves someone else's configuration, such as a connection's. */
+  load?: () => Promise<PluginConfigurationView>;
+  store?: (values: PluginConfigurationValues) => Promise<PluginConfigurationView>;
   onChanged: () => void;
 }) {
   const [config, setConfig] = useState<PluginConfigurationView>();
@@ -61,7 +65,7 @@ export function PluginConfigurationPanel({
   const [notice, setNotice] = useState<string>();
   useEffect(() => {
     let active = true;
-    void (setupId ? readPluginDraftConfiguration(setupId) : readPluginConfiguration(plugin.id))
+    void (load ? load() : setupId ? readPluginDraftConfiguration(setupId) : readPluginConfiguration(plugin.id))
       .then((value) => {
         if (active) {
           setConfig(value);
@@ -182,7 +186,7 @@ export function PluginConfigurationPanel({
     setBusy(true);
     setError(undefined);
     try {
-      setConfig(await (setupId ? savePluginDraftConfiguration(setupId, values) : savePluginConfiguration(plugin.id, values)));
+      setConfig(await (store ? store(values) : setupId ? savePluginDraftConfiguration(setupId, values) : savePluginConfiguration(plugin.id, values)));
       setValues({});
       setNotice(
         compact ? t("common.saved") : setupId ? t("pluginControls.savedDraft") : t("pluginControls.savedActive"),
@@ -448,169 +452,6 @@ export function PluginMcpPanel({
       setError(message(cause));
     } finally {
       setBusy(undefined);
-    }
-  }
-}
-
-export function AddMcpPluginDialog({
-  onClose,
-  onInstalled,
-}: {
-  onClose: () => void;
-  onInstalled: (id: string) => void;
-}) {
-  const [name, setName] = useState("");
-  const [transport, setTransport] = useState<"stdio" | "http" | "json">("http");
-  const [command, setCommand] = useState("");
-  const [args, setArgs] = useState("[]");
-  const [url, setUrl] = useState("");
-  const [json, setJson] = useState('{\n  "mcpServers": {}\n}');
-  const [schema, setSchema] = useState("{}");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  return (
-    <div
-      className="plugin-install-backdrop"
-      onClick={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose();
-      }}
-    >
-      <form
-        className="plugin-install-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("pluginControls.addMcpPlugin")}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void install();
-        }}
-      >
-        <h2>{t("pluginControls.addMcpPlugin")}</h2>
-        <label>
-          {t("pluginControls.pluginName")}
-          <input
-            required
-            placeholder="my-service"
-            pattern="[a-z0-9]+(-[a-z0-9]+)*"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <label>
-          {t("pluginControls.connectionType")}
-          <select
-            value={transport}
-            onChange={(event) =>
-              setTransport(event.target.value as typeof transport)
-            }
-          >
-            <option value="http">HTTP</option>
-            <option value="stdio">{t("pluginControls.localCommand")}</option>
-            <option value="json">{t("pluginControls.pasteConfig")}</option>
-          </select>
-        </label>
-        {transport === "http" ? (
-          <label>
-            {t("pluginControls.mcpUrl")}
-            <input
-              required
-              type="url"
-              value={url}
-              placeholder="https://example.com/mcp"
-              onChange={(event) => setUrl(event.target.value)}
-            />
-          </label>
-        ) : transport === "stdio" ? (
-          <>
-            <label>
-              {t("pluginControls.command")}
-              <input
-                required
-                value={command}
-                placeholder="npx"
-                onChange={(event) => setCommand(event.target.value)}
-              />
-            </label>
-            <label>
-              {t("pluginControls.arguments")}
-              <textarea
-                value={args}
-                onChange={(event) => setArgs(event.target.value)}
-              />
-            </label>
-          </>
-        ) : (
-          <label>
-            {t("pluginControls.mcpConfig")}
-            <textarea
-              rows={8}
-              value={json}
-              onChange={(event) => setJson(event.target.value)}
-            />
-          </label>
-        )}
-        <details>
-          <summary>{t("pluginControls.configFields")}</summary>
-          <label>
-            {t("pluginControls.optionalFields")}
-            <textarea
-              rows={5}
-              value={schema}
-              onChange={(event) => setSchema(event.target.value)}
-            />
-          </label>
-        </details>
-        <p>
-          {t("pluginControls.keysStored")}
-        </p>
-        {error ? (
-          <p className="plugin-install-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <footer>
-          <button
-            className="plugin-detail-secondary"
-            type="button"
-            disabled={busy}
-            onClick={onClose}
-          >
-            {t("common.cancel")}
-          </button>
-          <button
-            className="plugin-detail-primary"
-            type="submit"
-            disabled={busy}
-          >
-            {busy ? t("pluginControls.adding") : t("plugins.add")}
-          </button>
-        </footer>
-      </form>
-    </div>
-  );
-  async function install() {
-    setBusy(true);
-    setError(undefined);
-    try {
-      const servers =
-        transport === "json"
-          ? JSON.parse(json).mcpServers
-          : {
-              service:
-                transport === "http"
-                  ? { url }
-                  : { command, args: JSON.parse(args) },
-            };
-      const plugin = await createMcpPlugin({
-        name,
-        servers,
-        configuration: JSON.parse(schema),
-      });
-      onInstalled(plugin.id);
-    } catch (cause) {
-      setError(message(cause));
-    } finally {
-      setBusy(false);
     }
   }
 }

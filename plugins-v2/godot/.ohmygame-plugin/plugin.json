@@ -1,0 +1,99 @@
+{
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "ohmygame/godot",
+  "version": "1.0.0",
+  "engines": { "ohmygame-api": "^2.0.0" },
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "longDescription": "%longDescription%",
+  "examples": ["%example.1%", "%example.2%", "%example.3%"],
+  "beta": true,
+  "icon": "./assets/icon.svg",
+  "categories": ["engine"],
+  "appliesTo": ["general", "ohmygame/godot:godot-game"],
+  "entrypoints": { "native": "./native/index.mjs" },
+  "capabilities": {
+    "native": true,
+    "project.files": "write",
+    "processes": ["godot", "node", "npx"]
+  },
+  "configuration": {
+    "godotPath": {
+      "type": "path",
+      "title": "%config.godotPath%",
+      "description": "%config.godotPath.description%",
+      "default": ""
+    }
+  },
+  "contributes": {
+    "projectTypes": [
+      {
+        "id": "godot-game",
+        "title": "%type.title%",
+        "description": "%type.description%",
+        "icon": "./assets/icon.svg",
+        "template": "./templates/godot-game/",
+        "recognize": { "files": ["project.godot"] },
+        "preview": "web-build",
+        "playtest": "web"
+      }
+    ],
+    "skills": "./skills/",
+    "tools": [
+      {
+        "name": "godot_status",
+        "description": "Report the Godot executable this project uses, its version, and whether Godot's web export templates are installed for it.",
+        "input": "./tools/empty.json",
+        "output": "./tools/status-output.json"
+      },
+      {
+        "name": "run_headless",
+        "description": "Run the project's main scene, or another scene, without a window for a number of frames, and return Godot's output and the errors it printed. Use it to check scripts and scenes after editing them.",
+        "input": "./tools/run-headless.json",
+        "output": "./tools/run-output.json"
+      },
+      {
+        "name": "export_web",
+        "description": "Export the project as a web build into .ohmygame/build/web, the build the game panel plays. Returns Godot's output.",
+        "input": "./tools/empty.json",
+        "output": "./tools/run-output.json"
+      }
+    ],
+    "mcpServers": [
+      {
+        "id": "godot",
+        "title": "%mcp.title%",
+        "command": "node",
+        "args": ["./native/mcp.mjs"],
+        "env": { "OHMYGAME_GODOT_SETTING": "${config.godotPath}" },
+        "tools": [
+          "launch_editor",
+          "run_project",
+          "get_debug_output",
+          "stop_project",
+          "get_godot_version",
+          "list_projects",
+          "get_project_info",
+          "create_scene",
+          "add_node",
+          "load_sprite",
+          "export_mesh_library",
+          "save_scene",
+          "get_uid",
+          "update_project_uids"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "id": "run-in-godot",
+        "title": "%command.run%",
+        "run": { "native": "runInGodot" },
+        "slots": [{ "slot": "project.toolbar", "when": "project.plugin('ohmygame/godot')" }]
+      }
+    ],
+    "settings": {
+      "groups": [{ "rows": [{ "field": "godotPath" }, { "widget": "status" }] }]
+    }
+  }
+}

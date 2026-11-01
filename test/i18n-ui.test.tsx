@@ -60,8 +60,8 @@ it("renders the saved Simplified Chinese preference", async () => {
   await act(async () =>
     root!.render(<ProviderResponsesTransport providerId="relay" />),
   );
-  expect(host.querySelector("label")?.textContent).toBe("Responses 连接方式");
-  expect(host.querySelector('option[value="auto"]')?.textContent).toBe("自动");
+  expect(host.querySelector(".settings-row-text strong")?.textContent).toBe("Responses 连接方式");
+  expect(host.querySelector(".ui-select")?.textContent).toBe("自动");
 });
 
 it("fills message placeholders with text or React nodes", async () => {
@@ -115,20 +115,17 @@ it("translates all three onboarding steps and preserves provider names", async (
   root = createRoot(host);
   const props = { onStepChange: vi.fn(), onFinish: vi.fn() };
   await act(async () => root!.render(<Onboarding step="welcome" {...props} />));
-  expect(host.querySelector("h1")?.textContent).toBe("你的专属游戏工作室");
-  expect(host.querySelector("footer")?.textContent).toBe("下一步");
+  expect(host.querySelector("h1")?.textContent).toBe("欢迎使用 OhMyGame");
+  expect(host.querySelector(".onboarding-lede")?.textContent).toBe("描述一个游戏，看它一步步成形。");
+  expect(host.querySelector("footer")?.textContent).toBe("开始使用");
   await act(async () => root!.render(<Onboarding step="connect" {...props} />));
-  expect(host.querySelector("h1")?.textContent).toBe("连接你的 AI。");
-  expect(host.querySelector(".onboarding-section-heading")?.textContent).toBe("连接智能体");
-  expect(host.querySelector(".onboarding-agents-hint")?.textContent).toBe("可连接多个智能体，随时切换使用。");
-  expect(host.querySelector(".onboarding-picker")).toBeNull();
-  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="OhMyGame"]')!.click());
-  expect(host.querySelector(".onboarding-selected-agent button")?.textContent).toBe("切换");
-  expect(host.querySelector(".onboarding-agents-hint")).toBeNull();
+  expect(host.querySelector("h1")?.textContent).toBe("选择你的 AI。");
+  expect(host.querySelector('[aria-label="OhMyGame"]')?.textContent).toBe("OhMyGame内置");
+  expect(host.querySelector(".onboarding-provider-heading")?.textContent).toBe("连接一个模型服务商");
   expect(host.querySelector('[aria-label="DeepSeek"]')?.textContent).toBe(
     "DeepSeek",
   );
-  expect(host.querySelector("footer")?.textContent).toBe("下一步跳过并开始");
+  expect(host.querySelector("footer")?.textContent).toBe("下一步跳过这一步");
   await act(async () =>
     host
       .querySelector<HTMLButtonElement>('[aria-label="添加自定义服务商"]')!
@@ -151,15 +148,16 @@ it("translates all three onboarding steps and preserves provider names", async (
       .querySelector('[aria-label="DeepSeek"] button')
       ?.getAttribute("aria-label"),
   ).toBe("已连接");
-  await act(async () => root!.render(<Onboarding step="media" {...props} />));
-  expect(host.querySelector("h1")?.textContent).toBe("添加创作工具。");
-  expect(host.querySelector("footer")?.textContent).toBe("开始创作");
+  await act(async () => root!.render(<Onboarding step="start" {...props} />));
+  expect(host.querySelector("h1")?.textContent).toBe("从哪里开始？");
+  expect(host.querySelector(".onboarding-start-choice strong")?.textContent).toBe("描述一个游戏");
+  expect(host.querySelector("footer")?.textContent).toBe("稍后再说");
   expect(host.querySelectorAll(".onboarding-progress > button")).toHaveLength(
     3,
   );
 });
 
-it("localizes the model selector back action", async () => {
+it("localizes the model picker's thinking depth", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const model: AgentModel = { provider: "openai", providerName: "OpenAI", id: "test", name: "Test", reasoningLevels: ["medium", "high"] };
   const host = document.createElement("div");
@@ -167,8 +165,11 @@ it("localizes the model selector back action", async () => {
   root = createRoot(host);
   await act(async () => root!.render(<ModelSelector models={[model]} value={model} reasoningLevel="medium" onChange={() => {}} onReasoningChange={() => {}} />));
   await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
-  await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
-  expect(document.querySelector<HTMLButtonElement>(".model-selector-back")?.getAttribute("aria-label")).toBe("返回模型列表");
+  const entry = document.querySelector<HTMLButtonElement>(".model-picker-depth")!;
+  expect(entry.textContent).toBe("思考深度中");
+  await act(async () => entry.click());
+  expect(document.querySelector('[role="menu"]')?.getAttribute("aria-label")).toBe("思考深度");
+  expect(document.querySelector(".model-picker-back")?.getAttribute("aria-label")).toBe("返回模型列表");
 });
 
 it("localizes all Scene templates in the dialog and canvas menu without changing preset IDs", async () => {

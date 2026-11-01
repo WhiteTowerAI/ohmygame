@@ -88,7 +88,7 @@ export interface ProviderSettingsRouteOptions {
   modelAuth: ModelAuthManager;
 }
 
-/** Settings → Providers & Models: provider connections, keys, custom providers, model lists, and sign-in. */
+/** Settings → Providers: provider connections, keys, custom providers, model lists, and sign-in. */
 export function registerProviderSettingsRoutes(app: FastifyInstance, options: ProviderSettingsRouteOptions): void {
   const {
     providerSummaries,
@@ -260,12 +260,6 @@ export function registerProviderSettingsRoutes(app: FastifyInstance, options: Pr
     return reply.code(204).send();
   });
 
-  app.get("/settings/models/providers/doubao-voice", async () => doubaoVoiceSettings.get());
-  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/doubao-voice", { schema: apiKeySettingsSchema }, async (request, reply) => {
-    try { await doubaoVoiceSettings.update(request.body.apiKey); return doubaoVoiceSettings.get(); }
-    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
-  });
-  // Per-service routes keep a separate key for one service; removal uses the shared provider route.
   app.get("/settings/models/providers/volcengine-tts", async () => {
     const { ttsConfigured, defaultVoiceId } = doubaoVoiceSettings.get();
     return { configured: ttsConfigured, ...(defaultVoiceId ? { defaultVoiceId } : {}) };

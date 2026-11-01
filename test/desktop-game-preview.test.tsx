@@ -106,6 +106,48 @@ describe("native preview loading", () => {
     expect(onReady).toHaveBeenCalledTimes(2);
   });
 
+  it("takes a still as a menu is pressed and hides the game only once the still shows", async () => {
+    const { container, bridge, render } = mount();
+    await render();
+    bounds(container.querySelector(".preview-frame")!, 300, 100, 600, 500);
+    await act(async () => { window.dispatchEvent(new Event("resize")); await new Promise((resolve) => requestAnimationFrame(resolve)); });
+    bridge.capture.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    bridge.layout.mockClear();
+    const trigger = document.createElement("button");
+    document.body.append(trigger);
+    // Typing elsewhere takes no still; pressing a control does.
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true })));
+    expect(bridge.capture).not.toHaveBeenCalled();
+    await act(async () => trigger.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    expect(bridge.capture).toHaveBeenCalledOnce();
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    bounds(menu, 400, 120, 160, 200);
+    await act(async () => { document.body.append(menu); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    await vi.waitFor(() => expect(bridge.layout).toHaveBeenLastCalledWith("game", expect.any(String), expect.objectContaining({ visible: false })));
+    expect(bridge.capture).toHaveBeenCalledOnce();
+    expect(container.querySelector(".preview-frame-still")).not.toBeNull();
+  });
+
+  it("releases the stills it takes but never shows", async () => {
+    const created: string[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => { created.push(`blob:${created.length}`); return created.at(-1)!; });
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const { container, bridge, render } = mount();
+    await render();
+    bounds(container.querySelector(".preview-frame")!, 300, 100, 600, 500);
+    await act(async () => { window.dispatchEvent(new Event("resize")); await new Promise((resolve) => requestAnimationFrame(resolve)); });
+    bridge.capture.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    const trigger = document.createElement("button");
+    document.body.append(trigger);
+    // Two presses that open nothing, then the component goes away.
+    await act(async () => trigger.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    await act(async () => trigger.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    await act(async () => { for (const root of roots.splice(0)) root.unmount(); });
+    await vi.waitFor(() => expect(created).toHaveLength(2));
+    await vi.waitFor(() => expect(revoke.mock.calls.map(([url]) => url).sort()).toEqual(created));
+  });
+
   it("retries a failed initial attachment from Refresh and clears the error", async () => {
     const { container, bridge, refresh, onReady, render } = mount();
     bridge.attach.mockRejectedValueOnce(new Error("Preview is unavailable"));

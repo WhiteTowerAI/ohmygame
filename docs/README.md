@@ -14,19 +14,20 @@ desktop lifecycle and native game windows; shared modules define contracts.
 | Area                             | Code to start with                                                                                                                            | Read first                                                                                                              | Example tests                                                                                                                       |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | Agent, chat, and model requests  | `src/daemon/agent.ts`, `src/daemon/pi-agent.ts`, `src/daemon/session-images.ts`, `src/renderer/agent-timeline.tsx`                            | [Runtime](runtime.md), [agent errors](agent-errors.md), [image history](model-image-history.md)                         | `test/agent.test.ts`, `test/agent-errors.test.ts`, `test/session-images.test.ts`                                                    |
-| Design and Asset Canvas          | `src/daemon/canvas-workspace.ts`, `src/daemon/canvas-routes.ts`, `src/renderer/canvas-workspace.tsx`, `src/renderer/asset-canvas-nodes.tsx`, `src/shared/canvas-workspace.ts`        | [Canvas file contract](canvas-agent.md)                                                                                 | `test/canvas-api.test.ts`, `test/asset-canvas-document.test.ts`, `test/canvas-table.test.ts`                                        |
+| Design and Asset Canvas          | `src/daemon/canvas-workspace.ts`, `src/daemon/canvas-routes.ts`, `src/renderer/canvas-workspace.tsx`, `src/renderer/design-document-panel.tsx`, `src/renderer/asset-canvas-nodes.tsx`, `src/shared/canvas-workspace.ts`        | [Canvas file contract](canvas-agent.md)                                                                                 | `test/canvas-api.test.ts`, `test/asset-canvas-document.test.ts`, `test/canvas-table.test.ts`                                        |
 | Preview and game use             | `src/daemon/preview.ts`, `src/daemon/preview-proxy.ts`, `src/desktop/web-game-player.ts`, `src/desktop/playtest-driver.ts`                    | [Preview lifecycle](preview-runtime.md), [service recovery](runtime-recovery.md), [game use](runtime.md#agent-game-use) | `test/preview.test.ts`, `test/web-game-player.test.ts`, `test/playtest-driver.test.ts`                                              |
 | Coding agents (Claude Code, Codex, OpenCode) | `src/daemon/agent-runtimes/`, `src/renderer/coding-agents-settings.tsx`, `src/renderer/approval-card.tsx`, `src/shared/agent-runtimes.ts` | [Coding agents](coding-agents.md)                                                                                         | `test/agent-runtime-session.test.ts`, `test/agent-runtime-drivers.test.ts`, `test/agent-runtime-routes.test.ts`                    |
-| External agents (OhMyGame as an MCP server) | `src/daemon/external-mcp.ts`, `src/daemon/external-agent-clients.ts`, `src/desktop/external-mcp-launcher.ts`, `src/renderer/external-agents-settings.tsx` | [External agents](external-agents.md) | `test/external-mcp.test.ts`, `test/external-mcp-launcher.test.ts`, `test/external-agent-clients.test.ts` |
+| External agents (OhMyGame as an MCP server) | `src/daemon/external-mcp.ts`, `src/desktop/external-mcp-launcher.ts`, `src/renderer/external-agents-settings.tsx` | [External agents](external-agents.md) | `test/external-mcp.test.ts`, `test/external-mcp-launcher.test.ts`, `test/external-agents-settings-ui.test.tsx` |
 | Providers and media              | `src/daemon/provider-model-settings.ts`, `src/daemon/provider-settings-routes.ts`, `src/daemon/provider-models3d.ts`, `src/daemon/cloud-models.ts`, `src/renderer/provider-models.tsx`  | [Custom models](custom-models.md), [3D workflows](3d-providers.md), [free cloud models](free-cloud-models.md)           | `test/provider-model-settings.test.ts`, `test/model3d-workflows.test.ts`, `test/cloud-models.test.ts`                               |
 | Audio providers                  | `src/shared/audio.ts`, `src/daemon/audio-generation.ts`, `src/daemon/volcengine-tts-provider.ts`, `src/daemon/volcengine-seed-audio-provider.ts`, `src/daemon/canvas-workspace.ts` | [Audio providers](audio-providers.md) | `test/volcengine-tts-provider.test.ts`, `test/volcengine-tts-settings.test.ts`, `test/volcengine-seed-audio-provider.test.ts`, `test/volcengine-seed-audio-settings.test.ts`, `test/tools.test.ts`, `test/game-design.test.ts` |
 | Interactive Stories              | `src/shared/playable-*.ts`, `src/story-web/`, `src/daemon/story-web-project.ts`, `src/daemon/playable-project.ts`, `src/daemon/playable-presets.ts`, `src/daemon/assets/story-templates/`, `src/renderer/playable-editor-workspace.tsx` | [Playable Nodes](playable-nodes/README.md)                                                                              | `test/playable-graph.test.ts`, `test/playable-runtime.test.ts`, `test/story-web-project.test.ts`                                     |
-| Plugins, Skills, and MCP         | `src/daemon/plugin-capabilities.ts`, `src/daemon/plugin-runtime.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugins.tsx`, `plugins/` | [Plugin package and runtime contract](plugins.md)                                                                       | `test/plugin-capabilities.test.ts`, `test/plugin-builder.test.ts`, `test/bundled-plugins.test.ts`                                   |
+| MCP connections                  | `src/daemon/connections.ts`, `src/daemon/connection-routes.ts`, `src/renderer/connections-settings.tsx` | [Connections](plugins.md#connections) | `test/connections.test.ts`, `test/connections-api.test.ts` |
+| Plugins, Skills, and MCP         | `src/daemon/plugin-capabilities.ts`, `src/daemon/plugin-runtime.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugins.tsx`, `plugins-v2/` | [Plugin package and runtime contract](plugins.md)                                                                       | `test/plugin-capabilities.test.ts`, `test/plugin-builder.test.ts`, `test/bundled-plugins.test.ts`                                   |
 | Desktop lifecycle and updates    | `src/desktop/main.ts`, `src/desktop/daemon-supervisor.ts`, `src/desktop/updater.ts`, `src/desktop/update-check-scheduler.ts`, `src/renderer/changelog-panel.tsx`, `src/shared/changelog.ts`                                                           | [Runtime](runtime.md), [service recovery](runtime-recovery.md), [desktop releases](desktop-releases.md)                 | `test/daemon-supervisor.test.ts`, `test/desktop-updater.test.ts`, `test/desktop-update-scheduler.test.ts`, `test/desktop-runtime-packaging.test.ts`, `test/desktop-release-notes.test.ts`, `test/changelog-panel.test.tsx`                          |
-| Publishing and Community         | `src/daemon/publish/`, `src/shared/publish-v1.ts`, `src/renderer/publish-dialog.tsx`                                                          | [Cloud integration](../CONTRIBUTING.md#cloud-integration), [runtime publishing](runtime.md#publishing)                  | `test/publish-client.test.ts`, `test/publish-dialog.test.tsx`; remote contracts in `test/publish.test.ts` need private cloud access |
-| Shared UI and project navigation | `src/renderer/app.tsx`, `src/renderer/projects.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/styles.css`                              | [Local setup](../CONTRIBUTING.md#start-local-development), [project navigation](runtime.md#project-navigation)            | `test/projects-page.test.ts`, `test/project-card.test.ts`, `test/project-types.test.ts`                                             |
+| Publishing and Community         | `src/daemon/publish/`, `src/shared/publish-v1.ts`, `src/renderer/publish-dialog.tsx`, `src/renderer/games.tsx`, `src/renderer/community-*` | [Cloud integration](../CONTRIBUTING.md#cloud-integration), [runtime publishing](runtime.md#publishing)                  | `test/publish-client.test.ts`, `test/publish-dialog.test.tsx`, `test/community-*`; remote contracts in `test/publish.test.ts` need private cloud access |
+| Shared UI and project navigation | `src/renderer/app.tsx`, `src/renderer/app-sidebar.tsx` and `src/renderer/page-frame.tsx` (the pages' sidebar and frame), `src/renderer/project-frame.tsx` (a project's rail and top bar), `src/renderer/panel-layout.tsx` and `src/renderer/workspace-layout.ts` (a project's panels and the shared layout), `src/renderer/home.tsx`, `src/renderer/project-create-dialog.tsx`, `src/renderer/projects.tsx`, `src/renderer/project-card.tsx`, `src/renderer/project-appearance-settings.tsx` and `src/shared/project-appearance.ts` (a project's icon, logo and cover), `src/renderer/project-shell.tsx`, `src/renderer/styles.css`, `src/renderer/ui/` (design tokens and base components) | [Local setup](../CONTRIBUTING.md#start-local-development), [project navigation](runtime.md#project-navigation), [workspace panels](runtime.md#workspace-panels)            | `test/projects-page.test.tsx`, `test/project-card.test.ts`, `test/project-types.test.ts`, `test/ui-components.test.tsx`, `test/app-sidebar.test.tsx`, `test/workspace-layout.test.ts`              |
 | Project export and import       | `src/daemon/project-archive.ts`, `src/daemon/archive-extraction.ts`, `src/shared/project-archive.ts`, `src/renderer/project-card.tsx`, `src/renderer/projects.tsx` | [Project archives](project-archives.md) | `test/project-archive.test.ts`, `test/project-archive-assets.test.ts`, `test/project-archive-ui.test.tsx` |
-| First-run setup                  | `src/renderer/onboarding.tsx`, `src/renderer/onboarding-demo.tsx`, `src/renderer/use-onboarding.ts`, `src/renderer/use-model-provider-auth.ts`, `src/renderer/custom-provider-dialog.tsx`, `src/daemon/onboarding.ts`       | [First run](../README.md#first-run), [setup state](runtime.md#first-run-setup)                                             | `test/onboarding.test.ts`, `test/onboarding-renderer.test.tsx`                                                                         |
+| First-run setup                  | `src/renderer/onboarding.tsx`, `src/renderer/use-onboarding.ts`, `src/renderer/use-model-provider-auth.ts`, `src/renderer/custom-provider-dialog.tsx`, `src/daemon/onboarding.ts`       | [First run](../README.md#first-run), [setup state](runtime.md#first-run-setup)                                             | `test/onboarding.test.ts`, `test/onboarding-renderer.test.tsx`                                                                         |
 | Logs and diagnostics             | `src/desktop/log-file.ts`, `src/shared/log-redaction.ts`, `src/desktop/console-log.ts`, `src/desktop/diagnostics-export.ts`, `src/daemon/activity-log.ts`, `src/daemon/request-log.ts`, `src/daemon/diagnostics.ts`, `src/renderer/settings-page.tsx` | [Logs and diagnostics](diagnostics.md) | `test/desktop-log-file.test.ts`, `test/activity-log.test.ts`, `test/request-log.test.ts`, `test/diagnostics.test.ts`, `test/desktop-diagnostics-export.test.ts`, `test/diagnostics-settings-ui.test.tsx` |
 
 These are entry points, not an exhaustive ownership map. HTTP API and event
@@ -62,6 +63,7 @@ and how an import becomes a new project.
 | [coding-agents.md](coding-agents.md)             | Coding agent CLIs: discovery, sessions, tools, approvals, isolation, and adding an agent.                                      |
 | [external-agents.md](external-agents.md)         | OhMyGame as an MCP server for Claude Code, Codex, and other external agents: setup, launcher, tools, and contract.            |
 | [plugins.md](plugins.md)                         | Plugin packages, configuration, credentials, MCP sessions, authoring, and migration.                                           |
+| [plugins-v2.md](plugins-v2.md)                   | Plugin format 2: manifest, project file, extension hosts, pages, releases, and where its code is.                              |
 | [custom-models.md](custom-models.md)             | Provider protocols, capabilities, visibility, model definitions, and defaults.                                                 |
 | [3d-providers.md](3d-providers.md)               | 3D operations, provider compatibility, paid-task recovery, and GLB validation.                                                 |
 | [free-cloud-models.md](free-cloud-models.md)     | Account models, personal quotas, and the desktop/cloud contract. Cloud deployment sections need access to the private service. |
@@ -106,37 +108,37 @@ guidance in [CONTRIBUTING.md](../CONTRIBUTING.md#make-and-check-your-change).
 For the additional engine, mini-game, and asset-tool Beta packages, use the
 [manual acceptance checklist (中文)](plugin-beta-testing.zh-CN.md).
 
-- [Blender Assets](../plugins/blender/skills/blender-assets/SKILL.md),
-  [Godot Game](../plugins/godot/skills/godot-game/SKILL.md),
-  [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md), and
-  [TapTap Release](../plugins/taptap-maker/skills/taptap-release/SKILL.md).
+- [Blender Assets](../plugins-v2/blender/skills/blender-assets/SKILL.md),
+  [Godot Game](../plugins-v2/godot/skills/godot-game/SKILL.md),
+  [TapTap Maker](../plugins-v2/taptap-maker/skills/taptap-maker/SKILL.md), and
+  [TapTap Release](../plugins-v2/taptap-maker/skills/taptap-release/SKILL.md).
 
-- [Game Studio](../plugins/game-studio/skills/game-studio/SKILL.md),
-  [Game Foundations](../plugins/game-studio/skills/game-foundations/SKILL.md),
-  and [Game QA](../plugins/game-studio/skills/game-qa/SKILL.md).
-- [Web Game Studio](../plugins/web-game-studio/skills/web-game-studio/SKILL.md),
-  [Web Game Foundations](../plugins/web-game-studio/skills/web-game-foundations/SKILL.md),
-  [Game Playtest](../plugins/web-game-studio/skills/game-playtest/SKILL.md),
-  [Game UI Frontend](../plugins/web-game-studio/skills/game-ui-frontend/SKILL.md),
-  [Phaser 2D](../plugins/web-game-studio/skills/phaser-2d-game/SKILL.md),
-  [React Three Fiber](../plugins/web-game-studio/skills/react-three-fiber-game/SKILL.md),
-  [Three.js](../plugins/web-game-studio/skills/three-webgl-game/SKILL.md),
-  [Sprite Pipeline](../plugins/web-game-studio/skills/sprite-pipeline/SKILL.md),
-  and [Web 3D Assets](../plugins/web-game-studio/skills/web-3d-asset-pipeline/SKILL.md).
-- [Three.js World](../plugins/threejs-world/skills/threejs-world/SKILL.md) and
-  its references: [world contract](../plugins/threejs-world/skills/threejs-world/references/world-contract.md),
-  [world expansion](../plugins/threejs-world/skills/threejs-world/references/world-expansion.md),
-  [presentation](../plugins/threejs-world/skills/threejs-world/references/presentation.md),
-  [validation](../plugins/threejs-world/skills/threejs-world/references/validation.md),
-  and [expansion example](../plugins/threejs-world/skills/threejs-world/references/expansion-example.txt).
+- [Game Studio](../plugins-v2/game-studio/skills/game-studio/SKILL.md),
+  [Game Foundations](../plugins-v2/game-studio/skills/game-foundations/SKILL.md),
+  and [Game QA](../plugins-v2/game-studio/skills/game-qa/SKILL.md).
+- [Web Game Studio](../plugins-v2/web-game-studio/skills/web-game-studio/SKILL.md),
+  [Web Game Foundations](../plugins-v2/web-game-studio/skills/web-game-foundations/SKILL.md),
+  [Game Playtest](../plugins-v2/web-game-studio/skills/game-playtest/SKILL.md),
+  [Game UI Frontend](../plugins-v2/web-game-studio/skills/game-ui-frontend/SKILL.md),
+  [Phaser 2D](../plugins-v2/web-game-studio/skills/phaser-2d-game/SKILL.md),
+  [React Three Fiber](../plugins-v2/web-game-studio/skills/react-three-fiber-game/SKILL.md),
+  [Three.js](../plugins-v2/web-game-studio/skills/three-webgl-game/SKILL.md),
+  [Sprite Pipeline](../plugins-v2/web-game-studio/skills/sprite-pipeline/SKILL.md),
+  and [Web 3D Assets](../plugins-v2/web-game-studio/skills/web-3d-asset-pipeline/SKILL.md).
+- [Three.js World](../plugins-v2/threejs-world/skills/threejs-world/SKILL.md) and
+  its references: [world contract](../plugins-v2/threejs-world/skills/threejs-world/references/world-contract.md),
+  [world expansion](../plugins-v2/threejs-world/skills/threejs-world/references/world-expansion.md),
+  [presentation](../plugins-v2/threejs-world/skills/threejs-world/references/presentation.md),
+  [validation](../plugins-v2/threejs-world/skills/threejs-world/references/validation.md),
+  and [expansion example](../plugins-v2/threejs-world/skills/threejs-world/references/expansion-example.txt).
 - Beta engine and platform workflows:
-  [Cocos Creator](../plugins/cocos-creator/skills/cocos-creator/SKILL.md),
-  [WeChat Mini Games](../plugins/wechat-minigame/skills/wechat-minigame/SKILL.md),
-  [Douyin Mini Games](../plugins/douyin-minigame/skills/douyin-minigame/SKILL.md),
-  [Unity](../plugins/unity/skills/unity-game/SKILL.md), and
-  [Unreal Engine](../plugins/unreal-engine/skills/unreal-game/SKILL.md).
-- Beta asset tools: [Aseprite](../plugins/aseprite/skills/aseprite-assets/SKILL.md)
-  and [Tiled](../plugins/tiled/skills/tiled-maps/SKILL.md).
+  [Cocos Creator](../plugins-v2/cocos-creator/skills/cocos-creator/SKILL.md),
+  [WeChat Mini Games](../plugins-v2/wechat-minigame/skills/wechat-minigame/SKILL.md),
+  [Douyin Mini Games](../plugins-v2/douyin-minigame/skills/douyin-minigame/SKILL.md),
+  [Unity](../plugins-v2/unity/skills/unity-game/SKILL.md), and
+  [Unreal Engine](../plugins-v2/unreal-engine/skills/unreal-game/SKILL.md).
+- Beta asset tools: [Aseprite](../plugins-v2/aseprite/skills/aseprite-assets/SKILL.md)
+  and [Tiled](../plugins-v2/tiled/skills/tiled-maps/SKILL.md).
 
 Plugin brand assets and their per-package source notices are described in
 [Plugin logos](plugin-logos.md).

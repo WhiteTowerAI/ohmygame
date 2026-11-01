@@ -125,3 +125,20 @@ it("surfaces a failed manual check so the user can retry it", async () => {
     type: "error", phase: "check", code: "network", retry: "check",
   });
 });
+
+it("downloads found releases by itself and installs them on quit when updates are automatic", async () => {
+  const { default: { autoUpdater } } = await import("electron-updater");
+  const desktop = new DesktopUpdater("1.0.0", vi.fn());
+  updater.downloadUpdate.mockResolvedValue(undefined);
+  updater.listeners.get("update-available")!({ version: "1.1.0" });
+  expect(updater.downloadUpdate).not.toHaveBeenCalled();
+  desktop.setAutomatic(true);
+  expect(autoUpdater.autoInstallOnAppQuit).toBe(true);
+  expect(updater.downloadUpdate).toHaveBeenCalledOnce();
+  updater.listeners.get("update-available")!({ version: "1.2.0" });
+  expect(updater.downloadUpdate).toHaveBeenCalledTimes(2);
+  desktop.setAutomatic(false);
+  expect(autoUpdater.autoInstallOnAppQuit).toBe(false);
+  updater.listeners.get("update-available")!({ version: "1.3.0" });
+  expect(updater.downloadUpdate).toHaveBeenCalledTimes(2);
+});

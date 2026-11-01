@@ -11,19 +11,19 @@ accepted tradeoffs, and validation limits.
 
 ## Using one
 
-First-run setup also offers Claude Code, Codex, and OpenCode in one
-horizontally scrolling row. Select an agent after installation and sign-in, choose its model
-on the same connection screen, then save with **Next** and continue to optional
-creative tools. Switching agents retains each selection until it is saved. OhMyGame
+First-run setup also shows Claude Code, Codex, and OpenCode beside OhMyGame
+in its row of agents. Select an agent after installation and sign-in, choose its model
+on the same connection screen, then save with **Next** and continue to choosing
+where to start. Switching agents retains each selection until it is saved. OhMyGame
 (Pi) is always enabled and uses connected model providers. Discovery alone never
 enables a CLI.
 
 **Settings → Agents** lists who can work in a conversation. OhMyGame's own
-agent comes first: it uses the models set up in Providers & Models, and its row
-links there. The coding agent CLIs follow, under **Coding agent CLIs on this
+agent comes first: it uses the models set up in Providers, and its page links
+there, to plugin skills and to the MCP server. The coding agent CLIs follow, under **Coding agent CLIs on this
 computer**; **Rescan** checks for them again. Each row shows whether the CLI
-was found and its version; the detail page provides account and permission
-controls. The agent whose model new conversations start with is marked **Default**.
+was found and its version; its page (`#/settings/agents/<id>`) provides
+account and permission controls. The agent whose model new conversations start with is marked **Default**.
 Agents are off by default. Enabling the switch offers their models in the conversation model picker; the
 detail page signs in, checks again, chooses the executable and permissions, and
 explains that the CLI loads the person's existing configuration.
@@ -102,7 +102,9 @@ report, so it has them before its own first turn. Codex reports them whenever it
 models are checked and while it works; Claude Code reports them during a
 conversation (its `rate_limit_event`), so they appear after its first one.
 The latest report is kept in `agent-runtimes/limits.json`, and a window whose
-reset time has passed shows as empty. OpenCode bills each model provider and
+reset time has passed shows as empty. System default reports saved by earlier
+versions are dropped once, since they may belong to the directory OhMyGame was
+launched with. OpenCode bills each model provider and
 has no quota of its own.
 
 When a turn stops at a usage limit (such as Claude Code's "You've hit your
@@ -133,9 +135,9 @@ In **Settings → Agents → Claude Code/Codex → Accounts**, click **+**, ente
 name and click **Add** to create a private configuration and start the official
 sign-in flow. **Use an existing directory** expands an optional import field for
 an absolute configuration path; importing does not start another sign-in.
-System default's own directory (`CLAUDE_CONFIG_DIR` or `~/.claude`, `CODEX_HOME`
-or `~/.codex`) cannot be imported: naming it explicitly would give Claude a
-separate Keychain entry and global configuration file while sharing its settings.
+System default's own directory (`~/.claude` or `~/.codex`) cannot be imported:
+naming it explicitly would give Claude a separate Keychain entry and global
+configuration file while sharing its settings.
 A managed Codex directory is created before its CLI starts and uses
 `cli_auth_credentials_store = "file"` in its own `config.toml`. The directory is
 private, and Codex manages its sign-in in `auth.json`. Imported configurations
@@ -149,7 +151,12 @@ Completing authorization lets the CLI update credentials in that configuration.
 
 ![Compact account list with a default selection and sign-in actions](assets/coding-agent-accounts.png)
 
-**System default** retains the existing CLI environment and sign-in. New profiles
+**System default** is the CLI's own default directory (`~/.claude` or
+`~/.codex`) and its sign-in. A `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that OhMyGame
+inherits, from a terminal or from a tool that sets it for apps with `launchctl
+setenv`, is not used: it only records whichever account was selected when
+OhMyGame started. To use that directory, import it with **Use an existing
+directory**; it then shares its sign-in and files with the terminal. New profiles
 have independent CLI settings, hooks, MCP servers, Skills and native history.
 Select an account row's radio button to make it the default for new chats. Existing chats retain
 their own selections; switching between Claude Code and Codex in a chat retains
@@ -207,11 +214,11 @@ is permitted by a provider's terms.
 
 ## Codex as an image provider
 
-**Providers & Models → Codex CLI** exposes one image entry, **Codex Image**,
+**Providers → Codex CLI** exposes one image entry, **Codex Image**,
 using the installed CLI and its saved sign-in. Its image switch is independent
 of the Codex conversation-agent switch in Agents. Any chat agent can use it
 through `generate_image`; canvas image nodes and global/project image defaults
-use the same provider. Choose the global image default in the Providers & Models
+use the same provider. Choose the global image default in the Providers
 overview. The Codex CLI detail page shows its image status and model without a
 default-model selector. Closing a terminal does not disconnect the provider.
 

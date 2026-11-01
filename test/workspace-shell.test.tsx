@@ -21,8 +21,8 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function render(layout: "left" | "right", collapsed = false) {
-  await act(async () => root.render(<WorkspaceShell chatLayout={layout} agentCollapsed={collapsed}
+async function render(collapsed = false) {
+  await act(async () => root.render(<WorkspaceShell agentCollapsed={collapsed}
     onHome={() => {}} onExpandAgent={() => {}}
     agent={<WorkspaceAgentPane actions={null}><input aria-label="Draft" defaultValue="Saved draft" /></WorkspaceAgentPane>}>
     <section className="viewer-pane">Preview</section>
@@ -32,22 +32,22 @@ const shell = () => container.querySelector<HTMLElement>("main")!;
 const separator = () => container.querySelector<HTMLElement>('[role="separator"]')!;
 
 describe("shared workspace layout", () => {
-  it.each(["left", "right"] as const)("resizes %s chat in the arrow's physical direction and restores its width in another workspace", async layout => {
-    await render(layout);
+  it("resizes the chat in the arrow's direction and restores its width in another workspace", async () => {
+    await render();
     await act(async () => separator().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
-    const width = layout === "left" ? 446 : 414;
+    const width = 446;
     expect(separator().getAttribute("aria-valuenow")).toBe(String(width));
     expect(shell().style.getPropertyValue("--agent-width")).toBe(`${width}px`);
     await act(async () => root.unmount());
     root = createRoot(container);
-    await render(layout);
+    await render();
     expect(separator().getAttribute("aria-valuenow")).toBe(String(width));
     await act(async () => separator().dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
     expect(separator().getAttribute("aria-valuenow")).toBe("430");
   });
 
   it("clamps pointer drags, saves on release, and removes the resize shield", async () => {
-    await render("left");
+    await render();
     const handle = separator();
     handle.setPointerCapture = vi.fn();
     handle.hasPointerCapture = () => true;
@@ -66,14 +66,14 @@ describe("shared workspace layout", () => {
   });
 
   it("retains the chat's draft across collapse and removes the hidden splitter from keyboard navigation", async () => {
-    await render("left");
+    await render();
     const input = container.querySelector<HTMLInputElement>("input")!;
     input.value = "Unsent changes";
-    await render("left", true);
+    await render(true);
     expect(separator().tabIndex).toBe(-1);
     expect(separator().getAttribute("aria-hidden")).toBe("true");
     expect(container.querySelector('[aria-label="Show agent"]')).not.toBeNull();
-    await render("left");
+    await render();
     expect(container.querySelector<HTMLInputElement>("input")!.value).toBe("Unsent changes");
     expect(separator().tabIndex).toBe(0);
   });

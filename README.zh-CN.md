@@ -35,7 +35,7 @@ https://github.com/user-attachments/assets/4d5805fe-92a2-40b4-a232-c7452f9a796a
 <!-- 最多保留三条，最新的在前，只写大版本。发版准备时更新，见 docs/maintaining.md。 -->
 
 - **2026-10 · beta 5**
-  （[更新说明](https://github.com/WhiteTowerAI/ohmygame/releases/tag/v0.0.0-beta.5)）
+  （[更新说明](https://github.com/WhiteTowerAI/ohmygame/releases/tag/v0.0.0-beta.5.0)）
   - **现已支持互动故事：** 适合做视觉小说、互动电影和剧情游戏。每个画面都是一个自由的网页，
     可以放视频、写对白、给选择，甚至装下一个小游戏；描述你想要的，Agent 就帮你做好，
     不受固定节点类型的限制。
@@ -104,7 +104,6 @@ https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 | itch.io、Poki、CrazyGames  | 付费下载、广告分成 | 直接上传网页游戏的构建产物                        |
 
 **游戏是你的，收入也是你的。** OhMyGame 不从你的游戏收入里抽成。
-<!-- TODO(confirm)：不抽成；小游戏插件里的广告、内购接入流程。 -->
 
 ### 🧑‍💻 带上你自己的 Agent
 
@@ -114,8 +113,8 @@ https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 
 ### 🔌 在 Claude Code、Codex 等 Agent 中使用 OhMyGame
 
-已经在用别的编程 Agent？打开 **设置 → MCP 服务 → 允许其他 Agent 使用 OhMyGame**，
-一键连接 Claude Code 或 Codex。它们会获得 OhMyGame 的媒体生成（使用你配置的服务商）、
+已经在用别的编程 Agent？打开 **设置 → MCP 服务**，
+用那里显示的命令把 OhMyGame 添加到 Claude Code 或 Codex。它们会获得 OhMyGame 的媒体生成（使用你配置的服务商）、
 画布和试玩能力，以及一个讲解工作流程的 Skill。DeepSeek Harness 和其他 MCP 客户端可以添加
 那里显示的 `ohmygame-studio` 命令。详见 [External agents](docs/external-agents.md)。
 
@@ -226,10 +225,11 @@ OhMyGame 不会把你绑定在某一个模型上，也不按次收费。
 
 OhMyGame 不内置模型。首次启动时，它会带你完成设置：
 
-1. **连接你的 AI。** 登录模型服务商或粘贴 API 密钥，也可以使用你已安装的 Claude Code、Codex
-   或 OpenCode CLI。点击 **+** 可添加自定义或本地接口。**跳过并开始** 可直接进入工作室。
-2. **添加创作工具（可选）。** 现在或稍后在 **设置 → 服务商与模型** 中连接图片、视频、3D
-   和音频服务商。只用语言模型也能设计和搭建游戏，生成媒体需要另外连接相应服务商：
+1. **开始使用。** 语言和外观跟随系统，可随时在设置中更改。
+2. **选择你的 AI。** 使用内置的 OhMyGame 智能体并连接模型服务商（登录或粘贴 API 密钥），
+   也可以使用你已安装的 Claude Code、Codex 或 OpenCode CLI。点击 **+** 可添加自定义或本地接口。**跳过这一步** 可以先不连接模型。
+
+   只用语言模型也能设计和搭建游戏，生成媒体需要在 **设置 → 服务商** 中另外连接相应服务商：
 
    | 想做的东西              | 需要连接                                                       |
    | ----------------------- | -------------------------------------------------------------- |
@@ -239,11 +239,11 @@ OhMyGame 不内置模型。首次启动时，它会带你完成设置：
    | 3D 模型、骨骼绑定、动画 | Meshy、Tripo 或 Hyper3D（各服务商支持的能力不同）               |
    | 配音、音效、音乐        | 豆包语音和 Seed Audio（火山引擎）                              |
 
-   ChatGPT 登录不包含 OpenAI 的图片 API，需要在 OpenAI 服务商的 **图像模型** 区域另外添加
+   ChatGPT 登录不包含 OpenAI 的图片 API，需要在 OpenAI 服务商的 **图片模型** 区域另外添加
    API 密钥。**Codex CLI** 图片服务商则使用本机的 Codex 登录。详见
    [OpenAI image connections](docs/custom-models.md#openai-image-connections)。
 
-3. **选择模型，描述你的游戏。** 在首页的输入框里选择模型，然后描述你想做什么。
+3. **选择起点：** 在首页输入框里描述一个游戏、新建空白项目，或导入你已有的文件夹。
 
 网页搜索无需配置即可使用。在本地做游戏不需要账号，只有发布时才需要登录。
 可在 **设置 → 关于 → 查看入门引导** 中重新打开引导。

@@ -15,7 +15,7 @@ function pageview(hash: string, properties: Record<string, unknown> = {}): Analy
 describe("analytics paths", () => {
   it("replaces ids in routes with placeholders", () => {
     expect(analyticsPath(parseAppRoute("#/"))).toBe("/");
-    expect(analyticsPath(parseAppRoute("#/web-game"))).toBe("/web-game");
+    expect(analyticsPath(parseAppRoute("#/library"))).toBe("/library");
     expect(analyticsPath(parseAppRoute("#/projects?type=godot-game"))).toBe("/projects");
     expect(analyticsPath(parseAppRoute("#/projects/p1/conversations/c1/design"))).toBe("/projects/:id/conversations/:id/design");
     expect(analyticsPath(parseAppRoute("#/community/games/g1"))).toBe("/community/games/:id");
@@ -47,9 +47,9 @@ describe("AnalyticsUrlScrubber", () => {
       event: "$autocapture",
       properties: { $pathname: decodeURI(encoded), $session_entry_pathname: encoded, $session_entry_url: `file://${encoded}#/library` },
     };
-    new AnalyticsUrlScrubber(encoded).scrub(event, `file://${encoded}#/web-game`);
+    new AnalyticsUrlScrubber(encoded).scrub(event, `file://${encoded}#/projects`);
     expect(event.properties).toEqual({
-      $pathname: "/web-game",
+      $pathname: "/projects",
       $session_entry_pathname: "/library",
       $session_entry_url: "app://ohmygame/library",
     });

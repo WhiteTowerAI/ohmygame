@@ -41,6 +41,10 @@ import {
   CheckpointStore,
   checkpointDirectory,
 } from "../src/daemon/checkpoints.js";
+import { PluginWrites } from "../src/daemon/plugin-writes.js";
+import { ProjectWrites } from "../src/daemon/project-writes.js";
+import { readWorkspaceNotice } from "../src/daemon/workspace-notice.js";
+import type { ProjectState } from "../src/shared/contracts.js";
 
 // Lets a test step in just before the store touches the file system, to stand in for another writer or a failing disk.
 // `frozen` makes a file look the same as when it was frozen, as on a file system that keeps coarse times.
@@ -3601,5 +3605,87 @@ describe("pruning", () => {
     expect((await readdir(folder)).sort()).toEqual(
       [...existing, "README"].sort(),
     );
+  });
+});
+
+describe("plugin writes", () => {
+  const setup = async (busy = false) => {
+    const game = {
+      ...(await project({ "level.txt": "one" })),
+      id: "plugin-writes",
+    } as unknown as ProjectState;
+    const store = new CheckpointStore();
+    const writes = new ProjectWrites();
+    const announced: string[][] = [];
+    const plugins = new PluginWrites({
+      writes,
+      checkpoints: store,
+      snapshot: (target) => store.snapshot(target),
+      busy: () => busy,
+      announce: (_project, _version, changed) => announced.push(changed),
+    });
+    return { game, store, writes, plugins, announced };
+  };
+
+  it("records a command's writes as one change that can be undone on its own", async () => {
+    const { game, plugins, writes, announced } = await setup();
+    let held = false;
+    const { result, change } = await plugins.run(
+      game,
+      { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" },
+      async () => {
+        held = writes.isMutating(game.id);
+        await writeFile(path.join(game.workspacePath, "level.txt"), "two");
+        return "tidied";
+      },
+    );
+    expect(held).toBe(true);
+    expect(result).toBe("tidied");
+    expect(change).toMatchObject({ plugin: "acme/tiles", changed: ["level.txt"] });
+    expect(announced).toEqual([["level.txt"]]);
+    expect(await readWorkspaceNotice(game)).toContain('"Tidy up" changed');
+
+    // Nothing changed: no entry.
+    expect((await plugins.run(game, { plugin: "acme/tiles", action: "command:look", title: "Look" }, async () => 1)).change).toBeUndefined();
+    expect((await plugins.history(game)).map((entry) => entry.id)).toEqual([change!.id]);
+    expect([...(await plugins.snapshots(game))]).toEqual([change!.before, change!.after]);
+
+    // Other files changed since are kept.
+    await writeFile(path.join(game.workspacePath, "notes.txt"), "mine");
+    expect(await plugins.undo(game, change!.id)).toMatchObject({ undone: true });
+    expect(await readFile(path.join(game.workspacePath, "level.txt"), "utf8")).toBe("one");
+    expect(await readFile(path.join(game.workspacePath, "notes.txt"), "utf8")).toBe("mine");
+    await expect(plugins.undo(game, change!.id)).rejects.toThrow("already undone");
+  });
+
+  it("refuses an undo over later edits and a command while the project is busy", async () => {
+    const { game, plugins } = await setup();
+    const { change } = await plugins.run(
+      game,
+      { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" },
+      () => writeFile(path.join(game.workspacePath, "level.txt"), "two"),
+    );
+    await writeFile(path.join(game.workspacePath, "level.txt"), "three");
+    await expect(plugins.undo(game, change!.id)).rejects.toBeInstanceOf(
+      CheckpointConflictError,
+    );
+    expect(await readFile(path.join(game.workspacePath, "level.txt"), "utf8")).toBe("three");
+
+    // A command that writes and then fails still leaves an undoable change.
+    await expect(
+      plugins.run(game, { plugin: "acme/tiles", action: "command:break", title: "Break" }, async () => {
+        await writeFile(path.join(game.workspacePath, "broken.txt"), "half");
+        throw new Error("crashed");
+      }),
+    ).rejects.toThrow("crashed");
+    const [failed] = await plugins.history(game);
+    expect(failed).toMatchObject({ failed: "crashed", changed: ["broken.txt"] });
+    await plugins.undo(game, failed!.id);
+    await expect(readFile(path.join(game.workspacePath, "broken.txt"))).rejects.toThrow();
+
+    const busy = await setup(true);
+    await expect(
+      busy.plugins.run(busy.game, { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" }, async () => {}),
+    ).rejects.toThrow("Wait for the agent");
   });
 });

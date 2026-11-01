@@ -6,6 +6,7 @@ import type { LibraryAssetProject } from "../shared/contracts.js";
 import { menuPlacement } from "./popover-placement.js";
 import type { ProjectAssetFilters, BrowsableAsset } from "./asset-browser.js";
 import { t } from "./i18n.js";
+import { Checkbox, Select } from "./ui/index.js";
 
 export function LibraryCollectionFilters({ assets, filters, onChange, defaultIncludeReferences = false, defaultProjectId, defaultProject }: {
   assets: readonly LibraryAsset[];
@@ -21,41 +22,76 @@ export function LibraryCollectionFilters({ assets, filters, onChange, defaultInc
   const active = (filters.origin ?? "saved") !== "saved" || (filters.projectId ?? "") !== (defaultProjectId ?? "") || (filters.includeReferences ?? false) !== defaultIncludeReferences;
   return <AssetFilterPopover active={active} onReset={() => onChange({ includeReferences: defaultIncludeReferences, ...(defaultProjectId ? { projectId: defaultProjectId } : {}) })}>
     <label>{t("libraryFilters.source")}<select value={filters.origin ?? "saved"} onChange={(event) => onChange({ ...filters, origin: event.target.value as LibraryAssetFilters["origin"] })}>
-      <option value="saved">{t("libraryFilters.saved")}</option>
-      <option value="generated">{t("libraryFilters.generated")}</option>
-      <option value="uploaded">{t("libraryFilters.uploaded")}</option>
-      <option value="workspace">{t("libraryFilters.fromProjects")}</option>
-      <option value="all">{t("libraryFilters.allSources")}</option>
+      {librarySourceOptions().map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select></label>
     <label>{t("libraryFilters.project")}<select value={filters.projectId ?? ""} onChange={(event) => onChange({ ...filters, projectId: event.target.value })}>
-      <option value="">{t("libraryFilters.allProjects")}</option>
-      <option value="unassigned">{t("libraryFilters.noProject")}</option>
-      {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+      {libraryProjectOptions(projects, "").map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select></label>
     <label className="library-reference-toggle"><input type="checkbox" checked={filters.includeReferences ?? false} onChange={(event) => onChange({ ...filters, includeReferences: event.target.checked })} /><span>{t("libraryFilters.includeReferences")}</span></label>
   </AssetFilterPopover>;
 }
 
-export function ProjectAssetCollectionFilters({ assets, filters, onChange }: {
+/** The Library page's source, project and reference filters, in the row beside the kind tabs. */
+export function LibraryFilterRow({ assets, filters, onChange }: {
+  assets: readonly LibraryAsset[];
+  filters: LibraryAssetFilters;
+  onChange: (filters: LibraryAssetFilters) => void;
+}) {
+  const projects = libraryAssetProjects(assets);
+  return <>
+    <Select size="sm" label={t("libraryFilters.source")} value={filters.origin ?? "saved"} onChange={(origin) => onChange({ ...filters, origin })} options={librarySourceOptions()} />
+    <Select size="sm" label={t("libraryFilters.project")} value={filters.projectId || ALL_PROJECTS} onChange={(projectId) => onChange({ ...filters, projectId: projectId === ALL_PROJECTS ? "" : projectId })} options={libraryProjectOptions(projects, ALL_PROJECTS)} />
+    <Checkbox label={t("libraryFilters.includeReferences")} checked={filters.includeReferences ?? false} onChange={(includeReferences) => onChange({ ...filters, includeReferences })} />
+  </>;
+}
+
+/** A project's Assets panel source and use filters, in the row beside the kind tabs, as on the Library page. */
+export function ProjectAssetFilterRow({ assets, filters, onChange }: {
   assets: readonly BrowsableAsset[];
   filters: ProjectAssetFilters;
   onChange: (filters: ProjectAssetFilters) => void;
 }) {
-  const active = (filters.origin ?? "all") !== "all" || (filters.purpose ?? "all") !== "all";
-  return <AssetFilterPopover active={active} onReset={() => onChange({})}>
-    <label>{t("libraryFilters.source")}<select value={filters.origin ?? "all"} onChange={(event) => onChange({ ...filters, origin: event.target.value as ProjectAssetFilters["origin"] })}>
-      <option value="all">{t("libraryFilters.allSources")}</option>
-      <option value="generated">{t("libraryFilters.generated")}</option>
-      <option value="uploaded">{t("libraryFilters.uploaded")}</option>
-      <option value="workspace">{t("libraryFilters.projectFiles")}</option>
-      {assets.some((asset) => asset.origin === "builtin") ? <option value="builtin">{t("libraryFilters.builtIn")}</option> : null}
-    </select></label>
-    <label>{t("libraryFilters.use")}<select value={filters.purpose ?? "all"} onChange={(event) => onChange({ ...filters, purpose: event.target.value as ProjectAssetFilters["purpose"] })}>
-      <option value="all">{t("libraryFilters.allUses")}</option>
-      <option value="asset">{t("libraryFilters.assets")}</option>
-      <option value="reference">{t("libraryFilters.references")}</option>
-    </select></label>
-  </AssetFilterPopover>;
+  return <>
+    <Select size="sm" label={t("libraryFilters.source")} value={filters.origin ?? "all"} onChange={(origin) => onChange({ ...filters, origin })} options={[
+      { value: "all", label: t("libraryFilters.allSources") },
+      { value: "generated", label: t("libraryFilters.generated") },
+      { value: "uploaded", label: t("libraryFilters.uploaded") },
+      { value: "workspace", label: t("libraryFilters.projectFiles") },
+      ...(assets.some((asset) => asset.origin === "builtin") ? [{ value: "builtin" as const, label: t("libraryFilters.builtIn") }] : []),
+    ]} />
+    <Select size="sm" label={t("libraryFilters.use")} value={filters.purpose ?? "all"} onChange={(purpose) => onChange({ ...filters, purpose })} options={[
+      { value: "all", label: t("libraryFilters.allUses") },
+      { value: "asset", label: t("libraryFilters.assets") },
+      { value: "reference", label: t("libraryFilters.references") },
+    ]} />
+  </>;
+}
+
+/** Whether `filters` narrow the Library page past its default (saved assets from every project). */
+export function libraryFiltersActive(filters: LibraryAssetFilters): boolean {
+  return (filters.origin ?? "saved") !== "saved" || Boolean(filters.projectId) || Boolean(filters.includeReferences);
+}
+
+/** Select options need a value; project ids are UUIDs, so this cannot collide. */
+const ALL_PROJECTS = "all";
+
+// Both layouts offer the same sources and projects.
+function librarySourceOptions(): { value: NonNullable<LibraryAssetFilters["origin"]>; label: string }[] {
+  return [
+    { value: "saved", label: t("libraryFilters.saved") },
+    { value: "generated", label: t("libraryFilters.generated") },
+    { value: "uploaded", label: t("libraryFilters.uploaded") },
+    { value: "workspace", label: t("libraryFilters.fromProjects") },
+    { value: "all", label: t("libraryFilters.allSources") },
+  ];
+}
+
+function libraryProjectOptions(projects: readonly LibraryAssetProject[], allProjects: string): { value: string; label: string }[] {
+  return [
+    { value: allProjects, label: t("libraryFilters.allProjects") },
+    { value: "unassigned", label: t("libraryFilters.noProject") },
+    ...projects.map((project) => ({ value: project.id, label: project.name })),
+  ];
 }
 
 function AssetFilterPopover({ active, onReset, children }: { active: boolean; onReset: () => void; children: ReactNode }) {

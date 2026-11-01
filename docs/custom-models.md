@@ -1,6 +1,6 @@
 # Custom providers and models
 
-In **Providers & Models**, choose **Add provider**, enter a name, Base URL and
+In **Providers**, choose **Add provider**, enter a name, Base URL and
 authentication, and select a service preset if one fits your endpoint. Presets
 provide connection defaults; each model can use its own generation protocol.
 The default language protocol also determines how the general model list is fetched.
@@ -28,7 +28,7 @@ by the endpoint. Remove those models explicitly if you no longer want them.
 
 OhMyGame bundles Pi 1.3.0, including `gemini-4-argon` for Google Gemini and
 Google Vertex AI. Connect the provider with credentials that have access to the
-model, enable it in **Providers & Models**, and select it for a conversation.
+model, enable it in **Providers**, and select it for a conversation.
 New Google connections recommend Gemini 4 Argon; saved default models are preserved.
 
 Gemini 4 supports **Low**, **Medium**, and **High** reasoning. Other levels,
@@ -250,13 +250,15 @@ description. Built-in language providers show a
 icon); when the provider offers both methods, the section heading has a button
 to switch. The model list shows the global default language model
 first with a **Default** badge; hidden models stay under **Hidden models (n)**.
+Each row's checkbox shows or hides its model. A model switched off there stays
+in place, unchecked, until the page changes, so the list does not jump.
 Base URL and Responses connection settings sit in the **Advanced** section.
 
 ![Provider detail header with delete before the enable switch (sample data)](assets/provider-detail-controls.png)
 
 ## Global and project defaults
 
-The **Providers & Models** overview has global Image, Video and 3D selectors. Capability filters show the corresponding default. Provider details describe the provider's models; they do not define a separate default.
+The **Providers** overview has global Image, Video and 3D selectors. Capability filters show the corresponding default. Provider details describe the provider's models; they do not define a separate default.
 
 Open **Project settings** from the top right of Asset Canvas (or a project's Design view) to choose generation models in a compact menu. Global and project defaults use the same model picker as Canvas, with models grouped by provider. Changes save immediately. Closed selectors show only the effective model name; **Automatic** and **Use global** remain available in the model menu. Unused generation types can keep the global setting without a connected provider.
 

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "ohmygame/taptap-maker",
+  "version": "1.0.0",
+  "engines": { "ohmygame-api": "^2.0.0" },
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "icon": "./assets/icon.svg",
+  "categories": ["engine"],
+  "links": { "homepage": "https://maker.taptap.cn" },
+  "entrypoints": { "native": "./native/index.mjs" },
+  "capabilities": {
+    "native": true,
+    "project.files": "write",
+    "network": ["maker.taptap.cn", "www.taptap.cn", "agent.tapapis.cn", "registry.npmjs.org", "pypi.org", "files.pythonhosted.org"],
+    "processes": ["node", "git", "python3", "python", "py"]
+  },
+  "contributes": {
+    "projectTypes": [
+      {
+        "id": "maker",
+        "title": "%type.title%",
+        "description": "%type.description%",
+        "icon": "./assets/icon.svg",
+        "recognize": { "files": [".maker-mcp/config.json"] },
+        "preview": "native",
+        "ready": { "command": "ready", "panel": "maker" }
+      }
+    ],
+    "panels": [
+      {
+        "id": "maker",
+        "title": "%panel.title%",
+        "icon": "./assets/icon.svg",
+        "area": "center",
+        "entry": "./panel/index.html",
+        "when": "project.type == 'ohmygame/taptap-maker:maker'"
+      }
+    ],
+    "skills": "./skills/",
+    "tools": [
+      {
+        "name": "maker_preview",
+        "description": "Control the TapTap Maker native preview, where the game runs in its own window: status, install (Maker Runtime), start, refresh (restarts with the latest files and resets game state), stop, or logs (the latest 100 lines).",
+        "input": "./schemas/preview.json",
+        "output": "./schemas/preview-output.json",
+        "timeoutSeconds": 900
+      }
+    ],
+    "commands": [
+      { "id": "status", "title": "%command.status%", "run": { "native": "status", "timeoutSeconds": 120, "changesFiles": false } },
+      { "id": "ready", "title": "%command.ready%", "run": { "native": "ready", "changesFiles": false } },
+      { "id": "prepare", "title": "%command.prepare%", "run": { "native": "prepare", "timeoutSeconds": 1800, "changesFiles": false } },
+      { "id": "sign-in", "title": "%command.signIn%", "run": { "native": "signIn", "timeoutSeconds": 900, "changesFiles": false } },
+      { "id": "projects", "title": "%command.projects%", "run": { "native": "projects", "timeoutSeconds": 120, "changesFiles": false } },
+      { "id": "create", "title": "%command.create%", "run": { "native": "create", "input": "./schemas/create.json", "timeoutSeconds": 1800 } },
+      { "id": "bind", "title": "%command.bind%", "run": { "native": "bind", "input": "./schemas/bind.json", "timeoutSeconds": 1800 } },
+      { "id": "preview", "title": "%command.preview%", "run": { "native": "preview", "input": "./schemas/preview.json", "timeoutSeconds": 900, "changesFiles": false } }
+    ],
+    "mcpServers": [
+      {
+        "id": "maker",
+        "title": "%mcp.title%",
+        "command": "node",
+        "args": ["./scripts/mcp.mjs"],
+        "tools": [
+          "maker_status_lite",
+          "maker_build_current_directory",
+          "generate_image",
+          "batch_generate_images",
+          "edit_image",
+          "create_3d_asset",
+          "text_to_music",
+          "create_video_task",
+          "query_video_task",
+          "text_to_sound_effect",
+          "batch_sound_effects",
+          "text_to_dialogue",
+          "audition_voices_for_character",
+          "confirm_character_voice",
+          "generate_test_qrcode",
+          "add_test_whitelist",
+          "get_ad_config",
+          "get_debug_feedbacks"
+        ],
+        "timeoutSeconds": 3600
+      }
+    ]
+  }
+}

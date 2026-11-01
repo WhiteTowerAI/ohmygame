@@ -124,11 +124,15 @@ it("keeps the last reported usage limits across a restart", async () => {
     windowMinutes: 300,
     resetsAt: 1792326600,
   };
+  const file = path.join(root, "agent-runtimes", "limits.json");
   await writeFile(
-    path.join(root, "agent-runtimes", "limits.json"),
+    file,
     JSON.stringify({
-      "claude-code-cli": [fiveHour, { id: 3 }],
-      "unknown-cli": [fiveHour],
+      version: 2,
+      limits: {
+        "claude-code-cli": [fiveHour, { id: 3 }],
+        "unknown-cli": [fiveHour],
+      },
     }),
   );
   const service = new AgentRuntimeService(root, () => undefined);
@@ -136,4 +140,25 @@ it("keeps the last reported usage limits across a restart", async () => {
   cleanup.push(() => service.close());
   expect((await service.status("claude-code-cli")).limits).toEqual([fiveHour]);
   expect((await service.status("codex-cli")).limits).toBeUndefined();
+
+  // Earlier System default reports may belong to the folder OhMyGame was launched with.
+  const work = path.join(root, "work");
+  await mkdir(work);
+  const profile = await service.addAccountProfile("claude-code-cli", "Work", work);
+  await writeFile(
+    file,
+    JSON.stringify({
+      "claude-code-cli": [fiveHour],
+      "codex-cli": [fiveHour],
+      [`claude-code-cli:${profile.id}`]: [fiveHour],
+      "opencode-cli": [fiveHour],
+    }),
+  );
+  const upgraded = new AgentRuntimeService(root, () => undefined);
+  await upgraded.load();
+  cleanup.push(() => upgraded.close());
+  expect(upgraded.cachedLimits("claude-code-cli")).toBeUndefined();
+  expect(upgraded.cachedLimits("codex-cli")).toBeUndefined();
+  expect(upgraded.cachedLimits("claude-code-cli", profile.id)).toEqual([fiveHour]);
+  expect(upgraded.cachedLimits("opencode-cli")).toEqual([fiveHour]);
 });
