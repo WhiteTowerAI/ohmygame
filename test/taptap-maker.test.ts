@@ -179,11 +179,43 @@ describe("TapTap Maker project setup", () => {
     expect(lines).toEqual(["*.log", "/canvas/", "# OhMyGame's own files, kept out of Maker builds", "/ohmygame.json", "/.ohmygame/"]);
   });
 
+  it("finds a worktree's shared exclude file and keeps rules Git reads differently", async () => {
+    await maker.bind(context(), { projectId: "selected" });
+    // A worktree's .git is a file; its Git folder names the main repository's.
+    const main = path.join(directory, "main.git");
+    await mkdir(path.join(main, "worktrees/workspace"), { recursive: true });
+    await writeFile(path.join(main, "worktrees/workspace/commondir"), "../..\n");
+    await rm(path.join(workspace, ".git"), { recursive: true });
+    await writeFile(path.join(workspace, ".git"), `gitdir: ${path.join(main, "worktrees/workspace")}\n`);
+    await mkdir(path.join(main, "info"));
+    // Leading spaces are part of a Git pattern, so this rule matches nothing.
+    await writeFile(path.join(main, "info/exclude"), " /ohmygame.json\n/canvas/   \n");
+    expect(await maker.ready(context())).toEqual({ ready: true });
+    expect((await readFile(path.join(main, "info/exclude"), "utf8")).split("\n")).toEqual([
+      " /ohmygame.json",
+      "/canvas/   ",
+      "# OhMyGame's own files, kept out of Maker builds",
+      "/ohmygame.json",
+      "/.ohmygame/",
+      "",
+    ]);
+  });
+
   it("refuses a folder that is already a Git repository before calling Maker", async () => {
     await mkdir(path.join(workspace, ".git"));
     await expect(maker.create(context(), { name: "Pixel garden" })).rejects.toThrow("already a Git repository");
     await expect(maker.bind(context(), { projectId: "selected" })).rejects.toThrow("already a Git repository");
     expect(await calls()).toEqual([]);
+  });
+
+  it("refuses a repository that replaced a connected folder, whatever an earlier setup recorded", async () => {
+    await maker.bind(context(), { projectId: "selected" });
+    await rm(workspace, { recursive: true });
+    await mkdir(path.join(workspace, ".git"), { recursive: true });
+    const before = (await calls()).length;
+    await expect(maker.bind(context(), { projectId: "selected" })).rejects.toThrow("already a Git repository");
+    await expect(maker.create(context(), { name: "Pixel garden" })).rejects.toThrow("already a Git repository");
+    expect(await calls()).toHaveLength(before);
   });
 
   it("initializes once and keeps the binding when the same project is connected again", async () => {

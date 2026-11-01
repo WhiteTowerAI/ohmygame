@@ -96,17 +96,36 @@ async function assertNotARepository(workspace) {
     );
 }
 
+/**
+ * The repository's `info/exclude`. A worktree or submodule has a `.git` file
+ * naming its Git folder, and a worktree shares the main repository's
+ * `info/`, which its Git folder's `commondir` names.
+ */
+async function excludeFile(workspace) {
+  const dotGit = path.join(workspace, ".git");
+  const info = await stat(dotGit).catch(() => null);
+  if (!info) return null;
+  let gitDirectory = dotGit;
+  if (info.isFile()) {
+    const pointer = /^gitdir:\s*(.+?)\s*$/m.exec(await readFile(dotGit, "utf8"));
+    if (!pointer) return null;
+    gitDirectory = path.resolve(workspace, pointer[1]);
+    const common = await readFile(path.join(gitDirectory, "commondir"), "utf8").catch(() => "");
+    if (common.trim()) gitDirectory = path.resolve(gitDirectory, common.trim());
+  } else if (!info.isDirectory()) return null;
+  return path.join(gitDirectory, "info", "exclude");
+}
+
 /** Keeps OhMyGame's own files out of Maker's commits; adds only what is missing. */
 async function excludeAppFiles(workspace) {
-  const git = path.join(workspace, ".git");
-  if (!(await stat(git).then((info) => info.isDirectory(), () => false)))
-    return;
-  const filename = path.join(git, "info", "exclude");
+  const filename = await excludeFile(workspace);
+  if (!filename) return;
   const current = await readFile(filename, "utf8").catch((cause) => {
     if (cause.code === "ENOENT") return "";
     throw cause;
   });
-  const lines = new Set(current.split(/\r?\n/).map((line) => line.trim()));
+  // Git ignores trailing spaces in a pattern, but leading ones are part of it.
+  const lines = new Set(current.split(/\r?\n/).map((line) => line.replace(/\s+$/, "")));
   const missing = APP_FILES.filter((entry) => !lines.has(entry));
   if (!missing.length) return;
   await mkdir(path.dirname(filename), { recursive: true });
@@ -120,8 +139,8 @@ async function initialize(context, selection, record) {
   const { directory, workspace, signal, progress } = context;
   await mkdir(path.dirname(record.filename), { recursive: true });
   await saveInitialization(record.filename, {
-    projectId:
-      selection[0] === "--app-id" ? selection[1] : record.state?.projectId,
+    // A create starts with no identity; Maker reports it before checkout.
+    projectId: selection[0] === "--app-id" ? selection[1] : undefined,
   });
   let saving = Promise.resolve();
   await maker(
@@ -256,8 +275,11 @@ export async function create(context, { name }) {
   const record = await initialization(directory, workspace);
   if (current && (!record.state || record.state.completed))
     return status(context);
-  const remoteId = current?.id ?? record.state?.projectId;
-  if (record.state && !remoteId)
+  // Only a setup that stopped partway is resumed; a finished one whose
+  // binding is gone tells nothing about the folder now.
+  const pending = record.state?.completed ? undefined : record.state;
+  const remoteId = current?.id ?? pending?.projectId;
+  if (pending && !remoteId)
     throw new Error(
       "Project creation outcome is unknown. Refresh the project list and connect the created project instead of creating another one.",
     );
@@ -295,7 +317,8 @@ export async function bind(context, { projectId }) {
     return initialize(context, ["--app-id", current.id], record);
   }
   // A connect that stopped partway resumes in the repository it began.
-  const resuming = record.state?.projectId === projectId;
+  const resuming =
+    !record.state?.completed && record.state?.projectId === projectId;
   if (!resuming) await assertNotARepository(workspace);
   await verifyDiagnostics(directory, signal); // Prevent init's multi-editor LSP installer.
   const available = projectList(
