@@ -1036,15 +1036,35 @@ function isDesignCanvasFile(parts: string[]): boolean {
   return parts.length === 3 && Object.hasOwn(DESIGN_CANVAS_ENTRIES, parts[1]) && DESIGN_CANVAS_ENTRIES[parts[1]].test(parts[2]);
 }
 
-/** Hidden entries and generated folders are not files someone wrote for the project. */
+/**
+ * Hidden entries, generated folders and the files Design keeps in `canvas/`
+ * (written as soon as a new project opens) are not files someone wrote for
+ * the project.
+ */
 async function hasProjectFiles(directory: string): Promise<boolean> {
+  let names: string[];
   try {
-    return (await readdir(directory)).some(
-      (name) =>
-        !name.startsWith(".") &&
-        !["node_modules", "dist", "build"].includes(name),
-    );
+    names = await readdir(directory);
   } catch {
     return false;
+  }
+  for (const name of names) {
+    if (name.startsWith(".") || ["node_modules", "dist", "build"].includes(name)) continue;
+    if (name !== "canvas" || (await hasGameCanvasFiles(path.join(directory, name)))) return true;
+  }
+  return false;
+}
+
+async function hasGameCanvasFiles(canvas: string): Promise<boolean> {
+  try {
+    const entries = await readdir(canvas, { recursive: true, withFileTypes: true });
+    return entries.some((entry) => {
+      if (entry.isDirectory()) return false;
+      const relative = path.relative(canvas, path.join(entry.parentPath, entry.name));
+      return !isDesignCanvasFile(["canvas", ...relative.split(path.sep)]);
+    });
+  } catch {
+    // A plain file named `canvas` belongs to the project.
+    return true;
   }
 }
