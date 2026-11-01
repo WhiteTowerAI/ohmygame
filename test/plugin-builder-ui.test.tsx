@@ -38,6 +38,8 @@ let enabled: boolean;
 let draftIcon: PluginDetail["icon"];
 let iconChanged: boolean;
 let savedIcon: unknown;
+let hasSettings: boolean;
+let updated: boolean;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
@@ -47,6 +49,7 @@ beforeEach(() => {
   requests = [];
   configuring = false; builtIn = false; hasConversation = false; enabled = true;
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
+  hasSettings = false; updated = false;
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const route = new URL(url, "http://localhost").pathname.replace(/^\/api/, "");
     const method = init.method ?? "GET";
@@ -59,6 +62,10 @@ beforeEach(() => {
     if (route === "/health") return Response.json({ status: "ok" });
     if (route === "/models") return Response.json({ models: [], providers: [] });
     if (route === `/plugins/setup-sessions/${sessionId}/install` && method === "POST") {
+      if (hasSettings) {
+        updated = true;
+        return Response.json(state);
+      }
       installed = true;
       installationFailed = true;
       return Response.json({ error: "Configuration could not be saved" }, { status: 409 });
@@ -68,7 +75,8 @@ beforeEach(() => {
       hasConversation = false;
       return Response.json({ ...currentState, turns: [] });
     }
-    if (route === "/plugin-store/plugins") return Response.json(installed ? [{ ...stored, grants: { enabled, allowed: [] } }] : []);
+    if (route === "/plugin-store/plugins") return Response.json(installed ? [{ ...stored, ...(hasSettings ? { settings: [{ name: "token", type: "text", title: "Token", required: false }] } : {}), grants: { enabled, allowed: [] } }] : []);
+    if (route === `/plugin-store/${storeId}/configuration`) return Response.json({ token: { type: "text", value: null } });
     if (route === `/plugin-store/${storeId}/enabled` && method === "PUT") {
       enabled = JSON.parse(init.body as string).enabled;
       return new Response(null, { status: 204 });
@@ -88,7 +96,7 @@ beforeEach(() => {
       return new Response(null, { status: 204 });
     }
     if (route === `/plugins/setup-sessions/${sessionId}`) return Response.json(installationFailed ? { ...state, pluginId: storeId, status: "error", error: "Configuration could not be saved" } : installed ? currentState : { ...currentState, pluginId: undefined, status: "ready" });
-    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json(configuring ? { files: [], errors: [] } : { path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon }, files: [], errors: [] });
+    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json(configuring ? { files: [], errors: [] } : { path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: updated ? "b".repeat(64) : installed && !installationFailed ? revision : undefined, plugin: { ...draftPlugin, icon: draftIcon }, files: [], errors: [] });
     if (route === `/plugins/${encodeURIComponent(plugin.id)}`) return Response.json({ ...plugin, enabled, source: builtIn ? { type: "builtIn" } : plugin.source });
     throw new Error(`Unexpected request: ${route}`);
   }));
@@ -182,6 +190,17 @@ describe("Plugin Builder removal controls", () => {
     expect(requests).toContain(`DELETE /plugins/setup-sessions/${sessionId}`);
     expect(readPluginBuilderInput(sessionId, localStorage).prompt).toBe("");
     expect(window.location.hash).toBe("#/plugins");
+  });
+
+  it("reloads the settings form once an update is installed", async () => {
+    hasSettings = true; iconChanged = true;
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Plugin preview"] button')].find(item => /Setup/.test(item.getAttribute("aria-label") ?? item.textContent ?? ""))!.click());
+    const reads = () => requests.filter(request => request === `GET /plugin-store/${storeId}/configuration`).length;
+    expect(reads()).toBe(1);
+    const update = [...container.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === "Update plugin")!;
+    await act(async () => update.click());
+    expect(reads()).toBe(2);
   });
 
   it("does not offer uninstalling a built-in plugin", async () => {

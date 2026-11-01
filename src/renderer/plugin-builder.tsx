@@ -235,7 +235,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
         return <PluginFiles sessionId={sessionId} draft={draft} installed={installed} request={fileRequest} />;
       case "configuration": {
         if (!configuring) {
-          if (stored?.plugin.settings.length) return <fieldset className="plugin-builder-config" disabled={disabled}><StorePluginSettings plugin={stored.plugin} /></fieldset>;
+          if (stored?.plugin.settings.length) return <fieldset className="plugin-builder-config" disabled={disabled}><StorePluginSettings key={draft?.installedRevision ?? stored.plugin.version} plugin={stored.plugin} /></fieldset>;
           return <EmptyView label={t(draftPlugin?.settings ? "pluginBuilder.settingsAfterInstall" : "pluginBuilder.noConfiguration")} />;
         }
         if (!installed) return <EmptyView label={t("pluginBuilder.noConfiguration")} />;
