@@ -3,12 +3,12 @@
   "plugins": [
     {
       "pluginId": "98d626d2-8e51-42a9-adfe-a3a1e19372c9",
-      "releaseId": "ca666eda-c109-45c3-8cf9-a0ddbda3bdf8",
+      "releaseId": "0ba0d774-5816-4223-a314-469144ea8c37",
       "repository": "img2threejs/img2threejs",
       "commit": "dede5909be4e494b228c801a55dda47439143932",
       "release": "v1.5.1",
       "version": "1.5.1",
-      "artifactSha256": "28cff1bb61d30d7523f358d94d37a7d8e38cb49af0215ecc78cf9458cb027877",
+      "artifactSha256": "79e2c2c91c6ac27ab932ab4ec57ff1b3ab659cdfc8acec91183b48ba91f5af75",
       "candidate": "agent-skills:root",
       "interface": {
         "displayName": "Image to Three.js",
@@ -19,6 +19,9 @@
           "path": "./assets/icon.svg"
         }
       },
+      "categories": [
+        "art"
+      ],
       "assets": "config/plugin-assets/img2threejs"
     }
   ]

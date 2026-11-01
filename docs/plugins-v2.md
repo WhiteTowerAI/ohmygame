@@ -182,6 +182,23 @@ on the plugin's page, and mark itself `beta`.
 `scripts/convert-format-1-plugin.ts` converts a format 1 plugin that only adds
 Skills, in place (`src/daemon/plugin-conversion.ts`).
 
+`convertFormat1Package` writes a new format 2 package for any format 1
+package's Skills, without changing the source:
+
+- Every `SKILL.md` its Skills paths reach becomes `skills/<name>/`, copied with
+  its folder. Paths can be one or several, each a folder searched to any depth
+  or a single `SKILL.md`.
+- A Skill nested in another's folder gets its own folder.
+- Each name is the frontmatter name made a folder name, numbered when two
+  match. The frontmatter is rewritten to that name, and gets the plugin's
+  description when it has none.
+- A file a `SKILL.md` links to outside its folder is copied into the Skill's
+  `_shared/` folder, and the link is pointed there.
+- The icon keeps its path, and a missing version becomes `0.0.0`.
+- MCP servers, configuration and requirements are not carried over; the result
+  lists them for the caller.
+- The result maps each Skill's old path to its new one.
+
 ## In the app
 
 - **Plugins page:** Installed lists format 2 plugins under **Turned on per
