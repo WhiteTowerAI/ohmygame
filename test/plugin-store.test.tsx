@@ -12,7 +12,7 @@ const api = {
   uninstallStorePlugin: vi.fn(async () => {}),
   readStorePluginConfiguration: vi.fn(async () => configuration),
   saveStorePluginConfiguration: vi.fn(async () => configuration),
-  readPluginSkill: vi.fn(async () => ({ id: "skills/maker/SKILL.md", content: "# Using Maker" })),
+  readPluginSkill: vi.fn(async () => ({ id: "skills/maker/SKILL.md", content: "---\nname: maker\ndescription: Build with Maker.\n---\n\n# Using Maker" })),
   listProjects: vi.fn(async () => [
     { id: "web", name: "Web game", type: "web-game", updatedAt: "2026-01-02T00:00:00.000Z" },
     { id: "story", name: "Story", type: "interactive-story", updatedAt: "2026-01-03T00:00:00.000Z" },
@@ -151,6 +151,7 @@ it("shows the plugin's description, Skills and settings under tabs, without a sw
   await act(async () => panel("Skills").querySelector<HTMLButtonElement>(".plugin-skill-open")!.click());
   expect(api.readPluginSkill).toHaveBeenCalledWith("acme/maker", "skills/maker/SKILL.md");
   expect(panel("Skills").textContent).toContain("Using Maker");
+  expect(panel("Skills").textContent).not.toContain("name: maker");
   // Unsaved settings stay on the page while another tab shows.
   expect(panel("Settings").querySelector("form")).not.toBeNull();
 });
@@ -194,6 +195,15 @@ it("offers a new project of the app's type a plugin's own type goes with", async
   await act(async () => button("Build a level").click());
   await act(async () => document.querySelector<HTMLButtonElement>(".project-switcher-footer button")!.click());
   expect(onTry).toHaveBeenCalledWith({ turnOn: "acme/maker", newProjectType: "godot-game" }, "Build a level", undefined);
+});
+
+it("offers a new project of the plugin's own type over a general one", async () => {
+  const onTry = vi.fn(async () => {});
+  const [group] = groupStorePlugins([row("1.0.0", { id: "ohmygame/godot", examples: ["Build a level"], appliesTo: ["general", "ohmygame/godot:godot-game"], grants: { enabled: true, allowed: ["native", "network:api.example.com"] } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} onTry={onTry} />));
+  await act(async () => button("Build a level").click());
+  await act(async () => document.querySelector<HTMLButtonElement>(".project-switcher-footer button")!.click());
+  expect(onTry).toHaveBeenCalledWith({ turnOn: "ohmygame/godot", newProjectType: "godot-game" }, "Build a level", undefined);
 });
 
 it("goes back to About when the open tab goes away with the newest version", async () => {

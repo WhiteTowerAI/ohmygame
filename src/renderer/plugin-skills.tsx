@@ -6,6 +6,9 @@ import { ChevronRight, FolderOpen } from "./icons.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { Alert, Button, IconButton, Spinner, Switch } from "./ui/index.js";
 
+/** A SKILL.md's metadata, which the row above its content already shows. */
+const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
+
 /** A Skill on a plugin's page; `enabled` only where Skills switch one by one. */
 export type SkillItem = Omit<PluginComponentSummary, "enabled"> & { enabled?: boolean };
 
@@ -62,7 +65,7 @@ export function SkillSection({ pluginId, items, installed, disabled, onBrowse, o
       {open ? <div className="plugin-skill-content">
         {expanded.phase === "loading" ? <div className="plugins-state"><Spinner size={14} label={t("plugins.loadingSkill")} />{t("plugins.loadingSkill")}</div> : null}
         {expanded.phase === "error" ? <Alert tone="danger" title={expanded.error} action={<Button size="sm" onClick={() => void loadContent(item)}>{t("common.retry")}</Button>} /> : null}
-        {expanded.phase === "ready" ? <MarkdownContent text={expanded.content ?? ""} /> : null}
+        {expanded.phase === "ready" ? <MarkdownContent text={(expanded.content ?? "").replace(FRONTMATTER, "")} /> : null}
       </div> : null}
     </div>;
   })}</div>;

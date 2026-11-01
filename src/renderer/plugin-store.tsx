@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
 import { PLUGIN_CONTRIBUTIONS, type PluginContribution, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
-import { pluginAppliesTo, projectFileTypeFor } from "../shared/project-runtime.js";
+import { PLUGIN_PROJECT_KINDS, pluginAppliesTo, projectFileTypeFor } from "../shared/project-runtime.js";
 import { consentToPlugin, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, uninstallStorePlugin } from "./api.js";
 import { t } from "./i18n.js";
 import { BadgeCheck, ExternalLink, FolderOpen, Play } from "./icons.js";
@@ -51,9 +51,11 @@ export function storePluginContributions({ adds }: StorePlugin): PluginContribut
     kind === "projectType" ? adds.projectTypes.length > 0 : kind === "skills" ? adds.skills > 0 : kind === "mcp" ? adds.mcpServers.length > 0 : false);
 }
 
-/** The app's project type a new project to try it in gets, if any suits it. */
+/** The app's project type a new project to try it in gets: the plugin's own if it has one, else the first that suits it. */
 function newProjectType(plugin: StorePlugin): ProjectType | undefined {
-  return PROJECT_TYPE_IDS.find((type) => pluginAppliesTo(plugin.appliesTo, projectFileTypeFor(type)));
+  const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
+  return PROJECT_TYPE_IDS.find((type) => kinds[type]?.startsWith(`${plugin.id}:`))
+    ?? PROJECT_TYPE_IDS.find((type) => pluginAppliesTo(plugin.appliesTo, projectFileTypeFor(type)));
 }
 
 function StoreTile({ plugin, large = false }: { plugin: StorePlugin; large?: boolean }): ReactNode {
