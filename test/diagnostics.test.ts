@@ -122,7 +122,7 @@ describe("diagnostics export", () => {
     });
     apps.push(app);
     await app.ready();
-    const decided = vi.spyOn(PluginGrants.prototype, "plugin").mockReturnValue(undefined);
+    const decided = vi.spyOn(PluginGrants.prototype, "plugin").mockReturnValue(undefined as never);
     try {
       const response = await app.inject({ method: "POST", url: "/diagnostics/export" });
       const { plugins } = JSON.parse((await unzip(response.rawPayload))["system.json"]!);

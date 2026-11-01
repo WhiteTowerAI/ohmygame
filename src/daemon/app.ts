@@ -1707,6 +1707,8 @@ export function createApp(options: AppOptions = {}) {
     if (!plugin) return reply.code(404).send({ error: "Installed plugin not found" });
     try {
       await localPlugins.remove(request.params.pluginId);
+      // Its format 2 replacement stays away too, if that hasn't installed yet.
+      if (plugin.source.type === "preinstalled") await preinstalledPlugins.markRemoved(plugin.id.replace(":", "/"));
       await rm(pluginCapabilities.dataPath(plugin.id), { recursive: true, force: true });
       await pluginSettings.remove(request.params.pluginId).catch((cause) => {
         app.log.warn({ err: cause, pluginId: request.params.pluginId }, "Could not remove stale plugin settings");
@@ -2766,14 +2768,17 @@ export function createApp(options: AppOptions = {}) {
           .map(({ id, enabled, custom, capabilities }) => ({ id, enabled: enabled !== false, custom: custom === true, capabilities }))),
         diagnosticSection(async () => (await agentRuntimes.statuses())
           .map(({ id, enabled, installed, version, auth }) => ({ id, enabled, installed, ...(version ? { version } : {}), auth: auth.status }))),
-        diagnosticSection(async () => [
-          ...(await plugins.list()).plugins.filter((plugin) => plugin.installed)
-            .map(({ id, version, enabled, beta }) => ({ id, ...(version ? { version } : {}), enabled, ...(beta ? { beta } : {}) })),
-          ...[...new Set(pluginServices.index.entries().map((entry) => entry.id))].flatMap((id) => {
-            const entry = pluginServices.index.get(id);
-            return entry ? [{ id, version: entry.version, enabled: pluginServices.grants.plugin(id)?.enabled ?? isAppWidePlugin(entry.manifest), ...(entry.manifest.beta ? { beta: true } : {}) }] : [];
-          }),
-        ]),
+        diagnosticSection(async () => {
+          await pluginServices.ready();
+          return [
+            ...(await plugins.list()).plugins.filter((plugin) => plugin.installed)
+              .map(({ id, version, enabled, beta }) => ({ id, ...(version ? { version } : {}), enabled, ...(beta ? { beta } : {}) })),
+            ...[...new Set(pluginServices.index.entries().map((entry) => entry.id))].flatMap((id) => {
+              const entry = pluginServices.index.get(id);
+              return entry ? [{ id, version: entry.version, enabled: pluginServices.grants.plugin(id)?.enabled ?? isAppWidePlugin(entry.manifest), ...(entry.manifest.beta ? { beta: true } : {}) }] : [];
+            }),
+          ];
+        }),
         diagnosticSection(() => {
           const counts: Record<string, number> = {};
           for (const project of projects.list()) counts[project.type] = (counts[project.type] ?? 0) + 1;

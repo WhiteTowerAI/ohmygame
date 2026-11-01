@@ -191,7 +191,9 @@ per-Skill switches. Mentions keep `{name, marketplaceId}`, with the publisher as
 one. A prompt that mentions one the project doesn't suit gets a 409.
 
 A project can't turn one of these on in `ohmygame.json`: `setProjectPlugin`
-refuses it, and `resolveProjectPlugins` skips an entry left there.
+refuses it, and `resolveProjectPlugins` skips an entry left there. The exception
+is an older version that asks for more than the newest: a project that names it
+keeps running it, in place of the newest.
 
 `src/daemon/preinstalled-plugins.ts` installs the versions in
 `config/preinstalled-plugins.json` through `PluginServices.installManaged`, the

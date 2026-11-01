@@ -497,11 +497,16 @@ export class PluginIndex {
     return this.#serial(async () => {
       const result = await indexPluginPackage(root);
       if (result.ok) {
-        this.#entries.set(
-          key(result.entry.id, result.entry.version),
-          result.entry,
-        );
-        await this.#save();
+        const entryKey = key(result.entry.id, result.entry.version);
+        const previous = this.#entries.get(entryKey);
+        this.#entries.set(entryKey, result.entry);
+        try {
+          await this.#save();
+        } catch (cause) {
+          if (previous) this.#entries.set(entryKey, previous);
+          else this.#entries.delete(entryKey);
+          throw cause;
+        }
       }
       return result;
     });

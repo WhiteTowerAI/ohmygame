@@ -9,7 +9,7 @@ import { PreinstalledPluginManager } from "../src/daemon/preinstalled-plugins.js
 import { convertFormat1Package } from "../src/daemon/plugin-conversion.js";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
-import type { LocalPluginStore } from "../src/daemon/local-plugins.js";
+import { LocalPluginStore } from "../src/daemon/local-plugins.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 
 const apps: FastifyInstance[] = [];
@@ -165,6 +165,26 @@ describe("preinstalled plugins", () => {
     expect(await manager.seed(services, formatOne)).toEqual([expect.stringContaining("integrity verification")]);
     expect(remove).not.toHaveBeenCalled();
     await services.close();
+  });
+
+  it("stays away when the person removes the format 1 copy before it could install", async () => {
+    const dataDirectory = await temporary("ohmygame-preinstalled-removed-copy-");
+    const prepared = await preparedPlugin();
+    const archive = path.join(prepared.directory, `${prepared.releaseId}.zip`);
+    const intact = await readFile(archive);
+    await writeFile(archive, "damaged");
+    const app = await start(dataDirectory, prepared.directory);
+    const read = vi.spyOn(LocalPluginStore.prototype, "read").mockResolvedValue({ id: "ohmygame:reference-tools", source: { type: "preinstalled" } } as never);
+    const remove = vi.spyOn(LocalPluginStore.prototype, "remove").mockResolvedValue(undefined as never);
+    try {
+      expect((await app.inject({ method: "DELETE", url: "/plugins/ohmygame:reference-tools" })).statusCode).toBe(204);
+    } finally {
+      read.mockRestore();
+      remove.mockRestore();
+    }
+    await close(app);
+    await writeFile(archive, intact);
+    expect(await listed(await start(dataDirectory, prepared.directory))).toBeUndefined();
   });
 
   it("updates only the version it installed, leaving one installed apart", async () => {

@@ -116,7 +116,7 @@ export const BUNDLED_PLUGINS_OFF: readonly string[] = [
 ];
 
 /** What deciding whether an app-wide plugin suits a project needs to know of it. */
-export type AppWideProject = { type: string; pluginType?: { id: string } | undefined };
+export type AppWideProject = { type: string; pluginType?: { id: string } | undefined; workspacePath?: string };
 
 export interface PluginServicesOptions {
   /** The folder for the index and decisions, inside the app's data folder. */
@@ -236,13 +236,18 @@ export class PluginServices {
   /**
    * The plugins that apply without a project turning them on, those that only
    * add Skills, so there is nothing to allow: each at its newest version,
-   * unless the person turned it off. With a project, only those that suit it.
+   * unless the person turned it off. With a project, only those that suit it,
+   * leaving out any it names an older version of, which it runs instead.
    */
   async appWide(project?: AppWideProject): Promise<PluginIndexEntry[]> {
     await this.ready();
+    const resolved = project?.workspacePath
+      ? await resolveProjectPlugins({ folder: project.workspacePath, index: this.index, grants: this.grants }).catch(() => undefined)
+      : undefined;
+    const named = new Set(resolved?.ok ? resolved.plugins.map((plugin) => plugin.id) : []);
     return [...new Set(this.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
       const entry = this.index.get(id);
-      if (!entry || !isAppWidePlugin(entry.manifest) || pluginApiIssue(entry.manifest) || this.grants.plugin(id)?.enabled === false) return [];
+      if (!entry || named.has(id) || !isAppWidePlugin(entry.manifest) || pluginApiIssue(entry.manifest) || this.grants.plugin(id)?.enabled === false) return [];
       return !project || appWidePluginSuits(entry.manifest.appliesTo, project) ? [entry] : [];
     });
   }

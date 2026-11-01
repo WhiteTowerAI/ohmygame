@@ -1073,6 +1073,27 @@ describe("plugin releases", () => {
     }
   });
 
+  it("keeps what it knew when the index can't be saved", async () => {
+    const dir = await temporary();
+    const file = path.join(dir, "index.json");
+    const index = new PluginIndex(file);
+    const root = path.join(dir, "blender");
+    await cp(path.join(BUNDLED, "blender"), root, { recursive: true });
+    await editManifest(root, (manifest) => (manifest.version = "1.0.0"));
+    await index.load();
+    const added = await index.add(root);
+    expect(added.ok).toBe(true);
+    const digest = index.get("ohmygame/blender", "1.0.0")?.digest;
+    await rm(file);
+    await mkdir(path.join(file, "occupied"), { recursive: true });
+    await writeFile(path.join(root, "added.txt"), "new");
+    await expect(index.add(root)).rejects.toThrow();
+    expect(index.get("ohmygame/blender", "1.0.0")?.digest).toBe(digest);
+    await editManifest(root, (manifest) => (manifest.version = "2.0.0"));
+    await expect(index.add(root)).rejects.toThrow();
+    expect(index.get("ohmygame/blender", "2.0.0")).toBeUndefined();
+  });
+
   it("keeps an older version a project names when it asks for more than the newest", async () => {
     const dir = await temporary();
     const folder = path.join(dir, "project");
@@ -1095,6 +1116,11 @@ describe("plugin releases", () => {
       const resolved = await resolveProjectPlugins({ folder, index: services.index, grants: services.grants });
       expect(resolved?.ok && resolved.plugins.map((plugin) => plugin.version)).toEqual(["1.0.0"]);
       await expect(services.setProjectPlugin(folder, "ohmygame/blender", "2.0.0")).rejects.toThrow("applies to every project it suits");
+      // The project runs the version it names, so the newest doesn't apply beside it.
+      const project = { type: "general", workspacePath: folder };
+      expect(await services.appWide(project)).toEqual([]);
+      expect(await services.appWideSkills(project)).toEqual([]);
+      expect((await services.appWide({ type: "general" })).map((entry) => entry.version)).toEqual(["2.0.0"]);
     } finally {
       await services.close();
     }
