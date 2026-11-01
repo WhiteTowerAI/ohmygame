@@ -320,12 +320,14 @@ HTTP on this computer), there's no market and nothing is read.
   npm retires a key, versions signed only with it need publishing again. The
   package then comes
   from the chosen registry or the other one and has to match that SHA-512, so the
-  index and a mirror can't get a changed package installed. Registry metadata isn't
-  needed, since a mirror can lag behind.
+  index and a mirror can't get a changed package installed. A card's review and
+  install both need that signed entry, so one gone from the index is refused rather
+  than read from the registry. Registry metadata isn't needed, since a mirror can
+  lag behind.
 - **What the index does decide:** what's listed and how, the verified mark, and
   which versions are refused. A version it rejects or blocks can't be added this
-  way, even by name through Add plugin. Installing a package the index doesn't list
-  works as before.
+  way, even by name through Add plugin. Add plugin can still add a package the index
+  doesn't list, with the registry's own checksum, as before.
 - **Source verified** means npm's provenance names the repository, or the
   repository's `package.json` names the package. Stars show only then. Weekly
   downloads come from npm.

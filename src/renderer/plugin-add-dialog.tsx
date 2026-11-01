@@ -51,7 +51,7 @@ export function PluginAddDialog({ listed, onClose, onAdded }: { listed?: MarketP
     setReview({ preview: await inspectAddedPlugin(source), ...(folder ? { folder } : {}) });
   });
   useEffect(() => {
-    if (listed) void readSource({ type: "npm", name: listed.package, version: listed.version, registry: preferredRegistry() });
+    if (listed) void readSource({ type: "npm", name: listed.package, version: listed.version, registry: preferredRegistry(), market: true });
   }, []);
   const readFile = (selected: File) => run(async () => {
     if (selected.size > PLUGIN_ARCHIVE_MAX_BYTES) throw new Error(t("pluginAdd.tooLarge"));

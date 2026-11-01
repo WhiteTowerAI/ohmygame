@@ -12,7 +12,8 @@ export type PluginNpmRegistry = (typeof PLUGIN_NPM_REGISTRIES)[number];
 
 /** Where the Add plugin dialog gets a package. A `.tgz` file is uploaded, so it isn't one of these. */
 export type PluginAddSource =
-  | { type: "npm"; name: string; registry: PluginNpmRegistry; version?: string }
+  /** `market`: opened from a market card, so only a version the market signs off will do. */
+  | { type: "npm"; name: string; registry: PluginNpmRegistry; version?: string; market?: true }
   | { type: "github"; url: string; commit?: string }
   | { type: "directory"; path: string };
 

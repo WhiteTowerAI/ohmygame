@@ -64,6 +64,9 @@ describe("plugin catalog API", () => {
     apps.push(off);
     await off.ready();
     expect((await off.inject({ method: "GET", url: "/plugin-market?locale=en" })).json()).toEqual({ status: "off", plugins: [], blocked: [] });
+    const fromCard = await off.inject({ method: "POST", url: "/plugin-sources/inspect", payload: { source: { type: "npm", name: "@acme/maker", registry: "npmjs", version: "1.0.0", market: true } } });
+    expect(fromCard.statusCode, fromCard.body).toBe(400);
+    expect(fromCard.json().error).toContain("isn't on the plugin market any more");
 
     const body = JSON.stringify({ schemaVersion: 1, versions: [{
       package: "@acme/maker", version: "1.0.0", tarball: "", integrity: "sha512-AAAA", signatures: [],

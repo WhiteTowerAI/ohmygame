@@ -257,6 +257,29 @@ describe("PluginSources", () => {
       await close();
     });
 
+    it("keeps a market card's review and install to a signed version, even once it's gone from the index", async () => {
+      const fromCard = { ...pinned, market: true } as const;
+      const { routes, files } = npmPackage("@acme/maker", bytes);
+      const gone = await setup(routes, { ...files, [onMirror]: bytes }, { release: async () => undefined });
+      await expect(gone.sources.inspect(fromCard, "en")).rejects.toThrow("isn't on the plugin market any more");
+      await expect(gone.sources.install(fromCard, "d".repeat(64))).rejects.toThrow("isn't on the plugin market any more");
+      expect(gone.requested).toEqual([]);
+      await gone.close();
+
+      const off = await setup(routes, { ...files, [onMirror]: bytes });
+      await expect(off.sources.inspect(fromCard, "en")).rejects.toThrow("isn't on the plugin market any more");
+      await off.close();
+
+      const market = vouched();
+      const listed = await setup({}, { [onMirror]: bytes }, market);
+      const preview = await listed.sources.inspect(fromCard, "en");
+      expect(preview.source).toMatchObject({ market: true, version: "1.0.0" });
+      market.release.mockResolvedValue(undefined);
+      await expect(listed.sources.install(preview.source!, preview.digest)).rejects.toThrow("isn't on the plugin market any more");
+      expect(listed.services.index.get("acme/maker")).toBeUndefined();
+      await listed.close();
+    });
+
     it("leaves a version it doesn't list to the registry", async () => {
       const { routes, files } = npmPackage("@acme/maker", bytes);
       const { sources, close } = await setup(routes, files, { release: async () => undefined });

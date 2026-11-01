@@ -171,7 +171,7 @@ describe("PluginAddDialog", () => {
 
     it("opens on the review of that exact version, with where its source is", async () => {
       await openListed();
-      expect(requests[0]).toMatchObject({ route: "/plugin-sources/inspect?locale=en", body: { source: { type: "npm", name: "@acme/maker", version: "1.2.0" } } });
+      expect(requests[0]).toMatchObject({ route: "/plugin-sources/inspect?locale=en", body: { source: { type: "npm", name: "@acme/maker", version: "1.2.0", market: true } } });
       expect(dialog().querySelector('[role="tab"]')).toBeNull();
       const link = dialog().querySelector<HTMLAnchorElement>('a[href="https://github.com/acme/maker"]')!;
       expect(link.textContent).toContain("acme/maker");

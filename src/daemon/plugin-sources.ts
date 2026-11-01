@@ -193,12 +193,14 @@ export class PluginSources {
     // A version the market vouches for needs nothing from the registry, whose
     // metadata a mirror may not have yet: npm's signature covers its checksum.
     const release = requested ? await this.#marketRelease(fullName, requested) : undefined;
+    // A card can outlive its entry, and without one nothing here is signed.
+    if (source.market && !release) throw new PluginSourceError(`${fullName} ${requested ?? ""} isn't on the plugin market any more.`);
     if (release) {
       const others = PLUGIN_NPM_REGISTRIES.filter((registry) => registry !== source.registry);
       return this.#downloadNpm(fullName, scope, name, requested!, release.integrity, [source.registry, ...others].map((registry) => ({
         registry,
         tarball: `${NPM_REGISTRIES[registry].url}/${fullName}/-/${name}-${encodeURIComponent(requested!)}.tgz`,
-      })));
+      })), source.market);
     }
     const registry = NPM_REGISTRIES[source.registry];
     const response = await this.#request(`${registry.url}/@${scope}%2F${name}`, { accept: "application/vnd.npm.install-v1+json" }, `Could not reach the ${source.registry} registry`);
@@ -227,7 +229,7 @@ export class PluginSources {
   }
 
   /** The first place the package downloads from; its checksum makes them all as good. */
-  async #downloadNpm(fullName: string, scope: string, name: string, version: string, checksum: unknown, places: { registry: PluginNpmRegistry; tarball: string }[]): Promise<FetchedPackage> {
+  async #downloadNpm(fullName: string, scope: string, name: string, version: string, checksum: unknown, places: { registry: PluginNpmRegistry; tarball: string }[], market?: true): Promise<FetchedPackage> {
     const integrity = sha512Integrity(checksum);
     if (!integrity) throw new PluginSourceError(`${fullName} ${version} has no SHA-512 checksum to verify it with.`);
     return this.#inTemporaryFolder(async (folder) => {
@@ -246,7 +248,7 @@ export class PluginSources {
       if (await fileSha512(archive) !== integrity) throw new PluginSourceError(`${fullName} ${version} doesn't match its checksum.`);
       return {
         root: await unpack(archive, folder, { published: true }),
-        source: { type: "npm", name: fullName, registry: used!, version },
+        source: { type: "npm", name: fullName, registry: used!, version, ...(market ? { market } : {}) },
         origin: { type: "npm", package: fullName, version, registry: used! },
         check: (entry) => {
           // The scope is what npm vouches for, so it has to be the plugin's publisher.
