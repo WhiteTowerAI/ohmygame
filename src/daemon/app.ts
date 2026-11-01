@@ -110,6 +110,7 @@ import { isAppWidePlugin, isPluginId } from "../shared/plugin-manifest.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
+import { PluginMarket, type PluginMarketOptions } from "./plugin-market.js";
 import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
 import { appliesByItself, capabilityGrants, missingGrants, resolveProjectPlugins } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
@@ -193,6 +194,10 @@ export interface AppOptions {
   pluginUiPort?: number;
   /** Keys whose signatures make a release installable, and the publishers each signs for. */
   pluginReleaseKeys?: PluginReleaseKeys;
+  /** The market's `index.json`; without one Browse lists only what's installed. */
+  pluginIndexUrl?: string;
+  /** Replaces npm's registry keys, for tests. */
+  pluginMarketKeys?: PluginMarketOptions["keys"];
   /** Replaces the network for adding plugins from npm and GitHub, in tests. */
   pluginSourceNetwork?: PluginSourceNetwork;
   preinstalledPluginsDirectory?: string;
@@ -1237,7 +1242,13 @@ export function createApp(options: AppOptions = {}) {
       };
     }));
   });
-  const pluginSources = new PluginSources(pluginServices, path.join(path.dirname(pluginServices.packagesDirectory), "origins.json"), options.pluginSourceNetwork);
+  const pluginMarket = new PluginMarket({
+    url: options.pluginIndexUrl,
+    directory: path.dirname(pluginServices.packagesDirectory),
+    ...(options.pluginSourceNetwork ? { fetch: options.pluginSourceNetwork.fetch } : {}),
+    ...(options.pluginMarketKeys ? { keys: options.pluginMarketKeys } : {}),
+  });
+  const pluginSources = new PluginSources(pluginServices, path.join(path.dirname(pluginServices.packagesDirectory), "origins.json"), options.pluginSourceNetwork, pluginMarket);
   const pluginSourceBody = {
     type: "object",
     required: ["type"],
@@ -1263,6 +1274,7 @@ export function createApp(options: AppOptions = {}) {
     throw cause;
   };
   app.addContentTypeParser("application/gzip", { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES }, (_request, body, done) => done(null, body));
+  app.get<{ Querystring: { locale?: string } }>("/plugin-market", { schema: { querystring: pluginLocaleQuery } }, (request) => pluginMarket.listing(request.query.locale));
   app.post<{ Body: { source: PluginAddSource }; Querystring: { locale?: string } }>("/plugin-sources/inspect", {
     schema: { querystring: pluginLocaleQuery, body: { type: "object", required: ["source"], additionalProperties: false, properties: { source: pluginSourceBody } } },
   }, async (request, reply) => {

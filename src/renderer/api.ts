@@ -797,6 +797,11 @@ export async function getHomeComposerCapabilities(): Promise<ConversationCapabil
 }
 
 /** Reads a package without adding it, for the person to review. */
+/** The market's plugins, in the app's language. It never fails the page: no index just lists nothing. */
+export async function readPluginMarket(): Promise<import("../shared/plugins.js").PluginMarketListing> {
+  return request(`/plugin-market?locale=${encodeURIComponent(language)}`);
+}
+
 export async function inspectAddedPlugin(source: import("../shared/plugins.js").PluginAddSource): Promise<import("../shared/plugins.js").PluginAddPreview> {
   return request(`/plugin-sources/inspect?locale=${encodeURIComponent(language)}`, { method: "POST", body: JSON.stringify({ source }) });
 }

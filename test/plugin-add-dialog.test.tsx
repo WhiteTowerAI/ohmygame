@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PluginAddDialog } from "../src/renderer/plugin-add-dialog.js";
-import type { PluginAddPreview } from "../src/shared/plugins.js";
+import type { MarketPlugin, PluginAddPreview } from "../src/shared/plugins.js";
 
 const preview: PluginAddPreview = {
   source: { type: "npm", name: "@acme/maker", registry: "npmmirror", version: "1.0.0" },
@@ -160,5 +160,44 @@ describe("PluginAddDialog", () => {
     } finally {
       Object.assign(window, { ohMyGameDesktop: undefined });
     }
+  });
+
+  describe("for a plugin on the market", () => {
+    const listed: MarketPlugin = {
+      id: "acme/maker", package: "@acme/maker", version: "1.2.0", displayName: "Maker", description: "Makes things", asks: [],
+      adds: { skills: 2, mcpServers: 1 }, featured: false, sourceVerified: true, repository: "https://github.com/acme/maker",
+    };
+    const openListed = (plugin = listed) => act(async () => root.render(<PluginAddDialog listed={plugin} onClose={onClose} onAdded={onAdded} />));
+
+    it("opens on the review of that exact version, with where its source is", async () => {
+      await openListed();
+      expect(requests[0]).toMatchObject({ route: "/plugin-sources/inspect?locale=en", body: { source: { type: "npm", name: "@acme/maker", version: "1.2.0" } } });
+      expect(dialog().querySelector('[role="tab"]')).toBeNull();
+      const link = dialog().querySelector<HTMLAnchorElement>('a[href="https://github.com/acme/maker"]')!;
+      expect(link.textContent).toContain("acme/maker");
+      expect(dialog().textContent).toContain("Source verified");
+    });
+
+    it("says when the source isn't verified, and closes rather than going back to a form", async () => {
+      await openListed({ ...listed, sourceVerified: false });
+      expect(dialog().textContent).toContain("Source not verified");
+      expect(dialog().textContent).not.toContain("Source verified");
+      await act(async () => button("Cancel").click());
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it("adds what was reviewed, sending back its digest", async () => {
+      await openListed();
+      await act(async () => button("Add plugin").click());
+      expect(requests.at(-1)).toMatchObject({ route: "/plugin-sources/install", body: { digest: preview.digest } });
+      expect(onAdded).toHaveBeenCalledWith("acme/maker");
+    });
+
+    it("shows why a package couldn't be read", async () => {
+      answer = () => Response.json({ error: "@acme/maker 1.2.0 was blocked: steals keys" }, { status: 400 });
+      await openListed();
+      expect(dialog().textContent).toContain("was blocked: steals keys");
+      expect(button("Continue")).toBeUndefined();
+    });
   });
 });

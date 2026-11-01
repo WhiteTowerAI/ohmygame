@@ -140,7 +140,7 @@ function skillRegistration(entry: PluginIndexEntry, file: string): PluginSkillRe
 }
 
 /** Publishers whose names only the app and the Plugin Builder can give out. */
-const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set(["ohmygame", PERSONAL_PUBLISHER]);
+export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set(["ohmygame", PERSONAL_PUBLISHER]);
 
 export function assertAddablePlugin(id: string): void {
   const publisher = id.slice(0, id.indexOf("/"));

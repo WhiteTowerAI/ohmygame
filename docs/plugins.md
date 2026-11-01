@@ -6,9 +6,8 @@ adds Skills applies by itself to every project it suits; any other is turned on
 per project, once the person has allowed what it asks for.
 
 Plugins come bundled with the app, prepared with it from another repository, from
-the [Plugin Builder](#making-a-plugin), or from [Add plugin](#adding-a-plugin).
-Installing a signed release from the app is not built yet: no catalog or release
-keys ship.
+the [Plugin Builder](#making-a-plugin), from [Add plugin](#adding-a-plugin), or
+from the [plugin market](#the-plugin-market).
 
 ## Browse plugins
 
@@ -21,7 +20,8 @@ The Plugins page reads `GET /plugin-store/plugins` and has three tabs.
   ending with **Create a plugin with AI**, then the AI workspaces. Search shows
   every match in one list. Switching a plugin doesn't move it.
 - **Browse** lists every plugin with its source and what it adds, and filters by
-  source and by what it adds.
+  source and by what it adds. The [plugin market](#the-plugin-market)'s plugins
+  come first, under **Featured** and **On npm**, leaving out what's installed.
 - **Skills** lists each plugin's Skills, with the person's own under **Personal**.
 
 A project's **Plugins…** sheet, from the project menu, lists the plugins that
@@ -46,6 +46,7 @@ starts in, and waits until what the plugin asks for is allowed.
 - **App data,** under `<data>/plugin-store/`:
   - `index.json`: installed packages, with their tool schemas;
   - `origins.json`: where packages added from npm or GitHub came from;
+  - `market-index.json`: the last [plugin market](#the-plugin-market) index read;
   - `grants.json`: install consent, the app switch per plugin, and what each
     project folder allows (by real path);
   - `configuration.json`: settings values, readable only by the person;
@@ -102,6 +103,7 @@ shows it in the call's progress.
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
+| Plugin market | `src/daemon/plugin-market.ts`, `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-market.test.ts`, `test/plugin-sources.test.ts`, `test/plugin-catalog-view.test.tsx` |
 
 ## Routes
 
@@ -166,6 +168,8 @@ shows it in the call's progress.
 - Adding: `POST /plugin-sources/inspect` and `/plugin-sources/install` take a
   source as JSON; `POST /plugin-sources/file/inspect` and
   `/plugin-sources/file/install?digest=` take a `.tgz` as `application/gzip`.
+- Market: `GET /plugin-market?locale=` gives the
+  [listing](#the-plugin-market); installing uses the Adding routes.
 - Store: `GET /plugin-store/plugins`, `POST /plugin-store/releases`,
   `POST /plugin-store/:publisher/:name/consent`,
   `PUT /plugin-store/:publisher/:name/enabled`,
@@ -293,6 +297,41 @@ the source again and refuses a package whose digest isn't the one reviewed.
   each project type's `template` folder, unless one is already there.
 - Where a package came from is in `<data>/plugin-store/origins.json`, and shows on
   its page. Nothing updates a package by itself: adding it again is the update.
+
+## The plugin market
+
+The market lists the plugins published on npm. A job in the
+[ohmygame-plugins](https://github.com/WhiteTowerAI/ohmygame-plugins) repository
+finds them, runs the same package checks as the app, and publishes an index file.
+`src/daemon/plugin-market.ts` reads it from the address in
+`OHMYGAME_PLUGIN_INDEX_URL`. Without an address, or with one that isn't HTTPS (or
+HTTP on this computer), there's no market and nothing is read.
+
+- **Reading the index.** At most every 30 minutes the app reads the small pointer
+  file, then the index it names if that changed, checks the index against the
+  SHA-256 in its name and the schema, and saves it. A failure keeps the last index,
+  says it may be out of date, and tries again after two minutes. The rest of the Plugins page doesn't wait for
+  any of this.
+- **Installing.** Opening a market plugin starts [Add plugin](#adding-a-plugin)'s
+  review at that exact version, so there's no separate install path and it allows
+  nothing. The app checks npm's signature over the name, version and SHA-512 with
+  keys it ships with, asking npm only for a key it doesn't know, and an expired key
+  counts only for what was published before it expired. The package then comes
+  from the chosen registry or the other one and has to match that SHA-512, so the
+  index and a mirror can't get a changed package installed. Registry metadata isn't
+  needed, since a mirror can lag behind.
+- **What the index does decide:** what's listed and how, the verified mark, and
+  which versions are refused. A version it rejects or blocks can't be added this
+  way, even by name through Add plugin. Installing a package the index doesn't list
+  works as before.
+- **Source verified** means npm's provenance names the repository, or the
+  repository's `package.json` names the package. Stars show only then. Weekly
+  downloads come from npm.
+- **After installing.** A plugin added from npm shows **Update available** when the
+  market has a newer version; the update is the same review. A blocked version gets
+  a badge and a warning on its page, and it stays on until the person uninstalls it.
+- A market card shows the default icon, since the package hasn't been downloaded.
+  The index leaves out the publishers `ohmygame` and `personal`.
 
 ## More manifest fields
 

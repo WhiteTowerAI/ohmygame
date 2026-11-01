@@ -1,12 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
-import { PLUGIN_CONTRIBUTIONS, type PluginContribution, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
+import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
 import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo, projectFileTypeFor } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { consentToPlugin, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, uninstallStorePlugin } from "./api.js";
-import { t } from "./i18n.js";
-import { BadgeCheck, ExternalLink, FolderOpen, Play, WandSparkles } from "./icons.js";
+import { language, t } from "./i18n.js";
+import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
@@ -71,6 +71,53 @@ function StoreTile({ plugin, large = false }: { plugin: StorePlugin; large?: boo
   return <span className={`plugin-tile${large ? " plugin-tile-large" : ""}`}><PluginGlyph plugin={plugin} size={large ? 40 : 24} /></span>;
 }
 
+/** A newer version on the market. Only for a plugin added from npm: from anywhere else it couldn't join. */
+export function marketUpdate(plugin: StorePlugin, market: PluginMarketListing | undefined): MarketPlugin | undefined {
+  if (plugin.origin?.type !== "npm") return undefined;
+  const listed = market?.plugins.find((item) => item.id === plugin.id);
+  return listed && isNewerPluginVersion(listed.version, plugin.version) ? listed : undefined;
+}
+
+/** The installed versions the maintainers blocked. */
+export function marketBlocks(versions: StorePlugin[], market: PluginMarketListing | undefined): MarketBlock[] {
+  return versions.flatMap(({ origin }) => {
+    if (origin?.type !== "npm") return [];
+    const block = market?.blocked.find((item) => item.package === origin.package && item.version === origin.version);
+    return block ? [block] : [];
+  });
+}
+
+/** What a market plugin adds, for the browse page's filter. */
+export function marketContributions({ adds }: MarketPlugin): PluginContribution[] {
+  const counts: Partial<Record<PluginContribution, number | undefined>> = { projectType: adds.projectTypes, skills: adds.skills, mcp: adds.mcpServers };
+  return PLUGIN_CONTRIBUTIONS.filter((kind) => (counts[kind] ?? 0) > 0);
+}
+
+/** A plugin on the market, not installed yet; opening it reviews the package. */
+export function MarketPluginCard({ plugin, onOpen }: { plugin: MarketPlugin; onOpen: () => void }): ReactNode {
+  const compact = new Intl.NumberFormat(language, { notation: "compact" });
+  return <article className="plugin-card">
+    <button className="plugin-card-link" type="button" onClick={onOpen}>
+      <span className="plugin-tile"><Package size={24} aria-hidden="true" /></span>
+      <span className="plugin-card-text">
+        <strong>
+          <span className="plugin-card-name">{plugin.displayName}</span>
+          {plugin.sourceVerified ? <BadgeCheck size={14} className="plugins-verified" aria-label={t("plugins.sourceVerified")} /> : null}
+        </strong>
+        <small>{plugin.description}</small>
+        <span className="plugins-meta">
+          <span>{plugin.package}</span>
+          {plugin.adds.skills ? <span className="plugins-tag">{t("plugins.skillCount", { count: plugin.adds.skills })}</span> : null}
+          {plugin.adds.mcpServers ? <span className="plugins-tag">{t("plugins.contributions.mcp")}</span> : null}
+          {plugin.stars !== undefined ? <span className="plugins-tag">★ {compact.format(plugin.stars)}</span> : null}
+          {plugin.weeklyDownloads ? <span className="plugins-tag">{t("plugins.weeklyDownloads", { count: compact.format(plugin.weeklyDownloads) })}</span> : null}
+        </span>
+      </span>
+    </button>
+    <span className="plugins-installed-label">{t("plugins.install")}</span>
+  </article>;
+}
+
 function StoreTags({ plugin }: { plugin: StorePlugin }): ReactNode {
   const { adds } = plugin;
   return <>
@@ -83,8 +130,9 @@ function StoreTags({ plugin }: { plugin: StorePlugin }): ReactNode {
   </>;
 }
 
-export function StorePluginCard({ group, disabled, onToggle, onOpen }: {
+export function StorePluginCard({ group, market, disabled, onToggle, onOpen }: {
   group: StorePluginGroup;
+  market?: PluginMarketListing | undefined;
   disabled: boolean;
   onToggle: (enabled: boolean) => void;
   onOpen: () => void;
@@ -99,6 +147,7 @@ export function StorePluginCard({ group, disabled, onToggle, onOpen }: {
           <span className="plugin-card-name">{plugin.displayName}</span>
           {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
           {enabled && storePluginMissing(plugin).length ? <Badge tone="outline">{t("pluginStore.needsConsent")}</Badge> : null}
+          {marketBlocks(group.versions, market).length ? <Badge tone="danger">{t("pluginStore.blockedBadge")}</Badge> : marketUpdate(plugin, market) ? <Badge tone="outline">{t("pluginStore.updateAvailable")}</Badge> : null}
         </strong>
         <small>{plugin.description}</small>
         <span className="plugins-meta">
@@ -151,8 +200,11 @@ export function StoreSkillCard({ plugin, skill, onOpen }: { plugin: StorePlugin;
 
 type StoreDetailTab = "about" | "skills" | "settings";
 
-export function StorePluginDetail({ group, onChanged, onRemoved, onTry }: {
+export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemoved, onTry }: {
   group: StorePluginGroup;
+  market?: PluginMarketListing | undefined;
+  /** Reviews a newer version from the market. */
+  onUpdate?: (listed: MarketPlugin) => void;
   /** The store changed; reload it. */
   onChanged: () => Promise<void>;
   /** Its last version was uninstalled. */
@@ -168,6 +220,8 @@ export function StorePluginDetail({ group, onChanged, onRemoved, onTry }: {
   const [selectedTab, setTab] = useState<StoreDetailTab>("about");
   const enabled = storePluginEnabled(plugin);
   const missing = storePluginMissing(plugin);
+  const update = marketUpdate(plugin, market);
+  const blocks = marketBlocks(versions, market);
   const tryIt = usePluginTry({
     displayName: plugin.displayName,
     suits: (project) => plugin.appWide
@@ -245,6 +299,7 @@ export function StorePluginDetail({ group, onChanged, onRemoved, onTry }: {
       </div> : null}
     </header>
     {error ? <Alert tone="danger" title={error} /> : null}
+    {blocks.map((block) => <Alert key={block.version} tone="danger" title={t("pluginStore.blocked", { version: block.version, reason: block.reason })} />)}
     {enabled && missing.length ? <Alert title={t("pluginStore.consentTitle")} action={
       <Button size="sm" variant="primary" disabled={!!busy} onClick={allow}>{t("pluginStore.allow")}</Button>
     }>
@@ -309,6 +364,9 @@ export function StorePluginDetail({ group, onChanged, onRemoved, onTry }: {
             </ul>
           </dd>
         </dl>
+        {update && onUpdate ? <div className="plugin-side-actions">
+          <Button icon={<RefreshCw size={14} />} disabled={!!busy} onClick={() => onUpdate(update)}>{t("pluginStore.updateTo", { version: update.version })}</Button>
+        </div> : null}
         {!plugin.bundled && (personal || window.ohMyGameDesktop) ? <div className="plugin-side-actions">
           {personal ? <Button icon={<WandSparkles size={14} />} disabled={!!busy} onClick={() => void openPluginBuilder(plugin.id, "edit").catch((cause) => setError(message(cause)))}>{t("plugins.editWithAi")}</Button> : null}
           {window.ohMyGameDesktop ? <Button icon={<FolderOpen size={14} />} disabled={!!busy} onClick={() => browse(() => window.ohMyGameDesktop?.browsePluginDirectory(plugin.id))}>{t("plugins.openFolder")}</Button> : null}
