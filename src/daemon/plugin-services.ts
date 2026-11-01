@@ -8,7 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
-import { agentToolName, configReferences, isPluginId, mcpServerSyntaxIssue, PLUGIN_DATA_ENV } from "../shared/plugin-manifest.js";
+import { agentToolName, configReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PLUGIN_DATA_ENV } from "../shared/plugin-manifest.js";
 import type { McpServerDefinition } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
@@ -18,6 +18,7 @@ import {
 } from "./extension-hosts.js";
 import { NativePlugins, type PluginCallOptions } from "./native-plugins.js";
 import {
+  indexPluginPackage,
   localizePluginString,
   PluginIndex,
   type PluginIndexEntry,
@@ -473,7 +474,15 @@ export class PluginServices {
     const results: PluginPackageResult[] = [];
     for (const folder of folders) {
       if (!folder.isDirectory()) continue;
-      const result = await this.index.add(path.join(directory, folder.name));
+      const root = path.join(directory, folder.name);
+      // One that only adds Skills applies to every project it suits; the
+      // catalog shows it with the format 1 bundled plugins (BundledPluginStore).
+      const checked = await indexPluginPackage(root);
+      if (checked.ok && checked.entry.id.startsWith("ohmygame/") && isAppWidePlugin(checked.entry.manifest)) {
+        if (this.index.versions(checked.entry.id).length) await this.index.remove(checked.entry.id);
+        continue;
+      }
+      const result = await this.index.add(root);
       results.push(result);
       if (!result.ok || !result.entry.id.startsWith("ohmygame/")) continue;
       const decided = this.grants.plugin(result.entry.id);

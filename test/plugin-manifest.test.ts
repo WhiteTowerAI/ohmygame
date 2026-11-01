@@ -38,7 +38,7 @@ import {
 } from "../scripts/plugin-schema.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins-v2");
-const BUNDLED = path.join(import.meta.dirname, "../plugins");
+const BUNDLED = path.join(import.meta.dirname, "../plugins-v2");
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -410,7 +410,7 @@ describe("plugin index", () => {
 
   it("indexes the format 2 Godot plugin with its type, tools and command", async () => {
     const result = await indexPluginPackage(
-      path.join(BUNDLED, "..", "plugins-v2", "godot"),
+      path.join(BUNDLED, "godot"),
     );
     expect(result.ok ? [] : result.issues).toEqual([]);
     if (!result.ok) return;
@@ -907,14 +907,17 @@ describe("plugin releases", () => {
     const dir = await temporary();
     const services = new PluginServices({ directory: path.join(dir, "store"), bundledOff: ["ohmygame/taptap-maker"] });
     try {
-      const results = await services.addBundled(path.join(BUNDLED, "..", "plugins-v2"));
+      const results = await services.addBundled(BUNDLED);
       expect(results.map((result) => (result.ok ? [] : result.issues))).toEqual(results.map(() => []));
       expect(services.grants.plugin("ohmygame/godot")?.allowed).toEqual(expect.arrayContaining(["native"]));
+      // Those that only add Skills apply to every project they suit; the catalog shows them.
+      expect(services.index.entries().map((entry) => entry.id).sort()).toEqual(["ohmygame/godot", "ohmygame/taptap-maker"]);
+      expect(services.grants.plugin("ohmygame/game-studio")).toBeUndefined();
       // It asks for consent when the person turns it on, and stays as they leave it.
       expect(services.grants.plugin("ohmygame/taptap-maker")).toEqual({ enabled: false, allowed: [] });
       await services.consent("ohmygame/taptap-maker", ["native"]);
       await services.grants.setEnabled("ohmygame/taptap-maker", true);
-      await services.addBundled(path.join(BUNDLED, "..", "plugins-v2"));
+      await services.addBundled(BUNDLED);
       expect(services.grants.plugin("ohmygame/taptap-maker")?.enabled).toBe(true);
     } finally {
       await services.close();

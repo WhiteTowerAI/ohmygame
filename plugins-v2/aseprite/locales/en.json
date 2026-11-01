@@ -1,0 +1,7 @@
+{
+  "displayName": "Aseprite",
+  "description": "Create pixel art and export animation sheets with metadata.",
+  "longDescription": "Create or refine editable pixel art with a local Aseprite installation, export PNG sheets with JSON animation metadata, and check them in the target engine.",
+  "example.1": "Create a small animated pixel-art game asset with editable Aseprite source and a PNG/JSON export.",
+  "example.2": "Export this Aseprite animation for the project and verify its frame timing and tags."
+}

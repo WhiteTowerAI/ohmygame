@@ -7,11 +7,11 @@ import type { LocalPluginStore } from "../src/daemon/local-plugins.js";
 import { pluginSkillFolders, resolvePluginSkillPaths, resolvePluginSkills } from "../src/daemon/plugin-runtime.js";
 import { stageSkills } from "../src/daemon/agent-runtimes/skills.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
-import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
+import { BUNDLED_PLUGINS_OFF, BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 
 describe("plugin runtime", () => {
   it("only exposes a plugin's skills after the user enables it", async () => {
-    const store = new BundledPluginStore(path.resolve("plugins"));
+    const store = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
     await store.load();
     const settings = await settingsStore();
     const before = await resolvePluginSkills([store], settings, "general");
@@ -31,7 +31,7 @@ describe("plugin runtime", () => {
   });
 
   it("stages enabled plugin Skills for coding agent CLIs", async () => {
-    const store = new BundledPluginStore(path.resolve("plugins"));
+    const store = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
     await store.load();
     const settings = await settingsStore();
     await settings.update(store.read("ohmygame:unreal-engine")!, { enabled: true, components: {} });
@@ -43,7 +43,7 @@ describe("plugin runtime", () => {
   });
 
   it("keeps Game Studio isolated from Web Game skills and honors its disabled setting", async () => {
-    const store = new BundledPluginStore(path.resolve("plugins"));
+    const store = new BundledPluginStore(path.resolve("plugins"), { formatTwoDirectory: path.resolve("plugins-v2"), off: BUNDLED_PLUGINS_OFF });
     await store.load();
     const settings = await settingsStore();
     const webBefore = await resolvePluginSkills([store], settings, "web-game");

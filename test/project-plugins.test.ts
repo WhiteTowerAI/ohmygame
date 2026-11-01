@@ -29,7 +29,7 @@ import type { ProjectState } from "../src/shared/contracts.js";
 import { LEGACY_MAKER_ID, MAKER_PLUGIN, MAKER_TYPE, migrateLegacyMakerProjects } from "../src/daemon/legacy-maker.js";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins-v2");
-const BUNDLED = path.join(import.meta.dirname, "../plugins");
+const BUNDLED = path.join(import.meta.dirname, "../plugins-v2");
 
 const cleanup: string[] = [];
 afterEach(async () => {
@@ -600,7 +600,7 @@ describe("format 1 TapTap Maker projects", () => {
     const data = await temporary();
     const services = new PluginServices({
       directory: path.join(data, "store"),
-      bundled: path.join(BUNDLED, "..", "plugins-v2"),
+      bundled: BUNDLED,
       bundledOff: [MAKER_PLUGIN],
     });
     const legacyData = path.join(data, "legacy");
@@ -662,7 +662,7 @@ describe("format 1 TapTap Maker projects", () => {
 
   it("moves no project until every unfinished project record is copied", async () => {
     const data = await temporary();
-    const services = new PluginServices({ directory: path.join(data, "store"), bundled: path.join(BUNDLED, "..", "plugins-v2") });
+    const services = new PluginServices({ directory: path.join(data, "store"), bundled: BUNDLED });
     try {
       const legacyData = path.join(data, "legacy");
       // A record the app can't read stays behind, and so do the projects.
