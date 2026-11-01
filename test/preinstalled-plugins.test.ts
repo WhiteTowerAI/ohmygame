@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -150,6 +150,52 @@ describe("preinstalled plugins", () => {
     remove.mockClear();
     await manager.seed(services, formatOne);
     expect(remove).not.toHaveBeenCalled();
+    await services.close();
+  });
+
+  it("keeps the copy format 1 kept until the format 2 one installs", async () => {
+    const dataDirectory = await temporary("ohmygame-preinstalled-damaged-");
+    const prepared = await preparedPlugin();
+    await writeFile(path.join(prepared.directory, `${prepared.releaseId}.zip`), "damaged");
+    const manager = new PreinstalledPluginManager(prepared.directory, dataDirectory);
+    await manager.load();
+    const services = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
+    const remove = vi.fn();
+    const formatOne = { read: async () => ({ source: { type: "preinstalled" } }), remove } as unknown as LocalPluginStore;
+    expect(await manager.seed(services, formatOne)).toEqual([expect.stringContaining("integrity verification")]);
+    expect(remove).not.toHaveBeenCalled();
+    await services.close();
+  });
+
+  it("updates only the version it installed, leaving one installed apart", async () => {
+    const dataDirectory = await temporary("ohmygame-preinstalled-update-");
+    const services = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
+    const formatOne = { read: async () => undefined, remove: vi.fn() } as unknown as LocalPluginStore;
+    const seed = async (prepared: Awaited<ReturnType<typeof preparedPlugin>>) => {
+      const manager = new PreinstalledPluginManager(prepared.directory, dataDirectory);
+      await manager.load();
+      expect(await manager.seed(services, formatOne)).toEqual([]);
+    };
+    await seed(await preparedPlugin());
+    const apart = path.join(await temporary("ohmygame-preinstalled-apart-"), "package");
+    await cp(services.index.get(ID, "1.0.0")!.root, apart, { recursive: true });
+    const manifestPath = path.join(apart, ".ohmygame-plugin", "plugin.json");
+    await writeFile(manifestPath, JSON.stringify({ ...JSON.parse(await readFile(manifestPath, "utf8")), version: "9.0.0" }));
+    expect((await services.index.add(apart)).ok).toBe(true);
+    await seed(await preparedPlugin({ releaseId: "33333333-3333-4333-8333-333333333333", version: "1.1.0" }));
+    expect(services.index.versions(ID).map((entry) => entry.version)).toEqual(["9.0.0", "1.1.0"]);
+    await services.close();
+  });
+
+  it("reports a plugin store that can't load instead of stopping startup", async () => {
+    const dataDirectory = await temporary("ohmygame-preinstalled-unready-");
+    const prepared = await preparedPlugin();
+    const manager = new PreinstalledPluginManager(prepared.directory, dataDirectory);
+    await manager.load();
+    const services = new PluginServices({ directory: path.join(dataDirectory, "plugin-store") });
+    vi.spyOn(services, "ready").mockRejectedValueOnce(new Error("no access"));
+    const formatOne = { read: async () => undefined, remove: vi.fn() } as unknown as LocalPluginStore;
+    expect(await manager.seed(services, formatOne)).toEqual([expect.stringContaining("no access")]);
     await services.close();
   });
 

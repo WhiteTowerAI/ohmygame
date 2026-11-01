@@ -562,23 +562,35 @@ export class PluginServices {
     const { id, version } = checked.entry;
     const target = path.join(this.packagesDirectory, ...id.split("/"), version);
     const staging = path.join(this.packagesDirectory, `.staging-${randomUUID()}`);
+    const previous = path.join(this.packagesDirectory, `.replaced-${randomUUID()}`);
     await mkdir(this.packagesDirectory, { recursive: true });
+    let movedAside = false;
+    let placed = false;
+    let entry: PluginIndexEntry;
     try {
       await cp(source, staging, { recursive: true, verbatimSymlinks: true });
-      await rm(target, { recursive: true, force: true });
       await mkdir(path.dirname(target), { recursive: true });
+      movedAside = await rename(target, previous).then(() => true, (cause: NodeJS.ErrnoException) => {
+        if (cause.code === "ENOENT") return false;
+        throw cause;
+      });
       await rename(staging, target);
+      placed = true;
+      const result = await this.index.add(target);
+      if (!result.ok) throw new Error(`Not a valid plugin: ${result.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`).join("; ")}`);
+      entry = result.entry;
+    } catch (cause) {
+      // The copy it was replacing is still in use, so it goes back.
+      if (placed) await rm(target, { recursive: true, force: true });
+      if (movedAside) await rename(previous, target);
+      throw cause;
     } finally {
       await rm(staging, { recursive: true, force: true });
+      await rm(previous, { recursive: true, force: true });
     }
-    const result = await this.index.add(target);
-    if (!result.ok) {
-      await rm(target, { recursive: true, force: true });
-      throw new Error(`Not a valid plugin: ${result.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`).join("; ")}`);
-    }
-    await this.grants.consent(id, capabilityGrants(result.entry.manifest));
+    await this.grants.consent(id, capabilityGrants(entry.manifest));
     await this.changed();
-    return result.entry;
+    return entry;
   }
 
   async uninstall(id: string, version?: string): Promise<void> {

@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createLogRedactor } from "../src/shared/log-redaction.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import yauzl from "yauzl";
 import { createApp } from "../src/daemon/app.js";
+import { PluginGrants } from "../src/daemon/project-plugins.js";
 import {
   diagnosticSection,
   diagnosticsArchive,
@@ -112,6 +113,24 @@ describe("diagnostics export", () => {
 
     expect(Object.keys(files)).toEqual(["system.json"]);
     expect(JSON.parse(files["system.json"]!).logs).toBe("not recorded");
+  });
+
+  it("reports a plugin that applies by itself as on when nothing was decided about it", async () => {
+    const app = createApp({
+      dataDirectory: await directory("ohmygame-diagnostics-plugin-data-"),
+      logDirectory: await directory("ohmygame-diagnostics-plugin-logs-"),
+    });
+    apps.push(app);
+    await app.ready();
+    const decided = vi.spyOn(PluginGrants.prototype, "plugin").mockReturnValue(undefined);
+    try {
+      const response = await app.inject({ method: "POST", url: "/diagnostics/export" });
+      const { plugins } = JSON.parse((await unzip(response.rawPayload))["system.json"]!);
+      expect(plugins).toContainEqual(expect.objectContaining({ id: "ohmygame/blender", enabled: true }));
+      expect(plugins).toContainEqual(expect.objectContaining({ id: "ohmygame/godot", enabled: false }));
+    } finally {
+      decided.mockRestore();
+    }
   });
 
   it("still exports the logs when part of the summary or the logs folder fails", async () => {

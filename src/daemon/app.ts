@@ -2771,7 +2771,7 @@ export function createApp(options: AppOptions = {}) {
             .map(({ id, version, enabled, beta }) => ({ id, ...(version ? { version } : {}), enabled, ...(beta ? { beta } : {}) })),
           ...[...new Set(pluginServices.index.entries().map((entry) => entry.id))].flatMap((id) => {
             const entry = pluginServices.index.get(id);
-            return entry ? [{ id, version: entry.version, enabled: pluginServices.grants.plugin(id)?.enabled ?? false, ...(entry.manifest.beta ? { beta: true } : {}) }] : [];
+            return entry ? [{ id, version: entry.version, enabled: pluginServices.grants.plugin(id)?.enabled ?? isAppWidePlugin(entry.manifest), ...(entry.manifest.beta ? { beta: true } : {}) }] : [];
           }),
         ]),
         diagnosticSection(() => {

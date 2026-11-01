@@ -2,7 +2,7 @@ import { createHash, generateKeyPairSync, sign as sign_ } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { ZipFile } from "yazl";
-import { createProjectPlugins } from "../src/daemon/project-plugins.js";
+import { createProjectPlugins, resolveProjectPlugins } from "../src/daemon/project-plugins.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { availableUpdates, downloadRelease, installRelease, readCatalog, releaseMessage } from "../src/daemon/plugin-releases.js";
 import { compileWhen, matchesWhen } from "../src/shared/plugin-when.js";
@@ -1073,6 +1073,33 @@ describe("plugin releases", () => {
     }
   });
 
+  it("keeps an older version a project names when it asks for more than the newest", async () => {
+    const dir = await temporary();
+    const folder = path.join(dir, "project");
+    const services = new PluginServices({ directory: path.join(dir, "store") });
+    try {
+      await services.index.load();
+      const older = path.join(dir, "older");
+      const newer = path.join(dir, "newer");
+      await cp(path.join(BUNDLED, "blender"), older, { recursive: true });
+      await cp(path.join(BUNDLED, "blender"), newer, { recursive: true });
+      await editManifest(older, (manifest) => {
+        manifest.version = "1.0.0";
+        manifest.capabilities = { "project.files": "write" };
+      });
+      await editManifest(newer, (manifest) => (manifest.version = "2.0.0"));
+      expect((await services.index.add(older)).ok).toBe(true);
+      expect((await services.index.add(newer)).ok).toBe(true);
+      await mkdir(folder);
+      await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/blender": "1.0.0" } }));
+      const resolved = await resolveProjectPlugins({ folder, index: services.index, grants: services.grants });
+      expect(resolved?.ok && resolved.plugins.map((plugin) => plugin.version)).toEqual(["1.0.0"]);
+      await expect(services.setProjectPlugin(folder, "ohmygame/blender", "2.0.0")).rejects.toThrow("applies to every project it suits");
+    } finally {
+      await services.close();
+    }
+  });
+
   it("installs a package into the store and allows what it asks for", async () => {
     const dir = await temporary();
     const services = new PluginServices({ directory: path.join(dir, "store") });
@@ -1089,6 +1116,16 @@ describe("plugin releases", () => {
       expect(services.grants.plugin("ohmygame/blender")?.enabled).toBe(false);
       await mkdir(path.join(dir, "empty"));
       await expect(services.installManaged(path.join(dir, "empty"))).rejects.toThrow("Not a valid plugin");
+      // A copy that can't take over leaves the one in use in place.
+      const installed = path.join(services.packagesDirectory, "ohmygame", "blender", entry.version);
+      const before = await readFile(path.join(installed, ".ohmygame-plugin", "plugin.json"), "utf8");
+      const add = vi.spyOn(services.index, "add").mockResolvedValueOnce({ ok: false, issues: [{ path: "plugin.json", message: "unreadable" }] } as never);
+      await writeFile(path.join(source, "added.txt"), "new");
+      await expect(services.installManaged(source)).rejects.toThrow("unreadable");
+      add.mockRestore();
+      expect(await readFile(path.join(installed, ".ohmygame-plugin", "plugin.json"), "utf8")).toBe(before);
+      await expect(readFile(path.join(installed, "added.txt"))).rejects.toThrow();
+      expect((await readdir(services.packagesDirectory)).filter((name) => name.startsWith("."))).toEqual([]);
     } finally {
       await services.close();
     }

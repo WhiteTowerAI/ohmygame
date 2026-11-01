@@ -14,6 +14,8 @@ import type { PluginServices } from "./plugin-services.js";
 
 interface PreinstalledPluginReceipt {
   seededReleaseId: string;
+  /** The version last installed from here, the only one an update replaces. */
+  version?: string;
   removed: boolean;
 }
 
@@ -49,23 +51,27 @@ export class PreinstalledPluginManager {
   async seed(services: PluginServices, formatOne: LocalPluginStore): Promise<string[]> {
     // Starting up waits for this, and needn't wait for the store with nothing to install.
     if (!this.#entries.length) return [];
-    await services.ready();
+    try {
+      await services.ready();
+    } catch (cause) {
+      return [`Could not load plugins to install the preinstalled ones: ${cause instanceof Error ? cause.message : String(cause)}`];
+    }
     const errors: string[] = [];
     for (const entry of this.#entries) {
       try {
-        // Format 1 kept its own copy of this plugin; the format 2 one takes over.
+        const receipt = this.#state.plugins[entry.pluginId];
+        if (!receipt?.removed) {
+          if (!services.index.get(entry.id, entry.version) || receipt?.seededReleaseId !== entry.releaseId) {
+            await this.#install(entry, services);
+            if (receipt?.version && receipt.version !== entry.version) await services.uninstall(entry.id, receipt.version);
+          }
+          if (receipt?.seededReleaseId !== entry.releaseId || receipt.version !== entry.version) {
+            await this.#setReceipt(entry.pluginId, { seededReleaseId: entry.releaseId, version: entry.version, removed: false });
+          }
+        }
+        // Format 1 kept its own copy of this plugin; it goes once the format 2 one has taken over.
         const older = `ohmygame:${entry.id.slice(entry.id.indexOf("/") + 1)}`;
         if ((await formatOne.read(older))?.source.type === "preinstalled") await formatOne.remove(older);
-        const receipt = this.#state.plugins[entry.pluginId];
-        if (receipt?.removed) continue;
-        if (!services.index.get(entry.id, entry.version) || receipt?.seededReleaseId !== entry.releaseId) {
-          await this.#install(entry, services);
-          for (const stale of services.index.versions(entry.id))
-            if (stale.version !== entry.version) await services.uninstall(stale.id, stale.version);
-        }
-        if (receipt?.seededReleaseId !== entry.releaseId) {
-          await this.#setReceipt(entry.pluginId, { seededReleaseId: entry.releaseId, removed: false });
-        }
       } catch (cause) {
         errors.push(`Could not install preinstalled Plugin ${entry.id}: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
@@ -125,5 +131,6 @@ function isState(value: unknown): value is PreinstalledPluginState {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const state = value as Partial<PreinstalledPluginState>;
   return state.version === 1 && Boolean(state.plugins) && Object.values(state.plugins ?? {}).every((receipt) =>
-    Boolean(receipt) && typeof receipt.seededReleaseId === "string" && typeof receipt.removed === "boolean");
+    Boolean(receipt) && typeof receipt.seededReleaseId === "string" && typeof receipt.removed === "boolean"
+    && (receipt.version === undefined || typeof receipt.version === "string"));
 }
