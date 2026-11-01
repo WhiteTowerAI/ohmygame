@@ -72,6 +72,8 @@ export class ClaudeCodeDriver implements NativeDriver {
   #starting?: Promise<AgentProcess>;
   #turn?: PendingTurn;
   #sessionId?: string;
+  /** Whether the running process was asked to continue an existing session rather than start one. */
+  #resuming = false;
   #limits: AgentUsageLimit[] = [];
   /** The Skills staged in the session's plugin, which Claude Code names `ohmygame:<name>`. */
   #stagedSkills = new Set<string>();
@@ -104,7 +106,7 @@ export class ClaudeCodeDriver implements NativeDriver {
     } catch (cause) {
       if (signal.aborted) return { status: "aborted" };
       if (
-        this.context.resume &&
+        this.#resuming &&
         /no (?:conversation|session) found|session (?:id )?.*(?:not found|does not exist)/i.test(
           String(cause),
         )
@@ -137,7 +139,7 @@ export class ClaudeCodeDriver implements NativeDriver {
     });
     if (
       outcome.status === "failed" &&
-      this.context.resume &&
+      this.#resuming &&
       /no (?:conversation|session) found|session (?:id )?.*(?:not found|does not exist)/i.test(
         outcome.error,
       )
@@ -282,6 +284,7 @@ export class ClaudeCodeDriver implements NativeDriver {
       if (this.#stagedSkills.size)
         args.push("--plugin-dir", plugin, "--add-dir", plugin);
     }
+    this.#resuming = Boolean(this.#sessionId);
     if (this.#sessionId) args.push("--resume", this.#sessionId);
     else {
       this.#sessionId = randomUUID();
@@ -548,7 +551,10 @@ export class ClaudeCodeDriver implements NativeDriver {
       );
     }
     if (turn.signal.aborted) {
-      turn.resolve({ status: "aborted" });
+      // Claude Code reported the stopped turn's end, so nothing of it is still
+      // running. A failure that raced the stop, such as a spent quota, still
+      // resets the context as it would have without the stop.
+      turn.resolve({ status: "aborted", resumable: endedByStop(message) });
       return;
     }
     if (
@@ -728,6 +734,15 @@ const CLAUDE_CHANGE_TOOLS = new Set([
 ]);
 
 /** Why OhMyGame refuses a tool before Claude Code's permission rules decide, if it does. */
+/** Whether a stopped turn's result is the stop itself, or a clean finish that raced it. */
+function endedByStop(result: Record<string, unknown>): boolean {
+  return (
+    (typeof result.terminal_reason === "string" &&
+      result.terminal_reason.startsWith("aborted")) ||
+    (result.subtype === "success" && result.is_error !== true)
+  );
+}
+
 function refusedTool(tool: string, readOnly: boolean): string | undefined {
   if (tool === "ExitPlanMode")
     return "OhMyGame reviews plans itself: record the plan with update_plan and end your reply.";

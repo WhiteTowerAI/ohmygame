@@ -28,7 +28,13 @@ export interface StoredNativeSession {
   state: "active" | "ready" | "invalid";
   sessionId?: string;
   profileId?: string;
+  /** The person stopped the turn that ended here, and the next message has not said so yet. */
+  interrupted?: true;
 }
+
+/** What the agent is told when it continues after the person stopped its turn. */
+const INTERRUPTED_NOTICE =
+  "The user stopped the previous turn on purpose. A tool may have stopped partway, so check the affected files before relying on them, and do not resume the stopped work unless this message asks for it.";
 
 /** A native context was removed; the shared session must rebuild it from the current branch. */
 export class NativeSessionExpiredError extends Error {}
@@ -61,7 +67,11 @@ export interface NativeToolResult {
 
 export type NativeTurnOutcome =
   | { status: "completed" }
-  | { status: "aborted" }
+  /**
+   * `resumable` says the CLI itself reported that the stopped turn ended, so
+   * nothing is still running and its native session can take the next message.
+   */
+  | { status: "aborted"; resumable?: boolean }
   | { status: "failed"; error: string };
 
 export interface NativeUsage {
@@ -170,6 +180,15 @@ const IDLE_PROCESS_MS = 10 * 60_000;
  * same. The CLI keeps its own context; the stored messages are a record and,
  * when the conversation moves to another agent, the source of a summary.
  */
+interface NativeRun {
+  controller: AbortController;
+  done: Promise<void>;
+  /** Stopping one run is shared: cancelling a turn calls abort twice at once. */
+  stopping?: Promise<void>;
+  /** The driver had to be closed because the run did not stop in time. */
+  forced?: boolean;
+}
+
 export class NativeCodingSession implements CodingSession {
   readonly runtime: AgentRuntimeId;
   get profileId(): string | undefined { return this.options.profileId; }
@@ -180,10 +199,13 @@ export class NativeCodingSession implements CodingSession {
   #listeners = new Set<(event: AgentSessionEvent) => void>();
   #followUps: Array<{ text: string; images: PromptImage[] }> = [];
   #steering: Array<{ text: string; images: PromptImage[] }> = [];
-  #running?: { controller: AbortController; done: Promise<void> };
+  #running?: NativeRun;
   #readOnly = false;
   #handoff: boolean;
   #nativeSessionId?: string;
+  /** The next message must say the turn before it was stopped. */
+  #interrupted: boolean;
+  /** The adapter of a stopped turn was closed because it did not stop in time. */
   #usage?: AgentContextUsage;
   #checkpointFailure?: { cause: unknown };
   #disposed = false;
@@ -205,6 +227,7 @@ export class NativeCodingSession implements CodingSession {
       options.profileId,
     );
     this.#nativeSessionId = stored?.sessionId;
+    this.#interrupted = stored?.interrupted === true;
     // A branch with messages and no native session of this agent was held by another agent, or by this one before
     // an edit or a restore went back past where its session began.
     this.#handoff = !stored && hasMessages(this.sessionManager.getBranch());
@@ -286,6 +309,11 @@ export class NativeCodingSession implements CodingSession {
     this.#steering = [];
     const running = this.#running;
     if (!running) return;
+    running.stopping ??= this.#stop(running);
+    await running.stopping;
+  }
+
+  async #stop(running: NativeRun): Promise<void> {
     running.controller.abort();
     const timeout = this.options.cancellationTimeoutMs ?? 1_500;
     await bounded(
@@ -293,6 +321,7 @@ export class NativeCodingSession implements CodingSession {
       timeout,
     );
     if (!(await bounded(running.done, timeout))) {
+      running.forced = true;
       await this.#driver.dispose();
       await running.done;
     }
@@ -494,6 +523,8 @@ export class NativeCodingSession implements CodingSession {
     let wire = notice
       ? `${text}\n\nWorkspace restore notice (inspect current files before continuing):\n${notice}`
       : text;
+    if (this.#interrupted) wire = `${INTERRUPTED_NOTICE}\n\n${wire}`;
+    this.#interrupted = false;
     const currentPrompt = wire;
     if (this.#handoff) {
       const summary = handoffSummary(history);
@@ -538,12 +569,30 @@ export class NativeCodingSession implements CodingSession {
             error: cause instanceof Error ? cause.message : String(cause),
           };
     }
-    if (signal.aborted && outcome.status !== "failed")
+    if (signal.aborted && outcome.status === "completed")
       outcome = { status: "aborted" };
     turn.finish(outcome);
     if (outcome.status === "completed") this.#storeNativeState("ready");
-    else await this.#resetContext();
+    else if (this.#canContinueAfter(outcome)) {
+      this.#interrupted = true;
+      this.#storeNativeState("ready");
+    } else await this.#resetContext();
     return outcome.status !== "completed";
+  }
+
+  /**
+   * A stopped turn keeps its native session only when the CLI reported its end
+   * and is still the adapter this session holds. Anything else may still be
+   * running, or may have left a session the CLI cannot continue.
+   */
+  #canContinueAfter(outcome: NativeTurnOutcome): boolean {
+    return (
+      outcome.status === "aborted" &&
+      outcome.resumable === true &&
+      !this.#running?.forced &&
+      !this.#disposed &&
+      !!this.#nativeSessionId
+    );
   }
 
   #scheduleIdleStop(): void {
@@ -559,7 +608,8 @@ export class NativeCodingSession implements CodingSession {
   /**
    * Stops a CLI no message has used for a while. Its replacement starts only
    * with the next message and resumes the same native session, which is
-   * valid here: a turn that did not complete has already reset the context.
+   * valid here: a turn that failed, or that did not report its end when
+   * stopped, has already reset the context.
    */
   #stopIdleProcess(): void {
     if (this.#running || this.#disposed) return;
@@ -588,12 +638,16 @@ export class NativeCodingSession implements CodingSession {
       ...(state !== "invalid" && this.#nativeSessionId
         ? { sessionId: this.#nativeSessionId }
         : {}),
+      ...(state === "ready" && this.#interrupted
+        ? { interrupted: true as const }
+        : {}),
     } satisfies StoredNativeSession);
   }
 
   async #resetContext(): Promise<void> {
     this.#storeNativeState("invalid");
     this.#nativeSessionId = undefined;
+    this.#interrupted = false;
     await this.#driver.dispose();
     this.#driver = this.options.createDriver(undefined, {
       model: this.options.model,
@@ -1054,7 +1108,13 @@ export function latestNativeSession(
     )
       return undefined;
     return data.runtime === runtime && (data.profileId ?? "system") === (profileId ?? "system")
-      ? { version: 2, runtime, state: "ready", sessionId: data.sessionId }
+      ? {
+          version: 2,
+          runtime,
+          state: "ready",
+          sessionId: data.sessionId,
+          ...(data.interrupted === true ? { interrupted: true as const } : {}),
+        }
       : undefined;
   }
   return undefined;
