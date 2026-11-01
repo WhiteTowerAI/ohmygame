@@ -34,6 +34,10 @@ https://github.com/user-attachments/assets/4d5805fe-92a2-40b4-a232-c7452f9a796a
 
 <!-- 最多保留三条，最新的在前，只写大版本。发版准备时更新，见 docs/maintaining.md。 -->
 
+- **2026-10 · beta 6**
+  （[更新说明](https://github.com/WhiteTowerAI/ohmygame/releases/tag/v0.0.0-beta.6.0)）
+  - **全新外观：** 更安静的界面、扁平的侧边栏，中性、暖调和高对比三种配色，以及 ⌘K 命令菜单。
+  - **项目即面板：** 按你的习惯摆放对话、游戏、设计、画布和代码，游戏设计文档也有了自己的面板。
 - **2026-10 · beta 5**
   （[更新说明](https://github.com/WhiteTowerAI/ohmygame/releases/tag/v0.0.0-beta.5.0)）
   - **现已支持互动故事：** 适合做视觉小说、互动电影和剧情游戏。每个画面都是一个自由的网页，

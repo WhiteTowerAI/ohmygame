@@ -35,6 +35,12 @@ https://github.com/user-attachments/assets/4d5805fe-92a2-40b4-a232-c7452f9a796a
 <!-- Keep at most three entries, newest first, and only major releases.
 Updated during release preparation; see docs/maintaining.md. -->
 
+- **2026-10 · beta 6**
+  ([release notes](https://github.com/WhiteTowerAI/ohmygame/releases/tag/v0.0.0-beta.6.0))
+  - **A new look:** a calmer app with a flat sidebar, Neutral, Warm and High
+    contrast palettes, and a ⌘K command menu.
+  - **Projects as panels:** arrange Chat, Game, Design, Canvas and Code the way
+    you work, and read the game design document in its own panel.
 - **2026-10 · beta 5**
   ([release notes](https://github.com/WhiteTowerAI/ohmygame/releases/tag/v0.0.0-beta.5.0))
   - **Now with interactive stories:** make visual novels, interactive films,

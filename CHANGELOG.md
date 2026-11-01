@@ -4,6 +4,85 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.6.0] - 2026-10-30
+
+### Added
+
+- OhMyGame has a new look. A flat sidebar holds Search, the pages, your recent
+  projects, desktop updates and the account menu; it collapses to icons and
+  resizes. Home, Projects, Library, Community, Plugins, Settings, onboarding and
+  every dialog are redrawn on one set of colours and controls.
+  ([#457](https://github.com/WhiteTowerAI/ohmygame/pull/457) by @dogxii,
+  [#458](https://github.com/WhiteTowerAI/ohmygame/pull/458) by @dogxii,
+  [#471](https://github.com/WhiteTowerAI/ohmygame/pull/471) by @dogxii,
+  [#472](https://github.com/WhiteTowerAI/ohmygame/pull/472) by @dogxii,
+  [#474](https://github.com/WhiteTowerAI/ohmygame/pull/474) by @dogxii,
+  [#476](https://github.com/WhiteTowerAI/ohmygame/pull/476) by @dogxii,
+  [#478](https://github.com/WhiteTowerAI/ohmygame/pull/478) by @dogxii,
+  [#496](https://github.com/WhiteTowerAI/ohmygame/pull/496) by @dogxii,
+  [#497](https://github.com/WhiteTowerAI/ohmygame/pull/497) by @dogxii,
+  [#504](https://github.com/WhiteTowerAI/ohmygame/pull/504) by @dogxii,
+  [#505](https://github.com/WhiteTowerAI/ohmygame/pull/505) by @dogxii,
+  [#506](https://github.com/WhiteTowerAI/ohmygame/pull/506) by @dogxii,
+  [#509](https://github.com/WhiteTowerAI/ohmygame/pull/509) by @dogxii)
+- A project opens as panels: Chat, Game, Design, Canvas, Code and Assets sit in
+  four areas you can drag, resize, close and reopen, with Default, Art and Code
+  layouts. A rail on the left switches projects and their conversations, and
+  the top bar holds the project menu and Publish. Moving a panel keeps its
+  state, and a running game doesn't reload.
+  ([#486](https://github.com/WhiteTowerAI/ohmygame/pull/486) by @dogxii,
+  [#488](https://github.com/WhiteTowerAI/ohmygame/pull/488) by @dogxii,
+  [#490](https://github.com/WhiteTowerAI/ohmygame/pull/490) by @dogxii,
+  [#491](https://github.com/WhiteTowerAI/ohmygame/pull/491) by @dogxii,
+  [#492](https://github.com/WhiteTowerAI/ohmygame/pull/492) by @dogxii,
+  [#498](https://github.com/WhiteTowerAI/ohmygame/pull/498) by @dogxii,
+  [#487](https://github.com/WhiteTowerAI/ohmygame/pull/487) by @dogxii,
+  [#493](https://github.com/WhiteTowerAI/ohmygame/pull/493) by @dogxii,
+  [#495](https://github.com/WhiteTowerAI/ohmygame/pull/495) by @dogxii)
+- Read and edit the game design document in its own **Design** panel, with an
+  outline, Read, Edit and Split views, **Reference in chat** and **Add to chat**
+  for picked text. The asset canvas is now the **Canvas** panel.
+  ([#494](https://github.com/WhiteTowerAI/ohmygame/pull/494) by @dogxii)
+- Press **⌘K** (Ctrl+K) for a command menu of pages, projects, Settings
+  sections and the open project's panels and layouts. **⌘N** starts a new
+  project from Home and **⌘,** opens Settings.
+  ([#500](https://github.com/WhiteTowerAI/ohmygame/pull/500) by @dogxii)
+- With the Chat panel closed, the composer floats over the middle of a project.
+  It drags, folds to a pill, and keeps drafts and waiting questions.
+  ([#501](https://github.com/WhiteTowerAI/ohmygame/pull/501) by @dogxii)
+- Choose a Neutral, Warm or High contrast palette and a serif chat font in
+  **Settings → Appearance**. The palette applies to every screen.
+  ([#476](https://github.com/WhiteTowerAI/ohmygame/pull/476) by @dogxii,
+  [#508](https://github.com/WhiteTowerAI/ohmygame/pull/508) by @dogxii)
+- **Publish → Export web build** downloads the game's static web files to host
+  on another site, for Web Games, General projects and Interactive Stories.
+  ([#503](https://github.com/WhiteTowerAI/ohmygame/pull/503) by @dogxii)
+
+### Changed
+
+- Every project starts from Home: its prompt opens one New project dialog with
+  the first message, name, type and folder. The separate studio pages are gone,
+  and their old links open Home.
+  ([#477](https://github.com/WhiteTowerAI/ohmygame/pull/477) by @dogxii)
+- Each agent has its own page in **Settings → Agents**, and Settings opens on
+  General.
+  ([#476](https://github.com/WhiteTowerAI/ohmygame/pull/476) by @dogxii)
+- Interactive Stories use the same panels as games: Story, Design, Canvas, Code
+  and Assets. Story settings no longer export; use the Publish menu or the
+  project menu's **Export project**.
+  ([#499](https://github.com/WhiteTowerAI/ohmygame/pull/499) by @dogxii,
+  [#503](https://github.com/WhiteTowerAI/ohmygame/pull/503) by @dogxii)
+- On Windows, Back and Forward sit in the title bar next to the menus; on Linux
+  they lead the project rail.
+  ([#502](https://github.com/WhiteTowerAI/ohmygame/pull/502) by @dogxii)
+
+### Fixed
+
+- Hidden playtest windows the agent opens stay muted until you show them.
+  ([#483](https://github.com/WhiteTowerAI/ohmygame/pull/483) by @dihuangdh)
+- Editing the design canvas no longer reloads the running game.
+  ([#489](https://github.com/WhiteTowerAI/ohmygame/pull/489) by @dogxii)
+
 ## [0.0.0-beta.5.0] - 2026-10-29
 
 ### Added
