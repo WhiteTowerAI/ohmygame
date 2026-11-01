@@ -28,7 +28,6 @@ import {
   type MediaModelDefaults,
   type ImageModel,
   type ImageModelCatalog,
-  type ImageModelRef,
   type ModelAuthEvent,
   type ModelAuthMethod,
   type ModelProviderEndpointSettings,
@@ -756,6 +755,29 @@ export async function consentToPlugin(id: string, allowed: string[]): Promise<vo
   await request(`/plugin-store/${pluginPath(id)}/consent`, { method: "POST", body: JSON.stringify({ allowed }) });
 }
 
+/** Installed format 2 plugins, one row per version. */
+export async function listStorePlugins(): Promise<import("../shared/plugins.js").StorePlugin[]> {
+  return request(`/plugin-store/plugins?locale=${encodeURIComponent(language)}`);
+}
+
+/** The app switch for a format 2 plugin: off, it runs in no project. */
+export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
+}
+
+export async function uninstallStorePlugin(id: string, version: string): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}`, { method: "DELETE" });
+}
+
+export async function readStorePluginConfiguration(id: string): Promise<import("../shared/plugins.js").StorePluginConfiguration> {
+  return request(`/plugin-store/${pluginPath(id)}/configuration`);
+}
+
+/** Saves some settings; `null` puts one back to its default. */
+export async function saveStorePluginConfiguration(id: string, changes: Record<string, string | boolean | null>): Promise<import("../shared/plugins.js").StorePluginConfiguration> {
+  return request(`/plugin-store/${pluginPath(id)}/configuration`, { method: "PUT", body: JSON.stringify(changes) });
+}
+
 function pluginPath(id: string): string {
   return id.split("/").map(encodeURIComponent).join("/");
 }
@@ -1362,6 +1384,8 @@ export class ApiError extends Error {
     readonly conflicts?: string[],
     /** Those paths cannot be put back, whatever the request says to do with them. */
     readonly blocked?: boolean,
+    /** The plugin panel, `publisher/name:panel`, that can resolve the refusal. */
+    readonly panel?: string,
   ) {
     super(message);
   }
@@ -1388,9 +1412,9 @@ export async function request<T>(path: string, init: WorkspaceRequestInit = {}):
 }
 
 async function responseError(response: Response): Promise<ApiError> {
-  const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; conflicts?: unknown; blocked?: unknown };
+  const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; conflicts?: unknown; blocked?: unknown; panel?: unknown };
   const conflicts = Array.isArray(body.conflicts) && body.conflicts.every((path) => typeof path === "string") ? body.conflicts as string[] : undefined;
-  return new ApiError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status }), response.status, body.code, conflicts, body.blocked === true || undefined);
+  return new ApiError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status }), response.status, body.code, conflicts, body.blocked === true || undefined, typeof body.panel === "string" ? body.panel : undefined);
 }
 
 async function streamProjectEvents(
@@ -1581,8 +1605,32 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-export async function createMcpPlugin(input: import("../shared/plugins.js").CreateMcpPluginRequest): Promise<PluginDetail> {
-  return request("/plugins/mcp", { method: "POST", body: JSON.stringify(input) });
+export async function listConnections(): Promise<import("../shared/connections.js").ConnectionSummary[]> {
+  return request("/connections");
+}
+export async function createConnection(input: import("../shared/connections.js").CreateConnectionRequest): Promise<import("../shared/connections.js").ConnectionSummary> {
+  return request("/connections", { method: "POST", body: JSON.stringify(input) });
+}
+export async function updateConnection(id: string, input: import("../shared/connections.js").UpdateConnectionRequest): Promise<import("../shared/connections.js").ConnectionSummary> {
+  return request(`/connections/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+export async function deleteConnection(id: string): Promise<void> {
+  await request(`/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+export async function readConnectionDefinition(id: string): Promise<{ definition: import("../shared/plugins.js").McpServerDefinition }> {
+  return request(`/connections/${encodeURIComponent(id)}/definition`);
+}
+export async function saveConnectionDefinition(id: string, definition: import("../shared/plugins.js").McpServerDefinition): Promise<import("../shared/connections.js").ConnectionSummary> {
+  return request(`/connections/${encodeURIComponent(id)}/definition`, { method: "PUT", body: JSON.stringify({ definition }) });
+}
+export async function readConnectionConfiguration(id: string): Promise<import("../shared/plugins.js").PluginConfigurationView> {
+  return request(`/connections/${encodeURIComponent(id)}/configuration`);
+}
+export async function saveConnectionConfiguration(id: string, values: import("../shared/plugins.js").PluginConfigurationValues): Promise<import("../shared/plugins.js").PluginConfigurationView> {
+  return request(`/connections/${encodeURIComponent(id)}/configuration`, { method: "PUT", body: JSON.stringify({ values }) });
+}
+export async function testConnection(id: string, action: "test" | "auth-start" | "auth-complete" = "test", input?: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
+  return request(`/connections/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(input ? { input } : {}) });
 }
 export async function readPluginConfiguration(id: string): Promise<import("../shared/plugins.js").PluginConfigurationView> {
   return request(`/plugins/${encodeURIComponent(id)}/configuration`);
@@ -1686,21 +1734,6 @@ export async function inspectProjectPreview(projectId: string, settings: Project
   return request(`/projects/${projectId}/preview/inspect`, { method: "POST", body: JSON.stringify(settings) });
 }
 
-export function getPluginIntegration(pluginId: string, projectId?: string): Promise<import("../shared/plugin-integration.js").PluginIntegrationState> {
-  return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`);
-}
-export function runPluginIntegration(pluginId: string, action: import("../shared/plugin-integration.js").PluginIntegrationAction, projectId?: string, remoteProjectId?: string): Promise<import("../shared/plugin-integration.js").PluginIntegrationState> {
-  return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`, { method: "POST", body: JSON.stringify({ action, ...(remoteProjectId ? { projectId: remoteProjectId } : {}) }) });
-}
-export function cancelPluginIntegration(pluginId: string, projectId?: string): Promise<{ ok: true }> {
-  return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`, { method: "DELETE" });
-}
-export function clearProjectIntegration(projectId: string): Promise<ProjectState> {
-  return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "DELETE" });
-}
-export function setProjectIntegration(projectId: string, pluginId: string): Promise<ProjectState> {
-  return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "PUT", body: JSON.stringify({ pluginId }) });
-}
 
 export function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> { return request("/settings/models/providers/volcengine-tts"); }
 export async function previewSeedAudio(prompt: string): Promise<Blob> {
@@ -1734,7 +1767,21 @@ export async function setPluginPageValue(projectId: string, plugin: string, key:
   await request(`/projects/${encodeURIComponent(projectId)}/plugin-storage/${plugin}/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value }) });
 }
 
+/** The format 2 plugin commands a project offers. */
+export async function listProjectPluginCommands(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCommand[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands?locale=${encodeURIComponent(language)}`);
+}
+
+/** What plugins changed in a project outside a turn, newest first. */
+export async function listProjectPluginChanges(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginChange[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-changes`);
+}
+
+export async function undoProjectPluginChange(projectId: string, changeId: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugin-changes/${encodeURIComponent(changeId)}/undo`, { method: "POST" });
+}
+
 /** Runs a format 2 plugin command, `publisher/name:command`, whose code runs in its plugin. */
-export async function runPluginCommand(projectId: string, command: string): Promise<{ result: unknown; change?: { id: string; changed: string[] } }> {
-  return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands`, { method: "POST", body: JSON.stringify({ command }) });
+export async function runPluginCommand(projectId: string, command: string, input?: unknown): Promise<{ result: unknown; change?: { id: string; changed: string[] } }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands`, { method: "POST", body: JSON.stringify({ command, input }) });
 }

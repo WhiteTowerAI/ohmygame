@@ -1,8 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type {
-  CreateMcpPluginRequest,
-  PluginConfigurationValues,
-} from "../shared/plugins.js";
+import type { PluginConfigurationValues } from "../shared/plugins.js";
 import type { PluginCatalogService } from "./plugin-catalog.js";
 import { LocalPluginError } from "./local-plugins.js";
 import { PluginConfigurationError } from "./plugin-configuration.js";
@@ -20,23 +17,6 @@ export function registerPluginCapabilityRoutes(
     invalidate: () => void;
   },
 ) {
-  app.post<{ Body: CreateMcpPluginRequest }>(
-    "/plugins/mcp",
-    async (request, reply) => {
-      try {
-        const plugin = await capabilities.create(request.body);
-        invalidate();
-        return reply.code(201).send(await capabilities.decorate(plugin));
-      } catch (cause) {
-        if (
-          cause instanceof LocalPluginError ||
-          cause instanceof PluginConfigurationError
-        )
-          return reply.code(cause.statusCode).send({ error: cause.message });
-        throw cause;
-      }
-    },
-  );
   app.get<{ Params: { pluginId: string } }>(
     "/plugins/:pluginId/configuration",
     async (request, reply) => {

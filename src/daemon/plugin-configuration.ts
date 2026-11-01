@@ -30,6 +30,9 @@ interface StoredConfiguration {
   extraFields?: Record<string, Record<string, PluginConfigurationField>>;
 }
 
+/** Whose configuration it is: a plugin, or a connection (`connection:<id>`) whose fields are all generated. */
+export type ConfigurationOwner = Pick<PluginDetail, "id" | "configuration">;
+
 export class PluginConfigurationError extends Error {
   readonly statusCode = 400;
 }
@@ -88,6 +91,11 @@ export class PluginConfigurationStore {
       ([, owner]) => owner.pluginId === pluginId && owner.serverId === serverId,
     )?.[0];
   }
+  /** A plugin's saved nonsecret values, even when the plugin is gone, for moving them elsewhere. */
+  storedValues(pluginId: string): Record<string, string | boolean> | undefined {
+    const values = this.#state.plugins[pluginId]?.values;
+    return values ? { ...values } : undefined;
+  }
   override(pluginId: string, serverId: string): unknown {
     const ref = this.#state.serverOverrides?.[`${pluginId}/${serverId}`];
     return ref
@@ -102,7 +110,7 @@ export class PluginConfigurationStore {
     values,
     definitions,
   }: {
-    plugin: PluginDetail;
+    plugin: ConfigurationOwner;
     serverId: string;
     definition: McpServerDefinition;
     fields: Record<string, PluginConfigurationField>;
@@ -155,6 +163,45 @@ export class PluginConfigurationStore {
       );
     });
   }
+  /**
+   * Gives `to` a copy of `from`'s configuration: the values and secrets
+   * `definition` uses, its fields (as `to`'s own), and `definition` as the
+   * template of `to`'s server `serverId`. Secrets are copied encrypted, under
+   * new references, so either owner can be removed without the other losing
+   * them; `from` is left as it was.
+   */
+  async copyOwner({ from, fields, to, serverId, definition }: {
+    from: string;
+    fields: Record<string, PluginConfigurationField>;
+    to: string;
+    serverId: string;
+    definition: McpServerDefinition;
+  }): Promise<void> {
+    const used = new Set([...JSON.stringify(definition).matchAll(/\$\{config\.([a-z0-9_.-]+)\}/g)].map((match) => match[1]!));
+    await this.#mutate((next) => {
+      this.#remove(next, to);
+      const source = next.plugins[from];
+      const copied: { values: Record<string, string | boolean>; secretRefs: Record<string, string> } = { values: {}, secretRefs: {} };
+      const extras: Record<string, PluginConfigurationField> = {};
+      for (const key of used) {
+        const field = Object.hasOwn(fields, key) ? fields[key] : undefined;
+        if (!field) continue;
+        extras[key] = field;
+        if (source && Object.hasOwn(source.values, key)) copied.values[key] = source.values[key]!;
+        const ref = source && Object.hasOwn(source.secretRefs, key) ? source.secretRefs[key] : undefined;
+        if (ref && next.credentials[ref]) {
+          const copy = randomUUID();
+          next.credentials[copy] = next.credentials[ref]!;
+          copied.secretRefs[key] = copy;
+        }
+      }
+      next.plugins[to] = copied;
+      (next.extraFields ??= {})[to] = extras;
+      const ref = randomUUID();
+      (next.serverOverrides ??= {})[`${to}/${serverId}`] = ref;
+      next.credentials[ref] = this.#encrypt(JSON.stringify(definition));
+    });
+  }
   async markMigrated(): Promise<void> {
     await this.#mutate((next) => {
       next.migrated = true;
@@ -169,10 +216,10 @@ export class PluginConfigurationStore {
       next.legacyOwners[id] = { pluginId, serverId };
     });
   }
-  fields(plugin: PluginDetail): Record<string, PluginConfigurationField> {
+  fields(plugin: ConfigurationOwner): Record<string, PluginConfigurationField> {
     return { ...plugin.configuration, ...this.#state.extraFields?.[plugin.id] };
   }
-  view(plugin: PluginDetail): PluginConfigurationView {
+  view(plugin: ConfigurationOwner): PluginConfigurationView {
     const fields = this.fields(plugin);
     const stored = this.#state.plugins[plugin.id];
     const values: Record<string, string | boolean> = {};
@@ -197,7 +244,7 @@ export class PluginConfigurationStore {
       .map(([key]) => key);
     return { fields, values, configuredSecrets, missing };
   }
-  resolved(plugin: PluginDetail): Record<string, string | boolean> {
+  resolved(plugin: ConfigurationOwner): Record<string, string | boolean> {
     const values = { ...this.view(plugin).values };
     const stored = this.#state.plugins[plugin.id];
     const fields = this.fields(plugin);
@@ -208,7 +255,7 @@ export class PluginConfigurationStore {
     return values;
   }
   async update(
-    plugin: PluginDetail,
+    plugin: ConfigurationOwner,
     values: PluginConfigurationValues,
     allowSecrets = true,
   ): Promise<PluginConfigurationView> {
@@ -291,7 +338,7 @@ export class PluginConfigurationStore {
     }
   }
   redact(
-    plugin: PluginDetail,
+    plugin: ConfigurationOwner,
     value: string,
     literalSecrets: string[] = [],
   ): string {

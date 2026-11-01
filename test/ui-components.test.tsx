@@ -7,6 +7,7 @@ import {
   Combobox,
   CommandMenu,
   Dialog,
+  DropdownMenu,
   Popover,
   SegmentedControl,
   Select,
@@ -94,6 +95,22 @@ it("places a popover again when its content grows", async () => {
   panelHeight.mockReturnValue(rect(0, 300));
   await act(async () => observed.forEach((callback) => callback()));
   expect(panel.style.top).toBe("94px");
+});
+
+it("keeps a menu's icon column only when one of its items has an icon", async () => {
+  const menu = (items: Parameters<typeof DropdownMenu>[0]["items"]) => act(async () => root.render(
+    <DropdownMenu items={items} trigger={(props) => <button {...props} type="button">Open</button>} />,
+  ));
+  const open = () => act(async () => container.querySelector("button")!.click());
+  await menu([{ label: "Make a maze" }, { label: "Make a racer" }]);
+  await open();
+  expect(document.querySelectorAll(".ui-menu-item")).toHaveLength(2);
+  expect(document.querySelector(".ui-menu-icon")).toBeNull();
+  await open();
+  await menu([{ label: "Rename", icon: <svg /> }, { label: "Delete" }]);
+  await open();
+  // Labels still line up when only some items have icons.
+  expect(document.querySelectorAll(".ui-menu-icon")).toHaveLength(2);
 });
 
 it("closes a popover on Escape and gives focus back to its anchor only from inside it", async () => {

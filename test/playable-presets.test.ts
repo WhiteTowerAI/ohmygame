@@ -8,7 +8,6 @@ import {
   createNodeCodebase,
   createPlayableStarterCodebase,
   readNodeCodebase,
-  writeNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
 import { validatePlayableProject } from "../src/daemon/playable-project.js";
 import { PLAYABLE_PRESETS, PLAYABLE_PRESET_IDS, PLAYABLE_PROJECT_STYLE_FILES, playablePreset } from "../src/daemon/playable-presets.js";
@@ -276,7 +275,7 @@ describe("addPlayableNode", () => {
         const actual = await readFile(path.join(workspacePath, relative), "utf8");
         expect(actual).toBe(css);
         expect(actual).not.toContain("base64");
-        const image = actual.match(/url\("(\.\/lastbus\/[^\"]+\.webp)"\)/)![1]!;
+        const image = actual.match(/url\("(\.\/lastbus\/[^"]+\.webp)"\)/)![1]!;
         await access(path.resolve(workspacePath, path.dirname(relative), image));
       }
       for (const [relative, bundled] of Object.entries(preset.sharedFileCopies ?? {})) {

@@ -434,7 +434,7 @@ export class CanvasStore {
       if (asset.mediaType !== "image") throw new CanvasError("Choose an image asset");
       const detail = await readCanvasDocument(workspace, documentId);
       if (!detail) throw new CanvasError("Document not found", 404);
-      const label = asset.name.replace(/[\[\]\n]/g, "");
+      const label = asset.name.replace(/[[\]\n]/g, "");
       const link = asset.path.split("/").map(encodeURIComponent).join("/");
       const saved = await writeCanvasDocument(workspace, { ...detail.document, markdown: `${detail.document.markdown.trimEnd()}\n\n![${label}](../../${link})\n` }, this.#project(id).type !== "asset-canvas");
       if (asset.libraryAssetId && this.library.get(asset.libraryAssetId)) await this.library.save(asset.libraryAssetId);

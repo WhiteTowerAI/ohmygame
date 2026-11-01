@@ -1,0 +1,7 @@
+{
+  "displayName": "Douyin Mini Games",
+  "description": "Adapt, preview, and check Douyin mini-game builds.",
+  "longDescription": "Package games through the engine's Douyin route, check platform configuration, and verify developer-tool and device previews. Requires Douyin's game developer tool and an authorized game account for remote operations. Uploads happen only on request.",
+  "example.1": "Check this project's Douyin Mini Game integration and local prerequisites.",
+  "example.2": "Build this game for Douyin and prepare a device preview without uploading a test version."
+}

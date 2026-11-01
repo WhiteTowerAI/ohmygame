@@ -90,11 +90,10 @@ describe("renderer routes", () => {
   it("parses and formats Settings routes", () => {
     expect(DEFAULT_SETTINGS_SECTION).toBe("general");
     expect(parseAppRoute("#/settings")).toEqual({ page: "settings", section: "general" });
-    for (const section of ["general", "account", "billing", "appearance", "providers", "agents", "web-search", "network", "mcp-server", "about"] as const) {
+    for (const section of ["general", "account", "billing", "appearance", "providers", "agents", "web-search", "network", "connections", "mcp-server", "about"] as const) {
       expect(parseAppRoute(`#/settings/${section}`)).toEqual({ page: "settings", section });
       expect(settingsHash(section)).toBe(`#/settings/${section}`);
     }
-    expect(parseAppRoute("#/settings/connections")).toEqual({ page: "plugins" });
     expect(parseAppRoute("#/settings/agents/claude-code-cli")).toEqual({ page: "settings", section: "agents", agent: "claude-code-cli" });
     expect(settingsHash("agents", "ohmygame")).toBe("#/settings/agents/ohmygame");
     expect(settingsHash("providers", "ohmygame")).toBe("#/settings/providers");

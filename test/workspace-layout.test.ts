@@ -60,6 +60,22 @@ describe("workspace layouts", () => {
     expect(tabs(fitLayout(saved, STORY, presetLayout("default", STORY)))).toMatchObject({ left: "*chat", center: "design,canvas,*story", right: "*code" });
   });
 
+  it("opens a plugin's panels in the areas it names, and keeps them closed once closed", () => {
+    const preview = "plugin:acme/maker:preview" as const;
+    const log = "plugin:acme/maker:log" as const;
+    const homes = { [preview]: "right", [log]: "bottom" } as const;
+    const offered = [...GAME, preview, log];
+    const fallback = presetLayout("default", offered, homes);
+    expect(tabs(fallback)).toMatchObject({ left: "*chat", center: "*game,design,canvas,code,assets", right: `*${preview}`, bottom: `*${log}` });
+    // A saved layout from before the plugin gets its panels where they belong.
+    const before = { layout: presetLayout("default", GAME), known: GAME };
+    expect(tabs(fitLayout(before, offered, fallback))).toMatchObject({ right: `*${preview}`, bottom: `*${log}` });
+    // Closed, the panel stays closed; the plugin turned off, it goes.
+    const closed = mergeLayout(before, fitLayout(before, offered, fallback), closePanel(fitLayout(before, offered, fallback), log), offered);
+    expect(tabs(fitLayout(closed, offered, fallback)).bottom).toBe("");
+    expect(tabs(fitLayout(closed, GAME, presetLayout("default", GAME))).right).toBe("");
+  });
+
   it("opens new panels on the default's front tab", () => {
     // Saved when stories had only the Story map, a story gets its new panels
     // in the default's order, and a Godot project without a preview opens on Code.

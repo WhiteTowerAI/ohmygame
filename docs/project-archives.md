@@ -41,7 +41,8 @@ The manifest looks like this:
 }
 ```
 
-`project` holds the name, type, plugin integration, preview and run settings,
+`project` holds the name, type, plugin type (or a format 1 Maker project's
+integration, moved to the format 2 type on import), preview and run settings,
 media model defaults and appearance: the keys listed in
 `PROJECT_ARCHIVE_SETTING_KEYS`.
 A key is present only when the project sets it. `cover.mode` says whether the

@@ -134,15 +134,20 @@ For changes that need the public checks, run:
 bun run prepare:preinstalled-plugins
 bun run changelog:check
 bun run typecheck
+bun run lint
 bun run test
 bun run build:renderer
 bun run test:node-runtime
 ```
 
 For example, run a focused suite with `bun run test -- test/preview.test.ts`.
+`bun run lint` runs oxlint with the rules in [.oxlintrc.json](.oxlintrc.json)
+and fails on warnings. To turn a rule off, do it there with a comment saying
+why, rather than with inline disable comments.
 The [CI workflow](.github/workflows/ci.yml) runs on PRs and pushes to `dev` and
-`main`, including documentation PRs. It checks the changelog, plugin preparation,
-types, tests, the renderer build, and the Node daemon/player build and startup.
+`main`, including documentation PRs. It checks the changelog, plugin
+preparation, types, lint, tests, the renderer build, and the Node daemon/player
+build and startup.
 `test:node-runtime` builds the host and player before checking Node startup, so
 this sequence covers the full application build without building them twice.
 These checks run on Ubuntu. Plugin preparation, types, tests and the Node
