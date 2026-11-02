@@ -20,6 +20,7 @@ import { useOnboarding } from "./use-onboarding.js";
 import { CommandMenuHost } from "./command-menu.js";
 import { rememberLastProject } from "./general-preferences.js";
 import { useRunAlerts } from "./run-alerts.js";
+import { GameRecordingNotices } from "./game-recording.js";
 
 // Home and onboarding stay in the main chunk; every other route loads on first visit.
 const CommunityProfilePage = lazy(() => import("./community-profile.js").then((module) => ({ default: module.CommunityProfilePage })));
@@ -38,6 +39,7 @@ export function App() {
   return <>
     <AppRoute navigation={navigation} />
     <CommandMenuHost navigate={navigation.navigate} />
+    <GameRecordingNotices />
   </>;
 }
 

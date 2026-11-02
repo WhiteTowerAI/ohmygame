@@ -380,6 +380,9 @@ URLs are accepted. This capability is available only when the daemon is owned
 by the Electron process; browser-only daemon development does not register the
 tool.
 
+`game_use` can also [record a session](preview-runtime.md#recording-a-game) to
+the Library when the person asks for a video of the game.
+
 This is deliberately a game-use runtime, not unrestricted Browser Use or
 desktop Computer Use. It provides the smallest stable surface needed for
 repeatable gameplay and visual checks without adding Playwright, Puppeteer, or

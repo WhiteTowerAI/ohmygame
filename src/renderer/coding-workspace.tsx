@@ -62,6 +62,7 @@ import { ProjectSettingsDialog } from "./project-settings-dialog.js";
 import { AssetMedia } from "./asset-gallery.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { useWebGamePlayer } from "./use-web-game-player.js";
+import { GameRecordButton } from "./game-recording.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { DesktopGamePreview } from "./desktop-game-preview.js";
@@ -376,6 +377,7 @@ export function CodingWorkspace({
     disabled={player.pending || (player.checking && !player.error) || canPlay}
     onClick={playGame}
   >{player.open ? t("workspace.returnToGame") : t("workspace.play")}</Button> : null;
+  const recordButton = supportsPreview && project ? <GameRecordButton projectId={project.id} gameRunning={player.open || preview?.status === "ready"} /> : null;
   const settingsButton = project && project.pluginType?.preview !== "native" && isWebRuntimeProjectType(project.type) ? <button
     className="icon-button pane-header-action"
     type="button"
@@ -414,6 +416,7 @@ export function CodingWorkspace({
           onToggleAgentPlaytestWatch={() => void toggleAgentPlaytestWatch()}
           onViewportChange={setViewport}
         />
+        {panels ? null : recordButton}
         {panels ? null : playButton}
       </> : undefined,
       body: <>
@@ -496,7 +499,7 @@ export function CodingWorkspace({
       {supportsPreview && logsOpen && view === logsView ? <PreviewLogs project={project} onClose={() => setLogsOpen(false)} /> : null}
     </section>
   );
-  const topPlay = panels?.play && playButton ? createPortal(playButton, panels.play) : null;
+  const topPlay = panels?.play && playButton ? createPortal(<>{recordButton}{playButton}</>, panels.play) : null;
   const placed = (Object.keys(views) as CodingView[]).map((view) => {
     const content = views[view];
     if (!content) return null;

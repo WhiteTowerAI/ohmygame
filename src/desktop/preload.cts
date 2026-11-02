@@ -3,6 +3,7 @@ import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
+import type { GameRecordingState } from "../shared/game-recording.js";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
 import type { DaemonRuntime, DesktopRuntimeState } from "../shared/desktop-runtime.js";
 import type { NodeThumbnailResult, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
@@ -87,6 +88,16 @@ if (process.isMainFrame) {
         detach: (projectId: string, attachment: string) =>
           ipcRenderer.invoke("ohmygame:detach-web-game-preview", projectId, attachment) as Promise<void>,
         capture: (projectId: string) => ipcRenderer.invoke("ohmygame:capture-web-game-preview", projectId) as Promise<Uint8Array>,
+      }),
+      recording: Object.freeze({
+        start: (projectId: string) => ipcRenderer.invoke("ohmygame:start-game-recording", projectId) as Promise<void>,
+        stop: (projectId: string) => ipcRenderer.invoke("ohmygame:stop-game-recording", projectId) as Promise<void>,
+        state: (projectId: string) => ipcRenderer.invoke("ohmygame:game-recording-state", projectId) as Promise<GameRecordingState>,
+        onState: (listener: (state: GameRecordingState) => void) => {
+          const callback = (_event: Electron.IpcRendererEvent, state: GameRecordingState) => listener(state);
+          ipcRenderer.on("ohmygame:game-recording-state", callback);
+          return () => ipcRenderer.removeListener("ohmygame:game-recording-state", callback);
+        },
       }),
       open: (projectId: string, request: WebGamePlayerRequest) => ipcRenderer.invoke("ohmygame:open-web-game-player", projectId, request) as Promise<void>,
       state: (projectId: string) => ipcRenderer.invoke("ohmygame:web-game-player-state", projectId) as Promise<WebGamePlayerState>,

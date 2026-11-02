@@ -75,3 +75,4 @@ jobs:
       - uses: ./.github/actions/setup-platform
       - run: bun run typecheck
       - run: bun run test:node-runtime
+      - run: bun run test:game-recording
