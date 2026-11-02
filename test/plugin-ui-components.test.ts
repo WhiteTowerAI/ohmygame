@@ -274,7 +274,7 @@ describe("page components' contract", () => {
     const parsed = parseComment(
       [
         "`<omg-x>`: a thing.",
-        "@attr {'a' | 'b'} mode - The mode,",
+        "@attr {'a' | 'b  c'} mode - The mode,",
         "  over two lines.",
         '@prop {{ close: "}" }} value - A value.',
         "@method run",
@@ -296,10 +296,10 @@ describe("page components' contract", () => {
     expect(parsed).toMatchObject({
       description: "`<omg-x>`: a thing.",
       deprecated: "Use omg-y instead.",
-      attributes: [{ name: "mode", type: { text: "'a' | 'b'" }, description: "The mode, over two lines." }],
+      attributes: [{ name: "mode", type: { text: "'a' | 'b  c'" }, description: "The mode, over two lines." }],
       members: [
         { kind: "field", name: "value", type: { text: '{ close: "}" }' } },
-        { kind: "method", name: "run", type: { text: "() => void" } },
+        { kind: "method", name: "run", return: { type: { text: "void" } } },
       ],
       events: [
         { name: "omg-x-done", type: { text: "CustomEvent<{ id: string }>" } },
@@ -343,7 +343,7 @@ describe("page components' contract", () => {
     expect(contractChanges(before, contract(before.modules[0]!.declarations[0]!.attributes, { name: "OmgAction" })).breaking).toEqual([
       "<omg-button>'s class OmgButton, which names its types, became OmgAction",
     ]);
-    const run = (kind: "field" | "method") => contract([], { members: [{ kind, name: "run", type: { text: "() => void" } }] });
+    const run = (kind: "field" | "method") => contract([], { members: [{ kind, name: "run", ...(kind === "method" ? { return: { type: { text: "void" } } } : { type: { text: "void" } }) }] });
     expect(contractChanges(run("method"), run("field")).breaking).toEqual(["<omg-button> member run became a property"]);
     expect(contractChanges(contract([{ name: "mode", type: { text: "'a'" } }]), contract([{ name: "mode", type: { text: '"a" | "b"' } }])).added).toEqual([
       '<omg-button> attribute mode takes "b"',

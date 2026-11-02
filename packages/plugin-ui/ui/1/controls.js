@@ -120,7 +120,7 @@ const changed = () => changes.dispatchEvent(new Event("change"));
  * @attr {boolean} quiet - Doesn't show a failure beside it.
  * @attr {string} error - The last run's failure, until the next run.
  * @prop {unknown} input - The command's input; it takes the place of the attribute.
- * @method {() => Promise<unknown>} run - Runs the command, as a click does; resolves to its result, or undefined when it didn't run or failed.
+ * @method {Promise<unknown>} run - Runs the command, as a click does; resolves to its result, or undefined when it didn't run or failed.
  * @fires {{ command: string; input: unknown }} omg-command-start - Before it runs; cancel it to not run.
  * @fires {{ command: string; result: unknown }} omg-command-result - The command's result.
  * @fires {{ command: string; error: string }} omg-command-error - The command failed; cancel it to show the failure yourself.

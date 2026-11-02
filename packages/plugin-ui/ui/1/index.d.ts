@@ -23,7 +23,7 @@ export interface OmgCommandButtonElement extends OmgButtonElement {
   /** The command's input; it takes the place of the attribute. */
   input: unknown;
   /** Runs the command, as a click does; resolves to its result, or undefined when it didn't run or failed. */
-  run: () => Promise<unknown>;
+  run(): Promise<unknown>;
 }
 
 /** The attributes of `<omg-command-button>`, as a page writes them. */

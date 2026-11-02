@@ -5,7 +5,7 @@
 //
 //   @attr {type} name - description         an attribute
 //   @prop {type} name - description         a property
-//   @method {signature} name - description  a method
+//   @method {returns} name - description    a method that takes no arguments
 //   @fires {detail} name - description      an event; without a detail, a plain Event
 //   @slot name - description                a slot; `@slot - …` is the default slot
 //   @part name - description                a `::part()`
@@ -38,6 +38,8 @@ interface CssProperty extends Named {
 }
 interface Member extends Typed {
   kind: "field" | "method";
+  /** A method's return type; a field's type is `type`. */
+  return?: { type: { text: string } };
   inheritedFrom?: { name: string; module: string };
 }
 interface Declaration {
@@ -81,10 +83,10 @@ interface Parsed {
   cssProperties: CssProperty[];
 }
 
-const DOC_CLASS = /\/\*\*((?:(?!\*\/)[\s\S])*)\*\/\s*class\s+(\w+)\s+extends\s+(\w+)/g;
-const DEFINE = /(?<!function |\.)\bdefine\(\s*(["'`])([a-z][a-z0-9-]*)\1\s*,\s*(\w+)\s*\)/g;
+const DOC_CLASS = /\/\*\*((?:(?!\*\/)[\s\S])*)\*\/\s*(?:export\s+)?class\s+(\w+)\s+extends\s+(\w+)/g;
+const DEFINE = /(?<!function |\.)\bdefine\s*\(\s*(["'`])([a-z][a-z0-9-]*)\1\s*,\s*(\w+)\s*\)/g;
 /** Every call of `define(`, matched or not, so none goes unnoticed. */
-const DEFINE_CALL = /(?<!function |\.)\bdefine\(/g;
+const DEFINE_CALL = /(?<!function |\.)\bdefine\s*\(/g;
 
 /** A tag's `{type}`, which may hold braces of its own, and quoted ones. */
 function takeType(text: string): [string | undefined, string] {
@@ -121,7 +123,8 @@ export function parseComment(comment: string, name: string, superclass: string, 
   const description = blocks[0]?.startsWith("@") ? "" : (blocks.shift() ?? "");
   const parsed: Parsed = { name, superclass, module, description: description.replace(/\s+/g, " ").trim(), attributes: [], members: [], events: [], slots: [], cssParts: [], cssProperties: [] };
   for (const raw of blocks) {
-    const tag = raw.replace(/\s+/g, " ").trim();
+    // Lines join with a space; spaces within a line, as in a type, stay.
+    const tag = raw.replace(/\s*\n\s*/g, " ").trim();
     const [, kind = "", rest = ""] = /^@(\w+)\s*([\s\S]*)$/.exec(tag) ?? [];
     if (kind === "deprecated") {
       parsed.deprecated = rest.trim() || "Deprecated.";
@@ -136,7 +139,8 @@ export function parseComment(comment: string, name: string, superclass: string, 
       parsed.cssProperties.push({ name: (bracketed ?? bare)!, ...(value?.trim() ? { default: value.trim() } : {}), ...(text?.trim() ? { description: text.trim() } : {}) });
       continue;
     }
-    const [tagName, text] = takeName(afterType);
+    const [tagName, described] = takeName(afterType);
+    const text = described?.replace(/\s+/g, " ");
     if (kind !== "slot" && !tagName) throw new Error(`${name}: @${kind} has no name`);
     const entry = { name: tagName, ...(text ? { description: text } : {}) };
     switch (kind) {
@@ -147,7 +151,8 @@ export function parseComment(comment: string, name: string, superclass: string, 
         parsed.members.push({ kind: "field", ...entry, ...(type ? { type: { text: type } } : {}) });
         break;
       case "method":
-        parsed.members.push({ kind: "method", ...entry, type: { text: type ?? "() => void" } });
+        if (!/^[A-Za-z_$][\w$]*$/.test(tagName)) throw new Error(`${name}: @method ${tagName} takes a name, and its {return type}`);
+        parsed.members.push({ kind: "method", ...entry, return: { type: { text: type ?? "void" } } });
         break;
       case "fires":
         parsed.events.push({ ...entry, type: { text: type ? `CustomEvent<${type}>` : "Event" } });
@@ -226,6 +231,9 @@ const doc = (text: string | undefined, indent: string, deprecated?: string) =>
   text || deprecated ? `${indent}/** ${[text, deprecated ? `@deprecated ${deprecated}` : ""].filter(Boolean).join(" ")} */\n` : "";
 const key = (name: string) => (/^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name));
 
+/** A field's type, or a method's return type. */
+const memberType = (member: Member) => (member.kind === "method" ? (member.return?.type.text ?? "void") : (member.type?.text ?? "unknown"));
+
 /** TypeScript declarations for one major's components. */
 export function componentTypes(manifest: ComponentManifest): string {
   const all = declarations(manifest);
@@ -236,9 +244,10 @@ export function componentTypes(manifest: ComponentManifest): string {
     const parent = base ? element(base.name) : "HTMLElement";
     out += doc(item.description, "", item.deprecated);
     // What the parent's interface already declares, the same way.
-    const members = item.members.filter((entry) => !base?.members.some((other) => other.name === entry.name && other.kind === entry.kind && other.type?.text === entry.type?.text));
+    const members = item.members.filter((entry) => !base?.members.some((other) => other.name === entry.name && other.kind === entry.kind && memberType(other) === memberType(entry)));
     out += `export interface ${element(item.name)} extends ${parent} {${members.length ? "\n" : ""}`;
-    for (const member of members) out += doc(member.description, "  ") + `  ${key(member.name)}: ${member.type?.text ?? "unknown"};\n`;
+    for (const member of members)
+      out += doc(member.description, "  ") + (member.kind === "method" ? `  ${key(member.name)}(): ${memberType(member)};\n` : `  ${key(member.name)}: ${memberType(member)};\n`);
     out += "}\n\n";
     out += `/** The attributes of \`<${item.tagName}>\`, as a page writes them. */\n`;
     out += `export interface ${item.name}Attributes {\n`;
@@ -280,6 +289,9 @@ function literals(type: string | undefined): Set<string> | undefined {
   return values.every((value) => /^(["'])[^"']*\1$/.test(value)) ? new Set(values.map((value) => value.slice(1, -1))) : undefined;
 }
 
+/** An entry's type, or a method's return type. */
+const typeOf = (item: Typed & Partial<Pick<Member, "kind" | "return">>) => (item.kind === "method" ? memberType(item as Member) : item.type?.text);
+
 /**
  * What changed between two versions of a contract. A removal, or a type
  * that changed, breaks pages; an attribute whose values only grew doesn't.
@@ -304,11 +316,11 @@ export function contractChanges(before: ComponentManifest, after: ComponentManif
         const next = items.get(item.name);
         if (!next) breaking.push(`${label} was removed`);
         else if ("kind" in item && "kind" in next && item.kind !== next.kind) breaking.push(`${label} became a ${next.kind === "method" ? "method" : "property"}`);
-        else if (item.type?.text !== next.type?.text) {
-          const was = literals(item.type?.text);
-          const is = literals(next.type?.text);
+        else if (typeOf(item) !== typeOf(next)) {
+          const was = literals(typeOf(item));
+          const is = literals(typeOf(next));
           if (kind === "attributes" && was && is && [...was].every((value) => is.has(value))) added.push(`${label} takes ${[...is].filter((value) => !was.has(value)).map((value) => JSON.stringify(value)).join(", ")}`);
-          else breaking.push(`${label} changed from ${item.type?.text ?? "untyped"} to ${next.type?.text ?? "untyped"}`);
+          else breaking.push(`${label} changed from ${typeOf(item) ?? "untyped"} to ${typeOf(next) ?? "untyped"}`);
         }
         items.delete(item.name);
       }

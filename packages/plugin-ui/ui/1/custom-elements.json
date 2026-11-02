@@ -13,8 +13,8 @@
           "customElement": true,
           "description": "`<omg-button variant=\"secondary|primary|ghost|danger\" disabled busy>`: the app's button. Primary is ink; there is one per view. A busy button shows a spinner and takes no clicks.",
           "superclass": {
-            "name": "HTMLElement",
-            "package": "global:"
+            "name": "OmgElement",
+            "module": "ui/1/base.js"
           },
           "attributes": [
             {
@@ -193,8 +193,10 @@
               "kind": "method",
               "name": "run",
               "description": "Runs the command, as a click does; resolves to its result, or undefined when it didn't run or failed.",
-              "type": {
-                "text": "() => Promise<unknown>"
+              "return": {
+                "type": {
+                  "text": "Promise<unknown>"
+                }
               }
             }
           ],
@@ -254,8 +256,8 @@
           "customElement": true,
           "description": "`<omg-select label value disabled>` with `<option>` children: the app's select. `label` is shown above it; without one, give it `aria-label`. It fires `change` and `input` as a native select does.",
           "superclass": {
-            "name": "HTMLElement",
-            "package": "global:"
+            "name": "OmgElement",
+            "module": "ui/1/base.js"
           },
           "attributes": [
             {
@@ -369,8 +371,8 @@
           "customElement": true,
           "description": "`<omg-status tone=\"neutral|good|warning|bad|busy\">`: a short state, such as \"Running\", after a coloured dot, or a spinner while busy. It is a live region, so a change is read out.",
           "superclass": {
-            "name": "HTMLElement",
-            "package": "global:"
+            "name": "OmgElement",
+            "module": "ui/1/base.js"
           },
           "attributes": [
             {
@@ -417,8 +419,8 @@
           "customElement": true,
           "description": "`<omg-banner tone=\"info|good|warning|bad\" heading>`: a message across the page, such as a failure and what to do about it. Slots: the message, and `actions`. A `bad` banner is an alert; the others are a status.",
           "superclass": {
-            "name": "HTMLElement",
-            "package": "global:"
+            "name": "OmgElement",
+            "module": "ui/1/base.js"
           },
           "attributes": [
             {
@@ -471,8 +473,8 @@
           "customElement": true,
           "description": "`<omg-log empty=\"No lines yet.\" follow>`: lines of output in the app's monospace type, scrolling past `--omg-log-height` (280px). Its text is its content, or set `text`. With `follow`, it keeps the latest line in view unless the person scrolled up.",
           "superclass": {
-            "name": "HTMLElement",
-            "package": "global:"
+            "name": "OmgElement",
+            "module": "ui/1/base.js"
           },
           "attributes": [
             {
@@ -532,8 +534,8 @@
           "customElement": true,
           "description": "`<omg-steps>`: the steps of a flow, numbered in order. Each is an `<omg-step heading state=\"pending|current|done|error\" open>`; a current or failed step shows its content, and `open` shows it in any state. Slots of a step: `summary`, always shown under its heading, and its content.",
           "superclass": {
-            "name": "HTMLElement",
-            "package": "global:"
+            "name": "OmgElement",
+            "module": "ui/1/base.js"
           },
           "attributes": [],
           "members": [],
@@ -554,8 +556,8 @@
           "customElement": true,
           "description": "`<omg-step heading state open>`: one step of an `omg-steps` flow.",
           "superclass": {
-            "name": "HTMLElement",
-            "package": "global:"
+            "name": "OmgElement",
+            "module": "ui/1/base.js"
           },
           "attributes": [
             {
@@ -679,8 +681,8 @@
           "customElement": true,
           "description": "`<omg-page heading description>`: the page's column, centred and at most 720px wide. Slots: `brand` (a logo before the heading), `actions`, and the page's sections.",
           "superclass": {
-            "name": "HTMLElement",
-            "package": "global:"
+            "name": "OmgElement",
+            "module": "ui/1/base.js"
           },
           "attributes": [
             {
@@ -741,8 +743,8 @@
           "customElement": true,
           "description": "`<omg-section heading description>`: a titled group of content. Slots: `actions` beside the heading, and the section's content.",
           "superclass": {
-            "name": "HTMLElement",
-            "package": "global:"
+            "name": "OmgElement",
+            "module": "ui/1/base.js"
           },
           "attributes": [
             {
@@ -803,8 +805,8 @@
           "customElement": true,
           "description": "`<omg-stack direction=\"row|column\" gap=\"1|2|3|4|6\" align justify wrap>`: lays its children out in a row or a column, spaced by the app's steps.",
           "superclass": {
-            "name": "HTMLElement",
-            "package": "global:"
+            "name": "OmgElement",
+            "module": "ui/1/base.js"
           },
           "attributes": [
             {
@@ -861,8 +863,8 @@
           "customElement": true,
           "description": "`<omg-empty heading description>`: what a page shows when it has nothing yet. Slots: `icon`, and actions as its content.",
           "superclass": {
-            "name": "HTMLElement",
-            "package": "global:"
+            "name": "OmgElement",
+            "module": "ui/1/base.js"
           },
           "attributes": [
             {
