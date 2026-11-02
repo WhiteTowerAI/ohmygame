@@ -70,3 +70,7 @@ const chosen = document.getElementById("chosen");
 const showChoice = () => (chosen.textContent = `Value: “${select.value}”`);
 select.addEventListener("change", showChoice);
 customElements.whenDefined("omg-select").then(showChoice);
+
+const demoTabs = document.getElementById("demo-tabs");
+const demoTab = document.getElementById("demo-tab");
+demoTabs.addEventListener("omg-tab-change", (event) => (demoTab.textContent = `Open tab: “${event.detail.value}”`));

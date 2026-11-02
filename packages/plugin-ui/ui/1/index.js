@@ -5,5 +5,6 @@
 // A plugin's manifest opts in with `"ui": { "preview": true }` while the
 // version is in preview; without it, the page's policy doesn't load them.
 import "./layout.js";
+import "./navigation.js";
 import "./feedback.js";
 import "./controls.js";
