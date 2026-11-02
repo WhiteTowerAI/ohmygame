@@ -141,6 +141,38 @@ describe("saving", () => {
     expect(await tuning.state(target)).toMatchObject({ draft: { "player.jump": 700 }, values: [{ value: 600 }, {}] });
   });
 
+  it("keeps a value reset while the save ran, against what was saved before", async () => {
+    const { tuning, target } = await project();
+    await tuning.setDraft(target, { "player.jump": 600 });
+    await tuning.save(target, async (operation) => {
+      await operation();
+      await tuning.setDraft(target, { "player.jump": null });
+    });
+    expect(await tuning.state(target)).toMatchObject({ draft: { "player.jump": 420 }, values: [{ value: 600 }, {}] });
+  });
+
+  it("fits a draft to the file as it is when saving", async () => {
+    const { tuning, target, workspacePath } = await project();
+    await tuning.setDraft(target, { "player.jump": 700, "world.double": true });
+    await writeFile(path.join(workspacePath, "tuning.json"), JSON.stringify({ schemaVersion: 1, values: [
+      { id: "player.jump", label: "Jump", value: 200, min: 100, max: 500 },
+      { id: "world.double", label: "Double jump", value: 2, min: 1, max: 3 },
+    ] }));
+    await tuning.save(target, saveDirectly);
+    const { values } = JSON.parse(await readFile(path.join(workspacePath, "tuning.json"), "utf8"));
+    expect(values.map((item: { value: unknown }) => item.value)).toEqual([500, 2]);
+    expect((await tuning.state(target)).error).toBeUndefined();
+  });
+
+  it("refuses a save that would make the file too large to read back", async () => {
+    const { tuning, target, workspacePath } = await project({ ...FILE, extra: Array.from({ length: 40_000 }, () => 1) });
+    await tuning.setDraft(target, { "player.jump": 600 });
+    const before = await readFile(path.join(workspacePath, "tuning.json"), "utf8");
+    await expect(tuning.save(target, saveDirectly)).rejects.toBeInstanceOf(GameTuningError);
+    expect(await readFile(path.join(workspacePath, "tuning.json"), "utf8")).toBe(before);
+    expect((await tuning.state(target)).draft).toEqual({ "player.jump": 600 });
+  });
+
   it("keeps the draft when the save is refused", async () => {
     const { tuning, target, workspacePath } = await project();
     await tuning.setDraft(target, { "player.jump": 600 });
@@ -164,7 +196,8 @@ describe("the routes", () => {
 
     expect((await inject("PUT", "/tuning/draft", { values: { "player.jump": 600 } })).json().draft).toEqual({ "player.jump": 600 });
     const [save, read, draft] = await Promise.all([
-      inject("POST", "/tuning/save"),
+      // However the path is spelled, the save mustn't wait for itself.
+      inject("POST", "/%74uning/save"),
       inject("GET", "/tuning"),
       inject("PUT", "/tuning/draft", { values: { "player.jump": 610 } }),
     ]);

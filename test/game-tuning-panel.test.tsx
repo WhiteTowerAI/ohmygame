@@ -99,6 +99,43 @@ describe("the tuning panel", () => {
     expect(host.textContent).toContain("1 changed");
   });
 
+  it("sends the last moves before saving", async () => {
+    let answer!: (state: GameTuningState) => void;
+    api.setGameTuningDraft.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    api.saveGameTuning.mockResolvedValue({ state: STATE });
+    const { host } = await show();
+    await drag(host, 500);
+    await drag(host, 520);
+    await act(async () => button(host, "Save").click());
+    expect(api.saveGameTuning).not.toHaveBeenCalled();
+    await act(async () => answer({ ...STATE, draft: { jump: 500 } }));
+    expect(api.setGameTuningDraft.mock.lastCall).toEqual(["p", { jump: 520 }]);
+    expect(api.saveGameTuning).not.toHaveBeenCalled();
+    await act(async () => answer({ ...STATE, draft: { jump: 520 } }));
+    expect(api.saveGameTuning).toHaveBeenCalledOnce();
+  });
+
+  it("doesn't save when the last moves failed", async () => {
+    let refuse!: (cause: Error) => void;
+    api.setGameTuningDraft.mockImplementation(() => new Promise((_resolve, reject) => { refuse = reject; }));
+    const { host } = await show();
+    await drag(host, 500);
+    await act(async () => button(host, "Save").click());
+    await act(async () => refuse(new Error("The daemon is gone")));
+    expect(api.saveGameTuning).not.toHaveBeenCalled();
+  });
+
+  it("ignores a read that started before newer news", async () => {
+    const { host, render } = await show();
+    let answer!: (state: GameTuningState) => void;
+    api.getGameTuning.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    await render({ revision: 1 });
+    await render({ announced: { ...STATE, draft: { jump: 500 } } });
+    expect(host.querySelector("output")?.textContent).toBe("500");
+    await act(async () => answer(STATE));
+    expect(host.querySelector("output")?.textContent).toBe("500");
+  });
+
   it("goes back to one saved value or all of them", async () => {
     api.getGameTuning.mockResolvedValue({ ...STATE, draft: { jump: 500, fly: true } });
     api.setGameTuningDraft.mockImplementation(async () => ({ ...STATE, draft: { fly: true } }));

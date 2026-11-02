@@ -40,9 +40,14 @@ describe("preview content isolation", () => {
     proxy.setTuning({ "player.jump": 500 });
     expect((await editor.next()).tuning).toEqual({ "player.jump": 500 });
 
-    // An AI test listening doesn't mean the person's game does.
+    // An AI test listening doesn't mean the person's game does, whatever it says it is.
+    await test.report({ type: "source", source: "player" });
     await test.report({ type: "tuning" });
     expect(connected).not.toHaveBeenCalled();
+    proxy.setTuning({ "player.jump": 510 });
+    expect((await editor.next()).tuning).toEqual({ "player.jump": 510 });
+    const silent = await Promise.race([test.next(), new Promise((resolve) => setTimeout(resolve, 100, "silent"))]);
+    expect(silent).toBe("silent");
     await editor.report({ type: "tuning" });
     await editor.report({ type: "tuning" });
     expect(connected.mock.calls).toEqual([[true]]);

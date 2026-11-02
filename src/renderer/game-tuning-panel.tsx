@@ -37,35 +37,44 @@ export function GameTuningPanel({ projectId, previewReady, announced, revision, 
   const [saved, setSaved] = useState<{ file: string; changeId?: string }>();
   const [undone, setUndone] = useState(false);
   const unsent = useRef(new Map<string, GameTuningScalar | null>());
-  const sending = useRef(false);
+  const sending = useRef<Promise<boolean> | undefined>(undefined);
+  // Counts newer news, so a read that started before it can't overwrite it.
+  const news = useRef(0);
+  const receive = (next: GameTuningState) => {
+    news.current += 1;
+    setState(next);
+  };
 
   useEffect(() => {
     let current = true;
-    void getGameTuning(projectId).then((next) => { if (current) setState(next); }, (cause) => { if (current) setError(message(cause)); });
+    const started = news.current;
+    void getGameTuning(projectId).then((next) => { if (current && news.current === started) setState(next); }, (cause) => { if (current) setError(message(cause)); });
     return () => { current = false; };
   }, [projectId, revision]);
-  useEffect(() => { if (announced) setState(announced); }, [announced]);
+  useEffect(() => { if (announced) receive(announced); }, [announced]);
 
   // Only the latest value of a dragged slider matters, one request at a time.
-  async function flush() {
-    if (sending.current) return;
-    sending.current = true;
-    try {
-      while (unsent.current.size) {
-        const values = Object.fromEntries(unsent.current);
+  function flush(): Promise<boolean> {
+    sending.current ??= (async () => {
+      try {
+        while (unsent.current.size) {
+          const values = Object.fromEntries(unsent.current);
+          unsent.current.clear();
+          receive(await setGameTuningDraft(projectId, values));
+        }
+        setMoved({});
+        setError(undefined);
+        return true;
+      } catch (cause) {
         unsent.current.clear();
-        const next = await setGameTuningDraft(projectId, values);
-        setState(next);
+        setMoved({});
+        setError(message(cause));
+        return false;
+      } finally {
+        sending.current = undefined;
       }
-      setMoved({});
-      setError(undefined);
-    } catch (cause) {
-      unsent.current.clear();
-      setMoved({});
-      setError(message(cause));
-    } finally {
-      sending.current = false;
-    }
+    })();
+    return sending.current;
   }
 
   function change(id: string, value: GameTuningScalar | null) {
@@ -92,14 +101,16 @@ export function GameTuningPanel({ projectId, previewReady, announced, revision, 
   }
 
   const save = () => run(async () => {
+    // What the panel shows is what gets saved, so the last moves go first.
+    if (!(await flush())) return;
     const { state: next, changeId } = await saveGameTuning(projectId);
-    setState(next);
+    receive(next);
     setUndone(false);
     setSaved({ file: next.file ?? "", ...(changeId ? { changeId } : {}) });
   });
   const undo = (changeId: string) => run(async () => {
     await undoProjectPluginChange(projectId, changeId);
-    setState(await getGameTuning(projectId));
+    receive(await getGameTuning(projectId));
     setSaved(undefined);
     setUndone(true);
   });

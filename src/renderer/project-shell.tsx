@@ -253,6 +253,7 @@ export function ProjectShell({
   const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [gameTuning, setGameTuning] = useState<GameTuningState>();
+  const savedTuning = useRef<string | undefined>(undefined);
   const [workspaceEpoch, setWorkspaceEpoch] = useState(() => workspaceVersion(projectId));
   const [restoring, setRestoring] = useState(false);
   /** Set while a restore or an undo that was cut off has not been taken back, unless the user put the offer aside. */
@@ -360,6 +361,7 @@ export function ProjectShell({
     unsubscribeEvents.current?.();
     let disposed = false;
     setGameTuning(undefined);
+    savedTuning.current = undefined;
     const unsubscribe = subscribeToProject(projectId, cursor, {
       onEvent: (event) => {
         dispatch({ type: "runtime-event", event });
@@ -378,7 +380,13 @@ export function ProjectShell({
           void getUnfinishedRestore(projectId).then((pending) => { if (!disposed) setUnfinishedRestore(pending); }).catch(() => {});
         }
         if (event.type === "agent.completed") setWorkspaceRevision((value) => value + 1);
-        if (event.type === "preview.tuning") setGameTuning(event.data);
+        if (event.type === "preview.tuning") {
+          setGameTuning(event.data);
+          // Saved values are in a file, which the Code and Git views show.
+          const saved = JSON.stringify([event.data.file, event.data.values]);
+          if (savedTuning.current !== undefined && savedTuning.current !== saved) setWorkspaceRevision((value) => value + 1);
+          savedTuning.current = saved;
+        }
         if (event.type === "preview.picked") {
           // Only the pick this window asked for; another window's goes to it.
           const asked = pickingRef.current === event.data.client;

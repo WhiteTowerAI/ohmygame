@@ -85,6 +85,8 @@ interface Entry {
   connected: boolean;
   queue: Promise<unknown>;
   published?: string;
+  /** While a save runs, what each moved value should end up as. */
+  moved?: Map<string, GameTuningScalar>;
 }
 
 export class GameTuning {
@@ -121,6 +123,7 @@ export class GameTuning {
       const value = change === null || !item ? undefined : clamped(item, change);
       if (value === undefined || value === item?.value) entry.draft.delete(id);
       else entry.draft.set(id, value);
+      if (item) entry.moved?.set(id, value ?? item.value);
     }
     this.#announce(project, entry);
     return this.#snapshot(entry);
@@ -133,22 +136,37 @@ export class GameTuning {
   save<R>(project: Project, write: (operation: () => Promise<void>) => Promise<R>): Promise<R> {
     return this.#queued(project, async (entry) => {
       const saved = new Map(entry.draft);
+      const moved = (entry.moved = new Map<string, GameTuningScalar>());
       let read: Read | undefined;
-      const result = await write(async () => {
-        read = await readGameTuning(project);
-        if (read.error || !read.file || !read.document) throw new GameTuningError(read.error ?? "There is no tuning file.");
-        for (const raw of read.document.values) {
-          const value = saved.get(raw.id as string);
-          if (value !== undefined) raw.value = value;
-        }
-        await writeBeside(path.join(project.workspacePath, read.file), `${JSON.stringify(read.document, null, 2)}\n`);
-      });
-      if (read) {
-        const values = read.values.map((item) => {
-          const value = saved.get(item.id);
-          return value === undefined ? item : ({ ...item, value } as GameTuningItem);
+      let result: R;
+      try {
+        result = await write(async () => {
+          read = await readGameTuning(project);
+          if (read.error || !read.file || !read.document) throw new GameTuningError(read.error ?? "There is no tuning file.");
+          // The file may have changed since the value was moved, as its range can.
+          read.values = read.values.map((item, index) => {
+            const draft = saved.get(item.id);
+            const value = draft === undefined ? undefined : clamped(item, draft);
+            if (value === undefined) return item;
+            read!.document!.values[index].value = value;
+            return { ...item, value } as GameTuningItem;
+          });
+          const content = `${JSON.stringify(read.document, null, 2)}\n`;
+          if (Buffer.byteLength(content) > MAX_FILE_BYTES) throw new GameTuningError(`Saved, it would be larger than ${MAX_FILE_BYTES / 1024} KiB.`);
+          await writeBeside(path.join(project.workspacePath, read.file), content);
         });
-        this.#apply(entry, { ...read, values });
+      } finally {
+        entry.moved = undefined;
+      }
+      if (read) {
+        for (const id of saved.keys()) entry.draft.delete(id);
+        this.#apply(entry, read);
+        for (const [id, value] of moved) {
+          const item = entry.values.find((candidate) => candidate.id === id);
+          const kept = item && clamped(item, value);
+          if (kept === undefined || kept === item?.value) entry.draft.delete(id);
+          else entry.draft.set(id, kept);
+        }
       }
       this.#announce(project, entry);
       return result;

@@ -73,7 +73,13 @@ export async function createPreviewProxy(
   let origin = "";
   const documents = new Map<
     number,
-    { client: string; source: PreviewPageSource; path: string }
+    {
+      client: string;
+      source: PreviewPageSource;
+      path: string;
+      /** Fixed when the page opens: a page can report a new `source` itself. */
+      playtest: boolean;
+    }
   >();
   const clients = new Map<string, number>();
   const resources = new Map<string, number>();
@@ -194,7 +200,7 @@ export async function createPreviewProxy(
             connection: "keep-alive",
           });
           outgoing.write(
-            `data: ${JSON.stringify({ reload: reloadRevision, pick: picking.has(context.client), ...(context.source === "playtest" ? {} : { tuning }) })}\n\n`,
+            `data: ${JSON.stringify({ reload: reloadRevision, pick: picking.has(context.client), ...(context.playtest ? {} : { tuning }) })}\n\n`,
           );
           reloadStreams.set(document, outgoing);
           outgoing.once("close", () => {
@@ -238,7 +244,7 @@ export async function createPreviewProxy(
                 // Only a pick the editor asked for: a page can't put text in the next message by itself.
                 if (message.type === "pick" && picking.delete(context.client))
                   options.onPick?.(context.client, message.pick ?? undefined);
-                if (message.type === "tuning" && context.source !== "playtest" && reloadStreams.has(document) && !tuningDocuments.has(document)) {
+                if (message.type === "tuning" && !context.playtest && reloadStreams.has(document) && !tuningDocuments.has(document)) {
                   tuningDocuments.add(document);
                   if (tuningDocuments.size === 1) options.onTuningConnected?.(true);
                 }
@@ -390,6 +396,7 @@ export async function createPreviewProxy(
             client,
             source,
             path: previewPagePath(incoming.url ?? "/"),
+            playtest: querySource === "playtest" || previous?.playtest === true,
           });
           clients.set(client, document);
           options.onActivity?.(String(document), true);
@@ -532,7 +539,7 @@ export async function createPreviewProxy(
       if (JSON.stringify(values) === JSON.stringify(tuning)) return;
       tuning = values;
       for (const [document, stream] of reloadStreams)
-        if (documents.get(document)?.source !== "playtest")
+        if (!documents.get(document)?.playtest)
           stream.write(`data: ${JSON.stringify({ reload: reloadRevision, tuning })}\n\n`);
     },
     reload: () => {
