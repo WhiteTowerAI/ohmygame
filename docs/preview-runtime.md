@@ -111,10 +111,16 @@ browser documents have separate leases, renewed by the browser bridge. Closing
 a page or leaving a project releases its lease. Abandoned leases expire after
 75 seconds, so a disappeared window cannot retain a server indefinitely.
 
-**Stop unused preview after** defaults to five minutes with no users. It can be
+**Stop unused preview after** defaults to one minute with no users. It can be
 set to 1–60 minutes or **Keep running**. A live Play or test window keeps its
 server running even after leaving the editor. Idle collection runs every ten
 seconds; manually starting an unused server is subject to the same timeout.
+At most one unused preview keeps running: leaving a project stops the preview of
+the project left before it, so switching back to the last project stays instant
+without servers piling up. Previews set to **Keep running** don't count toward
+that limit, and neither does a preview an agent's playtest is opening: it holds
+a short lease until the playtest page connects and keeps its own. Restarting a Web Game preview takes about a second, and the game page
+reloads when you return either way.
 Deleting a project immediately closes its watcher, proxy, refresh streams and
 child processes.
 

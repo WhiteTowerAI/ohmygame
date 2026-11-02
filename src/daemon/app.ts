@@ -884,6 +884,9 @@ export function createApp(options: AppOptions = {}) {
     // A story plays its own page, which one made before web stories has once the editor upgrades it.
     if (project.type === "interactive-story" && !await isWebStory(project.workspacePath))
       throw new Error(NEEDS_UPGRADE);
+    // Until the playtest page connects and holds its own lease, this short one
+    // keeps the preview from counting as unused and being stopped.
+    previews.touch(project, "playtest:opening");
     return { runtime: "web", url: previewPageUrl(await previews.ensureStarted(project, false), "playtest") };
   };
   /** OhMyGame's tools for agents outside the app; playtest windows belong to their MCP session. */

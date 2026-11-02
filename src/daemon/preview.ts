@@ -36,6 +36,10 @@ import {
 } from "./preview-launch.js";
 import { startStaticPreview } from "./preview-static.js";
 import { storyWebEditorBridge } from "./story-web-bundle.js";
+import { DEFAULT_PREVIEW_IDLE_MINUTES } from "../shared/preview-settings.js";
+
+/** Unused previews kept running at once: the project left last, so going back to it is instant. */
+const MAX_UNUSED_PREVIEWS = 1;
 
 interface PreviewOptions {
   readinessTimeoutMs?: number;
@@ -163,6 +167,8 @@ export class PreviewManager {
     if (!session.leases.size) {
       session.idleSince ??= Date.now();
       this.#unwatch(session);
+      // Leaving one project for another stops the preview left before it now.
+      void this.collectIdle().catch(() => {});
     }
   }
 
@@ -192,6 +198,10 @@ export class PreviewManager {
   }
 
   async collectIdle(now = Date.now()): Promise<void> {
+    const running = (session: PreviewSession) =>
+      !session.leases.size &&
+      ["ready", "starting"].includes(session.project.preview.status);
+    const waiting: PreviewSession[] = [];
     for (const session of this.#sessions.values()) {
       for (const [id, expires] of session.leases)
         if (expires <= now) session.leases.delete(id);
@@ -200,14 +210,18 @@ export class PreviewManager {
       session.idleSince ??= now;
       const timeout =
         this.options.idleTimeoutMs ??
-        (session.project.previewIdleMinutes ?? 5) * 60_000;
-      if (
-        timeout > 0 &&
-        now - session.idleSince >= timeout &&
-        ["ready", "starting"].includes(session.project.preview.status)
-      )
+        (session.project.previewIdleMinutes ?? DEFAULT_PREVIEW_IDLE_MINUTES) *
+          60_000;
+      // "Keep running" (zero) is a choice, so those previews don't count.
+      if (timeout <= 0 || !running(session)) continue;
+      if (now - session.idleSince >= timeout)
         await this.stop(session.project, "idle");
+      else waiting.push(session);
     }
+    // Past the limit, the previews left longest ago stop without waiting.
+    waiting.sort((a, b) => (b.idleSince ?? 0) - (a.idleSince ?? 0));
+    for (const session of waiting.slice(MAX_UNUSED_PREVIEWS))
+      if (running(session)) await this.stop(session.project, "idle");
   }
 
   async automatic(project: ProjectState, changedOnly = false): Promise<void> {

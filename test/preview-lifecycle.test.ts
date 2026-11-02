@@ -291,6 +291,39 @@ describe("preview policy and lifecycle", () => {
     });
   });
 
+  it("keeps only the preview left last running when several are unused", async () => {
+    const [first, second, kept] = await Promise.all([fixture(), fixture(), fixture()]);
+    first.project.id = "first";
+    second.project.id = "second";
+    kept.project.id = "kept";
+    kept.project.previewIdleMinutes = 0;
+    // Without a test timeout, so only the limit stops anything.
+    const preview = manager({ leaseTimeoutMs: 100_000 });
+    for (const { project } of [first, second, kept]) {
+      await preview.ensureStarted(project);
+      preview.acquire(project, `editor:${project.id}`);
+    }
+    preview.release(kept.project, "editor:kept");
+    preview.release(first.project, "editor:first");
+    await preview.collectIdle();
+    expect(first.project.preview.status).toBe("ready");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    preview.release(second.project, "editor:second");
+    await preview.collectIdle(Date.now() + 1);
+    expect(first.project.preview).toMatchObject({ status: "stopped", stopReason: "idle" });
+    expect(second.project.preview.status).toBe("ready");
+    // "Keep running" doesn't count toward the limit.
+    expect(kept.project.preview.status).toBe("ready");
+    // Nor does a preview an agent's playtest is opening, before its page connects.
+    preview.touch(first.project, "playtest:opening");
+    await preview.ensureStarted(first.project);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    preview.acquire(second.project, "editor:second");
+    preview.release(second.project, "editor:second");
+    await preview.collectIdle(Date.now() + 1);
+    expect(first.project.preview.status).toBe("ready");
+  });
+
   it("expires abandoned leases and allows idle previews to start again on project open", async () => {
     const { project } = await fixture();
     const preview = manager({ idleTimeoutMs: 10, leaseTimeoutMs: 10 });
