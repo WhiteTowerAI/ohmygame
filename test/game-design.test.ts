@@ -499,6 +499,15 @@ describe("Markdown design workspace", () => {
     const unordered = await tool.execute("unordered", { boardId, nodeIds: ["note", "cracked", "seed", "clip"], regenerate: true }, undefined, undefined, {} as never);
     expect(unordered.content[0]).toMatchObject({ text: expect.stringContaining("Generated media for node seed.") });
     expect(unordered.content[0]).not.toMatchObject({ text: expect.stringContaining("Not generated, because") });
+    // Audio generation reads no other node's output, whatever references its node keeps.
+    const voices = await store.board(project.id, boardId);
+    for (const [id, other] of [["voice-a", "voice-b"], ["voice-b", "voice-a"]] as const) {
+      voices.board.nodes.push({ id, type: "speech", position: { x: 0, y: 0 }, data: { text: "Hello", audioReferences: [{ id: "Audio1", type: "audio", source: { type: "node", nodeId: other } }] } });
+      voices.board.editorLayout.nodes[id] = { x: 0, y: 0 };
+    }
+    await store.saveBoard(project.id, voices.board, voices.revision);
+    const spoken = await tool.execute("voices", { boardId, nodeIds: ["voice-a", "voice-b"] }, undefined, undefined, {} as never).catch((error: Error) => error);
+    expect(spoken instanceof Error ? spoken.message : "").not.toContain("use each other's output");
     // Nodes that use each other's output cannot be ordered.
     const looped = await store.board(project.id, boardId), seed = looped.board.nodes.find((candidate) => candidate.id === "seed")!;
     if (seed.type !== "image") throw new Error("Expected image node");

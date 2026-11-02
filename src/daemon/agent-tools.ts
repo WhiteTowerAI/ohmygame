@@ -694,16 +694,11 @@ export function createAgentTools(
 /** The reason to abort a generation call with when it is cancelled, rather than its agent stopped. */
 export const CANCEL_GENERATION = Symbol("cancel generation");
 
-/**
- * The nodes whose output a node's generation uses. A prompt source is text, and a video keeps
- * the names of references it no longer uses.
- */
-function nodeReferences(value: unknown): string[] {
-  if (Array.isArray(value)) return value.flatMap(nodeReferences);
-  if (!value || typeof value !== "object") return [];
-  const record = value as Record<string, unknown>;
-  if (record.type === "node" && typeof record.nodeId === "string") return [record.nodeId];
-  return Object.entries(record).flatMap(([key, item]) => key === "promptSource" || key === "referenceMentions" ? [] : nodeReferences(item));
+/** The nodes whose output a node's generation uses: its reference images, a video's references and a 3D source. */
+function nodeReferences(data: unknown): string[] {
+  const { images, references, source } = (data ?? {}) as Record<string, unknown>;
+  return [...Array.isArray(images) ? images : [], ...Array.isArray(references) ? references : [], source]
+    .flatMap((reference) => reference && typeof reference === "object" && (reference as { type?: unknown }).type === "node" && typeof (reference as { nodeId?: unknown }).nodeId === "string" ? [(reference as { nodeId: string }).nodeId] : []);
 }
 
 /** Matches an agent-supplied action name to the library, case-insensitively, and suggests close names when it misses. */
