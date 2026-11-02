@@ -197,31 +197,70 @@ export class PreviewManager {
     } else this.release(project, id);
   }
 
+  /**
+   * Holds a short lease for as long as `work` takes and one term after, so a
+   * page it opens has time to connect. Cancelling releases the lease at once.
+   */
+  async holdWhile<T>(
+    project: ProjectState,
+    id: string,
+    work: () => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    signal?.throwIfAborted();
+    this.touch(project, id);
+    const renew = setInterval(
+      () => this.touch(project, id),
+      (this.options.leaseTimeoutMs ?? 75_000) / 3,
+    );
+    renew.unref();
+    const cancel = () => {
+      clearInterval(renew);
+      this.release(project, id);
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      const result = await work();
+      if (!signal?.aborted) this.touch(project, id);
+      return result;
+    } finally {
+      clearInterval(renew);
+      signal?.removeEventListener("abort", cancel);
+    }
+  }
+
   async collectIdle(now = Date.now()): Promise<void> {
     const running = (session: PreviewSession) =>
       !session.leases.size &&
       ["ready", "starting"].includes(session.project.preview.status);
-    const waiting: PreviewSession[] = [];
+    const timeoutOf = (session: PreviewSession) =>
+      this.options.idleTimeoutMs ??
+      (session.project.previewIdleMinutes ?? DEFAULT_PREVIEW_IDLE_MINUTES) *
+        60_000;
     for (const session of this.#sessions.values()) {
       for (const [id, expires] of session.leases)
         if (expires <= now) session.leases.delete(id);
       if (session.leases.size) continue;
       this.#unwatch(session);
       session.idleSince ??= now;
-      const timeout =
-        this.options.idleTimeoutMs ??
-        (session.project.previewIdleMinutes ?? DEFAULT_PREVIEW_IDLE_MINUTES) *
-          60_000;
-      // "Keep running" (zero) is a choice, so those previews don't count.
-      if (timeout <= 0 || !running(session)) continue;
-      if (now - session.idleSince >= timeout)
+      const timeout = timeoutOf(session);
+      if (timeout > 0 && running(session) && now - session.idleSince >= timeout)
         await this.stop(session.project, "idle");
-      else waiting.push(session);
     }
-    // Past the limit, the previews left longest ago stop without waiting.
-    waiting.sort((a, b) => (b.idleSince ?? 0) - (a.idleSince ?? 0));
-    for (const session of waiting.slice(MAX_UNUSED_PREVIEWS))
-      if (running(session)) await this.stop(session.project, "idle");
+    // Past the limit, the previews left longest ago stop without waiting. The
+    // oldest is picked again after each stop, which gives a preview time to be
+    // opened and left again. "Keep running" (zero) is a choice, so those don't count.
+    const stopped = new Set<PreviewSession>();
+    for (;;) {
+      const waiting = [...this.#sessions.values()]
+        .filter((session) => timeoutOf(session) > 0 && running(session))
+        .sort((a, b) => (b.idleSince ?? 0) - (a.idleSince ?? 0));
+      const oldest = waiting.at(-1);
+      if (waiting.length <= MAX_UNUSED_PREVIEWS || !oldest || stopped.has(oldest))
+        return;
+      stopped.add(oldest);
+      await this.stop(oldest.project, "idle");
+    }
   }
 
   async automatic(project: ProjectState, changedOnly = false): Promise<void> {

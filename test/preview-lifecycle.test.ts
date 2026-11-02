@@ -324,6 +324,79 @@ describe("preview policy and lifecycle", () => {
     expect(first.project.preview.status).toBe("ready");
   });
 
+  it("picks the oldest unused preview again after each stop", async () => {
+    const [a, b, c] = await Promise.all([fixture(), fixture(), fixture()]);
+    a.project.id = "a";
+    b.project.id = "b";
+    c.project.id = "c";
+    const preview = manager({ leaseTimeoutMs: 100_000 });
+    const pause = () => new Promise((resolve) => setTimeout(resolve, 5));
+    for (const { project } of [a, b, c]) {
+      await preview.ensureStarted(project);
+      preview.acquire(project, `editor:${project.id}`);
+    }
+    // Stops of A and B wait, so collectors overlap as with a slow shutdown.
+    const gates = new Map(["a", "b"].map((id) => {
+      let open!: () => void;
+      const opened = new Promise<void>((resolve) => { open = resolve; });
+      return [id, { opened, open }];
+    }));
+    const stop = preview.stop.bind(preview);
+    vi.spyOn(preview, "stop").mockImplementation(async (project, reason) => {
+      await gates.get(project.id)?.opened;
+      await stop(project, reason);
+    });
+    preview.release(a.project, "editor:a");
+    await pause();
+    preview.release(b.project, "editor:b");
+    await pause();
+    preview.release(c.project, "editor:c");
+    await pause();
+    gates.get("a")!.open();
+    gates.delete("a");
+    await vi.waitFor(() => expect(a.project.preview.status).toBe("stopped"));
+    // A is opened and left again, so it is now the one left last.
+    await preview.ensureStarted(a.project);
+    preview.acquire(a.project, "editor:a");
+    await pause();
+    preview.release(a.project, "editor:a");
+    await pause();
+    gates.get("b")!.open();
+    gates.delete("b");
+    await vi.waitFor(() => {
+      expect(b.project.preview.status).toBe("stopped");
+      expect(c.project.preview.status).toBe("stopped");
+    });
+    // Time for an overlapping collector to act on what it saw earlier.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(a.project.preview.status).toBe("ready");
+  });
+
+  it("holds an opening lease through a long start, until it is cancelled", async () => {
+    const [first, second] = await Promise.all([fixture(), fixture()]);
+    first.project.id = "first";
+    second.project.id = "second";
+    const preview = manager({ leaseTimeoutMs: 60 });
+    await preview.ensureStarted(first.project);
+    await preview.ensureStarted(second.project);
+    let finish!: () => void;
+    const controller = new AbortController();
+    const holding = preview.holdWhile(first.project, "playtest:opening", () => new Promise<void>((resolve) => { finish = resolve; }), controller.signal);
+    preview.acquire(second.project, "editor:second");
+    preview.release(second.project, "editor:second");
+    // Past the lease term, so only renewal keeps the first one out of the count.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await preview.collectIdle();
+    expect(first.project.preview.status).toBe("ready");
+    expect(second.project.preview.status).toBe("ready");
+    // Cancelled, it counts as unused at once and was left last.
+    controller.abort();
+    await vi.waitFor(() => expect(second.project.preview.status).toBe("stopped"));
+    expect(first.project.preview.status).toBe("ready");
+    finish();
+    await holding;
+  });
+
   it("ranks a preview started again by when it started, not by when it was last left", async () => {
     const [first, second] = await Promise.all([fixture(), fixture()]);
     first.project.id = "first";

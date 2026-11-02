@@ -876,27 +876,19 @@ export function createApp(options: AppOptions = {}) {
         invalidatePluginSessions();
         return installed;
       },
-      playtest ? { driver: playtest, resolveOpenTarget: () => playtestTarget(project) } : undefined,
+      playtest ? { driver: playtest, resolveOpenTarget: (signal) => playtestTarget(project, signal) } : undefined,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
     )];
   };
-  const playtestTarget = async (project: ProjectState): Promise<GameUseOpenTarget> => {
+  const playtestTarget = async (project: ProjectState, signal?: AbortSignal): Promise<GameUseOpenTarget> => {
     // A story plays its own page, which one made before web stories has once the editor upgrades it.
     if (project.type === "interactive-story" && !await isWebStory(project.workspacePath))
       throw new Error(NEEDS_UPGRADE);
     // Until the playtest page connects and holds its own lease, this one keeps
-    // the preview from counting as unused, renewed for as long as startup takes.
-    const opening = () => previews.touch(project, "playtest:opening");
-    opening();
-    const renew = setInterval(opening, 20_000);
-    try {
-      return { runtime: "web", url: previewPageUrl(await previews.ensureStarted(project, false), "playtest") };
-    } finally {
-      clearInterval(renew);
-      // A full lease term again for the page to connect.
-      opening();
-    }
+    // the preview from counting as unused.
+    const url = await previews.holdWhile(project, "playtest:opening", () => previews.ensureStarted(project, false), signal);
+    return { runtime: "web", url: previewPageUrl(url, "playtest") };
   };
   /** OhMyGame's tools for agents outside the app; playtest windows belong to their MCP session. */
   const externalMcp = new ExternalMcpService({
@@ -911,7 +903,7 @@ export function createApp(options: AppOptions = {}) {
       }
       return createAgentTools(
         project, tools, projects, undefined, undefined,
-        playtest ? { driver: playtest, resolveOpenTarget: () => playtestTarget(project) } : undefined,
+        playtest ? { driver: playtest, resolveOpenTarget: (signal) => playtestTarget(project, signal) } : undefined,
         undefined, canvasStore,
       );
     },

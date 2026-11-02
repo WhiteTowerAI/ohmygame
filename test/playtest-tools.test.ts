@@ -63,14 +63,15 @@ describe("game use tool", () => {
     const driver = new FakeDriver();
     const resolveOpenTarget = vi.fn(async () => ({ runtime: "web" as const, url: "http://127.0.0.1:43210/" }));
     const tool = createGameUseTool(driver, resolveOpenTarget);
+    const signal = new AbortController().signal;
 
     const result = await tool.execute("open-1", {
       operation: "open",
       path: "/level-1?difficulty=hard",
       viewport: { width: 390, height: 844 },
-    }, undefined, undefined, {} as never);
+    }, signal, undefined, {} as never);
 
-    expect(resolveOpenTarget).toHaveBeenCalledOnce();
+    expect(resolveOpenTarget).toHaveBeenCalledExactlyOnceWith(signal);
     expect(driver.requests).toEqual([{
       operation: "open",
       target: { runtime: "web", url: "http://127.0.0.1:43210/level-1?difficulty=hard" },
