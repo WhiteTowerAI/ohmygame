@@ -70,8 +70,9 @@ the same public field allowlist when restoring a session.
 
 Pi saves assistant diagnostics in its session JSONL. The application also records
 the terminal error in an `ohmygame-agent-error` custom entry to preserve its
-network configuration and retry count on reload. Live retries retain the latest
-attempt's cause. Successful retries and user cancellation produce no terminal
+network configuration and retry count on reload. That count adds up every retry
+in the turn, across its model requests, so it can pass the current reconnect's
+`attempt/maxAttempts`. Live retries retain the latest attempt's cause. Successful retries and user cancellation produce no terminal
 error record. Failures before Pi records the user message get a separate history
 item, so they cannot overwrite a previous turn's error. Terminal failures are
 logged once by the daemon with chat and turn IDs, duration and diagnostics from

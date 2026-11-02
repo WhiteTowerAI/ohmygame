@@ -1955,7 +1955,7 @@ const zhCN: typeof en = {
       httpStatus: "HTTP 状态码",
       errorCode: "错误码",
       requestId: "请求 ID",
-      retryAttempts: "重试次数",
+      retryAttempts: "本轮累计重试次数",
       network: "网络配置",
       cause: "原因",
     },

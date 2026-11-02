@@ -1987,7 +1987,7 @@ const en = {
       httpStatus: "HTTP status",
       errorCode: "Error code",
       requestId: "Request ID",
-      retryAttempts: "Retry attempts",
+      retryAttempts: "Total retries this turn",
       network: "Network configuration",
       cause: "Cause",
     },
