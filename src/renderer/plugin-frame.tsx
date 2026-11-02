@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { THEME_TOKENS } from "../shared/plugin-manifest.js";
 import {
+  accentTokens,
+  PAGE_TOKENS,
+  PLUGIN_ACCENT_MIN_CONTRAST,
   PLUGIN_UI_HANDSHAKE,
   PLUGIN_UI_PROTOCOL_VERSION,
   pluginUiRefusal,
   readPluginUiRequest,
+  type PluginAccent,
   type PluginUiCapabilities,
+  type PluginUiConfirm,
   type PluginUiEvent,
   type PluginUiRequest,
+  type PluginUiToastTone,
 } from "../shared/plugin-ui-protocol.js";
 import "./plugin-frame.css";
+
+export { accentTokens, PAGE_TOKENS, PLUGIN_ACCENT_MIN_CONTRAST };
 
 // A plugin's page in a sandboxed frame. The frame gets only
 // `allow-scripts`: an opaque origin, no popups, no navigation of the app, no
@@ -34,53 +41,26 @@ export interface PluginPageContext {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
   };
+  /** The project's files, as far as `capabilities["project.files"]` allows; the daemon checks too. */
+  files: {
+    list(options: { path?: string; recursive?: boolean }): Promise<unknown>;
+    read(path: string): Promise<Blob>;
+    write(path: string, contents: Blob): Promise<string>;
+    createFolder(path: string): Promise<string>;
+    move(from: string, to: string): Promise<string>;
+    delete(path: string): Promise<void>;
+  };
   runCommand(command: string, input?: unknown): Promise<unknown>;
+  /** The plugin's brand colour, from its manifest. */
+  accent?: PluginAccent;
+  /** Shows a toast the app draws, under the plugin's id. */
+  toast(message: string, tone?: PluginUiToastTone): void;
+  /** Asks the person in a dialog the app draws; a page only learns the answer. */
+  confirm(request: PluginUiConfirm): Promise<boolean>;
 }
 
-/**
- * The design tokens a page gets on its `:root`, with the values the app has
- * now: the colours a theme sets, then the roles, type, shape, space and motion
- * the app's own components use (`src/renderer/ui/tokens.css`). Pages and
- * `plugin-ui.css` use these names, so a release may add tokens but never
- * renames or removes one.
- */
-export const PAGE_TOKENS = [
-  ...THEME_TOKENS,
-  ...[
-    "app",
-    "stage",
-    "surface",
-    "surface-raised",
-    "hover",
-    "selected",
-    "border",
-    "border-strong",
-    "text",
-    "text-secondary",
-    "text-tertiary",
-    "ink",
-    "on-ink",
-    "focus",
-    "control-thumb",
-    "success",
-    "danger",
-    "warning",
-  ].map((role) => `--color-${role}`),
-  "--shadow-hairline",
-  "--shadow-float",
-  "--font-sans",
-  "--font-mono",
-  ...["xs", "sm", "md", "lg", "xl"].map((size) => `--text-${size}`),
-  ...["regular", "medium", "semibold"].map((weight) => `--weight-${weight}`),
-  ...["sm", "md", "lg", "pill"].map((size) => `--radius-${size}`),
-  ...[1, 2, 3, 4, 6].map((step) => `--space-${step}`),
-  "--ease-out",
-  "--duration-fast",
-  "--duration-base",
-] as const;
-
 /** The app's current design tokens and appearance, as a page sees them. */
-export function currentTheme(): Extract<PluginUiEvent, { event: "theme" }> {
+export function currentTheme(accent?: PluginAccent): Extract<PluginUiEvent, { event: "theme" }> {
   const root = document.documentElement;
   const style = getComputedStyle(root);
   const tokens: Record<string, string> = {};
@@ -88,11 +68,42 @@ export function currentTheme(): Extract<PluginUiEvent, { event: "theme" }> {
     const value = style.getPropertyValue(token).trim();
     if (value) tokens[token] = value;
   }
+  const appearance = root.dataset.appearance === "light" ? "light" : "dark";
   return {
     event: "theme",
-    tokens,
-    appearance: root.dataset.appearance === "light" ? "light" : "dark",
+    tokens: { ...tokens, ...accentTokens(accent, appearance, tokens) },
+    appearance,
   };
+}
+
+/** Allows `limit` calls in any `windowMs`; returns whether this one may go ahead. */
+export function rateLimit(limit: number, windowMs: number, now: () => number = Date.now): () => boolean {
+  const calls: number[] = [];
+  return () => {
+    const time = now();
+    while (calls.length && time - calls[0]! >= windowMs) calls.shift();
+    if (calls.length >= limit) return false;
+    calls.push(time);
+    return true;
+  };
+}
+
+/** How many toasts a plugin shows in `PLUGIN_TOAST_WINDOW_MS`, and questions it asks in `PLUGIN_CONFIRM_WINDOW_MS`, so it can't bury the app in them. */
+export const PLUGIN_TOAST_LIMIT = 5;
+export const PLUGIN_TOAST_WINDOW_MS = 10_000;
+export const PLUGIN_CONFIRM_LIMIT = 5;
+export const PLUGIN_CONFIRM_WINDOW_MS = 60_000;
+
+const pluginLimits = new Map<string, { toast: () => boolean; confirm: () => boolean }>();
+
+/** A plugin's limits, which all its panels share and reloading a page doesn't start over. */
+function limitsOf(plugin: string) {
+  let limits = pluginLimits.get(plugin);
+  if (!limits) {
+    limits = { toast: rateLimit(PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS), confirm: rateLimit(PLUGIN_CONFIRM_LIMIT, PLUGIN_CONFIRM_WINDOW_MS) };
+    pluginLimits.set(plugin, limits);
+  }
+  return limits;
 }
 
 /** Answers one checked request; throwing sends the page the error's message. */
@@ -105,7 +116,7 @@ export async function handlePluginUiRequest(
   const params = request.params ?? {};
   switch (request.method) {
     case "theme.get": {
-      const { tokens, appearance } = currentTheme();
+      const { tokens, appearance } = currentTheme(context.accent);
       return { tokens, appearance };
     }
     case "project.info":
@@ -125,6 +136,33 @@ export async function handlePluginUiRequest(
       if (!context.commands.includes(params.command as string))
         throw new Error(`${context.plugin.id} has no command ${String(params.command)}`);
       return context.runCommand(params.command as string, params.input);
+    case "ui.toast":
+      context.toast(params.message as string, params.tone as PluginUiToastTone | undefined);
+      return null;
+    case "ui.confirm":
+      return context.confirm({
+        title: params.title as string,
+        ...(params.message === undefined ? {} : { message: params.message as string }),
+        ...(params.confirmLabel === undefined ? {} : { confirmLabel: params.confirmLabel as string }),
+      });
+    case "files.list":
+      return context.files.list({
+        ...(params.path === undefined ? {} : { path: params.path as string }),
+        ...(params.recursive === undefined ? {} : { recursive: params.recursive as boolean }),
+      });
+    case "files.read":
+      return context.files.read(params.path as string);
+    case "files.write": {
+      const { data } = params;
+      return context.files.write(params.path as string, data instanceof Blob ? data : new Blob([data as string]));
+    }
+    case "files.createFolder":
+      return context.files.createFolder(params.path as string);
+    case "files.move":
+      return context.files.move(params.from as string, params.to as string);
+    case "files.delete":
+      await context.files.delete(params.path as string);
+      return null;
   }
 }
 
@@ -132,6 +170,13 @@ export async function handlePluginUiRequest(
 export interface CommandProgress {
   command: string;
   message: string;
+}
+
+/** A `panel.toolbar` command that finished. */
+export interface PluginToolbarRun {
+  command: string;
+  result?: unknown;
+  error?: string;
 }
 
 /** Connects a loaded frame; returns how to send it events and how to disconnect. */
@@ -170,7 +215,7 @@ export function connectPluginFrame(
       protocol: PLUGIN_UI_PROTOCOL_VERSION,
       plugin: context.plugin,
       locale: context.locale,
-      theme: currentTheme(),
+      theme: currentTheme(context.accent),
     },
     "*",
     [channel.port2],
@@ -192,6 +237,8 @@ export function PluginFrame({
   context,
   visible = true,
   progress,
+  filesRevision,
+  onToolbarRun,
 }: {
   url: string;
   title: string;
@@ -199,12 +246,18 @@ export function PluginFrame({
   visible?: boolean;
   /** The latest progress of a plugin command; the page hears its own plugin's. */
   progress?: CommandProgress;
+  /** Grows when the project's files may have changed; a page that can use them hears of it. */
+  filesRevision?: number;
+  /** Listens for commands run from a panel's toolbar; the page hears its own plugin's. Each is told once, however close together they finish. */
+  onToolbarRun?: (listener: (run: PluginToolbarRun) => void) => () => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [mount, setMount] = useState(0);
   const connection = useRef<ReturnType<typeof connectPluginFrame> | undefined>(undefined);
   const latest = useRef(context);
   latest.current = context;
+  const shown = useRef(visible);
+  shown.current = visible;
   // The context changes every render; requests read the latest one.
   const stable: PluginPageContext = {
     get plugin() { return latest.current.plugin; },
@@ -221,7 +274,26 @@ export function PluginFrame({
       get: (key) => latest.current.storage.get(key),
       set: (key, value) => latest.current.storage.set(key, value),
     },
+    files: {
+      list: (options) => latest.current.files.list(options),
+      read: (path) => latest.current.files.read(path),
+      write: (path, contents) => latest.current.files.write(path, contents),
+      createFolder: (path) => latest.current.files.createFolder(path),
+      move: (from, to) => latest.current.files.move(from, to),
+      delete: (path) => latest.current.files.delete(path),
+    },
     runCommand: (command, input) => latest.current.runCommand(command, input),
+    get accent() { return latest.current.accent; },
+    toast: (message, tone) => {
+      if (!limitsOf(latest.current.plugin.id).toast()) throw new Error("This plugin is showing too many toasts");
+      latest.current.toast(message, tone);
+    },
+    confirm: (request) => {
+      // A hidden page can't ask: the person wouldn't know what the question is about.
+      if (!shown.current) return Promise.reject(new Error("This page isn't showing, so it can't ask"));
+      if (!limitsOf(latest.current.plugin.id).confirm()) return Promise.reject(new Error("This plugin is asking too often"));
+      return latest.current.confirm(request);
+    },
   };
 
   useEffect(() => {
@@ -249,7 +321,7 @@ export function PluginFrame({
     };
     element.addEventListener("load", onLoad);
     // Theme changes reach the page as they happen.
-    const observer = new MutationObserver(() => connection.current?.send(currentTheme()));
+    const observer = new MutationObserver(() => connection.current?.send(currentTheme(stable.accent)));
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-appearance", "style", "class"] });
     return () => {
       timers.forEach(clearTimeout);
@@ -269,6 +341,18 @@ export function PluginFrame({
     if (progress?.command.startsWith(prefix))
       connection.current?.send({ event: "progress", command: progress.command.slice(prefix.length), message: progress.message });
   }, [progress]);
+
+  const heardFiles = useRef(filesRevision);
+  useEffect(() => {
+    if (heardFiles.current === filesRevision) return;
+    heardFiles.current = filesRevision;
+    if (latest.current.capabilities["project.files"]) connection.current?.send({ event: "files" });
+  }, [filesRevision]);
+
+  useEffect(() => onToolbarRun?.(({ command, ...outcome }) => {
+    const prefix = `${latest.current.plugin.id}:`;
+    if (command.startsWith(prefix)) connection.current?.send({ event: "command", command: command.slice(prefix.length), ...outcome });
+  }), [onToolbarRun]);
 
   return (
     <iframe

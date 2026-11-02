@@ -40,6 +40,8 @@ import { projectProcessEnvironment } from "./project-process.js";
 import { createProviderImageReadTool, installDeepSeekImageFiles } from "./deepseek-image-files.js";
 import { SessionImages } from "./session-images.js";
 import { installSessionImageRequests } from "./session-image-requests.js";
+import { boundToolOutput, MAX_TOOL_OUTPUT } from "./tool-output.js";
+import { shutDownExtensionsOnDispose } from "./session-shutdown.js";
 import { AGENT_ERROR_ENTRY, assistantMessageError, normalizeAgentError, thrownAgentError } from "./agent-errors.js";
 import {
   CHECKPOINT_ENTRY, CHECKPOINT_RESTORED_ENTRY, CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, checkpointExtension, parseStoredCheckpoint, parseStoredCheckpointUndone, parseStoredTurnEnd, turnRange,
@@ -418,6 +420,7 @@ interface UndoneChanges {
 interface ManagedSession {
   session: CodingSession;
   unsubscribe: () => void;
+  lastUsed: number;
   designContext?: string;
   runtimeRevision?: number;
 }
@@ -499,6 +502,8 @@ export class AgentManager {
   /** Changes in progress to an idle conversation's session (its model, plan or context), by conversation. */
   readonly #sessionChanges = new Map<string, number>();
   readonly #sessionDisposals = new Map<CodingSession, Promise<void>>();
+  /** Sessions still shutting down, by conversation. A new one waits, so the old one's last writes come first. */
+  readonly #conversationDisposals = new Map<string, Promise<void>>();
   /** The projects whose files a restore, an undo or a put-back is changing. No turn starts in them meanwhile. */
   readonly #puttingBack = new Set<string>();
   readonly #turnEndsRecorded = new Map<string, number>();
@@ -507,6 +512,7 @@ export class AgentManager {
   readonly #approvals = new Map<string, Map<string, PendingApproval>>();
   readonly #invalidatedProjects = new Set<string>();
   readonly #runtimeRevisions = new Map<AgentRuntimeId, number>();
+  #idleSessionSweep?: ReturnType<typeof setInterval>;
   #closing = false;
 
   constructor(
@@ -608,6 +614,8 @@ export class AgentManager {
     if (this.#activeTurns.has(key) || this.#revisions.has(key)) throw new Error("Wait for the agent to finish before changing models");
     const managed = this.#sessions.get(key);
     if (!managed) {
+      // The last writes of a session let go come before the setting is stored.
+      await this.#conversationDisposals.get(key);
       persist();
       return;
     }
@@ -662,7 +670,8 @@ export class AgentManager {
     const key = conversationKey(projectId, conversationId);
     if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
     if (this.#activeTurns.has(key) || this.#revisions.has(key) || this.#sessionLoads.has(key)) throw new Error("Wait for the agent to finish before changing models");
-    this.#forgetConversation(key);
+    // The old session's last writes come before the model is stored.
+    await this.#forgetConversation(key);
     persist();
   }
 
@@ -679,7 +688,9 @@ export class AgentManager {
     }
     this.#archiving.add(key);
     try {
-      this.#forgetConversation(key);
+      // An extension may still write to the file as it shuts down.
+      await this.#forgetConversation(key);
+      await this.#conversationDisposals.get(key);
       await move();
     } finally {
       this.#archiving.delete(key);
@@ -706,6 +717,8 @@ export class AgentManager {
     if (this.#activeTurns.has(key) || this.#revisions.has(key)) throw new Error("Wait for the agent to finish before changing reasoning");
     const managed = this.#sessions.get(key);
     if (!managed) {
+      // The last writes of a session let go come before the setting is stored.
+      await this.#conversationDisposals.get(key);
       persist();
       return undefined;
     }
@@ -1621,15 +1634,15 @@ export class AgentManager {
       }
     }
     this.#approvals.clear();
+    clearInterval(this.#idleSessionSweep);
     const sessions = [...this.#sessions.values()];
     for (const { session } of sessions) session.abortCompaction?.();
     await Promise.allSettled(sessions.map(({ session }) => session.abort()));
     await Promise.allSettled([...this.#runs]);
     await Promise.allSettled([...this.#queueMutations.values()]);
-    for (const managed of sessions) {
-      managed.unsubscribe();
-      managed.session.dispose();
-    }
+    for (const managed of sessions) managed.unsubscribe();
+    // Extensions finish shutting down before the daemon exits, including those of sessions let go earlier.
+    await Promise.allSettled([...sessions.map(({ session }) => session.dispose()), ...this.#sessionDisposals.values()]);
     this.#sessions.clear();
   }
 
@@ -1815,11 +1828,14 @@ export class AgentManager {
   async #getSession(project: ProjectState, conversation: StoredConversation): Promise<ManagedSession> {
     const key = conversationKey(project.id, conversation.summary.id);
     const existing = this.#sessions.get(key);
-    if (existing) return existing;
+    if (existing) {
+      existing.lastUsed = Date.now();
+      return existing;
+    }
     if (this.#archiving.has(key)) throw new Error(ARCHIVING);
-    const loading = this.#sessionLoads.get(key);
+    const loading = this.#sessionLoads.get(key) ?? this.#conversationDisposals.get(key);
     if (loading) {
-      await loading;
+      await loading.catch(() => {});
       return this.#getSession(project, conversation);
     }
     const promise = this.#loadSession(project, conversation);
@@ -1845,12 +1861,15 @@ export class AgentManager {
       [],
     )))(project, conversation);
     if (this.#closing) {
-      session.dispose();
+      // `close` waits for this load's run, so the shutdown finishes before the daemon exits.
+      await Promise.resolve(session.dispose()).catch(() => {});
       throw new Error("Agent manager is closing");
     }
     const unsubscribe = session.subscribe((event) => this.#forwardEvent(project.id, conversation.summary.id, event));
-    const managed: ManagedSession = { session, unsubscribe, ...(session.runtime ? { runtimeRevision: runtimeRevisions.get(session.runtime) ?? 0 } : {}) };
+    const managed: ManagedSession = { session, unsubscribe, lastUsed: Date.now(), ...(session.runtime ? { runtimeRevision: runtimeRevisions.get(session.runtime) ?? 0 } : {}) };
     this.#sessions.set(key, managed);
+    this.#idleSessionSweep ??= setInterval(() => this.#releaseIdleSessions(), IDLE_SESSION_SWEEP_MS);
+    this.#idleSessionSweep.unref();
     const entry = session.sessionManager?.getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === "ohmygame-plan");
     if (!this.#planStates.has(key) && entry?.type === "custom" && entry.data && typeof entry.data === "object") {
       const state = entry.data as Partial<PlanSessionState>;
@@ -2357,13 +2376,36 @@ export class AgentManager {
     return !!runtime && managed.runtimeRevision !== (this.#runtimeRevisions.get(runtime) ?? 0);
   }
 
+  /**
+   * Lets go of Pi sessions nothing has used for a while. Each holds its whole
+   * transcript in memory, images included, and the next message loads it again
+   * from its file, as after a restart. A coding agent keeps its own transcript,
+   * so its session stays: letting go of it would only stop its process.
+   */
+  #releaseIdleSessions(): void {
+    const now = Date.now();
+    for (const [key, managed] of this.#sessions) {
+      if (managed.session.runtime) continue;
+      const busy = this.#activeTurns.has(key) || this.#revisions.has(key) || this.#archiving.has(key)
+        || this.#sessionChanges.has(key) || this.#queueMutations.has(key)
+        || Boolean(this.#pendingPrompts.get(key)?.length) || Boolean(this.#steeringPrompts.get(key)?.length);
+      if (busy) managed.lastUsed = now;
+      else if (now - managed.lastUsed >= IDLE_SESSION_MS) void this.#forgetConversation(key);
+    }
+  }
+
   #forgetConversation(key: string): void | Promise<void> {
     const managed = this.#sessions.get(key);
-    if (!managed) return;
+    // One let go already may still be shutting down.
+    if (!managed) return this.#conversationDisposals.get(key);
     managed.unsubscribe();
     this.#sessions.delete(key);
-    const stopped = Promise.resolve(managed.session.dispose()).catch(() => {}).finally(() => this.#sessionDisposals.delete(managed.session));
+    const stopped = Promise.resolve(managed.session.dispose()).catch(() => {}).finally(() => {
+      this.#sessionDisposals.delete(managed.session);
+      if (this.#conversationDisposals.get(key) === stopped) this.#conversationDisposals.delete(key);
+    });
     this.#sessionDisposals.set(managed.session, stopped);
+    this.#conversationDisposals.set(key, stopped);
     return stopped;
   }
 }
@@ -2420,6 +2462,9 @@ const REFERENCE_MARKER = "<workspace-file-references>";
 const LOCAL_ATTACHMENTS_MARKER = "<local-attachments>";
 const USER_PROMPT_ENTRY = "ohmygame-user-prompt";
 /** What is answered to a message, an edit, a restore or an undo that comes while the project's files are being put back. */
+/** Longer than provider prompt caches and connections last, so letting go costs a reload and no more. */
+const IDLE_SESSION_MS = 15 * 60_000;
+const IDLE_SESSION_SWEEP_MS = 60_000;
 const PUTTING_BACK = "Wait until the project's files have been put back";
 const ARCHIVING = "This conversation is being archived";
 // How long the end of a run waits for its cleanup and for the snapshot that closes it. A snapshot reads only what
@@ -2765,7 +2810,6 @@ function partialToolCall(message: unknown, contentIndex: number): { id: string; 
   };
 }
 
-const MAX_TOOL_OUTPUT = 12_000;
 const MAX_GENERIC_TOOL_ARGUMENTS = 2_000;
 
 function toolArguments(toolName: string, args: unknown): unknown {
@@ -2864,12 +2908,7 @@ function toolOutput(result: unknown): Pick<
     : stringify(result);
   if (!value) return media;
   if (value.length <= MAX_TOOL_OUTPUT) return { output: value, ...media };
-  const half = MAX_TOOL_OUTPUT / 2;
-  return {
-    output: `${value.slice(0, half)}\n\n... output truncated ...\n\n${value.slice(-half)}`,
-    truncated: true,
-    ...media,
-  };
+  return { output: boundToolOutput(value), truncated: true, ...media };
 }
 
 function toolWebSearch(result: unknown): Extract<ThreadItem, { type: "dynamicToolCall" }>["webSearch"] {
@@ -3125,6 +3164,8 @@ export async function createPiSession(
   installSessionImageRequests(session, images, agentDir, { transportMode: responsesTransport });
   mcp?.host.manage(session);
   try { await session.bindExtensions({ mode: "rpc" }); } catch (cause) { session.dispose(); throw cause; }
+  // The MCP host already does this for the sessions it manages.
+  if (!mcp) shutDownExtensionsOnDispose(session);
   const prompt = session.prompt.bind(session);
   const followUp = session.followUp.bind(session);
   const steer = session.steer.bind(session);

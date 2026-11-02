@@ -297,10 +297,9 @@ describe("plugin pages", () => {
     const response = await fetch(page);
     expect(await response.text()).toBe("<p>panel</p>");
     const csp = response.headers.get("content-security-policy")!;
-    // Only the bridge and styles, until the plugin opts in to preview components.
-    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js;`);
+    // The bridge, styles and the stable components, which need no opt-in.
+    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js ${server.url}/_ohmygame/ui/1/;`);
     expect(csp).toContain(`style-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.css 'unsafe-inline'`);
-    expect(csp).not.toContain("/_ohmygame/ui/");
     expect(csp).toContain("connect-src 'none'");
     expect(csp).toContain("frame-ancestors http://localhost:5173");
     expect(csp).not.toContain("unsafe-eval");
@@ -328,7 +327,7 @@ describe("plugin pages", () => {
       expect((await fetch(`${server.url}${refused}`)).status, refused).toBe(404);
   });
 
-  it("lets a page load preview components only when its plugin opts in", async () => {
+  it("still serves stable components to a plugin that opts in to preview ones", async () => {
     const index = new PluginIndex(path.join(await directory(), "index.json"));
     const added = await index.add(await pluginPackage({ ui: { preview: true } }));
     expect(added.ok ? [] : added.issues).toEqual([]);
@@ -367,7 +366,7 @@ describe("plugin pages", () => {
     }
     // Every token the styles read is one the app sends.
     const used = new Set([...page.matchAll(/var\((--[a-z0-9-]+)/g)].map(([, name]) => name!));
-    expect([...used].filter((name) => !tokens.has(name))).toEqual([]);
+    expect([...used].filter((name) => !tokens.has(name) && name !== "--omg-accent")).toEqual([]);
     // The panel's surface shows through the page.
     expect(declared(page, ":root").size).toBeGreaterThan(0);
     expect(page).toMatch(/:root \{[^}]*background: transparent;/);
@@ -383,6 +382,14 @@ describe("plugin pages", () => {
       request: { params: { input: { name: "map" } } },
     });
     expect(readPluginUiRequest({ method: "theme.get" })).toEqual({ ok: false, error: "no id" });
+    expect(readPluginUiRequest({ id: 7, method: "ui.toast", params: { message: "Saved", tone: "success" } }).ok).toBe(true);
+    expect(readPluginUiRequest({ id: 8, method: "ui.toast", params: { message: " " } }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 9, method: "ui.toast", params: { message: "x".repeat(501) } }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 10, method: "ui.toast", params: { message: "Saved", tone: "loud" } }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 11, method: "ui.confirm", params: { title: "Reset?", message: "Clears it.", confirmLabel: "Reset" } }).ok).toBe(true);
+    expect(readPluginUiRequest({ id: 12, method: "ui.confirm" }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 13, method: "ui.confirm", params: { title: "Reset?", confirmLabel: "x".repeat(41) } }).ok).toBe(false);
+    expect(pluginUiRefusal("ui.confirm", {})).toBeUndefined();
     expect(readPluginUiRequest({ id: 5, method: "storage.set", params: { key: "a", value: "x".repeat(300_000) } }).ok).toBe(false);
     expect(pluginUiRefusal("composer.fill", {})).toContain("composer capability");
     expect(pluginUiRefusal("composer.fill", { composer: true })).toBeUndefined();

@@ -2,6 +2,7 @@ import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
+import type { GameTuningState } from "./game-tuning.js";
 import type { MediaContentType } from "./media-files.js";
 import type { AccountProfileIds, AgentRuntimeAuthStatus, AgentRuntimeId, ApprovalRequestDetails, StoredApprovalDecision } from "./agent-runtimes.js";
 
@@ -1303,6 +1304,8 @@ export interface RuntimeEventData {
   "preview.updated": { preview: PreviewRuntimeState };
   /** Without a pick, the person cancelled. */
   "preview.picked": { client: string; pick?: PreviewPick };
+  /** The project's tuned values, or who listens for them, changed. */
+  "preview.tuning": GameTuningState;
   "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; revision?: "last-turn" };
   "checkpoint.created": { checkpointId: string };
   "checkpoint.completed": { checkpointId: string } & Pick<TurnChanges, "files" | "items">;
@@ -1337,6 +1340,7 @@ export const RUNTIME_EVENT_TYPES = [
   "plugin.command.progress",
   "preview.updated",
   "preview.picked",
+  "preview.tuning",
   "agent.started",
   "checkpoint.created",
   "checkpoint.completed",

@@ -1085,15 +1085,20 @@ describe("plugin tools", () => {
       expect(
         (await services.agentTools(folder)).map((tool) => tool.name),
       ).toContain("acme__tiles__count");
-      // Editing ohmygame.json outside OhMyGame counts too.
+      // Editing ohmygame.json outside OhMyGame counts too. On macOS a watcher
+      // just started can miss the first event, so the edit is made again
+      // until it is seen.
       changes.length = 0;
-      await writeFile(
-        path.join(folder, "ohmygame.json"),
-        JSON.stringify({ type: "general", plugins: { "acme/tiles": "1.0.0" } }),
+      await vi.waitFor(
+        async () => {
+          await writeFile(
+            path.join(folder, "ohmygame.json"),
+            JSON.stringify({ type: "general", plugins: { "acme/tiles": "1.0.0" } }),
+          );
+          expect(changes).toContain(folder);
+        },
+        { timeout: 10_000, interval: 500 },
       );
-      await vi.waitFor(() => expect(changes).toContain(folder), {
-        timeout: 3_000,
-      });
       const refused = await bridge.call(
         "acme__tiles__count",
         { wrong: "yes" },

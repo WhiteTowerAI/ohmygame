@@ -372,7 +372,8 @@ describe("daemon", () => {
     const readProject = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}` })).json();
     await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json().activity).toEqual([]));
     if (webPreviewEnabled) {
-      await vi.waitFor(async () => expect((await readProject()).preview.status).toBe("ready"), { timeout: 3_000 });
+      // Starting a Node server can take several seconds on a busy CI machine.
+      await vi.waitFor(async () => expect((await readProject()).preview.status).toBe("ready"), { timeout: 15_000 });
       const url = (await readProject()).preview.url;
       expect(await (await fetch(url)).text()).toBe("General ready");
       const disabled = await app.inject({ method: "PUT", url: settingsUrl, payload: { ...settings, webPreviewEnabled: false } });
@@ -1368,10 +1369,11 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: "/projects" })).statusCode).toBe(401);
   });
 
-  it("exposes health and rejects empty prompts", async () => {
+  it("exposes health and agent notices and rejects empty prompts", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
     expect((await app.inject({ method: "GET", url: "/health" })).json()).toEqual({ status: "ok" });
+    expect((await app.inject({ method: "GET", url: "/agent-notices?after=0" })).json()).toEqual({ epoch: expect.any(String), latestSeq: 0, notices: [], waiting: [] });
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
     const response = await app.inject({

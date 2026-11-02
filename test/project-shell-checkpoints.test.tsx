@@ -225,6 +225,16 @@ async function openProject(
   return Object.assign(daemon, { route: render });
 }
 
+/** A page context's files, for pages that don't use them. */
+const NO_FILES = {
+  list: async () => ({ entries: [], truncated: false }),
+  read: async () => new Blob(),
+  write: async (path: string) => path,
+  createFolder: async (path: string) => path,
+  move: async (_from: string, to: string) => to,
+  delete: async () => {},
+};
+
 const settle = () =>
   act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -255,14 +265,14 @@ describe("project shell layout", () => {
     const daemon = await openProject((route, init) => {
       if (route.startsWith("/models?")) return Response.json({ models: [model], defaultReasoningLevel: "medium" });
       if (route === modelRoute && init.method === "PUT") return Response.json({ model: { provider: model.provider, id: model.id }, nativeReasoningLevel: "low" });
-      if (route === turnRoute && init.method === "POST") return Response.json({ turnId: "new-turn" }, { status: 202 });
+      if (new URL(route, "http://fixture").pathname === turnRoute && init.method === "POST") return Response.json({ turnId: "new-turn" }, { status: 202 });
       return undefined;
     });
     expect(container.textContent).toContain("GPT-6.1-Sol");
     await typePrompt("Try again", container);
     await click("Send prompt");
-    const calls = daemon.requests.filter((request) => request.route === modelRoute || request.route === turnRoute);
-    expect(calls.map((request) => [request.method, request.route])).toEqual([["PUT", modelRoute], ["POST", turnRoute]]);
+    const calls = daemon.requests.filter((request) => [modelRoute, turnRoute].includes(new URL(request.route, "http://fixture").pathname));
+    expect(calls.map((request) => [request.method, new URL(request.route, "http://fixture").pathname])).toEqual([["PUT", modelRoute], ["POST", turnRoute]]);
     expect(JSON.parse(calls[0]!.body!)).toEqual({ provider: "codex-cli", id: "gpt-6.1-sol" });
     expect(JSON.parse(calls[1]!.body!).prompt).toBe("Try again");
   });
@@ -276,7 +286,7 @@ describe("project shell layout", () => {
     });
     await typePrompt("Try again", container);
     await click("Send prompt");
-    expect(daemon.requests.some((request) => request.method === "POST" && request.route.endsWith("/turns"))).toBe(false);
+    expect(daemon.requests.some((request) => request.method === "POST" && new URL(request.route, "http://fixture").pathname.endsWith("/turns"))).toBe(false);
     expect(promptText(container)).toBe("Try again");
     expect(container.textContent).toContain("Model is not available");
   });
@@ -287,13 +297,13 @@ describe("project shell layout", () => {
     const conversation = { ...detail("live-turn"), settings: { model: saved } };
     const daemon = await openProject((route, init) => {
       if (route.startsWith("/models?")) return Response.json({ models: [model], defaultReasoningLevel: "medium" });
-      if (route.endsWith("/turns") && init.method === "POST") return Response.json({ turnId: "new-turn" }, { status: 202 });
+      if (new URL(route, "http://fixture").pathname.endsWith("/turns") && init.method === "POST") return Response.json({ turnId: "new-turn" }, { status: 202 });
       return undefined;
     }, conversation);
     await typePrompt("Continue", container);
     await click("Send prompt");
     expect(daemon.requests.some((request) => request.method === "PUT" && request.route.endsWith("/conversation/model"))).toBe(false);
-    expect(daemon.requests.some((request) => request.method === "POST" && request.route.endsWith("/turns"))).toBe(true);
+    expect(daemon.requests.some((request) => request.method === "POST" && new URL(request.route, "http://fixture").pathname.endsWith("/turns"))).toBe(true);
   });
 
   it("opens the design route on the canvas panel and keeps a closed chat closed across project updates", async () => {
@@ -347,10 +357,11 @@ describe("project shell layout", () => {
 });
 
 describe("plugins in the project shell", () => {
-  it("holds the initial message until a plugin type's project is set up, opening the panel that sets it up", async () => {
+  it("puts the initial message back in the input box until a plugin type's project is set up, opening the panel that sets it up", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     let ready = false;
     const handled = vi.fn();
+    const attachment = { id: "file", batchId: "batch", name: "sketch.txt", relativePath: "sketch.txt", size: 12, kind: "text" as const };
     const daemon = await openProject(
       (route, init) => {
         if (route === "/projects/project")
@@ -362,31 +373,57 @@ describe("plugins in the project shell", () => {
         if (route.startsWith("/projects/project/plugin-panels")) return Response.json([
           { id: "setup", plugin: "acme/maker", version: "1.0.0", title: "Maker setup", area: "right", capabilities: {}, commands: [], url: "about:blank" },
         ]);
-        if (route.endsWith("/turns") && init.method === "POST" && !ready)
+        if (/\/turns(\?|$)/.test(route) && init.method === "POST" && !ready)
           return Response.json({ error: "Connect a Maker project first", code: "project-not-ready", panel: "acme/maker:setup" }, { status: 409 });
         return undefined;
       },
       detail("live-turn"),
-      { initialPrompt: { generation: 1, prompt: "Build my Maker game", mentions: [], images: [], mode: "normal" }, onInitialPromptHandled: handled },
+      { initialPrompt: { generation: 1, prompt: "Build my Maker game", mentions: [], images: [], mode: "planning", attachments: [attachment] }, onInitialPromptHandled: handled },
     );
     await settle();
-    expect(handled).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("Your initial message has not been sent.");
-    expect(container.textContent).toContain("Connect a Maker project first");
-    expect(container.querySelector(".paused-initial-prompt pre")?.textContent).toBe("Build my Maker game");
+    // The message is the input box's to send again or change, with what it carried and why it waits.
+    expect(handled).toHaveBeenCalledOnce();
+    expect(container.querySelector(".composer-info")?.textContent).toBe("Your first message hasn't been sent yet, so it's back in the message box. Connect a Maker project first");
+    expect(container.querySelector(".composer-error")).toBeNull();
+    expect(promptText(container)).toBe("Build my Maker game");
+    expect(container.querySelector(".composer-attachment")?.textContent).toBe("sketch.txt");
     const tabs = () => [...container.querySelectorAll(".dock-area-right .dock-tab-label")].map((tab) => tab.textContent);
+    expect(tabs()).toContain("Maker setup");
     // Closed, the panel comes back when the message is refused again.
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Maker setup"]')!.click());
     expect(tabs()).not.toContain("Maker setup");
-    await click("Send original message");
+    const send = () => act(async () => container.querySelector<HTMLButtonElement>(".send-button")!.click());
+    await send();
+    await settle();
     expect(tabs()).toContain("Maker setup");
-    expect(handled).not.toHaveBeenCalled();
+    expect(promptText(container)).toBe("Build my Maker game");
     ready = true;
-    await click("Send original message");
-    expect(handled).toHaveBeenCalledOnce();
-    const sent = daemon.requests.filter((request) => request.method === "POST" && request.route.endsWith("/turns"));
+    await send();
+    await settle();
+    const sent = daemon.requests.filter((request) => request.method === "POST" && /\/turns(\?|$)/.test(request.route));
     expect(sent).toHaveLength(3);
-    expect(JSON.parse(sent[2]!.body!).prompt).toBe("Build my Maker game");
+    expect(JSON.parse(sent[2]!.body!)).toMatchObject({ prompt: "Build my Maker game", mode: "planning", attachments: [{ id: "file", batchId: "batch" }] });
+    expect(container.querySelector(".composer-info")).toBeNull();
+    expect(promptText(container)).toBe("");
+    expect(container.querySelector(".composer-attachment")).toBeNull();
+  });
+
+  it("doesn't offer the initial message again when its request was lost on the way, as the turn may have started", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    const handled = vi.fn();
+    await openProject(
+      (route, init) => {
+        if (/\/turns(\?|$)/.test(route) && init.method === "POST") throw new TypeError("Failed to fetch");
+        return undefined;
+      },
+      detail("live-turn"),
+      { initialPrompt: { generation: 1, prompt: "Build my game", mentions: [], images: [], mode: "normal" }, onInitialPromptHandled: handled },
+    );
+    await settle();
+    expect(handled).toHaveBeenCalledOnce();
+    expect(container.querySelector(".composer-error")?.textContent).toContain("Failed to fetch");
+    expect(container.querySelector(".composer-info")).toBeNull();
+    expect(promptText(container)).toBe("");
   });
 
   it("shows a plugin's frame once its page has the app's theme", async () => {
@@ -399,7 +436,10 @@ describe("plugins in the project shell", () => {
       commands: [],
       project: () => ({ name: "Game", type: "web-game" }),
       storage: { get: async () => null, set: async () => {} },
+      files: NO_FILES,
       runCommand: async () => null,
+      toast: () => {},
+      confirm: async () => false,
     };
     // The page's bridge says once it has applied the theme it was sent.
     let page: MessagePort | undefined;
@@ -435,6 +475,197 @@ describe("plugins in the project shell", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("uses a plugin's brand colour only where it stands out, and keeps its page from flooding the app", async () => {
+    const { accentTokens, handlePluginUiRequest, rateLimit } = await import("../src/renderer/plugin-frame.js");
+    const app = { "--color-surface": "#1c1c1c", "--color-accent": "#2563eb", "--color-on-accent": "#ffffff" };
+    const light = { ...app, "--color-surface": "#ffffff" };
+    expect(accentTokens("#00d8c4", "dark", app)).toEqual({ "--omg-accent": "#00d8c4", "--omg-on-accent": "#000000" });
+    // Too faint on a light surface, so the app's accent takes its place.
+    expect(accentTokens("#00d8c4", "light", light)).toEqual({ "--omg-accent": "#2563eb", "--omg-on-accent": "#ffffff" });
+    expect(accentTokens({ dark: "#00d8c4", light: "#00857a" }, "light", light)).toEqual({ "--omg-accent": "#00857a", "--omg-on-accent": "#000000" });
+    expect(accentTokens({ dark: "#00d8c4" }, "light", light)["--omg-accent"]).toBe("#2563eb");
+    expect(accentTokens(undefined, "dark", app)["--omg-accent"]).toBe("#2563eb");
+    expect(accentTokens("#00d8c4", "dark", { ...app, "--color-surface": "color-mix(in srgb, red, blue)" })["--omg-accent"]).toBe("#2563eb");
+    expect(accentTokens("#00d8c4", "dark", { ...app, "--color-surface": "rgb(28, 28, 28)" })["--omg-accent"]).toBe("#00d8c4");
+
+    let time = 0;
+    const allowed = rateLimit(2, 100, () => time);
+    expect([allowed(), allowed(), allowed()]).toEqual([true, true, false]);
+    time = 100;
+    expect(allowed()).toBe(true);
+
+    const toast = vi.fn();
+    const confirm = vi.fn(async () => true);
+    const context = {
+      plugin: { id: "acme/maker", version: "1.0.0", panel: "main" },
+      locale: "en" as const,
+      capabilities: {},
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      files: NO_FILES,
+      runCommand: async () => null,
+      toast,
+      confirm,
+    };
+    await expect(handlePluginUiRequest({ id: 1, method: "ui.toast", params: { message: "Saved", tone: "success" } }, context)).resolves.toBeNull();
+    expect(toast).toHaveBeenCalledWith("Saved", "success");
+    await expect(handlePluginUiRequest({ id: 2, method: "ui.confirm", params: { title: "Reset?", message: "Clears it.", confirmLabel: "Reset", extra: "dropped" } }, context)).resolves.toBe(true);
+    expect(confirm).toHaveBeenCalledWith({ title: "Reset?", message: "Clears it.", confirmLabel: "Reset" });
+  });
+
+  it("refuses a question from a hidden page, and more toasts than the limit", async () => {
+    const { PluginFrame, PLUGIN_TOAST_LIMIT } = await import("../src/renderer/plugin-frame.js");
+    const toast = vi.fn();
+    const confirm = vi.fn(async () => true);
+    const context = {
+      plugin: { id: "acme/noisy", version: "1.0.0", panel: "main" },
+      locale: "en" as const,
+      capabilities: {},
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      files: NO_FILES,
+      runCommand: async () => null,
+      toast,
+      confirm,
+    };
+    let page: MessagePort | undefined;
+    const post = vi.spyOn(HTMLIFrameElement.prototype, "contentWindow", "get").mockReturnValue({
+      postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]),
+    } as unknown as Window);
+    try {
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Page" context={context} visible={false} />));
+      const frame = container.querySelector<HTMLIFrameElement>("iframe.plugin-frame")!;
+      await act(async () => {
+        frame.dispatchEvent(new Event("load"));
+      });
+      const replies = new Map<number, Record<string, unknown>>();
+      page!.onmessage = ({ data }) => replies.set(data.id, data);
+      page!.postMessage({ id: 1, method: "ui.confirm", params: { title: "Reset?" } });
+      await vi.waitFor(() => expect(replies.get(1)?.error).toContain("isn't showing"));
+      expect(confirm).not.toHaveBeenCalled();
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Page" context={context} visible />));
+      page!.postMessage({ id: 2, method: "ui.confirm", params: { title: "Reset?" } });
+      await vi.waitFor(() => expect(replies.get(2)?.result).toBe(true));
+      for (let id = 10; id <= 10 + PLUGIN_TOAST_LIMIT; id++) page!.postMessage({ id, method: "ui.toast", params: { message: "Hello" } });
+      await vi.waitFor(() => expect(replies.get(10 + PLUGIN_TOAST_LIMIT)?.error).toContain("too many"));
+      expect(toast).toHaveBeenCalledTimes(PLUGIN_TOAST_LIMIT);
+      // Both of two toolbar commands that finish together reach the page, and another plugin's doesn't.
+      const heard: unknown[] = [];
+      const listeners = new Set<(run: { command: string; result?: unknown; error?: string }) => void>();
+      const onToolbarRun = (listener: (run: { command: string; result?: unknown; error?: string }) => void) => {
+        listeners.add(listener);
+        return () => { listeners.delete(listener); };
+      };
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Page" context={context} visible onToolbarRun={onToolbarRun} />));
+      page!.onmessage = ({ data }) => {
+        if (data.event === "command") heard.push(data);
+        else replies.set(data.id, data);
+      };
+      await act(async () => {
+        for (const listener of listeners) {
+          listener({ command: "acme/noisy:one", result: 1 });
+          listener({ command: "acme/noisy:two", error: "Failed" });
+          listener({ command: "acme/other:three" });
+        }
+      });
+      await vi.waitFor(() => expect(heard).toEqual([{ event: "command", command: "one", result: 1 }, { event: "command", command: "two", error: "Failed" }]));
+      // A second page of the plugin shares its limit.
+      const first = page!;
+      await act(async () => root.render(<PluginFrame key="other" url="about:blank#other" title="Other" context={{ ...context, plugin: { ...context.plugin, panel: "other" } }} visible />));
+      await act(async () => {
+        container.querySelector("iframe.plugin-frame")!.dispatchEvent(new Event("load"));
+      });
+      expect(page).not.toBe(first);
+      page!.onmessage = ({ data }) => replies.set(data.id, data);
+      page!.postMessage({ id: 30, method: "ui.toast", params: { message: "Hello" } });
+      await vi.waitFor(() => expect(replies.get(30)?.error).toContain("too many"));
+      page!.close();
+    } finally {
+      post.mockRestore();
+    }
+  });
+
+  it("hands a page the project's files as far as it may use them, and says when they change", async () => {
+    const { PluginFrame } = await import("../src/renderer/plugin-frame.js");
+    // A browser's port carries a Blob; jsdom's Blob doesn't survive Node's port, and Node's own does.
+    vi.stubGlobal("Blob", (await import("node:buffer")).Blob);
+    const written: Array<[string, string]> = [];
+    const files = {
+      ...NO_FILES,
+      read: async () => new Blob(["level"], { type: "application/json" }),
+      write: async (path: string, contents: Blob) => {
+        written.push([path, await contents.text()]);
+        return path;
+      },
+    };
+    const context = {
+      plugin: { id: "acme/files", version: "1.0.0", panel: "main" },
+      locale: "en" as const,
+      capabilities: { "project.files": "read" as "read" | "write" },
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      files,
+      runCommand: async () => null,
+      toast: () => {},
+      confirm: async () => false,
+    };
+    let page: MessagePort | undefined;
+    const post = vi.spyOn(HTMLIFrameElement.prototype, "contentWindow", "get").mockReturnValue({
+      postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]),
+    } as unknown as Window);
+    try {
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={context} visible filesRevision={1} />));
+      await act(async () => {
+        container.querySelector("iframe.plugin-frame")!.dispatchEvent(new Event("load"));
+      });
+      const replies = new Map<number, Record<string, unknown>>();
+      const events: unknown[] = [];
+      page!.onmessage = ({ data }) => (data.event ? events.push(data) : replies.set(data.id, data));
+      page!.postMessage({ id: 1, method: "files.read", params: { path: "levels/one.json" } });
+      await vi.waitFor(() => expect(replies.get(1)?.result).toBeInstanceOf(Blob));
+      expect(await (replies.get(1)!.result as Blob).text()).toBe("level");
+      // Reading doesn't cover writing.
+      page!.postMessage({ id: 2, method: "files.write", params: { path: "a.txt", data: "x" } });
+      await vi.waitFor(() => expect(replies.get(2)?.error).toContain("project.files capability set to write"));
+      expect(written).toEqual([]);
+      const writer = { ...context, capabilities: { "project.files": "write" as const } };
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={writer} visible filesRevision={1} />));
+      page!.postMessage({ id: 3, method: "files.write", params: { path: "a.txt", data: "text" } });
+      page!.postMessage({ id: 4, method: "files.write", params: { path: "b.bin", data: new Blob(["bytes"]) } });
+      await vi.waitFor(() => expect(replies.get(4)?.result).toBe("b.bin"));
+      expect(written).toEqual([["a.txt", "text"], ["b.bin", "bytes"]]);
+      expect(events.filter((event) => (event as { event: string }).event === "files")).toEqual([]);
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={writer} visible filesRevision={2} />));
+      await vi.waitFor(() => expect(events).toContainEqual({ event: "files" }));
+      page!.close();
+    } finally {
+      post.mockRestore();
+    }
+  });
+
+  it("draws a panel's toolbar commands in manifest order, with the rest in a menu, one run at a time", async () => {
+    const { PluginPanelToolbar, PLUGIN_TOOLBAR_BUTTONS } = await import("../src/renderer/project-plugin-contributions.js");
+    const commands = ["one", "two", "three", "four"].map((id) => ({ id: `acme/maker:${id}`, plugin: "acme/maker", title: id, slots: [{ slot: "panel.toolbar" }], run: { native: id } }));
+    let finish!: () => void;
+    const onRun = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    await act(async () => root.render(<PluginPanelToolbar commands={commands as never} onRun={onRun} />));
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>(".plugin-toolbar .ui-button")];
+    expect(buttons.map((button) => button.textContent)).toEqual(["one", "two", "three"].slice(0, PLUGIN_TOOLBAR_BUTTONS));
+    expect(container.querySelector(".plugin-toolbar .ui-icon-button")).not.toBeNull();
+    await act(async () => buttons[0]!.click());
+    expect(onRun).toHaveBeenCalledTimes(1);
+    expect(buttons[0]!.disabled).toBe(true);
+    await act(async () => buttons[0]!.click());
+    expect(onRun).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+    expect(buttons[0]!.disabled).toBe(false);
+    await act(async () => root.render(<PluginPanelToolbar commands={[]} onRun={onRun} />));
+    expect(container.querySelector(".plugin-toolbar")).toBeNull();
   });
 
   it("shows a plugin's panel where it asks, and runs its menu command with Undo", async () => {
@@ -548,7 +779,9 @@ describe("checkpoints in the project shell", () => {
       if (route === "/projects/project/conversations/other") return Response.json({ ...detail("turn"), conversation: other });
       if (route.endsWith("/conversation/archive") && init.method === "POST") return new Promise((resolve) => { archived = () => resolve(new Response(null, { status: 204 })); });
     }, undefined, { onOpenConversation });
-    await act(async () => container.querySelector<HTMLButtonElement>(".conversation-trigger")!.click());
+    // The header keeps the history behind a button instead of showing the open conversation's title.
+    expect(document.querySelector(".chat-header-actions")?.textContent).not.toContain("Chat");
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Conversation history"]')!.click());
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Archive Chat"]')!.click());
     await daemon.route("other");
     onOpenConversation.mockClear();

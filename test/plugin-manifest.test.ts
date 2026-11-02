@@ -29,10 +29,12 @@ import {
 } from "../src/daemon/plugin-index.js";
 import {
   pluginApiIssue,
+  pluginUiIssue,
   satisfiesVersionRange,
   toolSchemaIssues,
   validatePluginManifest,
 } from "../src/shared/plugin-manifest.js";
+import { pluginUiSupportIssues } from "../src/shared/plugin-ui-versions.js";
 import {
   PLUGIN_SCHEMA_FILE,
   pluginSchemaJson,
@@ -98,6 +100,27 @@ describe("plugin manifest", () => {
 
   it("accepts a minimal manifest", () => {
     expect(messages(minimal)).toEqual([]);
+  });
+
+  it("takes a brand colour for pages, one or one per appearance", () => {
+    expect(messages({ ...minimal, ui: { accent: "#00d8c4" } })).toEqual([]);
+    expect(messages({ ...minimal, ui: { accent: { light: "#00857a", dark: "#00D8C4" } } })).toEqual([]);
+    expect(messages({ ...minimal, ui: { accent: "teal" } })).not.toEqual([]);
+    expect(messages({ ...minimal, ui: { accent: { dim: "#00d8c4" } } })).not.toEqual([]);
+  });
+
+  it("keeps panel.toolbar to plugins with a panel and commands without input", () => {
+    const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
+    const toolbar = (run: unknown, withPanels = true) => ({
+      ...minimal,
+      icon: "./assets/icon.svg",
+      entrypoints: { native: "./native/index.mjs" },
+      capabilities: { native: true },
+      contributes: { ...(withPanels ? { panels } : {}), commands: [{ id: "go", title: "Go", run, slots: [{ slot: "panel.toolbar" }] }] },
+    });
+    expect(messages(toolbar({ native: "go" }))).toEqual([]);
+    expect(messages(toolbar({ native: "go", input: "./schemas/go.json" }))).toEqual(["/contributes/commands/0/slots/0/slot a toolbar button has no input to give this command"]);
+    expect(messages(toolbar({ native: "go" }, false))).toEqual(["/contributes/commands/0/slots/0/slot panel.toolbar needs a panel"]);
   });
 
   it("rejects unknown fields", () => {
@@ -360,9 +383,33 @@ describe("plugin manifest", () => {
     expect(
       messages({ ...minimal, engines: { "ohmygame-api": "^02.0.0" } }),
     ).toHaveLength(1);
-    expect(pluginApiIssue({ engines: { "ohmygame-api": "^3.0.0" } })).toContain(
-      "^3.0.0",
-    );
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^3.0.0" } })).toMatchObject({
+      fix: "update-app",
+      message: expect.stringContaining("^3.0.0"),
+    });
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^1.0.0" } })).toMatchObject({
+      fix: "update-plugin",
+      message: expect.stringContaining("author"),
+    });
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.0.0" } })).toBeUndefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.2.0" } }, "2.1.0")?.fix).toBe("update-app");
+  });
+
+  it("says which way to go when a plugin's page components aren't here", () => {
+    const issue = (major: number | undefined, preview?: boolean) => pluginUiIssue({ ui: { major, preview } } as never, ["2", "3"], new Set(["3"]));
+    expect(issue(undefined)).toBeUndefined();
+    expect(issue(2)).toBeUndefined();
+    expect(issue(3, true)).toBeUndefined();
+    expect(issue(3)).toEqual({ message: expect.stringContaining("preview") });
+    expect(issue(4)).toMatchObject({ fix: "update-app" });
+    expect(issue(1)).toMatchObject({ fix: "update-plugin" });
+    expect(messages({ ...minimal, ui: { major: 0 } })).toHaveLength(1);
+  });
+
+  it("keeps a replaced major served for the support window", () => {
+    expect(pluginUiSupportIssues({ 1: { since: "2027-03-31", until: "2028-04-01" } })).toEqual([]);
+    expect(pluginUiSupportIssues({ 1: { since: "2027-03-01", until: "2028-02-28" } })).toEqual([expect.stringContaining("12 months")]);
+    expect(pluginUiSupportIssues({ 1: { since: "soon", until: "2028-02-28" } })).toHaveLength(1);
   });
 });
 

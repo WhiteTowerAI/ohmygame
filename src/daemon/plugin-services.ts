@@ -98,6 +98,8 @@ export interface ProjectPanel {
   capabilities: PluginUiCapabilities;
   /** The plugin's command ids, the only ones its page may run. */
   commands: string[];
+  /** The plugin's brand colour, which the app checks before using. */
+  accent?: string | { light?: string; dark?: string };
 }
 
 /**
@@ -447,8 +449,10 @@ export class PluginServices {
           capabilities: {
             ...(capabilities["project.selection"] ? { "project.selection": true } : {}),
             ...(capabilities.composer ? { composer: true } : {}),
+            ...(capabilities["project.files"] ? { "project.files": capabilities["project.files"] } : {}),
           },
           commands: (entry.manifest.contributes?.commands ?? []).map((command) => command.id),
+          ...(entry.manifest.ui?.accent ? { accent: entry.manifest.ui.accent } : {}),
         });
     }
     return panels;
@@ -482,6 +486,7 @@ export class PluginServices {
   async projectReady(
     folder: string,
     type: string,
+    locale: PluginLocale = "en",
   ): Promise<{ ready: true } | { ready: false; message?: string; panel: string }> {
     const owner = projectTypePlugin(type);
     if (!owner) return { ready: true };
@@ -505,7 +510,8 @@ export class PluginServices {
     const message = (answer as { message?: unknown }).message;
     return {
       ready: false,
-      ...(typeof message === "string" && message.trim() ? { message: message.slice(0, 500) } : {}),
+      // A `%key%` message comes from the plugin's locale files, in the person's language.
+      ...(typeof message === "string" && message.trim() ? { message: localizePluginString(entry, message, locale).slice(0, 500) } : {}),
       panel: `${owner}:${check.panel}`,
     };
   }

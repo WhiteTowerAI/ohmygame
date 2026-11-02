@@ -12,7 +12,7 @@ const BUTTON = css(`
   button {
     display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); width: 100%;
     height: 30px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-md);
-    background: var(--color-hover); color: var(--color-text);
+    background: var(--_button-background, var(--color-hover)); color: var(--color-text);
     font: inherit; font-weight: var(--weight-medium); white-space: nowrap; cursor: pointer;
     transition: background var(--duration-fast), opacity var(--duration-fast);
   }
@@ -30,6 +30,15 @@ const BUTTON = css(`
  * `<omg-button variant="secondary|primary|ghost|danger" disabled busy>`: the
  * app's button. Primary is ink; there is one per view. A busy button shows a
  * spinner and takes no clicks.
+ *
+ * @attr {"secondary" | "primary" | "ghost" | "danger"} variant - Secondary by default.
+ * @attr {boolean} disabled - Takes no clicks.
+ * @attr {boolean} busy - Shows a spinner and takes no clicks.
+ * @prop {boolean} disabled - The `disabled` attribute.
+ * @prop {boolean} busy - The `busy` attribute.
+ * @slot - The label.
+ * @part button - The button.
+ * @part spinner - The spinner shown while busy.
  */
 class OmgButton extends OmgElement {
   static observedAttributes = ["variant", "disabled", "busy"];
@@ -104,6 +113,19 @@ const changed = () => changes.dispatchEvent(new Event("change"));
  * Events: `omg-command-start` (cancelable, before it runs),
  * `omg-command-result` with `detail.result`, and `omg-command-error` with
  * `detail.error`, cancelable to show the failure yourself.
+ *
+ * @attr {string} command - The command's id in the manifest.
+ * @attr {string} input - The command's input, as JSON.
+ * @attr {boolean} concurrent - Runs while other command buttons run, and doesn't make them wait.
+ * @attr {boolean} quiet - Doesn't show a failure beside it.
+ * @attr {string} error - The last run's failure, until the next run.
+ * @prop {unknown} input - The command's input; it takes the place of the attribute.
+ * @method {Promise<unknown>} run - Runs the command, as a click does; resolves to its result, or undefined when it didn't run or failed.
+ * @fires {{ command: string; input: unknown }} omg-command-start - Before it runs; cancel it to not run.
+ * @fires {{ command: string; result: unknown }} omg-command-result - The command's result.
+ * @fires {{ command: string; error: string }} omg-command-error - The command failed; cancel it to show the failure yourself.
+ * @part progress - The command's progress while it runs.
+ * @part error - The failure.
  */
 class OmgCommandButton extends OmgButton {
   static observedAttributes = [...OmgButton.observedAttributes, "command", "input", "concurrent", "quiet", "error"];
@@ -160,7 +182,7 @@ class OmgCommandButton extends OmgButton {
     try {
       input = this.input;
     } catch {
-      this.#fail(new Error(`The input of command button "${command}" isn't JSON`));
+      this.#fail(command, new Error(`The input of command button "${command}" isn't JSON`));
       return undefined;
     }
     const start = new CustomEvent("omg-command-start", { bubbles: true, composed: true, cancelable: true, detail: { command, input } });
@@ -180,7 +202,7 @@ class OmgCommandButton extends OmgButton {
       this.dispatchEvent(new CustomEvent("omg-command-result", { bubbles: true, composed: true, detail: { command, result } }));
       return result;
     } catch (error) {
-      this.#fail(error instanceof Error ? error : new Error(String(error)));
+      this.#fail(command, error instanceof Error ? error : new Error(String(error)));
       return undefined;
     } finally {
       this.#stopProgress?.();
@@ -198,106 +220,12 @@ class OmgCommandButton extends OmgButton {
     text(this.part("error"), this.getAttribute("error"));
   }
 
-  #fail(error) {
-    const command = this.getAttribute("command");
+  /** Reports a failure of the run of `command`, whatever the attribute says now. */
+  #fail(command, error) {
     const event = new CustomEvent("omg-command-error", { bubbles: true, composed: true, cancelable: true, detail: { command, error: error.message } });
     if (this.dispatchEvent(event) && !this.hasAttribute("quiet")) this.setAttribute("error", error.message);
   }
 }
 
-/**
- * `<omg-select label value disabled>` with `<option>` children: the app's
- * select. `label` is shown above it; without one, give it `aria-label`. It
- * fires `change` and `input` as a native select does.
- */
-class OmgSelect extends OmgElement {
-  static observedAttributes = ["label", "value", "disabled", "aria-label"];
-  static delegatesFocus = true;
-  static styles = [
-    css(`
-      :host { display: inline-flex; flex-direction: column; gap: var(--space-1); min-width: 160px; max-width: 100%; }
-      .label { color: var(--color-text-secondary); font-size: var(--text-sm); }
-      select {
-        width: 100%; height: 32px; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-md);
-        background: var(--color-stage); color: var(--color-text); font: inherit;
-        box-shadow: inset 0 0 0 1px var(--color-border); transition: box-shadow var(--duration-fast);
-      }
-      select:not(:disabled):hover { box-shadow: inset 0 0 0 1px var(--color-border-strong); }
-      select:focus { box-shadow: inset 0 0 0 1px var(--color-text-tertiary); }
-      select:disabled { opacity: 0.4; }
-    `),
-  ];
-  static template = `<label part="field"><span class="label" part="label"></span><select part="select"></select></label>`;
-
-  // Options added, removed or changed; the select's own attributes aren't options.
-  #observer = new MutationObserver((records) => {
-    if (records.some((record) => record.type !== "attributes" || record.target !== this)) this.#copyOptions();
-  });
-
-  constructor() {
-    super();
-    const select = this.part("select");
-    // `input` crosses the shadow boundary by itself; `change` doesn't.
-    select.addEventListener("input", () => this.setAttribute("value", select.value));
-    select.addEventListener("change", () => {
-      this.setAttribute("value", select.value);
-      this.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-  }
-
-  get value() {
-    return this.part("select").value;
-  }
-
-  set value(value) {
-    this.setAttribute("value", String(value ?? ""));
-  }
-
-  connectedCallback() {
-    this.#observer.observe(this, { childList: true, subtree: true, attributes: true, characterData: true });
-    this.#copyOptions();
-    super.connectedCallback();
-  }
-
-  disconnectedCallback() {
-    this.#observer.disconnect();
-  }
-
-  /**
-   * The page's options, copied into the select. The `value` attribute
-   * chooses, and a choice sets it; without one, the option marked
-   * `selected` is chosen, as in a native select. A parser may add the
-   * options one at a time.
-   */
-  #copyOptions() {
-    const select = this.part("select");
-    const sources = [...this.querySelectorAll("option")];
-    select.replaceChildren(
-      ...sources.map((source) => {
-        const option = document.createElement("option");
-        option.value = source.value;
-        option.textContent = source.textContent;
-        option.disabled = source.disabled;
-        return option;
-      }),
-    );
-    const chosen = this.getAttribute("value") ?? sources.find((source) => source.hasAttribute("selected"))?.value;
-    if (chosen !== undefined) select.value = chosen;
-  }
-
-  update() {
-    const select = this.part("select");
-    text(this.part("label"), this.getAttribute("label"));
-    const name = this.getAttribute("aria-label");
-    if (name) select.setAttribute("aria-label", name);
-    else select.removeAttribute("aria-label");
-    select.disabled = this.hasAttribute("disabled");
-    // As a native select: a value no option has leaves nothing chosen.
-    const value = this.getAttribute("value");
-    if (value !== null && select.value !== value) select.value = value;
-  }
-}
-
 define("omg-button", OmgButton);
 define("omg-command-button", OmgCommandButton);
-define("omg-select", OmgSelect);

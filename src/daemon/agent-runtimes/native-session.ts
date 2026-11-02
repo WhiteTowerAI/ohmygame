@@ -21,6 +21,20 @@ import { NATIVE_API } from "./replay.js";
 
 /** The custom entry that records which native session a conversation's branch continues. */
 export const NATIVE_SESSION_ENTRY = "ohmygame-native-session";
+/**
+ * Tokens a coding agent spent, stored apart from its messages: a stored
+ * message carries the latest request's usage for the context meter, so
+ * adding those up would count requests again or miss them.
+ */
+export const NATIVE_USAGE_ENTRY = "ohmygame-native-usage";
+
+export interface StoredNativeUsage extends NativeUsage {
+  version: 1;
+  runtime: string;
+  model: string;
+  /** Unix milliseconds. */
+  at: number;
+}
 
 export interface StoredNativeSession {
   version: 2;
@@ -101,6 +115,12 @@ export interface NativeTurnSink {
     contextWindow?: number,
     contextTokens?: number,
   ): void;
+  /**
+   * Tokens spent since the last report, once for each request or turn, for
+   * the totals in Settings → Account. `model` names a model other than the
+   * turn's, such as the one the agent reports it used.
+   */
+  spent(usage: NativeUsage, model?: string): void;
   compaction(
     phase: "start" | "end",
     result?: {
@@ -747,6 +767,20 @@ class TurnRecorder {
       },
       toolResult: (callId, result, isError) =>
         this.#toolResult(callId, result, isError),
+      spent: (usage, model) => {
+        if (usage.input + usage.output + usage.cacheRead + usage.cacheWrite <= 0)
+          return;
+        this.session.sessionManager.appendCustomEntry(NATIVE_USAGE_ENTRY, {
+          version: 1,
+          runtime: this.session.runtime,
+          model: model || this.model,
+          input: usage.input,
+          output: usage.output,
+          cacheRead: usage.cacheRead,
+          cacheWrite: usage.cacheWrite,
+          at: Date.now(),
+        } satisfies StoredNativeUsage);
+      },
       usage: (usage, contextWindow, contextTokens) => {
         this.#usage = usage;
         this.session.reportUsage(

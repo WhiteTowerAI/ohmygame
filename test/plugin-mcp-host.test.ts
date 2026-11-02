@@ -181,9 +181,11 @@ describe("plugin MCP host", () => {
         toolCount: 1,
       });
     } finally {
-      await close();
+      // Disposing waits for the servers to shut down, as `close` does.
+      await (session.dispose() as unknown as Promise<void>);
     }
     expect(host.status(shared)).toBeUndefined();
+    await close();
   });
 
   it("stops a session's MCP calls once its plugins change", async () => {

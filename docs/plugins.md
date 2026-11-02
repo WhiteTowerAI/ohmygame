@@ -13,12 +13,15 @@ from the [plugin market](#the-plugin-market).
 
 The Plugins page reads `GET /plugin-store/plugins` and has three tabs.
 
-- **Installed** groups the plugins that apply by themselves into **Game
-  creation**, **Engines & platforms**, **Art & assets** and **Other plugins**.
-  Each group shows up to six cards and a **View all**. **Turned on per project**
-  comes next, then **Personal**: the plugins the person made (`personal/<name>`),
-  ending with **Create a plugin with AI**, then the AI workspaces. Search shows
-  every match in one list. Switching a plugin doesn't move it.
+- **Installed** groups plugins by their `categories` into **Game creation**,
+  **Engines & platforms**, **Art & assets** and **Other plugins**, whether they
+  apply by themselves or a project turns them on; each card says which. Each
+  group shows up to six cards and a **View all**. **Personal** comes next: the
+  plugins the person made (`personal/<name>`), ending with **Create a plugin
+  with AI**, then the AI workspaces. Search shows every match in one list.
+  Only a plugin that applies by itself has a switch on its card, and switching
+  it doesn't move it. One a project turns on is turned on in that project; its
+  card says when it is off everywhere, and its page has that switch.
 - **Browse** lists every plugin with its source and what it adds, and filters by
   source and by what it adds. The [plugin market](#the-plugin-market)'s plugins
   come first, under **Featured** and **On npm**, leaving out what's installed.
@@ -39,7 +42,12 @@ starts in, and waits until what the plugin asks for is allowed.
 - **Manifest:** `.ohmygame-plugin/plugin.json` in the package, checked by
   `src/shared/plugin-manifest.ts`. The JSON Schema is
   `schemas/plugin-2.json` (`bun run plugin:schema` rebuilds it). Ids are
-  `publisher/name`; `engines["ohmygame-api"]` must allow 2.0.0.
+  `publisher/name`. `engines["ohmygame-api"]` must allow the plugin API of
+  the running app, `PLUGIN_HOST_API_VERSION` in that file: its minor grows when
+  a manifest field or something else a plugin can use is added, so a plugin
+  that needs one asks for `^2.1.0`, say. Adding a plugin the app is too old for
+  says so and, in the desktop app, offers the update; one made for an API this
+  app has left says its author needs to update it.
 - **Project file:** `ohmygame.json` at a project's root names its type and the
   exact plugin versions it uses (`src/shared/project-file.ts`). It asks for
   plugins; it never allows them.
@@ -96,7 +104,7 @@ shows it in the call's progress.
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
-| Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts` |
+| Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
@@ -157,14 +165,21 @@ shows it in the call's progress.
   Before each prompt the app runs the command (up to 20 seconds); when it
   answers `{ ready: false, message? }`, the prompt route answers 409 with
   `code: "project-not-ready"` and the panel, which the project opens, and a
-  new project's first message waits there. A failed or missing check lets the
-  prompt through.
+  new project's first message goes back into the composer. A `%key%` message
+  comes from the plugin's locale files in the language the prompt request
+  names (`?locale=`). A failed or missing check lets the prompt through.
 - Commands and changes: `GET`/`POST /projects/:id/plugin-commands`
   (`{ command, input? }`; `PluginServices.runCommand` runs it),
   `GET /projects/:id/plugin-changes`,
   `POST /projects/:id/plugin-changes/:changeId/undo`.
 - Pages: `GET /projects/:id/plugin-panels`,
-  `GET`/`PUT /projects/:id/plugin-storage/:publisher/:name/:key`.
+  `GET`/`PUT /projects/:id/plugin-storage/:publisher/:name/:key`, and a
+  page's [project files](#plugin-pages) under
+  `/projects/:id/plugin-files/:publisher/:name`: `GET ?path=&recursive=`
+  lists, `GET`/`PUT content?path=` reads and writes the bytes
+  (`application/octet-stream`), `DELETE ?path=` deletes, and `POST folder`
+  (`{ path }`) and `POST move` (`{ from, to }`). They answer a plugin the
+  project uses, with a panel and the level of `project.files` the route needs.
 - Adding: `POST /plugin-sources/inspect` and `/plugin-sources/install` take a
   source as JSON; `POST /plugin-sources/file/inspect` and
   `/plugin-sources/file/install?digest=` take a `.tgz` as `application/gzip`.
@@ -344,7 +359,9 @@ HTTP on this computer), there's no market and nothing is read.
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
 on the plugin's page, and mark itself `beta`. `ui.preview` lets its pages
-load page components still in preview (see [Page components](#page-components)).
+load page components still in preview, and `ui.major` says which major its
+pages use, so an app without it can say which way to go (see
+[Page components](#page-components)).
 
 ## Packaging a repository of Skills
 
@@ -422,39 +439,167 @@ the app's defaults, and `test/preview-static.test.ts` keeps them equal to
 `src/renderer/ui/tokens.css`. Pages may rely on these names: a release may
 add tokens but not rename or remove one.
 
+The app also draws around and over a page, with what a page can't change:
+
+- **Brand colour.** The manifest's `ui.accent`, a `#rrggbb` colour or
+  `{ "light": …, "dark": … }`, becomes `--omg-accent` on the page's `:root`,
+  with `--omg-on-accent` for text on it. It marks the busy spinner, switches and
+  checkboxes that are on, and links; buttons, the current step and progress bars
+  stay ink. A colour with less than 3:1 contrast
+  against the panel's surface in the current appearance gives way to the
+  app's accent, as it does when there is none.
+- **Toolbar.** Commands with the `panel.toolbar` slot show as buttons in the
+  toolbar of the plugin's panels, in manifest order, beside the app's own
+  controls, which a plugin can't hide. The first three are buttons and the
+  rest go in a menu. A toolbar button gives no input, so a native command
+  with an `input` schema isn't allowed there. They run as from a menu, with
+  the app's toasts; the page hears a `command` event with `command`, and
+  `result` or `error`, when one finishes.
+- **Toasts and questions.** `host.request("ui.toast", { message, tone })`
+  shows a toast under the plugin's id; `tone` is `default`, `success` or
+  `danger`. `host.request("ui.confirm", { title, message, confirmLabel })`
+  asks in a dialog that says which plugin asks, and resolves to whether the
+  person agreed; it gives the page nothing but the answer. A page that isn't
+  showing can't ask, one question waits at a time, and a plugin, across its
+  panels, gets at most five toasts in ten seconds and five questions in a
+  minute. Beyond that the request fails.
+- **Project files.** With `capabilities["project.files"]`, `read` or
+  `write`, a page has `host.files` (`src/daemon/plugin-files.ts`):
+  `list(path?, { recursive })`, `read(path)` as a Blob, `text(path)`,
+  `url(path)` for `<img>`, `<audio>` or `<video>` (a `blob:` address, which
+  the page's CSP allows), and with `write` also `write(path, text | Blob)`,
+  `createFolder`, `move(from, to)` and `delete`. Paths are relative to the
+  project. A page never reaches a hidden file or folder, so neither `.env`
+  nor an agent's or editor's settings, follows no link, and reads no file
+  that has another name (a hard link). It can't change `ohmygame.json`, an
+  agent's instructions (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and variants
+  such as `AGENTS.override.md` or `CLAUDE.local.md`), or Canvas files, and a
+  move never replaces anything. Each change is one the person can undo, as a
+  plugin command's is, so a page changes only what the project's
+  [snapshots](checkpoints.md) keep: not what a `.gitignore` leaves out, nor
+  `node_modules` or root build output. A folder it moves or deletes may hold
+  only such files, with no links, hidden files (besides `.gitkeep`, `.keep`
+  and `.DS_Store`; a `.gitignore` decides what Undo keeps, so it stays) or
+  agent instructions. A replaced file keeps its permissions. A change to a
+  file that can't be read, has other names, isn't a plain file, or is in a
+  folder that can't be listed is refused. Snapshots don't keep empty
+  folders, so making or removing one isn't in the history. A recursive
+  listing leaves out `build`, `dist`, `node_modules` and `out` and stops at
+  10,000 entries; a write is at most
+  200 MB. The agent hears of each change, and while an agent, a job or
+  publishing works in the project a change is refused. The page hears a
+  `files` event when the project's files may have changed.
+
 ### Page components
 
 `/_ohmygame/ui/<major>/index.js` defines the app's page components, which
 `packages/plugin-ui/ui/<major>/` holds. Each draws in its own Shadow DOM from
 the tokens above, so a page customizes one only through its attributes, CSS
-custom properties and `::part()`. `--omg-accent` is the plugin's brand
-colour, used only for the current step and progress; buttons stay ink.
+custom properties and `::part()`. `--omg-accent` is the plugin's
+[brand colour](#plugin-pages).
 
-Version 1 is in preview: a page's policy loads it only when the manifest has
-`"ui": { "preview": true }`. Once a major version is stable, it loads for
-every plugin, and a new one doesn't remove it for at least 12 months.
-Featured and certified plugins won't use preview components.
+Version 1 is stable and loads for every plugin; it became stable in plugin
+API 2.2.0, so a plugin that uses it without `ui.preview` asks for `^2.2.0`,
+and an older app that still has it in preview says so. A later major may first come
+out in preview: then a page's policy loads it only when the manifest has
+`"ui": { "preview": true }`. Featured and certified plugins won't use preview
+components.
+
+A stable major only grows. A change that would break a page waits for a new
+major, and both are then served side by side: a replaced major goes in
+`PLUGIN_UI_RETIRING` with the dates it was replaced and until which it stays,
+at least `PLUGIN_UI_SUPPORT_MONTHS` (12) apart. The contract check wants that
+much from the day it is listed, won't let the date move closer, and lets the
+major go only once the date has passed.
+
+To retire something inside a major, keep it working and mark it: `@deprecated
+what to use instead` on a component, or `@deprecated attr name - what to use
+instead` on one of its members (also `prop`, `method`, `fires`, `slot`, `part`,
+`cssprop`). The same words go in the component's static `deprecated` and
+`deprecatedAttributes`, which warn once in the page's console; a deprecated
+attribute must stay in `observedAttributes` so setting it later warns too. It
+can go in the next major.
 
 | Component | What it is |
 | --- | --- |
-| `omg-page` | The page's column, at most 720px wide. `heading`, `description`; slots `brand` and `actions`. |
+| `omg-page` | The page's column, at most 720px wide, or the panel's width when `wide`. `heading`, `description`; slots `brand` and `actions`. |
 | `omg-section` | A titled group. `heading`, `description`; slot `actions`. |
 | `omg-stack` | A row or column. `direction`, `gap` (`1`–`6`, the space tokens), `align`, `justify`, `wrap`. |
+| `omg-grid` | Equal columns, as many as fit at `min` pixels, or exactly `columns`. `gap`. |
+| `omg-split` | A sidebar (slot `sidebar`) beside the content, stacked when narrow. `side`: `start`, `end`; `side-width`. |
+| `omg-card` | A raised surface. `heading`, `description`; slot `actions`. |
+| `omg-list`, `omg-list-item` | Rows. An item's `heading` and `description`, its content as a value at the end; slots `leading` (an `omg-image` there is a 40px thumbnail) and `actions`. |
+| `omg-divider` | A line between groups. `label`. |
+| `omg-tabs`, `omg-tab` | One view at a time. `value` names the open tab; each `omg-tab` has a `name`, a `heading` and maybe `disabled`. Fires `omg-tab-change`. |
 | `omg-steps`, `omg-step` | A numbered flow. A step's `state` is `pending`, `current`, `done` or `error`; a current or failed step, or one that is `open`, shows its content. Slot `summary` always shows. |
+| `omg-badge` | A short label. `tone`: `neutral`, `info`, `good`, `warning`, `bad`. |
+| `omg-progress` | A bar, or a moving one without `value`. `value`, `max`, `label`. |
 | `omg-status` | A state after a coloured dot, or a spinner. `tone`: `neutral`, `good`, `warning`, `bad`, `busy`. A live region. |
 | `omg-banner` | A message across the page. `tone`: `info`, `good`, `warning`, `bad` (an alert); `heading`; slot `actions`. |
 | `omg-log` | Monospace output that scrolls. `empty` text; `follow` keeps the latest line in view; the `text` property. |
 | `omg-empty` | What to show when there is nothing yet. `heading`, `description`; slots `icon` and actions. |
 | `omg-button` | The app's button. `variant`: `secondary`, `primary`, `ghost`, `danger`; `disabled`; `busy`. |
 | `omg-command-button` | Runs one of the plugin's commands by its manifest id. `command`, and `input` as JSON or a property. While running, it is busy, shows the command's progress, and other command buttons wait unless `concurrent`; a failure shows beside it unless `quiet`, and stays its `error` attribute until the next run, so a page that draws it again can pass it on. Events: `omg-command-start` (cancelable), `omg-command-result`, `omg-command-error` (cancelable). |
-| `omg-select` | The app's select over its `<option>` children. `label` or `aria-label`, `value`, `disabled`; fires `change` and `input`. |
+| `omg-input`, `omg-textarea` | Text to type. `value`, `placeholder`, `readonly`, an input's `type`, a textarea's `rows`. |
+| `omg-select` | The app's dropdown over its `<option>` children. `value`. |
+| `omg-segmented` | A few choices side by side, from its `<option>` children. `value`. |
+| `omg-switch`, `omg-checkbox` | On or off. `checked`. A switch acts at once; a checkbox goes with the rest of a form. |
+| `omg-image` | A picture, on a raised surface until it loads and with a mark if it can't. `src`, `alt`, `ratio` (such as `16/9`) for a frame of that shape, `fit`: `contain`, `cover`; `pixelated`; `checker` behind transparent parts. Fires `load` and `error`. |
+| `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
+
+Form controls also share `label` or `aria-label`, `hint`, `error` and `disabled`, and fire `change` and `input`.
 
 The components connect to the app themselves, so a page may use them
 without calling `connect()`.
 
+Each component's doc comment is its contract: tags such as `@attr`,
+`@prop`, `@readonly`, `@fires`, `@slot`, `@part` and `@cssprop` list what a
+page may rely on, and anything else in its Shadow DOM may change in any release.
+`bun run plugin-ui:contract` writes them to
+`packages/plugin-ui/ui/<major>/custom-elements.json`, a
+[Custom Elements Manifest](https://github.com/webcomponents/custom-elements-manifest)
+that editors read, and to `index.d.ts`, with each element's type, its
+attributes and its events for `HTMLElementTagNameMap`; `@ohmygame/plugin-ui`
+exports both as `./ui/<major>`. `test/plugin-ui-components.test.ts` keeps
+them up to date and matched to what each component observes, its parts,
+slots and members. On a pull request, CI compares each major's contract
+with the target branch's: a removed component, attribute, member, event,
+slot, part or CSS property, or a changed type, fails for a stable major,
+whose breaking changes wait for the next major, and so does a stable major
+that stops being served or goes back to preview. An attribute that takes
+more values is an addition. A preview major's changes are only listed.
+`src/shared/plugin-ui-versions.ts` says which majors the app serves and
+which are in preview.
+
+`bun run plugin:check <folder>` (`scripts/plugin-check.ts`) tells an author
+what would go wrong before anyone installs the plugin. It runs the checks every
+install runs, then reads the pages. Errors, which also fail the command: an
+inline or remote script, an inline event handler, components loaded without
+`type="module"`, a major this
+app doesn't serve, a preview major without
+`ui.preview`, a component in a page's markup that doesn't exist, or components
+with nothing loading them. Warnings: preview components, a major being retired,
+`ui.major` missing or different from what the pages load, deprecated components
+or attributes, a component named in a script that doesn't exist, attributes and
+parts that don't exist, fixed colours, and custom properties that aren't the
+app's tokens or the page's own.
+
+`bun run plugin-ui:regression [--base <git ref>] [--out <folder>] [plugin folders]`
+(`scripts/plugin-ui-regression.ts`) loads panels in Electron, in both
+appearances, and fails on errors in the console or components that never
+registered. It keeps a picture of each. With `--base` it first runs on that
+ref's components, on the same machine, so only what is newly wrong fails, and
+pictures that changed are listed without failing: a change in how things look
+isn't a break. With no folders it runs this repository's panel plugins. Commands
+fail there, so each panel shows how it takes that;
+`scripts/plugin-ui-regression-scenarios.json` gives a plugin's commands results
+for other states. CI runs it on macOS and Windows, with the pictures as an
+artifact. Before a component changes, it can run on other plugins' folders too.
+
 `packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
 shows every component in its states, with commands that report progress and
-fail. It isn't bundled: add it from that folder with **Add plugin…**, allow
+fail, a toolbar command, toasts and a question. It isn't
+bundled: add it from that folder with **Add plugin…**, allow
 it, and turn it on in a project. `test/plugin-ui-components.test.ts` keeps it
 valid and using only documented components.
 

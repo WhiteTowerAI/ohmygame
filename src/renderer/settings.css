@@ -618,9 +618,18 @@
 }
 
 .settings-avatar {
+  display: grid;
   width: 48px;
   height: 48px;
   flex: none;
+  overflow: hidden;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  object-fit: cover;
 }
 
 .settings-about-logo {
@@ -644,35 +653,6 @@
 .settings-progress > .ui-progress {
   flex: 1;
   min-width: 64px;
-}
-
-.settings-details {
-  font-size: var(--text-sm);
-}
-
-.settings-details > summary {
-  width: fit-content;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.settings-details > summary:hover {
-  color: var(--color-text);
-}
-
-.settings-details[open] > summary {
-  margin-bottom: var(--space-2);
-}
-
-.settings-details code {
-  display: block;
-  max-height: 160px;
-  overflow: auto;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  background: var(--color-stage);
-  box-shadow: var(--shadow-hairline);
-  white-space: pre-wrap;
 }
 
 /* Releases fold inside the card, as in the lab; the hairlines between rows divide them. */
@@ -1269,11 +1249,6 @@
   gap: var(--space-2) var(--space-4);
 }
 
-.custom-provider-form-body .custom-provider-advanced {
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-
 .custom-provider-form-body .custom-model-use-settings {
   border-top-color: var(--color-border);
 }
@@ -1382,23 +1357,7 @@
   font-size: var(--text-sm);
 }
 
-.custom-provider-form-body .custom-provider-manual {
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
 
-.custom-provider-form-body .custom-provider-manual > summary {
-  border-radius: var(--radius-md);
-}
-
-.custom-provider-form-body .custom-provider-manual > summary:hover {
-  background: var(--color-hover);
-  color: var(--color-text);
-}
-
-.custom-provider-form-body .custom-provider-manual > summary > svg:last-child {
-  color: var(--color-text-tertiary);
-}
 
 .custom-provider-form-body .custom-provider-manual-fields {
   gap: var(--space-4);
@@ -1442,4 +1401,221 @@
 .connection-error {
   margin: 0;
   color: var(--color-danger);
+}
+
+/* ---------- account: token usage ---------- */
+
+.usage-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.usage-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+.usage-heatmap-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+}
+
+.usage {
+  display: contents;
+  --usage-color: var(--color-accent);
+}
+
+.usage-heatmap-head,
+.usage-heatmap-legend {
+  display: flex;
+  align-items: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.usage-heatmap-head {
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.usage-heatmap-facts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-heatmap {
+  display: flex;
+  gap: 3px;
+}
+
+.usage-heatmap-week {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.usage-heatmap-cell {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+
+.usage-heatmap-cell.is-level-1 { background: color-mix(in srgb, var(--usage-color) 30%, transparent); }
+.usage-heatmap-cell.is-level-2 { background: color-mix(in srgb, var(--usage-color) 55%, transparent); }
+.usage-heatmap-cell.is-level-3 { background: color-mix(in srgb, var(--usage-color) 80%, transparent); }
+.usage-heatmap-cell.is-level-4 { background: var(--usage-color); }
+.usage-heatmap-cell.is-future { visibility: hidden; }
+
+/* The chosen period stands out; days before it fade back. */
+.usage-heatmap:has(.is-in-range) .usage-heatmap-cell:not(.is-in-range) {
+  opacity: 0.45;
+}
+
+.usage-heatmap-legend {
+  justify-content: flex-end;
+  gap: 3px;
+  font-size: var(--text-xs);
+}
+
+.usage-heatmap-legend .usage-heatmap-cell {
+  width: 10px;
+}
+
+.usage-heatmap-legend > span:first-child {
+  margin-right: 3px;
+}
+
+.usage-heatmap-legend > span:last-child {
+  margin-left: 3px;
+}
+
+.usage-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(60px, 140px) 64px 40px;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: var(--space-2) var(--space-4);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-row-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.usage-row-name strong {
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-row-name > span {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.usage-row-meter {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--color-border);
+}
+
+.usage-row-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--usage-color);
+}
+
+.usage-colors {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.usage-color {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--usage-swatch);
+  cursor: pointer;
+  transition: box-shadow var(--duration-fast);
+}
+
+.usage-color:hover,
+.usage-color.is-current {
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 3.5px var(--usage-swatch);
+}
+
+.usage-color:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+.usage-row-tokens {
+  text-align: right;
+}
+
+.usage-row-share {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.usage-share-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.usage-share-controls .usage-colors {
+  margin-left: auto;
+}
+
+.usage-share-preview {
+  display: grid;
+  place-items: center;
+}
+
+.usage-share-preview svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.usage-share-spacer {
+  flex: 1;
+}
+
+/* A tall card fits the dialog by height rather than width. */
+.usage-share-preview.is-portrait svg {
+  width: auto;
+  max-width: 100%;
+  height: min(60vh, 560px);
 }

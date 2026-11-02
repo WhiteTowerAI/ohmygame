@@ -4,9 +4,7 @@
 .canvas-notice.is-warning .canvas-notice-dot { background: var(--color-warning); }
 .canvas-notice-content { flex: 1; min-width: 0; padding: 1px 0; overflow-wrap: anywhere; }
 .canvas-notice-feedback { display: block; margin-top: 3px; color: var(--color-text-tertiary); }
-.canvas-notice-content details { margin-top: 3px; color: var(--color-text-tertiary); }
-.canvas-notice-content summary { cursor: pointer; }
-.canvas-notice-content details > div { max-height: 140px; overflow: auto; margin-top: 4px; white-space: pre-wrap; }
+.canvas-notice-content .ui-disclosure { margin-top: 3px; }
 /* Callers pass plain buttons; they read as the kit's small secondary button. */
 .canvas-notice > button:not(.ui-icon-button) { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); flex-shrink: 0; height: 22px; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-sm); background: var(--color-hover); color: var(--color-text); font-size: var(--text-xs); font-weight: var(--weight-medium); white-space: nowrap; cursor: pointer; }
 .canvas-notice > button:not(.ui-icon-button):not(:disabled):hover { background: var(--color-selected); }

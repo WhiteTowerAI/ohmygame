@@ -42,6 +42,17 @@ vi.doMock(path.resolve("src/renderer/use-canvas-documents.ts"), () => ({
   useCanvasDocuments: () => ({ flush: flushDocuments }),
 }));
 vi.doMock(path.resolve("src/renderer/design-document-panel.tsx"), () => ({ DesignDocumentPanel: () => null }));
+let codeViewFails = false;
+vi.doMock(path.resolve("src/renderer/coding-workspace.tsx"), async original => {
+  const actual = await original<typeof import("../src/renderer/coding-workspace.js")>();
+  return {
+    ...actual,
+    WorkspaceCodeView: (props: Parameters<typeof actual.WorkspaceCodeView>[0]) => {
+      if (codeViewFails) throw new Error("Cannot have two HTML5 backends at the same time.");
+      return <actual.WorkspaceCodeView {...props} />;
+    },
+  };
+});
 const { PlayableEditorWorkspace } = await import("../src/renderer/playable-editor-workspace.js");
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 beforeEach(async () => {
@@ -115,6 +126,26 @@ it("lists the story's media in its Assets panel without saving the view to the l
   expect(view.textContent).not.toContain("node.js");
   await act(async () => desktopSave.prepare());
   expect(update).toHaveBeenCalledWith("p", expect.objectContaining({ editorLayout: expect.objectContaining({ view: "canvas" }) }), "0");
+});
+
+it("shows a panel's failure in that panel and keeps the others", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  codeViewFails = true;
+  try {
+    await renderPanels(["story", "code", "assets"]);
+  } finally {
+    codeViewFails = false;
+  }
+  expect(nodes.code.body.textContent).toContain("Code could not be displayed");
+  expect(nodes.code.body.textContent).toContain("Cannot have two HTML5 backends");
+  expect(nodes.assets.body.querySelector(".story-assets-view")?.textContent).toContain("platform.png");
+  expect(nodes.story.body.querySelector(".pane-error-boundary")).toBeNull();
+  expect(nodes.story.body.querySelector(".playable-editor-workspace")).not.toBeNull();
+  expect(container.querySelector(".pane-error-boundary")).toBeNull();
+  // Retrying shows the panel again.
+  await act(async () => nodes.code.body.querySelector<HTMLButtonElement>(".pane-error-boundary button")!.click());
+  expect(nodes.code.body.querySelector(".pane-error-boundary")).toBeNull();
+  vi.mocked(console.error).mockRestore();
 });
 
 it("reloads a kept Assets panel when it shows again, since the canvas writes files too", async () => {

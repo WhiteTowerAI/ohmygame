@@ -52,7 +52,7 @@ describe("plugin runtime", () => {
     const general = await services.appWideSkills({ type: "general" });
     expect(general.filter((skill) => skill.pluginDisplayName === "Game Studio")).toHaveLength(3);
     expect(general.some((skill) => skill.pluginDisplayName === "Web Game Studio")).toBe(false);
-    expect(webBefore.filter((skill) => skill.pluginDisplayName === "Web Game Studio")).toHaveLength(9);
+    expect(webBefore.filter((skill) => skill.pluginDisplayName === "Web Game Studio")).toHaveLength(10);
     expect(webBefore.some((skill) => skill.pluginDisplayName === "Game Studio")).toBe(false);
 
     await services.setEnabled("ohmygame/game-studio", false);

@@ -46,3 +46,15 @@ it("notifies when the project that finished is not on screen, even with the wind
   await finish();
   expect(shown).toEqual(["Rocket"]);
 });
+
+it("leaves desktop system notifications to the main process", async () => {
+  const original = window.ohMyGameDesktop;
+  window.ohMyGameDesktop = { notifications: {} } as typeof original;
+  try {
+    window.location.hash = "#/";
+    await finish();
+    expect(shown).toEqual([]);
+  } finally {
+    window.ohMyGameDesktop = original;
+  }
+});

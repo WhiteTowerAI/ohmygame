@@ -1,8 +1,9 @@
-// The TapTap Maker panel: a flow of steps, preparing the CLI, signing in,
-// creating or connecting the Maker project, then the native preview. It is
-// built from the app's page components; their command buttons run the
-// plugin's commands and show each one's progress and failure. A sign-in link
-// opens through the app's link dialog.
+// The TapTap Maker panel: until Maker is set up, a flow of steps, preparing the
+// CLI, signing in, then creating or connecting the Maker project. After that,
+// the native preview, with the account and project below it. It is built from
+// the app's page components; their command buttons run the plugin's commands
+// and show each one's progress and failure. A sign-in link opens through the
+// app's link dialog.
 import { connect } from "/_ohmygame/plugin-ui.js";
 
 const TEXT = {
@@ -28,6 +29,10 @@ const TEXT = {
     choose: "Choose a project",
     bind: "Connect",
     noProjects: "This account has no Maker projects yet.",
+    connection: "Connection",
+    accountRow: "Account",
+    accountSignedIn: "Signed in",
+    projectRow: "Maker project",
     preview: "Preview",
     previewHint: "The game opens in its own Maker Runtime window.",
     running: "Running",
@@ -64,6 +69,10 @@ const TEXT = {
     choose: "选择项目",
     bind: "连接",
     noProjects: "这个账号还没有 Maker 项目。",
+    connection: "连接",
+    accountRow: "账号",
+    accountSignedIn: "已登录",
+    projectRow: "Maker 项目",
     preview: "预览",
     previewHint: "游戏会在单独的 Maker Runtime 窗口里打开。",
     running: "运行中",
@@ -162,7 +171,7 @@ function h(tag, attributes = {}, ...children) {
  * before the panel redraws; a failure stays beside the button, by `key`,
  * until it runs again.
  */
-function command(label, name, { input, variant, disabled, done, key = name } = {}) {
+function command(label, name, { input, slot, variant, disabled, done, key = name } = {}) {
   // A button runs one command at a time, but can run again while the last
   // one's `done` waits. `running` counts its runs that haven't reported
   // yet; a failure when none has, such as bad input, started nothing.
@@ -175,6 +184,7 @@ function command(label, name, { input, variant, disabled, done, key = name } = {
     "omg-command-button",
     {
       command: name,
+      slot,
       variant,
       disabled,
       error: state.errors.get(key),
@@ -296,9 +306,8 @@ function projectStep(status) {
   );
 }
 
-function previewStep(status) {
+function previewSection() {
   const { preview } = state;
-  const ready = status.connection === "ready" && status.project;
   const label = { running: text.running, stopped: text.stopped, missing: text.missing, error: text.failed }[preview?.status];
   const tone = { running: "good", error: "bad", missing: "warning" }[preview?.status];
   const action = (name, label, options = {}) =>
@@ -312,9 +321,8 @@ function previewStep(status) {
       },
     });
   return h(
-    "omg-step",
-    { heading: text.preview, state: ready ? "current" : "pending" },
-    paragraph(text.previewHint),
+    "omg-section",
+    { heading: text.preview, description: text.previewHint },
     label ? h("omg-status", { tone }, label) : undefined,
     preview?.message ? h("omg-banner", { tone: preview.status === "error" ? "bad" : "warning" }, preview.message) : undefined,
     row(
@@ -328,6 +336,24 @@ function previewStep(status) {
       command(text.check, "status", { variant: "ghost", done: takeStatus }),
     ),
     state.logs === undefined ? undefined : h("omg-log", { follow: true, empty: text.noLogs, props: { text: state.logs } }),
+  );
+}
+
+function connectionSection(project) {
+  return h(
+    "omg-section",
+    { heading: text.connection },
+    h(
+      "omg-list",
+      {},
+      h(
+        "omg-list-item",
+        { heading: text.accountRow },
+        text.accountSignedIn,
+        command(text.signInAgain, "sign-in", { slot: "actions", variant: "ghost", done: takeStatus }),
+      ),
+      h("omg-list-item", { heading: text.projectRow }, project.name ?? project.id),
+    ),
   );
 }
 
@@ -346,9 +372,12 @@ function render() {
     root.replaceChildren(failure ?? h("omg-status", { tone: "busy" }, text.checking));
     return;
   }
-  root.replaceChildren(
-    ...[failure, h("omg-steps", {}, setupStep(status.connection), accountStep(status.connection), projectStep(status), previewStep(status))].filter(Boolean),
-  );
+  // Setting up happens once; after that, the panel is for the preview.
+  const content =
+    status.connection === "ready" && status.project
+      ? [previewSection(), connectionSection(status.project)]
+      : [h("omg-steps", {}, setupStep(status.connection), accountStep(status.connection), projectStep(status))];
+  root.replaceChildren(...[failure, ...content].filter(Boolean));
 }
 
 state.name = (await host.request("project.info")).name ?? "";

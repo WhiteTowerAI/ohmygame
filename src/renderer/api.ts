@@ -1,3 +1,4 @@
+import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js";
 import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
@@ -6,6 +7,8 @@ import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connect
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import { forgetLastProject } from "./general-preferences.js";
 import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
+import type { UsageStats } from "../shared/usage-stats.js";
+import type { AgentNotificationPermission, AgentNotificationPreferences, AgentNotificationTarget } from "../shared/agent-notifications.js";
 import {
   RUNTIME_EVENT_TYPES,
   type AgentContextUsage,
@@ -144,7 +147,7 @@ declare global {
       onPrepareClose?: (listener: () => Promise<void>) => () => void;
       onCancelClose?: (listener: (error: string) => void) => () => void;
       windowMenu?: {
-        popup: (label: string, x: number, y: number) => Promise<void>;
+        popup: (label: string, x: number, y: number, itemLabels: Record<string, string>) => Promise<void>;
       };
       openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
@@ -185,6 +188,21 @@ declare global {
         state: () => Promise<PlaytestWatchState>;
         setVisible: (visible: boolean) => Promise<PlaytestWatchState>;
         onState: (listener: (state: PlaytestWatchState) => void) => () => void;
+      };
+      /** Older desktop builds do not show notifications. */
+      notifications?: {
+        setPreferences: (preferences: AgentNotificationPreferences) => Promise<void>;
+        /** The conversation the window shows, so its notifications are not shown while it is in front. */
+        setView: (view: AgentNotificationTarget | null) => Promise<void>;
+        /** The conversation a clicked notification opens, once. */
+        takeTarget: () => Promise<AgentNotificationTarget | undefined>;
+        onTarget: (listener: () => void) => () => void;
+        permission: () => Promise<AgentNotificationPermission>;
+        /** Shows the system prompt if the user has not decided yet. */
+        requestPermission: () => Promise<AgentNotificationPermission>;
+        /** Asks for permission on the first prompt of each launch. */
+        promptSent: () => Promise<AgentNotificationPermission>;
+        openSettings: () => Promise<void>;
       };
       updates: {
         state: () => Promise<DesktopUpdateState | null>;
@@ -849,6 +867,11 @@ export async function publishProject(projectId: string, accessToken: string, met
  * When the background service cannot build it, the desktop app builds one
  * with the logs and the service's status.
  */
+/** Token use of OhMyGame's agent across projects, by day, project and model. */
+export async function getUsageStats(): Promise<UsageStats> {
+  return request("/usage");
+}
+
 export async function exportDiagnostics(): Promise<{ blob: Blob; fileName: string }> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 15_000);
@@ -1231,7 +1254,8 @@ export async function sendPrompt(
   attachments: PromptAttachment[] = [],
   contexts: PromptContext[] = [],
 ): Promise<PromptResponse> {
-  return request(`/projects/${projectId}/conversations/${conversationId}/turns`, {
+  // The language is for what the app says back, such as a project that isn't set up yet.
+  return request(`/projects/${projectId}/conversations/${conversationId}/turns?locale=${encodeURIComponent(language)}`, {
     method: "POST",
     body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}), ...(mentions.length ? { mentions } : {}), ...(references.length ? { references } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments: attachments.map(({ id, batchId }) => ({ id, batchId })) } : {}), ...(contexts.length ? { contexts } : {}) }),
   });
@@ -1699,6 +1723,16 @@ export async function stopPreview(projectId: string): Promise<{ preview: Project
 export async function acquirePreview(projectId: string, leaseId: string, automatic = false, paused = false): Promise<void> {
   await request(`/projects/${projectId}/preview/leases/${leaseId}`, { method: "PUT", body: JSON.stringify({ automatic, paused }) });
 }
+export function getGameTuning(projectId: string): Promise<GameTuningState> {
+  return request(`/projects/${projectId}/tuning`);
+}
+/** Passes values to the running game without saving them; null goes back to what is saved. */
+export function setGameTuningDraft(projectId: string, values: Record<string, GameTuningScalar | null>): Promise<GameTuningState> {
+  return request(`/projects/${projectId}/tuning/draft`, { method: "PUT", body: JSON.stringify({ values }) });
+}
+export function saveGameTuning(projectId: string): Promise<{ state: GameTuningState; changeId?: string }> {
+  return request(`/projects/${projectId}/tuning/save`, { method: "POST" });
+}
 /** Turns the preview page's next click into a `preview.picked` event, or stops that. */
 export async function setPreviewPicking(projectId: string, client: string, active: boolean): Promise<void> {
   await request(`/projects/${projectId}/preview/picking`, { method: "PUT", body: JSON.stringify({ client, active }) });
@@ -1728,6 +1762,7 @@ export interface PluginPanel {
   when?: string;
   capabilities: import("../shared/plugin-ui-protocol.js").PluginUiCapabilities;
   commands: string[];
+  accent?: import("../shared/plugin-ui-protocol.js").PluginAccent;
   url?: string;
 }
 
@@ -1741,6 +1776,43 @@ export async function getPluginPageValue(projectId: string, plugin: string, key:
 
 export async function setPluginPageValue(projectId: string, plugin: string, key: string, value: unknown): Promise<void> {
   await request(`/projects/${encodeURIComponent(projectId)}/plugin-storage/${plugin}/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value }) });
+}
+
+const pluginFilesPath = (projectId: string, plugin: string) => `/projects/${encodeURIComponent(projectId)}/plugin-files/${plugin}`;
+
+/** A plugin page's listing of its project's files. */
+export async function listPluginFiles(projectId: string, plugin: string, options: { path?: string; recursive?: boolean }): Promise<unknown> {
+  const query = new URLSearchParams({ ...(options.path ? { path: options.path } : {}), ...(options.recursive ? { recursive: "true" } : {}) });
+  return request(`${pluginFilesPath(projectId, plugin)}?${query}`);
+}
+
+export async function readPluginFile(projectId: string, plugin: string, filePath: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`${pluginFilesPath(projectId, plugin)}/content?path=${encodeURIComponent(filePath)}`), { headers: runtimeHeaders() });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+export async function writePluginFile(projectId: string, plugin: string, filePath: string, contents: Blob): Promise<string> {
+  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/content?path=${encodeURIComponent(filePath)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/octet-stream" },
+    body: contents,
+  });
+  return value;
+}
+
+export async function createPluginFolder(projectId: string, plugin: string, folderPath: string): Promise<string> {
+  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/folder`, { method: "POST", body: JSON.stringify({ path: folderPath }) });
+  return value;
+}
+
+export async function movePluginFile(projectId: string, plugin: string, from: string, to: string): Promise<string> {
+  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/move`, { method: "POST", body: JSON.stringify({ from, to }) });
+  return value;
+}
+
+export async function deletePluginFile(projectId: string, plugin: string, filePath: string): Promise<void> {
+  await request(`${pluginFilesPath(projectId, plugin)}?path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
 }
 
 /** The plugin commands a project offers. */

@@ -52,7 +52,7 @@ function bridge(port, hello) {
   if (hello.theme) applyTheme(hello.theme);
   // The app keeps the frame hidden until the page has its theme.
   port.postMessage({ event: "ready" });
-  return {
+  const api = {
     /** Which plugin and project the page is for. */
     plugin: hello.plugin,
     locale: hello.locale,
@@ -64,13 +64,43 @@ function bridge(port, hello) {
         port.postMessage(params === undefined ? { id, method } : { id, method, params });
       });
     },
-    /** `theme`, `visibility` and `progress` events; returns a function that stops listening. */
+    /** `theme`, `visibility`, `progress`, `command` and `files` events; returns a function that stops listening. */
     on(name, listener) {
       if (!listeners.has(name)) listeners.set(name, new Set());
       listeners.get(name).add(listener);
       return () => listeners.get(name)?.delete(listener);
     },
+    /** The project's files, for a plugin with the `project.files` capability. */
+    files: {
+      list(path, options = {}) {
+        return api.request("files.list", { ...(path ? { path } : {}), ...options });
+      },
+      /** A file's contents as a Blob. */
+      read(path) {
+        return api.request("files.read", { path });
+      },
+      async text(path) {
+        return (await api.request("files.read", { path })).text();
+      },
+      /** An address for `<img>`, `<audio>` or `<video>`; give it to `URL.revokeObjectURL` when done. */
+      async url(path) {
+        return URL.createObjectURL(await api.request("files.read", { path }));
+      },
+      write(path, contents) {
+        return api.request("files.write", { path, data: contents instanceof Blob ? contents : new Blob([contents]) });
+      },
+      createFolder(path) {
+        return api.request("files.createFolder", { path });
+      },
+      move(from, to) {
+        return api.request("files.move", { from, to });
+      },
+      delete(path) {
+        return api.request("files.delete", { path });
+      },
+    },
   };
+  return api;
 }
 
 /** The app's colour tokens, so `plugin-ui.css` and the page match the app. */

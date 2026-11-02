@@ -28,7 +28,7 @@ import type { ConversationAttachment, ConversationCapabilities, PromptContextLab
 import { getWorkspaceAsset } from "./api.js";
 import { splitPluginMentions } from "../shared/plugins.js";
 import { PluginMentionGlyph } from "./plugin-icons.js";
-import { ConversationImage } from "./image-attachments.js";
+import { ImageGallery } from "./image-viewer.js";
 import { useNearViewport } from "./asset-gallery.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
 import { ModelPreview } from "./model-preview.js";
@@ -324,9 +324,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
   return (
     <div className="user-input">
       {item.images?.length ? (
-        <div className="user-message-images">
-          {item.images.map((image, index) => <ConversationImage key={`${image.mediaType}:${index}`} image={image} alt={t("timeline.attachedImage", { number: index + 1 })} />)}
-        </div>
+        <ImageGallery className="user-message-images" images={item.images} alt={(index) => t("timeline.attachedImage", { number: index + 1 })} />
       ) : null}
       {attachments.length ? <UserAttachments attachments={attachments} /> : null}
       {item.contexts?.length ? <UserContexts contexts={item.contexts} /> : null}
@@ -598,15 +596,8 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
             <span>{label}</span>
             <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
           </summary>}>
-          <div className="image-read-previews">
-            {images.map((image, index) => (
-              <ConversationImage
-                key={`${image.mediaType}:${index}`}
-                image={image}
-                alt={image.name ?? t("timeline.viewedImageName", { number: index + 1 })}
-              />
-            ))}
-          </div>
+          <ImageGallery className="image-read-previews" images={images}
+            alt={(index) => images[index]!.name ?? t("timeline.viewedImageName", { number: index + 1 })} />
         </LazyDetails>
       );
     }
@@ -829,6 +820,7 @@ function ShellDetails({ item, command }: { item: ToolCallItem; command: string }
 
 function FileOperationDetails({ item, args }: { item: ToolCallItem; args: Record<string, unknown> | undefined }) {
   return <div className="tool-details">
+    {item.images?.length ? <ToolImagePreviews images={item.images} /> : null}
     {fileOperationContext(item.tool, args)}
     {item.output ? <ToolDetailBlock label={t("timeline.detail.result")}><pre>{item.output}</pre></ToolDetailBlock> : null}
     {item.truncated ? <p className="tool-details-truncated">{t("timeline.detail.resultTruncated")}</p> : null}
@@ -863,15 +855,8 @@ function StructuredToolDetails({ item }: { item: ToolCallItem }) {
 }
 
 function ToolImagePreviews({ images }: { images: PromptImage[] }) {
-  return <div className="tool-result-images">
-    {images.map((image, index) => (
-      <ConversationImage
-        key={`${image.mediaType}:${index}`}
-        image={image}
-        alt={image.name ?? (images.length === 1 ? t("timeline.detail.toolImage") : t("timeline.detail.toolImageNumber", { number: index + 1 }))}
-      />
-    ))}
-  </div>;
+  return <ImageGallery className="tool-result-images" images={images}
+    alt={(index) => images[index]!.name ?? (images.length === 1 ? t("timeline.detail.toolImage") : t("timeline.detail.toolImageNumber", { number: index + 1 }))} />;
 }
 
 function fileOperationContext(tool: string, args: Record<string, unknown> | undefined): ReactNode {
@@ -892,7 +877,7 @@ function hasToolDetails(item: ToolCallItem): boolean {
   if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
   if (item.tool === "bash") return Boolean(text(record(item.arguments)?.command) || item.output);
   if (["edit", "write"].includes(item.tool)) return Boolean(item.output || item.fileDiff);
-  if (["read", "grep", "find", "ls"].includes(item.tool)) return Boolean(item.output);
+  if (["read", "grep", "find", "ls"].includes(item.tool)) return Boolean(item.output || item.images?.length);
   return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
 }
 

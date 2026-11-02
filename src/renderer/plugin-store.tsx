@@ -147,6 +147,7 @@ export function StorePluginCard({ group, market, disabled, onToggle, onOpen }: {
           <span className="plugin-card-name">{plugin.displayName}</span>
           {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
           {enabled && storePluginMissing(plugin).length ? <Badge tone="outline">{t("pluginStore.needsConsent")}</Badge> : null}
+          {!enabled && !plugin.appWide ? <Badge tone="outline">{t("common.disabled")}</Badge> : null}
           {marketBlocks(group.versions, market).length ? <Badge tone="danger">{t("pluginStore.blockedBadge")}</Badge> : marketUpdate(plugin, market) ? <Badge tone="outline">{t("pluginStore.updateAvailable")}</Badge> : null}
         </strong>
         <small>{plugin.description}</small>
@@ -156,8 +157,10 @@ export function StorePluginCard({ group, market, disabled, onToggle, onOpen }: {
         </span>
       </span>
     </button>
-    <Switch size="sm" checked={enabled} disabled={disabled}
-      label={`${enabled ? t("common.disable") : t("common.enable")} ${plugin.displayName}`} onChange={onToggle} />
+    {/* A plugin a project turns on is turned on there. Its switch for every
+        project at once, which stops it wherever it is on, is on its page. */}
+    {plugin.appWide ? <Switch size="sm" checked={enabled} disabled={disabled}
+      label={`${enabled ? t("common.disable") : t("common.enable")} ${plugin.displayName}`} onChange={onToggle} /> : null}
   </article>;
 }
 

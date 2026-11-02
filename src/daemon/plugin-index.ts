@@ -20,6 +20,7 @@ import {
 import {
   agentToolName,
   pluginApiIssue,
+  pluginUiIssue,
   toolSchemaIssues,
   validatePluginManifest,
   type PluginContributions,
@@ -240,7 +241,9 @@ function checkPackage(
   if (!validated.ok) return validated;
   const manifest = validated.manifest;
   const apiIssue = pluginApiIssue(manifest);
-  if (apiIssue) issue("/engines/ohmygame-api", apiIssue);
+  if (apiIssue) issues.push({ path: "/engines/ohmygame-api", ...apiIssue });
+  const uiIssue = pluginUiIssue(manifest);
+  if (uiIssue) issues.push({ path: "/ui/major", ...uiIssue });
   const contributes: PluginContributions = manifest.contributes ?? {};
 
   // Files the manifest points at must be in the package.

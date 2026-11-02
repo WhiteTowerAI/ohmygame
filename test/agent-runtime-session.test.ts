@@ -6,6 +6,7 @@ import { CHECKPOINT_ENTRY } from "../src/daemon/checkpoint-extension.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
 import {
   NATIVE_SESSION_ENTRY,
+  NATIVE_USAGE_ENTRY,
   NativeCodingSession,
   NativeSessionExpiredError,
   latestNativeSession,
@@ -722,6 +723,8 @@ describe("coding agent sessions", () => {
             1_000,
             400,
           );
+          sink.spent({ input: 100, output: 20, cacheRead: 300, cacheWrite: 0 });
+          sink.spent({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
           return { status: "completed" };
         },
       ],
@@ -756,6 +759,27 @@ describe("coding agent sessions", () => {
       text: "Done",
       status: "completed",
     });
+    // What the turn spent is kept apart from the messages, for Settings → Account.
+    expect(
+      sessionManager
+        .getEntries()
+        .flatMap((entry) =>
+          entry.type === "custom" && entry.customType === NATIVE_USAGE_ENTRY
+            ? [entry.data]
+            : [],
+        ),
+    ).toEqual([
+      {
+        version: 1,
+        runtime: "claude-code-cli",
+        model: "sonnet",
+        input: 100,
+        output: 20,
+        cacheRead: 300,
+        cacheWrite: 0,
+        at: expect.any(Number),
+      },
+    ]);
     // The checkpoint is taken before the message is stored, as Pi's checkpoint extension does.
     const branch = sessionManager.getBranch();
     const checkpoint = branch.findIndex(

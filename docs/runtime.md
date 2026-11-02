@@ -71,6 +71,23 @@ The UI reader collects incomplete JSONL records as byte chunks and decodes
 each complete line once. Large inline images therefore do not cause repeated
 copying and scanning of the growing record; the authoritative session stays
 unchanged, including when the final record is still being appended.
+When the file has grown, the reader parses only the new records. It compares
+the first and last 64 KiB of what it read before to tell an append from a
+rewrite, which it reads again in full. Pi only appends to a session in its
+current version, so a long session no longer costs a full read for every
+message sent while a turn runs.
+
+Images in the chat, both those a person attached and those a tool returned,
+show as thumbnails. Choosing one shows it whole, fitted to the window, until Esc
+or a click closes it. Right-clicking a thumbnail or the larger image copies or
+saves it.
+
+The UI reader keeps only what the chat shows of each tool's output, 6,000
+characters from its start and from its end, so a long session's text does not
+stay in memory twice. An agent's session holds its whole transcript in memory,
+images included. A Pi session nothing has used for 15 minutes is let go, and the
+next message loads it from its file again, as after a restart. A coding agent's
+session stays, because that would only stop its process.
 
 Preview failures stay with their project. The desktop supervises unexpected
 daemon exits and reconnects the existing renderer to a fresh service generation.
@@ -380,6 +397,9 @@ URLs are accepted. This capability is available only when the daemon is owned
 by the Electron process; browser-only daemon development does not register the
 tool.
 
+`game_use` can also [record a session](preview-runtime.md#recording-a-game) to
+the Library when the person asks for a video of the game.
+
 This is deliberately a game-use runtime, not unrestricted Browser Use or
 desktop Computer Use. It provides the smallest stable surface needed for
 repeatable gameplay and visual checks without adding Playwright, Puppeteer, or
@@ -486,8 +506,8 @@ conversations, newest first, and the open project's list ends with **New
 conversation**. The rail's Back and Forward lead the top bar: beside the
 window controls on macOS, at the window's edge on Linux and in a browser. On
 Windows the app draws the title bar itself (`desktop-window-frame.tsx`): the
-window's menus, then Back and Forward, with the system's window controls at
-its right end, in the app's colours. The top bar holds the project's name as its menu (**Rename
+window's menus in the UI language, then Back and Forward, with the system's
+window controls at its right end, in the app's colours. The top bar holds the project's name as its menu (**Rename
 project…**, **Open in folder** in the desktop app, **Export project**,
 **Plugins…**, and a return to the entry page), **Play** while the Game panel
 isn't on screen, which shows it, and the **Publish** menu, which an asset canvas does
@@ -523,14 +543,14 @@ moment and the next ones show at once while the pointer moves along the icons.
 Its edge drags between
 200 and 360px (double-click restores 232px); both stay across pages and
 restarts. Settings is a page in this frame, with its sections beside the
-content in four groups: General and Appearance; AI (Agents, Providers, Web
+content in four groups: General, Appearance, and desktop Notifications; AI (Agents, Providers, Web
 Search); Connections (MCP Server, Network); and Account and About. Billing is
 hidden until it ships; `#/settings/billing` still opens it.
 `#/settings` opens General. General's choices stay on this computer
 (`src/renderer/general-preferences.ts`): where the app opens (Home, or the
 project open when it last closed), whether Enter or ⌘/Ctrl+Enter sends, a
-notification and a sound when an agent finishes while the window is in the
-background, and, in the desktop app, keeping the computer awake while an agent
+browser notification and an optional sound when an agent finishes while the
+window is in the background, and, in the desktop app, keeping the computer awake while an agent
 works and updating by itself (off by default: a found release then downloads
 in the background and installs on quit), with the project location. Each agent, OhMyGame's own included, has its own
 page at `#/settings/agents/<id>`, and Back returns to the list. Appearance
@@ -643,7 +663,91 @@ puts it, and closed ones stay closed. The chat side used to be a setting; a
 saved **Right** still decides where the chat first opens. The route's
 `design` view brings the Canvas panel forward and follows it, and a file link
 in the chat opens the file in Code, reopening its panel if it was closed; an
-asset canvas, which has no Code panel, shows it in its Canvas panel.
+asset canvas, which has no Code panel, shows it in its Canvas panel. Code loads
+its file list again when a turn ends. That refresh runs out of sight: the tree
+keeps its open folders and scroll position, and the open file stays on screen,
+also when the refresh fails. Only choosing or opening a file, or coming back from
+Changes, which builds the tree anew, scrolls the tree.
+
+## Agent notifications
+
+The desktop app shows a system notification when an agent needs the user or
+has finished, in any project, including while the main window is closed.
+
+- The daemon's `AgentNoticeLog` (`src/daemon/agent-notices.ts`) reads runtime
+  events from every project. It records an approval request, a question, a
+  plan offered for review, a finished turn, or a failed turn; a stopped turn
+  records nothing. A planning turn that leaves a plan is recorded as the plan,
+  not as a finished turn. It also lists what still waits for the user.
+- `GET /agent-notices?after=<seq>` returns the notices after `seq` and the
+  waiting list. Notices hold IDs, the kind and the project name, never prompt
+  or reply text. The log is in memory with a per-process `epoch`, so a daemon
+  restart never replays old notices.
+- The main process (`src/desktop/agent-notifications.ts`) polls the log every
+  two seconds. Requests, questions and plans are shown unless the window is in
+  front showing that conversation; finished and failed turns only while the
+  window is not in front. Each conversation keeps one notification, replaced
+  by its newer one and withdrawn once its request is answered or the
+  conversation comes to the front. Clicking it opens the conversation, opening
+  the main window first if it was closed.
+- While the window is in the background, a request also bounces the Dock icon
+  once on macOS or flashes the taskbar button on Windows. The Dock badge
+  counts conversations waiting for the user. Windows has no count on taskbar
+  buttons, so a red dot overlays the taskbar button instead.
+- On Windows, closing the main window quits the app, so notifications arrive
+  only while the window is open, minimized or in the background.
+- **Settings → Notifications** has one switch that turns notifications off.
+  It preserves the earlier General → Notifications choice when upgrading.
+  Desktop completion notices use this main-process path; browser notifications
+  and the optional General completion sound keep their existing behavior.
+  Sound follows the system's notification settings. The renderer stores the
+  choice and sends it to the main process with the notification wording in
+  the UI language.
+
+### System permission
+
+macOS asks the user once whether an app may show notifications. Electron asks
+by itself on the first notification it shows, when the user is often away and
+that notification is lost, and it cannot read the answer. So
+`src/desktop/notification-permission.ts` calls `UNUserNotificationCenter`
+through [objc-js](https://github.com/iamEvanYT/objc-js), an optional macOS-only
+dependency pinned to an exact version. No other module uses it.
+
+- The first prompt the user sends in each launch asks for permission while it
+  is undecided, so a prompt the user closed without choosing comes back on the
+  next launch. Once the user allows or blocks notifications, macOS never asks
+  again.
+- The main process reads the permission before showing new notices and shows
+  nothing while macOS blocks them. Electron reports a blocked notification as
+  shown, so the main log says `accepted by the system`, not shown.
+- Turning the switch on asks for permission while it is undecided. While
+  macOS blocks notifications, the settings page says so under the switch and
+  opens the app's page in System Settings; it reads the permission again when
+  the window comes back to the front.
+- Windows has no permission to ask for, and the app cannot tell when the user
+  turns off its notifications in Windows settings. The main process sets the
+  app user model ID to the installer's `appId`, which Windows needs to show
+  notifications; the NSIS installer writes the same ID to the Start menu
+  shortcut.
+
+Development builds run as Electron's own `com.github.Electron` bundle, which
+every Electron project on the machine shares, so the app does not read it. macOS also shows notifications only from a
+code-signed app: the Electron used by `bun run dev:desktop` is not, so its
+notifications fail with `UNErrorDomain error 1` in the main log. To try them
+in development, sign a copy of `node_modules/electron/dist/Electron.app` with
+your own identity (`codesign --force --deep --sign "<identity>"
+<copy>/Electron.app`), start with `ELECTRON_OVERRIDE_DIST_PATH=<copy> bun run
+dev:desktop`, and allow notifications for Electron in System Settings →
+Notifications if it was blocked before.
+
+To try them on Windows, install the NSIS build: Windows shows a notification
+only for an app ID that a Start menu shortcut carries, which a development run
+has none of. Keep Focus assist off, start a prompt, and switch to another app
+before the turn ends. `main.log` in `%APPDATA%\OhMyGame\logs` (see
+[diagnostics](diagnostics.md#log-files)) has one line per notice, such as
+`Agent notice 3 (completed, project …) sent to the system`, followed by
+`Notification accepted by the system` once Windows took it, or the reason it
+was not shown.
 
 ## Checkpoints
 
