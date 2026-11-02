@@ -43,7 +43,7 @@ import { RESIZABLE_CANVAS_NODE_SIZES, canvasNodeLayout, isResizableCanvasNodeTyp
 import { MAX_ASSET_CANVAS_NODES, MAX_TEXT_NODE_REFERENCES } from "../shared/asset-canvas-schema.js";
 import { createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, lastCanvasClipboard, parseCanvasClipboard, rememberCanvasClipboard, type CanvasClipboard } from "./asset-canvas-clipboard.js";
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
-import { CanvasContextMenu, EditorCanvas, isTextEntry, undoShortcut, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
+import { CanvasContextMenu, EditorCanvas, isTextEntry, ownsCanvasKeys, undoShortcut, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
 import {
   IMAGE_MAX_REFERENCE_IMAGES,
   type AssetCanvasDocument,
@@ -864,7 +864,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     if (!referenceTargetId) return;
     if (referenceSelectionUnavailable) { setReferenceTargetId(undefined); return; }
     const keyboard = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.isComposing) { event.preventDefault(); event.stopPropagation(); finishReferenceSelection(); }
+      // A panel left behind stays mounted, and Escape belongs to the one in use.
+      if (event.key === "Escape" && !event.isComposing && ownsCanvasKeys(canvasElement.current)) { event.preventDefault(); event.stopPropagation(); finishReferenceSelection(); }
     };
     window.addEventListener("keydown", keyboard);
     return () => window.removeEventListener("keydown", keyboard);

@@ -266,6 +266,15 @@ it("selects and removes canvas references through the same semantic connection, 
   await act(async () => clickText());
   expect(flowNode("image").data.promptSource).toBeUndefined();
   expect(captured.props!.edges).not.toContainEqual(expect.objectContaining({ source: "text", target: "image" }));
+  // Parked behind another panel, the canvas leaves Escape to that panel.
+  const parent = container.parentElement!, parked = document.createElement("div");
+  parked.className = "dock-parking";
+  parent.append(parked);
+  parked.append(container);
+  await press(document.body, "Escape");
+  expect(captured.props!.pickingReferences).toBe(true);
+  parent.append(container);
+  parked.remove();
   await press(container.querySelector(".interactive-story-canvas")!, "Escape");
   expect(captured.props!.pickingReferences).toBe(false);
   expect(flowNode("image").selected).toBe(true);
