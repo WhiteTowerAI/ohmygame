@@ -23,7 +23,7 @@ const actions = {
   },
   add: () => {
     const lines = log.text ? log.text.split("\n") : [];
-    log.text = [...lines, `[${new Date().toLocaleTimeString()}] Line ${lines.length + 1}`].join("\n");
+    log.text = [...lines, `Line ${lines.length + 1}`].join("\n");
   },
   clear: () => (log.text = ""),
 };

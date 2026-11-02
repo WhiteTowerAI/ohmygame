@@ -76,3 +76,23 @@ jobs:
       - run: bun run typecheck
       - run: bun run test:node-runtime
       - run: bun run test:game-recording
+      # Loads plugins' panels in Electron, on this branch's page components and,
+      # on a pull request, the target branch's, for what is newly wrong.
+      - name: Load plugins' panels on the page components
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+            bun run plugin-ui:regression --base FETCH_HEAD --out plugin-ui-regression
+          else
+            bun run plugin-ui:regression --out plugin-ui-regression
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: plugin-ui-regression-${{ matrix.os }}
+          path: plugin-ui-regression
+          if-no-files-found: ignore
+          retention-days: 14

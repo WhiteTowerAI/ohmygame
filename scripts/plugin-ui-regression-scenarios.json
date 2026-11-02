@@ -1,0 +1,17 @@
+{
+  "ohmygame/taptap-maker": {
+    "needs-setup": {
+      "status": { "connection": "needs-setup" }
+    },
+    "needs-auth": {
+      "status": { "connection": "needs-auth" }
+    },
+    "no-project": {
+      "status": { "connection": "ready" }
+    },
+    "running": {
+      "status": { "connection": "ready", "project": { "id": "demo", "name": "Demo game" } },
+      "preview": { "status": "running" }
+    }
+  }
+}
