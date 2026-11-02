@@ -83,18 +83,23 @@ describe("desktop preload", () => {
     expect(preload.exposed.size).toBe(0);
   });
 
-  it("passes the window menu's translated labels to the main process", () => {
+  it("opens window menus by id and passes the application menu's labels to the main process", () => {
     const preload = runPreload({
       runtime: { url: "http://127.0.0.1:43110", token: "secret-token" },
     });
 
     preload.run();
     const desktop = preload.exposed.get("ohMyGameDesktop") as {
-      windowMenu: { popup(label: string, x: number, y: number, itemLabels: Record<string, string>): unknown };
+      windowMenu: {
+        popup(id: string, x: number, y: number): unknown;
+        setLabels(labels: Record<string, string>): unknown;
+      };
     };
-    void desktop.windowMenu.popup("Edit", 1, 2, { undo: "撤销" });
+    void desktop.windowMenu.popup("Edit", 1, 2);
+    void desktop.windowMenu.setLabels({ undo: "撤销" });
 
-    expect(preload.invoke).toHaveBeenCalledWith("ohmygame:popup-window-menu", "Edit", 1, 2, { undo: "撤销" });
+    expect(preload.invoke).toHaveBeenCalledWith("ohmygame:popup-window-menu", "Edit", 1, 2);
+    expect(preload.invoke).toHaveBeenCalledWith("ohmygame:set-application-menu-labels", { undo: "撤销" });
   });
 
   it("exposes nothing to embedded frames", () => {

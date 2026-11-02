@@ -147,7 +147,9 @@ declare global {
       onPrepareClose?: (listener: () => Promise<void>) => () => void;
       onCancelClose?: (listener: (error: string) => void) => () => void;
       windowMenu?: {
-        popup: (label: string, x: number, y: number, itemLabels: Record<string, string>) => Promise<void>;
+        popup: (id: string, x: number, y: number) => Promise<void>;
+        /** Names the application menu's items, in the app's language. */
+        setLabels: (labels: Record<string, string>) => Promise<void>;
       };
       openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;

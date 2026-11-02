@@ -29,12 +29,13 @@ for `Intl` and `toLocale*` formatting.
   `label`.
 - Daemon and provider error details. The renderer shows them as received,
   under a translated title when there is one.
-- The native Electron menus on macOS and Linux, main-process dialogs, the
-  published game player, and the web game host page. Two things in the main
-  process are the exception, because the renderer sends it their wording: system
-  notifications (see [agent notifications](runtime.md#agent-notifications)) and
-  the menus of the Windows title bar, labelled by menu item role from
-  `windowMenu.items`.
+- Main-process dialogs, the published game player, and the web game host page.
+  Two things in the main process are the exception, because the renderer sends
+  it their wording: system notifications (see
+  [agent notifications](runtime.md#agent-notifications)) and the application
+  menu, which is the macOS menu bar and the menus of the Windows title bar. It
+  takes `windowMenu` when the main window loads (`src/desktop/application-menu.ts`)
+  and is in English until then.
 - Content from outside the app: examples, plugin and skill descriptions,
   Community games, provider and model names.
 

@@ -11,7 +11,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   listProjects: async () => [project("old", "Old Garden", "2026-10-01T00:00:00Z"), project("new", "New Rocket", "2026-10-20T00:00:00Z")],
 }));
 const { CommandMenuHost, openCommandMenu, useCommands, useLeaveGuard } = await import("../src/renderer/command-menu.js");
-const { DesktopWindowFrame } = await import("../src/renderer/desktop-window-frame.js");
+const { DesktopWindowFrame, sendApplicationMenuLabels } = await import("../src/renderer/desktop-window-frame.js");
 
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 const navigate = vi.fn((hash: string) => { window.location.hash = hash; });
@@ -161,7 +161,7 @@ it("leaves the page through its guard from the Windows title bar's back and forw
   forward.mockRestore();
 });
 
-it("opens the Windows title bar's menus in the app's language", async () => {
+it("shows the Windows title bar's menus in the app's language and opens them by id", async () => {
   const popup = vi.fn(async () => undefined);
   vi.stubGlobal("ohMyGameDesktop", { platform: "win32", windowMenu: { popup } });
   await i18next.changeLanguage("zh-CN");
@@ -170,11 +170,27 @@ it("opens the Windows title bar's menus in the app's language", async () => {
     const menus = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
     expect(menus.map((menu) => menu.textContent)).toEqual(["文件", "编辑", "视图", "窗口"]);
     await act(async () => menus[1]!.click());
-    // The main process finds the menu by its English name and labels its items from these.
-    expect(popup).toHaveBeenCalledWith("Edit", 0, 0, expect.objectContaining({ undo: "撤销", selectall: "全选" }));
+    expect(popup).toHaveBeenCalledWith("Edit", 0, 0);
   } finally {
     await i18next.changeLanguage("en");
   }
+});
+
+it("sends the application menu's labels in the app's language", async () => {
+  const setLabels = vi.fn(async () => undefined);
+  vi.stubGlobal("ohMyGameDesktop", { platform: "darwin", windowMenu: { setLabels } });
+  await i18next.changeLanguage("zh-CN");
+  try {
+    sendApplicationMenuLabels();
+    expect(setLabels).toHaveBeenCalledWith(expect.objectContaining({ file: "文件", undo: "撤销", quitMac: "退出 OhMyGame" }));
+  } finally {
+    await i18next.changeLanguage("en");
+  }
+});
+
+it("has no application menu to label in the browser", () => {
+  vi.stubGlobal("ohMyGameDesktop", undefined);
+  expect(() => sendApplicationMenuLabels()).not.toThrow();
 });
 
 it("leaves Settings alone on ⌘, when it is already open", async () => {

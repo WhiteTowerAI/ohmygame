@@ -4,7 +4,7 @@ import { leave } from "./command-menu.js";
 import { ArrowLeft, ArrowRight } from "./icons.js";
 import { t } from "./i18n.js";
 
-// Each id names a menu in the English application menu, which the main process finds it by.
+// Each id names a menu of the application menu, whatever the language.
 const WINDOW_MENUS = [
   { id: "File", label: () => t("windowMenu.file") },
   { id: "Edit", label: () => t("windowMenu.edit") },
@@ -15,6 +15,11 @@ const WINDOW_MENUS = [
 /** Windows draws no title bar of its own here: the app's holds its menus and back and forward. */
 export function hasWindowsTitleBar(): boolean {
   return window.ohMyGameDesktop?.platform === "win32" && !!window.ohMyGameDesktop.windowMenu;
+}
+
+/** Puts the application menu in the app's language. A language change reloads the page, which sends it again. */
+export function sendApplicationMenuLabels(): void {
+  void window.ohMyGameDesktop?.windowMenu?.setLabels(t("windowMenu", { returnObjects: true })).catch(() => undefined);
 }
 
 export function DesktopWindowFrame({ children }: { children: ReactNode }) {
@@ -35,8 +40,7 @@ function DesktopWindowMenu() {
 
   function openMenu(id: typeof WINDOW_MENUS[number]["id"], event: MouseEvent<HTMLButtonElement>): void {
     const bounds = event.currentTarget.getBoundingClientRect();
-    const itemLabels = t("windowMenu.items", { returnObjects: true });
-    void windowMenu.popup(id, bounds.left, bounds.bottom, itemLabels).catch(() => undefined);
+    void windowMenu.popup(id, bounds.left, bounds.bottom).catch(() => undefined);
   }
 
   return <header className="desktop-window-menu-bar">
