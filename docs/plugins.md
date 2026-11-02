@@ -477,8 +477,8 @@ The app also draws around and over a page, with what a page can't change:
   command's is, so a page changes only what the project's
   [snapshots](checkpoints.md) keep: not what a `.gitignore` leaves out, nor
   `node_modules` or root build output. A folder it moves or deletes may hold
-  only such files, with no links, hidden files (besides `.gitignore`,
-  `.gitkeep`, `.keep` and `.DS_Store`) or agent instructions. A replaced file
+  only such files, with no links, hidden files (besides `.gitkeep`, `.keep`
+  and `.DS_Store`; a `.gitignore` decides what Undo keeps, so it stays) or agent instructions. A replaced file
   keeps its permissions. A change to a file that can't be read, has other
   names, or isn't a plain file is refused. Snapshots don't keep empty
   folders, so making or removing one isn't in the history. A recursive listing leaves out `build`, `dist`,

@@ -28,7 +28,9 @@ const LIST_MAX_ENTRIES = 10_000;
 /** A recursive listing doesn't go into what tools generate; a listing of one of these still shows it. */
 const GENERATED_DIRECTORIES = new Set(["build", "dist", "node_modules", "out"]);
 /** Names a moved or deleted folder may hold although they are hidden: no secret or setting, and kept or meant to be lost. */
-const HARMLESS_HIDDEN = new Set([".ds_store", ".gitignore", ".gitkeep", ".keep"]);
+// Not a .gitignore: its rules decide what snapshots keep, so taking one away
+// with its folder would also take what it kept out of Undo's reach.
+const HARMLESS_HIDDEN = new Set([".ds_store", ".gitkeep", ".keep"]);
 /** What tells an agent how to work; a page changing it would be telling the agent what to do. */
 // Agents also read variants of them, such as Codex's AGENTS.override.md and Claude Code's CLAUDE.local.md.
 const isAgentInstructions = (name: string) => /^(?:agents|claude|gemini)(?:\.[^.]+)*\.md$/i.test(name);

@@ -160,6 +160,14 @@ describe("plugin page files API", () => {
     expect((await app.inject({ method: "POST", url: `${base}/move`, payload: { from: "sprites", to: "secret/sprites" } })).statusCode).toBe(403);
     expect((await app.inject({ method: "POST", url: `${base}/move`, payload: { from: "sprites", to: "art/sprites" } })).statusCode).toBe(200);
     expect((await app.inject({ method: "DELETE", url: `${base}?path=art/sprites` })).statusCode).toBe(200);
+    // A folder's own .gitignore decides what Undo keeps of it, so the folder stays.
+    await writeFile(workspace(".gitignore"), "*.log\nsecret/\nnotes/*.txt\n");
+    await mkdir(workspace("notes"));
+    await writeFile(workspace("notes/.gitignore"), "!important.txt\n");
+    await writeFile(workspace("notes/important.txt"), "keep me");
+    expect((await app.inject({ method: "DELETE", url: `${base}?path=notes` })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `${base}/move`, payload: { from: "notes", to: "archive" } })).statusCode).toBe(403);
+    expect(await readFile(workspace("notes/important.txt"), "utf8")).toBe("keep me");
   });
 
   it("reads no file that has another name, and keeps a file's permissions when it replaces it", async () => {
