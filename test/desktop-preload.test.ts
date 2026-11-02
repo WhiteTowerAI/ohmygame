@@ -45,7 +45,7 @@ function runPreload(options: {
       module,
       module.exports,
     );
-  return { exposed, sendSync, run };
+  return { exposed, sendSync, invoke: electron.ipcRenderer.invoke, run };
 }
 
 describe("desktop preload", () => {
@@ -81,6 +81,20 @@ describe("desktop preload", () => {
 
     expect(preload.run).toThrow("Missing desktop runtime");
     expect(preload.exposed.size).toBe(0);
+  });
+
+  it("passes the window menu's translated labels to the main process", () => {
+    const preload = runPreload({
+      runtime: { url: "http://127.0.0.1:43110", token: "secret-token" },
+    });
+
+    preload.run();
+    const desktop = preload.exposed.get("ohMyGameDesktop") as {
+      windowMenu: { popup(label: string, x: number, y: number, itemLabels: Record<string, string>): unknown };
+    };
+    void desktop.windowMenu.popup("Edit", 1, 2, { undo: "撤销" });
+
+    expect(preload.invoke).toHaveBeenCalledWith("ohmygame:popup-window-menu", "Edit", 1, 2, { undo: "撤销" });
   });
 
   it("exposes nothing to embedded frames", () => {
