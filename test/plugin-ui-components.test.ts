@@ -357,6 +357,57 @@ describe("page components", () => {
     expect(shadow(progress, "bar").classList.contains("moving")).toBe(true);
   });
 
+  it("frames a picture, and says when it loaded or couldn't", () => {
+    type Image = HTMLElement & { complete: boolean; naturalWidth: number };
+    const image = html<Image>(`<omg-image src="a.png" alt="A slime" ratio="16 / 9" fit="cover"></omg-image>`);
+    const picture = shadow(image, "image") as HTMLImageElement;
+    const frame = shadow(image, "frame");
+    expect([picture.getAttribute("src"), picture.alt, frame.style.aspectRatio]).toEqual(["a.png", "A slime", "16 / 9"]);
+    expect([image.complete, frame.classList.contains("loaded")]).toEqual([false, false]);
+    const events: string[] = [];
+    image.addEventListener("load", () => events.push("load"));
+    image.addEventListener("error", () => events.push("error"));
+    picture.dispatchEvent(new Event("load"));
+    expect([events, image.complete, frame.classList.contains("loaded"), shadow(image, "broken").hidden]).toEqual([["load"], true, true, true]);
+
+    // A new picture loads afresh, and a late report for the old one is ignored.
+    image.setAttribute("src", "missing.png");
+    expect([image.complete, image.naturalWidth]).toEqual([false, 0]);
+    picture.dispatchEvent(new Event("error"));
+    expect([events, image.complete, shadow(image, "broken").hidden]).toEqual([["load", "error"], true, false]);
+    picture.dispatchEvent(new Event("load"));
+    expect(events).toEqual(["load", "error"]);
+
+    // A shape it can't use leaves the picture at its own.
+    for (const ratio of ["0", "-1/2", "wide", "4/0"]) {
+      image.setAttribute("ratio", ratio);
+      expect(frame.style.aspectRatio, ratio).toBe("");
+    }
+    image.setAttribute("ratio", "1.5");
+    expect(frame.style.aspectRatio).toBe("1.5 / 1");
+    image.removeAttribute("src");
+    expect([picture.hasAttribute("src"), shadow(image, "broken").hidden]).toEqual([false, true]);
+  });
+
+  it("draws a tile as a button with its picture and name", () => {
+    type Tile = HTMLElement & { selected: boolean; disabled: boolean };
+    const tile = html<Tile>(`<omg-tile heading="slime.png" description="PNG" badge="4 frames" src="slime.png" pixelated selected></omg-tile>`);
+    const button = shadow(tile, "tile") as HTMLButtonElement;
+    const image = shadow(tile, "image");
+    expect([shadow(tile, "heading").textContent, shadow(tile, "heading").title, shadow(tile, "description").textContent, shadow(tile, "badge").textContent]).toEqual(["slime.png", "slime.png", "PNG", "4 frames"]);
+    expect([image.getAttribute("src"), image.hasAttribute("pixelated"), image.getAttribute("fit")]).toEqual(["slime.png", true, "cover"]);
+    expect(shadow(tile, "preview").style.aspectRatio).toBe("4 / 3");
+    expect(button.getAttribute("aria-current")).toBe("true");
+    tile.selected = false;
+    tile.disabled = true;
+    tile.setAttribute("fit", "contain");
+    tile.setAttribute("ratio", "1");
+    tile.removeAttribute("badge");
+    tile.removeAttribute("pixelated");
+    expect([button.hasAttribute("aria-current"), button.disabled, image.getAttribute("fit"), image.hasAttribute("pixelated"), shadow(tile, "badge").hidden]).toEqual([false, true, "contain", false, true]);
+    expect(shadow(tile, "preview").style.aspectRatio).toBe("1 / 1");
+  });
+
   it("starts on the option marked selected when it has no value", async () => {
     const select = html<HTMLElement & { value: string }>(`<omg-select aria-label="Project"><option value="a">Alpha</option><option value="b" selected>Beta</option></omg-select>`);
     await settle();
@@ -517,6 +568,7 @@ describe("page components' contract", () => {
         "@attr {'a' | 'b  c'} mode - The mode,",
         "  over two lines.",
         '@prop {{ close: "}" }} value - A value.',
+        "@readonly {number} size - How big it is.",
         "@method run",
         "@fires {{ id: string }} omg-x-done - Done.",
         "@fires change",
@@ -539,6 +591,7 @@ describe("page components' contract", () => {
       attributes: [{ name: "mode", type: { text: "'a' | 'b  c'" }, description: "The mode, over two lines." }],
       members: [
         { kind: "field", name: "value", type: { text: '{ close: "}" }' } },
+        { kind: "field", name: "size", type: { text: "number" }, readonly: true },
         { kind: "method", name: "run", return: { type: { text: "void" } } },
       ],
       events: [
@@ -655,6 +708,9 @@ describe("page components' contract", () => {
     ]);
     const run = (kind: "field" | "method") => contract([], { members: [{ kind, name: "run", ...(kind === "method" ? { return: { type: { text: "void" } } } : { type: { text: "void" } }) }] });
     expect(contractChanges(run("method"), run("field")).breaking).toEqual(["<omg-button> member run became a property"]);
+    const size = (readonly: boolean) => contract([], { members: [{ kind: "field", name: "size", type: { text: "number" }, ...(readonly ? { readonly } : {}) }] });
+    expect(contractChanges(size(false), size(true))).toEqual({ breaking: ["<omg-button> member size became read-only"], added: [] });
+    expect(contractChanges(size(true), size(false))).toEqual({ breaking: [], added: ["<omg-button> member size can be set"] });
     expect(contractChanges(contract([{ name: "mode", type: { text: "'a'" } }]), contract([{ name: "mode", type: { text: '"a" | "b"' } }])).added).toEqual([
       '<omg-button> attribute mode takes "b"',
     ]);

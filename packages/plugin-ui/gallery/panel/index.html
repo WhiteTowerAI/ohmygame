@@ -158,6 +158,35 @@
             <omg-status id="chosen"></omg-status>
           </omg-section>
         </omg-tab>
+        <omg-tab name="media" heading="Media">
+          <omg-section heading="omg-image" description="A picture: in a frame of a given shape, or at its own size.">
+            <omg-grid min="140">
+              <omg-image src="../assets/scene.svg" alt="Hills under a sun" ratio="16/9" fit="cover"></omg-image>
+              <omg-image src="../assets/sprite.png" alt="A green slime" ratio="16/9" pixelated checker></omg-image>
+              <omg-image src="../assets/missing.png" alt="A picture that isn't there" ratio="16/9"></omg-image>
+            </omg-grid>
+          </omg-section>
+
+          <omg-section heading="omg-tile" description="A picture with its name, to pick from a grid.">
+            <omg-grid id="tiles" min="140">
+              <omg-tile heading="hills.svg" description="SVG &middot; 1 KB" src="../assets/scene.svg" selected></omg-tile>
+              <omg-tile heading="slime.png" description="PNG &middot; 16 &times; 16" src="../assets/sprite.png" fit="contain" pixelated checker badge="4 frames"></omg-tile>
+              <omg-tile heading="a-very-long-file-name-for-the-intro-scene.png" description="Missing" src="../assets/missing.png"></omg-tile>
+              <omg-tile heading="locked.png" description="Can't be picked" src="../assets/scene.svg" disabled></omg-tile>
+            </omg-grid>
+          </omg-section>
+
+          <omg-section heading="Pictures in a list" description="A picture before a row's title is a thumbnail.">
+            <omg-list>
+              <omg-list-item heading="Hills" description="Background">
+                <omg-image slot="leading" src="../assets/scene.svg" alt="" ratio="1" fit="cover"></omg-image>
+              </omg-list-item>
+              <omg-list-item heading="Slime" description="Sprite">
+                <img slot="leading" src="../assets/sprite.png" alt="" style="image-rendering: pixelated">
+              </omg-list-item>
+            </omg-list>
+          </omg-section>
+        </omg-tab>
         <omg-tab name="feedback" heading="Feedback">
           <omg-section heading="omg-status">
             <omg-stack direction="row" gap="4" wrap>
