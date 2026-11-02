@@ -30,6 +30,18 @@ jobs:
       - run: bun run prepare:preinstalled-plugins
       - run: bun run typecheck
       - run: bun run lint
+      # The page components' contract: up to date, and on a pull request no
+      # breaking change to a stable major since the branch it targets.
+      - name: Check the page components' contract
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+            bun run plugin-ui:contract --check --base FETCH_HEAD
+          else
+            bun run plugin-ui:contract --check
+          fi
       - run: bun run test:ablation --dry-run
       - run: bun run test
       - run: bun run build:renderer

@@ -23,6 +23,13 @@ function announce(element, role) {
  * `<omg-status tone="neutral|good|warning|bad|busy">`: a short state, such as
  * "Running", after a coloured dot, or a spinner while busy. It is a live
  * region, so a change is read out.
+ *
+ * @attr {"neutral" | "good" | "warning" | "bad" | "busy"} tone - Neutral by default.
+ * @slot - The state, in a few words.
+ * @part indicator - The dot.
+ * @part spinner - The spinner shown while busy.
+ * @part label - The state.
+ * @cssprop --omg-accent - The plugin's brand colour, for the busy spinner.
  */
 class OmgStatus extends OmgElement {
   static observedAttributes = ["tone"];
@@ -48,6 +55,14 @@ class OmgStatus extends OmgElement {
  * `<omg-banner tone="info|good|warning|bad" heading>`: a message across the
  * page, such as a failure and what to do about it. Slots: the message, and
  * `actions`. A `bad` banner is an alert; the others are a status.
+ *
+ * @attr {"info" | "good" | "warning" | "bad"} tone - Plain by default.
+ * @attr {string} heading - A title above the message.
+ * @slot - The message.
+ * @slot actions - Buttons after the message.
+ * @part heading - The title.
+ * @part message - The message.
+ * @part actions - The buttons' row; hidden when empty.
  */
 class OmgBanner extends OmgElement {
   static observedAttributes = ["tone", "heading"];
@@ -85,6 +100,14 @@ class OmgBanner extends OmgElement {
  * monospace type, scrolling past `--omg-log-height` (280px). Its text is
  * its content, or set `text`. With `follow`, it keeps the latest line in
  * view unless the person scrolled up.
+ *
+ * @attr {string} empty - What it says with no lines.
+ * @attr {boolean} follow - Keeps the latest line in view.
+ * @prop {string} text - Its lines.
+ * @slot - Its lines, as text.
+ * @part log - The lines; hidden with none.
+ * @part empty - The text shown with no lines.
+ * @cssprop [--omg-log-height=280px] - How tall it grows before it scrolls.
  */
 class OmgLog extends OmgElement {
   static observedAttributes = ["empty"];
@@ -147,6 +170,8 @@ const CHECK = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true
  * `<omg-step heading state="pending|current|done|error" open>`; a current or
  * failed step shows its content, and `open` shows it in any state. Slots of
  * a step: `summary`, always shown under its heading, and its content.
+ *
+ * @slot - Its `omg-step` elements.
  */
 class OmgSteps extends OmgElement {
   static styles = [css(`:host { display: flex; flex-direction: column; }`)];
@@ -164,6 +189,21 @@ class OmgSteps extends OmgElement {
   }
 }
 
+/**
+ * `<omg-step heading state open>`: one step of an `omg-steps` flow.
+ *
+ * @attr {string} heading - What the step does.
+ * @attr {"pending" | "current" | "done" | "error"} state - Pending by default.
+ * @attr {boolean} open - Shows its content in any state.
+ * @attr {string} number - Its place in the flow, which `omg-steps` sets.
+ * @slot summary - Always shown under the heading, such as what a finished step did.
+ * @slot - What the step shows while it is current or failed.
+ * @part marker - The number, check or failure mark.
+ * @part heading - The heading.
+ * @part summary - The summary; hidden when empty.
+ * @part body - The content.
+ * @cssprop --omg-accent - The plugin's brand colour, for the current step's mark.
+ */
 class OmgStep extends OmgElement {
   static observedAttributes = ["heading", "state", "open", "number"];
   static styles = [

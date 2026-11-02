@@ -452,6 +452,25 @@ Featured and certified plugins won't use preview components.
 The components connect to the app themselves, so a page may use them
 without calling `connect()`.
 
+Each component's doc comment is its contract: tags such as `@attr`,
+`@prop`, `@fires`, `@slot`, `@part` and `@cssprop` list what a page may rely
+on, and anything else in its Shadow DOM may change in any release.
+`bun run plugin-ui:contract` writes them to
+`packages/plugin-ui/ui/<major>/custom-elements.json`, a
+[Custom Elements Manifest](https://github.com/webcomponents/custom-elements-manifest)
+that editors read, and to `index.d.ts`, with each element's type, its
+attributes and its events for `HTMLElementTagNameMap`; `@ohmygame/plugin-ui`
+exports both as `./ui/<major>`. `test/plugin-ui-components.test.ts` keeps
+them up to date and matched to what each component observes, its parts,
+slots and members. On a pull request, CI compares each major's contract
+with the target branch's: a removed component, attribute, member, event,
+slot, part or CSS property, or a changed type, fails for a stable major,
+whose breaking changes wait for the next major, and so does a stable major
+that stops being served or goes back to preview. An attribute that takes
+more values is an addition. A preview major's changes are only listed.
+`src/shared/plugin-ui-versions.ts` says which majors the app serves and
+which are in preview.
+
 `packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
 shows every component in its states, with commands that report progress and
 fail. It isn't bundled: add it from that folder with **Add plugin…**, allow
