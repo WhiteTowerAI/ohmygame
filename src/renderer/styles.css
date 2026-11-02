@@ -10078,6 +10078,15 @@ summary.work-summary:hover {
   white-space: nowrap;
 }
 
+.message-queue-time {
+  flex: none;
+  color: var(--color-text-tertiary);
+}
+
+.message-queue-time.is-missed {
+  color: var(--color-warning);
+}
+
 /* Hidden actions leave the text its room, and stay reachable by keyboard. */
 .message-queue-actions {
   display: flex;

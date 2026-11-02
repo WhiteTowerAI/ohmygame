@@ -387,7 +387,7 @@ describe("renderer project API", () => {
       settings: {},
       plan: { mode: "normal" },
       items: [{ id: "one", turnId: "turn-1", type: "userMessage", text: "Hi" }],
-      pendingPrompts: [],
+      pendingPrompts: [], scheduledMessages: [],
       cursor: 4,
     };
     const fetchMock = vi.fn(async () => Response.json(detail));

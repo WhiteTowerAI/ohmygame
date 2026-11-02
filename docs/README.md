@@ -53,6 +53,21 @@ are `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
 **Import project**: the archive layout and manifest, what an export leaves out,
 and how an import becomes a new project.
 
+`/later <time> [message]` in a project's composer sends a message at a set time,
+for any model. A time is `30m`, `2h`, `1d`, a plain number of hours, or `02:30`
+for its next local occurrence; with no message it sends
+`Continue where you left off.` Only text can be scheduled, outside plan mode.
+`src/daemon/scheduled-messages.ts` saves messages in the data directory and sends
+them while OhMyGame is open, whichever conversation is showing. A message that is
+due waits until the project's agents have finished, any plan has ended, its model
+is on and its project is ready, then goes to the conversation's current model and
+account. One that came due with OhMyGame closed is shown as missed and is never
+sent by itself: editing it puts its text back in the composer to send or
+reschedule. A message for a conversation that is deleted or archived by its time
+is dropped, as is one for a new conversation with no reply yet when OhMyGame
+restarts, because such a conversation isn't saved.
+`src/renderer/later-command.ts` reads the command.
+
 **Settings → Account** shows agents' token use and time whether or not someone
 is signed in: totals, a year of daily activity, use by model and project, and an
 image to share in three layouts, with the signed-in person's avatar and name

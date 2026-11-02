@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { AgentUsageLimit, ConversationCapabilities } from "../shared/contracts.js";
 import { AgentUsageInline } from "./agent-usage.js";
-import { ClipboardList, FileText, Paperclip, Plug, Plus, Share2, Sparkles, WandSparkles } from "./icons.js";
+import { ClipboardList, Clock, FileText, Paperclip, Plug, Plus, Share2, Sparkles, WandSparkles } from "./icons.js";
 import { attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
 import { matchingMentions, mentionQuery, slashCommandQuery, skillDisplayName, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { t } from "./i18n.js";
@@ -10,7 +10,7 @@ import { DropdownMenu, Kbd, type MenuEntry } from "./ui/index.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 import type { PromptInput } from "./prompt-editor.js";
 
-type ContextAction = "plan" | "compact" | "publish";
+type ContextAction = "plan" | "compact" | "publish" | "later";
 interface ContextMenuItem {
   id: string;
   section: "Commands" | "Plugins" | "Skills";
@@ -38,12 +38,13 @@ const slashName = (command: ProjectPluginCommand) => command.slash ?? command.id
  * plugins and skills, "$" the skills. With no query it is the "/" list, as
  * the + menu opens it. Attaching files and the modes live in the + menu.
  */
-export function composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact = false, contextPercent, canPublish = false, pluginCommands = [] }: {
+export function composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact = false, showLater = false, contextPercent, canPublish = false, pluginCommands = [] }: {
   capabilities: ConversationCapabilities;
   query?: ComposerMentionQuery;
   planning: boolean;
   canTogglePlanning: boolean;
   showCompact?: boolean;
+  showLater?: boolean;
   contextPercent?: number;
   canPublish?: boolean;
   pluginCommands?: ProjectPluginCommand[];
@@ -52,12 +53,13 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
   const actions: ContextMenuItem[] = trigger !== "/" ? [] : [
     ...(canTogglePlanning ? [{ id: "plan", command: "plan" as const, section: "Commands" as const, label: t("planMode.mode"), description: planning ? t("planMode.turnOff") : t("planMode.turnOn"), action: "plan" as const }] : []),
     ...(showCompact ? [{ id: "compact", command: "compact" as const, section: "Commands" as const, label: t("planMode.compact"), description: `${t("planMode.compactHint")}${contextPercent === undefined ? "" : t("planMode.full", { percent: contextPercent })}`, action: "compact" as const }] : []),
+    ...(showLater ? [{ id: "later", command: "later" as const, section: "Commands" as const, label: t("later.command"), description: t("later.command"), action: "later" as const }] : []),
     ...(canPublish ? [{ id: "publish", command: "publish" as const, section: "Commands" as const, label: t("contextMenu.publish"), description: t("contextMenu.publishHint"), action: "publish" as const }] : []),
     ...pluginCommands.map((command): ContextMenuItem => ({ id: `command:${command.id}`, command: slashName(command), section: "Commands", label: command.title, description: command.title, source: command.plugin, pluginCommand: command })),
   ];
   const search = query?.query ?? "";
   return [
-    ...actions.filter((item) => item.command!.startsWith(search) || (item.command === "compact" && search.startsWith("compact "))),
+    ...actions.filter((item) => item.command!.startsWith(search) || (item.command === "compact" && search.startsWith("compact ")) || (item.command === "later" && search.startsWith("later "))),
     ...matchingMentions(planning ? { plugins: capabilities.plugins, skills: [] } : capabilities, query ?? { start: 0, end: 0, trigger: "/", query: "" }).map((mention): ContextMenuItem => {
       const skillName = mention.type === "skill" ? skillDisplayName(mention.value.name) : undefined;
       return {
@@ -72,7 +74,7 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
   ];
 }
 
-export function useComposerContextMenu({ prompt, cursor, input, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onPublish, onMention, onChange, onSelectionChange, contextPercent, canPublish, usageLimits, pluginCommands, onPluginCommand }: {
+export function useComposerContextMenu({ prompt, cursor, input, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onLater, onPublish, onMention, onChange, onSelectionChange, contextPercent, canPublish, usageLimits, pluginCommands, onPluginCommand }: {
   prompt: string;
   cursor: number;
   input: RefObject<PromptInput | null>;
@@ -84,6 +86,7 @@ export function useComposerContextMenu({ prompt, cursor, input, disabled, capabi
   onDesignReference?: () => void;
   onTogglePlanning: () => void;
   onCompact?: () => void;
+  onLater?: () => void;
   onPublish?: () => void;
   onMention: (mention: ComposerMention, query?: ComposerMentionQuery) => void;
   onChange: (value: string) => void;
@@ -107,7 +110,7 @@ export function useComposerContextMenu({ prompt, cursor, input, disabled, capabi
   const typed = mentionKey === dismissed ? undefined : candidate;
   const query: ComposerMentionQuery | undefined = typed ?? (openedWith ? { start: cursor, end: cursor, trigger: openedWith, query: "" } : undefined);
   const open = !disabled && Boolean(query);
-  const items = composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact: Boolean(onCompact), contextPercent, canPublish, pluginCommands: onPluginCommand ? pluginCommands?.slash : undefined });
+  const items = composerContextItems({ capabilities, query, planning, canTogglePlanning, showCompact: Boolean(onCompact), showLater: Boolean(onLater) && !planning, contextPercent, canPublish, pluginCommands: onPluginCommand ? pluginCommands?.slash : undefined });
   const selectedIndex = Math.min(selected, Math.max(0, items.length - 1));
 
   useEffect(() => setSelected(0), [query?.start, query?.trigger, query?.query]);
@@ -158,6 +161,10 @@ export function useComposerContextMenu({ prompt, cursor, input, disabled, capabi
     if (item.action === "compact") {
       onCompact?.();
       input.current?.focus();
+      return;
+    }
+    if (item.action === "later") {
+      onLater?.();
       return;
     }
     // Actions consume the search token, leaving the message draft intact.
@@ -327,7 +334,7 @@ function ComposerContextMenu({ id, menuRef, trigger, items, selected, onSelect, 
         onMouseEnter={() => onHover(index)}
         onClick={() => onSelect(item)}
       >
-        <span className="composer-context-menu-icon">{item.action === "plan" ? <ClipboardList size={14} /> : item.action === "compact" ? <FileText size={14} /> : item.action === "publish" ? <Share2 size={14} /> : item.mention?.type === "plugin" ? <PluginGlyph plugin={item.mention.value} size={14} /> : item.pluginCommand ? <Plug size={14} /> : <WandSparkles size={14} />}</span>
+        <span className="composer-context-menu-icon">{item.action === "plan" ? <ClipboardList size={14} /> : item.action === "compact" ? <FileText size={14} /> : item.action === "later" ? <Clock size={14} /> : item.action === "publish" ? <Share2 size={14} /> : item.mention?.type === "plugin" ? <PluginGlyph plugin={item.mention.value} size={14} /> : item.pluginCommand ? <Plug size={14} /> : <WandSparkles size={14} />}</span>
         <span className={item.command ? "composer-context-menu-command" : undefined}>{item.command ? `/${item.command}` : item.label}</span>
         <small>{item.command ? item.label : item.description}</small>
       </button>

@@ -1670,6 +1670,16 @@ const zhCN: typeof en = {
     dismissLabel: "关闭提示",
     dismiss: "关闭",
   },
+  later: {
+    label: "定时消息",
+    command: "稍后发送：30m、2h、1d 或 02:30",
+    invalid: "请在 /later 后写明时间，例如 30m、2h、1d 或 02:30。只写数字时按小时算。",
+    textOnly: "/later 只能发送文字。请先移除附件、引用和插件。",
+    planning: "计划模式下不能使用 /later。",
+    missed: "已错过 {{time}}",
+    edit: "编辑定时消息",
+    remove: "移除定时消息",
+  },
   queue: {
     prioritize: "优先执行",
     prioritizeTitle: "在当前轮结束后优先执行",

@@ -62,7 +62,7 @@ function detail(turnId: string, changes?: TurnChanges): ConversationDetail {
     agent: { status: "idle" },
     settings: {},
     plan: { mode: "normal" },
-    pendingPrompts: [],
+    pendingPrompts: [], scheduledMessages: [],
     turns: [
       {
         id: turnId,

@@ -2021,7 +2021,7 @@ describe("daemon", () => {
         ],
       }],
       cursor: 0,
-      pendingPrompts: [],
+      pendingPrompts: [], scheduledMessages: [],
     });
   });
 
