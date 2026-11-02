@@ -674,7 +674,7 @@
           "name": "OmgPage",
           "tagName": "omg-page",
           "customElement": true,
-          "description": "`<omg-page heading description>`: the page's column, centred and at most 720px wide. Slots: `brand` (a logo before the heading), `actions`, and the page's sections.",
+          "description": "`<omg-page heading description wide>`: the page's column, centred and at most 720px wide, or the panel's whole width when `wide`. Slots: `brand` (a logo before the heading), `actions`, and the page's sections.",
           "superclass": {
             "name": "HTMLElement",
             "package": "global:"
@@ -692,6 +692,13 @@
               "description": "The page's title.",
               "type": {
                 "text": "string"
+              }
+            },
+            {
+              "name": "wide",
+              "description": "Fills the panel's width, for a page with a sidebar or a grid.",
+              "type": {
+                "text": "boolean"
               }
             }
           ],
@@ -908,6 +915,285 @@
             }
           ],
           "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgGrid",
+          "tagName": "omg-grid",
+          "customElement": true,
+          "description": "`<omg-grid min columns gap>`: lays its children out in equal columns, as many as fit at `min` pixels wide each, or exactly `columns`.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "columns",
+              "description": "A fixed number of columns, in place of as many as fit.",
+              "type": {
+                "text": "number"
+              }
+            },
+            {
+              "name": "gap",
+              "description": "A space token; 3 by default.",
+              "type": {
+                "text": "\"0\" | \"1\" | \"2\" | \"3\" | \"4\" | \"6\""
+              }
+            },
+            {
+              "name": "min",
+              "description": "The narrowest a column gets, in pixels; 240 by default.",
+              "type": {
+                "text": "number"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The children."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "grid",
+              "description": "The grid."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgSplit",
+          "tagName": "omg-split",
+          "customElement": true,
+          "description": "`<omg-split side side-width>`: a sidebar beside the main content, which go one above the other when there isn't room for both.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "side",
+              "description": "Which side the sidebar is on; the start by default.",
+              "type": {
+                "text": "\"start\" | \"end\""
+              }
+            },
+            {
+              "name": "side-width",
+              "description": "The sidebar's width in pixels; 240 by default.",
+              "type": {
+                "text": "number"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The main content."
+            },
+            {
+              "name": "sidebar",
+              "description": "The sidebar."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "main",
+              "description": "The main content's place."
+            },
+            {
+              "name": "sidebar",
+              "description": "The sidebar's place."
+            },
+            {
+              "name": "split",
+              "description": "The two places together."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgCard",
+          "tagName": "omg-card",
+          "customElement": true,
+          "description": "`<omg-card heading description>`: a raised surface that groups its content.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "description",
+              "description": "A line under the title.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "heading",
+              "description": "The card's title.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The content."
+            },
+            {
+              "name": "actions",
+              "description": "Buttons beside the heading."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "body",
+              "description": "The content."
+            },
+            {
+              "name": "description",
+              "description": "The line under the title."
+            },
+            {
+              "name": "header",
+              "description": "The row of the titles and actions; hidden when empty."
+            },
+            {
+              "name": "heading",
+              "description": "The title."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgList",
+          "tagName": "omg-list",
+          "customElement": true,
+          "description": "`<omg-list>`: rows of `omg-list-item`, with a hairline between them.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The `omg-list-item` children."
+            }
+          ],
+          "cssParts": [],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgListItem",
+          "tagName": "omg-list-item",
+          "customElement": true,
+          "description": "`<omg-list-item heading description>`: a row: an icon, a title and a line under it, then a value and buttons at its end.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "description",
+              "description": "A line under the title.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "heading",
+              "description": "The row's title.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The row's value, at its end."
+            },
+            {
+              "name": "actions",
+              "description": "Buttons at its end, after the value."
+            },
+            {
+              "name": "leading",
+              "description": "An icon or picture before the title."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "actions",
+              "description": "The buttons' place; hidden when empty."
+            },
+            {
+              "name": "description",
+              "description": "The line under the title."
+            },
+            {
+              "name": "heading",
+              "description": "The title."
+            },
+            {
+              "name": "leading",
+              "description": "The leading place; hidden when empty."
+            },
+            {
+              "name": "value",
+              "description": "The value's place; hidden when empty."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgDivider",
+          "tagName": "omg-divider",
+          "customElement": true,
+          "description": "`<omg-divider label>`: a hairline between groups, with an optional label on it.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "label",
+              "description": "Text on the line.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "label",
+              "description": "The label; hidden when empty."
+            }
+          ],
+          "cssProperties": []
         }
       ],
       "exports": [
@@ -941,6 +1227,185 @@
           "declaration": {
             "name": "OmgEmpty",
             "module": "ui/1/layout.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-grid",
+          "declaration": {
+            "name": "OmgGrid",
+            "module": "ui/1/layout.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-split",
+          "declaration": {
+            "name": "OmgSplit",
+            "module": "ui/1/layout.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-card",
+          "declaration": {
+            "name": "OmgCard",
+            "module": "ui/1/layout.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-list",
+          "declaration": {
+            "name": "OmgList",
+            "module": "ui/1/layout.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-list-item",
+          "declaration": {
+            "name": "OmgListItem",
+            "module": "ui/1/layout.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-divider",
+          "declaration": {
+            "name": "OmgDivider",
+            "module": "ui/1/layout.js"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "ui/1/navigation.js",
+      "declarations": [
+        {
+          "kind": "class",
+          "name": "OmgTabs",
+          "tagName": "omg-tabs",
+          "customElement": true,
+          "description": "`<omg-tabs value aria-label>`: shows one of its `omg-tab` children, with a row of their headings above. Arrow keys, Home and End move between tabs. A page listens for `omg-tab-change`, since `change` would also come up from the controls inside a tab.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "aria-label",
+              "description": "What the tabs choose between, for screen readers.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "value",
+              "description": "The `name` of the open tab; the first that isn't disabled without one.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "value",
+              "description": "The open tab's name.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "omg-tab-change",
+              "description": "The person opened a tab.",
+              "type": {
+                "text": "CustomEvent<{ value: string }>"
+              }
+            }
+          ],
+          "slots": [
+            {
+              "name": "",
+              "description": "The `omg-tab` children."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "list",
+              "description": "The row of headings."
+            },
+            {
+              "name": "tab",
+              "description": "A heading's button."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgTab",
+          "tagName": "omg-tab",
+          "customElement": true,
+          "description": "`<omg-tab name heading disabled>`: one view of an `omg-tabs`.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "disabled",
+              "description": "It can't be opened.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "heading",
+              "description": "The text of its heading, and its name for screen readers.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "name",
+              "description": "What `value` on the `omg-tabs` calls it; unique among its tabs.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The view."
+            }
+          ],
+          "cssParts": [],
+          "cssProperties": []
+        }
+      ],
+      "exports": [
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-tabs",
+          "declaration": {
+            "name": "OmgTabs",
+            "module": "ui/1/navigation.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-tab",
+          "declaration": {
+            "name": "OmgTab",
+            "module": "ui/1/navigation.js"
           }
         }
       ]

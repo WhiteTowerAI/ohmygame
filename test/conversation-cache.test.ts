@@ -47,6 +47,34 @@ describe("conversation UI cache", () => {
     expect(await cache.read(project, stored.sessionPath)).toBe(view);
   });
 
+  it("keeps only the tool output a conversation shows, and shows the same", async () => {
+    const { project, stored, session } = await fixture();
+    const toolResult = (id: string, content: object[]) => {
+      session.appendMessage({ role: "assistant", provider: "test", model: "model", stopReason: "toolUse", timestamp: 20,
+        content: [{ type: "toolCall", id, name: "bash", arguments: { command: id } }] } as never);
+      session.appendMessage({ role: "toolResult", toolCallId: id, toolName: "bash", isError: false, timestamp: 21, content } as never);
+    };
+    const long = (mark: string) => `${mark} start ${"影🚀x".repeat(40_000)} ${mark} end`;
+    toolResult("short", [{ type: "text", text: "short output" }]);
+    toolResult("long", [{ type: "text", text: long("one") }]);
+    toolResult("blocks", [{ type: "text", text: long("two") }, { type: "text", text: long("three") }]);
+    toolResult("just-over", [{ type: "text", text: "y".repeat(12_001) }]);
+    toolResult("many", Array.from({ length: 1_000 }, (_, index) => ({ type: "text", text: `${index} ${"z".repeat(10_000)}` })));
+    toolResult("with-image", [{ type: "text", text: long("four") }, { type: "image", mimeType: "image/png", data: "aW1hZ2U=" }, { type: "text", text: long("five") }]);
+    const prompt = "a long message ".repeat(2_000);
+    session.appendMessage({ role: "user", content: prompt, timestamp: 22 } as never);
+    const before = await readFile(stored.sessionPath);
+
+    const view = (await new ConversationCache().read(project, stored.sessionPath))!;
+    const sizes = view.getBranch().flatMap((entry) => entry.type === "message" && entry.message.role === "toolResult"
+      ? [(entry.message.content as Array<{ text?: string }>).reduce((size, block) => size + (block.text?.length ?? 0), 0)] : []);
+    expect(Math.max(...sizes)).toBeLessThan(12_100);
+    expect(conversationItems(view.getBranch())).toEqual(conversationItems(session.getBranch()));
+    const kept = view.getBranch().findLast((entry) => entry.type === "message" && entry.message.role === "user");
+    expect(kept).toMatchObject({ message: { content: prompt } });
+    expect((await readFile(stored.sessionPath)).equals(before)).toBe(true);
+  });
+
   it("continues after a valid UTF-8 record without a final newline", async () => {
     const { project, stored, session } = await fixture();
     const entry = { type: "session_info", id: "tail", parentId: session.getLeafId(), timestamp: new Date().toISOString(), name: "影游🚀" };

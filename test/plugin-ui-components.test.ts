@@ -69,6 +69,101 @@ describe("page components", () => {
     expect(shadow(bare!, "section").hasAttribute("aria-labelledby")).toBe(false);
   });
 
+  it("opens one tab at a time, by click, by keys and by value, skipping disabled tabs", async () => {
+    const tabs = html(`<omg-tabs aria-label="Views">
+      <omg-tab name="a" heading="A"></omg-tab><omg-tab name="b" heading="B" disabled></omg-tab><omg-tab name="c" heading="C"></omg-tab>
+    </omg-tabs>`) as HTMLElement & { value: string };
+    await settle();
+    const list = shadow(tabs, "list");
+    const buttons = () => [...list.querySelectorAll("button")];
+    const open = () => [...tabs.querySelectorAll("omg-tab")].filter((tab) => !(tab as HTMLElement).hidden).map((tab) => tab.getAttribute("name"));
+    expect(list.getAttribute("aria-label")).toBe("Views");
+    expect(buttons().map((button) => button.textContent)).toEqual(["A", "B", "C"]);
+    expect(buttons().map((button) => button.getAttribute("aria-selected"))).toEqual(["true", "false", "false"]);
+    expect(buttons().map((button) => button.tabIndex)).toEqual([0, -1, -1]);
+    expect(open()).toEqual(["a"]);
+    expect(tabs.querySelector("omg-tab")!.getAttribute("role")).toBe("tabpanel");
+    expect(tabs.querySelector("omg-tab")!.getAttribute("aria-label")).toBe("A");
+
+    const heard: string[] = [];
+    tabs.addEventListener("omg-tab-change", (event) => heard.push((event as CustomEvent<{ value: string }>).detail.value));
+    buttons()[0]!.focus();
+    buttons()[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, composed: true }));
+    expect(tabs.value).toBe("c");
+    expect(open()).toEqual(["c"]);
+    expect(tabs.shadowRoot!.activeElement?.textContent).toBe("C");
+    buttons()[2]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, composed: true }));
+    expect(tabs.value).toBe("a");
+    buttons()[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true, composed: true }));
+    expect(tabs.value).toBe("c");
+    buttons()[0]!.click();
+    expect(tabs.value).toBe("a");
+    buttons()[0]!.click();
+    expect(heard).toEqual(["c", "a", "c", "a"]);
+
+    tabs.value = "c";
+    expect(open()).toEqual(["c"]);
+    expect(heard).toHaveLength(4);
+    tabs.value = "b";
+    expect(open()).toEqual(["a"]);
+
+    tabs.insertAdjacentHTML("beforeend", `<omg-tab name="d" heading="D"></omg-tab>`);
+    tabs.querySelector("omg-tab")!.setAttribute("heading", "First");
+    await settle();
+    expect(buttons().map((button) => button.textContent)).toEqual(["First", "B", "C", "D"]);
+
+    // The focused tab goes away: focus moves to the tab that opens instead.
+    tabs.value = "d";
+    buttons()[3]!.focus();
+    tabs.querySelector('omg-tab[name="d"]')!.setAttribute("disabled", "");
+    await settle();
+    expect(tabs.value).toBe("a");
+    expect(tabs.shadowRoot!.activeElement?.textContent).toBe("First");
+  });
+
+  it("arranges a grid and a split by their attributes, and hides a list item's empty places", async () => {
+    const grid = html(`<omg-grid min="180"></omg-grid>`);
+    expect(shadow(grid, "grid").style.getPropertyValue("--_columns")).toContain("180px");
+    grid.setAttribute("columns", "3");
+    expect(shadow(grid, "grid").style.getPropertyValue("--_columns")).toBe("repeat(3, minmax(0, 1fr))");
+    grid.setAttribute("columns", "nope");
+    grid.setAttribute("min", "-1");
+    expect(shadow(grid, "grid").style.getPropertyValue("--_columns")).toContain("240px");
+
+    const split = html(`<omg-split side-width="300"></omg-split>`);
+    expect(shadow(split, "split").style.getPropertyValue("--_side")).toBe("300px");
+
+    const list = html(`<omg-list><omg-list-item heading="Account"></omg-list-item><omg-list-item heading="Project" description="Connected">Zombie farm<omg-button slot="actions">Change</omg-button></omg-list-item></omg-list>`);
+    await settle();
+    expect(list.getAttribute("role")).toBe("list");
+    const [bare, full] = list.querySelectorAll("omg-list-item");
+    expect(bare!.getAttribute("role")).toBe("listitem");
+    for (const place of ["leading", "description", "value", "actions"]) expect(shadow(bare!, place).hidden).toBe(true);
+    for (const place of ["description", "value", "actions"]) expect(shadow(full!, place).hidden).toBe(false);
+
+    const card = html(`<omg-card></omg-card>`);
+    await settle();
+    expect(shadow(card, "header").hidden).toBe(true);
+    expect(shadow(card, "body").hidden).toBe(true);
+
+    // A text node's words changing tells no slot; the place shows all the same.
+    const late = html(`<omg-card> </omg-card>`);
+    await settle();
+    expect(shadow(late, "body").hidden).toBe(true);
+    (late.firstChild as Text).data = "Loaded";
+    await settle();
+    expect(shadow(late, "body").hidden).toBe(false);
+    const row = html(`<omg-list-item> </omg-list-item>`);
+    await settle();
+    (row.firstChild as Text).data = "Loaded";
+    await settle();
+    expect(shadow(row, "value").hidden).toBe(false);
+
+    const divider = html(`<omg-divider></omg-divider>`);
+    expect(divider.getAttribute("role")).toBe("separator");
+    expect(shadow(divider, "label").hidden).toBe(true);
+  });
+
   it("numbers steps and shows only the current or failed step's content", async () => {
     const steps = html(`<omg-steps>
       <omg-step heading="Prepare" state="done"><span slot="summary">Ready</span><p>Prepare body</p></omg-step>
@@ -256,7 +351,8 @@ describe("page components", () => {
     const manifest = JSON.parse(await readFile("packages/plugin-ui/gallery/.ohmygame-plugin/plugin.json", "utf8"));
     const checked = validatePluginManifest(manifest);
     expect(checked.ok ? [] : checked.issues).toEqual([]);
-    expect(manifest.ui.preview).toBe(true);
+    // Version 1 is stable, so the gallery needs no opt-in.
+    expect(manifest.ui.preview).toBeUndefined();
     const page = await readFile("packages/plugin-ui/gallery/panel/index.html", "utf8");
     const used = new Set([...page.matchAll(/<(omg-[a-z-]+)/g)].map(([, name]) => name!));
     expect([...used].filter((name) => !customElements.get(name))).toEqual([]);
@@ -282,6 +378,8 @@ describe("page components' contract", () => {
       expect((component!.observedAttributes ?? []).filter((name) => !attributes.includes(name)), item.tagName).toEqual([]);
       const element = document.createElement(item.tagName);
       const parts = new Set([...element.shadowRoot!.querySelectorAll("[part]")].flatMap((node) => node.getAttribute("part")!.split(/\s+/)));
+      // A tab's button is drawn for each `omg-tab`, so it isn't in the template.
+      if (item.tagName === "omg-tabs") parts.add("tab");
       expect([...parts].sort(), `${item.tagName} parts`).toEqual(item.cssParts.map((part) => part.name).sort());
       const slots = [...element.shadowRoot!.querySelectorAll("slot")].map((slot) => slot.getAttribute("name") ?? "");
       expect(slots.sort(), `${item.tagName} slots`).toEqual(item.slots.map((slot) => slot.name).sort());
@@ -512,7 +610,7 @@ describe("regression check", () => {
 });
 
 describe("plugin check", () => {
-  async function plugin(files: Record<string, string>, ui: object = { preview: true, major: 1 }, extra: object = {}): Promise<string> {
+  async function plugin(files: Record<string, string>, ui: object = { major: 1 }, extra: object = {}): Promise<string> {
     const root = path.join(served, `check-${Math.random().toString(36).slice(2)}`);
     const manifest = { id: "acme/panel", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Panel", description: "A panel", icon: "./icon.svg", ui, contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }] }, ...extra };
     await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
@@ -543,14 +641,15 @@ describe("plugin check", () => {
     expect(await messages(await plugin({ "index.html": `${load}<omg-button onclick="save()" data-on="x"></omg-button>` }), "error")).toEqual([expect.stringContaining("inline event handlers: onclick")]);
     expect(await messages(await plugin({ "index.html": `${load}<script type="module" src="./main.js"></script>`, "main.js": 'import { html } from "https://esm.sh/lit";\nconst shown = "from https://example.com";' }), "error")).toEqual([expect.stringContaining("no remote scripts: https://esm.sh/lit")]);
     // Nor does a page beside it, in the same folder.
-    const beside = await plugin({ "main.html": load, "settings.html": "<omg-button></omg-button>" }, { preview: true, major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/main.html" }, { id: "settings", title: "Settings", area: "center", entry: "./panel/settings.html" }] } });
+    const beside = await plugin({ "main.html": load, "settings.html": "<omg-button></omg-button>" }, { major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/main.html" }, { id: "settings", title: "Settings", area: "center", entry: "./panel/settings.html" }] } });
     expect(await checkPlugin(beside)).toContainEqual({ level: "error", file: path.join("panel", "settings.html"), message: expect.stringContaining("no script loads") });
     // Another panel loading them doesn't help: it's another page.
-    const two = await plugin({ "index.html": load }, { preview: true, major: 1 }, { contributes: { panels: [{ id: "one", title: "One", area: "center", entry: "./panel/index.html" }, { id: "two", title: "Two", area: "center", entry: "./two/index.html" }] } });
+    const two = await plugin({ "index.html": load }, { major: 1 }, { contributes: { panels: [{ id: "one", title: "One", area: "center", entry: "./panel/index.html" }, { id: "two", title: "Two", area: "center", entry: "./two/index.html" }] } });
     await mkdir(path.join(two, "two"));
     await writeFile(path.join(two, "two/index.html"), "<omg-button></omg-button>");
     expect(await checkPlugin(two)).toContainEqual({ level: "error", file: path.join("two", "index.html"), message: expect.stringContaining("no script loads") });
-    expect(await messages(await plugin({ "index.html": load }, {}), "error")).toEqual([expect.stringContaining("are in preview")]);
+    // Version 1 is stable: a plugin needn't opt in to it.
+    expect(await messages(await plugin({ "index.html": load }, {}), "error")).toEqual([]);
     expect(await messages(await plugin({ "index.html": `${load}<script TYPE="MODULE">go()</script>` }), "error")).toEqual([expect.stringContaining("no inline scripts")]);
     // The install's own checks come first.
     expect(await messages(await plugin({ "index.html": load }, { major: 999 }), "error")).toEqual([expect.stringContaining("Update OhMyGame")]);
@@ -565,18 +664,18 @@ describe("plugin check", () => {
     expect(await messages(await plugin({ "index.html": `<script data-src="https://example.com/x.js" src="./main.js"></script>${load}<p>Moving on: /_ohmygame/ui/999/index.js</p>` }), "error")).toEqual([]);
     expect(await messages(await plugin({ "index.html": '<script type="module" src="./main.js"></script><omg-button></omg-button>', "main.js": 'import(`/_ohmygame/ui/${major}/index.js`);' }), "error")).toEqual([]);
     // At the package's root, only the page itself is served.
-    const rootPage = await plugin({}, { preview: true, major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./index.html" }] } });
+    const rootPage = await plugin({}, { major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./index.html" }] } });
     await writeFile(path.join(rootPage, "index.html"), load);
     await mkdir(path.join(rootPage, "templates"));
     await writeFile(path.join(rootPage, "templates/game.html"), "<script>game()</script>");
     expect(await messages(rootPage, "error")).toEqual([]);
     // Panels may share a script that loads them.
-    const shared = await plugin({ "index.html": '<script type="module" src="./main.js"></script><omg-button></omg-button>', "main.js": 'import "/_ohmygame/ui/1/index.js";' }, { preview: true, major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }, { id: "settings", title: "Settings", area: "center", entry: "./settings/index.html" }] } });
+    const shared = await plugin({ "index.html": '<script type="module" src="./main.js"></script><omg-button></omg-button>', "main.js": 'import "/_ohmygame/ui/1/index.js";' }, { major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }, { id: "settings", title: "Settings", area: "center", entry: "./settings/index.html" }] } });
     await mkdir(path.join(shared, "settings"));
     await writeFile(path.join(shared, "settings/index.html"), '<script type="module" src="../panel/main.js"></script><omg-button></omg-button>');
     expect(await messages(shared, "error")).toEqual([]);
     // Nor does it have to load them from its own folder.
-    const fromAssets = await plugin({}, { preview: true, major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./index.html" }] } });
+    const fromAssets = await plugin({}, { major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./index.html" }] } });
     await writeFile(path.join(fromAssets, "index.html"), '<script type="module" src="./assets/main.js"></script><omg-button></omg-button>');
     await mkdir(path.join(fromAssets, "assets"));
     await writeFile(path.join(fromAssets, "assets/main.js"), 'import "/_ohmygame/ui/1/index.js";');
@@ -595,13 +694,12 @@ describe("plugin check", () => {
       "warning",
     );
     expect(warnings).toEqual([
-      expect.stringContaining("in preview"),
       "<omg-button> has no attribute wobble",
       "There is no component <omg-maybe>",
       expect.stringContaining("color: #abcdef"),
       "--mystery isn't one of the app's tokens",
       "No component has a part named nope",
     ]);
-    expect(await messages(await plugin({ "index.html": load }, { preview: true }), "warning")).toContainEqual(expect.stringContaining('"major": 1'));
+    expect(await messages(await plugin({ "index.html": load }, {}), "warning")).toContainEqual(expect.stringContaining('"major": 1'));
   });
 });

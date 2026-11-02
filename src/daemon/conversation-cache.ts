@@ -5,6 +5,7 @@ import { setImmediate } from "node:timers/promises";
 import { CURRENT_SESSION_VERSION, parseSessionEntries, SessionManager, type FileEntry, type SessionInfo } from "@earendil-works/pi-coding-agent";
 import type { PromptImage, ProjectState } from "../shared/contracts.js";
 import type { ConversationImageStore } from "./conversation-images.js";
+import { boundToolOutput, MAX_TOOL_OUTPUT } from "./tool-output.js";
 
 interface CachedSession {
   signature: string;
@@ -19,7 +20,7 @@ interface CachedSession {
 
 export type ConversationInfo = Pick<SessionInfo, "path" | "id" | "name" | "created" | "modified" | "messageCount" | "firstMessage">;
 
-/** Read-only UI view. Never pass these image-free managers to an agent. */
+/** Read-only UI view without images and long tool output. Never pass these managers to an agent. */
 export class ConversationCache {
   readonly #cache = new Map<string, CachedSession>();
   readonly #loading = new Map<string, Promise<SessionManager | undefined>>();
@@ -125,10 +126,11 @@ export class ConversationCache {
   }
 
   #projectEntry(projectId: string, entry: FileEntry): FileEntry {
-    if (!this.images) return entry;
     const message = entry.type === "message" ? entry.message : entry.type === "custom_message" ? entry
       : entry.type === "context_edit" ? entry.replacement : undefined;
     if (!message || !("content" in message) || !Array.isArray(message.content)) return entry;
+    if ("role" in message && message.role === "toolResult") message.content = shownToolOutput(message.content as { type: string }[]) as typeof message.content;
+    if (!this.images) return entry;
     message.content = message.content.map((content) => {
       if (content.type !== "image") return content;
       if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(content.mimeType)) return { ...content, data: "" };
@@ -137,6 +139,20 @@ export class ConversationCache {
     }) as typeof message.content;
     return entry;
   }
+}
+
+/**
+ * Keeps only the tool output a conversation shows, which is all this view needs.
+ * The chat joins a result's text before shortening it, so this does too and it shows the same.
+ */
+function shownToolOutput<T extends { type: string }>(content: T[]): T[] {
+  const text = (block: T): block is T & { text: string } => block.type === "text" && typeof (block as { text?: unknown }).text === "string";
+  const joined = content.filter(text).map((block) => block.text).join("");
+  if (joined.length <= MAX_TOOL_OUTPUT) return content;
+  // A slice of a string keeps the whole string in memory. Copying lets it go.
+  const shown = JSON.parse(JSON.stringify(boundToolOutput(joined))) as string;
+  const first = content.find(text);
+  return content.flatMap((block) => block === first ? [{ ...block, text: shown }] : text(block) ? [] : [block]);
 }
 
 async function hashPrefix(file: string, size: number): Promise<Hash> {
