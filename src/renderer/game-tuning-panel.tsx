@@ -55,6 +55,8 @@ export function GameTuningPanel({ projectId, previewReady, announced, revision, 
 
   // Only the latest value of a dragged slider matters, one request at a time.
   function flush(): Promise<boolean> {
+    // With nothing to send the run below would end before it is stored, and stay stored.
+    if (!sending.current && !unsent.current.size) return Promise.resolve(true);
     sending.current ??= (async () => {
       try {
         while (unsent.current.size) {

@@ -48,6 +48,10 @@ describe("preview content isolation", () => {
     expect((await editor.next()).tuning).toEqual({ "player.jump": 510 });
     const silent = await Promise.race([test.next(), new Promise((resolve) => setTimeout(resolve, 100, "silent"))]);
     expect(silent).toBe("silent");
+
+    // A new page of the person's isn't taken for the AI test opened before it.
+    const second = await open("player");
+    expect((await second.next()).tuning).toEqual({ "player.jump": 510 });
     await editor.report({ type: "tuning" });
     await editor.report({ type: "tuning" });
     expect(connected.mock.calls).toEqual([[true]]);

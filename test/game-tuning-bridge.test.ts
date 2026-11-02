@@ -67,6 +67,17 @@ describe("the preview bridge's tuning", () => {
     expect(reports(sent)).toBe(2);
   });
 
+  it("starts over when the game replaces only the setter function", async () => {
+    const { events } = await bridge();
+    const first = vi.fn(), second = vi.fn();
+    const game = { set: first };
+    (window as { __OHMYGAME_TUNING__?: unknown }).__OHMYGAME_TUNING__ = game;
+    events.deliver({ reload: 0, tuning: { jump: 420 } });
+    game.set = second;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(second.mock.calls).toEqual([["jump", 420]]);
+  });
+
   it("reports a setter that throws as a game error and carries on", async () => {
     const { events, sent } = await bridge();
     const set = vi.fn((id: string) => { if (id === "jump") throw new Error("no jump here"); });

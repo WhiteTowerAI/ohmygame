@@ -115,6 +115,20 @@ describe("the tuning panel", () => {
     expect(api.saveGameTuning).toHaveBeenCalledOnce();
   });
 
+  it("keeps sending and saving after a save with nothing left to send", async () => {
+    api.setGameTuningDraft.mockImplementation(async (_project: string, values: Record<string, number>) => ({ ...STATE, draft: values }));
+    api.saveGameTuning.mockResolvedValue({ state: STATE });
+    const { host } = await show();
+    await drag(host, 500);
+    await act(async () => button(host, "Save").click());
+    await drag(host, 600);
+    expect(api.setGameTuningDraft.mock.lastCall).toEqual(["p", { jump: 600 }]);
+    await drag(host, 610);
+    expect(api.setGameTuningDraft.mock.lastCall).toEqual(["p", { jump: 610 }]);
+    await act(async () => button(host, "Save").click());
+    expect(api.saveGameTuning).toHaveBeenCalledTimes(2);
+  });
+
   it("doesn't save when the last moves failed", async () => {
     let refuse!: (cause: Error) => void;
     api.setGameTuningDraft.mockImplementation(() => new Promise((_resolve, reject) => { refuse = reject; }));
