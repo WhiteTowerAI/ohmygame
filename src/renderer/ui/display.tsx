@@ -415,6 +415,55 @@ export function Collapsible({
   );
 }
 
+/**
+ * Something shown on request, on a native details element so it opens from the
+ * keyboard and for find in page: a small text toggle (`inline`), such as an
+ * error's details or advanced options, or a titled part of a form (`section`).
+ * `lazy` renders the content only while it is open.
+ */
+export function Disclosure({
+  summary,
+  icon,
+  variant = "inline",
+  open,
+  defaultOpen,
+  onOpenChange,
+  lazy = false,
+  className,
+  children,
+}: {
+  summary: ReactNode;
+  /** Shown before a section's title. */
+  icon?: ReactNode;
+  variant?: "inline" | "section";
+  open?: boolean;
+  defaultOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  lazy?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  const [shown, setShown] = useState(open ?? defaultOpen ?? false);
+  return (
+    <details
+      className={["ui-disclosure", `is-${variant}`, className].filter(Boolean).join(" ")}
+      open={open ?? defaultOpen}
+      onToggle={(event) => {
+        const next = event.currentTarget.open;
+        setShown(next);
+        if (next !== open) onOpenChange?.(next);
+      }}
+    >
+      <summary className="ui-disclosure-summary">
+        {variant === "inline" ? <ChevronRight size={12} className="ui-disclosure-chevron" aria-hidden="true" /> : icon}
+        <span className="ui-disclosure-label">{summary}</span>
+        {variant === "section" ? <ChevronDown size={14} className="ui-disclosure-chevron" aria-hidden="true" /> : null}
+      </summary>
+      {lazy && !shown ? null : children}
+    </details>
+  );
+}
+
 export interface Column<Row> {
   key: string;
   header: ReactNode;

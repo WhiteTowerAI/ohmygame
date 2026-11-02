@@ -14,3 +14,30 @@
 .plugin-frame:not([data-ready]) {
   visibility: hidden;
 }
+
+.plugin-confirm-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.plugin-confirm-source {
+  margin-top: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.plugin-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.plugin-toolbar-label {
+  display: block;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

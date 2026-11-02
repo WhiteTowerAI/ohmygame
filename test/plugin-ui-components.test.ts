@@ -1,8 +1,12 @@
 // @vitest-environment happy-dom
-import { cp, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { type ComponentManifest, componentManifest, componentTypes, contractChanges, contractFiles, declarations, parseComment, supportChanges } from "../scripts/plugin-ui-contract.js";
+import { checkPlugin } from "../scripts/plugin-check.js";
+import { compareRuns } from "../scripts/plugin-ui-regression.js";
 import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
+import { PLUGIN_UI_MAJORS } from "../src/shared/plugin-ui-versions.js";
 
 // The components load as the app serves them, next to the bridge at
 // /_ohmygame/plugin-ui.js, so they are copied into that layout first, in the
@@ -63,6 +67,101 @@ describe("page components", () => {
     expect(shadow(titled!, "section").getAttribute("aria-labelledby")).toBe("heading");
     expect(shadow(bare!, "header").hidden).toBe(true);
     expect(shadow(bare!, "section").hasAttribute("aria-labelledby")).toBe(false);
+  });
+
+  it("opens one tab at a time, by click, by keys and by value, skipping disabled tabs", async () => {
+    const tabs = html(`<omg-tabs aria-label="Views">
+      <omg-tab name="a" heading="A"></omg-tab><omg-tab name="b" heading="B" disabled></omg-tab><omg-tab name="c" heading="C"></omg-tab>
+    </omg-tabs>`) as HTMLElement & { value: string };
+    await settle();
+    const list = shadow(tabs, "list");
+    const buttons = () => [...list.querySelectorAll("button")];
+    const open = () => [...tabs.querySelectorAll("omg-tab")].filter((tab) => !(tab as HTMLElement).hidden).map((tab) => tab.getAttribute("name"));
+    expect(list.getAttribute("aria-label")).toBe("Views");
+    expect(buttons().map((button) => button.textContent)).toEqual(["A", "B", "C"]);
+    expect(buttons().map((button) => button.getAttribute("aria-selected"))).toEqual(["true", "false", "false"]);
+    expect(buttons().map((button) => button.tabIndex)).toEqual([0, -1, -1]);
+    expect(open()).toEqual(["a"]);
+    expect(tabs.querySelector("omg-tab")!.getAttribute("role")).toBe("tabpanel");
+    expect(tabs.querySelector("omg-tab")!.getAttribute("aria-label")).toBe("A");
+
+    const heard: string[] = [];
+    tabs.addEventListener("omg-tab-change", (event) => heard.push((event as CustomEvent<{ value: string }>).detail.value));
+    buttons()[0]!.focus();
+    buttons()[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, composed: true }));
+    expect(tabs.value).toBe("c");
+    expect(open()).toEqual(["c"]);
+    expect(tabs.shadowRoot!.activeElement?.textContent).toBe("C");
+    buttons()[2]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, composed: true }));
+    expect(tabs.value).toBe("a");
+    buttons()[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true, composed: true }));
+    expect(tabs.value).toBe("c");
+    buttons()[0]!.click();
+    expect(tabs.value).toBe("a");
+    buttons()[0]!.click();
+    expect(heard).toEqual(["c", "a", "c", "a"]);
+
+    tabs.value = "c";
+    expect(open()).toEqual(["c"]);
+    expect(heard).toHaveLength(4);
+    tabs.value = "b";
+    expect(open()).toEqual(["a"]);
+
+    tabs.insertAdjacentHTML("beforeend", `<omg-tab name="d" heading="D"></omg-tab>`);
+    tabs.querySelector("omg-tab")!.setAttribute("heading", "First");
+    await settle();
+    expect(buttons().map((button) => button.textContent)).toEqual(["First", "B", "C", "D"]);
+
+    // The focused tab goes away: focus moves to the tab that opens instead.
+    tabs.value = "d";
+    buttons()[3]!.focus();
+    tabs.querySelector('omg-tab[name="d"]')!.setAttribute("disabled", "");
+    await settle();
+    expect(tabs.value).toBe("a");
+    expect(tabs.shadowRoot!.activeElement?.textContent).toBe("First");
+  });
+
+  it("arranges a grid and a split by their attributes, and hides a list item's empty places", async () => {
+    const grid = html(`<omg-grid min="180"></omg-grid>`);
+    expect(shadow(grid, "grid").style.getPropertyValue("--_columns")).toContain("180px");
+    grid.setAttribute("columns", "3");
+    expect(shadow(grid, "grid").style.getPropertyValue("--_columns")).toBe("repeat(3, minmax(0, 1fr))");
+    grid.setAttribute("columns", "nope");
+    grid.setAttribute("min", "-1");
+    expect(shadow(grid, "grid").style.getPropertyValue("--_columns")).toContain("240px");
+
+    const split = html(`<omg-split side-width="300"></omg-split>`);
+    expect(shadow(split, "split").style.getPropertyValue("--_side")).toBe("300px");
+
+    const list = html(`<omg-list><omg-list-item heading="Account"></omg-list-item><omg-list-item heading="Project" description="Connected">Zombie farm<omg-button slot="actions">Change</omg-button></omg-list-item></omg-list>`);
+    await settle();
+    expect(list.getAttribute("role")).toBe("list");
+    const [bare, full] = list.querySelectorAll("omg-list-item");
+    expect(bare!.getAttribute("role")).toBe("listitem");
+    for (const place of ["leading", "description", "value", "actions"]) expect(shadow(bare!, place).hidden).toBe(true);
+    for (const place of ["description", "value", "actions"]) expect(shadow(full!, place).hidden).toBe(false);
+
+    const card = html(`<omg-card></omg-card>`);
+    await settle();
+    expect(shadow(card, "header").hidden).toBe(true);
+    expect(shadow(card, "body").hidden).toBe(true);
+
+    // A text node's words changing tells no slot; the place shows all the same.
+    const late = html(`<omg-card> </omg-card>`);
+    await settle();
+    expect(shadow(late, "body").hidden).toBe(true);
+    (late.firstChild as Text).data = "Loaded";
+    await settle();
+    expect(shadow(late, "body").hidden).toBe(false);
+    const row = html(`<omg-list-item> </omg-list-item>`);
+    await settle();
+    (row.firstChild as Text).data = "Loaded";
+    await settle();
+    expect(shadow(row, "value").hidden).toBe(false);
+
+    const divider = html(`<omg-divider></omg-divider>`);
+    expect(divider.getAttribute("role")).toBe("separator");
+    expect(shadow(divider, "label").hidden).toBe(true);
   });
 
   it("numbers steps and shows only the current or failed step's content", async () => {
@@ -134,6 +233,213 @@ describe("page components", () => {
     // As a native select, a value no option has leaves nothing chosen.
     select.value = "missing";
     expect(select.value).toBe("");
+  });
+
+  it("gives a control its label, a hint, or an error in the hint's place", async () => {
+    const input = html(`<omg-input label="Name" hint="Shown publicly." placeholder="Zombie farm"></omg-input>`);
+    const control = shadow(input, "input") as HTMLInputElement;
+    expect(shadow(input, "label").textContent).toBe("Name");
+    expect(shadow(input, "hint").hidden).toBe(false);
+    expect(control.getAttribute("aria-describedby")).toBe("hint");
+    expect(control.placeholder).toBe("Zombie farm");
+    input.setAttribute("error", "Too long.");
+    expect(shadow(input, "hint").hidden).toBe(true);
+    expect(shadow(input, "error").textContent).toBe("Too long.");
+    expect(control.getAttribute("aria-invalid")).toBe("true");
+    expect(control.getAttribute("aria-describedby")).toBe("error");
+    input.removeAttribute("error");
+    expect(control.hasAttribute("aria-invalid")).toBe(false);
+    input.setAttribute("disabled", "");
+    expect(control.disabled).toBe(true);
+    input.removeAttribute("disabled");
+    input.removeAttribute("hint");
+    expect(control.hasAttribute("aria-describedby")).toBe(false);
+    input.removeAttribute("label");
+    input.setAttribute("aria-label", "Name");
+    expect(shadow(input, "label").hidden).toBe(true);
+    expect(control.getAttribute("aria-label")).toBe("Name");
+  });
+
+  it("keeps what was typed until the page sets a value, and hears changes", () => {
+    const input = html(`<omg-input value="first"></omg-input>`) as HTMLElement & { value: string };
+    const control = shadow(input, "input") as HTMLInputElement;
+    const heard = vi.fn();
+    input.addEventListener("change", heard);
+    expect(input.value).toBe("first");
+    control.value = "typed";
+    input.setAttribute("error", "Too long.");
+    expect(input.value).toBe("typed");
+    expect(input.getAttribute("value")).toBe("first");
+    control.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(heard).toHaveBeenCalledOnce();
+    input.setAttribute("value", "second");
+    expect(input.value).toBe("second");
+    input.value = "third";
+    expect(control.value).toBe("third");
+
+    const area = html(`<omg-textarea rows="5" value="Lines" readonly></omg-textarea>`) as HTMLElement & { value: string };
+    const box = shadow(area, "textarea") as HTMLTextAreaElement;
+    expect([Number(box.rows), box.readOnly, area.value]).toEqual([5, true, "Lines"]);
+  });
+
+  it("keeps a switch and a checkbox's state on the attribute", () => {
+    for (const [tag, part] of [["omg-switch", "switch"], ["omg-checkbox", "checkbox"]] as const) {
+      const toggle = html(`<${tag} label="Upload" checked></${tag}>`) as HTMLElement & { checked: boolean };
+      const box = shadow(toggle, part) as HTMLInputElement;
+      expect([box.checked, toggle.checked]).toEqual([true, true]);
+      const heard: boolean[] = [];
+      toggle.addEventListener("change", () => heard.push(toggle.hasAttribute("checked")));
+      box.checked = false;
+      box.dispatchEvent(new Event("change", { bubbles: true }));
+      expect(toggle.hasAttribute("checked")).toBe(false);
+      expect(heard).toEqual([false]);
+      toggle.checked = true;
+      expect(box.checked).toBe(true);
+      // A page clearing an error as it hears input keeps the box as the person left it.
+      toggle.setAttribute("error", "Required");
+      toggle.addEventListener("input", () => toggle.removeAttribute("error"), { once: true });
+      box.checked = false;
+      box.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+      expect([box.checked, toggle.hasAttribute("checked")]).toEqual([false, false]);
+    }
+    expect(shadow(html(`<omg-switch></omg-switch>`), "switch").getAttribute("role")).toBe("switch");
+  });
+
+  it("draws a segmented control from its options", async () => {
+    const segmented = html(`<omg-segmented label="Build for" value="b"><option value="a">A</option><option value="b">B</option><option value="c" disabled>C</option></omg-segmented>`) as HTMLElement & { value: string };
+    await settle();
+    const group = shadow(segmented, "segments");
+    const radios = () => [...group.querySelectorAll("input")];
+    expect(group.getAttribute("aria-labelledby")).toBe("label");
+    expect(radios().map((radio) => [radio.value, radio.checked, radio.disabled])).toEqual([["a", false, false], ["b", true, false], ["c", false, true]]);
+    const heard: string[] = [];
+    segmented.addEventListener("change", () => heard.push(segmented.value));
+    radios()[0]!.checked = true;
+    radios()[0]!.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(heard).toEqual(["a"]);
+    expect(segmented.getAttribute("value")).toBe("a");
+    segmented.value = "b";
+    expect(radios()[1]!.checked).toBe(true);
+    segmented.setAttribute("disabled", "");
+    expect(radios().every((radio) => radio.disabled)).toBe(true);
+    segmented.removeAttribute("disabled");
+    expect(radios().map((radio) => radio.disabled)).toEqual([false, false, true]);
+    segmented.insertAdjacentHTML("beforeend", `<option value="d">D</option>`);
+    await settle();
+    expect(radios().map((radio) => radio.value)).toEqual(["a", "b", "c", "d"]);
+    expect(radios()[1]!.checked).toBe(true);
+    // A choice made heard as input stays when the page changes the hint then.
+    segmented.addEventListener("input", () => segmented.setAttribute("hint", "Saved"), { once: true });
+    radios()[0]!.checked = true;
+    radios()[0]!.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    expect([radios()[0]!.checked, segmented.getAttribute("value")]).toEqual([true, "a"]);
+    // Options that change keep the keyboard where it was.
+    radios()[0]!.focus();
+    segmented.insertAdjacentHTML("beforeend", `<option value="e">E</option>`);
+    await settle();
+    expect((segmented.shadowRoot!.activeElement as HTMLInputElement | null)?.value).toBe("a");
+  });
+
+  it("shows how far progress has got, or moves without a value", () => {
+    const progress = html(`<omg-progress label="Uploading" value="30" max="60"></omg-progress>`);
+    const track = shadow(progress, "track");
+    expect(track.getAttribute("aria-label")).toBe("Uploading");
+    expect(track.getAttribute("aria-valuenow")).toBe("30");
+    expect(track.getAttribute("aria-valuemax")).toBe("60");
+    expect(shadow(progress, "bar").style.width).toBe("50%");
+    progress.setAttribute("value", "600");
+    expect(shadow(progress, "bar").style.width).toBe("100%");
+    progress.setAttribute("value", "30");
+    progress.setAttribute("max", "Infinity");
+    expect([track.getAttribute("aria-valuemax"), shadow(progress, "bar").style.width]).toEqual(["100", "30%"]);
+    progress.removeAttribute("value");
+    expect(track.hasAttribute("aria-valuenow")).toBe(false);
+    expect(shadow(progress, "bar").classList.contains("moving")).toBe(true);
+  });
+
+  it("frames a picture, and says when it loaded or couldn't", () => {
+    type Image = HTMLElement & { complete: boolean; naturalWidth: number };
+    const image = html<Image>(`<omg-image src="a.png" alt="A slime" ratio="16 / 9" fit="cover"></omg-image>`);
+    const picture = () => shadow(image, "image") as HTMLImageElement;
+    const frame = shadow(image, "frame");
+    expect([picture().getAttribute("src"), picture().alt, frame.style.aspectRatio]).toEqual(["a.png", "A slime", "16 / 9"]);
+    expect([image.complete, frame.classList.contains("loaded")]).toEqual([false, false]);
+    const events: string[] = [];
+    image.addEventListener("load", () => events.push("load"));
+    image.addEventListener("error", () => events.push("error"));
+    const first = picture();
+    first.dispatchEvent(new Event("load"));
+    expect([events, image.complete, frame.classList.contains("loaded"), shadow(image, "broken").hidden]).toEqual([["load"], true, true, true]);
+    // Drawing again for another attribute doesn't load it again.
+    image.setAttribute("alt", "A green slime");
+    expect([picture(), image.complete]).toEqual([first, true]);
+
+    // A new address loads afresh, and a late report for the old one is ignored, even while the new one loads.
+    image.setAttribute("src", "missing.png");
+    expect([image.complete, image.naturalWidth, picture() === first, picture().alt]).toEqual([false, 0, false, "A green slime"]);
+    first.dispatchEvent(new Event("load"));
+    expect([events, image.complete]).toEqual([["load"], false]);
+    picture().dispatchEvent(new Event("error"));
+    expect([events, image.complete, shadow(image, "broken").hidden]).toEqual([["load", "error"], true, false]);
+    picture().dispatchEvent(new Event("load"));
+    expect(events).toEqual(["load", "error"]);
+    // Setting the same address again tries it again.
+    const failed = picture();
+    image.setAttribute("src", "missing.png");
+    expect([picture() === failed, picture().getAttribute("src"), image.complete, shadow(image, "broken").hidden]).toEqual([false, "missing.png", false, true]);
+    picture().dispatchEvent(new Event("load"));
+    expect(events).toEqual(["load", "error", "load"]);
+
+    // Out of the page, a new address still makes the old picture's late report not count.
+    const loading = picture();
+    image.remove();
+    image.setAttribute("src", "b.png");
+    loading.dispatchEvent(new Event("load"));
+    expect([image.complete, events.length]).toEqual([false, 3]);
+    document.body.append(image);
+
+    // A shape it can't use leaves the picture at its own.
+    for (const ratio of ["0", "-1/2", "wide", "4/0"]) {
+      image.setAttribute("ratio", ratio);
+      expect(frame.style.aspectRatio, ratio).toBe("");
+    }
+    image.setAttribute("ratio", "1.5");
+    expect(frame.style.aspectRatio).toBe("1.5 / 1");
+    image.removeAttribute("src");
+    expect([picture().hasAttribute("src"), shadow(image, "broken").hidden, image.complete]).toEqual([false, true, false]);
+  });
+
+  it("draws a tile as a button with its picture and name", () => {
+    type Tile = HTMLElement & { selected: boolean; disabled: boolean };
+    const tile = html<Tile>(`<omg-tile heading="slime.png" description="PNG" badge="4 frames" src="slime.png" pixelated selected></omg-tile>`);
+    const button = shadow(tile, "tile") as HTMLButtonElement;
+    const image = shadow(tile, "image");
+    expect([shadow(tile, "heading").textContent, shadow(tile, "heading").title, shadow(tile, "description").textContent, shadow(tile, "badge").textContent]).toEqual(["slime.png", "slime.png", "PNG", "4 frames"]);
+    expect([image.getAttribute("src"), image.hasAttribute("pixelated"), image.getAttribute("fit")]).toEqual(["slime.png", true, "cover"]);
+    expect(shadow(tile, "preview").style.aspectRatio).toBe("4 / 3");
+    expect(button.getAttribute("aria-current")).toBe("true");
+    // Its picture loads once, not again each time the tile draws; setting the same address tries it again.
+    const picture = shadow(image, "image");
+    tile.setAttribute("description", "PNG, 16 × 16");
+    expect(shadow(image, "image")).toBe(picture);
+    tile.setAttribute("src", "slime.png");
+    expect(shadow(image, "image")).not.toBe(picture);
+    tile.selected = false;
+    tile.disabled = true;
+    tile.setAttribute("fit", "contain");
+    tile.setAttribute("ratio", "1");
+    tile.removeAttribute("badge");
+    tile.removeAttribute("pixelated");
+    const picked = vi.fn();
+    tile.addEventListener("click", picked);
+    tile.click();
+    expect(picked).not.toHaveBeenCalled();
+    tile.disabled = false;
+    tile.click();
+    expect(picked).toHaveBeenCalledTimes(1);
+    tile.disabled = true;
+    expect([button.hasAttribute("aria-current"), button.disabled, image.getAttribute("fit"), image.hasAttribute("pixelated"), shadow(tile, "badge").hidden]).toEqual([false, true, "contain", false, true]);
+    expect(shadow(tile, "preview").style.aspectRatio).toBe("1 / 1");
   });
 
   it("starts on the option marked selected when it has no value", async () => {
@@ -222,6 +528,22 @@ describe("page components", () => {
     expect(calls).toEqual([]);
   });
 
+  it("reports a failure for the command that ran, even if the button's command changed", async () => {
+    let fail!: () => void;
+    answer = (id) => {
+      fail = () => app.postMessage({ id, error: "Failed" });
+    };
+    const button = html(`<omg-command-button command="prepare">Prepare</omg-command-button>`);
+    const errors: unknown[] = [];
+    button.addEventListener("omg-command-error", (event) => errors.push((event as CustomEvent).detail));
+    shadow(button, "button").click();
+    await settle();
+    button.removeAttribute("command");
+    fail();
+    await settle();
+    expect(errors).toEqual([{ command: "prepare", error: "Failed" }]);
+  });
+
   it("takes no clicks while disabled", async () => {
     const button = html(`<omg-command-button command="prepare" disabled>Prepare</omg-command-button>`);
     const clicks: Event[] = [];
@@ -236,11 +558,361 @@ describe("page components", () => {
     const manifest = JSON.parse(await readFile("packages/plugin-ui/gallery/.ohmygame-plugin/plugin.json", "utf8"));
     const checked = validatePluginManifest(manifest);
     expect(checked.ok ? [] : checked.issues).toEqual([]);
-    expect(manifest.ui).toEqual({ preview: true });
+    // Version 1 is stable, so the gallery needs no opt-in.
+    expect(manifest.ui.preview).toBeUndefined();
     const page = await readFile("packages/plugin-ui/gallery/panel/index.html", "utf8");
     const used = new Set([...page.matchAll(/<(omg-[a-z-]+)/g)].map(([, name]) => name!));
     expect([...used].filter((name) => !customElements.get(name))).toEqual([]);
     const docs = await readFile("docs/plugins.md", "utf8");
     expect([...used].filter((name) => !docs.includes(`\`${name}\``))).toEqual([]);
+  });
+});
+
+describe("page components' contract", () => {
+  it("is up to date with the components' doc comments", async () => {
+    // A Windows checkout may have CRLF line endings.
+    for (const { file, text } of await contractFiles()) expect((await readFile(file, "utf8")).replace(/\r\n/g, "\n"), file).toBe(text);
+  });
+
+  it("lists what each component observes, its parts and slots, and its members", async () => {
+    const manifest = await componentManifest("1");
+    const docs = await readFile("docs/plugins.md", "utf8");
+    expect(declarations(manifest).filter((item) => !docs.includes(`\`${item.tagName}\``)).map((item) => item.tagName)).toEqual([]);
+    for (const item of declarations(manifest)) {
+      const component = customElements.get(item.tagName) as (CustomElementConstructor & { observedAttributes?: string[] }) | undefined;
+      expect(component, item.tagName).toBeDefined();
+      const attributes = item.attributes.map((attribute) => attribute.name);
+      expect((component!.observedAttributes ?? []).filter((name) => !attributes.includes(name)), item.tagName).toEqual([]);
+      const element = document.createElement(item.tagName);
+      const parts = new Set([...element.shadowRoot!.querySelectorAll("[part]")].flatMap((node) => node.getAttribute("part")!.split(/\s+/)));
+      // These are drawn for each child, so they aren't in the template.
+      if (item.tagName === "omg-tabs") parts.add("tab");
+      if (item.tagName === "omg-segmented") parts.add("segment");
+      expect([...parts].sort(), `${item.tagName} parts`).toEqual(item.cssParts.map((part) => part.name).sort());
+      const slots = [...element.shadowRoot!.querySelectorAll("slot")].map((slot) => slot.getAttribute("name") ?? "");
+      expect(slots.sort(), `${item.tagName} slots`).toEqual(item.slots.map((slot) => slot.name).sort());
+      for (const member of item.members) expect(member.name in element, `${item.tagName}.${member.name}`).toBe(true);
+    }
+  });
+
+  it("reads every form of tag", () => {
+    const parsed = parseComment(
+      [
+        "`<omg-x>`: a thing.",
+        "@attr {'a' | 'b  c'} mode - The mode,",
+        "  over two lines.",
+        '@prop {{ close: "}" }} value - A value.',
+        "@readonly {number} size - How big it is.",
+        "@method run",
+        "@fires {{ id: string }} omg-x-done - Done.",
+        "@fires change",
+        "@slot - The content.",
+        "@slot icon",
+        "@part body - The body.",
+        "@cssprop [--omg-x-height=calc(100vh - 20px)] - How tall.",
+        "@cssprop --omg-accent",
+        "@deprecated Use omg-y instead.",
+      ]
+        .map((line) => ` * ${line}`)
+        .join("\r\n"),
+      "OmgX",
+      "OmgElement",
+      "ui/1/x.js",
+    );
+    expect(parsed).toMatchObject({
+      description: "`<omg-x>`: a thing.",
+      deprecated: "Use omg-y instead.",
+      attributes: [{ name: "mode", type: { text: "'a' | 'b  c'" }, description: "The mode, over two lines." }],
+      members: [
+        { kind: "field", name: "value", type: { text: '{ close: "}" }' } },
+        { kind: "field", name: "size", type: { text: "number" }, readonly: true },
+        { kind: "method", name: "run", return: { type: { text: "void" } } },
+      ],
+      events: [
+        { name: "omg-x-done", type: { text: "CustomEvent<{ id: string }>" } },
+        { name: "change", type: { text: "Event" } },
+      ],
+      slots: [{ name: "", description: "The content." }, { name: "icon" }],
+      cssParts: [{ name: "body" }],
+      cssProperties: [{ name: "--omg-x-height", default: "calc(100vh - 20px)", description: "How tall." }, { name: "--omg-accent" }],
+    });
+    expect(() => parseComment(" * @shout loud", "OmgX", "OmgElement", "ui/1/x.js")).toThrow("unknown tag @shout");
+    expect(
+      parseComment(" * @attr mode\n * @fires omg-x-done\n * @deprecated attr mode - Use kind.\n * @deprecated fires omg-x-done - Use change.", "OmgX", "OmgElement", "ui/1/x.js"),
+    ).toMatchObject({ attributes: [{ name: "mode", deprecated: "Use kind." }], events: [{ name: "omg-x-done", deprecated: "Use change." }] });
+    expect(parseComment(" * @deprecated", "OmgX", "OmgElement", "ui/1/x.js").deprecated).toBe("Deprecated.");
+    const slot = parseComment(" * @slot - The content.\n * @deprecated slot - Use body.", "OmgX", "OmgElement", "ui/1/x.js");
+    expect(slot).toMatchObject({ slots: [{ name: "", deprecated: "Use body." }] });
+    expect(slot.deprecated).toBeUndefined();
+    expect(() => parseComment(" * @deprecated attr mode - Use kind.", "OmgX", "OmgElement", "ui/1/x.js")).toThrow("names nothing");
+  });
+
+  it("warns once when a page uses what is deprecated, and says so wherever the contract does", async () => {
+    for (const major of PLUGIN_UI_MAJORS)
+      for (const item of declarations(await componentManifest(major))) {
+        const type = customElements.get(item.tagName) as unknown as { deprecated?: string; deprecatedAttributes: Record<string, string>; observedAttributes?: string[] };
+        expect(type.deprecated, item.tagName).toBe(item.deprecated);
+        expect(Object.keys(type.deprecatedAttributes).filter((name) => !type.observedAttributes?.includes(name)), item.tagName).toEqual([]);
+        expect(type.deprecatedAttributes, item.tagName).toEqual(
+          Object.fromEntries(item.attributes.filter((attribute) => attribute.deprecated).map((attribute) => [attribute.name, attribute.deprecated])),
+        );
+      }
+    const { OmgElement } = (await import(/* @vite-ignore */ path.join(served, "_ohmygame/ui/1/base.js"))) as { OmgElement: typeof HTMLElement };
+    class Old extends OmgElement {
+      static deprecated = "Use omg-new.";
+      static deprecatedAttributes = { mode: "Use kind." };
+    }
+    customElements.define("omg-old-test", Old);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    html('<div><omg-old-test mode="a"></omg-old-test><omg-old-test mode="b"></omg-old-test><omg-old-test></omg-old-test></div>');
+    await settle();
+    // Set after it connected, as a script would, it warns too.
+    class Late extends OmgElement {
+      static observedAttributes = ["mode"];
+      static deprecatedAttributes = { mode: "Use kind." };
+    }
+    customElements.define("omg-late-test", Late);
+    html("<omg-late-test></omg-late-test>").setAttribute("mode", "a");
+    await settle();
+    expect(warn.mock.calls.map(([message]) => message)).toEqual([
+      "[OhMyGame] <omg-old-test> is deprecated: Use omg-new.",
+      "[OhMyGame] <omg-old-test>'s mode is deprecated: Use kind.",
+      "[OhMyGame] <omg-late-test>'s mode is deprecated: Use kind.",
+    ]);
+    warn.mockRestore();
+  });
+
+  it("keeps a stable major served for its support window", () => {
+    const today = "2027-06-01";
+    const stable = { majors: ["1", "2"], preview: new Set<string>(), retiring: {} };
+    const retiring = { ...stable, retiring: { 1: { since: "2026-01-01", until: "2027-07-01" } } };
+    const check = (then: Parameters<typeof supportChanges>[0], majors: string[], dates: Parameters<typeof supportChanges>[1]["retiring"] = then.retiring) =>
+      supportChanges(then, { majors, retiring: dates }, today, "dev");
+    expect(check(stable, ["1", "2"])).toEqual({ breaking: [], notes: [] });
+
+    // It can't just go, or go before the date it had.
+    expect(check(stable, ["2"]).breaking).toEqual(["Components 1 were stable at dev and are no longer served."]);
+    expect(check(retiring, ["2"]).breaking).toEqual(["Components 1 were stable at dev and must be served until 2027-07-01."]);
+    expect(check({ ...retiring, retiring: { 1: { since: "2026-01-01", until: today } } }, ["2"]).breaking).toHaveLength(1);
+    const past = { ...stable, retiring: { 1: { since: "2026-01-01", until: "2027-05-31" } } };
+    expect(check(past, ["2"], {})).toEqual({ breaking: [], notes: ["Components 1: no longer served, after 2027-05-31"] });
+    expect(check({ ...stable, preview: new Set(["1"]) }, ["2"])).toEqual({ breaking: [], notes: ["Components 1 (preview): no longer served"] });
+
+    // Its date can't be moved closer, or be in the past when it's first set.
+    expect(check(retiring, ["1", "2"], { 1: { since: "2025-01-01", until: "2026-01-01" } }).breaking).toEqual([expect.stringContaining("can't move closer")]);
+    expect(check(retiring, ["1", "2"], { 1: { since: "2026-01-01", until: "2027-08-01" } }).breaking).toEqual([]);
+    expect(check(stable, ["1", "2"], { 1: { since: "2025-01-01", until: "2026-01-01" } }).breaking).toEqual([expect.stringContaining("12 months from 2027-06-01")]);
+    expect(check(stable, ["1", "2"], { 1: { since: today, until: "2028-06-01" } }).breaking).toEqual([]);
+  });
+
+  it("finds what would break a page", () => {
+    const contract = (attributes: { name: string; type?: { text: string } }[], extra: Record<string, unknown> = {}): ComponentManifest => ({
+      schemaVersion: "2.1.0",
+      readme: "",
+      modules: [
+        {
+          kind: "javascript-module",
+          path: "ui/1/controls.js",
+          declarations: [
+            { kind: "class", name: "OmgButton", tagName: "omg-button", customElement: true, description: "", attributes, members: [], events: [], slots: [{ name: "" }], cssParts: [{ name: "button" }], cssProperties: [], ...extra },
+          ],
+          exports: [],
+        },
+      ],
+    });
+    const before = contract([{ name: "variant", type: { text: '"primary" | "ghost"' } }, { name: "busy", type: { text: "boolean" } }]);
+    expect(contractChanges(before, before)).toEqual({ breaking: [], added: [] });
+    expect(contractChanges(before, contract([{ name: "variant", type: { text: '"primary" | "ghost"' }, deprecated: "Use kind." } as never, ...before.modules[0]!.declarations[0]!.attributes.slice(1)], { cssParts: before.modules[0]!.declarations[0]!.cssParts }))).toEqual({
+      breaking: [],
+      added: ["<omg-button> attribute variant is deprecated: Use kind."],
+    });
+    expect(contractChanges(before, contract([{ name: "variant", type: { text: '"primary" | "ghost" | "danger"' } }, { name: "busy", type: { text: "boolean" } }, { name: "size" }]))).toEqual({
+      breaking: [],
+      added: ['<omg-button> attribute variant takes "danger"', "<omg-button> attribute size"],
+    });
+    expect(contractChanges(before, contract([{ name: "variant", type: { text: '"primary"' } }], { cssParts: [] })).breaking).toEqual([
+      '<omg-button> attribute variant changed from "primary" | "ghost" to "primary"',
+      "<omg-button> attribute busy was removed",
+      "<omg-button> part button was removed",
+    ]);
+    expect(contractChanges(before, { ...before, modules: [] }).breaking).toEqual(["<omg-button> was removed"]);
+    // Its types are named after the class.
+    expect(contractChanges(before, contract(before.modules[0]!.declarations[0]!.attributes, { name: "OmgAction" })).breaking).toEqual([
+      "<omg-button>'s class OmgButton, which names its types, became OmgAction",
+    ]);
+    const run = (kind: "field" | "method") => contract([], { members: [{ kind, name: "run", ...(kind === "method" ? { return: { type: { text: "void" } } } : { type: { text: "void" } }) }] });
+    expect(contractChanges(run("method"), run("field")).breaking).toEqual(["<omg-button> member run became a property"]);
+    const size = (readonly: boolean) => contract([], { members: [{ kind: "field", name: "size", type: { text: "number" }, ...(readonly ? { readonly } : {}) }] });
+    expect(contractChanges(size(false), size(true))).toEqual({ breaking: ["<omg-button> member size became read-only"], added: [] });
+    expect(contractChanges(size(true), size(false))).toEqual({ breaking: [], added: ["<omg-button> member size can be set"] });
+    expect(contractChanges(contract([{ name: "mode", type: { text: "'a'" } }]), contract([{ name: "mode", type: { text: '"a" | "b"' } }])).added).toEqual([
+      '<omg-button> attribute mode takes "b"',
+    ]);
+  });
+
+  it("declares types for members a base class gives and events components share", () => {
+    const event = { name: "omg-done", type: { text: "CustomEvent<{ id: string }>" } };
+    const component = (name: string, tagName: string, extra: Record<string, unknown>) => ({
+      kind: "class" as const, name, tagName, customElement: true as const, description: "", attributes: [], members: [], events: [], slots: [], cssParts: [], cssProperties: [], ...extra,
+    });
+    const types = componentTypes({
+      schemaVersion: "2.1.0",
+      readme: "",
+      modules: [
+        {
+          kind: "javascript-module",
+          path: "ui/1/x.js",
+          declarations: [
+            // Its base class isn't a component, so its interface declares what that base gives.
+            component("OmgA", "omg-a", { superclass: { name: "Shared", module: "ui/1/x.js" }, members: [{ kind: "field", name: "shared", type: { text: "string" }, inheritedFrom: { name: "Shared", module: "ui/1/x.js" } }], events: [event] }),
+            component("OmgB", "omg-b", { superclass: { name: "OmgA", module: "ui/1/x.js" }, members: [{ kind: "field", name: "shared", type: { text: "string" }, inheritedFrom: { name: "Shared", module: "ui/1/x.js" } }], events: [event] }),
+          ],
+          exports: [],
+        },
+      ],
+    });
+    expect(types).toContain("export interface OmgAElement extends HTMLElement {\n  shared: string;\n}");
+    expect(types).toContain("export interface OmgBElement extends OmgAElement {}");
+    expect(types.match(/"omg-done":/g)).toHaveLength(1);
+
+    const shared = { kind: "field" as const, name: "shared", type: { text: "string" } };
+    const go = { name: "omg-go", type: { text: "CustomEvent<string>" } };
+    const deprecation = componentTypes({
+      schemaVersion: "2.1.0",
+      readme: "",
+      modules: [
+        {
+          kind: "javascript-module",
+          path: "ui/1/x.js",
+          declarations: [
+            component("OmgA", "omg-a", { members: [shared], events: [{ ...go, deprecated: "Use omg-run." }, { name: "omg-old", type: go.type, deprecated: "Use omg-new." }] }),
+            // Only this one deprecates what it inherits, so its interface says so.
+            component("OmgB", "omg-b", { superclass: { name: "OmgA", module: "ui/1/x.js" }, members: [{ ...shared, deprecated: "Use other." }], events: [go] }),
+          ],
+          exports: [],
+        },
+      ],
+    });
+    expect(deprecation).toMatch(/interface OmgBElement extends OmgAElement \{\n[^}]*@deprecated Use other\.[^}]*shared: string;/);
+    // Another component still fires omg-go as it was, while nothing else fires omg-old.
+    expect(deprecation).not.toContain("Use omg-run.");
+    expect(deprecation).toContain("@deprecated Use omg-new.");
+  });
+});
+
+describe("regression check", () => {
+  const run = (issues: string[], picture = "a", scenario?: string) => ({ plugin: "acme/panel", panel: "main", ...(scenario ? { scenario } : {}), appearance: "dark", issues, picture });
+
+  it("fails on anything wrong when there is nothing to compare with", () => {
+    expect(compareRuns(undefined, [run([]), run(["console: boom"])])).toEqual({ failures: ["acme/panel main (dark): console: boom"], changed: [] });
+  });
+
+  it("fails only on what is newly wrong, and lists what looks different without failing", () => {
+    expect(compareRuns([run(["console: old"])], [run(["console: old"])])).toEqual({ failures: [], changed: [] });
+    expect(compareRuns([run(["console: old"])], [run(["console: old", "<omg-x> never registered"], "b")])).toEqual({
+      failures: ["acme/panel main (dark): <omg-x> never registered"],
+      changed: ["acme/panel main (dark)"],
+    });
+    // A page needn't connect, but one that did and stopped has broken.
+    expect(compareRuns(undefined, [{ ...run([]), connected: false }]).failures).toEqual([]);
+    expect(compareRuns([{ ...run([]), connected: false }], [{ ...run([]), connected: false }]).failures).toEqual([]);
+    expect(compareRuns([{ ...run([]), connected: true }], [{ ...run([]), connected: false }]).failures).toEqual(["acme/panel main (dark): the page no longer connects to the app"]);
+    // Each scenario is its own view.
+    expect(compareRuns([run([], "a"), run([], "b", "connected")], [run([], "a"), run(["console: boom"], "b", "connected")]).failures).toEqual(["acme/panel main connected (dark): console: boom"]);
+  });
+});
+
+describe("plugin check", () => {
+  async function plugin(files: Record<string, string>, ui: object = { major: 1 }, extra: object = {}): Promise<string> {
+    const root = path.join(served, `check-${Math.random().toString(36).slice(2)}`);
+    const manifest = { id: "acme/panel", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Panel", description: "A panel", icon: "./icon.svg", ui, contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }] }, ...extra };
+    await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(root, ".ohmygame-plugin/plugin.json"), JSON.stringify(manifest));
+    await mkdir(path.join(root, "panel"));
+    await writeFile(path.join(root, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"/></svg>');
+    for (const [file, text] of Object.entries(files)) await writeFile(path.join(root, "panel", file), text);
+    return root;
+  }
+  const load = '<script type="module" src="/_ohmygame/ui/1/index.js"></script>';
+  const messages = async (root: string, level: "error" | "warning") =>
+    (await checkPlugin(root)).filter((finding) => finding.level === level).map((finding) => finding.message);
+
+  it("finds nothing wrong in the plugins the app ships or shows", async () => {
+    for (const folder of ["plugins/taptap-maker", "packages/plugin-ui/gallery"]) expect(await messages(folder, "error"), folder).toEqual([]);
+  });
+
+  it("fails on what can't work", async () => {
+    const page = await plugin({ "index.html": `${load}<script>alert(1)</script><script src="https://cdn.example.com/x.js"></script><omg-nope></omg-nope>` });
+    expect(await messages(page, "error")).toEqual([
+      expect.stringContaining("no inline scripts"),
+      expect.stringContaining("no remote scripts"),
+      "There is no component <omg-nope>",
+    ]);
+    expect(await messages(await plugin({ "index.html": "<omg-button></omg-button>" }), "error")).toEqual([expect.stringContaining("no script loads")]);
+    expect(await messages(await plugin({ "index.html": '<script type="module" src="/_ohmygame/ui/999/index.js"></script>' }), "error")).toEqual([expect.stringContaining("aren't served")]);
+    expect(await messages(await plugin({ "index.html": '<script src="/_ohmygame/ui/1/index.js"></script>' }), "error")).toEqual([expect.stringContaining('type="module"')]);
+    expect(await messages(await plugin({ "index.html": `${load}<omg-button onclick="save()" data-on="x"></omg-button>` }), "error")).toEqual([expect.stringContaining("inline event handlers: onclick")]);
+    expect(await messages(await plugin({ "index.html": `${load}<script type="module" src="./main.js"></script>`, "main.js": 'import { html } from "https://esm.sh/lit";\nconst shown = "from https://example.com";' }), "error")).toEqual([expect.stringContaining("no remote scripts: https://esm.sh/lit")]);
+    // Nor does a page beside it, in the same folder.
+    const beside = await plugin({ "main.html": load, "settings.html": "<omg-button></omg-button>" }, { major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/main.html" }, { id: "settings", title: "Settings", area: "center", entry: "./panel/settings.html" }] } });
+    expect(await checkPlugin(beside)).toContainEqual({ level: "error", file: path.join("panel", "settings.html"), message: expect.stringContaining("no script loads") });
+    // Another panel loading them doesn't help: it's another page.
+    const two = await plugin({ "index.html": load }, { major: 1 }, { contributes: { panels: [{ id: "one", title: "One", area: "center", entry: "./panel/index.html" }, { id: "two", title: "Two", area: "center", entry: "./two/index.html" }] } });
+    await mkdir(path.join(two, "two"));
+    await writeFile(path.join(two, "two/index.html"), "<omg-button></omg-button>");
+    expect(await checkPlugin(two)).toContainEqual({ level: "error", file: path.join("two", "index.html"), message: expect.stringContaining("no script loads") });
+    // Version 1 is stable: a plugin needn't opt in to it.
+    expect(await messages(await plugin({ "index.html": load }, {}), "error")).toEqual([]);
+    expect(await messages(await plugin({ "index.html": `${load}<script TYPE="MODULE">go()</script>` }), "error")).toEqual([expect.stringContaining("no inline scripts")]);
+    // The install's own checks come first.
+    expect(await messages(await plugin({ "index.html": load }, { major: 999 }), "error")).toEqual([expect.stringContaining("Update OhMyGame")]);
+  });
+
+  it("doesn't fail a page for what works", async () => {
+    const page = await plugin({
+      "index.html": `<script SRC="./main.js" type="module"></script>${load}<script type="application/json">{}</script><script type="text/plain"><omg-note></omg-note></script><textarea><omg-example><script>startGame()</script></textarea><title><omg-title></title><omg-button></omg-button>`,
+      "main.js": 'document.body.textContent = "<omg-example>";',
+    });
+    expect(await messages(page, "error")).toEqual([]);
+    expect(await messages(await plugin({ "index.html": `<script data-src="https://example.com/x.js" src="./main.js"></script>${load}<p>Moving on: /_ohmygame/ui/999/index.js</p>` }), "error")).toEqual([]);
+    expect(await messages(await plugin({ "index.html": '<script type="module" src="./main.js"></script><omg-button></omg-button>', "main.js": 'import(`/_ohmygame/ui/${major}/index.js`);' }), "error")).toEqual([]);
+    // At the package's root, only the page itself is served.
+    const rootPage = await plugin({}, { major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./index.html" }] } });
+    await writeFile(path.join(rootPage, "index.html"), load);
+    await mkdir(path.join(rootPage, "templates"));
+    await writeFile(path.join(rootPage, "templates/game.html"), "<script>game()</script>");
+    expect(await messages(rootPage, "error")).toEqual([]);
+    // Panels may share a script that loads them.
+    const shared = await plugin({ "index.html": '<script type="module" src="./main.js"></script><omg-button></omg-button>', "main.js": 'import "/_ohmygame/ui/1/index.js";' }, { major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }, { id: "settings", title: "Settings", area: "center", entry: "./settings/index.html" }] } });
+    await mkdir(path.join(shared, "settings"));
+    await writeFile(path.join(shared, "settings/index.html"), '<script type="module" src="../panel/main.js"></script><omg-button></omg-button>');
+    expect(await messages(shared, "error")).toEqual([]);
+    // Nor does it have to load them from its own folder.
+    const fromAssets = await plugin({}, { major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./index.html" }] } });
+    await writeFile(path.join(fromAssets, "index.html"), '<script type="module" src="./assets/main.js"></script><omg-button></omg-button>');
+    await mkdir(path.join(fromAssets, "assets"));
+    await writeFile(path.join(fromAssets, "assets/main.js"), 'import "/_ohmygame/ui/1/index.js";');
+    expect(await messages(fromAssets, "error")).toEqual([]);
+    // A page's major isn't known here, so what it uses can't be judged, beyond saying so.
+    expect(await messages(await plugin({ "index.html": '<script type="module" src="/_ohmygame/ui/999/index.js"></script><omg-future></omg-future>' }), "error")).toEqual([expect.stringContaining("aren't served")]);
+  });
+
+  it("warns about what won't match the app or won't last", async () => {
+    const warnings = await messages(
+      await plugin({
+        "index.html": `${load}<link rel="stylesheet" href="./page.css"><!-- <omg-comment> --><omg-button variant="primary" data-x="1" aria-label="Go" wobble></omg-button>`,
+        "page.css": "/* color: #123456 */ :root { --own: #fff; } a:not(#top) { color: var(--own); background: url(#fade); } b { color: #abcdef; border: 1px solid var(--color-border); fill: var(--mystery); } omg-button::part(nope) { color: inherit; }",
+        "page.js": 'document.createElement("omg-maybe"); addEventListener("omg-command-result", () => {});\n// "omg-comment"\n',
+      }),
+      "warning",
+    );
+    expect(warnings).toEqual([
+      "<omg-button> has no attribute wobble",
+      "There is no component <omg-maybe>",
+      expect.stringContaining("color: #abcdef"),
+      "--mystery isn't one of the app's tokens",
+      "No component has a part named nope",
+    ]);
+    expect(await messages(await plugin({ "index.html": load }, {}), "warning")).toContainEqual(expect.stringContaining('"major": 1'));
   });
 });

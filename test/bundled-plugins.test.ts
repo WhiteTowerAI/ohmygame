@@ -62,7 +62,7 @@ describe("bundled plugins", () => {
     try {
       expect(names(services, "ohmygame/web-game-studio")).toEqual(["web-game"]);
       expect(skillNames(services, "ohmygame/web-game-studio")).toEqual([
-        "game-playtest", "game-ui-frontend", "phaser-2d-game", "react-three-fiber-game", "sprite-pipeline",
+        "game-playtest", "game-tuning", "game-ui-frontend", "phaser-2d-game", "react-three-fiber-game", "sprite-pipeline",
         "three-webgl-game", "web-3d-asset-pipeline", "web-game-foundations", "web-game-studio",
       ]);
       expect(names(services, "ohmygame/game-studio")).toEqual(["general", "godot-game", "interactive-story"]);

@@ -47,7 +47,8 @@ function alertFinished(projectId: string, name: string | undefined, onOpen: (pro
   if (document.hasFocus() && watching(projectId)) return;
   const preferences = readGeneralPreferences();
   if (preferences.runSound) playChime();
-  if (!preferences.runNotifications || typeof Notification === "undefined") return;
+  // The desktop main process owns system notifications, including while this window is closed.
+  if (window.ohMyGameDesktop?.notifications || !preferences.runNotifications || typeof Notification === "undefined") return;
   const show = () => {
     const notification = new Notification(name ?? "OhMyGame", { body: t("runAlerts.finished"), tag: `run:${projectId}` });
     notification.onclick = () => {

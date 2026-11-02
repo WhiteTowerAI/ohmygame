@@ -9,7 +9,8 @@ import "./community.css";
 
 /**
  * A Community page in the frame: one scrolling column with a title row. Pages
- * under the list (a game, a creator) lead the row with a way back to it.
+ * under the list (a game, a creator) lead the row with a way back to it. It
+ * takes the frame's page layout, so its width and margins match the other pages.
  */
 export function CommunityPage({
   title,
@@ -26,10 +27,10 @@ export function CommunityPage({
 }) {
   return (
     <PageFrame active="community" onNavigate={onNavigate}>
-      <main className="community-page">
+      <main className="sidebar-page community-page">
         <WindowDragRegion />
-        <div className="community-page-body">
-          <header className="community-page-head">
+        <div className="sidebar-page-inner community-page-body">
+          <header className="sidebar-page-header community-page-head">
             {onBack ? (
               <Button
                 variant="ghost"

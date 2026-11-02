@@ -1,4 +1,4 @@
-import { Clock, DangerCircle, FileText, X } from "./icons.js";
+import { Clock, DangerCircle, FileText, InfoCircle, X } from "./icons.js";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference } from "../shared/contracts.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
@@ -35,6 +35,8 @@ interface ComposerProps {
   plan?: PlanState;
   planMode: PlanMode;
   notice?: string;
+  /** Something to know that isn't a failure, such as a message put back in the box. */
+  status?: string;
   /** The last turn stopped at a usage limit; offer to continue once it resets. */
   limitReached?: boolean;
   models: AgentModel[];
@@ -81,6 +83,7 @@ export function Composer({
   plan,
   planMode,
   notice,
+  status,
   limitReached = false,
   models,
   modelStatus,
@@ -117,7 +120,7 @@ export function Composer({
     planMode === "planning",
   ));
   const draft = useSyncExternalStore(draftSession.subscribe, draftSession.getSnapshot, draftSession.getSnapshot);
-  const { prompt, mentions: pluginMentions, attachments, designReference, reference, planning, submitting } = draft;
+  const { prompt, mentions: pluginMentions, attachments, uploaded: carried = [], designReference, reference, planning, submitting } = draft;
   const updateDraft = draftSession.update;
   const [referencingDesign, setReferencingDesign] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string>();
@@ -153,7 +156,7 @@ export function Composer({
 
   async function submit() {
     const value = prompt.trim();
-    if (!conversationReady || (!value && attachments.length === 0) || stopping || draftSession.getSnapshot().submitting || !projectId) return;
+    if (!conversationReady || (!value && attachments.length === 0 && carried.length === 0) || stopping || draftSession.getSnapshot().submitting || !projectId) return;
     setAttachmentError(undefined);
     setResumeArmedAt(undefined);
     updateDraft({ submitting: true });
@@ -161,7 +164,7 @@ export function Composer({
       const batchId = crypto.randomUUID();
       let uploaded: PromptAttachment[];
       try {
-        uploaded = await uploadAttachments(projectId, batchId, attachments);
+        uploaded = [...carried, ...await uploadAttachments(projectId, batchId, attachments)];
       } catch (error) {
         setAttachmentError(error instanceof Error ? error.message : String(error));
         return;
@@ -249,7 +252,7 @@ export function Composer({
     focusAt(inserted.cursor);
   }
 
-  const showStop = running && !prompt.trim() && attachments.length === 0;
+  const showStop = running && !prompt.trim() && attachments.length === 0 && carried.length === 0;
   const awaitingApproval = planMode === "awaiting_approval";
   const canTogglePlanning = conversationReady && !running && !stopping && !awaitingApproval && planMode !== "executing";
   const showPlanCommand = canTogglePlanning && matchesPlanCommand(prompt);
@@ -412,6 +415,10 @@ export function Composer({
         onSteer={(turnId) => { void onSteerPending(turnId); }}
         onEdit={(item) => { void editPending(item); }}
       />
+      {status ? <div className="composer-notice composer-info" role="status">
+        <InfoCircle size={14} aria-hidden="true" />
+        <span>{status}</span>
+      </div> : null}
       {notice || attachmentError ? <div className="composer-notice composer-error" role="alert">
         <DangerCircle size={14} aria-hidden="true" />
         <span>{attachmentError ?? notice}</span>
@@ -428,7 +435,7 @@ export function Composer({
           disabled={!conversationReady || running || stopping || modelChanging}
           onChange={onModelChange} onReasoningChange={onReasoningChange}
           showStop={showStop} stopping={stopping} onStop={onStop}
-          sendDisabled={inputDisabled || (!prompt.trim() && attachments.length === 0) || stopping}
+          sendDisabled={inputDisabled || (!prompt.trim() && attachments.length === 0 && carried.length === 0) || stopping}
           sendLabel={running ? t("composer.queue") : t("composer.send")}
         />}
         content={<>
@@ -453,7 +460,10 @@ export function Composer({
               <button type="button" onClick={() => updateDraft({ designReference: undefined })} aria-label={t("composer.removeDesign")}><X size={11} /></button>
             </div>
           </div> : null}
-          <AttachmentStrip items={attachments} onRemove={(id) => updateDraft((current) => ({ attachments: current.attachments.filter((attachment) => attachment.id !== id) }))} />
+          <AttachmentStrip items={attachments} uploaded={carried} onRemove={(id) => updateDraft((current) => ({
+            attachments: current.attachments.filter((attachment) => attachment.id !== id),
+            uploaded: current.uploaded?.filter((attachment) => attachment.id !== id),
+          }))} />
         </>}
         disabled={textareaDisabled}
         readOnly={textareaReadOnly}

@@ -1,3 +1,4 @@
+import type { GameTuningState } from "../shared/game-tuning.js";
 import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
 import {
   Play,
@@ -93,7 +94,13 @@ import {
   subscribeToProject,
   undoCheckpoint,
   waitForRuntime,
+  createPluginFolder,
+  deletePluginFile,
   getPluginPageValue,
+  listPluginFiles,
+  movePluginFile,
+  readPluginFile,
+  writePluginFile,
   setPluginPageValue,
   runPluginCommand,
   undoProjectPluginChange,
@@ -112,22 +119,25 @@ import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
 import { FloatingChat } from "./floating-chat.js";
 import { composerDrafts } from "./composer-drafts.js";
+import { imageAttachment } from "./composer-attachments.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { ApprovalCard } from "./approval-card.js";
+import { notifyPromptSent, useNotificationView } from "./agent-notifications.js";
 import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
 import { useAuth } from "./auth.js";
 import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from "./pending-publish.js";
+import type { PluginUiConfirm } from "../shared/plugin-ui-protocol.js";
 import type { PublishDetails } from "./publish-dialog.js";
 import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
-import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
-import { commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
-import { PluginFrame, type CommandProgress } from "./plugin-frame.js";
+import { fitLayout, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
+import { commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
+import { PluginFrame, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 import type { CodingView } from "./coding-workspace.js";
@@ -160,14 +170,14 @@ interface ProjectShellProps {
 }
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
-const PANELS: Record<WorkspacePanel, { title: () => string; icon: IconComponent }> = {
-  chat: { title: () => t("panels.chat"), icon: ChatSquare },
-  game: { title: () => t("panels.game"), icon: Gamepad2 },
-  design: { title: () => t("panels.design"), icon: FileDocument },
-  code: { title: () => t("workspace.tab.code"), icon: Code },
-  assets: { title: () => t("workspace.tab.assets"), icon: Layers3 },
-  story: { title: () => t("panels.story"), icon: Book },
-  canvas: { title: () => t("panels.canvas"), icon: GalleryWide },
+const PANEL_ICONS: Record<WorkspacePanel, IconComponent> = {
+  chat: ChatSquare,
+  game: Gamepad2,
+  design: FileDocument,
+  code: Code,
+  assets: Layers3,
+  story: Book,
+  canvas: GalleryWide,
 };
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
@@ -203,7 +213,8 @@ export function ProjectShell({
   const latestConversations = useRef(conversations);
   latestConversations.current = conversations;
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
-  const [initialPromptDeferred, setInitialPromptDeferred] = useState(false);
+  /** Says why a new project's first message is back in the input box, until a message is sent. */
+  const [initialPromptReturned, setInitialPromptReturned] = useState<string>();
   const [creatingConversation, setCreatingConversation] = useState(false);
   // The workspace's panels, in the one layout every project shares (see
   // workspace-layout.ts). Each panel's view renders into nodes of its own,
@@ -222,7 +233,7 @@ export function ProjectShell({
   const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered, homes)) : undefined;
   const visible = layout ? visiblePanels(layout, new Set(offered)) : [];
   const chatShown = !layout || visible.includes("chat");
-  const [nodes] = useState(() => Object.fromEntries(Object.keys(PANELS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
+  const [nodes] = useState(() => Object.fromEntries(Object.keys(PANEL_ICONS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
   // A plugin page gets its nodes once its panel is first placed, and keeps
   // them, so moving or closing the panel never reloads the page.
   const pluginNodes = useRef(new Map<PanelId, PanelNodes>()).current;
@@ -247,12 +258,13 @@ export function ProjectShell({
   function panelInfo(id: PanelId): { title: string; icon: IconComponent; source?: string } {
     const plugin = pluginPanels.get(id);
     if (plugin) return { title: plugin.title, icon: Plug, source: plugin.plugin };
-    const builtIn = PANELS[id as WorkspacePanel];
-    return { title: id === "game" && state.project?.type === "asset-canvas" ? t("workspace.tab.preview") : builtIn.title(), icon: builtIn.icon };
+    return { title: id === "game" && state.project?.type === "asset-canvas" ? t("workspace.tab.preview") : panelTitle(id as WorkspacePanel), icon: PANEL_ICONS[id as WorkspacePanel] };
   }
   const [publishing, setPublishing] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  const [gameTuning, setGameTuning] = useState<GameTuningState>();
+  const savedTuning = useRef<string | undefined>(undefined);
   const [workspaceEpoch, setWorkspaceEpoch] = useState(() => workspaceVersion(projectId));
   const [restoring, setRestoring] = useState(false);
   /** Set while a restore or an undo that was cut off has not been taken back, unless the user put the offer aside. */
@@ -281,6 +293,18 @@ export function ProjectShell({
   /** A link a plugin command offers, opened only once the person sees its host; `message` is the plugin's. */
   const [pluginLink, setPluginLink] = useState<{ url: URL; message?: string }>();
   const [pluginProgress, setPluginProgress] = useState<CommandProgress>();
+  const [pluginToolbarRuns] = useState(() => new Set<(run: PluginToolbarRun) => void>());
+  const onPluginToolbarRun = useCallback((listener: (run: PluginToolbarRun) => void) => {
+    pluginToolbarRuns.add(listener);
+    return () => { pluginToolbarRuns.delete(listener); };
+  }, [pluginToolbarRuns]);
+  /** The question a plugin's page is asking, in a dialog the app draws. */
+  const [pluginConfirm, setPluginConfirm] = useState<{ panel: PanelId; plugin: string; request: PluginUiConfirm; answer: (yes: boolean) => void }>();
+  const pluginConfirmOpen = useRef(false);
+  // A question from a panel that's gone has nobody to answer to.
+  useEffect(() => {
+    if (pluginConfirm && !pluginPanels.has(pluginConfirm.panel)) answerPluginConfirm(false);
+  }, [pluginConfirm, plugins.panels]);
   const toast = useToast();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
@@ -360,6 +384,7 @@ export function ProjectShell({
   function subscribe(cursor: number, selectedConversationId: string): void {
     unsubscribeEvents.current?.();
     let disposed = false;
+    setGameTuning(undefined);
     const unsubscribe = subscribeToProject(projectId, cursor, {
       onEvent: (event) => {
         dispatch({ type: "runtime-event", event });
@@ -378,6 +403,13 @@ export function ProjectShell({
           void getUnfinishedRestore(projectId).then((pending) => { if (!disposed) setUnfinishedRestore(pending); }).catch(() => {});
         }
         if (event.type === "agent.completed") setWorkspaceRevision((value) => value + 1);
+        if (event.type === "preview.tuning") {
+          setGameTuning(event.data);
+          // Saved values are in a file, which the Code and Git views show.
+          const saved = JSON.stringify([event.data.file, event.data.values]);
+          if (savedTuning.current !== saved) setWorkspaceRevision((value) => value + 1);
+          savedTuning.current = saved;
+        }
         if (event.type === "preview.picked") {
           // Only the pick this window asked for; another window's goes to it.
           const asked = pickingRef.current === event.data.client;
@@ -526,25 +558,55 @@ export function ProjectShell({
     sendInitialPrompt();
   }, [state.connection, state.project?.id, state.conversation?.id, conversationId, initialPrompt, runtime.generation, runtime.status]);
 
+  useEffect(() => {
+    // A message held while the service restarted is never sent on its own: it goes back to the input box.
+    if (
+      !state.project || !state.conversation || state.conversation.id !== conversationId ||
+      !initialPrompt || initialPromptAttempted.current || initialPrompt.generation === runtime.generation
+    ) return;
+    initialPromptAttempted.current = true;
+    returnInitialPrompt(state.conversation.id, t("projectShell.promptPaused"));
+  }, [state.project?.id, state.conversation?.id, conversationId, initialPrompt, runtime.generation]);
+
   function sendInitialPrompt(): void {
     const project = state.project;
     const conversation = state.conversation;
     if (!initialPrompt || !project || !conversation || conversation.id !== conversationId || sendingInitialPrompt || runtime.status !== "ready") return;
     initialPromptAttempted.current = true;
     setSendingInitialPrompt(true);
-    setInitialPromptDeferred(false);
-    let sent = true;
+    notifyPromptSent();
     void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments).then(() => {
-      if (sent && (initialPrompt.images.length || initialPrompt.attachments?.length)) setWorkspaceRevision((value) => value + 1);
-    }).catch((error) => {
-      // The message waits, as when it was paused, until the project is set up.
-      if (revealSetupPanel(error)) sent = false;
-      dispatch({ type: "notice", message: errorMessage(error) });
-    }).finally(() => {
-      if (sent) onInitialPromptHandled?.();
-      else setInitialPromptDeferred(true);
-      setSendingInitialPrompt(false);
-    });
+      if (initialPrompt.images.length || initialPrompt.attachments?.length) setWorkspaceRevision((value) => value + 1);
+      onInitialPromptHandled?.();
+    }, (error) => {
+      // Only a refusal is certainly not sent. A request lost on the way may have started the
+      // turn, so the message is not offered again, where sending it would make a second turn.
+      if (!(error instanceof ApiError)) {
+        dispatch({ type: "notice", message: errorMessage(error) });
+        onInitialPromptHandled?.();
+        return;
+      }
+      // A project that isn't set up says what to do in its panel; any other refusal is shown as one.
+      const notReady = revealSetupPanel(error);
+      returnInitialPrompt(conversation.id, notReady ? t("projectShell.promptReturnedBecause", { reason: errorMessage(error) }) : t("projectShell.promptReturned"));
+      if (!notReady) dispatch({ type: "notice", message: errorMessage(error) });
+    }).finally(() => setSendingInitialPrompt(false));
+  }
+
+  /** Puts a new project's first message, which was not sent, back in the input box to send again or change. */
+  function returnInitialPrompt(target: string, reason: string): void {
+    if (!initialPrompt) return;
+    const { prompt, mentions, images, mode, attachments = [] } = initialPrompt;
+    composerDrafts.get({ projectId, conversationId: target }).update((current) => ({
+      prompt: current.prompt.trim() ? `${prompt}\n${current.prompt}` : prompt,
+      mentions: [...mentions, ...current.mentions],
+      planning: current.planning || mode === "planning",
+      attachments: [...current.attachments, ...images.map(imageAttachment)],
+      uploaded: attachments.length ? [...current.uploaded ?? [], ...attachments] : current.uploaded,
+      focusRequestId: crypto.randomUUID(),
+    }));
+    setInitialPromptReturned(reason);
+    onInitialPromptHandled?.();
   }
 
   useEffect(() => {
@@ -577,6 +639,8 @@ export function ProjectShell({
     const pending = takePendingPublish(sessionStorage, project.id);
     if (pending) void publish(pending).catch(() => undefined);
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
+
+  useNotificationView(state.project?.id, state.conversation?.id);
 
   const project = state.project;
   const conversation = state.conversation;
@@ -623,11 +687,13 @@ export function ProjectShell({
       const contexts = [surface?.context, ...previewContexts.map((attachment) => attachment.context)].filter((context) => context !== undefined);
       const sentImages = previewImage ? [...images, previewImage] : images;
       const allReferences = [...(surface?.references ?? []), ...references.filter((reference) => !(surface?.references ?? []).some((current) => current.path === reference.path))];
+      notifyPromptSent();
       const picks = previewPicks;
       await sendPrompt(project.id, conversation.id, nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : []), ...picks.map((item) => item.context)]);
       if (picks.length) setPreviewPicks((current) => current.filter((item) => !picks.includes(item)));
       if (sentImages.length || attachments.length) setWorkspaceRevision((value) => value + 1);
       if (previewContexts.length) playableChat?.clearAttachments();
+      setInitialPromptReturned(undefined);
       return true;
     } catch (error) {
       revealSetupPanel(error);
@@ -654,6 +720,7 @@ export function ProjectShell({
     const surface = playableChat?.surface;
     try {
       await saveDesign.current?.();
+      notifyPromptSent();
       await sendPrompt(project.id, conversation.id, text, surface?.references ?? [], [], "normal", [], [], [...(surface ? [surface.context] : []), ...contexts]);
       revealPanel("chat");
       return true;
@@ -1010,34 +1077,54 @@ export function ProjectShell({
       dispatch({ type: "notice", message: errorMessage(cause) });
     }
   }
-  /** Runs a plugin command where its manifest says: the chat, a panel, a page, a link, or the plugin's code. */
-  async function runProjectPluginCommand(command: ProjectPluginCommand): Promise<void> {
-    if (!project) return;
+  /**
+   * Runs a plugin command where its manifest says: the chat, a panel, a page,
+   * a link, or the plugin's code. Resolves to what its code returned, or why
+   * it failed, which it has already shown.
+   */
+  async function runProjectPluginCommand(command: ProjectPluginCommand): Promise<{ result?: unknown; error?: string }> {
+    if (!project) return {};
     const run = command.run;
     if ("prompt" in run) {
       const prompt = commandPrompt(run);
       if (run.insert) requestPrompt(prompt);
       else if (await submitPrompt(prompt, [], [], "normal")) revealPanel("chat");
-      return;
+      else return { error: "The message wasn't sent" };
+      return {};
     }
-    if ("openPanel" in run) return revealPanel(pluginPanelId({ plugin: command.plugin, id: run.openPanel }));
+    if ("openPanel" in run) {
+      revealPanel(pluginPanelId({ plugin: command.plugin, id: run.openPanel }));
+      return {};
+    }
     if ("openSettings" in run) {
       window.location.hash = pluginHash(command.plugin);
-      return;
+      return {};
     }
     if ("url" in run) {
       // The manifest only checks that it starts with https://.
       const url = URL.canParse(run.url) ? new URL(run.url) : undefined;
       if (url) setPluginLink({ url });
-      else toast({ title: command.title, description: t("pluginCommands.badLink"), tone: "danger" });
-      return;
+      else {
+        toast({ title: command.title, description: t("pluginCommands.badLink"), tone: "danger" });
+        return { error: "The command's link isn't a valid web address" };
+      }
+      return {};
     }
     try {
-      const { change } = await runPluginCommand(project.id, command.id);
+      const { result, change } = await runPluginCommand(project.id, command.id);
       showPluginChange(command.title, change);
+      return { result };
     } catch (cause) {
-      toast({ title: command.title, description: errorMessage(cause), tone: "danger" });
+      const error = errorMessage(cause);
+      toast({ title: command.title, description: error, tone: "danger" });
+      return { error };
     }
+  }
+  /** Answers a plugin page's question, and lets another be asked. */
+  function answerPluginConfirm(yes: boolean): void {
+    pluginConfirmOpen.current = false;
+    pluginConfirm?.answer(yes);
+    setPluginConfirm(undefined);
   }
   /** Says a plugin's code ran, with Undo when it changed files. */
   function showPluginChange(title: string, change: { id: string; changed: string[] } | undefined): void {
@@ -1060,11 +1147,28 @@ export function ProjectShell({
     const commands = commandsForSlot(plugins.commands, slot, plugins.when);
     return commands.length ? ["separator", ...commands.map((command): MenuEntry => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => void runProjectPluginCommand(command) }))] : [];
   }
+  /** Refreshes the views of the project's files once a page's change to them lands. */
+  async function changedFiles<T>(change: Promise<T>): Promise<T> {
+    const result = await change;
+    setWorkspaceRevision((value) => value + 1);
+    return result;
+  }
   /** A plugin's page in its panel, talking to the app through its frame. */
   function pluginPanelContent(panel: PluginPanel, shown: boolean) {
     const current = project!;
-    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} context={{
+    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} filesRevision={workspaceRevision} onToolbarRun={onPluginToolbarRun} context={{
       plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
+      ...(panel.accent ? { accent: panel.accent } : {}),
+      // Under the plugin's id, which it can't choose as it can a panel's title.
+      toast: (message, tone) => toast({ title: panel.plugin, description: message, ...(tone ? { tone } : {}) }),
+      confirm: (request) => new Promise<boolean>((resolve, reject) => {
+        if (pluginConfirmOpen.current) {
+          reject(new Error("Another question is waiting for an answer"));
+          return;
+        }
+        pluginConfirmOpen.current = true;
+        setPluginConfirm({ panel: pluginPanelId(panel), plugin: panel.plugin, request, answer: resolve });
+      }),
       locale: language,
       capabilities: panel.capabilities,
       commands: panel.commands,
@@ -1073,6 +1177,15 @@ export function ProjectShell({
       storage: {
         get: (key) => getPluginPageValue(current.id, panel.plugin, key),
         set: (key, value) => setPluginPageValue(current.id, panel.plugin, key, value),
+      },
+      files: {
+        list: (options) => listPluginFiles(current.id, panel.plugin, options),
+        read: (filePath) => readPluginFile(current.id, panel.plugin, filePath),
+        // What a page changes shows in the app's views and history like any other change.
+        write: (filePath, contents) => changedFiles(writePluginFile(current.id, panel.plugin, filePath, contents)),
+        createFolder: (folderPath) => changedFiles(createPluginFolder(current.id, panel.plugin, folderPath)),
+        move: (from, to) => changedFiles(movePluginFile(current.id, panel.plugin, from, to)),
+        delete: (filePath) => changedFiles(deletePluginFile(current.id, panel.plugin, filePath)),
       },
       runCommand: async (command, input) => {
         const id = `${panel.plugin}:${command}`;
@@ -1087,6 +1200,14 @@ export function ProjectShell({
         if (change?.changed.length) showPluginChange(found?.title ?? command, change);
         return result;
       },
+    }} />;
+  }
+  /** A plugin panel's commands in its toolbar; the page hears how each one went. */
+  function pluginPanelToolbar(panel: PluginPanel) {
+    const commands = commandsForSlot(plugins.commands, "panel.toolbar", plugins.when).filter((command) => command.plugin === panel.plugin);
+    return <PluginPanelToolbar commands={commands} onRun={async (command) => {
+      const outcome = await runProjectPluginCommand(command);
+      for (const listener of pluginToolbarRuns) listener({ command: command.id, ...outcome });
     }} />;
   }
   const projectMenu: MenuEntry[] = [
@@ -1202,13 +1323,6 @@ export function ProjectShell({
       </div>
     ) : null}
 
-    {initialPrompt && (initialPromptDeferred || (initialPrompt.generation !== runtime.generation && !initialPromptAttempted.current)) ? <div className="paused-initial-prompt" role="status">
-      <p>{t(initialPromptDeferred ? "projectShell.promptNotSent" : "projectShell.promptPaused")}</p>
-      <details><summary>{t("projectShell.reviewMessage")}</summary><pre>{initialPrompt.prompt}</pre>
-        {initialPrompt.images.length || initialPrompt.attachments?.length ? <p>{t("projectShell.attachmentsRetained", { count: initialPrompt.images.length + (initialPrompt.attachments?.length ?? 0) })}</p> : null}
-      </details>
-      <button type="button" disabled={runtime.status !== "ready" || state.connection !== "open" || !conversation || conversation.id !== conversationId} onClick={sendInitialPrompt}>{t("projectShell.sendOriginal")}</button>
-    </div> : null}
     {unfinishedRestore ? <UnfinishedRestoreBanner
       projectId={projectId}
       disabled={agentBusy || state.connection !== "open"}
@@ -1227,6 +1341,7 @@ export function ProjectShell({
       plan={activePlan}
       planMode={state.plan.mode}
       notice={state.connection === "reconnecting" ? t("projectShell.reconnecting") : state.notice}
+      status={initialPromptReturned}
       limitReached={!currentConversationBusy && items.findLast((item) => item.type === "agentMessage")?.error?.code === "quota_exceeded"}
       models={modelCatalog.models}
       modelStatus={modelCatalog.status}
@@ -1290,6 +1405,13 @@ export function ProjectShell({
       {pluginLink.message ? <p>{pluginLink.message}</p> : null}
       <p>{t("pluginCommands.openLinkHint", { host: pluginLink.url.host })}</p>
     </Dialog> : null}
+    {pluginConfirm ? <Dialog open size="sm" title={pluginConfirm.request.title} onClose={() => answerPluginConfirm(false)} footer={<>
+      <Button variant="ghost" onClick={() => answerPluginConfirm(false)}>{t("common.cancel")}</Button>
+      <Button variant="primary" onClick={() => answerPluginConfirm(true)}>{pluginConfirm.request.confirmLabel ?? t("pluginCommands.confirm")}</Button>
+    </>}>
+      {pluginConfirm.request.message ? <p className="plugin-confirm-message">{pluginConfirm.request.message}</p> : null}
+      <p className="plugin-confirm-source">{t("pluginCommands.askedBy", { plugin: pluginConfirm.plugin })}</p>
+    </Dialog> : null}
     {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
     {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} /> : null}
     {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
@@ -1349,6 +1471,15 @@ export function ProjectShell({
       /> : undefined}
       empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes))}>{t("panels.reset")}</Button>} /> : null} /> : null}
     {createPortal(<div className="pane-header-actions chat-header-actions">
+            <span className="chat-header-spacer" />
+            {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
+              <CanvasChipSelect icon={UserRound} label={t("codingAgents.chatProfile", { name: accountRuntime === "codex-cli" ? "Codex" : "Claude Code" })} value={selectedProfileId}
+                options={accountProfiles.map((profile) => {
+                  const name = profile.id === "system" ? t("codingAgents.profileSystem") : profile.name;
+                  return { value: profile.id, shortLabel: name, label: profile.auth.account ? `${name} · ${profile.auth.account}` : name };
+                })}
+                disabled={agentBusy || modelChanging || state.connection !== "open"} onChange={(profileId) => void changeAccountProfile(profileId)} />
+            </div> : null}
             <ConversationMenu
               conversations={conversations}
               currentConversationId={conversation?.id}
@@ -1363,15 +1494,6 @@ export function ProjectShell({
                 remove: (conversationId) => deleteArchivedConversation(project.id, conversationId),
               } : undefined}
             />
-            <span className="chat-header-spacer" />
-            {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
-              <CanvasChipSelect icon={UserRound} label={t("codingAgents.chatProfile", { name: accountRuntime === "codex-cli" ? "Codex" : "Claude Code" })} value={selectedProfileId}
-                options={accountProfiles.map((profile) => {
-                  const name = profile.id === "system" ? t("codingAgents.profileSystem") : profile.name;
-                  return { value: profile.id, shortLabel: name, label: profile.auth.account ? `${name} · ${profile.auth.account}` : name };
-                })}
-                disabled={agentBusy || modelChanging || state.connection !== "open"} onChange={(profileId) => void changeAccountProfile(profileId)} />
-            </div> : null}
             <button
               className="icon-button pane-header-action"
               type="button"
@@ -1420,6 +1542,7 @@ export function ProjectShell({
           project={project}
           publishing={publishing}
           workspaceRevision={workspaceRevision + (canvasOnly ? canvasCodeRevision : 0)}
+          gameTuning={gameTuning}
           previewPaused={previewPaused}
           openFileRequest={openFileRequest}
           openPreviewRequest={openPreviewRequest}
@@ -1471,16 +1594,16 @@ export function ProjectShell({
           visible: storyVisible,
           onShow: revealPanel,
         }}
-      /> : createPortal(<Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+      /> : createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         onSaveReady={registerDesignSave}
         onContextChange={setDesignContext}
         headerActionsTarget={nodes.canvas.toolbar}
-      /></Suspense>, nodes.canvas.body)}
+      /></Suspense></ErrorBoundary>, nodes.canvas.body)}
       {project ? [...pluginNodes].flatMap(([id, target]) => {
         const panel = pluginPanels.get(id);
-        return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id)] : [];
+        return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(pluginPanelToolbar(panel), target.toolbar, `${id}:toolbar`)] : [];
       }) : null}
       </ErrorBoundary>
     </ProjectFrame>

@@ -43,6 +43,7 @@ export {
   Card,
   CodeBlock,
   Collapsible,
+  Disclosure,
   Empty,
   Item,
   Kbd,

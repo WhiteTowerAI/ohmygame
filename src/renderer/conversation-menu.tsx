@@ -1,4 +1,4 @@
-import { Archive, Check, ChevronDown, ChevronLeft, FilePenLine, LoaderCircle, RotateCcw, Search, Trash2, X } from "./icons.js";
+import { Archive, Check, ChevronLeft, FilePenLine, History, LoaderCircle, RotateCcw, Search, Trash2, X } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ConversationSummary } from "../shared/contracts.js";
 import { t } from "./i18n.js";
@@ -114,15 +114,15 @@ export function ConversationMenu({
   }
 
   const normalizedQuery = query.trim().toLowerCase();
-  const currentTitle = conversations.find((conversation) => conversation.id === currentConversationId)?.title || t("conversations.untitled");
   const visibleConversations = conversations.filter((conversation) => !normalizedQuery || conversation.title.toLowerCase().includes(normalizedQuery));
 
   return (
     <div className="conversation-menu" ref={root}>
       <button
         ref={trigger}
-        className="conversation-trigger"
+        className="icon-button pane-header-action"
         type="button"
+        aria-label={t("conversations.history")}
         disabled={disabled}
         aria-expanded={open}
         aria-controls="conversation-menu-popover"
@@ -130,11 +130,10 @@ export function ConversationMenu({
         title={t("conversations.history")}
         onClick={() => setOpen((value) => !value)}
       >
-        <span>{currentTitle}</span>
-        <ChevronDown size={12} />
+        <History size={14} />
       </button>
 
-      <Popover open={open} onClose={close} anchor={trigger} placement="bottom-start" className="conversation-popover" label={t("conversations.label")}>
+      <Popover open={open} onClose={close} anchor={trigger} placement="bottom-end" className="conversation-popover" label={t("conversations.label")}>
         <div id="conversation-menu-popover">
           {archived ? <>
             <div className="conversation-archive-head">

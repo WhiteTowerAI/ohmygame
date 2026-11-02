@@ -4,8 +4,51 @@
 // host transfers one end of a MessageChannel to it; every request comes back
 // on that port, so only that frame can make them, and each is checked against
 // the plugin's capabilities before it runs.
+import { THEME_TOKENS } from "./plugin-manifest.js";
 
 export const PLUGIN_UI_PROTOCOL_VERSION = 1;
+
+/**
+ * The design tokens a page gets on its `:root`, with the values the app has
+ * now: the colours a theme sets, then the roles, type, shape, space and motion
+ * the app's own components use (`src/renderer/ui/tokens.css`). Pages and
+ * `plugin-ui.css` use these names, so a release may add tokens but never
+ * renames or removes one.
+ */
+export const PAGE_TOKENS = [
+  ...THEME_TOKENS,
+  ...[
+    "app",
+    "stage",
+    "surface",
+    "surface-raised",
+    "hover",
+    "selected",
+    "border",
+    "border-strong",
+    "text",
+    "text-secondary",
+    "text-tertiary",
+    "ink",
+    "on-ink",
+    "focus",
+    "control-thumb",
+    "success",
+    "danger",
+    "warning",
+  ].map((role) => `--color-${role}`),
+  "--shadow-hairline",
+  "--shadow-float",
+  "--font-sans",
+  "--font-mono",
+  ...["xs", "sm", "md", "lg", "xl"].map((size) => `--text-${size}`),
+  ...["regular", "medium", "semibold"].map((weight) => `--weight-${weight}`),
+  ...["sm", "md", "lg", "pill"].map((size) => `--radius-${size}`),
+  ...[1, 2, 3, 4, 6].map((step) => `--space-${step}`),
+  "--ease-out",
+  "--duration-fast",
+  "--duration-base",
+] as const;
 
 /** The handshake the host posts to the frame, with the port as its only transfer. */
 export const PLUGIN_UI_HANDSHAKE = "ohmygame-plugin-ui";
@@ -23,6 +66,14 @@ export const PLUGIN_UI_METHODS = [
   "selection.get",
   "composer.fill",
   "command.run",
+  "ui.toast",
+  "ui.confirm",
+  "files.list",
+  "files.read",
+  "files.write",
+  "files.createFolder",
+  "files.move",
+  "files.delete",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -41,21 +92,54 @@ export type PluginUiReply =
 export type PluginUiEvent =
   | { event: "theme"; tokens: Record<string, string>; appearance: "dark" | "light" }
   | { event: "visibility"; visible: boolean }
+  | { event: "files" }
   /** How one of the plugin's own commands is going while it runs, by its id in the manifest. */
-  | { event: "progress"; command: string; message: string };
+  | { event: "progress"; command: string; message: string }
+  /** A command the person ran from the panel's toolbar finished; it has `error` if it failed. */
+  | { event: "command"; command: string; result?: unknown; error?: string };
+
+export const PLUGIN_UI_TOAST_TONES = ["default", "success", "danger"] as const;
+export type PluginUiToastTone = (typeof PLUGIN_UI_TOAST_TONES)[number];
+
+/** What a page asks the person with `ui.confirm`. */
+export interface PluginUiConfirm {
+  title: string;
+  message?: string;
+  confirmLabel?: string;
+}
+
+/** A plugin's brand colour, or one for each appearance. */
+export type PluginAccent = string | { light?: string; dark?: string };
 
 export interface PluginUiCapabilities {
   "project.selection"?: boolean;
   composer?: boolean;
+  "project.files"?: "read" | "write";
 }
 
 /** The capability a method needs beyond what every page has. */
-const NEEDS: Partial<Record<PluginUiMethod, keyof PluginUiCapabilities>> = {
+const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer">> = {
   "selection.get": "project.selection",
   "composer.fill": "composer",
 };
 
+/** How much of `project.files` a method needs; writing covers reading. */
+const FILE_NEEDS: Partial<Record<PluginUiMethod, "read" | "write">> = {
+  "files.list": "read",
+  "files.read": "read",
+  "files.write": "write",
+  "files.createFolder": "write",
+  "files.move": "write",
+  "files.delete": "write",
+};
+
+/** A path a page gave, of a sane length; the daemon decides whether it may use it. */
+const filePath = (value: unknown) => typeof value === "string" && value.length > 0 && value.length <= 1000 && !value.includes("\0");
+
 const STORAGE_KEY = /^[A-Za-z0-9._-]{1,100}$/;
+
+/** Text with something to read, of at most `max` characters. */
+const text = (value: unknown, max: number) => typeof value === "string" && value.trim().length > 0 && value.length <= max;
 
 /**
  * Checks a message from a page: its shape, size and parameters. Returns the
@@ -94,6 +178,32 @@ export function readPluginUiRequest(
     case "command.run":
       if (typeof p.command !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(p.command)) return fail("command.run needs one of the plugin's command ids");
       break;
+    case "ui.toast":
+      if (!text(p.message, 500)) return fail("ui.toast needs a message of at most 500 characters");
+      if (p.tone !== undefined && !(PLUGIN_UI_TOAST_TONES as readonly unknown[]).includes(p.tone)) return fail(`ui.toast's tone is one of ${PLUGIN_UI_TOAST_TONES.join(", ")}`);
+      break;
+    case "ui.confirm":
+      if (!text(p.title, 200)) return fail("ui.confirm needs a title of at most 200 characters");
+      if (p.message !== undefined && !text(p.message, 1000)) return fail("ui.confirm's message is at most 1,000 characters");
+      if (p.confirmLabel !== undefined && !text(p.confirmLabel, 40)) return fail("ui.confirm's confirmLabel is at most 40 characters");
+      break;
+    case "files.list":
+      if (p.path !== undefined && !filePath(p.path)) return fail("files.list's path is a path in the project");
+      if (p.recursive !== undefined && typeof p.recursive !== "boolean") return fail("files.list's recursive is true or false");
+      break;
+    case "files.read":
+    case "files.createFolder":
+    case "files.delete":
+      if (!filePath(p.path)) return fail(`${String(method)} needs a path in the project`);
+      break;
+    case "files.write":
+      if (!filePath(p.path)) return fail("files.write needs a path in the project");
+      // A blob isn't in the size above: it is the point of sending one.
+      if (typeof p.data !== "string" && !(typeof Blob !== "undefined" && p.data instanceof Blob)) return fail("files.write's data is a string or a Blob");
+      break;
+    case "files.move":
+      if (!filePath(p.from) || !filePath(p.to)) return fail("files.move needs from and to, paths in the project");
+      break;
   }
   return { ok: true, request: { id: id as number, method: method as PluginUiMethod, ...(params ? { params: p } : {}) } };
 }
@@ -103,6 +213,11 @@ export function pluginUiRefusal(
   method: PluginUiMethod,
   capabilities: PluginUiCapabilities,
 ): string | undefined {
+  const files = FILE_NEEDS[method];
+  if (files) {
+    const allowed = capabilities["project.files"];
+    return allowed === "write" || allowed === files ? undefined : `${method} needs the project.files capability set to ${files}`;
+  }
   const needed = NEEDS[method];
   return needed && capabilities[needed] !== true
     ? `${method} needs the ${needed} capability`
@@ -130,4 +245,54 @@ export function pluginFrameNavigationAllowed(from: string, to: string, pluginUiO
   } catch {
     return false;
   }
+}
+
+/** The contrast a brand colour needs against the panel's surface, as any control does (WCAG 1.4.11). */
+export const PLUGIN_ACCENT_MIN_CONTRAST = 3;
+
+/** A `#rgb`, `#rrggbb` or `rgb()` colour's channels, 0 to 255. Other forms aren't read. */
+function channels(color: string): [number, number, number] | undefined {
+  const value = color.trim();
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value)?.[1];
+  if (hex) {
+    const full = hex.length === 3 ? [...hex].map((digit) => digit + digit).join("") : hex;
+    return [0, 2, 4].map((at) => Number.parseInt(full.slice(at, at + 2), 16)) as [number, number, number];
+  }
+  const rgb = /^rgba?\(\s*(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)\s*(?:[,/]\s*1(?:\.0+)?\s*|[,/]\s*100%\s*)?\)$/i.exec(value);
+  return rgb ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])] : undefined;
+}
+
+/** WCAG's contrast between two colours, from 1 to 21. */
+function contrast(a: [number, number, number], b: [number, number, number]): number {
+  const luminance = (color: [number, number, number]) => {
+    const [red, green, blue] = color.map((channel) => {
+      const value = channel / 255;
+      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    }) as [number, number, number];
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+  return (light + 0.05) / (dark + 0.05);
+}
+
+const WHITE: [number, number, number] = [255, 255, 255];
+const BLACK: [number, number, number] = [0, 0, 0];
+
+/**
+ * `--omg-accent` and the text that goes on it, for a page in this appearance:
+ * the plugin's brand colour if it stands out from the surface, otherwise the
+ * app's accent, so no plugin's colour makes its progress hard to see. A
+ * surface it can't read counts as not standing out.
+ */
+export function accentTokens(
+  accent: PluginAccent | undefined,
+  appearance: "dark" | "light",
+  tokens: Record<string, string>,
+): Record<string, string> {
+  const wanted = typeof accent === "string" ? accent : accent?.[appearance];
+  const brand = wanted ? channels(wanted) : undefined;
+  const surface = channels(tokens["--color-surface"] ?? "");
+  if (wanted && brand && surface && contrast(brand, surface) >= PLUGIN_ACCENT_MIN_CONTRAST)
+    return { "--omg-accent": wanted, "--omg-on-accent": contrast(brand, WHITE) >= contrast(brand, BLACK) ? "#ffffff" : "#000000" };
+  return { "--omg-accent": tokens["--color-accent"] ?? "", "--omg-on-accent": tokens["--color-on-accent"] ?? "" };
 }

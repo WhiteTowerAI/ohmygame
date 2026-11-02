@@ -6,11 +6,11 @@ import { CustomModelUsageFields } from "./custom-model-usage-fields.js";
 import { supportedReasoningLevels } from "../shared/reasoning.js";
 import { reasoningLabel } from "./reasoning-label.js";
 import { discoverCustomProviderModels, saveCustomProvider } from "./api.js";
-import { ChevronDown, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2 } from "./icons.js";
+import { LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2 } from "./icons.js";
 import { initialCustomThinkingLevelMap, invalidateCustomModelCapabilities, mergeDiscoveredProviderModels, modelError, type ModelRow } from "./custom-provider-models.js";
 import { isLocalModelProvider } from "./local-model-providers.js";
 import { t } from "./i18n.js";
-import { Button, Dialog, IconButton, Select } from "./ui/index.js";
+import { Button, Dialog, Disclosure, IconButton, Select } from "./ui/index.js";
 
 export const PROVIDER_API_LABELS: Record<string, string> = {
   "openai-completions": "OpenAI Chat Completions",
@@ -229,14 +229,13 @@ export function CustomProviderForm({ settings, initialProvider, initialFocus = "
             </div>
           </> : <p className="custom-provider-hint">{t("customProvider.noSearchMatch")}</p>}
         </> : !manualOpen ? <p className="custom-provider-model-empty">{t("customProvider.noModels")}</p> : null}
-        <details className="custom-provider-manual" open={manualOpen} onToggle={(event) => setManualOpen(event.currentTarget.open)}>
-          <summary><Plus size={14} aria-hidden="true" /><span>{t("customProvider.addManually")}</span><ChevronDown size={14} aria-hidden="true" /></summary>
+        <Disclosure variant="section" className="custom-provider-manual" icon={<Plus size={14} aria-hidden="true" />} summary={t("customProvider.addManually")} open={manualOpen} onOpenChange={setManualOpen}>
           <div className="custom-provider-manual-fields">
             <label><span>{t("models.modelId")}</span><input value={manual.id} onChange={(event) => setManual((current) => ({ ...current, id: event.target.value }))} placeholder={form.preset === "ollama" ? "qwen3:8b" : t("customProvider.modelIdPlaceholder")} maxLength={200} disabled={saving} autoComplete="off" spellCheck={false} /></label>
             <ModelFields model={manual} preset={form.preset} onChange={setManual} disabled={saving || !manual.id.trim()} />
             <button className="settings-secondary-button custom-provider-manual-add" type="button" disabled={saving || !manual.id.trim()} onClick={addManualModel}><Plus size={13} />{t("models.add")}</button>
           </div>
-        </details>
+        </Disclosure>
       </section>
       {error ? <p className="project-settings-error" role="alert">{error}</p> : null}
     </div>;
@@ -260,7 +259,7 @@ function ModelFields({ model, preset, onChange, disabled }: { model: CustomProvi
   return <fieldset className="project-settings-section" disabled={disabled}>
     <label><span>{t("customProvider.modelDisplayName")}</span><input value={model.name} onChange={(event) => onChange({ ...model, name: event.target.value })} placeholder={model.id || t("customProvider.sameAsId")} maxLength={200} /></label>
     <CustomModelUsageFields usages={usages} preset={preset} modelId={model.id} onChange={(usages) => onChange({ ...model, usages })} />
-    {usages.language ? <details className="custom-provider-advanced"><summary>{t("customProvider.languageSettings")}</summary><LanguageModelFields model={model} onChange={onChange} disabled={disabled} /></details> : null}
+    {usages.language ? <Disclosure className="custom-provider-advanced" summary={t("customProvider.languageSettings")}><LanguageModelFields model={model} onChange={onChange} disabled={disabled} /></Disclosure> : null}
   </fieldset>;
 }
 
@@ -278,7 +277,7 @@ function LanguageModelFields({ model, onChange, disabled }: { model: CustomProvi
       <label><span>{t("models.maxOutputTokens")}</span><input type="number" min={1} max={model.contextWindow} step={1} value={model.maxTokens} onChange={(event) => field("maxTokens", Number(event.target.value))} required /></label>
     </div>
     <div className="custom-provider-capabilities"><label><input type="checkbox" checked={model.reasoning} onChange={(event) => field("reasoning", event.target.checked)} />{t("models.reasoning")}</label><label><input type="checkbox" checked={model.supportsImages} onChange={(event) => field("supportsImages", event.target.checked)} />{t("models.imageInput")}</label></div>
-    {model.reasoning ? <details className="custom-provider-advanced"><summary>{t("customProvider.reasoningSettings")}</summary>
+    {model.reasoning ? <Disclosure className="custom-provider-advanced" summary={t("customProvider.reasoningSettings")}>
       <label><span>{t("customProvider.reasoningLevels")}</span><select value={model.thinkingLevelMap ? "custom" : "automatic"} onChange={(event) => field("thinkingLevelMap", event.target.value === "automatic" ? undefined : initialCustomThinkingLevelMap(model))}><option value="automatic">{t("customProvider.automatic")}</option><option value="custom">{t("models.filter.custom")}</option></select></label>
       {model.thinkingLevelMap ? <>
         <p className="custom-provider-hint">{t("customProvider.levelsHint")}</p>
@@ -289,6 +288,6 @@ function LanguageModelFields({ model, onChange, disabled }: { model: CustomProvi
           </div>)}
         </div>
       </> : <p className="custom-provider-hint">{automaticLevels.map(reasoningLabel).join(" · ")}{model.reasoningCapabilities?.source === "provider" ? t("customProvider.fromProvider") : model.reasoningCapabilities?.source === "catalog" ? t("customProvider.fromCatalog") : t("customProvider.defaultLevels")}</p>}
-    </details> : null}
+    </Disclosure> : null}
   </fieldset>;
 }

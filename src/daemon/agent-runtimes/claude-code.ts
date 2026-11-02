@@ -550,6 +550,21 @@ export class ClaudeCodeDriver implements NativeDriver {
         lastInput || undefined,
       );
     }
+    // The result's usage adds up this turn's requests; its modelUsage, by
+    // contrast, keeps counting from when the process started.
+    const spent = record(message.usage);
+    if (spent) {
+      const models = Object.keys(record(message.modelUsage) ?? {});
+      turn.sink.spent(
+        {
+          input: number(spent.input_tokens),
+          output: number(spent.output_tokens),
+          cacheRead: number(spent.cache_read_input_tokens),
+          cacheWrite: number(spent.cache_creation_input_tokens),
+        },
+        models.length === 1 ? models[0] : undefined,
+      );
+    }
     if (turn.signal.aborted) {
       // Claude Code reported the stopped turn's end, so nothing of it is still
       // running. A failure that raced the stop, such as a spent quota, still

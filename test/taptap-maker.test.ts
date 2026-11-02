@@ -128,7 +128,13 @@ const inits = async () => (await calls()).filter((args) => args[0] === "init");
 describe("TapTap Maker project setup", () => {
   it("creates and initializes a new Maker project in a project holding only the app's files", async () => {
     await writeFile(path.join(workspace, "ohmygame.json"), "{}");
-    expect(await maker.ready(context())).toMatchObject({ ready: false, message: expect.stringContaining("Connect this project") });
+    // The app shows the message in the person's language, from the plugin's locale files.
+    expect(await maker.ready(context())).toMatchObject({ ready: false, message: "%ready.connect%" });
+    for (const locale of ["en", "zh-CN"]) {
+      const strings = JSON.parse(await readFile(path.join("plugins/taptap-maker/locales", `${locale}.json`), "utf8"));
+      expect(strings["ready.connect"]).toEqual(expect.any(String));
+      expect(strings["ready.prepare"]).toEqual(expect.any(String));
+    }
     expect(await maker.create(context(), { name: "Pixel garden" })).toEqual({ connection: "ready", project: { id: "created" } });
     expect(await inits()).toEqual([
       ["init", "--create", "--name", "Pixel garden", "--target-dir", workspace, "--skip-mcp-install", "--skip-confirm", "--json"],

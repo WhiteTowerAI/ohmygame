@@ -28,6 +28,7 @@ import {
   registerProjectProcess,
   terminateProjectProcess,
 } from "./process-lifecycle.js";
+import { GAME_TUNING_FILES, type GameTuningScalar } from "../shared/game-tuning.js";
 import { createPreviewProxy, type PreviewProxy } from "./preview-proxy.js";
 import {
   previewDependencyDirectory,
@@ -45,6 +46,11 @@ interface PreviewOptions {
    * Builds a `"web-build"` project's web version with its plugin and says
    * which folder to serve; undefined when the project isn't built that way.
    */
+  /** Keeps a project's tuned values; see src/daemon/game-tuning.ts. */
+  tuning?: {
+    refresh(project: ProjectState): Promise<void>;
+    setConnected(project: ProjectState, connected: boolean): void;
+  };
   webBuild?: (
     project: ProjectState,
     signal: AbortSignal,
@@ -59,6 +65,7 @@ interface PreviewSession {
   idleSince?: number;
   watcher?: FSWatcher;
   changeTimer?: ReturnType<typeof setTimeout>;
+  tuningTimer?: ReturnType<typeof setTimeout>;
   logTimer?: ReturnType<typeof setTimeout>;
   revision: number;
 }
@@ -161,6 +168,11 @@ export class PreviewManager {
       session.idleSince ??= Date.now();
       this.#unwatch(session);
     }
+  }
+
+  /** Gives the running game the values it should use, now and when pages connect. */
+  setTuning(project: Pick<ProjectState, "id">, values: Record<string, GameTuningScalar>): void {
+    this.#proxies.get(project.id)?.setTuning(values);
   }
 
   /** Starts or stops picking in one preview page; false when no preview is running. */
@@ -569,6 +581,10 @@ export class PreviewManager {
             if (proxyHandle && this.#proxies.get(project.id) === proxyHandle)
               this.touch(project, `page:${id}`, active);
           },
+          onTuningConnected: (connected) => {
+            if (proxyHandle && this.#proxies.get(project.id) === proxyHandle)
+              this.options.tuning?.setConnected(project, connected);
+          },
           onPick: (client, pick) => {
             if (proxyHandle && this.#proxies.get(project.id) === proxyHandle)
               this.events.publish(project.id, "preview.picked", { client, ...(pick ? { pick } : {}) });
@@ -604,6 +620,7 @@ export class PreviewManager {
       }
       proxyHandle = proxy;
       this.#proxies.set(project.id, proxy);
+      void this.options.tuning?.refresh(project).catch(() => {});
       await this.#saveProxyPort(project, Number(new URL(proxy.url).port));
       assertCurrent();
       if (
@@ -763,11 +780,21 @@ export class PreviewManager {
   }
 
   #watch(session: PreviewSession): void {
+    // It may have changed while nothing was watching.
+    void this.options.tuning?.refresh(session.project).catch(() => {});
     try {
       session.watcher = watch(
         session.project.workspacePath,
         { recursive: true },
         (_event, filename) => {
+          if (isGameTuningFile(String(filename ?? ""))) {
+            clearTimeout(session.tuningTimer);
+            session.tuningTimer = setTimeout(() => {
+              void this.options.tuning?.refresh(session.project).catch(() => {});
+            }, 100);
+            session.tuningTimer.unref?.();
+            return;
+          }
           if (!isPreviewSourceChange(String(filename ?? ""))) return;
           session.dirty = true;
           clearTimeout(session.changeTimer);
@@ -810,6 +837,8 @@ export class PreviewManager {
     session.watcher = undefined;
     clearTimeout(session.changeTimer);
     session.changeTimer = undefined;
+    clearTimeout(session.tuningTimer);
+    session.tuningTimer = undefined;
   }
 
   async #savedProxyPort(project: ProjectState): Promise<number | undefined> {
@@ -836,6 +865,8 @@ export class PreviewManager {
     this.#running.delete(id);
     const proxy = this.#proxies.get(id);
     this.#proxies.delete(id);
+    const project = this.#sessions.get(id)?.project;
+    if (project) this.options.tuning?.setConnected(project, false);
     const staticServer = this.#static.get(id);
     this.#static.delete(id);
     const children = [...(this.#children.get(id) ?? [])];
@@ -1013,7 +1044,13 @@ async function waitForCommand(
  * Design saves its board there, which would otherwise reload the game beside
  * it. Other files in `canvas/` may belong to the game and still count.
  */
+function isGameTuningFile(filename: string): boolean {
+  return (GAME_TUNING_FILES as readonly string[]).includes(filename.replaceAll("\\", "/"));
+}
+
 export function isPreviewSourceChange(filename: string): boolean {
+  // Tuned values reach the running game without restarting it.
+  if (isGameTuningFile(filename)) return false;
   const parts = filename.replaceAll("\\", "/").split("/");
   const name = parts.at(-1) ?? "";
   return !(

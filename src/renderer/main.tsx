@@ -7,6 +7,7 @@ import { NodeThumbnailPage } from "./node-thumbnail-page.js";
 import { parseAppRoute, projectHash } from "./routes.js";
 import { applyAutoUpdate, launchProject } from "./general-preferences.js";
 import { applyAppearance, applyChatFont, applyPalette, readAppearance, readChatFont, readPalette } from "./appearance.js";
+import { sendNotificationPreferences } from "./agent-notifications.js";
 import { DesktopWindowFrame } from "./desktop-window-frame.js";
 import { initializeAnalytics } from "./analytics.js";
 import { initializeRuntimeConnection } from "./runtime-connection.js";
@@ -31,6 +32,8 @@ const thumbnail = route.page === "thumbnail";
 applyAppearance(readAppearance(), { desktop: !thumbnail });
 applyPalette(readPalette());
 applyChatFont(readChatFont());
+// Only the main window shows the conversations that notifications are about.
+if (!thumbnail && route.page !== "playtest") sendNotificationPreferences();
 await initializeRuntimeConnection({ followService: !thumbnail });
 if (route.page !== "thumbnail" && route.page !== "playtest") applyAutoUpdate();
 if (window.ohMyGameDesktop?.platform === "darwin") {

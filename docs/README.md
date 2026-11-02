@@ -13,9 +13,9 @@ desktop lifecycle and native game windows; shared modules define contracts.
 
 | Area                             | Code to start with                                                                                                                            | Read first                                                                                                              | Example tests                                                                                                                       |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Agent, chat, and model requests  | `src/daemon/agent.ts`, `src/daemon/pi-agent.ts`, `src/daemon/session-images.ts`, `src/renderer/agent-timeline.tsx`                            | [Runtime](runtime.md), [agent errors](agent-errors.md), [image history](model-image-history.md)                         | `test/agent.test.ts`, `test/agent-errors.test.ts`, `test/session-images.test.ts`                                                    |
+| Agent, chat, and model requests  | `src/daemon/agent.ts`, `src/daemon/pi-agent.ts`, `src/daemon/session-images.ts`, `src/renderer/agent-timeline.tsx`, `src/renderer/image-viewer.tsx` | [Runtime](runtime.md), [agent errors](agent-errors.md), [image history](model-image-history.md)                         | `test/agent.test.ts`, `test/agent-errors.test.ts`, `test/session-images.test.ts`                                                    |
 | Design and Asset Canvas          | `src/daemon/canvas-workspace.ts`, `src/daemon/canvas-routes.ts`, `src/renderer/canvas-workspace.tsx`, `src/renderer/design-document-panel.tsx`, `src/renderer/asset-canvas-nodes.tsx`, `src/shared/canvas-workspace.ts`        | [Canvas file contract](canvas-agent.md)                                                                                 | `test/canvas-api.test.ts`, `test/asset-canvas-document.test.ts`, `test/canvas-table.test.ts`                                        |
-| Preview and game use             | `src/daemon/preview.ts`, `src/daemon/preview-proxy.ts`, `src/desktop/web-game-player.ts`, `src/desktop/playtest-driver.ts`                    | [Preview lifecycle](preview-runtime.md), [service recovery](runtime-recovery.md), [game use](runtime.md#agent-game-use) | `test/preview.test.ts`, `test/web-game-player.test.ts`, `test/playtest-driver.test.ts`                                              |
+| Preview and game use             | `src/daemon/preview.ts`, `src/daemon/preview-proxy.ts`, `src/desktop/web-game-player.ts`, `src/desktop/game-recorder.ts`, `src/desktop/playtest-driver.ts`                    | [Preview lifecycle](preview-runtime.md), [service recovery](runtime-recovery.md), [game use](runtime.md#agent-game-use) | `test/preview.test.ts`, `test/web-game-player.test.ts`, `test/playtest-driver.test.ts`                                              |
 | Coding agents (Claude Code, Codex, OpenCode) | `src/daemon/agent-runtimes/`, `src/renderer/coding-agents-settings.tsx`, `src/renderer/approval-card.tsx`, `src/shared/agent-runtimes.ts` | [Coding agents](coding-agents.md)                                                                                         | `test/agent-runtime-session.test.ts`, `test/agent-runtime-drivers.test.ts`, `test/agent-runtime-routes.test.ts`                    |
 | External agents (OhMyGame as an MCP server) | `src/daemon/external-mcp.ts`, `src/desktop/external-mcp-launcher.ts`, `src/renderer/external-agents-settings.tsx` | [External agents](external-agents.md) | `test/external-mcp.test.ts`, `test/external-mcp-launcher.test.ts`, `test/external-agents-settings-ui.test.tsx` |
 | Providers and media              | `src/daemon/provider-model-settings.ts`, `src/daemon/provider-settings-routes.ts`, `src/daemon/provider-models3d.ts`, `src/daemon/cloud-models.ts`, `src/renderer/provider-models.tsx`  | [Custom models](custom-models.md), [3D workflows](3d-providers.md), [free cloud models](free-cloud-models.md)           | `test/provider-model-settings.test.ts`, `test/model3d-workflows.test.ts`, `test/cloud-models.test.ts`                               |
@@ -52,6 +52,24 @@ are `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
 [Project archives](project-archives.md) covers **Export project** and
 **Import project**: the archive layout and manifest, what an export leaves out,
 and how an import becomes a new project.
+
+**Settings → Account** shows agents' token use and time whether or not someone
+is signed in: totals, a year of daily activity, use by model and project, and an
+image to share in three layouts, with the signed-in person's avatar and name
+unless they hide them. `src/daemon/usage-stats.ts` reads active and archived
+session files in chunks, decoding a line whole only when its first bytes show
+it may hold usage, counting a response copied into a branch once, and reading
+files again only from where they grew. OhMyGame's agent counts the usage
+each assistant message recorded. A coding agent's stored messages repeat the
+latest request's usage for the context meter, so its tokens come from separate
+`ohmygame-native-usage` entries that the drivers write once per request (Codex,
+OpenCode) or turn (Claude Code); conversations from before those entries count
+only time. A turn's time runs from the person's message to the agent's last
+message or usage entry for it, counting each pause as at most 15 minutes;
+renames and setting changes don't extend it. Title and media generation are
+not in conversations. Summaries live in `src/shared/usage-stats.ts`, the page in
+`src/renderer/usage-stats.tsx` and the card in `src/renderer/usage-card.tsx`;
+the suites are `test/usage-stats.test.ts` and `test/usage-settings-ui.test.tsx`.
 
 | Document                                         | Purpose                                                                                                                        |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -118,6 +136,7 @@ For the additional engine, mini-game, and asset-tool Beta packages, use the
 - [Web Game Studio](../plugins/web-game-studio/skills/web-game-studio/SKILL.md),
   [Web Game Foundations](../plugins/web-game-studio/skills/web-game-foundations/SKILL.md),
   [Game Playtest](../plugins/web-game-studio/skills/game-playtest/SKILL.md),
+  [Game Tuning](../plugins/web-game-studio/skills/game-tuning/SKILL.md),
   [Game UI Frontend](../plugins/web-game-studio/skills/game-ui-frontend/SKILL.md),
   [Phaser 2D](../plugins/web-game-studio/skills/phaser-2d-game/SKILL.md),
   [React Three Fiber](../plugins/web-game-studio/skills/react-three-fiber-game/SKILL.md),

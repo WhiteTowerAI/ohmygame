@@ -269,8 +269,7 @@
   flex: none;
 }
 
-.dock-toolbar .design-doc-picker,
-.dock-toolbar .conversation-menu {
+.dock-toolbar .design-doc-picker {
   flex: 0 1 auto;
   min-width: 88px;
 }

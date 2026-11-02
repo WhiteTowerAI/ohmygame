@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { LoaderCircle, X } from "./icons.js";
 import "./canvas-notice.css";
 import { t } from "./i18n.js";
-import { IconButton } from "./ui/index.js";
+import { Disclosure, IconButton } from "./ui/index.js";
 
 export function CanvasNotice({ message, detail, tone = "neutral", className = "", actionLabel, onAction, onDismiss, dismissible = true, children }: {
   message: string;
@@ -26,7 +26,7 @@ export function CanvasNotice({ message, detail, tone = "neutral", className = ""
   const details = retryFailed ? failure.detail : detail;
   return <div className={`canvas-notice is-${tone} ${className}`} role={tone === "error" ? "alert" : "status"}>
     <span className="canvas-notice-dot" aria-hidden="true" />
-    <div className="canvas-notice-content"><span>{message}</span>{retryFailed ? <span className="canvas-notice-feedback">{t("notice.retryFailed")}</span> : null}{details ? <details><summary>{t("common.details")}</summary><div>{details}</div></details> : null}</div>
+    <div className="canvas-notice-content"><span>{message}</span>{retryFailed ? <span className="canvas-notice-feedback">{t("notice.retryFailed")}</span> : null}{details ? <Disclosure summary={t("common.details")}><pre>{details}</pre></Disclosure> : null}</div>
     {children}
     {onAction ? <button type="button" disabled={busy} onClick={() => {
       if (pending.current) return;
