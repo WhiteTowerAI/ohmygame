@@ -728,9 +728,10 @@ export class OpenCodeDriver implements NativeDriver {
         if (tokens) {
           const cache = record(tokens.cache);
           // Each step is one request and reports only its own tokens.
+          // Reasoning is reported apart from output but is output spent.
           sink.spent({
             input: number(tokens.input),
-            output: number(tokens.output),
+            output: number(tokens.output) + number(tokens.reasoning),
             cacheRead: number(cache?.read),
             cacheWrite: number(cache?.write),
           });

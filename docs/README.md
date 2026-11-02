@@ -65,7 +65,8 @@ latest request's usage for the context meter, so its tokens come from separate
 `ohmygame-native-usage` entries that the drivers write once per request (Codex,
 OpenCode) or turn (Claude Code); conversations from before those entries count
 only time. A turn's time runs from the person's message to the agent's last
-entry for it, leaving out pauses over 15 minutes. Title and media generation are
+message or usage entry for it, counting each pause as at most 15 minutes;
+renames and setting changes don't extend it. Title and media generation are
 not in conversations. Summaries live in `src/shared/usage-stats.ts`, the page in
 `src/renderer/usage-stats.tsx` and the card in `src/renderer/usage-card.tsx`;
 the suites are `test/usage-stats.test.ts` and `test/usage-settings-ui.test.tsx`.

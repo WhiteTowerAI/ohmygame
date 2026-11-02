@@ -301,6 +301,10 @@ export class CodexDriver implements NativeDriver {
       this.#turn?.sink.limits?.(this.#limits);
       return;
     }
+    // A resumed thread reports its total before any turn; it is the baseline
+    // the next turn's spending is measured from, not spending of its own.
+    if (method === "thread/tokenUsage/updated")
+      this.#countSpent(params, this.#turn?.sink);
     const turn = this.#turn;
     if (!turn) return;
     if (typeof params.turnId === "string") turn.turnId ??= params.turnId;
@@ -338,25 +342,6 @@ export class CodexDriver implements NativeDriver {
         // which is what the context holds and what a stored message records.
         const usage = record(params.tokenUsage);
         const last = record(usage?.last);
-        const total = record(usage?.total);
-        // The total's growth is what was spent, even when a report repeats;
-        // the first report seen for a thread falls back to its latest request.
-        if (total) {
-          const now = codexUsage(total);
-          const before =
-            this.#countedTotal?.threadId === this.#threadId
-              ? this.#countedTotal?.usage
-              : undefined;
-          this.#countedTotal = { threadId: this.#threadId, usage: now };
-          if (before && grewFrom(before, now))
-            sink.spent({
-              input: now.input - before.input,
-              output: now.output - before.output,
-              cacheRead: now.cacheRead - before.cacheRead,
-              cacheWrite: now.cacheWrite - before.cacheWrite,
-            });
-          else if (!before && last) sink.spent(codexUsage(last));
-        } else if (last) sink.spent(codexUsage(last));
         if (last) {
           sink.usage(
             {
@@ -414,6 +399,40 @@ export class CodexDriver implements NativeDriver {
           "Codex could not finish the turn",
       });
     else turn.resolve({ status: "completed" });
+  }
+
+  /**
+   * Records what a request spent: the growth of the thread's total, so a
+   * repeated report adds nothing. With no total seen yet for the thread, as
+   * in a turn that started it, the latest request is what was spent.
+   */
+  #countSpent(params: Record<string, unknown>, sink?: NativeTurnSink): void {
+    const usage = record(params.tokenUsage);
+    const last = record(usage?.last);
+    const total = record(usage?.total);
+    const threadId =
+      typeof params.threadId === "string" ? params.threadId : this.#threadId;
+    if (!total) {
+      if (last) sink?.spent(codexUsage(last));
+      return;
+    }
+    const now = codexUsage(total);
+    const before =
+      this.#countedTotal && this.#countedTotal.threadId === threadId
+        ? this.#countedTotal.usage
+        : undefined;
+    this.#countedTotal = { threadId, usage: now };
+    if (!sink) return;
+    if (before && grewFrom(before, now)) {
+      const spent = {
+        input: now.input - before.input,
+        output: now.output - before.output,
+        cacheRead: now.cacheRead - before.cacheRead,
+        cacheWrite: now.cacheWrite - before.cacheWrite,
+      };
+      if (spent.input + spent.output + spent.cacheRead + spent.cacheWrite > 0)
+        sink.spent(spent);
+    } else if (!before && last) sink.spent(codexUsage(last));
   }
 
   #itemStarted(sink: NativeTurnSink, item: Record<string, unknown>): void {

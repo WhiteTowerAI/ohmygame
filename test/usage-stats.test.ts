@@ -1,4 +1,13 @@
-import { appendFile, mkdir, mkdtemp, readdir, rename } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -202,6 +211,88 @@ describe("UsageIndex", () => {
         durationMs: 4 * MINUTE,
       }),
     ]);
+  });
+
+  it("leaves a turn's time alone when the conversation is renamed later", async () => {
+    const project = await createProject();
+    const session = SessionManager.create(
+      project.workspacePath,
+      sessionDirectory(project),
+    );
+    ask(session, NOW);
+    respond(session, { at: NOW + MINUTE, input: 10, output: 1 });
+    vi.setSystemTime(NOW + DAY);
+    session.appendSessionInfo("Renamed");
+    session.appendModelChange("ollama", "local");
+
+    const stats = await new UsageIndex(() => [project]).stats();
+
+    expect(stats.rows[0]).toMatchObject({ turns: 1, durationMs: MINUTE });
+  });
+
+  it("counts a coding agent's entry whose time comes after a long model name", async () => {
+    const project = await createProject();
+    const session = SessionManager.create(
+      project.workspacePath,
+      sessionDirectory(project),
+    );
+    ask(session, NOW);
+    respond(session, {
+      at: NOW + MINUTE,
+      api: NATIVE_API,
+      provider: "codex-cli",
+      model: "gpt-5",
+      input: 1,
+      output: 1,
+    });
+    const model = `gpt-5-${"x".repeat(500)}`;
+    vi.setSystemTime(NOW + 2 * MINUTE);
+    session.appendCustomEntry(NATIVE_USAGE_ENTRY, {
+      version: 1,
+      runtime: "codex-cli",
+      model,
+      input: 70,
+      output: 7,
+      cacheRead: 0,
+      cacheWrite: 0,
+      at: NOW + 2 * MINUTE,
+    });
+
+    const stats = await new UsageIndex(() => [project]).stats();
+
+    expect(stats.rows).toEqual([
+      expect.objectContaining({
+        model,
+        input: 70,
+        output: 7,
+        turns: 1,
+        durationMs: 2 * MINUTE,
+      }),
+    ]);
+  });
+
+  it("reads a file again when it changed without growing", async () => {
+    const project = await createProject();
+    const session = SessionManager.create(
+      project.workspacePath,
+      sessionDirectory(project),
+    );
+    ask(session, NOW);
+    respond(session, { at: NOW + MINUTE, input: 100, output: 1 });
+    respond(session, { at: NOW + 2 * MINUTE, input: 5, output: 1 });
+    const index = new UsageIndex(() => [project]);
+    expect((await index.stats()).rows[0]).toMatchObject({ input: 105 });
+
+    const [name] = await readdir(sessionDirectory(project));
+    const file = path.join(sessionDirectory(project), name!);
+    // The same length and the same last bytes, but an earlier number changed.
+    await writeFile(
+      file,
+      (await readFile(file, "utf8")).replace('"input":100', '"input":900'),
+    );
+    await utimes(file, new Date(NOW + DAY), new Date(NOW + DAY));
+
+    expect((await index.stats()).rows[0]).toMatchObject({ input: 905 });
   });
 
   it("follows lines longer than the chunks it reads", async () => {

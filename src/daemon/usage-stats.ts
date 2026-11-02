@@ -182,11 +182,13 @@ export class UsageIndex {
         tail: Buffer.alloc(0),
         records: [],
       };
-      // An append keeps every byte read so far; check the last few of them.
+      // Sessions only grow; one that grew keeps every byte read so far, which
+      // its last few confirm. Anything else, even at the same size, is read
+      // again from the start.
       if (
         cached &&
         cached.inode === stats.ino &&
-        stats.size >= cached.offset &&
+        stats.size > cached.size &&
         cached.offset > 0
       ) {
         const tail = Buffer.alloc(cached.tail.length);
@@ -200,14 +202,16 @@ export class UsageIndex {
             ...(cached.turn ? { turn: { ...cached.turn } } : {}),
           };
       }
-      // Read in chunks, so a long conversation neither fills memory nor holds
-      // up the service; a line cut at a chunk's end waits for the next one.
-      let pending = Buffer.alloc(0);
-      let position = usage.offset;
-      // One buffer for the file; what outlives a chunk is copied out of it.
+      // Read in chunks so a long conversation neither fills memory nor holds
+      // up the service. A line keeps its first bytes, and the rest only when
+      // those show it may hold usage; a line cut off at the end of the file
+      // is still being written and waits for the next look.
       const chunk = Buffer.allocUnsafe(
-        Math.min(CHUNK_BYTES, Math.max(1, stats.size - position)),
+        Math.min(CHUNK_BYTES, Math.max(1, stats.size - usage.offset)),
       );
+      let line = new LineReader();
+      let position = usage.offset;
+      let consumed = usage.offset;
       while (position < stats.size) {
         const { bytesRead } = await handle.read(
           chunk,
@@ -216,24 +220,25 @@ export class UsageIndex {
           position,
         );
         if (bytesRead <= 0) break;
-        position += bytesRead;
-        const bytes = pending.length
-          ? Buffer.concat([pending, chunk.subarray(0, bytesRead)])
-          : chunk.subarray(0, bytesRead);
-        const end = bytes.lastIndexOf(0x0a) + 1;
-        if (end > 0) {
-          for (let start = 0; start < end;) {
-            const stop = bytes.indexOf(0x0a, start);
-            readLine(usage, bytes, start, stop);
-            start = stop + 1;
-          }
-          usage.offset += end;
-          usage.tail = Buffer.from(
-            bytes.subarray(Math.max(0, end - TAIL_BYTES), end),
-          );
+        const bytes = chunk.subarray(0, bytesRead);
+        for (let start = 0; start < bytesRead;) {
+          const newline = bytes.indexOf(0x0a, start);
+          line.take(bytes.subarray(start, newline < 0 ? bytesRead : newline));
+          if (newline < 0) break;
+          const { head, whole } = line.finish();
+          readLine(usage, head, whole);
+          consumed = position + newline + 1;
+          line = new LineReader();
+          start = newline + 1;
         }
-        pending = Buffer.from(bytes.subarray(end));
+        position += bytesRead;
         await setImmediate();
+      }
+      if (consumed > usage.offset) {
+        usage.offset = consumed;
+        const tail = Buffer.alloc(Math.min(TAIL_BYTES, consumed));
+        await handle.read(tail, 0, tail.length, consumed - tail.length);
+        usage.tail = tail;
       }
       this.#files.set(file, usage);
       return usage;
@@ -241,6 +246,47 @@ export class UsageIndex {
       await handle.close();
     }
   }
+}
+
+/** One line read across chunks: its first bytes, and the rest only if they ask for it. */
+class LineReader {
+  readonly #head: Buffer[] = [];
+  #headLength = 0;
+  #keep?: boolean;
+  readonly #rest: Buffer[] = [];
+
+  take(bytes: Buffer): void {
+    if (this.#keep === undefined) {
+      const head = bytes.subarray(0, HEAD_BYTES - this.#headLength);
+      this.#head.push(Buffer.from(head));
+      this.#headLength += head.length;
+      bytes = bytes.subarray(head.length);
+      if (this.#headLength < HEAD_BYTES) return;
+      this.#keep = mayHoldUsage(Buffer.concat(this.#head).toString("utf8"));
+    }
+    if (this.#keep && bytes.length) this.#rest.push(Buffer.from(bytes));
+  }
+
+  finish(): { head: string; whole?: string } {
+    const head = Buffer.concat(this.#head);
+    const text = head.toString("utf8");
+    const keep = this.#keep ?? mayHoldUsage(text);
+    return keep
+      ? {
+          head: text,
+          whole: Buffer.concat([head, ...this.#rest]).toString("utf8"),
+        }
+      : { head: text };
+  }
+}
+
+/** Pi writes an entry's type, role and custom type first, so a line's head tells. */
+function mayHoldUsage(head: string): boolean {
+  return (
+    head.includes(`"customType":"${NATIVE_USAGE_ENTRY}"`) ||
+    (head.startsWith('{"type":"message"') &&
+      head.includes('"message":{"role":"assistant"'))
+  );
 }
 
 export function registerUsageRoutes(
@@ -269,31 +315,25 @@ async function sessionFiles(directory: string): Promise<string[]> {
 }
 
 /**
- * Follows one session line: a person's message starts a turn, anything
- * after it extends the turn, and usage adds tokens. Lines are read from
- * their first bytes, where Pi writes an entry's type, role and time; only
- * those that may hold usage are decoded whole, since tool output and pasted
- * files make most of a session's size.
+ * Follows one session line: a person's message starts a turn, the agent's
+ * messages and usage extend it, and usage adds tokens. Other entries, such
+ * as a rename or a changed setting, leave the turn's time alone. `whole` is
+ * the decoded line when its head shows it may hold usage.
  */
-function readLine(
-  usage: FileUsage,
-  bytes: Buffer,
-  start: number,
-  end: number,
-): void {
-  const head = bytes.toString("utf8", start, Math.min(end, start + HEAD_BYTES));
+function readLine(usage: FileUsage, head: string, whole?: string): void {
+  if (head.startsWith('{"type":"session"')) return;
+  const record = whole ? usageRecord(whole) : undefined;
   const timestamp = /"timestamp":"([^"]+)"/.exec(head)?.[1];
-  const time = timestamp ? Date.parse(timestamp) : Number.NaN;
-  if (!Number.isFinite(time) || head.startsWith('{"type":"session"')) return;
-  if (
-    head.startsWith('{"type":"message"') &&
-    head.includes('"message":{"role":"user"')
-  ) {
+  // A long entry can push its own time past the head; its record has one.
+  const time = timestamp ? Date.parse(timestamp) : (record?.time ?? Number.NaN);
+  if (!Number.isFinite(time)) return;
+  const message = head.startsWith('{"type":"message"');
+  if (message && head.includes('"message":{"role":"user"')) {
     const finished = usage.turn && closedTurn(usage.turn);
     if (finished) usage.records.push(finished);
     const id = /"id":"([^"]+)"/.exec(head)?.[1] ?? "";
     usage.turn = {
-      key: `turn|${id}|${timestamp}`,
+      key: `turn|${id}|${timestamp ?? time}`,
       date: localDate(time),
       last: time,
       durationMs: 0,
@@ -301,22 +341,19 @@ function readLine(
     return;
   }
   const turn = usage.turn;
-  if (turn && time > turn.last) {
+  if (turn && (message || record) && time > turn.last) {
     turn.durationMs += Math.min(time - turn.last, IDLE_GAP_MS);
     turn.last = time;
   }
-  const mayHoldUsage =
-    head.includes(`"customType":"${NATIVE_USAGE_ENTRY}"`) ||
-    (head.startsWith('{"type":"message"') &&
-      head.includes('"message":{"role":"assistant"'));
-  if (!mayHoldUsage) return;
-  const record = usageRecord(bytes.toString("utf8", start, end));
   if (!record) return;
   if (turn) {
     turn.provider = record.provider;
     turn.model = record.model;
   }
-  if (record.kind === "tokens") usage.records.push(record);
+  if (record.kind === "tokens") {
+    const { time: _time, ...tokens } = record;
+    usage.records.push(tokens);
+  }
 }
 
 function closedTurn(turn: OpenTurn): TurnRecord | undefined {
@@ -336,14 +373,11 @@ function closedTurn(turn: OpenTurn): TurnRecord | undefined {
  * coding agent's usage entry. A coding agent's own assistant messages carry
  * no tokens to count but still name the model its turn used.
  */
-export function usageRecord(
-  line: string,
-):
-  TokenRecord | { kind: "model"; provider: string; model: string } | undefined {
-  const native = line.includes(`"${NATIVE_USAGE_ENTRY}"`);
-  // Most lines are tool results and user messages; skip them unparsed.
-  if (!native && (!line.includes('"usage"') || !line.includes('"assistant"')))
-    return undefined;
+export function usageRecord(line: string):
+  | ((TokenRecord | { kind: "model"; provider: string; model: string }) & {
+      time: number;
+    })
+  | undefined {
   let entry: unknown;
   try {
     entry = JSON.parse(line);
@@ -372,6 +406,7 @@ export function usageRecord(
       provider,
       model,
       ...tokens,
+      time: at,
     };
   }
   const message = record.message;
@@ -380,15 +415,17 @@ export function usageRecord(
   const provider =
     typeof message.provider === "string" ? message.provider : "unknown";
   const model = typeof message.model === "string" ? message.model : "unknown";
-  if (message.api === NATIVE_API) return { kind: "model", provider, model };
-  const tokens = counts((message.usage ?? {}) as Record<string, unknown>);
   const time =
     typeof message.timestamp === "number"
       ? message.timestamp
       : typeof record.timestamp === "string"
         ? Date.parse(record.timestamp)
         : Number.NaN;
-  if (!tokens || !Number.isFinite(time)) return undefined;
+  if (!Number.isFinite(time)) return undefined;
+  if (message.api === NATIVE_API)
+    return { kind: "model", provider, model, time };
+  const tokens = counts((message.usage ?? {}) as Record<string, unknown>);
+  if (!tokens) return undefined;
   const responseId =
     typeof message.responseId === "string" ? message.responseId : "";
   return {
@@ -398,6 +435,7 @@ export function usageRecord(
     provider,
     model,
     ...tokens,
+    time,
   };
 }
 

@@ -1433,6 +1433,60 @@ describe("Codex adapter", () => {
     ]);
   });
 
+  it("counts what a resumed Codex thread spends from the total it resumed with", async () => {
+    const usage = (total: number, last: number) => ({
+      jsonrpc: "2.0",
+      method: "thread/tokenUsage/updated",
+      params: {
+        threadId: "thread-1",
+        tokenUsage: {
+          total: { inputTokens: total, cachedInputTokens: 0, outputTokens: total / 10 },
+          last: { inputTokens: last, cachedInputTokens: 0, outputTokens: last / 10 },
+        },
+      },
+    });
+    fakeCli((message, cli) => {
+      if (typeof message.method !== "string" || message.id === undefined)
+        return;
+      const params = message.params as Record<string, unknown>;
+      // Resuming reports the thread's total so far, before any turn runs.
+      if (message.method === "thread/resume") cli.send(usage(1000, 300));
+      cli.send({
+        id: message.id,
+        result:
+          message.method === "thread/start" ||
+          message.method === "thread/resume"
+            ? {
+                thread: { id: "thread-1" },
+                activePermissionProfile: { id: params.permissions },
+              }
+            : {},
+      });
+      if (message.method === "turn/start")
+        setTimeout(() => {
+          cli.send(usage(1200, 200));
+          // A repeated report, as when a usage limit is hit, spends nothing more.
+          cli.send(usage(1200, 200));
+          cli.send({
+            method: "turn/completed",
+            params: { turn: { status: "completed" } },
+          });
+        });
+    });
+    const driver = new CodexDriver(await context({ resume: "thread-1" }));
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+
+    expect(
+      await driver.runTurn(
+        { text: "go on", images: [], readOnly: false },
+        recorded.sink,
+        new AbortController().signal,
+      ),
+    ).toEqual({ status: "completed" });
+    expect(recorded.spent).toEqual(["200:20:0:0"]);
+  });
+
   it("uses Codex's own profiles and approvals for each mode and keeps planning read-only", async () => {
     for (const [permissionMode, approvalPolicy] of [
       [":workspace", "on-request"],
@@ -2377,7 +2431,7 @@ describe("OpenCode adapter", () => {
     });
     f.emit("session.step.ended", {
       assistantMessageID: "msg_a",
-      tokens: { input: 30, output: 4, cache: { read: 10, write: 0 } },
+      tokens: { input: 30, output: 4, reasoning: 6, cache: { read: 10, write: 0 } },
     });
     f.emit("session.execution.succeeded");
     expect(await run).toEqual({ status: "completed" });
@@ -2423,7 +2477,8 @@ describe("OpenCode adapter", () => {
       },
     });
     expect(recorded.asked).toEqual([]);
-    expect(recorded.spent).toEqual(["30:4:10:0"]);
+    // Reasoning is reported apart from output but counts as output spent.
+    expect(recorded.spent).toEqual(["30:10:10:0"]);
     expect(recorded.sessionId()).toBe("opencode-v2:ses_1");
     expect(recorded.calls).toEqual([
       "thinking:msg_a:reasoning:0:Thinking",

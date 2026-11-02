@@ -386,6 +386,23 @@ function UsageShareDialog({
     }
   }
 
+  // The write starts within the click and waits for the image itself, as
+  // some browsers allow the clipboard only during the click.
+  async function copyImage(): Promise<void> {
+    if (!card.current) return;
+    setBusy(true);
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({ "image/png": svgToPng(card.current, 2) }),
+      ]);
+      toast({ title: t("usage.share.copied"), tone: "success" });
+    } catch {
+      toast({ title: t("usage.share.failed"), tone: "danger" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Dialog
       open={open}
@@ -406,14 +423,7 @@ function UsageShareDialog({
           <Button
             icon={<Copy size={14} />}
             disabled={busy}
-            onClick={() =>
-              void withImage(async (image) => {
-                await navigator.clipboard.write([
-                  new ClipboardItem({ [image.type]: image }),
-                ]);
-                toast({ title: t("usage.share.copied"), tone: "success" });
-              })
-            }
+            onClick={() => void copyImage()}
           >
             {t("usage.share.copy")}
           </Button>
