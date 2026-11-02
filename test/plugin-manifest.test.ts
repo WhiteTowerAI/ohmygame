@@ -108,16 +108,17 @@ describe("plugin manifest", () => {
   });
 
   it("keeps panel.toolbar to plugins with a panel and commands without input", () => {
-    const toolbar = (run: unknown, panels: unknown[] = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }]) => ({
+    const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
+    const toolbar = (run: unknown, withPanels = true) => ({
       ...minimal,
       icon: "./assets/icon.svg",
       entrypoints: { native: "./native/index.mjs" },
       capabilities: { native: true },
-      contributes: { panels, commands: [{ id: "go", title: "Go", run, slots: [{ slot: "panel.toolbar" }] }] },
+      contributes: { ...(withPanels ? { panels } : {}), commands: [{ id: "go", title: "Go", run, slots: [{ slot: "panel.toolbar" }] }] },
     });
     expect(messages(toolbar({ native: "go" }))).toEqual([]);
     expect(messages(toolbar({ native: "go", input: "./schemas/go.json" }))).toEqual(["/contributes/commands/0/slots/0/slot a toolbar button has no input to give this command"]);
-    expect(messages(toolbar({ native: "go" }, []))).toEqual(["/contributes/commands/0/slots/0/slot panel.toolbar needs a panel"]);
+    expect(messages(toolbar({ native: "go" }, false))).toEqual(["/contributes/commands/0/slots/0/slot panel.toolbar needs a panel"]);
   });
 
   it("rejects unknown fields", () => {
