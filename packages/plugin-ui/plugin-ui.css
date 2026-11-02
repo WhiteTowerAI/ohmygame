@@ -116,9 +116,6 @@ body { margin: 0; padding: var(--space-4); }
 .omg-row + .omg-row { border-top: 1px solid var(--color-border); }
 .omg-muted { color: var(--color-text-secondary); }
 
-/* A picture is never wider than its place. */
-img, video { max-width: 100%; }
-
 /* Filled, no outline, as the app's buttons: secondary is a step up from the
    surface, primary is ink. */
 a { color: var(--omg-accent, var(--color-accent)); }

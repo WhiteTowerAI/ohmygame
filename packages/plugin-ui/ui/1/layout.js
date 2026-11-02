@@ -355,7 +355,8 @@ class OmgListItem extends OmgTextWatcher {
       ::slotted(img[slot="leading"]), ::slotted(video[slot="leading"]), ::slotted(canvas[slot="leading"]), ::slotted(omg-image[slot="leading"]) {
         width: 40px; height: 40px; flex: none; border-radius: var(--radius-md); object-fit: cover;
       }
-      ::slotted(omg-image[slot="leading"]) { --omg-image-radius: var(--radius-md); }
+      /* Its frame fills it, and what doesn't fit is cut off. */
+      ::slotted(omg-image[slot="leading"]) { overflow: hidden; --omg-image-radius: var(--radius-md); }
       .titles { flex: 1 1 160px; min-width: 0; display: grid; gap: 2px; overflow-wrap: anywhere; }
       .heading { margin: 0; font-weight: var(--weight-medium); }
       .description { margin: 0; color: var(--color-text-secondary); font-size: var(--text-sm); }

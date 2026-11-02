@@ -15,15 +15,16 @@ const BROKEN = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stro
 
 const IMAGE = css(`
   :host { display: block; min-width: 0; max-width: 100%; }
+  /* As tall as the element when something sizes it, as a list's thumbnail does. */
   .frame {
-    position: relative; display: grid; place-items: center; overflow: hidden;
+    position: relative; display: grid; place-items: center; overflow: hidden; height: 100%;
     border-radius: var(--omg-image-radius, var(--radius-lg)); background: var(--color-surface-raised);
   }
   :host([checker]) .frame {
     background:
       repeating-conic-gradient(var(--color-surface-raised) 0 25%, var(--color-surface) 0 50%) 0 0 / 16px 16px;
   }
-  img { display: block; max-width: 100%; height: auto; transition: opacity var(--duration-fast); }
+  img { display: block; max-width: 100%; max-height: 100%; height: auto; transition: opacity var(--duration-fast); }
   /* Out of the flow, so the frame's shape alone sets its height. */
   .frame.sized img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   :host([fit="cover"]) .frame.sized img { object-fit: cover; }
@@ -67,12 +68,17 @@ class OmgImage extends OmgElement {
     </div>`;
 
   #status = "empty";
+  /** The `src` attribute was set, to the same address too, which loads it again. */
+  #reload = true;
 
   constructor() {
     super();
-    const image = this.#image();
-    image.addEventListener("load", () => this.#settle("load"));
-    image.addEventListener("error", () => this.#settle("error"));
+    this.#listen(this.#image());
+  }
+
+  attributeChangedCallback(name, previous, value) {
+    if (name === "src") this.#reload = true;
+    super.attributeChangedCallback(name, previous, value);
   }
 
   get complete() {
@@ -98,22 +104,29 @@ class OmgImage extends OmgElement {
     frame.classList.toggle("sized", Boolean(ratio));
     frame.style.aspectRatio = ratio ?? "";
     image.alt = this.getAttribute("alt") ?? "";
+    if (!this.#reload) return;
+    this.#reload = false;
     const src = this.getAttribute("src") ?? "";
-    if (image.getAttribute("src") === src && this.#status !== "empty") return;
+    // Each address gets a picture of its own, so the old one's late load or error is told apart.
+    const next = /** @type {HTMLImageElement} */ (image.cloneNode(false));
+    next.removeAttribute("src");
+    this.#listen(next);
+    image.replaceWith(next);
     if (!src) {
-      image.removeAttribute("src");
       this.#show("empty");
       return;
     }
     this.#show("loading");
-    image.src = src;
+    next.src = src;
   }
 
-  #settle(type) {
-    // A picture replaced while it loaded reports for the old address too.
-    if (this.#status !== "loading") return;
-    this.#show(type);
-    this.dispatchEvent(new Event(type));
+  #listen(image) {
+    for (const type of ["load", "error"])
+      image.addEventListener(type, () => {
+        if (image !== this.#image() || this.#status !== "loading") return;
+        this.#show(type);
+        this.dispatchEvent(new Event(type));
+      });
   }
 
   #show(status) {
@@ -198,6 +211,13 @@ class OmgTile extends OmgElement {
       </span>
     </button>`;
 
+  #reload = false;
+
+  attributeChangedCallback(name, previous, value) {
+    if (name === "src") this.#reload = true;
+    super.attributeChangedCallback(name, previous, value);
+  }
+
   get disabled() {
     return this.hasAttribute("disabled");
   }
@@ -228,7 +248,14 @@ class OmgTile extends OmgElement {
     text(this.part("badge"), this.getAttribute("badge"));
     this.part("preview").style.aspectRatio = aspect(this.getAttribute("ratio")) ?? "4 / 3";
     const image = this.part("image");
-    for (const name of ["src", "alt", "pixelated", "checker"]) {
+    // Set again only when it changed, or was set again, which loads it again.
+    const src = this.getAttribute("src");
+    if (this.#reload || image.getAttribute("src") !== src) {
+      if (src === null) image.removeAttribute("src");
+      else image.setAttribute("src", src);
+    }
+    this.#reload = false;
+    for (const name of ["alt", "pixelated", "checker"]) {
       const value = this.getAttribute(name);
       if (value === null) image.removeAttribute(name);
       else image.setAttribute(name, value);
