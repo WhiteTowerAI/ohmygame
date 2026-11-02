@@ -24,6 +24,13 @@ import { capabilityGrants } from "./project-plugins.js";
 
 export class PluginSourceError extends Error {
   readonly statusCode = 400;
+  constructor(
+    message: string,
+    /** The plugin needs a newer version of the app, so updating it is the way forward. */
+    readonly code?: "needs-app-update",
+  ) {
+    super(message);
+  }
 }
 
 const NPM_REGISTRIES = {
@@ -347,6 +354,9 @@ export class PluginSources {
 
 async function validPackage(root: string): Promise<PluginIndexEntry> {
   const checked = await indexPluginPackage(root);
+  // A plugin made for another version of the app is fine; it says which way to go.
+  const version = checked.ok ? undefined : checked.issues.find((issue) => issue.fix);
+  if (version) throw new PluginSourceError(version.message, version.fix === "update-app" ? "needs-app-update" : undefined);
   if (!checked.ok)
     throw new PluginSourceError(`This isn't a valid plugin: ${checked.issues.slice(0, 3).map((issue) => `${issue.path} ${issue.message}`.trim()).join("; ")}`);
   return checked.entry;

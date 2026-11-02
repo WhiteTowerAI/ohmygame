@@ -2373,6 +2373,7 @@ const en = {
     coverProcessFailed: "Could not process this cover image",
   },
   pluginAdd: {
+    updateApp: "Update OhMyGame",
     reading: "Reading the package…",
     menu: "Add plugin…",
     title: "Add a plugin",

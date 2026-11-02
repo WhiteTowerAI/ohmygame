@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
-import { cp, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ComponentManifest, componentManifest, componentTypes, contractChanges, contractFiles, declarations, parseComment } from "../scripts/plugin-ui-contract.js";
+import { checkPlugin } from "../scripts/plugin-check.js";
 import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
+import { PLUGIN_UI_MAJORS } from "../src/shared/plugin-ui-versions.js";
 
 // The components load as the app serves them, next to the bridge at
 // /_ohmygame/plugin-ui.js, so they are copied into that layout first, in the
@@ -326,6 +328,36 @@ describe("page components' contract", () => {
       cssProperties: [{ name: "--omg-x-height", default: "calc(100vh - 20px)", description: "How tall." }, { name: "--omg-accent" }],
     });
     expect(() => parseComment(" * @shout loud", "OmgX", "OmgElement", "ui/1/x.js")).toThrow("unknown tag @shout");
+    expect(
+      parseComment(" * @attr mode\n * @fires omg-x-done\n * @deprecated attr mode - Use kind.\n * @deprecated fires omg-x-done - Use change.", "OmgX", "OmgElement", "ui/1/x.js"),
+    ).toMatchObject({ attributes: [{ name: "mode", deprecated: "Use kind." }], events: [{ name: "omg-x-done", deprecated: "Use change." }] });
+    expect(parseComment(" * @deprecated", "OmgX", "OmgElement", "ui/1/x.js").deprecated).toBe("Deprecated.");
+    expect(() => parseComment(" * @deprecated attr mode - Use kind.", "OmgX", "OmgElement", "ui/1/x.js")).toThrow("names nothing");
+  });
+
+  it("warns once when a page uses what is deprecated, and says so wherever the contract does", async () => {
+    for (const major of PLUGIN_UI_MAJORS)
+      for (const item of declarations(await componentManifest(major))) {
+        const type = customElements.get(item.tagName) as unknown as { deprecated?: string; deprecatedAttributes: Record<string, string> };
+        expect(type.deprecated, item.tagName).toBe(item.deprecated);
+        expect(type.deprecatedAttributes, item.tagName).toEqual(
+          Object.fromEntries(item.attributes.filter((attribute) => attribute.deprecated).map((attribute) => [attribute.name, attribute.deprecated])),
+        );
+      }
+    const { OmgElement } = (await import(/* @vite-ignore */ path.join(served, "_ohmygame/ui/1/base.js"))) as { OmgElement: typeof HTMLElement };
+    class Old extends OmgElement {
+      static deprecated = "Use omg-new.";
+      static deprecatedAttributes = { mode: "Use kind." };
+    }
+    customElements.define("omg-old-test", Old);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    html('<div><omg-old-test mode="a"></omg-old-test><omg-old-test mode="b"></omg-old-test><omg-old-test></omg-old-test></div>');
+    await settle();
+    expect(warn.mock.calls.map(([message]) => message)).toEqual([
+      "[OhMyGame] <omg-old-test> is deprecated: Use omg-new.",
+      "[OhMyGame] <omg-old-test>'s mode is deprecated: Use kind.",
+    ]);
+    warn.mockRestore();
   });
 
   it("finds what would break a page", () => {
@@ -345,6 +377,10 @@ describe("page components' contract", () => {
     });
     const before = contract([{ name: "variant", type: { text: '"primary" | "ghost"' } }, { name: "busy", type: { text: "boolean" } }]);
     expect(contractChanges(before, before)).toEqual({ breaking: [], added: [] });
+    expect(contractChanges(before, contract([{ name: "variant", type: { text: '"primary" | "ghost"' }, deprecated: "Use kind." } as never, ...before.modules[0]!.declarations[0]!.attributes.slice(1)], { cssParts: before.modules[0]!.declarations[0]!.cssParts }))).toEqual({
+      breaking: [],
+      added: ["<omg-button> attribute variant is deprecated: Use kind."],
+    });
     expect(contractChanges(before, contract([{ name: "variant", type: { text: '"primary" | "ghost" | "danger"' } }, { name: "busy", type: { text: "boolean" } }, { name: "size" }]))).toEqual({
       breaking: [],
       added: ['<omg-button> attribute variant takes "danger"', "<omg-button> attribute size"],
@@ -390,5 +426,59 @@ describe("page components' contract", () => {
     expect(types).toContain("export interface OmgAElement extends HTMLElement {\n  shared: string;\n}");
     expect(types).toContain("export interface OmgBElement extends OmgAElement {}");
     expect(types.match(/"omg-done":/g)).toHaveLength(1);
+  });
+});
+
+describe("plugin check", () => {
+  async function plugin(files: Record<string, string>, ui: object = { preview: true, major: 1 }, extra: object = {}): Promise<string> {
+    const root = path.join(served, `check-${Math.random().toString(36).slice(2)}`);
+    const manifest = { id: "acme/panel", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Panel", description: "A panel", icon: "./icon.svg", ui, contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }] }, ...extra };
+    await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(root, ".ohmygame-plugin/plugin.json"), JSON.stringify(manifest));
+    await mkdir(path.join(root, "panel"));
+    await writeFile(path.join(root, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"/></svg>');
+    for (const [file, text] of Object.entries(files)) await writeFile(path.join(root, "panel", file), text);
+    return root;
+  }
+  const load = '<script type="module" src="/_ohmygame/ui/1/index.js"></script>';
+  const messages = async (root: string, level: "error" | "warning") =>
+    (await checkPlugin(root)).filter((finding) => finding.level === level).map((finding) => finding.message);
+
+  it("finds nothing wrong in the plugins the app ships or shows", async () => {
+    for (const folder of ["plugins/taptap-maker", "packages/plugin-ui/gallery"]) expect(await messages(folder, "error"), folder).toEqual([]);
+  });
+
+  it("fails on what can't work", async () => {
+    const page = await plugin({ "index.html": `${load}<script>alert(1)</script><script src="https://cdn.example.com/x.js"></script><script type="application/json">{}</script><omg-nope></omg-nope>` });
+    expect(await messages(page, "error")).toEqual([
+      expect.stringContaining("no inline scripts"),
+      expect.stringContaining("no remote scripts"),
+      "There is no component <omg-nope>",
+    ]);
+    expect(await messages(await plugin({ "index.html": "<omg-button></omg-button>" }), "error")).toEqual([expect.stringContaining("no script loads")]);
+    expect(await messages(await plugin({ "index.html": '<script type="module" src="/_ohmygame/ui/999/index.js"></script>' }), "error")).toEqual([expect.stringContaining("aren't served")]);
+    expect(await messages(await plugin({ "index.html": load }, {}), "error")).toEqual([expect.stringContaining("are in preview")]);
+    // The install's own checks come first.
+    expect(await messages(await plugin({ "index.html": load }, { major: 999 }), "error")).toEqual([expect.stringContaining("Update OhMyGame")]);
+  });
+
+  it("warns about what won't match the app or won't last", async () => {
+    const warnings = await messages(
+      await plugin({
+        "index.html": `${load}<link rel="stylesheet" href="./page.css"><!-- <omg-comment> --><omg-button variant="primary" data-x="1" aria-label="Go" wobble></omg-button>`,
+        "page.css": "/* color: #123456 */ :root { --own: #fff; } a:not(#top) { color: var(--own); background: url(#fade); } b { color: #abcdef; border: 1px solid var(--color-border); fill: var(--mystery); } omg-button::part(nope) { color: inherit; }",
+        "page.js": 'document.createElement("omg-maybe"); addEventListener("omg-command-result", () => {});\n// "omg-comment"\n',
+      }),
+      "warning",
+    );
+    expect(warnings).toEqual([
+      expect.stringContaining("in preview"),
+      "<omg-button> has no attribute wobble",
+      "There is no component <omg-maybe>",
+      expect.stringContaining("color: #abcdef"),
+      "--mystery isn't one of the app's tokens",
+      "No component has a part named nope",
+    ]);
+    expect(await messages(await plugin({ "index.html": load }, { preview: true }), "warning")).toContainEqual(expect.stringContaining('"major": 1'));
   });
 });

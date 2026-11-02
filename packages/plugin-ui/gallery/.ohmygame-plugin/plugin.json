@@ -8,7 +8,7 @@
   "icon": "./assets/icon.svg",
   "entrypoints": { "native": "./native/index.mjs" },
   "capabilities": { "native": true },
-  "ui": { "preview": true, "accent": "#7c5cff" },
+  "ui": { "major": 1, "preview": true, "accent": "#7c5cff" },
   "contributes": {
     "panels": [
       { "id": "gallery", "title": "Components", "icon": "./assets/icon.svg", "area": "center", "entry": "./panel/index.html" }

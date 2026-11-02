@@ -212,6 +212,11 @@
     "ui": {
       "type": "object",
       "properties": {
+        "major": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        },
         "preview": {
           "type": "boolean"
         },

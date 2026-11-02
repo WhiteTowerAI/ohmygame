@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, type MarketPlugin, type PluginAddPreview, type PluginAddSource, type PluginNpmRegistry } from "../shared/plugins.js";
-import { addPlugin, addPluginFile, inspectAddedPlugin, inspectPluginFile } from "./api.js";
+import { addPlugin, addPluginFile, ApiError, inspectAddedPlugin, inspectPluginFile } from "./api.js";
 import { LoaderCircle } from "./icons.js";
 import { language, t } from "./i18n.js";
 import { PluginFilePicker } from "./plugin-file-picker.js";
+import { settingsHash } from "./routes.js";
 import { Alert, Button, Dialog, Field, Input, Select, Tabs } from "./ui/index.js";
 
 type SourceKind = "npm" | "github" | "local";
@@ -32,16 +33,19 @@ export function PluginAddDialog({ listed, onClose, onAdded }: { listed?: MarketP
   const [review, setReview] = useState<Review>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [needsUpdate, setNeedsUpdate] = useState(false);
   const desktop = typeof window !== "undefined" ? window.ohMyGameDesktop : undefined;
 
   async function run(work: () => Promise<void>): Promise<void> {
     if (busy) return;
     setBusy(true);
     setError(undefined);
+    setNeedsUpdate(false);
     try {
       await work();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+      setNeedsUpdate(cause instanceof ApiError && cause.code === "needs-app-update");
     } finally {
       setBusy(false);
     }
@@ -104,7 +108,10 @@ export function PluginAddDialog({ listed, onClose, onAdded }: { listed?: MarketP
           <PluginFilePicker label={t("pluginAdd.packageFile")} inputLabel={t("pluginAdd.packageFile")} chooseLabel={t("pluginAdd.chooseFile")} emptyLabel={t("pluginAdd.noFile")} file={file} accept=".tgz,.tar.gz,application/gzip" disabled={busy} onChange={setFile} />
         </> : null}
       </>}
-      {error ? <Alert tone="danger" title={error} /> : null}
+      {error ? <Alert tone="danger" title={error} action={needsUpdate ? <Button size="sm" onClick={() => {
+        window.location.hash = settingsHash("about");
+        onClose();
+      }}>{t("pluginAdd.updateApp")}</Button> : undefined} /> : null}
     </form>
   </Dialog>;
 }

@@ -201,6 +201,27 @@ describe("PluginSources", () => {
     await close();
   });
 
+  it("says when the app is too old for a package, and when the package is too old for the app", async () => {
+    const check = async (extra: object) => {
+      const directory = await temporary();
+      await mkdir(path.join(directory, ".ohmygame-plugin"), { recursive: true });
+      await writeFile(path.join(directory, ".ohmygame-plugin/plugin.json"), JSON.stringify({ id: "acme/maker", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Maker", description: "Makes things", contributes: { skills: "./skills/" }, ...extra }));
+      await mkdir(path.join(directory, "skills/make"), { recursive: true });
+      await writeFile(path.join(directory, "skills/make/SKILL.md"), skill);
+      const { sources, close } = await setup();
+      try {
+        return await sources.inspect({ type: "directory", path: directory }, "en").catch((cause: PluginSourceError) => cause);
+      } finally {
+        await close();
+      }
+    };
+    expect(await check({ engines: { "ohmygame-api": "^3.0.0" } })).toMatchObject({ code: "needs-app-update", message: expect.stringContaining("Update OhMyGame") });
+    expect(await check({ ui: { major: 999 } })).toMatchObject({ code: "needs-app-update", message: expect.stringContaining("page components 999") });
+    const old = await check({ engines: { "ohmygame-api": "^1.0.0" } });
+    expect(old).toMatchObject({ message: expect.stringContaining("author") });
+    expect((old as PluginSourceError).code).toBeUndefined();
+  });
+
   describe("a version on the market", () => {
     const bytes = tgz(...pluginEntries("package/"));
     const vouched = (checksum = integrity(bytes)) => ({

@@ -2327,6 +2327,7 @@ const zhCN: typeof en = {
     coverProcessFailed: "无法处理这张封面图片",
   },
   pluginAdd: {
+    updateApp: "更新 OhMyGame",
     reading: "正在读取插件包…",
     menu: "添加插件…",
     title: "添加插件",

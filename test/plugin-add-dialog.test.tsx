@@ -60,6 +60,25 @@ const tab = (label: string) => act(async () => [...dialog().querySelectorAll<HTM
 const button = (label: string) => [...dialog().querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === label)!;
 
 describe("PluginAddDialog", () => {
+  it("offers an update when a plugin needs a newer app, and only then", async () => {
+    answer = () => Response.json({ error: "This plugin needs a newer version of OhMyGame.", code: "needs-app-update" }, { status: 400 });
+    await open();
+    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="@publisher/plugin"]')!, "@acme/maker");
+    await submit();
+    expect(dialog().textContent).toContain("needs a newer version");
+    await act(async () => button("Update OhMyGame").click());
+    expect(window.location.hash).toContain("about");
+    expect(onClose).toHaveBeenCalled();
+    window.location.hash = "";
+
+    answer = () => Response.json({ error: "Nothing there." }, { status: 400 });
+    await act(async () => root.render(<PluginAddDialog key="again" onClose={onClose} onAdded={onAdded} />));
+    await type(dialog().querySelector<HTMLInputElement>('input[placeholder="@publisher/plugin"]')!, "@acme/maker");
+    await submit();
+    expect(dialog().textContent).toContain("Nothing there.");
+    expect(button("Update OhMyGame")).toBeUndefined();
+  });
+
   it("shows what a package does before anything is added, then adds exactly what was reviewed", async () => {
     await open();
     expect(button("Continue").disabled).toBe(true);

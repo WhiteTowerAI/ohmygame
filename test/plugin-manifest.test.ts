@@ -29,10 +29,12 @@ import {
 } from "../src/daemon/plugin-index.js";
 import {
   pluginApiIssue,
+  pluginUiIssue,
   satisfiesVersionRange,
   toolSchemaIssues,
   validatePluginManifest,
 } from "../src/shared/plugin-manifest.js";
+import { pluginUiSupportIssues } from "../src/shared/plugin-ui-versions.js";
 import {
   PLUGIN_SCHEMA_FILE,
   pluginSchemaJson,
@@ -381,9 +383,33 @@ describe("plugin manifest", () => {
     expect(
       messages({ ...minimal, engines: { "ohmygame-api": "^02.0.0" } }),
     ).toHaveLength(1);
-    expect(pluginApiIssue({ engines: { "ohmygame-api": "^3.0.0" } })).toContain(
-      "^3.0.0",
-    );
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^3.0.0" } })).toMatchObject({
+      fix: "update-app",
+      message: expect.stringContaining("^3.0.0"),
+    });
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^1.0.0" } })).toMatchObject({
+      fix: "update-plugin",
+      message: expect.stringContaining("author"),
+    });
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.0.0" } })).toBeUndefined();
+    expect(pluginApiIssue({ engines: { "ohmygame-api": "^2.2.0" } }, "2.1.0")?.fix).toBe("update-app");
+  });
+
+  it("says which way to go when a plugin's page components aren't here", () => {
+    const issue = (major: number | undefined, preview?: boolean) => pluginUiIssue({ ui: { major, preview } } as never, ["2", "3"], new Set(["3"]));
+    expect(issue(undefined)).toBeUndefined();
+    expect(issue(2)).toBeUndefined();
+    expect(issue(3, true)).toBeUndefined();
+    expect(issue(3)).toEqual({ message: expect.stringContaining("preview") });
+    expect(issue(4)).toMatchObject({ fix: "update-app" });
+    expect(issue(1)).toMatchObject({ fix: "update-plugin" });
+    expect(messages({ ...minimal, ui: { major: 0 } })).toHaveLength(1);
+  });
+
+  it("keeps a replaced major served for the support window", () => {
+    expect(pluginUiSupportIssues({ 1: { since: "2027-03-31", until: "2028-04-01" } })).toEqual([]);
+    expect(pluginUiSupportIssues({ 1: { since: "2027-03-01", until: "2028-02-28" } })).toEqual([expect.stringContaining("12 months")]);
+    expect(pluginUiSupportIssues({ 1: { since: "soon", until: "2028-02-28" } })).toHaveLength(1);
   });
 });
 

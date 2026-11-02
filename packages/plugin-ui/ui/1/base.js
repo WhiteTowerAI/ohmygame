@@ -33,12 +33,25 @@ const BASE = css(`
   }
 `);
 
+const warned = new Set();
+
+/** Tells a plugin's author once, in the page's console. */
+function warnOnce(message) {
+  if (warned.has(message)) return;
+  warned.add(message);
+  console.warn(`[OhMyGame] ${message}`);
+}
+
 /** A component: its template is static HTML, and attributes fill it as text. */
 export class OmgElement extends HTMLElement {
   /** @type {CSSStyleSheet[]} */
   static styles = [];
   static template = "";
   static delegatesFocus = false;
+  /** What to use instead, when the component is deprecated; matches its `@deprecated` tag. */
+  static deprecated = undefined;
+  /** What to use instead of each deprecated attribute; matches its `@deprecated attr` tags. */
+  static deprecatedAttributes = {};
 
   constructor() {
     super();
@@ -54,6 +67,10 @@ export class OmgElement extends HTMLElement {
   }
 
   connectedCallback() {
+    const type = /** @type {typeof OmgElement} */ (this.constructor);
+    if (type.deprecated) warnOnce(`<${this.localName}> is deprecated: ${type.deprecated}`);
+    for (const [name, reason] of Object.entries(type.deprecatedAttributes))
+      if (this.hasAttribute(name)) warnOnce(`<${this.localName}>'s ${name} is deprecated: ${reason}`);
     this.update();
   }
 
