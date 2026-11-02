@@ -486,9 +486,15 @@ can go in the next major.
 
 | Component | What it is |
 | --- | --- |
-| `omg-page` | The page's column, at most 720px wide. `heading`, `description`; slots `brand` and `actions`. |
+| `omg-page` | The page's column, at most 720px wide, or the panel's width when `wide`. `heading`, `description`; slots `brand` and `actions`. |
 | `omg-section` | A titled group. `heading`, `description`; slot `actions`. |
 | `omg-stack` | A row or column. `direction`, `gap` (`1`–`6`, the space tokens), `align`, `justify`, `wrap`. |
+| `omg-grid` | Equal columns, as many as fit at `min` pixels, or exactly `columns`. `gap`. |
+| `omg-split` | A sidebar (slot `sidebar`) beside the content, stacked when narrow. `side`: `start`, `end`; `side-width`. |
+| `omg-card` | A raised surface. `heading`, `description`; slot `actions`. |
+| `omg-list`, `omg-list-item` | Rows. An item's `heading` and `description`, its content as a value at the end; slots `leading` and `actions`. |
+| `omg-divider` | A line between groups. `label`. |
+| `omg-tabs`, `omg-tab` | One view at a time. `value` names the open tab; each `omg-tab` has a `name`, a `heading` and maybe `disabled`. Fires `omg-tab-change`. |
 | `omg-steps`, `omg-step` | A numbered flow. A step's `state` is `pending`, `current`, `done` or `error`; a current or failed step, or one that is `open`, shows its content. Slot `summary` always shows. |
 | `omg-status` | A state after a coloured dot, or a spinner. `tone`: `neutral`, `good`, `warning`, `bad`, `busy`. A live region. |
 | `omg-banner` | A message across the page. `tone`: `info`, `good`, `warning`, `bad` (an alert); `heading`; slot `actions`. |

@@ -120,7 +120,7 @@ export interface OmgStepAttributes {
   state?: "pending" | "current" | "done" | "error";
 }
 
-/** `<omg-page heading description>`: the page's column, centred and at most 720px wide. Slots: `brand` (a logo before the heading), `actions`, and the page's sections. */
+/** `<omg-page heading description wide>`: the page's column, centred and at most 720px wide, or the panel's whole width when `wide`. Slots: `brand` (a logo before the heading), `actions`, and the page's sections. */
 export interface OmgPageElement extends HTMLElement {}
 
 /** The attributes of `<omg-page>`, as a page writes them. */
@@ -129,6 +129,8 @@ export interface OmgPageAttributes {
   description?: string;
   /** The page's title. */
   heading?: string;
+  /** Fills the panel's width, for a page with a sidebar or a grid. */
+  wide?: boolean;
 }
 
 /** `<omg-section heading description>`: a titled group of content. Slots: `actions` beside the heading, and the section's content. */
@@ -170,6 +172,95 @@ export interface OmgEmptyAttributes {
   heading?: string;
 }
 
+/** `<omg-grid min columns gap>`: lays its children out in equal columns, as many as fit at `min` pixels wide each, or exactly `columns`. */
+export interface OmgGridElement extends HTMLElement {}
+
+/** The attributes of `<omg-grid>`, as a page writes them. */
+export interface OmgGridAttributes {
+  /** A fixed number of columns, in place of as many as fit. */
+  columns?: number;
+  /** A space token; 3 by default. */
+  gap?: "0" | "1" | "2" | "3" | "4" | "6";
+  /** The narrowest a column gets, in pixels; 240 by default. */
+  min?: number;
+}
+
+/** `<omg-split side side-width>`: a sidebar beside the main content, which go one above the other when there isn't room for both. */
+export interface OmgSplitElement extends HTMLElement {}
+
+/** The attributes of `<omg-split>`, as a page writes them. */
+export interface OmgSplitAttributes {
+  /** Which side the sidebar is on; the start by default. */
+  side?: "start" | "end";
+  /** The sidebar's width in pixels; 240 by default. */
+  "side-width"?: number;
+}
+
+/** `<omg-card heading description>`: a raised surface that groups its content. */
+export interface OmgCardElement extends HTMLElement {}
+
+/** The attributes of `<omg-card>`, as a page writes them. */
+export interface OmgCardAttributes {
+  /** A line under the title. */
+  description?: string;
+  /** The card's title. */
+  heading?: string;
+}
+
+/** `<omg-list>`: rows of `omg-list-item`, with a hairline between them. */
+export interface OmgListElement extends HTMLElement {}
+
+/** The attributes of `<omg-list>`, as a page writes them. */
+export interface OmgListAttributes {
+}
+
+/** `<omg-list-item heading description>`: a row: an icon, a title and a line under it, then a value and buttons at its end. */
+export interface OmgListItemElement extends HTMLElement {}
+
+/** The attributes of `<omg-list-item>`, as a page writes them. */
+export interface OmgListItemAttributes {
+  /** A line under the title. */
+  description?: string;
+  /** The row's title. */
+  heading?: string;
+}
+
+/** `<omg-divider label>`: a hairline between groups, with an optional label on it. */
+export interface OmgDividerElement extends HTMLElement {}
+
+/** The attributes of `<omg-divider>`, as a page writes them. */
+export interface OmgDividerAttributes {
+  /** Text on the line. */
+  label?: string;
+}
+
+/** `<omg-tabs value aria-label>`: shows one of its `omg-tab` children, with a row of their headings above. Arrow keys, Home and End move between tabs. A page listens for `omg-tab-change`, since `change` would also come up from the controls inside a tab. */
+export interface OmgTabsElement extends HTMLElement {
+  /** The open tab's name. */
+  value: string;
+}
+
+/** The attributes of `<omg-tabs>`, as a page writes them. */
+export interface OmgTabsAttributes {
+  /** What the tabs choose between, for screen readers. */
+  "aria-label"?: string;
+  /** The `name` of the open tab; the first that isn't disabled without one. */
+  value?: string;
+}
+
+/** `<omg-tab name heading disabled>`: one view of an `omg-tabs`. */
+export interface OmgTabElement extends HTMLElement {}
+
+/** The attributes of `<omg-tab>`, as a page writes them. */
+export interface OmgTabAttributes {
+  /** It can't be opened. */
+  disabled?: boolean;
+  /** The text of its heading, and its name for screen readers. */
+  heading?: string;
+  /** What `value` on the `omg-tabs` calls it; unique among its tabs. */
+  name?: string;
+}
+
 declare global {
   interface HTMLElementTagNameMap {
     "omg-button": OmgButtonElement;
@@ -184,6 +275,14 @@ declare global {
     "omg-section": OmgSectionElement;
     "omg-stack": OmgStackElement;
     "omg-empty": OmgEmptyElement;
+    "omg-grid": OmgGridElement;
+    "omg-split": OmgSplitElement;
+    "omg-card": OmgCardElement;
+    "omg-list": OmgListElement;
+    "omg-list-item": OmgListItemElement;
+    "omg-divider": OmgDividerElement;
+    "omg-tabs": OmgTabsElement;
+    "omg-tab": OmgTabElement;
   }
   interface HTMLElementEventMap {
     /** The command failed; cancel it to show the failure yourself. */
@@ -192,5 +291,7 @@ declare global {
     "omg-command-result": CustomEvent<{ command: string; result: unknown }>;
     /** Before it runs; cancel it to not run. */
     "omg-command-start": CustomEvent<{ command: string; input: unknown }>;
+    /** The person opened a tab. */
+    "omg-tab-change": CustomEvent<{ value: string }>;
   }
 }

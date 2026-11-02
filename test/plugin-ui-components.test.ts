@@ -69,6 +69,80 @@ describe("page components", () => {
     expect(shadow(bare!, "section").hasAttribute("aria-labelledby")).toBe(false);
   });
 
+  it("opens one tab at a time, by click, by keys and by value, skipping disabled tabs", async () => {
+    const tabs = html(`<omg-tabs aria-label="Views">
+      <omg-tab name="a" heading="A"></omg-tab><omg-tab name="b" heading="B" disabled></omg-tab><omg-tab name="c" heading="C"></omg-tab>
+    </omg-tabs>`) as HTMLElement & { value: string };
+    await settle();
+    const list = shadow(tabs, "list");
+    const buttons = () => [...list.querySelectorAll("button")];
+    const open = () => [...tabs.querySelectorAll("omg-tab")].filter((tab) => !(tab as HTMLElement).hidden).map((tab) => tab.getAttribute("name"));
+    expect(list.getAttribute("aria-label")).toBe("Views");
+    expect(buttons().map((button) => button.textContent)).toEqual(["A", "B", "C"]);
+    expect(buttons().map((button) => button.getAttribute("aria-selected"))).toEqual(["true", "false", "false"]);
+    expect(buttons().map((button) => button.tabIndex)).toEqual([0, -1, -1]);
+    expect(open()).toEqual(["a"]);
+    expect(tabs.querySelector("omg-tab")!.getAttribute("role")).toBe("tabpanel");
+    expect(tabs.querySelector("omg-tab")!.getAttribute("aria-label")).toBe("A");
+
+    const heard: string[] = [];
+    tabs.addEventListener("omg-tab-change", (event) => heard.push((event as CustomEvent<{ value: string }>).detail.value));
+    buttons()[0]!.focus();
+    buttons()[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, composed: true }));
+    expect(tabs.value).toBe("c");
+    expect(open()).toEqual(["c"]);
+    expect(tabs.shadowRoot!.activeElement?.textContent).toBe("C");
+    buttons()[2]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, composed: true }));
+    expect(tabs.value).toBe("a");
+    buttons()[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true, composed: true }));
+    expect(tabs.value).toBe("c");
+    buttons()[0]!.click();
+    expect(tabs.value).toBe("a");
+    buttons()[0]!.click();
+    expect(heard).toEqual(["c", "a", "c", "a"]);
+
+    tabs.value = "c";
+    expect(open()).toEqual(["c"]);
+    expect(heard).toHaveLength(4);
+    tabs.value = "b";
+    expect(open()).toEqual(["a"]);
+
+    tabs.insertAdjacentHTML("beforeend", `<omg-tab name="d" heading="D"></omg-tab>`);
+    tabs.querySelector("omg-tab")!.setAttribute("heading", "First");
+    await settle();
+    expect(buttons().map((button) => button.textContent)).toEqual(["First", "B", "C", "D"]);
+  });
+
+  it("arranges a grid and a split by their attributes, and hides a list item's empty places", async () => {
+    const grid = html(`<omg-grid min="180"></omg-grid>`);
+    expect(shadow(grid, "grid").style.getPropertyValue("--_columns")).toContain("180px");
+    grid.setAttribute("columns", "3");
+    expect(shadow(grid, "grid").style.getPropertyValue("--_columns")).toBe("repeat(3, minmax(0, 1fr))");
+    grid.setAttribute("columns", "nope");
+    grid.setAttribute("min", "-1");
+    expect(shadow(grid, "grid").style.getPropertyValue("--_columns")).toContain("240px");
+
+    const split = html(`<omg-split side-width="300"></omg-split>`);
+    expect(shadow(split, "split").style.getPropertyValue("--_side")).toBe("300px");
+
+    const list = html(`<omg-list><omg-list-item heading="Account"></omg-list-item><omg-list-item heading="Project" description="Connected">Zombie farm<omg-button slot="actions">Change</omg-button></omg-list-item></omg-list>`);
+    await settle();
+    expect(list.getAttribute("role")).toBe("list");
+    const [bare, full] = list.querySelectorAll("omg-list-item");
+    expect(bare!.getAttribute("role")).toBe("listitem");
+    for (const place of ["leading", "description", "value", "actions"]) expect(shadow(bare!, place).hidden).toBe(true);
+    for (const place of ["description", "value", "actions"]) expect(shadow(full!, place).hidden).toBe(false);
+
+    const card = html(`<omg-card></omg-card>`);
+    await settle();
+    expect(shadow(card, "header").hidden).toBe(true);
+    expect(shadow(card, "body").hidden).toBe(true);
+
+    const divider = html(`<omg-divider></omg-divider>`);
+    expect(divider.getAttribute("role")).toBe("separator");
+    expect(shadow(divider, "label").hidden).toBe(true);
+  });
+
   it("numbers steps and shows only the current or failed step's content", async () => {
     const steps = html(`<omg-steps>
       <omg-step heading="Prepare" state="done"><span slot="summary">Ready</span><p>Prepare body</p></omg-step>
@@ -282,6 +356,8 @@ describe("page components' contract", () => {
       expect((component!.observedAttributes ?? []).filter((name) => !attributes.includes(name)), item.tagName).toEqual([]);
       const element = document.createElement(item.tagName);
       const parts = new Set([...element.shadowRoot!.querySelectorAll("[part]")].flatMap((node) => node.getAttribute("part")!.split(/\s+/)));
+      // A tab's button is drawn for each `omg-tab`, so it isn't in the template.
+      if (item.tagName === "omg-tabs") parts.add("tab");
       expect([...parts].sort(), `${item.tagName} parts`).toEqual(item.cssParts.map((part) => part.name).sort());
       const slots = [...element.shadowRoot!.querySelectorAll("slot")].map((slot) => slot.getAttribute("name") ?? "");
       expect(slots.sort(), `${item.tagName} slots`).toEqual(item.slots.map((slot) => slot.name).sort());
