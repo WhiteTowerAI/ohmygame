@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { LibraryAssetReference } from "../src/renderer/api.js";
 import type { LibraryAssetSummary } from "../src/shared/contracts.js";
+import type { GameRecordingState } from "../src/shared/game-recording.js";
 
 const forest = { id: "forest", name: "Forest", type: "web-game" as const };
 const city = { id: "city", name: "City", type: "web-game" as const };
@@ -70,6 +71,24 @@ const tab = (name: RegExp) => [...document.querySelectorAll<HTMLButtonElement>("
 const button = (name: string, scope: ParentNode = document) => [...scope.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === name || item.getAttribute("aria-label") === name)!;
 const click = (element: Element) => act(async () => { (element as HTMLElement).click(); });
 const openTile = (name: string) => click([...document.querySelectorAll(".ui-media")].find((tile) => tile.textContent?.includes(name))!);
+
+it("shows a recording saved while the page is open", async () => {
+  let announce!: (state: GameRecordingState) => void;
+  const desktop = window as unknown as { ohMyGameDesktop?: unknown };
+  desktop.ohMyGameDesktop = { webGamePlayer: { recording: { onState: (listener: typeof announce) => { announce = listener; return () => {}; } } } };
+  try {
+    await act(async () => root!.unmount());
+    root = createRoot(container!);
+    await act(async () => root!.render(<LibraryPage onNavigate={() => {}} onOpenProject={onOpenProject} />));
+    assets.push({ ...assets[1]!, id: "clip", name: "clip.mp4" });
+    await act(async () => announce({ projectId: "p", status: "saving" }));
+    expect(tiles()).not.toContain("clip.mp4");
+    await act(async () => announce({ projectId: "p", status: "idle", saved: { assetId: "clip", name: "clip.mp4", duration: 3, bytes: 9 } }));
+    expect(tiles()).toContain("clip.mp4");
+  } finally {
+    delete desktop.ohMyGameDesktop;
+  }
+});
 
 it("shows every asset as a tile with where it is used and where it came from, and filters by kind and search", async () => {
   expect(tiles()).toEqual(["hero.webp", "intro.mp4", "theme.mp3"]);

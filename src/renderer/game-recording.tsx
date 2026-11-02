@@ -57,6 +57,11 @@ export function GameRecordButton({ projectId, gameRunning }: { projectId: string
     }}>{starting ? <LoaderCircle className="spin" size={14} /> : <Circle size={14} />}</IconButton>;
 }
 
+/** Calls back each time a recording reaches the Library. */
+export function onGameRecordingSaved(listener: () => void): () => void {
+  return recordingBridge()?.onState((state) => { if (state.saved) listener(); }) ?? (() => {});
+}
+
 /** Says how a recording came out, from whichever page the person has moved on to. */
 export function GameRecordingNotices() {
   const toast = useToast();

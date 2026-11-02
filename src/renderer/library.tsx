@@ -5,6 +5,7 @@ import { AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { deleteLibraryAsset, forceDeleteLibraryAsset, getLibraryAsset, listLibraryAssetReferences, renameLibraryAsset, saveLibraryAsset, type LibraryAssetReference } from "./api.js";
 import { ModelPreview } from "./model-preview.js";
 import { Copy, Layers3, LoaderCircle, Pencil, Scissors, Trash2 } from "./icons.js";
+import { onGameRecordingSaved } from "./game-recording.js";
 import { filterLibraryAssets, loadLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
 import { LibraryFilterRow, libraryFiltersActive } from "./library-filters.js";
 import type { AppNavigationTarget } from "./routes.js";
@@ -57,6 +58,8 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   }
 
   useEffect(() => { void load(); }, [serviceGeneration]);
+  // A recording can finish while this page is open, as when it is stopped from the Play window.
+  useEffect(() => onGameRecordingSaved(() => void load()), []);
 
   async function runAssetAction(action: () => Promise<unknown>): Promise<boolean> {
     setActionError(undefined);
