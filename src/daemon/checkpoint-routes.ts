@@ -40,6 +40,8 @@ export function registerCheckpointRoutes(
     events: RuntimeEventBus;
     busy: (id: string) => boolean;
     snapshot: (project: ProjectState) => Promise<string>;
+    /** Records a plugin change left unrecorded, or throws. The caller holds the workspace. */
+    settle: (project: ProjectState) => Promise<void>;
   },
 ) {
   const { store, writes, projects, conversations, agents, previews, events } =
@@ -57,7 +59,7 @@ export function registerCheckpointRoutes(
   // By route: a raw URL can spell the path another way, and holding the workspace would deadlock the save.
   const exemptRequest = (request: FastifyRequest) =>
     exempt(request.url) ||
-    /^\/projects\/:projectId\/tuning(?:\/|$)/.test(request.routeOptions.url ?? "") ||
+    /^\/projects\/:projectId\/(?:tuning|plugin-changes)(?:\/|$)/.test(request.routeOptions.url ?? "") ||
     (request.method !== "GET" && request.method !== "HEAD" && (request.routeOptions.url ?? "").startsWith("/projects/:projectId/plugin-files/"));
   app.addHook("preHandler", async (request, reply) => {
     const id = (request.params as { projectId?: string }).projectId;
@@ -242,6 +244,8 @@ export function registerCheckpointRoutes(
             "Recover the interrupted file restore first.",
             "workspace_busy",
           );
+        // Recorded later, a plugin change would hold this one too, and undoing it would take this back. A restore left unfinished was entered with none left.
+        if (kind !== "recovery") await options.settle(project);
         await previews.stop(project);
         const previousNotice = await readWorkspaceNotice(project);
         const changed = new Set<string>();

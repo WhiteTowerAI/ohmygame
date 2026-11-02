@@ -105,3 +105,18 @@ it("lists what plugins changed outside a turn and undoes one change", async () =
   expect(onUndone).toHaveBeenCalledTimes(1);
   expect(undo()).toHaveLength(0);
 });
+
+it("says when a plugin change isn't recorded yet, and when it was recorded late", async () => {
+  changes = [
+    { id: "c3", plugin: "acme/maker", action: "command:upload", title: "Upload build", changed: [], at: "2026-10-31T10:00:00.000Z", unrecorded: true },
+    { id: "c2", plugin: "acme/maker", action: "command:setup", title: "Set up", changed: ["maker.json"], at: "2026-10-30T10:00:00.000Z", late: true },
+  ];
+  await act(async () => root.render(<PluginChangesSheet projectId="p1" open busy={false} onClose={() => {}} onUndone={() => {}} />));
+  expect(document.body.textContent).toContain("not recorded yet");
+  expect(document.body.textContent).toContain("Recorded late");
+  // Each says what to do about it, so it wraps rather than being cut off.
+  expect(document.querySelectorAll("small.project-plugin-note")).toHaveLength(2);
+  // The unrecorded one has no file count and no Undo; the late one has both.
+  expect(document.body.textContent).not.toContain("0 files");
+  expect([...document.querySelectorAll("button")].filter((button) => button.textContent === "Undo")).toHaveLength(1);
+});

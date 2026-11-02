@@ -323,6 +323,10 @@ export interface ProjectPluginChange {
   at: string;
   undone?: boolean;
   failed?: string;
+  /** Recorded after the fact, so it may hold other changes made by then. */
+  late?: boolean;
+  /** Ran, but not recorded yet, so it can't be undone yet. */
+  unrecorded?: boolean;
 }
 
 /** A plugin as one project sees it, for the project's Plugins sheet. */

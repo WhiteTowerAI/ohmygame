@@ -173,9 +173,11 @@ export function PluginChangesSheet({ projectId, open, busy, onClose, onUndone }:
           <strong>{change.title}</strong>
           <small>
             {change.plugin} · {new Date(change.at).toLocaleString(language)}
-            {" · "}{t("pluginChanges.files", { count: change.changed.length })}
+            {change.unrecorded ? null : <>{" · "}{t("pluginChanges.files", { count: change.changed.length })}</>}
           </small>
-          {change.failed ? <small>{t("pluginChanges.failed", { error: change.failed })}</small> : null}
+          {change.failed ? <small className="project-plugin-note">{t("pluginChanges.failed", { error: change.failed })}</small> : null}
+          {change.unrecorded ? <small className="project-plugin-note">{t("pluginChanges.unrecorded")}</small> : null}
+          {change.late ? <small className="project-plugin-note">{t("pluginChanges.late")}</small> : null}
         </span>
         {change.undone ? <span className="project-plugins-count">{t("pluginChanges.undone")}</span>
           : change.changed.length ? <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void undo(change)}>{t("pluginChanges.undo")}</Button> : null}

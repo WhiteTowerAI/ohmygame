@@ -41,7 +41,7 @@ import {
   CheckpointStore,
   checkpointDirectory,
 } from "../src/daemon/checkpoints.js";
-import { PluginWrites } from "../src/daemon/plugin-writes.js";
+import { PluginChangeError, PluginWrites } from "../src/daemon/plugin-writes.js";
 import { ProjectWrites } from "../src/daemon/project-writes.js";
 import { readWorkspaceNotice } from "../src/daemon/workspace-notice.js";
 import type { ProjectState } from "../src/shared/contracts.js";
@@ -3687,5 +3687,198 @@ describe("plugin writes", () => {
     await expect(
       busy.plugins.run(busy.game, { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" }, async () => {}),
     ).rejects.toThrow("Wait for the agent");
+  });
+
+  it("keeps a change it couldn't record, and records it once it can", async () => {
+    const game = { ...(await project({ "level.txt": "one" })), id: "plugin-writes-late" } as unknown as ProjectState;
+    const store = new CheckpointStore();
+    const writes = new ProjectWrites();
+    let failSnapshots = 0;
+    const plugins = new PluginWrites({
+      writes,
+      checkpoints: store,
+      snapshot: (target) => {
+        if (failSnapshots > 0 && --failSnapshots === 0) return Promise.reject(new Error(`ENOSPC, write '${game.workspacePath}'`));
+        return store.snapshot(target);
+      },
+      busy: () => false,
+      announce: () => {},
+    });
+    const level = path.join(game.workspacePath, "level.txt");
+    const tidy = { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" };
+
+    // The second snapshot fails: the change stays, and the error says so without naming a path.
+    failSnapshots = 2;
+    const failure = await plugins.run(game, tidy, () => writeFile(level, "two")).catch((error: unknown) => error as PluginChangeError);
+    expect(failure).toBeInstanceOf(PluginChangeError);
+    expect((failure as PluginChangeError).message).toContain("couldn't be recorded for Undo");
+    expect((failure as PluginChangeError).message).not.toContain(game.workspacePath);
+    expect(await readFile(level, "utf8")).toBe("two");
+
+    // Its first snapshot is kept, and while it still can't be recorded the list says so.
+    const note = JSON.parse(await readFile(path.join(game.storagePath ?? path.join(game.workspacePath, ".data"), "plugin-changes.json"), "utf8")) as { pending: { before: string } };
+    expect([...(await plugins.snapshots(game))]).toEqual([note.pending.before]);
+    failSnapshots = 1;
+    expect(await plugins.history(game)).toMatchObject([{ title: "Tidy up", unrecorded: true, changed: [] }]);
+
+    // Nor does another plugin write start, before anything changes.
+    failSnapshots = 1;
+    const ran = vi.fn();
+    await expect(plugins.run(game, tidy, ran)).rejects.toThrow("earlier plugin change");
+    expect(ran).not.toHaveBeenCalled();
+
+    // Once it can, opening the list records it, marked late, and it can be undone.
+    const [late, ...others] = await plugins.history(game);
+    expect(others).toEqual([]);
+    expect(late).toMatchObject({ title: "Tidy up", changed: ["level.txt"], late: true });
+    expect(late!.unrecorded).toBeUndefined();
+    expect(await readWorkspaceNotice(game)).toContain("recorded late");
+    await plugins.undo(game, late!.id);
+    expect(await readFile(level, "utf8")).toBe("one");
+
+    // A command that fails keeps its own error, and the reason stays with the note.
+    failSnapshots = 2;
+    await expect(plugins.run(game, tidy, async () => {
+      await writeFile(level, "half");
+      throw new Error("crashed");
+    })).rejects.toThrow("crashed");
+    await plugins.settle(game);
+    expect((await plugins.history(game))[0]).toMatchObject({ failed: "crashed", changed: ["level.txt"], late: true });
+
+    // A write that changed nothing leaves no entry and no note.
+    const count = (await plugins.history(game)).length;
+    failSnapshots = 2;
+    await plugins.run(game, tidy, async () => {}).catch(() => {});
+    expect((await plugins.history(game)).length).toBe(count);
+
+    // The app stopping partway leaves the note too; another run of the app records it. While one runs, it isn't listed.
+    let during: unknown[] = [];
+    let stop!: () => void;
+    const stopped = new Promise<void>((resolve) => { stop = resolve; });
+    const again = new PluginWrites({ writes: new ProjectWrites(), checkpoints: store, snapshot: (target) => store.snapshot(target), busy: () => false, announce: () => {} });
+    const running = plugins.run(game, tidy, async () => {
+      await writeFile(level, "crash");
+      during = await plugins.history(game);
+      stop();
+      await new Promise(() => {});
+    });
+    void running;
+    await stopped;
+    expect(during.length).toBe(count);
+    const [recovered] = await again.history(game);
+    expect(recovered).toMatchObject({ changed: ["level.txt"], late: true });
+  });
+
+  it("doesn't record a change twice when only the notice fails", async () => {
+    const { game, plugins, announced } = await setup();
+    // A folder with something in it, where the notice goes, can't be written over.
+    const notice = path.join(game.storagePath!, "workspace-restore-notice.txt");
+    await mkdir(path.join(notice, "blocked"), { recursive: true });
+    const level = path.join(game.workspacePath, "level.txt");
+    await expect(plugins.run(game, { plugin: "acme/tiles", action: "command:break", title: "Break" }, async () => {
+      await writeFile(level, "two");
+      throw new Error("crashed");
+    })).rejects.toThrow("crashed");
+    await plugins.settle(game);
+    const entries = await plugins.history(game);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ failed: "crashed", changed: ["level.txt"] });
+    expect(entries[0]!.late).toBeUndefined();
+    expect(announced).toEqual([["level.txt"]]);
+    await rm(notice, { recursive: true });
+    // Without the command's error, the change is reported as made, not as left unrecorded.
+    await mkdir(path.join(notice, "blocked"), { recursive: true });
+    await expect(plugins.run(game, { plugin: "acme/tiles", action: "command:tidy", title: "Tidy" }, () => writeFile(level, "three"))).rejects.not.toBeInstanceOf(PluginChangeError);
+    expect(await plugins.history(game)).toHaveLength(2);
+  });
+
+  it("announces a late change that would otherwise carry on through open editors", async () => {
+    const game = { ...(await project({ "tuning.json": "{}" })), id: "plugin-writes-in-place" } as unknown as ProjectState;
+    const store = new CheckpointStore();
+    const writes = new ProjectWrites();
+    const announced: string[][] = [];
+    let fail = 0;
+    const plugins = new PluginWrites({
+      writes,
+      checkpoints: store,
+      snapshot: (target) => (fail > 0 && --fail === 0 ? Promise.reject(new Error("full")) : store.snapshot(target)),
+      busy: () => false,
+      announce: (_project, _version, changed) => announced.push(changed),
+    });
+    fail = 2;
+    await plugins.run(game, { plugin: "ohmygame/tuning", action: "tuning:save", title: "Save", inPlace: true }, () => writeFile(path.join(game.workspacePath, "tuning.json"), '{"a":1}')).catch(() => {});
+    await writeFile(path.join(game.workspacePath, "other.txt"), "theirs");
+    const [late] = await plugins.history(game);
+    expect(late).toMatchObject({ late: true, changed: ["other.txt", "tuning.json"] });
+    expect(late!.inPlace).toBeUndefined();
+    expect(announced).toEqual([["other.txt", "tuning.json"]]);
+  });
+
+  it("lets nothing else land in a change it can't record yet", async () => {
+    const game = { ...(await project({ "level.txt": "one" })), id: "plugin-writes-held" } as unknown as ProjectState;
+    const store = new CheckpointStore();
+    let fail = 0;
+    const plugins = new PluginWrites({
+      writes: new ProjectWrites(),
+      checkpoints: store,
+      snapshot: (target) => (fail > 0 && --fail === 0 ? Promise.reject(new Error("full")) : store.snapshot(target)),
+      busy: () => false,
+      announce: () => {},
+    });
+    const level = path.join(game.workspacePath, "level.txt");
+    const tidy = { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" };
+    const { change } = await plugins.run(game, tidy, () => writeFile(level, "two"));
+    fail = 2;
+    await plugins.run(game, tidy, () => writeFile(level, "three")).catch(() => {});
+
+    fail = 1;
+    await expect(plugins.settle(game)).rejects.toThrow("earlier plugin change");
+    fail = 1;
+    await expect(plugins.undo(game, change!.id)).rejects.toThrow("earlier plugin change");
+    expect(await readFile(level, "utf8")).toBe("three");
+
+    // A history that can't be read has no note to act on, and doesn't stop a turn or a restore.
+    await writeFile(path.join(game.storagePath ?? path.join(game.workspacePath, ".data"), "plugin-changes.json"), "{");
+    await expect(plugins.settle(game)).resolves.toBeUndefined();
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "keeps a change's note while a file it may hold can't be read",
+    async () => {
+      const game = { ...(await project({ "level.txt": "one" })), id: "plugin-writes-locked" } as unknown as ProjectState;
+      const store = new CheckpointStore();
+      let fail = 0;
+      const plugins = new PluginWrites({
+        writes: new ProjectWrites(),
+        checkpoints: store,
+        snapshot: (target) => (fail > 0 && --fail === 0 ? Promise.reject(new Error("full")) : store.snapshot(target)),
+        busy: () => false,
+        announce: () => {},
+      });
+      const level = path.join(game.workspacePath, "level.txt");
+      fail = 2;
+      await plugins.run(game, { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" }, () => writeFile(level, "two")).catch(() => {});
+
+      await chmod(level, 0o000);
+      await expect(plugins.settle(game)).rejects.toThrow("earlier plugin change");
+      expect(await plugins.history(game)).toMatchObject([{ title: "Tidy up", unrecorded: true }]);
+
+      await chmod(level, 0o644);
+      const [late] = await plugins.history(game);
+      expect(late).toMatchObject({ changed: ["level.txt"], late: true });
+      await plugins.undo(game, late!.id);
+      expect(await readFile(level, "utf8")).toBe("one");
+    },
+  );
+
+  it("changes nothing when it can't note a change first", async () => {
+    const { game, plugins } = await setup();
+    const storage = game.storagePath ?? path.join(game.workspacePath, ".data");
+    await mkdir(path.dirname(storage), { recursive: true });
+    await rm(storage, { recursive: true, force: true });
+    await writeFile(storage, "not a folder");
+    const ran = vi.fn();
+    await expect(plugins.run(game, { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" }, ran)).rejects.toThrow();
+    expect(ran).not.toHaveBeenCalled();
   });
 });

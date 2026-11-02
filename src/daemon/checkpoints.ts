@@ -443,6 +443,20 @@ export class CheckpointStore {
       .sort((left, right) => compare(left.path, right.path));
   }
 
+  /** Whether `to` couldn't read a path `from` could, so comparing them can't say whether it changed. */
+  async lostSight(
+    project: CheckpointProject,
+    from: string,
+    to: string,
+  ): Promise<boolean> {
+    const gitdir = checkpointDirectory(project);
+    const [before, after] = await Promise.all([
+      readCommit(gitdir, from),
+      readCommit(gitdir, to),
+    ]);
+    return after.unreadable.some((file) => !before.unreadable.includes(file));
+  }
+
   /** Immutable, bounded text statistics for the end-of-turn summary. */
   async summarize(
     project: CheckpointProject,

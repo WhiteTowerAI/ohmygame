@@ -1178,6 +1178,8 @@ const en = {
     files_one: "{{count}} file",
     files_other: "{{count}} files",
     failed: "It stopped with an error: {{error}}",
+    unrecorded: "Ran, but not recorded yet, so it can't be undone yet. Check that the disk has free space and that no other program has the project's files locked, then open this list again.",
+    late: "Recorded late, so it may include other changes made by then.",
     undo: "Undo",
     undone: "Undone",
   },
