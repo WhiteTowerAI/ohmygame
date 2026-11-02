@@ -1,4 +1,4 @@
-import { BrowserWindow, nativeTheme, screen, shell } from "electron";
+import { BrowserWindow, nativeTheme, screen, shell, type MenuItem, type MenuItemConstructorOptions } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
@@ -16,6 +16,25 @@ export function windowsTitleBarOverlay(isDark: boolean) {
     symbolColor: isDark ? "#ffffff" : "#202020",
     height: 32,
   };
+}
+
+export function isMenuItemLabels(value: unknown): value is Record<string, string> {
+  return typeof value === "object" && value !== null &&
+    Object.values(value).every((label) => typeof label === "string");
+}
+
+/**
+ * Rebuilds a menu of the application menu with labels in the app's language,
+ * keyed by role. The roles keep each item's action and shortcut, and an item
+ * with no label given keeps its own.
+ */
+export function localizedMenuItems(
+  items: readonly Pick<MenuItem, "role" | "type" | "label">[],
+  labels: Record<string, string>,
+): MenuItemConstructorOptions[] {
+  return items.map(({ role, type, label }) => role
+    ? { role, label: labels[role] ?? label }
+    : { type, label });
 }
 
 interface CreateWindowOptions {
