@@ -829,6 +829,7 @@ function ShellDetails({ item, command }: { item: ToolCallItem; command: string }
 
 function FileOperationDetails({ item, args }: { item: ToolCallItem; args: Record<string, unknown> | undefined }) {
   return <div className="tool-details">
+    {item.images?.length ? <ToolImagePreviews images={item.images} /> : null}
     {fileOperationContext(item.tool, args)}
     {item.output ? <ToolDetailBlock label={t("timeline.detail.result")}><pre>{item.output}</pre></ToolDetailBlock> : null}
     {item.truncated ? <p className="tool-details-truncated">{t("timeline.detail.resultTruncated")}</p> : null}
@@ -892,7 +893,7 @@ function hasToolDetails(item: ToolCallItem): boolean {
   if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
   if (item.tool === "bash") return Boolean(text(record(item.arguments)?.command) || item.output);
   if (["edit", "write"].includes(item.tool)) return Boolean(item.output || item.fileDiff);
-  if (["read", "grep", "find", "ls"].includes(item.tool)) return Boolean(item.output);
+  if (["read", "grep", "find", "ls"].includes(item.tool)) return Boolean(item.output || item.images?.length);
   return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
 }
 

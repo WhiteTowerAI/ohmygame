@@ -1054,6 +1054,28 @@ describe("AgentTimeline", () => {
     expect(html.indexOf("tool-result-images")).toBeLessThan(html.indexOf("Input"));
   });
 
+  it("shows the image a read returned inside its details", () => {
+    const read = (id: string, output?: string): ThreadItem => ({
+      id,
+      turnId: "turn-1",
+      type: "dynamicToolCall",
+      toolCallId: id,
+      tool: "read",
+      status: "completed",
+      arguments: { path: ".tmp/example.png" },
+      ...(output ? { output } : {}),
+      images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
+    });
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), read("read-1", "Read image file [image/png]"), assistant("final", "Done.", "final_answer")]} />);
+
+    expect(html).toContain('class="tool-result-images"');
+    expect(html).toContain('src="data:image/png;base64,aW1hZ2U="');
+    expect(html).toContain(".tmp/example.png");
+    expect(html).toContain("Read image file [image/png]");
+    // A result with only an image still opens.
+    expect(renderToStaticMarkup(<AgentTimeline items={[user(), read("read-2"), assistant("final", "Done.", "final_answer")]} />)).toContain('class="tool-result-images"');
+  });
+
   it("keeps the generic MCP icon when unknown integrations are grouped", () => {
     const mcpTool = (id: string, operation: string): ThreadItem => ({
       id,
