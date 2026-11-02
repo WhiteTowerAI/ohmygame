@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { shutDownExtensions } from "./session-shutdown.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createJiti } from "jiti";
 import {
@@ -144,20 +145,15 @@ export class PluginMcpHost {
     const close = () =>
       (closing ??= (async () => {
         try {
-          await session.abort();
-          await session.extensionRunner.emit({
-            type: "session_shutdown",
-            reason: "quit",
-          });
+          await shutDownExtensions(session);
         } finally {
           dispose();
           this.#cleanup.delete(close);
         }
       })());
     this.#cleanup.add(close);
-    session.dispose = () => {
-      void close().catch(() => {});
-    };
+    // Callers that wait for the session to be gone can await this.
+    session.dispose = () => close().catch(() => {});
     return close;
   }
   /**
