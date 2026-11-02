@@ -731,7 +731,9 @@ describe("checkpoints in the project shell", () => {
       if (route === "/projects/project/conversations/other") return Response.json({ ...detail("turn"), conversation: other });
       if (route.endsWith("/conversation/archive") && init.method === "POST") return new Promise((resolve) => { archived = () => resolve(new Response(null, { status: 204 })); });
     }, undefined, { onOpenConversation });
-    await act(async () => container.querySelector<HTMLButtonElement>(".conversation-trigger")!.click());
+    // The header keeps the history behind a button instead of showing the open conversation's title.
+    expect(document.querySelector(".chat-header-actions")?.textContent).not.toContain("Chat");
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Conversation history"]')!.click());
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Archive Chat"]')!.click());
     await daemon.route("other");
     onOpenConversation.mockClear();

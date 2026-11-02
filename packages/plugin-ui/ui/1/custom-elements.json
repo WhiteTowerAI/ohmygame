@@ -248,89 +248,6 @@
             }
           ],
           "cssProperties": []
-        },
-        {
-          "kind": "class",
-          "name": "OmgSelect",
-          "tagName": "omg-select",
-          "customElement": true,
-          "description": "`<omg-select label value disabled>` with `<option>` children: the app's select. `label` is shown above it; without one, give it `aria-label`. It fires `change` and `input` as a native select does.",
-          "superclass": {
-            "name": "HTMLElement",
-            "package": "global:"
-          },
-          "attributes": [
-            {
-              "name": "aria-label",
-              "description": "Its name, without a label.",
-              "type": {
-                "text": "string"
-              }
-            },
-            {
-              "name": "disabled",
-              "description": "Can't be changed.",
-              "type": {
-                "text": "boolean"
-              }
-            },
-            {
-              "name": "label",
-              "description": "Shown above it.",
-              "type": {
-                "text": "string"
-              }
-            },
-            {
-              "name": "value",
-              "description": "The chosen option's value.",
-              "type": {
-                "text": "string"
-              }
-            }
-          ],
-          "members": [
-            {
-              "kind": "field",
-              "name": "value",
-              "description": "The chosen option's value.",
-              "type": {
-                "text": "string"
-              }
-            }
-          ],
-          "events": [
-            {
-              "name": "change",
-              "description": "The person chose an option.",
-              "type": {
-                "text": "Event"
-              }
-            },
-            {
-              "name": "input",
-              "description": "The person chose an option.",
-              "type": {
-                "text": "Event"
-              }
-            }
-          ],
-          "slots": [],
-          "cssParts": [
-            {
-              "name": "field",
-              "description": "The label around it."
-            },
-            {
-              "name": "label",
-              "description": "The label's text."
-            },
-            {
-              "name": "select",
-              "description": "The native select."
-            }
-          ],
-          "cssProperties": []
         }
       ],
       "exports": [
@@ -347,14 +264,6 @@
           "name": "omg-command-button",
           "declaration": {
             "name": "OmgCommandButton",
-            "module": "ui/1/controls.js"
-          }
-        },
-        {
-          "kind": "custom-element-definition",
-          "name": "omg-select",
-          "declaration": {
-            "name": "OmgSelect",
             "module": "ui/1/controls.js"
           }
         }
@@ -620,6 +529,88 @@
             }
           ],
           "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgBadge",
+          "tagName": "omg-badge",
+          "customElement": true,
+          "description": "`<omg-badge tone>`: a short label for what something is or how it stands.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "tone",
+              "description": "Its colour; neutral by default.",
+              "type": {
+                "text": "\"neutral\" | \"info\" | \"good\" | \"warning\" | \"bad\""
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The label."
+            }
+          ],
+          "cssParts": [],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgProgress",
+          "tagName": "omg-progress",
+          "customElement": true,
+          "description": "`<omg-progress value max label>`: how far something has got, or a moving bar while nobody knows yet.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "label",
+              "description": "What is in progress, above the bar and for screen readers.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "max",
+              "description": "What finished means; 100 by default.",
+              "type": {
+                "text": "number"
+              }
+            },
+            {
+              "name": "value",
+              "description": "How far it has got; without one, the bar just moves.",
+              "type": {
+                "text": "number"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "bar",
+              "description": "The part that is done."
+            },
+            {
+              "name": "label",
+              "description": "The label; hidden when empty."
+            },
+            {
+              "name": "track",
+              "description": "The whole bar."
+            }
+          ],
+          "cssProperties": []
         }
       ],
       "exports": [
@@ -661,6 +652,772 @@
           "declaration": {
             "name": "OmgStep",
             "module": "ui/1/feedback.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-badge",
+          "declaration": {
+            "name": "OmgBadge",
+            "module": "ui/1/feedback.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-progress",
+          "declaration": {
+            "name": "OmgProgress",
+            "module": "ui/1/feedback.js"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "ui/1/forms.js",
+      "declarations": [
+        {
+          "kind": "class",
+          "name": "OmgInput",
+          "tagName": "omg-input",
+          "customElement": true,
+          "description": "`<omg-input label value type placeholder hint error>`: one line of text.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "aria-label",
+              "description": "Its name, without a label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Can't be changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "error",
+              "description": "What's wrong with its value.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "hint",
+              "description": "A line under it; an error takes its place.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Shown with it.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "placeholder",
+              "description": "Shown while it is empty.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "readonly",
+              "description": "Can be read and copied, not changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "type",
+              "description": "What it holds; text by default.",
+              "type": {
+                "text": "\"text\" | \"search\" | \"password\" | \"number\" | \"email\" | \"url\""
+              }
+            },
+            {
+              "name": "value",
+              "description": "Its text; setting it replaces what was typed.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "value",
+              "description": "Its text.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "change",
+              "description": "The person changed it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The person is changing it.",
+              "type": {
+                "text": "Event"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "error",
+              "description": "The error; hidden when empty."
+            },
+            {
+              "name": "field",
+              "description": "The label around it."
+            },
+            {
+              "name": "hint",
+              "description": "The hint; hidden when empty or when there is an error."
+            },
+            {
+              "name": "input",
+              "description": "The native input."
+            },
+            {
+              "name": "label",
+              "description": "The label's text."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgTextarea",
+          "tagName": "omg-textarea",
+          "customElement": true,
+          "description": "`<omg-textarea label value rows placeholder hint error>`: several lines of text.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "aria-label",
+              "description": "Its name, without a label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Can't be changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "error",
+              "description": "What's wrong with its value.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "hint",
+              "description": "A line under it; an error takes its place.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Shown with it.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "placeholder",
+              "description": "Shown while it is empty.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "readonly",
+              "description": "Can be read and copied, not changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "rows",
+              "description": "How many lines it shows; 3 by default.",
+              "type": {
+                "text": "number"
+              }
+            },
+            {
+              "name": "value",
+              "description": "Its text; setting it replaces what was typed.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "value",
+              "description": "Its text.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "change",
+              "description": "The person changed it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The person is changing it.",
+              "type": {
+                "text": "Event"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "error",
+              "description": "The error; hidden when empty."
+            },
+            {
+              "name": "field",
+              "description": "The label around it."
+            },
+            {
+              "name": "hint",
+              "description": "The hint; hidden when empty or when there is an error."
+            },
+            {
+              "name": "label",
+              "description": "The label's text."
+            },
+            {
+              "name": "textarea",
+              "description": "The native textarea."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgSwitch",
+          "tagName": "omg-switch",
+          "customElement": true,
+          "description": "`<omg-switch label checked hint>`: turns a setting on or off at once, with its label at the row's start and the switch at its end.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "aria-label",
+              "description": "Its name, without a label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "checked",
+              "description": "It is on.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Can't be changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "error",
+              "description": "What's wrong with its value.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "hint",
+              "description": "A line under it; an error takes its place.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Shown with it.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "checked",
+              "description": "It is on.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "change",
+              "description": "The person changed it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The person is changing it.",
+              "type": {
+                "text": "Event"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "error",
+              "description": "The error; hidden when empty."
+            },
+            {
+              "name": "field",
+              "description": "The label around it."
+            },
+            {
+              "name": "hint",
+              "description": "The hint; hidden when empty or when there is an error."
+            },
+            {
+              "name": "label",
+              "description": "The label's text."
+            },
+            {
+              "name": "switch",
+              "description": "The native checkbox."
+            }
+          ],
+          "cssProperties": [
+            {
+              "name": "--omg-accent",
+              "description": "The plugin's brand colour, for the switch when on."
+            },
+            {
+              "name": "--omg-on-accent",
+              "description": "The colour of the thumb when on."
+            }
+          ]
+        },
+        {
+          "kind": "class",
+          "name": "OmgCheckbox",
+          "tagName": "omg-checkbox",
+          "customElement": true,
+          "description": "`<omg-checkbox label checked hint>`: a choice that takes effect with the rest of a form, with the box before its label.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "aria-label",
+              "description": "Its name, without a label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "checked",
+              "description": "It is on.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Can't be changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "error",
+              "description": "What's wrong with its value.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "hint",
+              "description": "A line under it; an error takes its place.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Shown with it.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "checked",
+              "description": "It is on.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "change",
+              "description": "The person changed it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The person is changing it.",
+              "type": {
+                "text": "Event"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "checkbox",
+              "description": "The native checkbox."
+            },
+            {
+              "name": "error",
+              "description": "The error; hidden when empty."
+            },
+            {
+              "name": "field",
+              "description": "The label around it."
+            },
+            {
+              "name": "hint",
+              "description": "The hint; hidden when empty or when there is an error."
+            },
+            {
+              "name": "label",
+              "description": "The label's text."
+            }
+          ],
+          "cssProperties": [
+            {
+              "name": "--omg-accent",
+              "description": "The plugin's brand colour, for the box when checked."
+            },
+            {
+              "name": "--omg-on-accent",
+              "description": "The colour of the check."
+            }
+          ]
+        },
+        {
+          "kind": "class",
+          "name": "OmgSelect",
+          "tagName": "omg-select",
+          "customElement": true,
+          "description": "`<omg-select label value hint error disabled>` with `<option>` children: the app's dropdown. Its list stays inside the panel and scrolls.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "aria-label",
+              "description": "Its name, without a label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Can't be changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "error",
+              "description": "What's wrong with its value.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "hint",
+              "description": "A line under it; an error takes its place.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Shown with it.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "value",
+              "description": "The chosen option's value.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "value",
+              "description": "The chosen option's value.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "change",
+              "description": "The person changed it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The person is changing it.",
+              "type": {
+                "text": "Event"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "error",
+              "description": "The error; hidden when empty."
+            },
+            {
+              "name": "field",
+              "description": "The label around it."
+            },
+            {
+              "name": "hint",
+              "description": "The hint; hidden when empty or when there is an error."
+            },
+            {
+              "name": "label",
+              "description": "The label's text."
+            },
+            {
+              "name": "select",
+              "description": "The native select."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgSegmented",
+          "tagName": "omg-segmented",
+          "customElement": true,
+          "description": "`<omg-segmented label value hint error disabled>` with `<option>` children: a few choices side by side, all in view. Arrow keys move between them.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "aria-label",
+              "description": "Its name, without a label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Can't be changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "error",
+              "description": "What's wrong with its value.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "hint",
+              "description": "A line under it; an error takes its place.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Shown with it.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "value",
+              "description": "The chosen option's value.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "value",
+              "description": "The chosen option's value.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "change",
+              "description": "The person changed it.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The person is changing it.",
+              "type": {
+                "text": "Event"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "error",
+              "description": "The error; hidden when empty."
+            },
+            {
+              "name": "field",
+              "description": "The label around it."
+            },
+            {
+              "name": "hint",
+              "description": "The hint; hidden when empty or when there is an error."
+            },
+            {
+              "name": "label",
+              "description": "The label's text."
+            },
+            {
+              "name": "segment",
+              "description": "One choice."
+            },
+            {
+              "name": "segments",
+              "description": "The row of choices."
+            }
+          ],
+          "cssProperties": []
+        }
+      ],
+      "exports": [
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-input",
+          "declaration": {
+            "name": "OmgInput",
+            "module": "ui/1/forms.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-textarea",
+          "declaration": {
+            "name": "OmgTextarea",
+            "module": "ui/1/forms.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-switch",
+          "declaration": {
+            "name": "OmgSwitch",
+            "module": "ui/1/forms.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-checkbox",
+          "declaration": {
+            "name": "OmgCheckbox",
+            "module": "ui/1/forms.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-select",
+          "declaration": {
+            "name": "OmgSelect",
+            "module": "ui/1/forms.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-segmented",
+          "declaration": {
+            "name": "OmgSegmented",
+            "module": "ui/1/forms.js"
           }
         }
       ]

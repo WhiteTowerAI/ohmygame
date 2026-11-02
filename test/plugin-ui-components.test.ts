@@ -235,6 +235,128 @@ describe("page components", () => {
     expect(select.value).toBe("");
   });
 
+  it("gives a control its label, a hint, or an error in the hint's place", async () => {
+    const input = html(`<omg-input label="Name" hint="Shown publicly." placeholder="Zombie farm"></omg-input>`);
+    const control = shadow(input, "input") as HTMLInputElement;
+    expect(shadow(input, "label").textContent).toBe("Name");
+    expect(shadow(input, "hint").hidden).toBe(false);
+    expect(control.getAttribute("aria-describedby")).toBe("hint");
+    expect(control.placeholder).toBe("Zombie farm");
+    input.setAttribute("error", "Too long.");
+    expect(shadow(input, "hint").hidden).toBe(true);
+    expect(shadow(input, "error").textContent).toBe("Too long.");
+    expect(control.getAttribute("aria-invalid")).toBe("true");
+    expect(control.getAttribute("aria-describedby")).toBe("error");
+    input.removeAttribute("error");
+    expect(control.hasAttribute("aria-invalid")).toBe(false);
+    input.setAttribute("disabled", "");
+    expect(control.disabled).toBe(true);
+    input.removeAttribute("disabled");
+    input.removeAttribute("hint");
+    expect(control.hasAttribute("aria-describedby")).toBe(false);
+    input.removeAttribute("label");
+    input.setAttribute("aria-label", "Name");
+    expect(shadow(input, "label").hidden).toBe(true);
+    expect(control.getAttribute("aria-label")).toBe("Name");
+  });
+
+  it("keeps what was typed until the page sets a value, and hears changes", () => {
+    const input = html(`<omg-input value="first"></omg-input>`) as HTMLElement & { value: string };
+    const control = shadow(input, "input") as HTMLInputElement;
+    const heard = vi.fn();
+    input.addEventListener("change", heard);
+    expect(input.value).toBe("first");
+    control.value = "typed";
+    input.setAttribute("error", "Too long.");
+    expect(input.value).toBe("typed");
+    expect(input.getAttribute("value")).toBe("first");
+    control.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(heard).toHaveBeenCalledOnce();
+    input.setAttribute("value", "second");
+    expect(input.value).toBe("second");
+    input.value = "third";
+    expect(control.value).toBe("third");
+
+    const area = html(`<omg-textarea rows="5" value="Lines" readonly></omg-textarea>`) as HTMLElement & { value: string };
+    const box = shadow(area, "textarea") as HTMLTextAreaElement;
+    expect([Number(box.rows), box.readOnly, area.value]).toEqual([5, true, "Lines"]);
+  });
+
+  it("keeps a switch and a checkbox's state on the attribute", () => {
+    for (const [tag, part] of [["omg-switch", "switch"], ["omg-checkbox", "checkbox"]] as const) {
+      const toggle = html(`<${tag} label="Upload" checked></${tag}>`) as HTMLElement & { checked: boolean };
+      const box = shadow(toggle, part) as HTMLInputElement;
+      expect([box.checked, toggle.checked]).toEqual([true, true]);
+      const heard: boolean[] = [];
+      toggle.addEventListener("change", () => heard.push(toggle.hasAttribute("checked")));
+      box.checked = false;
+      box.dispatchEvent(new Event("change", { bubbles: true }));
+      expect(toggle.hasAttribute("checked")).toBe(false);
+      expect(heard).toEqual([false]);
+      toggle.checked = true;
+      expect(box.checked).toBe(true);
+      // A page clearing an error as it hears input keeps the box as the person left it.
+      toggle.setAttribute("error", "Required");
+      toggle.addEventListener("input", () => toggle.removeAttribute("error"), { once: true });
+      box.checked = false;
+      box.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+      expect([box.checked, toggle.hasAttribute("checked")]).toEqual([false, false]);
+    }
+    expect(shadow(html(`<omg-switch></omg-switch>`), "switch").getAttribute("role")).toBe("switch");
+  });
+
+  it("draws a segmented control from its options", async () => {
+    const segmented = html(`<omg-segmented label="Build for" value="b"><option value="a">A</option><option value="b">B</option><option value="c" disabled>C</option></omg-segmented>`) as HTMLElement & { value: string };
+    await settle();
+    const group = shadow(segmented, "segments");
+    const radios = () => [...group.querySelectorAll("input")];
+    expect(group.getAttribute("aria-labelledby")).toBe("label");
+    expect(radios().map((radio) => [radio.value, radio.checked, radio.disabled])).toEqual([["a", false, false], ["b", true, false], ["c", false, true]]);
+    const heard: string[] = [];
+    segmented.addEventListener("change", () => heard.push(segmented.value));
+    radios()[0]!.checked = true;
+    radios()[0]!.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(heard).toEqual(["a"]);
+    expect(segmented.getAttribute("value")).toBe("a");
+    segmented.value = "b";
+    expect(radios()[1]!.checked).toBe(true);
+    segmented.setAttribute("disabled", "");
+    expect(radios().every((radio) => radio.disabled)).toBe(true);
+    segmented.removeAttribute("disabled");
+    expect(radios().map((radio) => radio.disabled)).toEqual([false, false, true]);
+    segmented.insertAdjacentHTML("beforeend", `<option value="d">D</option>`);
+    await settle();
+    expect(radios().map((radio) => radio.value)).toEqual(["a", "b", "c", "d"]);
+    expect(radios()[1]!.checked).toBe(true);
+    // A choice made heard as input stays when the page changes the hint then.
+    segmented.addEventListener("input", () => segmented.setAttribute("hint", "Saved"), { once: true });
+    radios()[0]!.checked = true;
+    radios()[0]!.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    expect([radios()[0]!.checked, segmented.getAttribute("value")]).toEqual([true, "a"]);
+    // Options that change keep the keyboard where it was.
+    radios()[0]!.focus();
+    segmented.insertAdjacentHTML("beforeend", `<option value="e">E</option>`);
+    await settle();
+    expect((segmented.shadowRoot!.activeElement as HTMLInputElement | null)?.value).toBe("a");
+  });
+
+  it("shows how far progress has got, or moves without a value", () => {
+    const progress = html(`<omg-progress label="Uploading" value="30" max="60"></omg-progress>`);
+    const track = shadow(progress, "track");
+    expect(track.getAttribute("aria-label")).toBe("Uploading");
+    expect(track.getAttribute("aria-valuenow")).toBe("30");
+    expect(track.getAttribute("aria-valuemax")).toBe("60");
+    expect(shadow(progress, "bar").style.width).toBe("50%");
+    progress.setAttribute("value", "600");
+    expect(shadow(progress, "bar").style.width).toBe("100%");
+    progress.setAttribute("value", "30");
+    progress.setAttribute("max", "Infinity");
+    expect([track.getAttribute("aria-valuemax"), shadow(progress, "bar").style.width]).toEqual(["100", "30%"]);
+    progress.removeAttribute("value");
+    expect(track.hasAttribute("aria-valuenow")).toBe(false);
+    expect(shadow(progress, "bar").classList.contains("moving")).toBe(true);
+  });
+
   it("starts on the option marked selected when it has no value", async () => {
     const select = html<HTMLElement & { value: string }>(`<omg-select aria-label="Project"><option value="a">Alpha</option><option value="b" selected>Beta</option></omg-select>`);
     await settle();
@@ -378,8 +500,9 @@ describe("page components' contract", () => {
       expect((component!.observedAttributes ?? []).filter((name) => !attributes.includes(name)), item.tagName).toEqual([]);
       const element = document.createElement(item.tagName);
       const parts = new Set([...element.shadowRoot!.querySelectorAll("[part]")].flatMap((node) => node.getAttribute("part")!.split(/\s+/)));
-      // A tab's button is drawn for each `omg-tab`, so it isn't in the template.
+      // These are drawn for each child, so they aren't in the template.
       if (item.tagName === "omg-tabs") parts.add("tab");
+      if (item.tagName === "omg-segmented") parts.add("segment");
       expect([...parts].sort(), `${item.tagName} parts`).toEqual(item.cssParts.map((part) => part.name).sort());
       const slots = [...element.shadowRoot!.querySelectorAll("slot")].map((slot) => slot.getAttribute("name") ?? "");
       expect(slots.sort(), `${item.tagName} slots`).toEqual(item.slots.map((slot) => slot.name).sort());

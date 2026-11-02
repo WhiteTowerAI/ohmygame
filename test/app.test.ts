@@ -372,7 +372,8 @@ describe("daemon", () => {
     const readProject = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}` })).json();
     await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json().activity).toEqual([]));
     if (webPreviewEnabled) {
-      await vi.waitFor(async () => expect((await readProject()).preview.status).toBe("ready"), { timeout: 3_000 });
+      // Starting a Node server can take several seconds on a busy CI machine.
+      await vi.waitFor(async () => expect((await readProject()).preview.status).toBe("ready"), { timeout: 15_000 });
       const url = (await readProject()).preview.url;
       expect(await (await fetch(url)).text()).toBe("General ready");
       const disabled = await app.inject({ method: "PUT", url: settingsUrl, payload: { ...settings, webPreviewEnabled: false } });

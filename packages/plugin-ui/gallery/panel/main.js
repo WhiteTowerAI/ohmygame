@@ -74,3 +74,6 @@ customElements.whenDefined("omg-select").then(showChoice);
 const demoTabs = document.getElementById("demo-tabs");
 const demoTab = document.getElementById("demo-tab");
 demoTabs.addEventListener("omg-tab-change", (event) => (demoTab.textContent = `Open tab: “${event.detail.value}”`));
+
+const typed = document.getElementById("typed");
+document.getElementById("name").addEventListener("input", (event) => (typed.textContent = `Typed: “${event.target.value}”`));

@@ -5,3 +5,4 @@ import "./layout.js";
 import "./navigation.js";
 import "./feedback.js";
 import "./controls.js";
+import "./forms.js";

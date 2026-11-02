@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
-import { createHash, type Hash } from "node:crypto";
-import { stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { open, stat } from "node:fs/promises";
 import { setImmediate } from "node:timers/promises";
 import { CURRENT_SESSION_VERSION, parseSessionEntries, SessionManager, type FileEntry, type SessionInfo } from "@earendil-works/pi-coding-agent";
 import type { PromptImage, ProjectState } from "../shared/contracts.js";
@@ -12,7 +12,8 @@ interface CachedSession {
   inode: number;
   size: number;
   offset: number;
-  digest: string;
+  /** The file's first and last bytes as read, to tell an append from a rewrite without reading it all again. */
+  sample: string;
   appendable: boolean;
   entries: FileEntry[];
   manager: SessionManager;
@@ -68,11 +69,11 @@ export class ConversationCache {
       this.#cache.set(file, cached);
       return cached.manager;
     }
-    // Reuse entries only when the entire old prefix is unchanged and needs no migration.
-    const prefix = cached?.appendable && cached.offset === cached.size && cached.inode === stats.ino && stats.size > cached.size
-      ? await hashPrefix(file, cached.size) : undefined;
-    const appended = cached && prefix?.copy().digest("hex") === cached.digest;
-    const hash = appended ? prefix! : createHash("sha256");
+    // Reuse entries only when the file grew from where it was read and needs no migration. Pi only appends to a
+    // session in its current version, so its first and last bytes as read tell an append from a rewrite. Reading
+    // all of it again for every append made each message wait on hundreds of MB in a long session.
+    const appended = cached?.appendable && cached.offset === cached.size && cached.inode === stats.ino && stats.size > cached.size
+      && await fileSample(file, cached.size) === cached.sample;
     const entries = appended ? [...cached.entries] : [];
     const start = appended ? cached.offset : 0;
     let offset = start;
@@ -83,7 +84,6 @@ export class ConversationCache {
     if (stats.size > start) {
       for await (const chunk of createReadStream(file, { start, end: stats.size - 1, highWaterMark: 64 * 1024 })) {
         const bytes = chunk as Buffer;
-        hash.update(bytes);
         let chunkStart = 0;
         for (let newline = bytes.indexOf(10); newline >= 0; newline = bytes.indexOf(10, chunkStart)) {
           fragments.push(bytes.subarray(chunkStart, newline));
@@ -115,7 +115,7 @@ export class ConversationCache {
     const appendable = entries[0].version === CURRENT_SESSION_VERSION;
     const manager = SessionManager.inMemory(project.workspacePath, undefined, entries);
     const loaded = { signature, inode: stats.ino, size: stats.size, offset,
-      digest: hash.digest("hex"), appendable, entries, manager };
+      sample: await fileSample(file, stats.size), appendable, entries, manager };
     this.#cache.delete(file);
     this.#cache.set(file, loaded);
     while (this.#cache.size > 32) this.#cache.delete(this.#cache.keys().next().value!);
@@ -155,13 +155,23 @@ function shownToolOutput<T extends { type: string }>(content: T[]): T[] {
   return content.flatMap((block) => block === first ? [{ ...block, text: shown }] : text(block) ? [] : [block]);
 }
 
-async function hashPrefix(file: string, size: number): Promise<Hash> {
-  const hash = createHash("sha256");
-  if (size) for await (const chunk of createReadStream(file, { end: size - 1, highWaterMark: 64 * 1024 })) {
-    hash.update(chunk as Buffer);
-    await setImmediate();
+/** How much of a session's start and end tells an append from a rewrite. */
+const SAMPLE_BYTES = 64 * 1024;
+
+/** A digest of the first and last bytes of the file's first `size` bytes, which hold its header and latest records. */
+async function fileSample(file: string, size: number): Promise<string> {
+  const hash = createHash("sha256").update(String(size));
+  const handle = await open(file, "r");
+  try {
+    for (const start of new Set([0, Math.max(0, size - SAMPLE_BYTES)])) {
+      const bytes = Buffer.alloc(Math.min(SAMPLE_BYTES, size - start));
+      const { bytesRead } = await handle.read(bytes, 0, bytes.length, start);
+      hash.update(bytes.subarray(0, bytesRead));
+    }
+  } finally {
+    await handle.close();
   }
-  return hash;
+  return hash.digest("hex");
 }
 
 function fileSignature(stats: { ino: number; size: number; mtimeMs: number; ctimeMs: number }): string {

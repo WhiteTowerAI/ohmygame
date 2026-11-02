@@ -46,24 +46,6 @@ export interface OmgCommandButtonAttributes {
   variant?: "secondary" | "primary" | "ghost" | "danger";
 }
 
-/** `<omg-select label value disabled>` with `<option>` children: the app's select. `label` is shown above it; without one, give it `aria-label`. It fires `change` and `input` as a native select does. */
-export interface OmgSelectElement extends HTMLElement {
-  /** The chosen option's value. */
-  value: string;
-}
-
-/** The attributes of `<omg-select>`, as a page writes them. */
-export interface OmgSelectAttributes {
-  /** Its name, without a label. */
-  "aria-label"?: string;
-  /** Can't be changed. */
-  disabled?: boolean;
-  /** Shown above it. */
-  label?: string;
-  /** The chosen option's value. */
-  value?: string;
-}
-
 /** `<omg-status tone="neutral|good|warning|bad|busy">`: a short state, such as "Running", after a coloured dot, or a spinner while busy. It is a live region, so a change is read out. */
 export interface OmgStatusElement extends HTMLElement {}
 
@@ -118,6 +100,172 @@ export interface OmgStepAttributes {
   open?: boolean;
   /** Pending by default. */
   state?: "pending" | "current" | "done" | "error";
+}
+
+/** `<omg-badge tone>`: a short label for what something is or how it stands. */
+export interface OmgBadgeElement extends HTMLElement {}
+
+/** The attributes of `<omg-badge>`, as a page writes them. */
+export interface OmgBadgeAttributes {
+  /** Its colour; neutral by default. */
+  tone?: "neutral" | "info" | "good" | "warning" | "bad";
+}
+
+/** `<omg-progress value max label>`: how far something has got, or a moving bar while nobody knows yet. */
+export interface OmgProgressElement extends HTMLElement {}
+
+/** The attributes of `<omg-progress>`, as a page writes them. */
+export interface OmgProgressAttributes {
+  /** What is in progress, above the bar and for screen readers. */
+  label?: string;
+  /** What finished means; 100 by default. */
+  max?: number;
+  /** How far it has got; without one, the bar just moves. */
+  value?: number;
+}
+
+/** `<omg-input label value type placeholder hint error>`: one line of text. */
+export interface OmgInputElement extends HTMLElement {
+  /** Its text. */
+  value: string;
+}
+
+/** The attributes of `<omg-input>`, as a page writes them. */
+export interface OmgInputAttributes {
+  /** Its name, without a label. */
+  "aria-label"?: string;
+  /** Can't be changed. */
+  disabled?: boolean;
+  /** What's wrong with its value. */
+  error?: string;
+  /** A line under it; an error takes its place. */
+  hint?: string;
+  /** Shown with it. */
+  label?: string;
+  /** Shown while it is empty. */
+  placeholder?: string;
+  /** Can be read and copied, not changed. */
+  readonly?: boolean;
+  /** What it holds; text by default. */
+  type?: "text" | "search" | "password" | "number" | "email" | "url";
+  /** Its text; setting it replaces what was typed. */
+  value?: string;
+}
+
+/** `<omg-textarea label value rows placeholder hint error>`: several lines of text. */
+export interface OmgTextareaElement extends HTMLElement {
+  /** Its text. */
+  value: string;
+}
+
+/** The attributes of `<omg-textarea>`, as a page writes them. */
+export interface OmgTextareaAttributes {
+  /** Its name, without a label. */
+  "aria-label"?: string;
+  /** Can't be changed. */
+  disabled?: boolean;
+  /** What's wrong with its value. */
+  error?: string;
+  /** A line under it; an error takes its place. */
+  hint?: string;
+  /** Shown with it. */
+  label?: string;
+  /** Shown while it is empty. */
+  placeholder?: string;
+  /** Can be read and copied, not changed. */
+  readonly?: boolean;
+  /** How many lines it shows; 3 by default. */
+  rows?: number;
+  /** Its text; setting it replaces what was typed. */
+  value?: string;
+}
+
+/** `<omg-switch label checked hint>`: turns a setting on or off at once, with its label at the row's start and the switch at its end. */
+export interface OmgSwitchElement extends HTMLElement {
+  /** It is on. */
+  checked: boolean;
+}
+
+/** The attributes of `<omg-switch>`, as a page writes them. */
+export interface OmgSwitchAttributes {
+  /** Its name, without a label. */
+  "aria-label"?: string;
+  /** It is on. */
+  checked?: boolean;
+  /** Can't be changed. */
+  disabled?: boolean;
+  /** What's wrong with its value. */
+  error?: string;
+  /** A line under it; an error takes its place. */
+  hint?: string;
+  /** Shown with it. */
+  label?: string;
+}
+
+/** `<omg-checkbox label checked hint>`: a choice that takes effect with the rest of a form, with the box before its label. */
+export interface OmgCheckboxElement extends HTMLElement {
+  /** It is on. */
+  checked: boolean;
+}
+
+/** The attributes of `<omg-checkbox>`, as a page writes them. */
+export interface OmgCheckboxAttributes {
+  /** Its name, without a label. */
+  "aria-label"?: string;
+  /** It is on. */
+  checked?: boolean;
+  /** Can't be changed. */
+  disabled?: boolean;
+  /** What's wrong with its value. */
+  error?: string;
+  /** A line under it; an error takes its place. */
+  hint?: string;
+  /** Shown with it. */
+  label?: string;
+}
+
+/** `<omg-select label value hint error disabled>` with `<option>` children: the app's dropdown. Its list stays inside the panel and scrolls. */
+export interface OmgSelectElement extends HTMLElement {
+  /** The chosen option's value. */
+  value: string;
+}
+
+/** The attributes of `<omg-select>`, as a page writes them. */
+export interface OmgSelectAttributes {
+  /** Its name, without a label. */
+  "aria-label"?: string;
+  /** Can't be changed. */
+  disabled?: boolean;
+  /** What's wrong with its value. */
+  error?: string;
+  /** A line under it; an error takes its place. */
+  hint?: string;
+  /** Shown with it. */
+  label?: string;
+  /** The chosen option's value. */
+  value?: string;
+}
+
+/** `<omg-segmented label value hint error disabled>` with `<option>` children: a few choices side by side, all in view. Arrow keys move between them. */
+export interface OmgSegmentedElement extends HTMLElement {
+  /** The chosen option's value. */
+  value: string;
+}
+
+/** The attributes of `<omg-segmented>`, as a page writes them. */
+export interface OmgSegmentedAttributes {
+  /** Its name, without a label. */
+  "aria-label"?: string;
+  /** Can't be changed. */
+  disabled?: boolean;
+  /** What's wrong with its value. */
+  error?: string;
+  /** A line under it; an error takes its place. */
+  hint?: string;
+  /** Shown with it. */
+  label?: string;
+  /** The chosen option's value. */
+  value?: string;
 }
 
 /** `<omg-page heading description wide>`: the page's column, centred and at most 720px wide, or the panel's whole width when `wide`. Slots: `brand` (a logo before the heading), `actions`, and the page's sections. */
@@ -265,12 +413,19 @@ declare global {
   interface HTMLElementTagNameMap {
     "omg-button": OmgButtonElement;
     "omg-command-button": OmgCommandButtonElement;
-    "omg-select": OmgSelectElement;
     "omg-status": OmgStatusElement;
     "omg-banner": OmgBannerElement;
     "omg-log": OmgLogElement;
     "omg-steps": OmgStepsElement;
     "omg-step": OmgStepElement;
+    "omg-badge": OmgBadgeElement;
+    "omg-progress": OmgProgressElement;
+    "omg-input": OmgInputElement;
+    "omg-textarea": OmgTextareaElement;
+    "omg-switch": OmgSwitchElement;
+    "omg-checkbox": OmgCheckboxElement;
+    "omg-select": OmgSelectElement;
+    "omg-segmented": OmgSegmentedElement;
     "omg-page": OmgPageElement;
     "omg-section": OmgSectionElement;
     "omg-stack": OmgStackElement;
