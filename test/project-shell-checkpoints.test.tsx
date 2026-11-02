@@ -350,6 +350,24 @@ describe("plugins in the project shell", () => {
     expect(container.querySelector(".composer-attachment")).toBeNull();
   });
 
+  it("doesn't offer the initial message again when its request was lost on the way, as the turn may have started", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    const handled = vi.fn();
+    await openProject(
+      (route, init) => {
+        if (/\/turns(\?|$)/.test(route) && init.method === "POST") throw new TypeError("Failed to fetch");
+        return undefined;
+      },
+      detail("live-turn"),
+      { initialPrompt: { generation: 1, prompt: "Build my game", mentions: [], images: [], mode: "normal" }, onInitialPromptHandled: handled },
+    );
+    await settle();
+    expect(handled).toHaveBeenCalledOnce();
+    expect(container.querySelector(".composer-error")?.textContent).toContain("Failed to fetch");
+    expect(container.querySelector(".composer-info")).toBeNull();
+    expect(promptText(container)).toBe("");
+  });
+
   it("shows a plugin's frame once its page has the app's theme", async () => {
     const frameModule = await import("../src/renderer/plugin-frame.js");
     const { PluginFrame, connectPluginFrame, PLUGIN_FRAME_REVEAL_AFTER_LOAD_MS, PLUGIN_FRAME_REVEAL_LATEST_MS } = frameModule;

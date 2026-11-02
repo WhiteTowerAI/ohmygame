@@ -570,7 +570,14 @@ export function ProjectShell({
       if (initialPrompt.images.length || initialPrompt.attachments?.length) setWorkspaceRevision((value) => value + 1);
       onInitialPromptHandled?.();
     }, (error) => {
-      // A project that isn't set up says what to do in its panel; any other failure is shown as one.
+      // Only a refusal is certainly not sent. A request lost on the way may have started the
+      // turn, so the message is not offered again, where sending it would make a second turn.
+      if (!(error instanceof ApiError)) {
+        dispatch({ type: "notice", message: errorMessage(error) });
+        onInitialPromptHandled?.();
+        return;
+      }
+      // A project that isn't set up says what to do in its panel; any other refusal is shown as one.
       const notReady = revealSetupPanel(error);
       returnInitialPrompt(conversation.id, notReady ? t("projectShell.promptReturnedBecause", { reason: errorMessage(error) }) : t("projectShell.promptReturned"));
       if (!notReady) dispatch({ type: "notice", message: errorMessage(error) });
