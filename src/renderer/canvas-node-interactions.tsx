@@ -196,9 +196,11 @@ function CanvasReferenceEdge(props: EdgeProps) {
 }
 export const CANVAS_REFERENCE_EDGE_TYPES = { reference: CanvasReferenceEdge };
 
-/** Keep all references, model settings and generation controls available in either view. */
 /** Pickers opened in the dialog are portaled out of it, past its focus trap, so Tab wraps within them. */
-function keepTabInPicker(event: ReactKeyboardEvent, dialogContent: Element | null) {
+function keepTabInPicker(
+  event: ReactKeyboardEvent,
+  dialogContent: Element | null,
+) {
   let picker = event.target as Element | null;
   while (picker?.parentElement && picker.parentElement !== document.body)
     picker = picker.parentElement;
@@ -214,6 +216,7 @@ function keepTabInPicker(event: ReactKeyboardEvent, dialogContent: Element | nul
   (event.shiftKey ? controls.at(-1) : controls[0])?.focus();
 }
 
+/** Keep all references, model settings and generation controls available in either view. */
 export function CanvasComposer({
   children,
   className,
