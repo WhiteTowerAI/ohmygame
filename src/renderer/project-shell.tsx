@@ -1441,6 +1441,15 @@ export function ProjectShell({
       /> : undefined}
       empty={project ? <Empty title={t("panels.empty")} action={<Button onClick={() => changeLayout(presetLayout("default", offered, homes))}>{t("panels.reset")}</Button>} /> : null} /> : null}
     {createPortal(<div className="pane-header-actions chat-header-actions">
+            <span className="chat-header-spacer" />
+            {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
+              <CanvasChipSelect icon={UserRound} label={t("codingAgents.chatProfile", { name: accountRuntime === "codex-cli" ? "Codex" : "Claude Code" })} value={selectedProfileId}
+                options={accountProfiles.map((profile) => {
+                  const name = profile.id === "system" ? t("codingAgents.profileSystem") : profile.name;
+                  return { value: profile.id, shortLabel: name, label: profile.auth.account ? `${name} · ${profile.auth.account}` : name };
+                })}
+                disabled={agentBusy || modelChanging || state.connection !== "open"} onChange={(profileId) => void changeAccountProfile(profileId)} />
+            </div> : null}
             <ConversationMenu
               conversations={conversations}
               currentConversationId={conversation?.id}
@@ -1455,15 +1464,6 @@ export function ProjectShell({
                 remove: (conversationId) => deleteArchivedConversation(project.id, conversationId),
               } : undefined}
             />
-            <span className="chat-header-spacer" />
-            {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
-              <CanvasChipSelect icon={UserRound} label={t("codingAgents.chatProfile", { name: accountRuntime === "codex-cli" ? "Codex" : "Claude Code" })} value={selectedProfileId}
-                options={accountProfiles.map((profile) => {
-                  const name = profile.id === "system" ? t("codingAgents.profileSystem") : profile.name;
-                  return { value: profile.id, shortLabel: name, label: profile.auth.account ? `${name} · ${profile.auth.account}` : name };
-                })}
-                disabled={agentBusy || modelChanging || state.connection !== "open"} onChange={(profileId) => void changeAccountProfile(profileId)} />
-            </div> : null}
             <button
               className="icon-button pane-header-action"
               type="button"

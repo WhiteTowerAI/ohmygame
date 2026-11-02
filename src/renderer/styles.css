@@ -6633,8 +6633,8 @@ button {
   box-shadow: none;
 }
 
-/* The chat panel's header, as in the lab: the open conversation right after
-   the tab, a new one at the far end. */
+/* The chat panel's header: conversation history and a new conversation at the
+   far end. */
 .pane-header-actions.chat-header-actions {
   flex: 1 1 auto;
   min-width: 0;
@@ -6643,10 +6643,6 @@ button {
 
 .chat-header-spacer {
   flex: 1;
-}
-
-.chat-header-actions .conversation-menu {
-  min-width: 0;
 }
 
 .viewer-title {
@@ -6894,39 +6890,6 @@ button {
 
 .conversation-menu {
   position: relative;
-}
-
-/* The open conversation's title, in the chat panel's tab strip. */
-.conversation-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 100%;
-  height: 24px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.conversation-trigger span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.conversation-trigger:hover:not(:disabled),
-.conversation-trigger[aria-expanded="true"] {
-  background: var(--color-hover);
-  color: var(--color-text);
-}
-
-.conversation-trigger:disabled {
-  cursor: default;
-  opacity: 0.6;
 }
 
 .conversation-popover {
