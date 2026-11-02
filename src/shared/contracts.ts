@@ -35,11 +35,20 @@ export interface AgentResponseStats {
   cacheHitPercent?: number;
 }
 
+/** A conversation stopped at a usage limit that resets at a known time. */
+export interface LimitResume {
+  /** When it continues (ms). */
+  at: number;
+  /** `off`: the agent's setting is off. `skipped`: the person began writing a message. */
+  state: "armed" | "off" | "skipped";
+}
+
 export interface AgentContextUsage {
   tokens: number | null;
   contextWindow: number;
   percent: number | null;
   limits?: AgentUsageLimit[];
+  limitResume?: LimitResume;
   lastResponse?: AgentResponseStats;
 }
 

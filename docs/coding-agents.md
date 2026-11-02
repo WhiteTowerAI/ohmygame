@@ -108,13 +108,20 @@ launched with. OpenCode bills each model provider and
 has no quota of its own.
 
 When a turn stops at a usage limit (such as Claude Code's "You've hit your
-session limit") and an exhausted window reports its reset time, the composer
-shows that time with **Continue after reset**. Opting in sends one English
-`Continue where you left off.` 30 seconds after the last exhausted window
-resets. That time is fixed when you opt in. Sending a message yourself,
-choosing **Cancel**, or the conversation starting another turn clears it. The
-schedule lives in the open conversation only, so OhMyGame must stay open, and
-it never retries on its own.
+5-hour limit") and an exhausted window of known length, opened before the
+failure, reports its reset time, the daemon sends one English
+`Continue where you left off.` 30 seconds after the last such window resets. The
+composer shows that time. It runs while OhMyGame is open, whichever conversation
+is showing; quitting ends the schedule and nothing is sent on the next launch.
+While the computer sleeps it waits until the computer wakes.
+
+Anything else that happens to the conversation ends the schedule: another turn,
+restoring or undoing, moving to another agent or account, turning the agent off,
+or starting to write in it while it is open. A different model on the same
+account continues on that model. If another conversation holds the project, the
+message waits for it. A turn in a plan, or a compaction, does not continue by
+itself. **Turn off** in the composer, or the switch on the agent's settings page,
+turns it off for that agent.
 
 ![Claude Code and Codex quotas labeled as used (sample data)](assets/agent-usage-used-label.png)
 
@@ -496,7 +503,7 @@ back to the defaults. Credentials remain in the CLI's own store.
 | Route                                                     | Purpose                                                                |
 | --------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `GET /agent-runtimes`                                     | Status of every agent; `?recheck=1` probes again                       |
-| `PATCH /agent-runtimes/:id`                               | `enabled`, `permissionMode`, `binaryPath`         |
+| `PATCH /agent-runtimes/:id`                               | `enabled`, `autoContinue`, `permissionMode`, `binaryPath` |
 | `POST /agent-runtimes/:id/recheck`                        | Probe one agent again                                                  |
 | `GET /agent-runtimes/:id/profiles`, `POST /agent-runtimes/:id/profiles` | List or add Claude Code/Codex account configurations |
 | `DELETE /agent-runtimes/:id/profiles/:profileId` | Remove an account; managed files are deleted, imported files kept |

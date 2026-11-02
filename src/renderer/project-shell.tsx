@@ -104,6 +104,8 @@ import {
   runPluginCommand,
   undoProjectPluginChange,
   type PluginPanel,
+  skipLimitResume,
+  updateAgentRuntime,
 } from "./api.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { ConversationMenu } from "./conversation-menu.js";
@@ -1334,7 +1336,12 @@ export function ProjectShell({
       planMode={state.plan.mode}
       notice={state.connection === "reconnecting" ? t("projectShell.reconnecting") : state.notice}
       status={initialPromptReturned}
-      limitReached={!currentConversationBusy && items.findLast((item) => item.type === "agentMessage")?.error?.code === "quota_exceeded"}
+      onLimitResumeChange={async (change) => {
+        const provider = effectiveModel?.provider;
+        if (change === "skip") {
+          if (project && conversation) await skipLimitResume(project.id, conversation.id);
+        } else if (isAgentRuntimeId(provider)) await updateAgentRuntime(provider, { autoContinue: change === "turnOn" });
+      }}
       models={modelCatalog.models}
       modelStatus={modelCatalog.status}
       model={effectiveModel}

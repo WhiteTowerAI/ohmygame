@@ -398,6 +398,8 @@ interface AgentManagerOptions {
   activeToolNames?: (project: ProjectState, mode: PlanMode, session: CodingSession) => string[];
   onRunCompleted?: (project: ProjectState) => void;
   onRunFinished?: (project: ProjectState, conversationId: string) => Promise<void>;
+  /** Told of every change to a conversation, and whether it now stands at a usage limit it could carry on from. */
+  onLimitChange?: (projectId: string, conversationId: string, limitReached: boolean) => void;
   /** Takes the snapshot that closes a turn, and counts the files that differ between two snapshots. */
   checkpoints?: {
     snapshot(project: ProjectState): Promise<string>;
@@ -1027,6 +1029,7 @@ export class AgentManager {
           throw cause;
         }
       });
+      this.options.onLimitChange?.(project.id, conversation.summary.id, false);
     } finally {
       this.#revisions.delete(key);
       this.#puttingBack.delete(project.id);
@@ -1052,6 +1055,7 @@ export class AgentManager {
     if (this.#puttingBack.has(project.id)) throw new Error(PUTTING_BACK);
     // Any conversation of the project may be changing the same workspace.
     if (this.isProjectBusy(project.id)) throw new Error("Wait for the agent to finish before undoing");
+    this.options.onLimitChange?.(project.id, conversation.summary.id, false);
 
     this.#revisions.add(key);
     this.#puttingBack.add(project.id);
@@ -2327,12 +2331,15 @@ export class AgentManager {
     } catch {
       console.warn("Could not save agent failure diagnostics");
     }
-    this.#setState(projectId, active.conversationId, { status: "error", error: error.message });
+    // Carrying on outside the plan it was made for would drop a plan's limits, such as being read-only.
+    const inPlan = (this.#planStates.get(conversationKey(projectId, active.conversationId))?.mode ?? "normal") !== "normal";
+    this.#setState(projectId, active.conversationId, { status: "error", error: error.message }, error.code === "quota_exceeded" && !inPlan);
     this.events.publish(projectId, "agent.error", { error: error.message, ...(error.code ? { code: error.code } : {}), ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) }, eventScope(active));
   }
 
-  #setState(projectId: string, conversationId: string, state: ConversationAgentState): void {
+  #setState(projectId: string, conversationId: string, state: ConversationAgentState, limitReached = false): void {
     this.#agentStates.set(conversationKey(projectId, conversationId), state);
+    this.options.onLimitChange?.(projectId, conversationId, limitReached);
   }
 
   isProjectBusy(projectId: string): boolean {

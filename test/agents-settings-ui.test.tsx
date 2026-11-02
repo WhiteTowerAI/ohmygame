@@ -14,6 +14,7 @@ const agent = (
   id,
   name,
   enabled,
+  autoContinue: true,
   installed: true,
   version: "1.0.0",
   auth: { status: "signed-in", billing: "subscription" },

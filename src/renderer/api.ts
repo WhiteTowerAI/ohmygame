@@ -370,6 +370,10 @@ export async function listAgentRuntimes(recheck = false): Promise<AgentRuntimeSt
   return request(`/agent-runtimes${recheck ? "?recheck=1" : ""}`);
 }
 
+export async function skipLimitResume(projectId: string, conversationId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/limit-resume/skip`, { method: "POST" });
+}
+
 export async function updateAgentRuntime(id: AgentRuntimeId, change: UpdateAgentRuntimeRequest): Promise<AgentRuntimeStatus> {
   return request(`/agent-runtimes/${id}`, { method: "PATCH", body: JSON.stringify(change) });
 }

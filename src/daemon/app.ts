@@ -43,6 +43,8 @@ import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, l
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
 import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { AgentRuntimeService } from "./agent-runtimes/service.js";
+import { LimitContinuations } from "./limit-continuation.js";
+import { LIMIT_RESUME_PROMPT } from "../shared/limit-resume.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
 import { ACCOUNT_RUNTIME_IDS, isAccountRuntimeId, isAccountProfileIds, isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest } from "../shared/agent-runtimes.js";
@@ -987,6 +989,26 @@ export function createApp(options: AppOptions = {}) {
       skills: () => catalog,
     });
   };
+  const limitContinuations = new LimitContinuations(async (projectId, conversationId) => {
+    const project = projects.get(projectId);
+    const conversation = project && await conversations.get(project, conversationId);
+    if (!project || !conversation) return undefined;
+    const provider = (await conversations.model(project, conversation))?.provider;
+    if (!isAgentRuntimeId(provider) || !modelProviderEnabled(provider)) return undefined;
+    if (project.pluginType && !(await pluginServices.projectReady(project.workspacePath, project.pluginType.id, "en")).ready) return undefined;
+    const profileId = isAccountRuntimeId(provider) ? await conversations.accountProfileId(project, conversation, provider) : undefined;
+    return {
+      account: `${provider}\n${profileId ?? ""}`,
+      limits: agentRuntimes.cachedLimits(provider, profileId),
+      enabled: agentRuntimes.settings.get(provider).autoContinue,
+      projectBusy: agents.isProjectBusy(projectId),
+      send: () => {
+        agents.prompt(project, conversation, LIMIT_RESUME_PROMPT);
+        void projects.touch(project.id).catch((cause: unknown) => app.log.warn({ err: cause }, "failed to record project activity"));
+      },
+    };
+  });
+  agentRuntimes.onLimitsReported = () => limitContinuations.limitsReported();
   agents = new AgentManager(events, {
     errorDiagnostics: () => {
       const route = networkSettings.get().active;
@@ -1027,6 +1049,7 @@ export function createApp(options: AppOptions = {}) {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
       return projectPiToolNames(mode, TOOL_IDS, registered, webSearch.enabled());
     },
+    onLimitChange: (projectId, conversationId, limitReached) => limitContinuations.changed(projectId, conversationId, limitReached),
     onRunFinished: async (project, conversationId) => {
       await agentPlaytests.get(`${project.id}:${conversationId}`)?.cleanup();
     },
@@ -3532,6 +3555,14 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.post<{ Params: { projectId: string; conversationId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/limit-resume/skip",
+    async (request, reply) => {
+      limitContinuations.skip(request.params.projectId, request.params.conversationId);
+      return reply.code(204).send();
+    },
+  );
+
   app.post<{ Params: { projectId: string; conversationId: string }; Body: { instructions?: string } }>(
     "/projects/:projectId/conversations/:conversationId/compact",
     {
@@ -3580,7 +3611,8 @@ export function createApp(options: AppOptions = {}) {
         const contextWindow = !usage && contextTokens && model && !native ? (await availableModel(model.provider, model.id))?.contextWindow : undefined;
         const estimated = contextWindow ? { tokens: contextTokens!, contextWindow, percent: (contextTokens! / contextWindow) * 100 } : undefined;
         const base: AgentContextUsage | undefined = usage ?? estimated ?? (limits?.length || "outputTokens" in lastResponse ? { tokens: null, contextWindow: 0, percent: null } : undefined);
-        return { contextUsage: base && { ...base, ...(limits?.length && !base.limits ? { limits } : {}), ...("outputTokens" in lastResponse ? { lastResponse } : {}) } };
+        const limitResume = await limitContinuations.status(project.id, conversation.summary.id);
+        return { contextUsage: base && { ...base, ...(limits?.length && !base.limits ? { limits } : {}), ...(limitResume ? { limitResume } : {}), ...("outputTokens" in lastResponse ? { lastResponse } : {}) } };
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
@@ -3907,6 +3939,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    limitContinuations.close();
     notices.close();
     // Indexing writes to the plugin store and restarts sessions; it finishes before they close.
     await pluginServicesReady;

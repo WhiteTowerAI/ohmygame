@@ -381,6 +381,11 @@ export function CodingAgentDetail({
             <p className="settings-muted">{t("codingAgents.permissionModesHint", { name: agent.name })}</p>
           </div>
         ) : null}
+        {agent.installed ? (
+          <SettingsRow title={t("codingAgents.autoContinue")} description={t("codingAgents.autoContinueHint", { name: agent.name })}>
+            <Switch label={t("codingAgents.autoContinue")} checked={agent.autoContinue} onChange={(autoContinue) => void update({ autoContinue })} />
+          </SettingsRow>
+        ) : null}
         <form className="settings-pad" onSubmit={savePath}>
           <Field
             label={t("codingAgents.executable")}

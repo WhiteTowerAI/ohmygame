@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "../src/renderer/composer.js";
 import { composerDrafts } from "../src/renderer/composer-drafts.js";
-import { LIMIT_RESUME_MARGIN_MS, LIMIT_RESUME_PROMPT, limitResumeAt } from "../src/renderer/limit-resume.js";
+import type { LimitResume } from "../src/shared/contracts.js";
 import { pressKey, promptChips, promptText } from "./prompt-field.js";
 
 let root: ReturnType<typeof createRoot>;
@@ -138,66 +138,38 @@ describe("composer status line", () => {
 });
 
 describe("composer usage limit resume", () => {
-  const now = Date.UTC(2026, 9, 26, 12, 0, 0);
-  const usage = (resetsAt: number) => vi.fn(async () => ({
-    tokens: null,
-    contextWindow: 200_000,
-    percent: null,
-    limits: [{ id: "claude/five_hour", usedPercent: 100, windowMinutes: 300, resetsAt }],
-  }));
-  afterEach(() => { vi.useRealTimers(); });
+  const at = Date.UTC(2026, 9, 26, 12, 0, 0);
+  const native = { model: { provider: "claude-code-cli", id: "default" }, initialDraft: undefined };
+  const usage = (state: LimitResume["state"]) => vi.fn(async () => ({ tokens: null, contextWindow: 200_000, percent: null, limitResume: { at, state } }));
+  const notice = () => container.querySelector(".composer-resume");
+  const button = () => notice()!.querySelector("button");
 
-  it("finds when every exhausted window has reset", () => {
-    expect(limitResumeAt([{ id: "a", usedPercent: 100, resetsAt: now / 1000 + 60 }, { id: "b", usedPercent: 40, resetsAt: now / 1000 + 600 }], now)).toBe(now + 60_000 + LIMIT_RESUME_MARGIN_MS);
-    expect(limitResumeAt([{ id: "a", usedPercent: 100, resetsAt: now / 1000 - 60 }], now)).toBeUndefined();
-    expect(limitResumeAt([{ id: "a", usedPercent: 100 }], now)).toBeUndefined();
+  it("shows when an armed conversation continues and turns the agent's setting off", async () => {
+    const onContextUsage = usage("armed");
+    const onLimitResumeChange = vi.fn(async () => { onContextUsage.mockResolvedValue((await usage("off")())); });
+    await render({ ...native, onContextUsage, onLimitResumeChange });
+    expect(notice()?.textContent).toContain("Continues automatically");
+    expect(button()?.textContent).toBe("Turn off");
+    await act(async () => button()!.click());
+    expect(onLimitResumeChange).toHaveBeenCalledExactlyOnceWith("turnOff");
+    expect(notice()?.textContent).toContain("Usage limit reached");
+    expect(button()?.textContent).toBe("Continue after reset");
+    await act(async () => button()!.click());
+    expect(onLimitResumeChange).toHaveBeenLastCalledWith("turnOn");
   });
 
-  it("sends one continue prompt after the reset only when the user opts in", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-    vi.setSystemTime(now);
-    const props = await render({ model: { provider: "claude-code-cli", id: "default" }, initialDraft: undefined, limitReached: true, onContextUsage: usage(now / 1000 + 3600) });
-    const button = () => container.querySelector<HTMLButtonElement>(".composer-resume button")!;
-    expect(button().textContent).toBe("Continue after reset");
-    await act(async () => { vi.advanceTimersByTime(1800_000); });
-    expect(props.onSubmit).not.toHaveBeenCalled();
-    await act(async () => button().click());
-    expect(container.querySelector(".composer-resume")?.textContent).toContain("Continues automatically");
-    await act(async () => { vi.advanceTimersByTime(1800_000 + LIMIT_RESUME_MARGIN_MS); });
-    expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith(LIMIT_RESUME_PROMPT, [], [], "normal", [], [], []);
+  it("skips the continue when the person is writing, with nothing left to press", async () => {
+    const onContextUsage = usage("armed");
+    const onLimitResumeChange = vi.fn(async () => { onContextUsage.mockResolvedValue((await usage("skipped")())); });
+    await render({ ...native, initialDraft: { prompt: "Wait, change direction", mentions: [] }, onContextUsage, onLimitResumeChange });
+    expect(onLimitResumeChange).toHaveBeenCalledExactlyOnceWith("skip");
+    expect(notice()?.textContent).toContain("Usage limit reached");
+    expect(button()).toBeNull();
   });
 
-  it("keeps the scheduled continue through renders after the reset until the conversation moves on", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-    vi.setSystemTime(now);
-    const props = await render({ model: { provider: "claude-code-cli", id: "default" }, initialDraft: undefined, limitReached: true, onContextUsage: usage(now / 1000 + 60) });
-    const button = () => container.querySelector<HTMLButtonElement>(".composer-resume button")!;
-    await act(async () => button().click());
-    // The window resets at 60 s; an ordinary render inside the margin must not drop the 90 s schedule.
-    await act(async () => { vi.advanceTimersByTime(61_000); });
-    await act(async () => root.render(<Composer {...props} notice="Reconnecting" />));
-    expect(container.querySelector(".composer-resume")?.textContent).toContain("Continues automatically");
-    await act(async () => { vi.advanceTimersByTime(LIMIT_RESUME_MARGIN_MS); });
-    expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith(LIMIT_RESUME_PROMPT, [], [], "normal", [], [], []);
-
-    vi.mocked(props.onSubmit).mockClear();
-    await act(async () => root.render(<Composer {...props} onContextUsage={usage(Date.now() / 1000 + 60)} model={{ provider: "claude-code-cli", id: "other" }} />));
-    await act(async () => button().click());
-    await act(async () => root.render(<Composer {...props} onContextUsage={usage(Date.now() / 1000 + 60)} model={{ provider: "claude-code-cli", id: "other" }} limitReached={false} />));
-    await act(async () => { vi.advanceTimersByTime(3600_000); });
-    expect(props.onSubmit).not.toHaveBeenCalled();
-  });
-
-  it("cancels the scheduled continue", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-    vi.setSystemTime(now);
-    const props = await render({ model: { provider: "claude-code-cli", id: "default" }, initialDraft: undefined, limitReached: true, onContextUsage: usage(now / 1000 + 60) });
-    const button = () => container.querySelector<HTMLButtonElement>(".composer-resume button")!;
-    await act(async () => button().click());
-    await act(async () => button().click());
-    expect(button().textContent).toBe("Continue after reset");
-    await act(async () => { vi.advanceTimersByTime(3600_000); });
-    expect(props.onSubmit).not.toHaveBeenCalled();
+  it("shows nothing while a turn runs", async () => {
+    await render({ ...native, running: true, onContextUsage: usage("armed") });
+    expect(notice()).toBeNull();
   });
 });
 

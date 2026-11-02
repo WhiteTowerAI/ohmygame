@@ -77,6 +77,7 @@ describe("agent error diagnostics", () => {
     expect(normalizeAgentError('401: {"message":"invalid key"}').code).toBe("authentication_failed");
     expect(normalizeAgentError("OpenAI API error (429): quota exceeded").code).toBe("quota_exceeded");
     expect(normalizeAgentError("You've hit your session limit · resets 8pm (Asia/Shanghai)").code).toBe("quota_exceeded");
+    expect(normalizeAgentError("You've hit your 5-hour limit · resets 2:30am (Asia/Shanghai)").code).toBe("quota_exceeded");
     const error = normalizeAgentError("Something unexpected happened");
     expect(error.code).toBeUndefined();
     expect(agentErrorPresentation(error).title).toBe("Model request failed");
