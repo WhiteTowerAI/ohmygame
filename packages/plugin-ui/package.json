@@ -11,8 +11,7 @@
     },
     "./plugin-ui.css": "./plugin-ui.css",
     "./ui/1": {
-      "types": "./ui/1/index.d.ts",
-      "default": "./ui/1/index.js"
+      "types": "./ui/1/index.d.ts"
     },
     "./ui/1/custom-elements.json": "./ui/1/custom-elements.json"
   },

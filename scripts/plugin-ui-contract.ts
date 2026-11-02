@@ -17,9 +17,10 @@
 // ref, and fails on a breaking change to a stable major: those wait for the
 // next major. A major in preview may break; its changes are only listed.
 import { execFileSync } from "node:child_process";
-import { readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "../src/shared/plugin-ui-versions.js";
 
 const PACKAGE = path.join(path.dirname(fileURLToPath(import.meta.url)), "../packages/plugin-ui");
@@ -81,15 +82,23 @@ interface Parsed {
 }
 
 const DOC_CLASS = /\/\*\*((?:(?!\*\/)[\s\S])*)\*\/\s*class\s+(\w+)\s+extends\s+(\w+)/g;
-const DEFINE = /define\("([a-z][a-z0-9-]*)",\s*(\w+)\)/g;
+const DEFINE = /(?<!function |\.)\bdefine\(\s*(["'`])([a-z][a-z0-9-]*)\1\s*,\s*(\w+)\s*\)/g;
+/** Every call of `define(`, matched or not, so none goes unnoticed. */
+const DEFINE_CALL = /(?<!function |\.)\bdefine\(/g;
 
-/** A tag's `{type}`, which may hold braces of its own. */
+/** A tag's `{type}`, which may hold braces of its own, and quoted ones. */
 function takeType(text: string): [string | undefined, string] {
   if (!text.startsWith("{")) return [undefined, text];
   let depth = 0;
+  let quote = "";
   for (let index = 0; index < text.length; index++) {
-    if (text[index] === "{") depth++;
-    else if (text[index] === "}" && --depth === 0) return [text.slice(1, index).trim(), text.slice(index + 1).trim()];
+    const character = text[index]!;
+    if (quote) {
+      if (character === "\\") index++;
+      else if (character === quote) quote = "";
+    } else if (character === '"' || character === "'" || character === "`") quote = character;
+    else if (character === "{") depth++;
+    else if (character === "}" && --depth === 0) return [text.slice(1, index).trim(), text.slice(index + 1).trim()];
   }
   throw new Error(`Unclosed type in "${text}"`);
 }
@@ -102,7 +111,7 @@ function takeName(text: string): [string, string | undefined] {
   return [match[1]!, match[2]?.trim() || undefined];
 }
 
-function parseComment(comment: string, name: string, superclass: string, module: string): Parsed {
+export function parseComment(comment: string, name: string, superclass: string, module: string): Parsed {
   const lines = comment
     .split("\n")
     .map((line) => line.replace(/^\s*\*\s?/, ""))
@@ -114,9 +123,21 @@ function parseComment(comment: string, name: string, superclass: string, module:
   for (const raw of blocks) {
     const tag = raw.replace(/\s+/g, " ").trim();
     const [, kind = "", rest = ""] = /^@(\w+)\s*([\s\S]*)$/.exec(tag) ?? [];
+    if (kind === "deprecated") {
+      parsed.deprecated = rest.trim() || "Deprecated.";
+      continue;
+    }
     const [type, afterType] = takeType(rest);
+    if (kind === "cssprop") {
+      // `--name` or `[--name=default]`, whose default may hold spaces.
+      const match = /^(?:\[(--[\w-]+)(?:=([^\]]*))?\]|(--[\w-]+))\s*(?:-\s*([\s\S]*))?$/.exec(afterType);
+      if (!match) throw new Error(`${name}: "${afterType}" isn't a CSS custom property`);
+      const [, bracketed, value, bare, text] = match;
+      parsed.cssProperties.push({ name: (bracketed ?? bare)!, ...(value?.trim() ? { default: value.trim() } : {}), ...(text?.trim() ? { description: text.trim() } : {}) });
+      continue;
+    }
     const [tagName, text] = takeName(afterType);
-    if (kind !== "slot" && kind !== "deprecated" && !tagName) throw new Error(`${name}: @${kind} has no name`);
+    if (kind !== "slot" && !tagName) throw new Error(`${name}: @${kind} has no name`);
     const entry = { name: tagName, ...(text ? { description: text } : {}) };
     switch (kind) {
       case "attr":
@@ -126,7 +147,7 @@ function parseComment(comment: string, name: string, superclass: string, module:
         parsed.members.push({ kind: "field", ...entry, ...(type ? { type: { text: type } } : {}) });
         break;
       case "method":
-        parsed.members.push({ kind: "method", ...entry, ...(type ? { type: { text: type } } : {}) });
+        parsed.members.push({ kind: "method", ...entry, type: { text: type ?? "() => void" } });
         break;
       case "fires":
         parsed.events.push({ ...entry, type: { text: type ? `CustomEvent<${type}>` : "Event" } });
@@ -136,15 +157,6 @@ function parseComment(comment: string, name: string, superclass: string, module:
         break;
       case "part":
         parsed.cssParts.push(entry);
-        break;
-      case "cssprop": {
-        const [, property, value] = /^\[?(--[\w-]+)(?:=([^\]]*))?\]?$/.exec(tagName) ?? [];
-        if (!property) throw new Error(`${name}: "${tagName}" isn't a CSS custom property`);
-        parsed.cssProperties.push({ name: property, ...(value ? { default: value } : {}), ...(text ? { description: text } : {}) });
-        break;
-      }
-      case "deprecated":
-        parsed.deprecated = rest.trim() || "Deprecated.";
         break;
       default:
         throw new Error(`${name}: unknown tag @${kind}`);
@@ -163,9 +175,11 @@ export async function componentManifest(major: string): Promise<ComponentManifes
   const definitions: { tag: string; name: string; module: string }[] = [];
   for (const file of files) {
     const module = `ui/${major}/${file}`;
-    const source = await readFile(path.join(directory, file), "utf8");
+    const source = (await readFile(path.join(directory, file), "utf8")).replace(/\r\n/g, "\n");
     for (const [, comment, name, superclass] of source.matchAll(DOC_CLASS)) classes.set(name!, parseComment(comment!, name!, superclass!, module));
-    for (const [, tag, name] of source.matchAll(DEFINE)) definitions.push({ tag: tag!, name: name!, module });
+    const found = [...source.matchAll(DEFINE)];
+    if (found.length !== [...source.matchAll(DEFINE_CALL)].length) throw new Error(`${module}: a define() call doesn't name its tag as a string and its class`);
+    for (const [, , tag, name] of found) definitions.push({ tag: tag!, name: name!, module });
   }
   const modules = new Map<string, Module>();
   for (const { tag, name, module } of definitions) {
@@ -215,15 +229,16 @@ const key = (name: string) => (/^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.str
 /** TypeScript declarations for one major's components. */
 export function componentTypes(manifest: ComponentManifest): string {
   const all = declarations(manifest);
-  const names = new Set(all.map((item) => item.name));
   const element = (name: string) => `${name}Element`;
   let out = `// ${GENERATED}\n\n`;
   for (const item of all) {
-    const parent = item.superclass?.name && names.has(item.superclass.name) ? element(item.superclass.name) : "HTMLElement";
+    const base = all.find((other) => other.name === item.superclass?.name);
+    const parent = base ? element(base.name) : "HTMLElement";
     out += doc(item.description, "", item.deprecated);
-    const members = item.members.filter((entry) => !entry.inheritedFrom);
+    // What the parent's interface already declares, the same way.
+    const members = item.members.filter((entry) => !base?.members.some((other) => other.name === entry.name && other.kind === entry.kind && other.type?.text === entry.type?.text));
     out += `export interface ${element(item.name)} extends ${parent} {${members.length ? "\n" : ""}`;
-    for (const member of members) out += doc(member.description, "  ") + `  ${key(member.name)}: ${member.type?.text ?? (member.kind === "method" ? "() => void" : "unknown")};\n`;
+    for (const member of members) out += doc(member.description, "  ") + `  ${key(member.name)}: ${member.type?.text ?? "unknown"};\n`;
     out += "}\n\n";
     out += `/** The attributes of \`<${item.tagName}>\`, as a page writes them. */\n`;
     out += `export interface ${item.name}Attributes {\n`;
@@ -234,13 +249,21 @@ export function componentTypes(manifest: ComponentManifest): string {
     }
     out += "}\n\n";
   }
-  const events = all.flatMap((item) => item.events.filter((event) => !event.inheritedFrom && event.type?.text !== "Event"));
+  // One entry per event name: components that fire the same event fire the same detail.
+  const events = new Map<string, Typed>();
+  for (const item of all)
+    for (const event of item.events) {
+      if (event.type?.text === "Event") continue;
+      const other = events.get(event.name);
+      if (other && other.type?.text !== event.type?.text) throw new Error(`${event.name} has two details: ${other.type?.text} and ${event.type?.text}`);
+      events.set(event.name, other ?? event);
+    }
   out += "declare global {\n  interface HTMLElementTagNameMap {\n";
   for (const item of all) out += `    ${JSON.stringify(item.tagName)}: ${element(item.name)};\n`;
   out += "  }\n";
-  if (events.length) {
+  if (events.size) {
     out += "  interface HTMLElementEventMap {\n";
-    for (const event of events) out += doc(event.description, "    ") + `    ${JSON.stringify(event.name)}: ${event.type!.text};\n`;
+    for (const event of [...events.values()].sort((a, b) => a.name.localeCompare(b.name))) out += doc(event.description, "    ") + `    ${JSON.stringify(event.name)}: ${event.type!.text};\n`;
     out += "  }\n";
   }
   out += "}\n";
@@ -254,7 +277,7 @@ const KINDS: Record<Kind, string> = { attributes: "attribute", members: "member"
 function literals(type: string | undefined): Set<string> | undefined {
   if (!type) return undefined;
   const values = type.split("|").map((part) => part.trim());
-  return values.every((value) => /^"[^"]*"$/.test(value)) ? new Set(values) : undefined;
+  return values.every((value) => /^(["'])[^"']*\1$/.test(value)) ? new Set(values.map((value) => value.slice(1, -1))) : undefined;
 }
 
 /**
@@ -272,16 +295,19 @@ export function contractChanges(before: ComponentManifest, after: ComponentManif
       breaking.push(`<${tag}> was removed`);
       continue;
     }
+    // index.d.ts names its types after the class.
+    if (old.name !== current.name) breaking.push(`<${tag}>'s class ${old.name}, which names its types, became ${current.name}`);
     for (const kind of Object.keys(KINDS) as Kind[]) {
       const items = new Map<string, Typed>((current[kind] as Typed[]).map((item) => [item.name, item]));
       for (const item of old[kind] as Typed[]) {
         const label = `<${tag}> ${KINDS[kind]} ${item.name || "(default slot)"}`;
         const next = items.get(item.name);
         if (!next) breaking.push(`${label} was removed`);
+        else if ("kind" in item && "kind" in next && item.kind !== next.kind) breaking.push(`${label} became a ${next.kind === "method" ? "method" : "property"}`);
         else if (item.type?.text !== next.type?.text) {
           const was = literals(item.type?.text);
           const is = literals(next.type?.text);
-          if (kind === "attributes" && was && is && [...was].every((value) => is.has(value))) added.push(`${label} takes ${[...is].filter((value) => !was.has(value)).join(", ")}`);
+          if (kind === "attributes" && was && is && [...was].every((value) => is.has(value))) added.push(`${label} takes ${[...is].filter((value) => !was.has(value)).map((value) => JSON.stringify(value)).join(", ")}`);
           else breaking.push(`${label} changed from ${item.type?.text ?? "untyped"} to ${next.type?.text ?? "untyped"}`);
         }
         items.delete(item.name);
@@ -307,6 +333,38 @@ export async function contractFiles(): Promise<{ file: string; text: string }[]>
   return files;
 }
 
+/** A file at a git ref, or undefined when it has none there. */
+function atRef(ref: string, file: string): string | undefined {
+  try {
+    return execFileSync("git", ["show", `${ref}:${file}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  } catch {
+    return undefined;
+  }
+}
+
+/** The majors a ref served and had in preview, from its plugin-ui-versions.ts; none in preview when it can't be read. */
+async function versionsAt(ref: string): Promise<{ majors: string[]; preview: ReadonlySet<string> }> {
+  const listed = execFileSync("git", ["ls-tree", "--name-only", `${ref}:packages/plugin-ui/ui`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+    .split("\n")
+    .filter((major) => major && atRef(ref, `packages/plugin-ui/ui/${major}/custom-elements.json`) !== undefined);
+  const source = atRef(ref, "src/shared/plugin-ui-versions.ts");
+  if (!source) return { majors: listed, preview: new Set() };
+  const directory = await mkdtemp(path.join(tmpdir(), "plugin-ui-versions-"));
+  try {
+    const file = path.join(directory, "plugin-ui-versions.ts");
+    await writeFile(file, source);
+    const versions = (await import(pathToFileURL(file).href)) as { PLUGIN_UI_PREVIEW_MAJORS?: ReadonlySet<string> };
+    return { majors: listed, preview: versions.PLUGIN_UI_PREVIEW_MAJORS instanceof Set ? versions.PLUGIN_UI_PREVIEW_MAJORS : new Set() };
+  } catch {
+    return { majors: listed, preview: new Set() };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+/** Text as git may check it out on Windows, compared as written. */
+const lf = (text: string) => text.replace(/\r\n/g, "\n");
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const check = process.argv.includes("--check");
   const baseIndex = process.argv.indexOf("--base");
@@ -315,22 +373,30 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   for (const { file, text } of await contractFiles()) {
     const relative = path.relative(process.cwd(), file);
     if (!check) await writeFile(file, text);
-    else if ((await readFile(file, "utf8").catch(() => "")) !== text) {
+    else if (lf(await readFile(file, "utf8").catch(() => "")) !== text) {
       console.error(`${relative} is out of date; run bun run plugin-ui:contract`);
       failed = true;
     }
   }
   if (base) {
+    const then = await versionsAt(base);
+    // A stable major stays: removing it breaks every page that loads it.
+    for (const major of then.majors.filter((major) => !PLUGIN_UI_MAJORS.includes(major))) {
+      if (then.preview.has(major)) console.log(`Components ${major} (preview): no longer served`);
+      else {
+        console.error(`Components ${major} were stable at ${base} and are no longer served.`);
+        failed = true;
+      }
+    }
     for (const major of PLUGIN_UI_MAJORS) {
-      let previous: string;
-      try {
-        previous = execFileSync("git", ["show", `${base}:packages/plugin-ui/ui/${major}/custom-elements.json`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-      } catch {
+      const previous = atRef(base, `packages/plugin-ui/ui/${major}/custom-elements.json`);
+      if (previous === undefined) {
         console.log(`Components ${major}: new since ${base}.`);
         continue;
       }
       const { breaking, added } = contractChanges(JSON.parse(previous) as ComponentManifest, await componentManifest(major));
-      const preview = PLUGIN_UI_PREVIEW_MAJORS.has(major);
+      // Stable on either side holds: a major becomes stable without breaking.
+      const preview = PLUGIN_UI_PREVIEW_MAJORS.has(major) && then.preview.has(major);
       for (const change of added) console.log(`Components ${major}: added ${change}`);
       for (const change of breaking) (preview ? console.log : console.error)(`Components ${major}${preview ? " (preview)" : ""}: ${change}`);
       if (breaking.length && !preview) {
