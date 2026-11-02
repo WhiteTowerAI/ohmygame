@@ -432,13 +432,24 @@ describe("page components", () => {
       picture().dispatchEvent(new Event("load"));
       expect([events, image.complete, revoke.mock.calls]).toEqual([["load"], true, [["blob:test-1"]]]);
 
-      // Set again, it reads the file again; replaced while reading, the first read's address goes unused.
+      // Set again, it reads the file again.
       image.setAttribute("file", "art/hero.png");
+      await settle();
+      expect(calls.map((call) => call.params?.path)).toEqual(["art/hero.png", "art/hero.png"]);
+      expect(picture().getAttribute("src")).toBe(`blob:test-${made}`);
+      // Replaced at once, the first is never read; replaced while reading, its address goes unused.
+      image.setAttribute("file", "art/first.png");
       image.setAttribute("file", "art/other.png");
       await settle();
       expect(calls.map((call) => call.params?.path)).toEqual(["art/hero.png", "art/hero.png", "art/other.png"]);
+      image.setAttribute("file", "art/slow.png");
+      await Promise.resolve();
+      await Promise.resolve();
+      image.setAttribute("file", "art/other.png");
+      await settle();
+      expect(calls.at(-2)?.params?.path).toBe("art/slow.png");
       expect(picture().getAttribute("src")).toBe(`blob:test-${made}`);
-      expect(revoke.mock.calls.length).toBe(2);
+      expect(revoke.mock.calls).toContainEqual([`blob:test-${made - 1}`]);
 
       // A read the app refuses is a picture that couldn't load.
       image.setAttribute("file", "secret/none.png");
@@ -456,8 +467,11 @@ describe("page components", () => {
       calls.length = 0;
       revoke.mockClear();
       const removed = html<Image>(`<omg-image file="art/hero.png"></omg-image>`);
+      await Promise.resolve();
+      await Promise.resolve();
       removed.remove();
       await settle();
+      expect(calls.length).toBe(1);
       expect(revoke.mock.calls).toEqual([[`blob:test-${made}`]]);
       expect([shadow(removed, "image").hasAttribute("src"), removed.complete]).toEqual([false, false]);
       document.body.append(removed);
@@ -491,6 +505,17 @@ describe("page components", () => {
         await settle();
         expect(calls.length, markup[0]).toBe(1);
       }
+
+      // A tile removed while loading and given another file reads only that one when it comes back.
+      calls.length = 0;
+      const moved = html(`<omg-tile heading="hero.png" file="art/hero.png"></omg-tile>`);
+      moved.remove();
+      moved.setAttribute("file", "art/next.png");
+      await settle();
+      calls.length = 0;
+      document.body.append(moved);
+      await settle();
+      expect(calls.map((call) => call.params?.path)).toEqual(["art/next.png"]);
 
       // A tile with both sources reads its file once, and uses src once the file goes.
       calls.length = 0;

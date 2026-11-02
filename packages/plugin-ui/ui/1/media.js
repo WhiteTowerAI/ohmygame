@@ -155,9 +155,11 @@ class OmgImage extends OmgElement {
       return;
     }
     void connection
-      .then((host) => host.files.url(file))
+      // A picture replaced by now, as setting several attributes at once does, has nothing to read.
+      .then((host) => (next === this.#image() ? host.files.url(file) : undefined))
       .then(
         (address) => {
+          if (address === undefined) return;
           addresses.set(next, address);
           // Replaced while the file was read: its address isn't needed.
           if (next !== this.#image()) release(next);
