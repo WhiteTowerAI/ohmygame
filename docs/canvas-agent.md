@@ -149,14 +149,18 @@ Three tools supplement ordinary file editing:
   preserving existing content. It is unavailable in planning mode.
 - `canvas_check` validates schemas, document/table references, asset paths and media
   types. It is read-only and available in planning mode.
-- `generate_canvas_media(boardId, nodeId)` executes the saved node settings
-  when generation is requested, including necessary media for a game-creation
-  request unless the user limits its scope. It shares canvas jobs, cancellation and
+- `generate_canvas_media(boardId, nodeIds)` executes the saved settings of up
+  to eight nodes when generation is requested, including necessary media for a
+  game-creation request unless the user limits its scope. Listed nodes generate
+  at once, except that a node using another listed node's output starts after
+  that output is saved; it is skipped if that node fails. It shares canvas jobs, cancellation and
   history, materializes output in the project, and writes the output ID back
   to the node. Changing a file does not start generation. When the node is
   already generating, for example after the user pressed Generate, the call
-  waits for that job instead of failing; stopping the agent then ends only its
-  wait and leaves that job running. When the node's current output came
+  waits for that job instead of failing. Stopping the agent ends only its wait:
+  a run already started finishes on the canvas, since the provider may already
+  be charging for it, and a listed node still waiting for another's output
+  does not start. When the node's current output came
   from identical resolved settings, it returns that output without another paid
   run; `regenerate: true` asks for a new variation. The canvas Generate button
   always starts a new run.
