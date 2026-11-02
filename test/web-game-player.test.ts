@@ -43,6 +43,7 @@ const electron = vi.hoisted(() => {
     show = vi.fn(() => { this.visible = true; });
     focus = vi.fn();
     restore = vi.fn(() => { this.minimized = false; });
+    setTitle = vi.fn();
     close = vi.fn(() => { this.emit("close"); this.destroy(); });
     destroy = vi.fn(() => { this.destroyed = true; this.emit("closed"); });
   }
@@ -122,6 +123,38 @@ describe("shared desktop game", () => {
     expect(loads()).toHaveLength(1);
     games.close();
     expect(view.webContents.destroyed).toBe(true);
+  });
+
+  it("gives a recording the running game, and says so in the Play window's title", async () => {
+    const games = new WebGamePlayerWindows(() => {}, "file:///web-game-host.html");
+    await expect(games.recordingTarget("game")).rejects.toThrow("unavailable");
+    const owner = new electron.Window() as never;
+    const resolve = vi.fn(async () => target);
+    await games.attach("game", "mount", owner, url, layout, resolve);
+    await expect(games.recordingTarget("game")).resolves.toEqual({ contents: electron.views[0]!.webContents, title: target.title });
+    await games.open("game", request, resolve);
+    const player = electron.windows.at(-1)!;
+    games.setRecording("game", true);
+    expect(player.setTitle).toHaveBeenLastCalledWith(`\u25CF ${target.title} - Play`);
+    games.setRecording("game", false);
+    expect(player.setTitle).toHaveBeenLastCalledWith(`${target.title} - Play`);
+    games.close();
+  });
+
+  it("recognises the recording shortcut in the game's window", async () => {
+    const onRecord = vi.fn();
+    const games = new WebGamePlayerWindows(() => {}, "file:///web-game-host.html", onRecord);
+    await games.attach("game", "mount", new electron.Window() as never, url, layout, vi.fn(async () => target));
+    const event = { preventDefault: vi.fn() };
+    const press = (input: Record<string, unknown>) => electron.views[0]!.webContents.emit("before-input-event", event, { type: "keyDown", key: "R", control: false, meta: false, shift: true, alt: false, isAutoRepeat: false, ...input });
+    press({ meta: true });
+    press({ control: true, key: "r" });
+    expect(onRecord).toHaveBeenCalledTimes(2);
+    expect(onRecord).toHaveBeenCalledWith("game");
+    expect(event.preventDefault).toHaveBeenCalledTimes(2);
+    for (const other of [{ control: true, shift: false }, { shift: true }, { meta: true, alt: true }, { meta: true, isAutoRepeat: true }, { meta: true, type: "keyUp" }, { meta: true, key: "t" }]) press(other);
+    expect(onRecord).toHaveBeenCalledTimes(2);
+    games.close();
   });
 
   it("ignores stale editor cleanup and retains a player after leaving its project", async () => {

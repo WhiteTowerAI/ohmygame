@@ -28,7 +28,7 @@ Test the game as a player experiences it. Match the depth of verification to the
 
 ## Game Use Policy
 
-- `game_use` is the OhMyGame path for game interaction and verification. Use `open`, `inspect`, `act`, `capture`, and `close`; it starts or reuses the current project preview and does not accept arbitrary external sites.
+- `game_use` is the OhMyGame path for game interaction and verification. Use `open`, `inspect`, `act`, `capture`, and `close`; when the person asks for a video of the game, wrap the `act` calls in `recordStart` and `recordStop` (60 seconds at most), which saves it to their Library; it starts or reuses the current project preview and does not accept arbitrary external sites.
 - Prefer semantic targets such as role, name, test ID, or text for DOM controls. Use coordinates for the canvas playfield when the game has no semantic target.
 - When `bridgeCapabilities` are present, use `snapshot` state for assertions and `reset`, `setSeed`, or `step` to reach deterministic states. Still send real input and inspect screenshots; the bridge is not a substitute for player-facing verification.
 - Do not add a game bridge for routine playtesting. Add the smallest test-only bridge only when real input cannot reliably reach or identify an important state, and do not restructure the game solely to support the bridge.

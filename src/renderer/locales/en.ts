@@ -125,6 +125,16 @@ const en = {
     removeName: "Remove {{name}}",
     deleteName: "Delete {{name}}",
   },
+  gameRecording: {
+    start: "Record the game",
+    startHint: "Record the game ({{shortcut}} while playing)",
+    stop: "Stop recording",
+    saving: "Saving…",
+    recordingStatus: "Recording, {{time}}. Stop recording.",
+    saved: "Recording saved to the Library",
+    open: "Open Library",
+    failed: "Could not record the game",
+  },
   gameTuning: {
     title: "Tune the game",
     close: "Close",

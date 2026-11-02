@@ -217,6 +217,32 @@ A plugin project type with `preview: "native"`, such as
 projects acquire no Web leases, create no Web player, and keep Web preview off;
 the plugin's own panel controls its preview.
 
+## Recording a game
+
+The desktop app records a running game to a video in the Library, where the
+trimmer can cut it down. The record button sits beside Play in the top bar, and
+{Cmd or Ctrl}+Shift+R starts and stops it with the game in focus. In the Play
+window, which has no toolbar, the title shows a dot while it records.
+
+A person's recording stops itself after 5 minutes. An agent records a playtest
+session with `game_use`'s `recordStart` and `recordStop`, for at most 60
+seconds. Closing the game or its session ends a recording and keeps what it has.
+
+A hidden window aims Electron's display capture at the game's own frame, which
+needs no system permission. The recording holds the page's HTML as well as its
+canvas and the game's sound. It carries on while the game moves between Preview
+and Play and while the game is hidden or muted, and the game stays audible.
+Video follows the game's rendered pixels and its shape, up to 1280 on the long
+side, at 30 frames a second and 4 Mbps, so 5 minutes come to about 150 MB. A small
+Preview on a standard-density screen therefore records small, and a larger Play
+window records larger. It is H.264 and AAC in MP4, or VP9 and Opus in WebM on a
+machine without an H.264 encoder.
+
+A file holds one picture size, so frames keep the size of the first one, and a
+game that changes shape is letterboxed inside it. `bun run test:game-recording`
+records a real page in Electron and reads the file back; CI runs it on macOS and
+Windows because it depends on each platform's encoders.
+
 ## Game tuning
 
 The Tune panel in the game toolbar changes a game's values while it runs. It

@@ -10921,6 +10921,7 @@ summary.work-summary:hover {
 .preview-return-button:disabled { opacity: 0.5; cursor: default; }
 .preview-return-button:hover:not(:disabled) { background: var(--surface); }
 .preview-play-button.is-active { color: var(--text); background: var(--surface-hover); }
+.preview-record-button.is-recording, .preview-record-button.is-recording:not(:disabled):hover { color: var(--danger); font-variant-numeric: tabular-nums; }
 
 .preview-player-error {
   position: absolute;

@@ -41,6 +41,7 @@ export default defineConfig({
       input: {
         main: path.resolve(import.meta.dirname, "index.html"),
         webGameHost: path.resolve(import.meta.dirname, "web-game-host.html"),
+        gameRecorder: path.resolve(import.meta.dirname, "game-recorder.html"),
       },
     },
   },
