@@ -646,7 +646,11 @@ puts it, and closed ones stay closed. The chat side used to be a setting; a
 saved **Right** still decides where the chat first opens. The route's
 `design` view brings the Canvas panel forward and follows it, and a file link
 in the chat opens the file in Code, reopening its panel if it was closed; an
-asset canvas, which has no Code panel, shows it in its Canvas panel.
+asset canvas, which has no Code panel, shows it in its Canvas panel. Code loads
+its file list again when a turn ends. That refresh runs out of sight: the tree
+keeps its open folders and scroll position, and the open file stays on screen,
+also when the refresh fails. Only choosing or opening a file, or coming back from
+Changes, which builds the tree anew, scrolls the tree.
 
 ## Agent notifications
 

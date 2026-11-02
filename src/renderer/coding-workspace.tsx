@@ -996,6 +996,8 @@ export function WorkspaceFileBrowser({
   /** The panel toolbar, where the open file's path and actions go. Without it they get a header. */
   toolbarTarget?: HTMLElement | null;
 }) {
+  // A refresh can move the selection on before the new file arrives. What stays on screen is only ever the selected file.
+  const openFile = selectedFile?.path === selectedPath ? selectedFile : undefined;
   const [searchTerm, setSearchTerm] = useState("");
   const [browserView, setBrowserView] = useState<"files" | "changes">("files");
   const [selectedGitPath, setSelectedGitPath] = useState<string>();
@@ -1020,18 +1022,24 @@ export function WorkspaceFileBrowser({
   const explorerResize = useRef<{ clientX: number; width: number }>(null);
   const treeSize = useElementSize(treeElement);
   const fileTree = useRef<TreeApi<WorkspaceFileNode>>(null);
+  const revealed = useRef<{ tree: TreeApi<WorkspaceFileNode>; path: string; request?: number }>(null);
 
   function finishExplorerResize(): void {
     explorerResize.current = null;
   }
 
+  // Brings a file into view when it is chosen, or when coming back from Changes builds a new tree. Scrolling
+  // also opens its folders, so a refresh, which only brings a new list, leaves the tree where the person has it.
   useEffect(() => {
     const tree = fileTree.current;
+    if (!selectedPath) revealed.current = null;
     if (!tree || !selectedPath || !files.some((file) => file.path === selectedPath)) return;
-    let active = true;
-    void tree.scrollTo(selectedPath)?.then(() => { if (active) tree.select(selectedPath, { focus: false }); });
-    return () => { active = false; };
-  }, [files, selectedPath, treeSize.height]);
+    const last = revealed.current;
+    if (last?.tree === tree && last.path === selectedPath && last.request === openFileRequestId) return;
+    const reveal = { tree, path: selectedPath, request: openFileRequestId };
+    revealed.current = reveal;
+    void tree.scrollTo(selectedPath)?.then(() => { if (revealed.current === reveal) tree.select(selectedPath, { focus: false }); });
+  }, [files, selectedPath, openFileRequestId, treeSize.height, showChanges]);
 
   async function mutate(operation: () => Promise<WorkspaceFileChange>): Promise<void> {
     if (busy) return;
@@ -1063,21 +1071,21 @@ export function WorkspaceFileBrowser({
     if (!window.confirm(entry.directory ? t("workspace.confirmDeleteFolder", { path: entry.path }) : t("workspace.confirmDelete", { path: entry.path }))) return;
     void mutate(async () => { await deleteWorkspaceEntry(projectId, entry.path); return { from: entry.path }; });
   }
-  const fileHeader = selectedFile && !showChanges ? <>
-    <span className="file-content-path" title={selectedFile.path}>
-      {selectedFile.path.split("/").map((part, index, parts) => index === parts.length - 1
+  const fileHeader = openFile && !showChanges ? <>
+    <span className="file-content-path" title={openFile.path}>
+      {openFile.path.split("/").map((part, index, parts) => index === parts.length - 1
         ? <span key={index} className="file-content-name">{part}</span>
         : <span key={index}>{part}<span className="file-content-separator">/</span></span>)}
-      {selectedFile.truncated ? ` ${t("workspace.truncated")}` : ""}
+      {openFile.truncated ? ` ${t("workspace.truncated")}` : ""}
     </span>
     {fileActions}
-    {onOpenExternal ? <FileOpenActions path={selectedFile.path} onOpen={onOpenExternal} /> : null}
+    {onOpenExternal ? <FileOpenActions path={openFile.path} onOpen={onOpenExternal} /> : null}
   </> : null;
   const toolbar = toolbarTarget ? createPortal(<>
     {fileHeader ?? <span className="file-content-path" />}
   </>, toolbarTarget) : null;
   if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingCode")} />;
-  if (error && !selectedPath) return <WorkspaceState error={error} />;
+  if (error && !selectedPath && files.length === 0) return <WorkspaceState error={error} />;
   return <>
     {toolbar}
     <div className="code-view" ref={codeElement} style={{ "--file-explorer-width": `${explorerWidth}px` } as CSSProperties}>
@@ -1176,18 +1184,19 @@ export function WorkspaceFileBrowser({
       />
       <div className="file-content">
         {showChanges && projectId ? <WorkspaceGitDiff key={`${projectId}:${selectedGitPath}`} projectId={projectId} path={selectedGitPath} changes={git.data} />
-          : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : selectedFile ? (
+          // A refresh keeps the open file on screen, also when it fails: the next one tries again.
+          : openFile ? (
           <>
             {toolbarTarget ? null : <div className="file-content-header">{fileHeader}</div>}
             {selectedMedia && projectId
               ? <WorkspaceMediaPreview projectId={projectId} file={selectedMedia} revision={revision} />
-              : selectedFile.binary
+              : openFile.binary
               ? <WorkspaceState label={t("workspace.binaryUnavailable")} />
-              : renderFile ? renderFile(selectedFile)
-              : isMarkdownFile(selectedFile.path) ? <WorkspaceMarkdownPreview projectId={projectId} revision={revision} file={selectedFile} onOpenFile={onSelect} />
-              : <HighlightedCode path={selectedFile.path} content={selectedFile.content ?? ""} />}
+              : renderFile ? renderFile(openFile)
+              : isMarkdownFile(openFile.path) ? <WorkspaceMarkdownPreview projectId={projectId} revision={revision} file={openFile} onOpenFile={onSelect} />
+              : <HighlightedCode path={openFile.path} content={openFile.content ?? ""} />}
           </>
-        ) : <WorkspaceState icon={<FolderOpen size={20} />} label={t("workspace.selectFile")} />}
+        ) : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : <WorkspaceState icon={<FolderOpen size={20} />} label={t("workspace.selectFile")} />}
       </div>
     </div>
     {contextMenu ? <WorkspaceTreeContextMenu menu={contextMenu} file={files.find((file) => file.path === contextMenu.path)} onClose={() => setContextMenu(undefined)} onOpen={onOpenExternal} onAction={(action) => entryAction(action, contextMenu)} /> : null}
