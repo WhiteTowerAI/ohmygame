@@ -31,6 +31,7 @@ import {
   Play,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   Smartphone,
   Tablet,
   Trash2,
@@ -44,7 +45,9 @@ import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import type { GameTuningState } from "../shared/game-tuning.js";
+import { GameTuningPanel } from "./game-tuning-panel.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, setPreviewPicking, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetThumbnail, WorkspaceAssetDialog, fileExtension, fileName, filterAssets, hasMediaType, libraryAssetOriginLabel, mediaTypeLabel, type BrowsableAsset, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
@@ -83,6 +86,8 @@ interface CodingWorkspaceProps {
   project?: ProjectState;
   publishing: boolean;
   workspaceRevision: number;
+  /** The latest tuned values the daemon announced. */
+  gameTuning?: GameTuningState;
   previewPaused?: boolean;
   onPublish: (details: PublishDetails) => Promise<boolean>;
   publishDialog?: "open" | "success";
@@ -130,6 +135,7 @@ export function CodingWorkspace({
   project,
   publishing,
   workspaceRevision,
+  gameTuning,
   previewPaused = false,
   onPublish,
   publishDialog,
@@ -177,6 +183,7 @@ export function CodingWorkspace({
     return () => onDesignSaveReady?.(undefined);
   }, [documentsOpened, onDesignSaveReady, saveDesign]);
   const [viewport, setViewport] = useState<PreviewViewport>(project?.previewViewport ?? "fit");
+  const [tuningOpen, setTuningOpen] = useState(false);
   const [previewPath, setPreviewPath] = useState(project?.previewPath ?? "/");
   const [previewClient] = useState(() => crypto.randomUUID());
   const [actualPreviewPath, setActualPreviewPath] = useState(project?.previewPath ?? "/");
@@ -397,6 +404,8 @@ export function CodingWorkspace({
           agentPlaytestWatchPending={agentPlaytestWatchPending}
           picking={picking}
           pickDisabled={!project || preview?.status !== "ready" || player.open}
+          tuningOpen={tuningOpen}
+          onToggleTuning={buildsWebPreview(project) ? undefined : () => setTuningOpen((open) => !open)}
           onOpenSettings={() => setProjectSettingsOpen(true)}
           onNavigate={navigatePreview}
           onRefresh={refreshPreview}
@@ -420,6 +429,7 @@ export function CodingWorkspace({
             />
             </ErrorBoundary>
             {picking ? <span className="preview-pick-hint" role="status">{t("workspace.pickHint")}</span> : null}
+            {tuningOpen && project && !buildsWebPreview(project) ? <GameTuningPanel projectId={project.id} previewReady={preview?.status === "ready"} announced={gameTuning} revision={workspaceRevision} onAskAgent={onAskAgent} onClose={() => setTuningOpen(false)} /> : null}
           </div>
         ) : null}
       </>,
@@ -534,6 +544,8 @@ function PreviewControls({
   agentPlaytestWatchPending,
   picking,
   pickDisabled,
+  tuningOpen,
+  onToggleTuning,
   onOpenSettings,
   onNavigate,
   onRefresh,
@@ -553,6 +565,9 @@ function PreviewControls({
   agentPlaytestWatchPending: boolean;
   picking: boolean;
   pickDisabled: boolean;
+  tuningOpen: boolean;
+  /** Absent when this game can't be tuned. */
+  onToggleTuning?: () => void;
   onOpenSettings: () => void;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
@@ -568,6 +583,7 @@ function PreviewControls({
       <ViewportMenu value={viewport} onChange={onViewportChange} />
       <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
         active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size={14} /></IconButton>
+      {onToggleTuning ? <IconButton size="sm" className="preview-tuning-button" label={t("gameTuning.title")} active={tuningOpen} onClick={onToggleTuning}><SlidersHorizontal size={14} /></IconButton> : null}
       {/* Only while the agent plays the game, or the window was asked for, does the toggle do anything. */}
       {agentPlaytestWatch && (agentPlaytestWatch.activeSessions > 0 || agentPlaytestWatch.visible) ? (
         <Button size="sm" variant="ghost" className={`preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`}

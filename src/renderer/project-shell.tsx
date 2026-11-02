@@ -1,3 +1,4 @@
+import type { GameTuningState } from "../shared/game-tuning.js";
 import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
 import {
   Play,
@@ -251,6 +252,8 @@ export function ProjectShell({
   const [publishing, setPublishing] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  const [gameTuning, setGameTuning] = useState<GameTuningState>();
+  const savedTuning = useRef<string | undefined>(undefined);
   const [workspaceEpoch, setWorkspaceEpoch] = useState(() => workspaceVersion(projectId));
   const [restoring, setRestoring] = useState(false);
   /** Set while a restore or an undo that was cut off has not been taken back, unless the user put the offer aside. */
@@ -357,6 +360,7 @@ export function ProjectShell({
   function subscribe(cursor: number, selectedConversationId: string): void {
     unsubscribeEvents.current?.();
     let disposed = false;
+    setGameTuning(undefined);
     const unsubscribe = subscribeToProject(projectId, cursor, {
       onEvent: (event) => {
         dispatch({ type: "runtime-event", event });
@@ -375,6 +379,13 @@ export function ProjectShell({
           void getUnfinishedRestore(projectId).then((pending) => { if (!disposed) setUnfinishedRestore(pending); }).catch(() => {});
         }
         if (event.type === "agent.completed") setWorkspaceRevision((value) => value + 1);
+        if (event.type === "preview.tuning") {
+          setGameTuning(event.data);
+          // Saved values are in a file, which the Code and Git views show.
+          const saved = JSON.stringify([event.data.file, event.data.values]);
+          if (savedTuning.current !== saved) setWorkspaceRevision((value) => value + 1);
+          savedTuning.current = saved;
+        }
         if (event.type === "preview.picked") {
           // Only the pick this window asked for; another window's goes to it.
           const asked = pickingRef.current === event.data.client;
@@ -1410,6 +1421,7 @@ export function ProjectShell({
           project={project}
           publishing={publishing}
           workspaceRevision={workspaceRevision}
+          gameTuning={gameTuning}
           previewPaused={previewPaused}
           openFileRequest={openFileRequest}
           onPublish={publish}

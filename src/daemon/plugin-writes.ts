@@ -35,6 +35,11 @@ export interface PluginChange {
   undone?: boolean;
   /** The command failed after writing these files; they stay as it left them. */
   failed?: string;
+  /**
+   * Open editors and the running game carry on through this change and its
+   * undo, for a file they follow themselves.
+   */
+  inPlace?: true;
 }
 
 export class PluginChangeError extends Error {
@@ -72,7 +77,7 @@ export class PluginWrites {
    */
   async run<T>(
     project: ProjectState,
-    action: { plugin: string; action: string; title: string },
+    action: Pick<PluginChange, "plugin" | "action" | "title" | "inPlace">,
     operation: () => Promise<T>,
   ): Promise<{ result: T; change?: PluginChange }> {
     // Held from the first snapshot to the notice, so no other write lands in
@@ -116,6 +121,7 @@ export class PluginWrites {
           project,
           changed,
           `The ${action.plugin} plugin's "${action.title}" ${outcome.ok ? "changed" : "failed after changing"} workspace files outside a conversation. Inspect them before continuing. Changed workspace paths: ${JSON.stringify(changed)}.`,
+          action.inPlace,
         );
       }
       if (!outcome.ok) throw outcome.error;
@@ -161,6 +167,7 @@ export class PluginWrites {
           project,
           result.changed,
           `The user undid the ${change.plugin} plugin's "${change.title}". Inspect the current files before continuing. Changed workspace paths: ${JSON.stringify(result.changed)}.`,
+          change.inPlace,
         );
       return undone;
     });
@@ -173,7 +180,11 @@ export class PluginWrites {
     );
   }
 
-  async #tell(project: ProjectState, changed: string[], notice: string) {
+  async #tell(project: ProjectState, changed: string[], notice: string, inPlace?: boolean) {
+    if (inPlace) {
+      await writeWorkspaceNotice(project, notice, this.options.writes.version(project.id));
+      return;
+    }
     const version = this.options.writes.changed(project.id);
     try {
       await writeWorkspaceNotice(project, notice, version);

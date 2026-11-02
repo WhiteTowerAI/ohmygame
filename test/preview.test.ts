@@ -675,6 +675,10 @@ describe("preview source changes", () => {
     for (const file of ["index.html", "src/main.js", "src/canvas/renderer.ts", "canvas/game.js", "canvas/levels/one.json", "canvas/editor/index.html", "canvas/editor/game.js", "canvas/boards/game.ts", "canvas/boards/level/one.json", "assets/hero.png", "src\\style.css"]) {
       expect(isPreviewSourceChange(file), file).toBe(true);
     }
+    // Tuned values reach the running game without restarting it.
+    for (const file of ["tuning.json", "public/tuning.json", "public\\tuning.json"])
+      expect(isPreviewSourceChange(file), file).toBe(false);
+    expect(isPreviewSourceChange("levels/tuning.json")).toBe(true);
     for (const file of ["canvas/boards/board.json", "canvas/editor/board.json", "canvas\\documents\\design.md", "canvas/index.json", "canvas/jobs.json", "canvas/tables/scores.json", "canvas/schemas/board.schema.json", ".data/state.json", "node_modules/x/index.js", "dist/index.js", "src/build/out.js", "server.log", "LICENSE"]) {
       expect(isPreviewSourceChange(file), file).toBe(false);
     }

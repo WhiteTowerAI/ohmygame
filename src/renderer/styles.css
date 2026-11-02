@@ -13180,3 +13180,54 @@ summary.work-summary:hover {
   padding-left: var(--space-5);
   font-size: var(--text-sm);
 }
+
+/* Beside the game, not over it: see GameTuningPanel. */
+.game-tuning-panel {
+  display: flex;
+  flex: 0 0 280px;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3);
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+.game-tuning-header,
+.game-tuning-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 24px;
+}
+.game-tuning-intro,
+.game-tuning-status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.game-tuning-status.is-connected { color: var(--success); }
+.game-tuning-values {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.game-tuning-value { min-width: 0; }
+.game-tuning-label span { overflow-wrap: anywhere; font-size: 13px; }
+.game-tuning-value.is-changed .game-tuning-label span { font-weight: 600; }
+.game-tuning-value .ui-slider { display: flex; width: 100%; }
+.game-tuning-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+.game-tuning-footer .game-tuning-status { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.game-tuning-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

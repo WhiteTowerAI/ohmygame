@@ -216,3 +216,32 @@ A plugin project type with `preview: "native"`, such as
 [TapTap Maker](plugins.md#taptap-maker), runs its game outside the app. These
 projects acquire no Web leases, create no Web player, and keep Web preview off;
 the plugin's own panel controls its preview.
+
+## Game tuning
+
+The Tune panel in the game toolbar changes a game's values while it runs. It
+appears for projects with a web preview, except those a plugin builds, such as
+Godot games, until that path has been tried on a real export.
+
+A project keeps the values in `public/tuning.json` or, without that file,
+`tuning.json`. It is plain data the game also ships with; the
+[Game Tuning skill](../plugins/web-game-studio/skills/game-tuning/SKILL.md)
+gives the format and how a game connects. The game defines
+`window.__OHMYGAME_TUNING__ = { set(id, value) {} }`.
+
+- The file is the only lasting copy. The panel writes a value to it only when
+  the person saves, as one change they can undo; saving waits for a running
+  agent like any plugin change.
+- Moved values stay in the daemon as a draft, clamped to the file's range. A
+  game that restarts gets them back, and they are gone when the app quits.
+- Values reach the page over its refresh stream, as ids and values only, on
+  every connection. The bridge calls `set` for what differs, also when the game
+  defines the setter late or replaces it. A page only ever reports that it
+  listens.
+- AI test pages get nothing over the stream, so a test plays what is saved.
+- A change to the file, from anyone, doesn't reload the page or rebuild the
+  game: the new values go to the running game. A broken file keeps the last good
+  values and drafts until it is fixed. A file that was `import`ed still reloads
+  through the dev server, which is why games `fetch` it.
+- The bridge can't run where a page's security policy blocks it or in HTML the
+  proxy doesn't inject. The panel then says the game isn't connected.
