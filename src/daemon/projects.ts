@@ -71,7 +71,7 @@ interface LoadedMetadata {
 
 const PLAYABLE_GRAPH_FILE = "graph.json";
 
-function workspaceEntryName(value: string): string {
+export function workspaceEntryName(value: string): string {
   const name = value.trim();
   if (!name || name === "." || name === ".." || /[\\/<>:"|?*\x00-\x1f]/.test(name) || name.endsWith(".")) throw new ProjectAssetError("Invalid file or folder name", 400);
   return name;
