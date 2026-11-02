@@ -3,13 +3,14 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { AgentManager, compatibleRuntimeModel, conversationItems, lastAssistantError, loadPiSkills, skillBlocksPrompt, type CodingSession, type RuntimeModel } from "../src/daemon/agent.js";
 import * as gameDesignContext from "../src/daemon/game-design-context.js";
 import { promptContextBlock } from "../src/daemon/prompt-context.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
 import type { AgentReasoningLevel, ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
+import { EXTENSION_SHUTDOWN_MS, shutDownExtensionsOnDispose } from "../src/daemon/session-shutdown.js";
 import { createProviderFailureDiagnostic } from "@earendil-works/pi-ai/utils/provider-failure";
 import { AGENT_ERROR_ENTRY } from "../src/daemon/agent-errors.js";
 import { CHECKPOINT_ENTRY, CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, turnRange } from "../src/daemon/checkpoint-extension.js";
@@ -722,6 +723,50 @@ describe("conversationItems", () => {
   });
 });
 
+describe("shutDownExtensionsOnDispose", () => {
+  const session = () => {
+    const calls: string[] = [];
+    return {
+      calls,
+      abort: vi.fn(async () => { calls.push("abort"); }),
+      dispose: vi.fn(() => { calls.push("dispose"); }),
+      extensionRunner: { emit: vi.fn(async (event: { type: string }) => { calls.push(event.type); }) },
+    };
+  };
+
+  it("tells extensions a session is over before disposing of it, once", async () => {
+    const fake = session();
+    shutDownExtensionsOnDispose(fake as never);
+    await Promise.all([(fake as { dispose(): unknown }).dispose(), (fake as { dispose(): unknown }).dispose()]);
+    expect(fake.calls).toEqual(["abort", "session_shutdown", "dispose"]);
+  });
+
+  it("disposes of the session anyway when an extension never finishes shutting down", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const fake = session();
+      fake.extensionRunner.emit.mockImplementation(() => new Promise(() => {}));
+      shutDownExtensionsOnDispose(fake as never);
+      const disposed = (fake as { dispose(): unknown }).dispose();
+      await vi.advanceTimersByTimeAsync(EXTENSION_SHUTDOWN_MS);
+      await disposed;
+      expect(fake.calls).toEqual(["abort", "dispose"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still disposes of the session when an extension fails to shut down", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fake = session();
+    fake.extensionRunner.emit.mockRejectedValueOnce(new Error("Failed"));
+    shutDownExtensionsOnDispose(fake as never);
+    await (fake as { dispose(): unknown }).dispose();
+    expect(fake.calls).toEqual(["abort", "dispose"]);
+    warn.mockRestore();
+  });
+});
+
 describe("AgentManager", () => {
   it.each(["completed", "cancelled", "failed"] as const)("runs owned-resource cleanup after a %s prompt", async (outcome) => {
     const session = new FakeSession();
@@ -744,6 +789,153 @@ describe("AgentManager", () => {
     expect(cleanup).toHaveBeenCalledExactlyOnceWith(project, conversation.summary.id);
     await manager.close();
   });
+  describe("idle sessions", () => {
+    const MINUTE = 60_000;
+    beforeEach(() => { vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] }); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it("lets go of a session nothing has used for 15 minutes and loads it again for the next message", async () => {
+      const first = new FakeSession();
+      const second = new FakeSession();
+      const createSession = vi.fn<() => Promise<FakeSession>>().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: createSession as never });
+      const project = createProject();
+      const conversation = createConversation(project);
+      await manager.prompt(project, conversation, "Build").result;
+
+      vi.advanceTimersByTime(14 * MINUTE);
+      expect(first.dispose).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(2 * MINUTE);
+      expect(first.dispose).toHaveBeenCalledOnce();
+
+      await manager.prompt(project, conversation, "Continue").result;
+      expect(createSession).toHaveBeenCalledTimes(2);
+      expect(second.prompt).toHaveBeenCalledOnce();
+      await manager.close();
+    });
+
+    it("counts the 15 minutes from when the session was last used", async () => {
+      const session = new FakeSession();
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+      const project = createProject();
+      const conversation = createConversation(project);
+      await manager.prompt(project, conversation, "Build").result;
+
+      vi.advanceTimersByTime(10 * MINUTE);
+      await manager.prompt(project, conversation, "Continue").result;
+      vi.advanceTimersByTime(10 * MINUTE);
+      expect(session.dispose).not.toHaveBeenCalled();
+      await manager.close();
+    });
+
+    it("keeps a session through a long turn and for 15 minutes after it", async () => {
+      const session = new FakeSession();
+      const pending = deferred<void>();
+      session.prompt.mockImplementation(() => pending.promise);
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+      const project = createProject();
+      const conversation = createConversation(project);
+      const turn = manager.prompt(project, conversation, "Build");
+      await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
+
+      vi.advanceTimersByTime(60 * MINUTE);
+      expect(session.dispose).not.toHaveBeenCalled();
+      pending.resolve();
+      await turn.result;
+      vi.advanceTimersByTime(14 * MINUTE);
+      expect(session.dispose).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(2 * MINUTE);
+      expect(session.dispose).toHaveBeenCalledOnce();
+      await manager.close();
+    });
+
+    it("loads a session again only once the one let go has shut down, and waits for it on close", async () => {
+      const first = new FakeSession();
+      const shutdown = deferred<void>();
+      first.dispose.mockImplementation((() => shutdown.promise) as never);
+      const second = new FakeSession();
+      const secondShutdown = deferred<void>();
+      second.dispose.mockImplementation((() => secondShutdown.promise) as never);
+      const createSession = vi.fn<() => Promise<FakeSession>>().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: createSession as never });
+      const project = createProject();
+      const conversation = createConversation(project);
+      await manager.prompt(project, conversation, "Build").result;
+      vi.advanceTimersByTime(16 * MINUTE);
+      expect(first.dispose).toHaveBeenCalledOnce();
+
+      const next = manager.prompt(project, conversation, "Continue").result;
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(createSession).toHaveBeenCalledOnce();
+      shutdown.resolve();
+      await next;
+      expect(createSession).toHaveBeenCalledTimes(2);
+
+      let closed = false;
+      const closing = manager.close().then(() => { closed = true; });
+      await vi.waitFor(() => expect(second.dispose).toHaveBeenCalled());
+      expect(closed).toBe(false);
+      secondShutdown.resolve();
+      await closing;
+    });
+
+    it("stores a new model only once the old session has shut down", async () => {
+      const session = new FakeSession();
+      const shutdown = deferred<void>();
+      session.dispose.mockImplementation((() => shutdown.promise) as never);
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+      const project = createProject();
+      const conversation = createConversation(project);
+      await manager.prompt(project, conversation, "Build").result;
+      const persist = vi.fn();
+
+      const replacing = manager.replaceSession(project.id, conversation.summary.id, persist);
+      await vi.waitFor(() => expect(session.dispose).toHaveBeenCalled());
+      expect(persist).not.toHaveBeenCalled();
+      shutdown.resolve();
+      await replacing;
+      expect(persist).toHaveBeenCalledOnce();
+      await manager.close();
+    });
+
+    it("stores a setting only once a session already let go has shut down", async () => {
+      const session = new FakeSession();
+      const shutdown = deferred<void>();
+      session.dispose.mockImplementation((() => shutdown.promise) as never);
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+      const project = createProject();
+      const conversation = createConversation(project);
+      await manager.prompt(project, conversation, "Build").result;
+      vi.advanceTimersByTime(16 * MINUTE);
+      expect(session.dispose).toHaveBeenCalledOnce();
+      const persist = vi.fn();
+
+      const changes = [
+        manager.replaceSession(project.id, conversation.summary.id, persist),
+        manager.setReasoningLevel(project.id, conversation.summary.id, "high", persist),
+      ];
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(persist).not.toHaveBeenCalled();
+      shutdown.resolve();
+      await Promise.all(changes);
+      expect(persist).toHaveBeenCalledTimes(2);
+      await manager.close();
+    });
+
+    it("keeps a coding agent's session, whose process would only stop", async () => {
+      const session = Object.assign(new FakeSession(), { runtime: "codex" });
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session as never });
+      const project = createProject();
+      await manager.prompt(project, createConversation(project), "Build").result;
+
+      vi.advanceTimersByTime(60 * MINUTE);
+      expect(session.dispose).not.toHaveBeenCalled();
+      await manager.close();
+    });
+  });
+
   it("aggregates activity across conversations until all project work ends", async () => {
     const completions = [deferred<void>(), deferred<void>(), deferred<void>()];
     const sessions = completions.map((completion) => {

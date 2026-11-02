@@ -72,6 +72,13 @@ each complete line once. Large inline images therefore do not cause repeated
 copying and scanning of the growing record; the authoritative session stays
 unchanged, including when the final record is still being appended.
 
+The UI reader keeps only what the chat shows of each tool's output, 6,000
+characters from its start and from its end, so a long session's text does not
+stay in memory twice. An agent's session holds its whole transcript in memory,
+images included. A Pi session nothing has used for 15 minutes is let go, and the
+next message loads it from its file again, as after a restart. A coding agent's
+session stays, because that would only stop its process.
+
 Preview failures stay with their project. The desktop supervises unexpected
 daemon exits and reconnects the existing renderer to a fresh service generation.
 See [preview isolation and service recovery](runtime-recovery.md) for behavior,
