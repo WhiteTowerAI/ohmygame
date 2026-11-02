@@ -69,6 +69,7 @@ const query = new URLSearchParams(location.search);
 const appearance = query.get("appearance");
 const results = JSON.parse(query.get("results") || "null");
 const capabilities = JSON.parse(query.get("capabilities") || "{}");
+const commands = JSON.parse(query.get("commands") || "[]");
 const stored = new Map();
 document.documentElement.dataset.appearance = appearance;
 const frame = document.querySelector("iframe");
@@ -87,6 +88,7 @@ frame.addEventListener("load", async () => {
     "storage.get": ({ key }) => stored.get(key) ?? null,
     "storage.set": ({ key, value }) => { stored.set(key, value); return null; },
     "command.run": ({ command }) => {
+      if (!commands.includes(command)) throw new Error(query.get("plugin") + " has no command " + command);
       if (results && command in results) return results[command];
       throw new Error("Commands don't run in this check");
     },
@@ -95,7 +97,15 @@ frame.addEventListener("load", async () => {
   channel.port1.onmessage = async ({ data }) => {
     if (data?.event === "ready") { window.pluginReady = true; return; }
     // The app's own checks, so a page is refused here what it would be refused there.
-    const checked = await (await fetch("/check", { method: "POST", body: JSON.stringify({ data, capabilities }) })).json();
+    let body;
+    try {
+      body = JSON.stringify({ data, capabilities });
+    } catch {
+      // Too odd for JSON; the app's check refuses these for the same reason.
+      if (Number.isSafeInteger(data?.id) && data.id >= 0) channel.port1.postMessage({ id: data.id, error: "the request can't be sent as JSON" });
+      return;
+    }
+    const checked = await (await fetch("/check", { method: "POST", body })).json();
     if (checked.error) {
       if (checked.id !== undefined) channel.port1.postMessage({ id: checked.id, error: checked.error });
       return;
@@ -188,7 +198,7 @@ async function main(): Promise<void> {
         (entry.manifest.contributes?.panels ?? []).flatMap((panel) =>
           [undefined, ...Object.keys(scenarios[entry.id] ?? {})].flatMap((scenario) =>
             APPEARANCES.map((appearance) => {
-              const query = new URLSearchParams({ src: server.panelUrl(entry.id, entry.version, panel.id)!, plugin: entry.id, version: entry.version, panel: panel.id, appearance, accent: JSON.stringify(entry.manifest.ui?.accent ?? null), capabilities: JSON.stringify(capabilitiesOf(entry)), results: JSON.stringify(scenario ? scenarios[entry.id]![scenario] : null) });
+              const query = new URLSearchParams({ src: server.panelUrl(entry.id, entry.version, panel.id)!, plugin: entry.id, version: entry.version, panel: panel.id, appearance, accent: JSON.stringify(entry.manifest.ui?.accent ?? null), commands: JSON.stringify(entry.manifest.contributes?.commands?.map((command) => command.id) ?? []), capabilities: JSON.stringify(capabilitiesOf(entry)), results: JSON.stringify(scenario ? scenarios[entry.id]![scenario] : null) });
               const view = [entry.id.replace("/", "-"), panel.id, scenario, appearance].filter(Boolean).join("-");
               return { plugin: entry.id, panel: panel.id, ...(scenario ? { scenario } : {}), appearance, url: `${hostOrigin}/harness.html?${query}`, file: path.join(out, `${view}.${label}.png`) };
             }),
