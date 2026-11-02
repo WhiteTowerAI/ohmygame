@@ -57,7 +57,7 @@ export function registerCheckpointRoutes(
   // By route: a raw URL can spell the path another way, and holding the workspace would deadlock the save.
   const exemptRequest = (request: FastifyRequest) =>
     exempt(request.url) ||
-    /^\/projects\/:projectId\/tuning(?:\/|$)/.test(request.routeOptions.url ?? "") ||
+    /^\/projects\/:projectId\/(?:tuning|plugin-changes)(?:\/|$)/.test(request.routeOptions.url ?? "") ||
     (request.method !== "GET" && request.method !== "HEAD" && (request.routeOptions.url ?? "").startsWith("/projects/:projectId/plugin-files/"));
   app.addHook("preHandler", async (request, reply) => {
     const id = (request.params as { projectId?: string }).projectId;

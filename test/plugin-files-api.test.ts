@@ -94,6 +94,13 @@ describe("plugin page files API", () => {
     expect(history.every((change) => change.plugin === "acme/files")).toBe(true);
     expect((await app.inject({ method: "POST", url: `/projects/${project.id}/plugin-changes/${history[0]!.id}/undo` })).statusCode).toBe(200);
     expect(await readFile(workspace("levels/one.json"), "utf8")).toBe('{"level":1}');
+
+    // With a change left unrecorded, opening the list holds the workspace, and doesn't wait for itself however the address is spelled.
+    const changes = path.join(project.storagePath!, "plugin-changes.json");
+    const saved = JSON.parse(await readFile(changes, "utf8")) as { changes: Array<{ after: string }> };
+    await writeFile(changes, JSON.stringify({ ...saved, pending: { id: "left", plugin: "acme/files", action: "files:write", title: "Left over", before: saved.changes.at(-1)!.after, at: new Date().toISOString() } }));
+    const listed = await app.inject({ method: "GET", url: `/projects/${project.id}/%70lugin-changes` });
+    expect(listed.statusCode).toBe(200);
   });
 
   it("keeps pages away from hidden files, links, the project file and an agent's instructions", async () => {

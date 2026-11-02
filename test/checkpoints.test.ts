@@ -3769,6 +3769,51 @@ describe("plugin writes", () => {
     expect(recovered).toMatchObject({ changed: ["level.txt"], late: true });
   });
 
+  it("doesn't record a change twice when only the notice fails", async () => {
+    const { game, plugins, announced } = await setup();
+    // A folder with something in it, where the notice goes, can't be written over.
+    const notice = path.join(game.storagePath!, "workspace-restore-notice.txt");
+    await mkdir(path.join(notice, "blocked"), { recursive: true });
+    const level = path.join(game.workspacePath, "level.txt");
+    await expect(plugins.run(game, { plugin: "acme/tiles", action: "command:break", title: "Break" }, async () => {
+      await writeFile(level, "two");
+      throw new Error("crashed");
+    })).rejects.toThrow("crashed");
+    await plugins.settle(game);
+    const entries = await plugins.history(game);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ failed: "crashed", changed: ["level.txt"] });
+    expect(entries[0]!.late).toBeUndefined();
+    expect(announced).toEqual([["level.txt"]]);
+    await rm(notice, { recursive: true });
+    // Without the command's error, the change is reported as made, not as left unrecorded.
+    await mkdir(path.join(notice, "blocked"), { recursive: true });
+    await expect(plugins.run(game, { plugin: "acme/tiles", action: "command:tidy", title: "Tidy" }, () => writeFile(level, "three"))).rejects.not.toBeInstanceOf(PluginChangeError);
+    expect(await plugins.history(game)).toHaveLength(2);
+  });
+
+  it("announces a late change that would otherwise carry on through open editors", async () => {
+    const game = { ...(await project({ "tuning.json": "{}" })), id: "plugin-writes-in-place" } as unknown as ProjectState;
+    const store = new CheckpointStore();
+    const writes = new ProjectWrites();
+    const announced: string[][] = [];
+    let fail = 0;
+    const plugins = new PluginWrites({
+      writes,
+      checkpoints: store,
+      snapshot: (target) => (fail > 0 && --fail === 0 ? Promise.reject(new Error("full")) : store.snapshot(target)),
+      busy: () => false,
+      announce: (_project, _version, changed) => announced.push(changed),
+    });
+    fail = 2;
+    await plugins.run(game, { plugin: "ohmygame/tuning", action: "tuning:save", title: "Save", inPlace: true }, () => writeFile(path.join(game.workspacePath, "tuning.json"), '{"a":1}')).catch(() => {});
+    await writeFile(path.join(game.workspacePath, "other.txt"), "theirs");
+    const [late] = await plugins.history(game);
+    expect(late).toMatchObject({ late: true, changed: ["other.txt", "tuning.json"] });
+    expect(late!.inPlace).toBeUndefined();
+    expect(announced).toEqual([["other.txt", "tuning.json"]]);
+  });
+
   it("changes nothing when it can't note a change first", async () => {
     const { game, plugins } = await setup();
     const storage = game.storagePath ?? path.join(game.workspacePath, ".data");

@@ -145,13 +145,19 @@ export class PluginWrites {
         change = await this.#record(project, { ...pending, ...(failed === undefined ? {} : { failed }) }, false);
       } catch (cause) {
         // The note stays, so this is recorded later. Why the command failed matters more than this.
-        if (failed !== undefined) {
-          await this.#updateHistory(project, (history) => ({ ...history, pending: { ...pending, failed } })).catch(() => {});
-          throw (outcome as { error: unknown }).error;
+        if (!outcome.ok) {
+          await this.#updateHistory(project, (history) => ({ ...history, pending: { ...pending, failed: failed! } })).catch(() => {});
+          throw outcome.error;
         }
         throw new PluginChangeError(RECORD_AFTER, 500, cause);
       }
-      if (!outcome.ok) throw outcome.error;
+      // It's in the history now, so a notice that can't be written isn't a change left unrecorded.
+      const told = change ? this.#tellChange(project, change) : Promise.resolve();
+      if (!outcome.ok) {
+        await told.catch(() => {});
+        throw outcome.error;
+      }
+      await told;
       return { result: outcome.result, ...(change ? { change } : {}) };
     });
   }
@@ -162,9 +168,12 @@ export class PluginWrites {
     const changed = (
       await this.options.checkpoints.diff(project, pending.before, after)
     ).map((change) => change.path);
+    // Recorded late, it may hold more than the files it follows itself, so it no longer carries on through open editors.
+    const { inPlace, ...rest } = pending;
     const change: PluginChange | undefined = changed.length
       ? {
-          ...pending,
+          ...rest,
+          ...(inPlace && !late ? { inPlace } : {}),
           after,
           changed,
           at: late ? pending.at : new Date().toISOString(),
@@ -174,20 +183,25 @@ export class PluginWrites {
     await this.#updateHistory(project, ({ changes }) => ({
       changes: change ? [...changes, change].slice(-HISTORY_MAX_ENTRIES) : changes,
     }));
-    if (change)
-      await this.#tell(
-        project,
-        changed,
-        `The ${pending.plugin} plugin's "${pending.title}" ${pending.failed === undefined ? "changed" : "failed after changing"} workspace files outside a conversation.${late ? " It was recorded late, so these paths may include other changes." : ""} Inspect them before continuing. Changed workspace paths: ${JSON.stringify(changed)}.`,
-        pending.inPlace,
-      );
     return change;
+  }
+
+  #tellChange(project: ProjectState, change: PluginChange): Promise<void> {
+    return this.#tell(
+      project,
+      change.changed,
+      `The ${change.plugin} plugin's "${change.title}" ${change.failed === undefined ? "changed" : "failed after changing"} workspace files outside a conversation.${change.late ? " It was recorded late, so these paths may include other changes." : ""} Inspect them before continuing. Changed workspace paths: ${JSON.stringify(change.changed)}.`,
+      change.inPlace,
+    );
   }
 
   /** Records a change left unrecorded. The caller holds the workspace. */
   async #settle(project: ProjectState): Promise<void> {
     const { pending } = await this.#read(project);
-    if (pending) await this.#record(project, pending, true);
+    if (!pending) return;
+    const change = await this.#record(project, pending, true);
+    // It's in the history now, whether or not the notice can be written.
+    if (change) await this.#tellChange(project, change).catch(() => {});
   }
 
   /**
