@@ -477,6 +477,21 @@ describe("page components", () => {
       await settle();
       expect([calls.length, removed.complete]).toEqual([drawn, true]);
 
+      // Upgraded in a page, each attribute is reported first, already connected: drawing waits, so the file is read once.
+      for (const markup of [["omg-image", { src: "fallback.png", file: "art/hero.png" }], ["omg-tile", { heading: "Hero", file: "art/hero.png" }]] as const) {
+        document.body.replaceChildren();
+        calls.length = 0;
+        const element = document.createElement(markup[0]);
+        Object.defineProperty(element, "isConnected", { configurable: true, value: true });
+        for (const [name, value] of Object.entries(markup[1])) element.setAttribute(name, value);
+        await settle();
+        expect(calls.length, markup[0]).toBe(0);
+        delete (element as unknown as { isConnected?: boolean }).isConnected;
+        document.body.append(element);
+        await settle();
+        expect(calls.length, markup[0]).toBe(1);
+      }
+
       // A tile with both sources reads its file once, and uses src once the file goes.
       calls.length = 0;
       const tile = html(`<omg-tile heading="hero.png" file="art/hero.png" src="fallback.png"></omg-tile>`);

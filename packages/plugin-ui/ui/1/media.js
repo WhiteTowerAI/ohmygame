@@ -86,6 +86,11 @@ class OmgImage extends OmgElement {
   #status = "empty";
   /** The `src` or `file` attribute was set, to the same value too, which loads it again. */
   #reload = true;
+  /**
+   * Its connectedCallback has run. Markup upgraded in a page reports each attribute
+   * first, already connected, and drawing then would read a file once per attribute.
+   */
+  #inPage = false;
 
   constructor() {
     super();
@@ -98,10 +103,16 @@ class OmgImage extends OmgElement {
     if (source) this.#reload = true;
     super.attributeChangedCallback(name, previous, value);
     // Out of the page, the old picture goes at once, so its late load or error doesn't count; the new one loads once in the page.
-    if (source && !this.isConnected) this.#replace();
+    if (source && !this.#inPage) this.#replace();
+  }
+
+  connectedCallback() {
+    this.#inPage = true;
+    super.connectedCallback();
   }
 
   disconnectedCallback() {
+    this.#inPage = false;
     // A file still loading might never finish out of the page, and would keep its address. It loads again if it comes back.
     if (this.#status !== "loading" || !this.getAttribute("file")) return;
     this.#reload = true;
@@ -125,6 +136,7 @@ class OmgImage extends OmgElement {
   }
 
   update() {
+    if (!this.#inPage) return;
     const image = this.#image();
     const frame = this.part("frame");
     const ratio = aspect(this.getAttribute("ratio"));
@@ -268,6 +280,8 @@ class OmgTile extends OmgElement {
 
   /** The picture's attributes set since it was last drawn, to the same value too. */
   #reload = new Set();
+  /** Its connectedCallback has run; see `omg-image`. */
+  #inPage = false;
 
   constructor() {
     super();
@@ -289,6 +303,15 @@ class OmgTile extends OmgElement {
     super.attributeChangedCallback(name, previous, value);
   }
 
+  connectedCallback() {
+    this.#inPage = true;
+    super.connectedCallback();
+  }
+
+  disconnectedCallback() {
+    this.#inPage = false;
+  }
+
   get disabled() {
     return this.hasAttribute("disabled");
   }
@@ -306,6 +329,7 @@ class OmgTile extends OmgElement {
   }
 
   update() {
+    if (!this.#inPage) return;
     const button = /** @type {HTMLButtonElement} */ (this.part("tile"));
     button.disabled = this.disabled;
     if (this.selected) button.setAttribute("aria-current", "true");
