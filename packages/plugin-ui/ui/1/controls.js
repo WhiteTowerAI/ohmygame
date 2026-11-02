@@ -12,7 +12,7 @@ const BUTTON = css(`
   button {
     display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); width: 100%;
     height: 30px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-md);
-    background: var(--color-hover); color: var(--color-text);
+    background: var(--_button-background, var(--color-hover)); color: var(--color-text);
     font: inherit; font-weight: var(--weight-medium); white-space: nowrap; cursor: pointer;
     transition: background var(--duration-fast), opacity var(--duration-fast);
   }
@@ -250,14 +250,35 @@ class OmgSelect extends OmgElement {
     css(`
       :host { display: inline-flex; flex-direction: column; gap: var(--space-1); min-width: 160px; max-width: 100%; }
       .label { color: var(--color-text-secondary); font-size: var(--text-sm); }
+      /* Still a native select, so the browser keeps its keyboard, its form and its
+         screen reader behaviour; a browser without base-select draws its own list. */
+      select, ::picker(select) { appearance: base-select; }
       select {
         width: 100%; height: 32px; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-md);
-        background: var(--color-stage); color: var(--color-text); font: inherit;
+        display: flex; align-items: center; gap: var(--space-2);
+        background: var(--color-stage); color: var(--color-text); font: inherit; cursor: pointer;
         box-shadow: inset 0 0 0 1px var(--color-border); transition: box-shadow var(--duration-fast);
       }
       select:not(:disabled):hover { box-shadow: inset 0 0 0 1px var(--color-border-strong); }
-      select:focus { box-shadow: inset 0 0 0 1px var(--color-text-tertiary); }
-      select:disabled { opacity: 0.4; }
+      select:disabled { opacity: 0.4; cursor: default; }
+      select::picker-icon {
+        content: ""; width: 6px; height: 6px; margin: -3px 2px 0 auto; rotate: 45deg;
+        border: solid var(--color-text-tertiary); border-width: 0 1.5px 1.5px 0; transition: none;
+      }
+      ::picker(select) {
+        /* Below while it fits, not wherever there's more room. */
+        position-try-order: normal;
+        margin-block: var(--space-1); padding: var(--space-1); border: 0; border-radius: var(--radius-lg);
+        max-height: min(320px, calc(100dvh - 16px)); overflow: auto;
+        background: var(--color-surface-raised); color: var(--color-text); box-shadow: var(--shadow-float);
+      }
+      option {
+        display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+        min-height: 28px; padding: var(--space-1) var(--space-2); border-radius: var(--radius-md); cursor: pointer;
+      }
+      option:not(:disabled):hover, option:focus-visible { outline: none; background: var(--color-hover); }
+      option:disabled { color: var(--color-text-tertiary); cursor: default; }
+      option::checkmark { order: 1; color: var(--color-text-secondary); }
     `),
   ];
   static template = `<label part="field"><span class="label" part="label"></span><select part="select"></select></label>`;

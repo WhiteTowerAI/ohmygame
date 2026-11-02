@@ -5,7 +5,7 @@
 //
 // `--omg-accent` is the plugin's brand colour, the app's accent by default,
 // and `--omg-on-accent` the text that goes on it.
-// Components use it only for selection and progress; buttons stay ink.
+// Components use it only for progress and links; buttons stay ink.
 
 /** A stylesheet shared by every instance of a component. */
 export function css(text) {

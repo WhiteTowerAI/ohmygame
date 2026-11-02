@@ -142,9 +142,8 @@ a { color: var(--omg-accent, var(--color-accent)); }
   transition: box-shadow var(--duration-fast);
 }
 .omg-input:hover, .omg-select:hover { box-shadow: inset 0 0 0 1px var(--color-border-strong); }
-/* Typing focus is the firmer hairline; a select keeps its keyboard ring. */
+/* The caret shows where typing goes; a select keeps its keyboard ring. */
 .omg-input:focus { outline: none; }
-.omg-input:focus, .omg-select:focus { box-shadow: inset 0 0 0 1px var(--color-text-tertiary); }
 
 .omg-menu {
   list-style: none; margin: 0; padding: var(--space-1); border-radius: var(--radius-lg);
