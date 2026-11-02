@@ -382,9 +382,12 @@ export function DropdownMenu({
 /** Opens `items` at the pointer on right-click inside `children`. */
 export function ContextMenu({
   items,
+  disabled = false,
   children,
 }: {
   items: readonly MenuEntry[];
+  /** Right-click does nothing; the wrapper stays, so its children are not remounted. */
+  disabled?: boolean;
   children: ReactNode;
 }) {
   const [point, setPoint] = useState<{ x: number; y: number }>();
@@ -395,7 +398,7 @@ export function ContextMenu({
       className="ui-context-area"
       onContextMenu={(event) => {
         event.preventDefault();
-        setPoint({ x: event.clientX, y: event.clientY });
+        if (!disabled) setPoint({ x: event.clientX, y: event.clientY });
       }}
     >
       {children}
