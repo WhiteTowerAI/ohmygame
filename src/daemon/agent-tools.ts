@@ -101,7 +101,7 @@ export function createAgentTools(
   projects: ProjectManager,
   askQuestionnaire?: AskQuestionnaire,
   installPlugin?: InstallPlugin,
-  playtest?: { driver: GameRuntimeAdapter; resolveOpenTarget: () => Promise<GameUseOpenTarget> },
+  playtest?: { driver: GameRuntimeAdapter; resolveOpenTarget: (signal?: AbortSignal) => Promise<GameUseOpenTarget> },
   searchWeb?: SearchWeb,
   canvasStore?: CanvasStore,
 ): PiToolDefinition[] {

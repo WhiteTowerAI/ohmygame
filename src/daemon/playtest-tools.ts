@@ -85,7 +85,7 @@ function gameUseParameters<Action extends TSchema>(action: Action) {
 
 export function createGameUseTool(
   driver: GameRuntimeAdapter,
-  resolveOpenTarget: () => Promise<GameUseOpenTarget>,
+  resolveOpenTarget: (signal?: AbortSignal) => Promise<GameUseOpenTarget>,
   { bridge = "full" }: { bridge?: "full" | "reset" } = {},
 ): ToolDefinition<typeof parameters> {
   return defineTool<typeof parameters, unknown>({
@@ -104,7 +104,7 @@ export function createGameUseTool(
     execute: async (_toolCallId, input, signal) => {
       if (!driver.available) throw new Error("Game use is not available in this environment");
       if (input.operation === "open") {
-        const target = await resolveOpenTarget();
+        const target = await resolveOpenTarget(signal);
         signal?.throwIfAborted();
         if (target.runtime !== driver.capabilities.runtime) {
           throw new Error(`Game target runtime ${target.runtime} does not match adapter runtime ${driver.capabilities.runtime}`);
