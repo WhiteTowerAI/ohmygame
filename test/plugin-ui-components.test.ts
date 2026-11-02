@@ -390,6 +390,14 @@ describe("page components", () => {
     picture().dispatchEvent(new Event("load"));
     expect(events).toEqual(["load", "error", "load"]);
 
+    // Out of the page, a new address still makes the old picture's late report not count.
+    const loading = picture();
+    image.remove();
+    image.setAttribute("src", "b.png");
+    loading.dispatchEvent(new Event("load"));
+    expect([image.complete, events.length]).toEqual([false, 3]);
+    document.body.append(image);
+
     // A shape it can't use leaves the picture at its own.
     for (const ratio of ["0", "-1/2", "wide", "4/0"]) {
       image.setAttribute("ratio", ratio);

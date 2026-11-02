@@ -15,11 +15,12 @@ const BROKEN = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stro
 
 const IMAGE = css(`
   :host { display: block; min-width: 0; max-width: 100%; }
-  /* As tall as the element when something sizes it, as a list's thumbnail does. */
   .frame {
-    position: relative; display: grid; place-items: center; overflow: hidden; height: 100%;
+    position: relative; display: grid; place-items: center; overflow: hidden;
     border-radius: var(--omg-image-radius, var(--radius-lg)); background: var(--color-surface-raised);
   }
+  /* Without a shape of its own, as tall as the element when something sizes it, as a list's thumbnail does. */
+  .frame:not(.sized) { height: 100%; }
   :host([checker]) .frame {
     background:
       repeating-conic-gradient(var(--color-surface-raised) 0 25%, var(--color-surface) 0 50%) 0 0 / 16px 16px;
@@ -79,6 +80,8 @@ class OmgImage extends OmgElement {
   attributeChangedCallback(name, previous, value) {
     if (name === "src") this.#reload = true;
     super.attributeChangedCallback(name, previous, value);
+    // Out of the page too, so the old picture's late load or error doesn't count for the new address.
+    if (name === "src" && !this.isConnected) this.update();
   }
 
   get complete() {

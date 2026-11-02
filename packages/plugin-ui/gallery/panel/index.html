@@ -163,7 +163,7 @@
             <omg-grid min="140">
               <omg-image src="../assets/scene.svg" alt="Hills under a sun" ratio="16/9" fit="cover"></omg-image>
               <omg-image src="../assets/sprite.png" alt="A green slime" ratio="16/9" pixelated checker></omg-image>
-              <omg-image src="../assets/missing.png" alt="A picture that isn't there" ratio="16/9"></omg-image>
+              <omg-image src="../assets/missing.png" alt="A picture that isn't there" ratio="1"></omg-image>
             </omg-grid>
           </omg-section>
 
@@ -176,13 +176,13 @@
             </omg-grid>
           </omg-section>
 
-          <omg-section heading="Pictures in a list" description="A picture before a row's title is a thumbnail.">
+          <omg-section heading="Pictures in a list" description="An omg-image before a row's title is a thumbnail.">
             <omg-list>
               <omg-list-item heading="Hills" description="Background">
                 <omg-image slot="leading" src="../assets/scene.svg" alt="" ratio="1" fit="cover"></omg-image>
               </omg-list-item>
               <omg-list-item heading="Slime" description="Sprite">
-                <img slot="leading" src="../assets/sprite.png" alt="" style="image-rendering: pixelated">
+                <omg-image slot="leading" src="../assets/sprite.png" alt="" ratio="1" pixelated checker></omg-image>
               </omg-list-item>
               <omg-list-item heading="Hills, whole" description="A picture of its own shape, drawn whole">
                 <omg-image slot="leading" src="../assets/scene.svg" alt=""></omg-image>

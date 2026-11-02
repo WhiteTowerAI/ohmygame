@@ -1895,7 +1895,7 @@
             },
             {
               "name": "leading",
-              "description": "An icon or picture before the title; a picture is drawn as a 40px thumbnail."
+              "description": "An icon or picture before the title; an `omg-image` is drawn as a 40px thumbnail."
             }
           ],
           "cssParts": [
