@@ -232,9 +232,11 @@ A hidden window aims Electron's display capture at the game's own frame, which
 needs no system permission. The recording holds the page's HTML as well as its
 canvas and the game's sound. It carries on while the game moves between Preview
 and Play and while the game is hidden or muted, and the game stays audible.
-Video is 720p or the game's own shape at the same scale, at 30 frames a second
-and 4 Mbps, so 5 minutes come to about 150 MB. It is H.264 and AAC in MP4, or VP9
-and Opus in WebM on a machine without an H.264 encoder.
+Video follows the game's rendered pixels and its shape, up to 1280 on the long
+side, at 30 frames a second and 4 Mbps, so 5 minutes come to about 150 MB. A small
+Preview on a standard-density screen therefore records small, and a larger Play
+window records larger. It is H.264 and AAC in MP4, or VP9 and Opus in WebM on a
+machine without an H.264 encoder.
 
 A file holds one picture size, so frames keep the size of the first one, and a
 game that changes shape is letterboxed inside it. `bun run test:game-recording`

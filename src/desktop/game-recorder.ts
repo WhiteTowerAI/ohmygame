@@ -1,5 +1,5 @@
-import { createWriteStream, type WriteStream } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { createWriteStream, mkdtempSync, type WriteStream } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { BrowserWindow, ipcMain, session, webContents, type IpcMainEvent, type WebContents } from "electron";
@@ -7,7 +7,8 @@ import { GAME_RECORDING_MAX_BYTES, type GameRecorderSettings, type GameRecorderS
 
 const PARTITION = "ohmygame-game-recorder";
 const SETTINGS: GameRecorderSettings = { bitrate: 4_000_000, frameRate: 30, maxEdge: 1280 };
-/** How long the page may take to finish the file before the recording counts as failed. */
+/** How long the page may take to start recording, or to finish the file, before that counts as failed. */
+const START_TIMEOUT_MS = 20_000;
 const FINISH_TIMEOUT_MS = 20_000;
 
 /** A finished recording, on disk, for the owner to keep. */
@@ -56,6 +57,7 @@ export class GameRecorder {
 
   constructor(private readonly options: GameRecorderOptions) {}
 
+  /** From the start of a recording until it has been saved, because one id records one at a time. */
   isRecording(id: string): boolean {
     return this.#recordings.has(id);
   }
@@ -68,7 +70,8 @@ export class GameRecorder {
     if (this.#recordings.has(id)) throw new Error("This game is already recording.");
     if (target.isDestroyed()) throw new Error("The game is no longer running.");
     this.#install();
-    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-recording-"));
+    // Synchronous up to the map entry, so that a second start can't get past the check above.
+    const directory = mkdtempSync(path.join(tmpdir(), "ohmygame-recording-"));
     const host = new BrowserWindow({
       show: false,
       title: "Game recorder",
@@ -91,13 +94,19 @@ export class GameRecorder {
       await host.loadURL(this.options.hostUrl);
       // Display capture needs a user gesture, which this stands in for: the
       // page is ours, and it only ever captures the target this class names.
-      recording.started = await host.webContents.executeJavaScript(`window.startRecording(${JSON.stringify(SETTINGS)})`, true) as GameRecorderStarted;
+      const started = host.webContents.executeJavaScript(`window.startRecording(${JSON.stringify(SETTINGS)})`, true) as Promise<GameRecorderStarted>;
+      let startLimit: ReturnType<typeof setTimeout> | undefined;
+      recording.started = await Promise.race([
+        started,
+        new Promise<never>((_resolve, reject) => { startLimit = setTimeout(() => reject(new Error("The recording could not be started.")), START_TIMEOUT_MS); }),
+      ]).finally(() => clearTimeout(startLimit));
     } catch (cause) {
       target.removeListener("destroyed", stopWithGame);
       await this.#discard(recording);
       throw cause;
     }
-    recording.timer = setTimeout(() => this.stop(id), maxSeconds * 1000);
+    if (recording.stopRequested) this.#askToFinish(recording);
+    else recording.timer = setTimeout(() => this.stop(id), maxSeconds * 1000);
     return {
       outcome: this.#outcome(recording).finally(() => {
         if (!target.isDestroyed()) target.removeListener("destroyed", stopWithGame);
@@ -111,8 +120,13 @@ export class GameRecorder {
     if (!recording || recording.stopRequested) return;
     recording.stopRequested = true;
     clearTimeout(recording.timer);
-    recording.timer = setTimeout(() => recording.hostFinished.reject(new Error("The recording could not be finished.")), FINISH_TIMEOUT_MS);
     this.options.onSaving?.(id);
+    // A page still starting has nothing to stop yet; `start` asks once it does.
+    if (recording.started) this.#askToFinish(recording);
+  }
+
+  #askToFinish(recording: Recording): void {
+    recording.timer = setTimeout(() => recording.hostFinished.reject(new Error("The recording could not be finished.")), FINISH_TIMEOUT_MS);
     if (recording.host.isDestroyed()) {
       recording.hostFinished.reject(new Error("The recorder stopped unexpectedly."));
       return;
@@ -133,19 +147,23 @@ export class GameRecorder {
     let duration: number;
     try {
       duration = await recording.finished;
+      clearTimeout(recording.timer);
       await this.#closeSink(recording);
     } catch (cause) {
       await this.#discard(recording);
       throw cause;
     }
-    this.#forget(recording);
     let saved: GameRecordingSaved;
     try {
+      // The hidden window stays until this is done. Were it the last window,
+      // closing it could quit the app, and stop the service, during the upload.
       saved = await this.options.save({ ...recording.started!, path: recording.file, title: recording.title, duration, bytes: recording.bytes });
     } catch (cause) {
+      this.#forget(recording);
       // Five minutes of play are worth keeping when the Library can't take them.
       throw new Error(`${cause instanceof Error ? cause.message : String(cause)} The recording is still at ${recording.file}.`, { cause });
     }
+    this.#forget(recording);
     await rm(recording.directory, { recursive: true, force: true }).catch(() => undefined);
     return saved;
   }
@@ -191,7 +209,7 @@ export class GameRecorder {
     });
     ipcMain.on("ohmygame:game-recorder-chunk", (event: IpcMainEvent, bytes: unknown) => {
       const recording = this.#hosts.get(event.sender.id);
-      if (!recording || !(bytes instanceof Uint8Array)) return;
+      if (!recording || !(bytes instanceof Uint8Array) || recording.sink.writableEnded) return;
       recording.bytes += bytes.length;
       recording.sink.write(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length));
       if (recording.bytes >= GAME_RECORDING_MAX_BYTES) this.stop(recording.id);

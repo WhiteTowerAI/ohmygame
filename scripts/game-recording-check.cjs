@@ -24,7 +24,8 @@ async function readBack(file) {
   const input = new Input({ source: new FilePathSource(file), formats: ALL_FORMATS });
   const video = await input.getPrimaryVideoTrack();
   const audio = await input.getPrimaryAudioTrack();
-  return { container: (await input.getFormat()).name, duration: await input.computeDuration(), video: video && { codec: video.codec, width: video.displayWidth, height: video.displayHeight }, audio: audio && { codec: audio.codec } };
+  const stats = await video.computePacketStats();
+  return { container: (await input.getFormat()).name, duration: await input.computeDuration(), fps: stats.averagePacketRate, video: video && { codec: video.codec, width: video.displayWidth, height: video.displayHeight }, audio: audio && { codec: audio.codec } };
 }
 app.whenReady().then(async () => {
   try {
@@ -44,21 +45,23 @@ app.whenReady().then(async () => {
         return { assetId: String(files.length), name: path.basename(copy), duration: file.duration, bytes: file.bytes };
       },
     });
-    const owner = new BrowserWindow({ show: false, width: 800, height: 450, useContentSize: true });
+    const owner = new BrowserWindow({ show: false, width: 1280, height: 720, useContentSize: true });
     const other = new BrowserWindow({ show: false, width: 500, height: 500, useContentSize: true });
     const view = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
     owner.contentView.addChildView(view);
-    view.setBounds({ x: 0, y: 0, width: 800, height: 450 });
+    view.setBounds({ x: 0, y: 0, width: 1280, height: 720 });
     await view.webContents.loadURL(url);
     await view.webContents.executeJavaScript('window.startTone()', true);
     const frames = () => view.webContents.executeJavaScript('window.frames');
     const results = {};
-    const expectVideo = async (name, saved, { aspect, seconds }) => {
+    const expectVideo = async (name, saved, { aspect, seconds, minEdge }) => {
       const file = files.at(-1);
       assert.equal(saved.name, path.basename(file.copy));
       const info = await readBack(file.copy);
       results[name] = { ...info, bytes: (await stat(file.copy)).size, mediaType: file.mediaType };
-      assert.ok(Math.max(info.video.width, info.video.height) <= 1280 && Math.max(info.video.width, info.video.height) >= 900, `${name}: video is ${info.video.width}x${info.video.height}`);
+      // The video follows the game's rendered pixels, so a high-density screen fills the limit sooner.
+      assert.ok(Math.max(info.video.width, info.video.height) <= 1280 && Math.max(info.video.width, info.video.height) >= minEdge, `${name}: video is ${info.video.width}x${info.video.height}`);
+      assert.ok(info.fps >= 20, `${name}: video has ${info.fps} frames a second`);
       assert.ok(Math.abs(info.video.width / info.video.height - aspect) < 0.02, `${name}: video is ${info.video.width}x${info.video.height}, expected a shape of ${aspect}`);
       assert.ok(info.audio, `${name}: has audio`);
       assert.ok(Math.abs(info.duration - seconds) < 1.5, `${name}: lasted ${info.duration} s, expected about ${seconds}`);
@@ -75,7 +78,7 @@ app.whenReady().then(async () => {
     await sleep(1500);
     assert.equal(recorder.isRecording('moves'), true);
     recorder.stop('moves');
-    await expectVideo('moved', await outcome, { aspect: 16 / 9, seconds: 3 });
+    await expectVideo('moved', await outcome, { aspect: 16 / 9, seconds: 3, minEdge: 1280 });
     assert.equal(recorder.isRecording('moves'), false);
 
     // A second recording in the same process, in the view's new shape.
@@ -83,8 +86,10 @@ app.whenReady().then(async () => {
     view.setVisible(false);
     const before = await frames();
     ({ outcome } = await recorder.start('again', view.webContents, { title: 'Check', maxSeconds: 2 }));
-    await expectVideo('again', await outcome, { aspect: 1, seconds: 2 });
-    assert.ok(await frames() > before, 'The game kept running while it recorded');
+    await expectVideo('again', await outcome, { aspect: 1, seconds: 2, minEdge: 500 });
+    const gameFps = (await frames() - before) / 2;
+    results.gameFramesPerSecondWhileHidden = gameFps;
+    assert.ok(gameFps > 20, `The game kept running while it recorded, at ${gameFps} frames a second`);
     view.setVisible(true);
 
     // Closing the game keeps what was recorded.
@@ -93,7 +98,7 @@ app.whenReady().then(async () => {
     ({ outcome } = await recorder.start('closes', contents, { title: 'Check', maxSeconds: 60 }));
     await sleep(1500);
     contents.close({ waitForBeforeUnload: false });
-    await expectVideo('closed', await outcome, { aspect: 1, seconds: 1.5 });
+    await expectVideo('closed', await outcome, { aspect: 1, seconds: 1.5, minEdge: 500 });
 
     // An agent's playtest window, which is hidden and muted unless watched.
     console.log('Recording an agent playtest...');
@@ -104,7 +109,7 @@ app.whenReady().then(async () => {
     await driver.request({ operation: 'recordStart', sessionId });
     await driver.request({ operation: 'act', sessionId, actions: [{ type: 'wait', milliseconds: 2000 }] });
     const { recording } = await driver.request({ operation: 'recordStop', sessionId });
-    await expectVideo('agent', recording, { aspect: 2 / 3, seconds: 2 });
+    await expectVideo('agent', recording, { aspect: 2 / 3, seconds: 2, minEdge: 900 });
     driver.close();
 
     await assert.rejects(recorder.start('gone', contents, { title: 'Check', maxSeconds: 60 }), /no longer running/);

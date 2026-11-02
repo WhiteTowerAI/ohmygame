@@ -95,6 +95,7 @@ const webGamePlayers = new WebGamePlayerWindows((state) => {
 });
 /** People's recordings, by project; an agent's belong to its playtest session. */
 const gameRecordings = new Map<string, GameRecordingState>();
+const gameRecordingStarts = new Set<string>();
 let quitting = false;
 let quitPending = false;
 let restartPending = false;
@@ -417,8 +418,16 @@ handle("ohmygame:restart-runtime", (event) => {
 });
 
 async function startGameRecording(projectId: string): Promise<void> {
-  const { contents, title } = await webGamePlayers.recordingTarget(projectId);
-  const { outcome } = await gameRecorder.start(projectId, contents, { title, maxSeconds: GAME_RECORDING_MAX_SECONDS });
+  // The button and the shortcut can both ask before the first has started.
+  if (gameRecordingStarts.has(projectId)) return;
+  gameRecordingStarts.add(projectId);
+  let outcome: Promise<GameRecordingSaved>;
+  try {
+    const { contents, title } = await webGamePlayers.recordingTarget(projectId);
+    ({ outcome } = await gameRecorder.start(projectId, contents, { title, maxSeconds: GAME_RECORDING_MAX_SECONDS }));
+  } finally {
+    gameRecordingStarts.delete(projectId);
+  }
   publishGameRecording({ projectId, status: "recording", startedAt: Date.now(), maxSeconds: GAME_RECORDING_MAX_SECONDS });
   webGamePlayers.setRecording(projectId, true);
   void outcome.then(

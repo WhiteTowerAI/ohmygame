@@ -196,6 +196,66 @@ describe("game recorder", () => {
     expect(saved[0]).toMatchObject({ mediaType: "video/webm", extension: "webm" });
   });
 
+  it("lets only one of two starts at once through", async () => {
+    const game = recorder();
+    const first = game.start("project", target() as never, options);
+    await expect(game.start("project", target() as never, options)).rejects.toThrow("already recording");
+    expect(state.hosts).toHaveLength(1);
+    const { outcome } = await first;
+    game.stop("project");
+    await outcome;
+  });
+
+  it("finishes a recording stopped while it was still starting", async () => {
+    let started!: (value: unknown) => void;
+    state.onStart = () => new Promise((resolve) => { started = resolve; });
+    const game = recorder();
+    const starting = game.start("project", target() as never, options);
+    await vi.waitFor(() => expect(started).toBeDefined());
+    game.stop("project");
+    const contents = state.hosts[0]!.webContents;
+    expect(contents.executeJavaScript).not.toHaveBeenCalledWith("window.stopRecording()");
+    started({ mediaType: "video/mp4", extension: "mp4" });
+    const { outcome } = await starting;
+    expect(contents.executeJavaScript).toHaveBeenCalledWith("window.stopRecording()");
+    await expect(outcome).resolves.toMatchObject({ assetId: "asset-1" });
+  });
+
+  it("gives up on a page that never starts", async () => {
+    state.onStart = () => new Promise(() => {});
+    const game = recorder();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const starting = game.start("project", target() as never, options);
+      const failed = expect(starting).rejects.toThrow("could not be started");
+      await vi.advanceTimersByTimeAsync(20_000);
+      await failed;
+    } finally { vi.useRealTimers(); }
+    expect(state.hosts[0]!.destroyed).toBe(true);
+    expect(game.isRecording("project")).toBe(false);
+  });
+
+  it("holds the recording until it is saved", async () => {
+    let finishSave!: (value: { assetId: string; name: string; duration: number; bytes: number }) => void;
+    const save = vi.fn((_file: GameRecordingFile) => new Promise<{ assetId: string; name: string; duration: number; bytes: number }>((resolve) => { finishSave = resolve; }));
+    const game = recorder(save);
+    const { outcome } = await game.start("project", target() as never, options);
+    const host = state.hosts[0]!;
+    send("chunk", host.webContents.id, new TextEncoder().encode("play"));
+    game.stop("project");
+    await vi.waitFor(() => expect(save).toHaveBeenCalledOnce());
+    // Its window keeps the app alive, and a new recording can't overlap the old one's result.
+    expect(host.destroyed).toBe(false);
+    expect(game.isRecording("project")).toBe(true);
+    await expect(game.start("project", target() as never, options)).rejects.toThrow("already recording");
+    send("chunk", host.webContents.id, new TextEncoder().encode("late"));
+    finishSave({ assetId: "asset-1", name: "game.mp4", duration: 1, bytes: 4 });
+    await outcome;
+    expect(save.mock.calls[0]![0]).toMatchObject({ bytes: 4 });
+    expect(host.destroyed).toBe(true);
+    expect(game.isRecording("project")).toBe(false);
+  });
+
   it("refuses a game that has already closed", async () => {
     const closed = target();
     closed.destroyed = true;
