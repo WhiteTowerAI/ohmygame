@@ -146,13 +146,6 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
             event.stopPropagation();
             setOpen(false);
             trigger.current?.focus();
-          } else if (event.key === "Tab" && leavesMenu(event, menu.current)) {
-            // The menu is portaled out of any dialog around its chip, so Tab
-            // from here would pass that dialog's focus trap.
-            event.preventDefault();
-            event.stopPropagation();
-            setOpen(false);
-            trigger.current?.focus();
           } else moveFocus(event, menu.current, search.current);
         }}
       >
@@ -224,11 +217,6 @@ function groupOptions<Value extends string>(options: readonly CanvasChipOption<V
   for (const option of options) groupFor(option.group).options.push(option);
   for (const note of notes) groupFor(note.group).notes.push(note.message);
   return [...groups.values()];
-}
-
-function leavesMenu(event: React.KeyboardEvent, menu: HTMLDivElement | null): boolean {
-  const controls = [...(menu?.querySelectorAll<HTMLElement>("input, button:not(:disabled)") ?? [])];
-  return document.activeElement === (event.shiftKey ? controls[0] : controls.at(-1));
 }
 
 function moveFocus(event: React.KeyboardEvent, menu: HTMLDivElement | null, search: HTMLInputElement | null): void {

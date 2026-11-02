@@ -197,6 +197,23 @@ function CanvasReferenceEdge(props: EdgeProps) {
 export const CANVAS_REFERENCE_EDGE_TYPES = { reference: CanvasReferenceEdge };
 
 /** Keep all references, model settings and generation controls available in either view. */
+/** Pickers opened in the dialog are portaled out of it, past its focus trap, so Tab wraps within them. */
+function keepTabInPicker(event: ReactKeyboardEvent, dialogContent: Element | null) {
+  let picker = event.target as Element | null;
+  while (picker?.parentElement && picker.parentElement !== document.body)
+    picker = picker.parentElement;
+  if (!picker || picker.contains(dialogContent)) return;
+  const controls = [
+    ...picker.querySelectorAll<HTMLElement>(
+      "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
+    ),
+  ].filter((control) => !control.hasAttribute("disabled"));
+  const at = controls.indexOf(document.activeElement as HTMLElement);
+  if (event.shiftKey ? at > 0 : at !== controls.length - 1) return;
+  event.preventDefault();
+  (event.shiftKey ? controls.at(-1) : controls[0])?.focus();
+}
+
 export function CanvasComposer({
   children,
   className,
@@ -225,7 +242,10 @@ export function CanvasComposer({
   // The dialog is portaled, but its keys still reach the node and canvas
   // through React. Tab stays with the dialog's focus trap.
   const keyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Tab") return;
+    if (event.key === "Tab") {
+      keepTabInPicker(event, editor.current);
+      return;
+    }
     event.stopPropagation();
     if (
       event.key === "Escape" &&

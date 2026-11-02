@@ -9,7 +9,6 @@ import {
   CanvasTextComposer,
 } from "../src/renderer/canvas-text-composer.js";
 import { VideoReferencePrompt } from "../src/renderer/video-reference-prompt.js";
-import { CanvasChipSelect } from "../src/renderer/canvas-chip-select.js";
 
 const model: AgentModel = {
   provider: "test",
@@ -201,33 +200,25 @@ it("keeps the prompt and settings when expanded, traps focus and restores the ex
   last.focus();
   await act(async () => last.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
   expect(document.activeElement).toBe(dialog.querySelector("button"));
+  // A picker opened here is portaled out of the dialog, and Tab stays in it.
+  const tab = async (target: HTMLElement, shiftKey = false) => {
+    target.focus();
+    await act(async () => target.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true })));
+  };
+  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-haspopup]')!.click());
+  const picker = document.querySelector<HTMLElement>(".model-picker")!;
+  expect(dialog.contains(picker)).toBe(false);
+  const controls = [...picker.querySelectorAll<HTMLElement>("button, input")];
+  expect(controls.length).toBeGreaterThan(1);
+  await tab(controls.at(-1)!);
+  expect(document.activeElement).toBe(controls[0]);
+  await tab(controls[0]!, true);
+  expect(document.activeElement).toBe(controls.at(-1));
+  await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  expect(document.querySelector(".model-picker")).toBeNull();
   await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(host.querySelector("textarea")!.value).toBe("Edited expanded draft");
   expect(document.activeElement).toBe(host.querySelector('[aria-label="Expand prompt editor"]'));
   expect(generate).not.toHaveBeenCalled();
-});
-
-it("returns focus to a chip when Tab leaves its menu, which is portaled out of any dialog", async () => {
-  await render(<CanvasChipSelect label="Aspect ratio" value="1:1" options={[{ value: "1:1", label: "Square" }, { value: "16:9", label: "Wide" }]} onChange={vi.fn()} />);
-  const chip = document.querySelector<HTMLButtonElement>("button")!;
-  const menu = () => document.querySelector(".canvas-chip-menu");
-  const tab = async (target: HTMLElement, shiftKey = false) => {
-    target.focus();
-    const event = new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true });
-    await act(async () => target.dispatchEvent(event));
-    return event.defaultPrevented;
-  };
-  await act(async () => chip.click());
-  const [first, last] = [...menu()!.querySelectorAll<HTMLButtonElement>('[role="option"]')];
-  // Within the menu, Tab moves as usual.
-  expect(await tab(first!)).toBe(false);
-  expect(menu()).not.toBeNull();
-  expect(await tab(last!)).toBe(true);
-  expect(menu()).toBeNull();
-  expect(document.activeElement).toBe(chip);
-  await act(async () => chip.click());
-  expect(await tab(menu()!.querySelector<HTMLButtonElement>('[role="option"]')!, true)).toBe(true);
-  expect(menu()).toBeNull();
-  expect(document.activeElement).toBe(chip);
 });
