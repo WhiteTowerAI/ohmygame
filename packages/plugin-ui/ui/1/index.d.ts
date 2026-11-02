@@ -382,6 +382,66 @@ export interface OmgDividerAttributes {
   label?: string;
 }
 
+/** `<omg-image src alt ratio fit pixelated checker>`: a picture, on a raised surface until it loads and with a mark when it can't. With `ratio` it fills a frame of that shape; without, it is drawn at its own size, at most as wide as its place. */
+export interface OmgImageElement extends HTMLElement {
+  /** It has loaded, or failed to. */
+  readonly complete: boolean;
+  /** The picture's own height in pixels; 0 until it loads. */
+  readonly naturalHeight: number;
+  /** The picture's own width in pixels; 0 until it loads. */
+  readonly naturalWidth: number;
+}
+
+/** The attributes of `<omg-image>`, as a page writes them. */
+export interface OmgImageAttributes {
+  /** What it shows, for people who can't see it; leave it empty for a decoration. */
+  alt?: string;
+  /** Draws a checkerboard behind it, to show where it is transparent. */
+  checker?: boolean;
+  /** How the picture fills a frame of another shape: whole, or cropped to fill it. Whole by default. */
+  fit?: "contain" | "cover";
+  /** Scales pixel art without smoothing it. */
+  pixelated?: boolean;
+  /** The frame's shape, such as `16/9` or `1`; the picture's own by default. */
+  ratio?: string;
+  /** The picture's address: a file in the plugin's package, or a `data:` or `blob:` URL. */
+  src?: string;
+}
+
+/** `<omg-tile heading description badge src ratio selected disabled>`: a picture with its name and a line under it, such as an asset in a grid. It is a button: a click on it is the person picking it, and `selected` marks the one picked. */
+export interface OmgTileElement extends HTMLElement {
+  /** The `disabled` attribute. */
+  disabled: boolean;
+  /** The `selected` attribute. */
+  selected: boolean;
+}
+
+/** The attributes of `<omg-tile>`, as a page writes them. */
+export interface OmgTileAttributes {
+  /** What the picture shows, when the name doesn't say; empty by default. */
+  alt?: string;
+  /** A few words over the picture's corner, such as a duration. */
+  badge?: string;
+  /** As for `omg-image`. */
+  checker?: boolean;
+  /** A line under the name, such as its size or kind. */
+  description?: string;
+  /** It can't be picked. */
+  disabled?: boolean;
+  /** As for `omg-image`; cropped to fill by default. */
+  fit?: "contain" | "cover";
+  /** Its name, on one line. */
+  heading?: string;
+  /** As for `omg-image`. */
+  pixelated?: boolean;
+  /** The picture's shape, as for `omg-image`; `4/3` by default. */
+  ratio?: string;
+  /** It is the one picked. */
+  selected?: boolean;
+  /** The picture, as for `omg-image`. */
+  src?: string;
+}
+
 /** `<omg-tabs value aria-label>`: shows one of its `omg-tab` children, with a row of their headings above. Arrow keys, Home and End move between tabs. A page listens for `omg-tab-change`, since `change` would also come up from the controls inside a tab. */
 export interface OmgTabsElement extends HTMLElement {
   /** The open tab's name. */
@@ -436,6 +496,8 @@ declare global {
     "omg-list": OmgListElement;
     "omg-list-item": OmgListItemElement;
     "omg-divider": OmgDividerElement;
+    "omg-image": OmgImageElement;
+    "omg-tile": OmgTileElement;
     "omg-tabs": OmgTabsElement;
     "omg-tab": OmgTabElement;
   }

@@ -528,7 +528,7 @@ can go in the next major.
 | `omg-grid` | Equal columns, as many as fit at `min` pixels, or exactly `columns`. `gap`. |
 | `omg-split` | A sidebar (slot `sidebar`) beside the content, stacked when narrow. `side`: `start`, `end`; `side-width`. |
 | `omg-card` | A raised surface. `heading`, `description`; slot `actions`. |
-| `omg-list`, `omg-list-item` | Rows. An item's `heading` and `description`, its content as a value at the end; slots `leading` and `actions`. |
+| `omg-list`, `omg-list-item` | Rows. An item's `heading` and `description`, its content as a value at the end; slots `leading` (an `omg-image` there is a 40px thumbnail) and `actions`. |
 | `omg-divider` | A line between groups. `label`. |
 | `omg-tabs`, `omg-tab` | One view at a time. `value` names the open tab; each `omg-tab` has a `name`, a `heading` and maybe `disabled`. Fires `omg-tab-change`. |
 | `omg-steps`, `omg-step` | A numbered flow. A step's `state` is `pending`, `current`, `done` or `error`; a current or failed step, or one that is `open`, shows its content. Slot `summary` always shows. |
@@ -544,6 +544,8 @@ can go in the next major.
 | `omg-select` | The app's dropdown over its `<option>` children. `value`. |
 | `omg-segmented` | A few choices side by side, from its `<option>` children. `value`. |
 | `omg-switch`, `omg-checkbox` | On or off. `checked`. A switch acts at once; a checkbox goes with the rest of a form. |
+| `omg-image` | A picture, on a raised surface until it loads and with a mark if it can't. `src`, `alt`, `ratio` (such as `16/9`) for a frame of that shape, `fit`: `contain`, `cover`; `pixelated`; `checker` behind transparent parts. Fires `load` and `error`. |
+| `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
 
 Form controls also share `label` or `aria-label`, `hint`, `error` and `disabled`, and fire `change` and `input`.
 
@@ -551,8 +553,8 @@ The components connect to the app themselves, so a page may use them
 without calling `connect()`.
 
 Each component's doc comment is its contract: tags such as `@attr`,
-`@prop`, `@fires`, `@slot`, `@part` and `@cssprop` list what a page may rely
-on, and anything else in its Shadow DOM may change in any release.
+`@prop`, `@readonly`, `@fires`, `@slot`, `@part` and `@cssprop` list what a
+page may rely on, and anything else in its Shadow DOM may change in any release.
 `bun run plugin-ui:contract` writes them to
 `packages/plugin-ui/ui/<major>/custom-elements.json`, a
 [Custom Elements Manifest](https://github.com/webcomponents/custom-elements-manifest)

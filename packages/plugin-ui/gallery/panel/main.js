@@ -1,5 +1,5 @@
 // The gallery's own behaviour: moving the steps, showing command results,
-// the chosen option and log lines. The components connect themselves.
+// the chosen option, log lines and the picked tile. The components connect themselves.
 import { connect } from "/_ohmygame/plugin-ui.js";
 
 const steps = [...document.querySelectorAll("#steps > omg-step")];
@@ -77,3 +77,10 @@ demoTabs.addEventListener("omg-tab-change", (event) => (demoTab.textContent = `O
 
 const typed = document.getElementById("typed");
 document.getElementById("name").addEventListener("input", (event) => (typed.textContent = `Typed: “${event.target.value}”`));
+
+const tiles = document.getElementById("tiles");
+tiles.addEventListener("click", (event) => {
+  const tile = event.target instanceof Element ? event.target.closest("omg-tile") : null;
+  if (!tile || tile.disabled) return;
+  for (const other of tiles.querySelectorAll("omg-tile")) other.selected = other === tile;
+});
