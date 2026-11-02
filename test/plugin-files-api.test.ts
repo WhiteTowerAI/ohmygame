@@ -193,6 +193,22 @@ describe("plugin page files API", () => {
     expect(lockedPut.statusCode, lockedPut.body).toBe(403);
     expect((await app.inject({ method: "DELETE", url: `${base}?path=locked.txt` })).statusCode).toBe(403);
     await chmod(workspace("locked.txt"), 0o644);
+    // Nor anything in a folder it can't list, which it leaves out whole.
+    await mkdir(workspace("private"));
+    await writeFile(workspace("private/save.txt"), "save");
+    await writeFile(workspace("loose.txt"), "loose");
+    await chmod(workspace("private"), 0o300);
+    const unlisted = [
+      await put("private/save.txt", "x"),
+      await put("private/new/file.txt", "x"),
+      await app.inject({ method: "DELETE", url: `${base}?path=private/save.txt` }),
+      await app.inject({ method: "POST", url: `${base}/move`, payload: { from: "loose.txt", to: "private/loose.txt" } }),
+      await app.inject({ method: "POST", url: `${base}/folder`, payload: { path: "private/more" } }),
+    ];
+    await chmod(workspace("private"), 0o755);
+    expect(unlisted.map((reply) => reply.statusCode)).toEqual([403, 403, 403, 403, 403]);
+    expect(await readFile(workspace("private/save.txt"), "utf8")).toBe("save");
+    expect(await readFile(workspace("loose.txt"), "utf8")).toBe("loose");
     // A link to itself is refused without saying where the project is.
     await symlink("loop", workspace("loop"));
     const loop = await app.inject({ method: "GET", url: `${base}/content?path=loop` });

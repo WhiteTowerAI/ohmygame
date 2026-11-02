@@ -182,11 +182,29 @@ async function assertKept(absolute: string, shown: string, stats: Stats): Promis
   if (stats.isSymbolicLink() || !(stats.isFile() || stats.isDirectory())) throw new PluginFileError(`${shown} is a link or not a plain file, so a page can't change it`, 403);
   // Undo would bring back another name's contents as a file of its own, which the page could then read.
   if (stats.isFile() && stats.nlink > 1) throw new PluginFileError(`${shown} has other names, so a page can't change it`, 403);
-  // A snapshot leaves out what it can't read, so Undo couldn't bring it back.
+  // A snapshot leaves out what it can't read, or a folder it can't list, so Undo couldn't bring it back.
   try {
-    await access(absolute, constants.R_OK);
+    await access(absolute, constants.R_OK | (stats.isDirectory() ? constants.X_OK : 0));
   } catch {
     throw new PluginFileError(`${shown} can't be read, so Undo couldn't bring it back`, 403);
+  }
+}
+
+/**
+ * Refuses a path below a folder the snapshots can't list, which they leave
+ * out with everything in it, so Undo would never see the change. Folders
+ * not there yet are made by the change, and can be.
+ */
+async function assertListed(workspacePath: string, relative: string): Promise<void> {
+  const folders = relative.split("/").slice(0, -1);
+  for (let depth = 0; depth <= folders.length; depth++) {
+    const shown = folders.slice(0, depth).join("/");
+    try {
+      await access(path.join(workspacePath, ...folders.slice(0, depth)), constants.R_OK | constants.X_OK);
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw new PluginFileError(`${shown || "The project folder"} can't be listed, so Undo couldn't bring back what is in it`, 403);
+    }
   }
 }
 
@@ -196,6 +214,7 @@ async function assertKept(absolute: string, shown: string, stats: Stats): Promis
  * is there: nothing, or its details and, for a folder, the paths inside it.
  */
 async function assertChangeable(workspacePath: string, relative: string, covers: ReturnType<typeof checkpointCoverage>): Promise<{ stats: Stats; inside: string[] } | undefined> {
+  await assertListed(workspacePath, relative);
   let absolutePath: string;
   try {
     ({ absolutePath } = await resolveWorkspaceEntry(workspacePath, relative));
@@ -261,6 +280,7 @@ export async function createPluginFolder(workspacePath: string, requested: strin
   const relative = writablePath(requested);
   // A folder that is there already doesn't change, so only the new one needs to be kept.
   if (!(await checkpointCoverage(workspacePath)(relative, true))) throw new PluginFileError(NOT_KEPT, 403);
+  await assertListed(workspacePath, relative);
   await ensureFolder(workspacePath, relative);
   return relative;
 }
@@ -280,6 +300,7 @@ export async function movePluginFile(workspacePath: string, from: string, to: st
   const { inside } = found;
   // Where it goes must be kept too, everything in it included.
   if (!(await covers(target, folder))) throw new PluginFileError(`${target}: ${NOT_KEPT}`, 403);
+  await assertListed(workspacePath, target);
   for (const child of inside) if (!(await covers(`${target}/${child}`, false))) throw new PluginFileError(`${target}/${child}: ${NOT_KEPT}`, 403);
   const parent = path.posix.dirname(target);
   if (parent !== ".") await ensureFolder(workspacePath, parent);

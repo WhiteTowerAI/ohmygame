@@ -473,17 +473,19 @@ The app also draws around and over a page, with what a page can't change:
   nor an agent's or editor's settings, follows no link, and reads no file
   that has another name (a hard link). It can't change `ohmygame.json`, an
   agent's instructions (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and variants
-  such as `AGENTS.override.md` or `CLAUDE.local.md`), or Canvas files, and a move never
-  replaces anything. Each change is one the person can undo, as a plugin
-  command's is, so a page changes only what the project's
+  such as `AGENTS.override.md` or `CLAUDE.local.md`), or Canvas files, and a
+  move never replaces anything. Each change is one the person can undo, as a
+  plugin command's is, so a page changes only what the project's
   [snapshots](checkpoints.md) keep: not what a `.gitignore` leaves out, nor
   `node_modules` or root build output. A folder it moves or deletes may hold
   only such files, with no links, hidden files (besides `.gitkeep`, `.keep`
-  and `.DS_Store`; a `.gitignore` decides what Undo keeps, so it stays) or agent instructions. A replaced file
-  keeps its permissions. A change to a file that can't be read, has other
-  names, or isn't a plain file is refused. Snapshots don't keep empty
-  folders, so making or removing one isn't in the history. A recursive listing leaves out `build`, `dist`,
-  `node_modules` and `out` and stops at 10,000 entries; a write is at most
+  and `.DS_Store`; a `.gitignore` decides what Undo keeps, so it stays) or
+  agent instructions. A replaced file keeps its permissions. A change to a
+  file that can't be read, has other names, isn't a plain file, or is in a
+  folder that can't be listed is refused. Snapshots don't keep empty
+  folders, so making or removing one isn't in the history. A recursive
+  listing leaves out `build`, `dist`, `node_modules` and `out` and stops at
+  10,000 entries; a write is at most
   200 MB. The agent hears of each change, and while an agent, a job or
   publishing works in the project a change is refused. The page hears a
   `files` event when the project's files may have changed.
