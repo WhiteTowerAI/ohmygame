@@ -831,13 +831,14 @@ const setPicking = (active) => {
 // replaced when the game restarts itself. Only ids and values reach it.
 const tuningWanted = new Map();
 let tuningApplied = new Map();
+let tuningGame;
 let tuningSetter;
 let tuningReported = false;
 let tuningTimer;
 const applyTuning = () => {
   const game = window.__OHMYGAME_TUNING__;
   if (!game || typeof game.set !== 'function') return;
-  if (game.set !== tuningSetter) { tuningSetter = game.set; tuningApplied = new Map(); }
+  if (game !== tuningGame || game.set !== tuningSetter) { tuningGame = game; tuningSetter = game.set; tuningApplied = new Map(); }
   if (!tuningReported) { tuningReported = true; send({ type: 'tuning' }); }
   for (const [id, value] of tuningWanted) {
     if (tuningApplied.get(id) === value) continue;
