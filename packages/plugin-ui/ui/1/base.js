@@ -50,7 +50,7 @@ export class OmgElement extends HTMLElement {
   static delegatesFocus = false;
   /** What to use instead, when the component is deprecated; matches its `@deprecated` tag. */
   static deprecated = undefined;
-  /** What to use instead of each deprecated attribute; matches its `@deprecated attr` tags. */
+  /** What to use instead of each deprecated attribute; matches its `@deprecated attr` tags. Each must be observed, to warn when a script sets it later. */
   static deprecatedAttributes = {};
 
   constructor() {

@@ -476,8 +476,9 @@ To retire something inside a major, keep it working and mark it: `@deprecated
 what to use instead` on a component, or `@deprecated attr name - what to use
 instead` on one of its members (also `prop`, `method`, `fires`, `slot`, `part`,
 `cssprop`). The same words go in the component's static `deprecated` and
-`deprecatedAttributes`, which warn once in the page's console. It can go in the
-next major.
+`deprecatedAttributes`, which warn once in the page's console; a deprecated
+attribute must stay in `observedAttributes` so setting it later warns too. It
+can go in the next major.
 
 | Component | What it is |
 | --- | --- |

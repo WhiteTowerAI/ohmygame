@@ -341,8 +341,9 @@ describe("page components' contract", () => {
   it("warns once when a page uses what is deprecated, and says so wherever the contract does", async () => {
     for (const major of PLUGIN_UI_MAJORS)
       for (const item of declarations(await componentManifest(major))) {
-        const type = customElements.get(item.tagName) as unknown as { deprecated?: string; deprecatedAttributes: Record<string, string> };
+        const type = customElements.get(item.tagName) as unknown as { deprecated?: string; deprecatedAttributes: Record<string, string>; observedAttributes?: string[] };
         expect(type.deprecated, item.tagName).toBe(item.deprecated);
+        expect(Object.keys(type.deprecatedAttributes).filter((name) => !type.observedAttributes?.includes(name)), item.tagName).toEqual([]);
         expect(type.deprecatedAttributes, item.tagName).toEqual(
           Object.fromEntries(item.attributes.filter((attribute) => attribute.deprecated).map((attribute) => [attribute.name, attribute.deprecated])),
         );
