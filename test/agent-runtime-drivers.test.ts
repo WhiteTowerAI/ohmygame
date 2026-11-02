@@ -104,6 +104,7 @@ function recordingSink(
   ) => "allow" | "allow-always" | "deny" = () => "deny",
 ) {
   const calls: string[] = [];
+  const spent: string[] = [];
   const results = new Map<
     string,
     { result: NativeToolResult; isError: boolean }
@@ -129,6 +130,10 @@ function recordingSink(
       calls.push(
         `usage:${usage.input}:${usage.output}:${contextWindow ?? ""}:${tokens ?? ""}`,
       ),
+    spent: (usage, model) =>
+      spent.push(
+        `${usage.input}:${usage.output}:${usage.cacheRead}:${usage.cacheWrite}${model ? `:${model}` : ""}`,
+      ),
     compaction: (phase) => calls.push(`compaction:${phase}`),
     nativeSession: (id) => {
       sessionId = id;
@@ -138,7 +143,7 @@ function recordingSink(
       return decide(details);
     },
   };
-  return { sink, calls, results, asked, sessionId: () => sessionId };
+  return { sink, calls, spent, results, asked, sessionId: () => sessionId };
 }
 
 async function context(
@@ -1081,6 +1086,8 @@ describe("Claude Code adapter", () => {
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
       CLAUDE_CODE_DISABLE_CRON: "1",
     });
+    // The turn's total, under the one model the agent reports.
+    expect(recorded.spent).toEqual(["14:9:186:0:sonnet"]);
     expect(recorded.sessionId()).toBe("claude-session-1");
     expect(recorded.calls).toEqual([
       "text:m1:0:Checking",
@@ -2038,6 +2045,8 @@ describe("Codex adapter", () => {
         { type: "image", url: "data:image/png;base64,AAAA" },
       ],
     });
+    // The first report of a thread counts its latest request.
+    expect(recorded.spent).toEqual(["10:5:20:0"]);
     expect(recorded.sessionId()).toBe("thread-1");
     expect(recorded.calls).toEqual([
       "text:msg-1:Working",
@@ -2414,6 +2423,7 @@ describe("OpenCode adapter", () => {
       },
     });
     expect(recorded.asked).toEqual([]);
+    expect(recorded.spent).toEqual(["30:4:10:0"]);
     expect(recorded.sessionId()).toBe("opencode-v2:ses_1");
     expect(recorded.calls).toEqual([
       "thinking:msg_a:reasoning:0:Thinking",

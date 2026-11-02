@@ -31,7 +31,7 @@ import {
   acquireCodexServer,
   type CodexServerLease,
 } from "./codex-server-pool.js";
-import { NativeSessionExpiredError } from "./native-session.js";
+import { NativeSessionExpiredError, type NativeUsage } from "./native-session.js";
 import type { AgentContextUsage } from "../../shared/contracts.js";
 import { runtimeStartupError } from "./compatibility.js";
 import { importCodexImage } from "./codex-images.js";
@@ -71,6 +71,8 @@ export class CodexDriver implements NativeDriver {
   #lease?: CodexServerLease;
   #starting?: Promise<CodexAppServer>;
   #threadId?: string;
+  /** The thread's running total at the last report, to tell what each request spent. */
+  #countedTotal?: { threadId?: string; usage: NativeUsage };
   #turn?: CodexTurn;
   #bridged = new BridgeResults();
 
@@ -336,6 +338,25 @@ export class CodexDriver implements NativeDriver {
         // which is what the context holds and what a stored message records.
         const usage = record(params.tokenUsage);
         const last = record(usage?.last);
+        const total = record(usage?.total);
+        // The total's growth is what was spent, even when a report repeats;
+        // the first report seen for a thread falls back to its latest request.
+        if (total) {
+          const now = codexUsage(total);
+          const before =
+            this.#countedTotal?.threadId === this.#threadId
+              ? this.#countedTotal?.usage
+              : undefined;
+          this.#countedTotal = { threadId: this.#threadId, usage: now };
+          if (before && grewFrom(before, now))
+            sink.spent({
+              input: now.input - before.input,
+              output: now.output - before.output,
+              cacheRead: now.cacheRead - before.cacheRead,
+              cacheWrite: now.cacheWrite - before.cacheWrite,
+            });
+          else if (!before && last) sink.spent(codexUsage(last));
+        } else if (last) sink.spent(codexUsage(last));
         if (last) {
           sink.usage(
             {
@@ -870,4 +891,23 @@ function refusal(
     default:
       return { decision: "decline" };
   }
+}
+
+function codexUsage(usage: Record<string, unknown>): NativeUsage {
+  const cached = number(usage.cachedInputTokens);
+  return {
+    input: Math.max(0, number(usage.inputTokens) - cached),
+    output: number(usage.outputTokens),
+    cacheRead: cached,
+    cacheWrite: number(usage.cacheWriteInputTokens),
+  };
+}
+
+function grewFrom(before: NativeUsage, now: NativeUsage): boolean {
+  return (
+    now.input >= before.input &&
+    now.output >= before.output &&
+    now.cacheRead >= before.cacheRead &&
+    now.cacheWrite >= before.cacheWrite
+  );
 }

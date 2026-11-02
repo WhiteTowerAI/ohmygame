@@ -28,6 +28,7 @@ import Fastify, { LogController, type FastifyReply, type FastifyRequest } from "
 import { daemonLoggerOptions, logFailedRequests } from "./request-log.js";
 import { ActivityLog } from "./activity-log.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
+import { registerUsageRoutes, UsageIndex } from "./usage-stats.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
@@ -2719,6 +2720,7 @@ export function createApp(options: AppOptions = {}) {
     return [...providers, ...directProviders, codex, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get("/settings/providers", providerSummaries);
+  registerUsageRoutes(app, new UsageIndex(() => projects.list()), providerSummaries);
   registerDiagnosticsRoutes(app, {
     logDirectory: options.logDirectory,
     summary: async () => {

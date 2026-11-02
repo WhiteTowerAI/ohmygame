@@ -53,6 +53,23 @@ are `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
 **Import project**: the archive layout and manifest, what an export leaves out,
 and how an import becomes a new project.
 
+**Settings → Account** shows agents' token use and time whether or not someone
+is signed in: totals, a year of daily activity, use by model and project, and an
+image to share in three layouts, with the signed-in person's avatar and name
+unless they hide them. `src/daemon/usage-stats.ts` reads active and archived
+session files in chunks, decoding a line whole only when its first bytes show
+it may hold usage, counting a response copied into a branch once, and reading
+files again only from where they grew. OhMyGame's agent counts the usage
+each assistant message recorded. A coding agent's stored messages repeat the
+latest request's usage for the context meter, so its tokens come from separate
+`ohmygame-native-usage` entries that the drivers write once per request (Codex,
+OpenCode) or turn (Claude Code); conversations from before those entries count
+only time. A turn's time runs from the person's message to the agent's last
+entry for it, leaving out pauses over 15 minutes. Title and media generation are
+not in conversations. Summaries live in `src/shared/usage-stats.ts`, the page in
+`src/renderer/usage-stats.tsx` and the card in `src/renderer/usage-card.tsx`;
+the suites are `test/usage-stats.test.ts` and `test/usage-settings-ui.test.tsx`.
+
 | Document                                         | Purpose                                                                                                                        |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | [runtime.md](runtime.md)                         | Process boundaries, toolchains, proxies, trust boundary, game use, persistence, and publishing.                                |
