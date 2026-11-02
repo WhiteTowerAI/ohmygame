@@ -5,6 +5,7 @@
 //
 //   @attr {type} name - description         an attribute
 //   @prop {type} name - description         a property
+//   @readonly {type} name - description     a property a page only reads
 //   @method {returns} name - description    a method that takes no arguments
 //   @fires {detail} name - description      an event; without a detail, a plain Event
 //   @slot name - description                a slot; `@slot - …` is the default slot
@@ -43,6 +44,8 @@ interface CssProperty extends Named {
 }
 interface Member extends Typed {
   kind: "field" | "method";
+  /** A field a page only reads. */
+  readonly?: true;
   /** A method's return type; a field's type is `type`. */
   return?: { type: { text: string } };
   inheritedFrom?: { name: string; module: string };
@@ -158,6 +161,9 @@ export function parseComment(comment: string, name: string, superclass: string, 
       case "prop":
         parsed.members.push({ kind: "field", ...entry, ...(type ? { type: { text: type } } : {}) });
         break;
+      case "readonly":
+        parsed.members.push({ kind: "field", ...entry, ...(type ? { type: { text: type } } : {}), readonly: true });
+        break;
       case "method":
         if (!/^[A-Za-z_$][\w$]*$/.test(tagName)) throw new Error(`${name}: @method ${tagName} takes a name, and its {return type}`);
         parsed.members.push({ kind: "method", ...entry, return: { type: { text: type ?? "void" } } });
@@ -261,10 +267,10 @@ export function componentTypes(manifest: ComponentManifest): string {
     const parent = base ? element(base.name) : "HTMLElement";
     out += doc(item.description, "", item.deprecated);
     // What the parent's interface already declares, the same way.
-    const members = item.members.filter((entry) => !base?.members.some((other) => other.name === entry.name && other.kind === entry.kind && memberType(other) === memberType(entry) && other.deprecated === entry.deprecated));
+    const members = item.members.filter((entry) => !base?.members.some((other) => other.name === entry.name && other.kind === entry.kind && memberType(other) === memberType(entry) && other.readonly === entry.readonly && other.deprecated === entry.deprecated));
     out += `export interface ${element(item.name)} extends ${parent} {${members.length ? "\n" : ""}`;
     for (const member of members)
-      out += doc(member.description, "  ", member.deprecated) + (member.kind === "method" ? `  ${key(member.name)}(): ${memberType(member)};\n` : `  ${key(member.name)}: ${memberType(member)};\n`);
+      out += doc(member.description, "  ", member.deprecated) + (member.kind === "method" ? `  ${key(member.name)}(): ${memberType(member)};\n` : `  ${member.readonly ? "readonly " : ""}${key(member.name)}: ${memberType(member)};\n`);
     out += "}\n\n";
     out += `/** The attributes of \`<${item.tagName}>\`, as a page writes them. */\n`;
     out += `export interface ${item.name}Attributes {\n`;
@@ -341,6 +347,9 @@ export function contractChanges(before: ComponentManifest, after: ComponentManif
           if (kind === "attributes" && was && is && [...was].every((value) => is.has(value))) added.push(`${label} takes ${[...is].filter((value) => !was.has(value)).map((value) => JSON.stringify(value)).join(", ")}`);
           else breaking.push(`${label} changed from ${typeOf(item) ?? "untyped"} to ${typeOf(next) ?? "untyped"}`);
         }
+        // A page that sets a property breaks when it becomes read-only, not the other way.
+        if (next && "readonly" in next && next.readonly && !("readonly" in item && item.readonly)) breaking.push(`${label} became read-only`);
+        else if (next && "readonly" in item && item.readonly && !("readonly" in next && next.readonly)) added.push(`${label} can be set`);
         if (next && next.deprecated && !item.deprecated) added.push(`${label} is deprecated: ${next.deprecated}`);
         items.delete(item.name);
       }

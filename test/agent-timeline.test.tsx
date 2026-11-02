@@ -1078,6 +1078,49 @@ describe("AgentTimeline", () => {
     expect(renderToStaticMarkup(<AgentTimeline items={[user(), read("read-2"), assistant("final", "Done.", "final_answer")]} />)).toContain('class="tool-result-images"');
   });
 
+  it("opens a chat image larger, closes it, and offers copy and save on right-click", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const data = (text: string) => Buffer.from(text).toString("base64");
+    const read: ThreadItem = {
+      id: "read-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "read-1", tool: "read", status: "completed",
+      arguments: { path: "shots" }, output: "Read 2 images",
+      images: [{ mediaType: "image/png", data: data("first") }, { mediaType: "image/png", data: data("second") }],
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const preview = () => document.querySelector<HTMLElement>(".image-preview");
+    const thumbnail = () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Tool result image 2"]')!;
+    try {
+      await act(async () => root.render(<AgentTimeline items={[user(), read, assistant("final", "Done.", "final_answer")]} />));
+      await act(async () => thumbnail().click());
+      expect(preview()?.getAttribute("aria-label")).toBe("Tool result image 2");
+      // Decoded from the image's own data, which the app may not fetch.
+      await vi.waitFor(() => expect(preview()?.querySelector("img")?.getAttribute("src")).toMatch(/^blob:/));
+      // Nothing in the preview takes focus, so Tab and Shift+Tab keep it there.
+      for (const shiftKey of [false, true]) {
+        const tab = new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true });
+        act(() => { preview()!.dispatchEvent(tab); });
+        expect(tab.defaultPrevented).toBe(true);
+        expect(document.activeElement).toBe(preview());
+      }
+      await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+      expect(preview()).toBeNull();
+
+      await act(async () => thumbnail().click());
+      await act(async () => document.querySelector<HTMLElement>(".image-preview-backdrop")!.click());
+      expect(preview()).toBeNull();
+
+      await act(async () => { thumbnail().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })); });
+      const menu = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent);
+      expect(menu).toEqual(["Copy image", "Save image"]);
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps the generic MCP icon when unknown integrations are grouped", () => {
     const mcpTool = (id: string, operation: string): ThreadItem => ({
       id,

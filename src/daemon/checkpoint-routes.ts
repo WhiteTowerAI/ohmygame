@@ -48,6 +48,7 @@ export function registerCheckpointRoutes(
   // Upgrading a story and copying its Library media take the workspace to themselves, as Undo does.
   // So do plugin commands and undoing their changes; plugin pages' storage and lists aren't workspace files.
   // So does saving tuned values, whose drafts aren't workspace files and move during a snapshot.
+  // So do a plugin page's changes to files; its reads wait like any other.
   const exempt = (url: string) =>
     /\/checkpoints\/|\/events(?:\?|$)/.test(url) ||
     /\/cancel(?:\?|$)/.test(url) ||
@@ -55,7 +56,9 @@ export function registerCheckpointRoutes(
     /\/plugin-(?:commands|changes|storage|panels)(?:\/|\?|$)/.test(url);
   // By route: a raw URL can spell the path another way, and holding the workspace would deadlock the save.
   const exemptRequest = (request: FastifyRequest) =>
-    exempt(request.url) || /^\/projects\/:projectId\/tuning(?:\/|$)/.test(request.routeOptions.url ?? "");
+    exempt(request.url) ||
+    /^\/projects\/:projectId\/tuning(?:\/|$)/.test(request.routeOptions.url ?? "") ||
+    (request.method !== "GET" && request.method !== "HEAD" && (request.routeOptions.url ?? "").startsWith("/projects/:projectId/plugin-files/"));
   app.addHook("preHandler", async (request, reply) => {
     const id = (request.params as { projectId?: string }).projectId;
     if (!id) return;

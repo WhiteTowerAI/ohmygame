@@ -335,7 +335,7 @@ class OmgList extends OmgElement {
  *
  * @attr {string} heading - The row's title.
  * @attr {string} description - A line under the title.
- * @slot leading - An icon or picture before the title.
+ * @slot leading - An icon or picture before the title; an `omg-image` is drawn as a 40px thumbnail.
  * @slot - The row's value, at its end.
  * @slot actions - Buttons at its end, after the value.
  * @part leading - The leading place; hidden when empty.
@@ -351,6 +351,10 @@ class OmgListItem extends OmgTextWatcher {
       :host { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); min-width: 0; padding: var(--space-3) 0; }
       :host(:not(:last-child)) { box-shadow: inset 0 -1px 0 var(--color-border); }
       .leading { flex: none; display: flex; }
+      /* An omg-image before the title is a thumbnail, whatever its picture's size; what doesn't fit is cut off. */
+      ::slotted(omg-image[slot="leading"]) {
+        width: 40px; height: 40px; flex: none; overflow: hidden; border-radius: var(--radius-md); --omg-image-radius: var(--radius-md);
+      }
       .titles { flex: 1 1 160px; min-width: 0; display: grid; gap: 2px; overflow-wrap: anywhere; }
       .heading { margin: 0; font-weight: var(--weight-medium); }
       .description { margin: 0; color: var(--color-text-secondary); font-size: var(--text-sm); }

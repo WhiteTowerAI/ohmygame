@@ -111,6 +111,7 @@ import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, re
 import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError, type AppWideProject } from "./plugin-services.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 import { isAppWidePlugin, isPluginId } from "../shared/plugin-manifest.js";
+import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
@@ -1508,6 +1509,96 @@ export function createApp(options: AppOptions = {}) {
       if (cause instanceof PluginPageStorageError) return reply.code(400).send({ error: cause.message });
       throw cause;
     }
+  });
+
+  // A plugin page's use of its project's files. The app's frame refuses a page
+  // without `project.files`; this holds for anything else that reaches here.
+  const pluginFileBase = "/projects/:projectId/plugin-files/:publisher/:name";
+  type PluginFileParams = { projectId: string; publisher: string; name: string };
+  const pagePluginFiles = async (params: PluginFileParams, need: "read" | "write") => {
+    const project = projects.get(params.projectId);
+    if (!project) return undefined;
+    const id = `${params.publisher}/${params.name}`;
+    const panel = (await pluginServices.panels(project.workspacePath)).find((item) => item.plugin === id);
+    const allowed = panel?.capabilities["project.files"];
+    return allowed === "write" || allowed === need ? { project, id } : undefined;
+  };
+  const pluginFileReply = (reply: { code(status: number): { send(body: unknown): unknown } }, cause: unknown) => {
+    if (cause instanceof PluginFileError || cause instanceof ProjectAssetError) return reply.code(cause.statusCode).send({ error: cause.message });
+    if (cause instanceof WorkspaceError) return reply.code(cause.code === "ENOENT" ? 404 : 400).send({ error: cause.message });
+    if (cause instanceof PluginChangeError) return reply.code(cause.statusCode).send({ error: cause.message });
+    // What the file system refuses is the page's to hear about, not the daemon's failure.
+    // Its message names paths on this computer, which a page has no business knowing.
+    const { code, syscall } = cause as NodeJS.ErrnoException;
+    if (code && syscall) {
+      const status = ({ EACCES: 403, EPERM: 403, ENOENT: 404, EEXIST: 409, ENOTEMPTY: 409 } as Record<string, number>)[code] ?? 400;
+      return reply.code(status).send({ error: status === 403 ? "This file or folder can't be read or changed" : `The file system refused this (${code})` });
+    }
+    throw cause;
+  };
+  const NO_PLUGIN_FILES = { error: "This plugin has no such access to this project's files" };
+  app.get<{ Params: PluginFileParams; Querystring: { path?: string; recursive?: string } }>(pluginFileBase, async (request, reply) => {
+    const found = await pagePluginFiles(request.params, "read");
+    if (!found) return reply.code(403).send(NO_PLUGIN_FILES);
+    try {
+      return await listPluginFiles(found.project.workspacePath, { folder: request.query.path, recursive: request.query.recursive === "true" });
+    } catch (cause) {
+      return pluginFileReply(reply, cause);
+    }
+  });
+  app.get<{ Params: PluginFileParams; Querystring: { path?: string } }>(`${pluginFileBase}/content`, async (request, reply) => {
+    const found = await pagePluginFiles(request.params, "read");
+    if (!found) return reply.code(403).send(NO_PLUGIN_FILES);
+    if (!request.query.path) return reply.code(400).send({ error: "File path is required" });
+    try {
+      const file = await openPluginFile(found.project.workspacePath, request.query.path);
+      return reply
+        .type(file.contentType)
+        .header("content-length", file.size)
+        .header("cache-control", "no-store")
+        .header("x-content-type-options", "nosniff")
+        .header("content-security-policy", "default-src 'none'; sandbox")
+        .send(file.stream());
+    } catch (cause) {
+      return pluginFileReply(reply, cause);
+    }
+  });
+  /** Runs a page's change to the project's files as one change the person can undo. */
+  const changePluginFiles = async <T>(
+    params: PluginFileParams,
+    reply: { code(status: number): { send(body: unknown): unknown } },
+    title: string,
+    action: string,
+    operation: (workspacePath: string) => Promise<T>,
+  ) => {
+    const found = await pagePluginFiles(params, "write");
+    if (!found) return reply.code(403).send(NO_PLUGIN_FILES);
+    try {
+      const { result } = await pluginWrites.run(found.project, { plugin: found.id, action: `files:${action}`, title }, () => operation(found.project.workspacePath));
+      return { value: result };
+    } catch (cause) {
+      return pluginFileReply(reply, cause);
+    }
+  };
+  app.put<{ Params: PluginFileParams; Querystring: { path?: string }; Body: Buffer | undefined }>(`${pluginFileBase}/content`, { bodyLimit: PLUGIN_FILE_MAX_BYTES }, async (request, reply) => {
+    const { path: filePath } = request.query;
+    if (!filePath) return reply.code(400).send({ error: "File path is required" });
+    const contents = request.body ?? Buffer.alloc(0);
+    if (!Buffer.isBuffer(contents)) return reply.code(415).send({ error: "Send the file as application/octet-stream" });
+    return changePluginFiles(request.params, reply, `Write ${filePath}`, "write", (workspace) => writePluginFile(workspace, filePath, contents));
+  });
+  app.post<{ Params: PluginFileParams; Body: { path: string } }>(`${pluginFileBase}/folder`, {
+    schema: { body: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1, maxLength: 1000 } } } },
+  }, async (request, reply) =>
+    changePluginFiles(request.params, reply, `Create ${request.body.path}`, "create-folder", (workspace) => createPluginFolder(workspace, request.body.path)));
+  app.post<{ Params: PluginFileParams; Body: { from: string; to: string } }>(`${pluginFileBase}/move`, {
+    schema: { body: { type: "object", additionalProperties: false, required: ["from", "to"], properties: { from: { type: "string", minLength: 1, maxLength: 1000 }, to: { type: "string", minLength: 1, maxLength: 1000 } } } },
+  }, async (request, reply) =>
+    changePluginFiles(request.params, reply, `Move ${request.body.from} to ${request.body.to}`, "move", (workspace) => movePluginFile(workspace, request.body.from, request.body.to)));
+  app.delete<{ Params: PluginFileParams; Querystring: { path?: string } }>(pluginFileBase, async (request, reply) => {
+    const { path: filePath } = request.query;
+    if (!filePath) return reply.code(400).send({ error: "File path is required" });
+    return changePluginFiles(request.params, reply, `Delete ${filePath}`, "delete", async (workspace) => { await deletePluginFile(workspace, filePath); return null; });
   });
 
   // Plugin commands, and the history of what plugins changed outside a turn.
