@@ -84,6 +84,7 @@ interface Entry {
   error?: string;
   connected: boolean;
   queue: Promise<unknown>;
+  sequence: number;
   published?: string;
   /** While a save runs, what each moved value should end up as. */
   moved?: Map<string, GameTuningScalar>;
@@ -91,6 +92,8 @@ interface Entry {
 
 export class GameTuning {
   #entries = new Map<string, Entry>();
+  // From the clock, so that it keeps rising when the daemon restarts.
+  #sequence = Date.now();
 
   constructor(
     private readonly options: {
@@ -187,7 +190,7 @@ export class GameTuning {
   #entry(project: Project): Entry {
     let entry = this.#entries.get(project.id);
     if (!entry) {
-      entry = { loaded: false, values: [], draft: new Map(), connected: false, queue: Promise.resolve() };
+      entry = { loaded: false, values: [], draft: new Map(), connected: false, queue: Promise.resolve(), sequence: this.#sequence };
       this.#entries.set(project.id, entry);
     }
     return entry;
@@ -218,6 +221,7 @@ export class GameTuning {
 
   #snapshot(entry: Entry): GameTuningState {
     return {
+      sequence: entry.sequence,
       ...(entry.file ? { file: entry.file } : {}),
       values: entry.values,
       draft: Object.fromEntries(entry.draft),
@@ -227,9 +231,10 @@ export class GameTuning {
   }
 
   #announce(project: Project, entry: Entry): void {
+    entry.sequence = ++this.#sequence;
     const state = this.#snapshot(entry);
     this.options.push(project, Object.fromEntries(entry.values.map((item) => [item.id, gameTuningValue(state, item)])));
-    const published = JSON.stringify(state);
+    const published = JSON.stringify({ ...state, sequence: 0 });
     if (published === entry.published) return;
     entry.published = published;
     this.options.publish(project, state);

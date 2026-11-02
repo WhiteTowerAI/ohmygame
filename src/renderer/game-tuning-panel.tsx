@@ -38,17 +38,17 @@ export function GameTuningPanel({ projectId, previewReady, announced, revision, 
   const [undone, setUndone] = useState(false);
   const unsent = useRef(new Map<string, GameTuningScalar | null>());
   const sending = useRef<Promise<boolean> | undefined>(undefined);
-  // Counts newer news, so a read that started before it can't overwrite it.
-  const news = useRef(0);
+  // Answers and announcements can cross, so the newest state wins whatever arrives last.
+  const newest = useRef(0);
   const receive = (next: GameTuningState) => {
-    news.current += 1;
+    if (next.sequence < newest.current) return;
+    newest.current = next.sequence;
     setState(next);
   };
 
   useEffect(() => {
     let current = true;
-    const started = news.current;
-    void getGameTuning(projectId).then((next) => { if (current && news.current === started) setState(next); }, (cause) => { if (current) setError(message(cause)); });
+    void getGameTuning(projectId).then((next) => { if (current) receive(next); }, (cause) => { if (current) setError(message(cause)); });
     return () => { current = false; };
   }, [projectId, revision]);
   useEffect(() => { if (announced) receive(announced); }, [announced]);

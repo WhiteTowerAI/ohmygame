@@ -11,6 +11,8 @@ export type GameTuningItem =
   | { id: string; label: string; value: boolean };
 
 export interface GameTuningState {
+  /** Rises with every change, so a reader can drop a state older than one it has. */
+  sequence: number;
   /** The file the values come from, relative to the project. */
   file?: string;
   /** The saved values; the last good ones while `error` is set. */

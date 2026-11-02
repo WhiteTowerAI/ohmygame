@@ -53,7 +53,8 @@ describe("the tuning file", () => {
 
   it("is empty without a file", async () => {
     const { tuning, target } = await project(null);
-    expect(await tuning.state(target)).toEqual({ values: [], draft: {}, connected: false });
+    const { sequence: _sequence, ...state } = await tuning.state(target);
+    expect(state).toEqual({ values: [], draft: {}, connected: false });
   });
 
   it("refuses a link, which could read or overwrite anything", async () => {
@@ -104,6 +105,14 @@ describe("drafts", () => {
     await expect(tuning.save(target, saveDirectly)).rejects.toBeInstanceOf(GameTuningError);
     await writeFile(path.join(workspacePath, "tuning.json"), JSON.stringify(FILE));
     expect((await tuning.state(target)).draft).toEqual({ "player.jump": 600 });
+  });
+
+  it("say which state is newer", async () => {
+    const { tuning, target } = await project();
+    const first = await tuning.state(target);
+    const moved = await tuning.setDraft(target, { "player.jump": 600 });
+    expect(moved.sequence).toBeGreaterThan(first.sequence);
+    expect((await new GameTuning({ push: vi.fn(), publish: vi.fn() }).state(target)).sequence).toBeGreaterThanOrEqual(first.sequence);
   });
 
   it("announce only what changed", async () => {

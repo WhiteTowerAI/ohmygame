@@ -14,6 +14,7 @@ vi.mock("../src/renderer/api.js", () => api);
 import { GameTuningPanel } from "../src/renderer/game-tuning-panel.js";
 
 const STATE: GameTuningState = {
+  sequence: 1,
   file: "tuning.json",
   connected: true,
   draft: {},
@@ -144,10 +145,22 @@ describe("the tuning panel", () => {
     let answer!: (state: GameTuningState) => void;
     api.getGameTuning.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
     await render({ revision: 1 });
-    await render({ announced: { ...STATE, draft: { jump: 500 } } });
+    await render({ announced: { ...STATE, sequence: 2, draft: { jump: 500 } } });
     expect(host.querySelector("output")?.textContent).toBe("500");
     await act(async () => answer(STATE));
     expect(host.querySelector("output")?.textContent).toBe("500");
+  });
+
+  it("ignores an answer to a move when newer news came first", async () => {
+    let answer!: (state: GameTuningState) => void;
+    api.setGameTuningDraft.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    const { host, render } = await show();
+    await drag(host, 600);
+    // The file's range shrank while the move was on its way.
+    await render({ announced: { ...STATE, sequence: 3, values: [{ id: "jump", label: "Jump", value: 420, min: 100, max: 500 }], draft: { jump: 500 } } });
+    await act(async () => answer({ ...STATE, sequence: 2, draft: { jump: 600 } }));
+    expect(host.querySelector("output")?.textContent).toBe("500");
+    expect(host.querySelector<HTMLInputElement>('input[type="range"]')?.max).toBe("500");
   });
 
   it("goes back to one saved value or all of them", async () => {
