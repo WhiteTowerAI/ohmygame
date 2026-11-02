@@ -2,7 +2,7 @@
 import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { type ComponentManifest, componentManifest, componentTypes, contractChanges, contractFiles, declarations, parseComment } from "../scripts/plugin-ui-contract.js";
+import { type ComponentManifest, componentManifest, componentTypes, contractChanges, contractFiles, declarations, parseComment, supportChanges } from "../scripts/plugin-ui-contract.js";
 import { checkPlugin } from "../scripts/plugin-check.js";
 import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
 import { PLUGIN_UI_MAJORS } from "../src/shared/plugin-ui-versions.js";
@@ -369,6 +369,29 @@ describe("page components' contract", () => {
     warn.mockRestore();
   });
 
+  it("keeps a stable major served for its support window", () => {
+    const today = "2027-06-01";
+    const stable = { majors: ["1", "2"], preview: new Set<string>(), retiring: {} };
+    const retiring = { ...stable, retiring: { 1: { since: "2026-01-01", until: "2027-07-01" } } };
+    const check = (then: Parameters<typeof supportChanges>[0], majors: string[], dates: Parameters<typeof supportChanges>[1]["retiring"] = then.retiring) =>
+      supportChanges(then, { majors, retiring: dates }, today, "dev");
+    expect(check(stable, ["1", "2"])).toEqual({ breaking: [], notes: [] });
+
+    // It can't just go, or go before the date it had.
+    expect(check(stable, ["2"]).breaking).toEqual(["Components 1 were stable at dev and are no longer served."]);
+    expect(check(retiring, ["2"]).breaking).toEqual(["Components 1 were stable at dev and must be served until 2027-07-01."]);
+    expect(check({ ...retiring, retiring: { 1: { since: "2026-01-01", until: today } } }, ["2"]).breaking).toHaveLength(1);
+    const past = { ...stable, retiring: { 1: { since: "2026-01-01", until: "2027-05-31" } } };
+    expect(check(past, ["2"], {})).toEqual({ breaking: [], notes: ["Components 1: no longer served, after 2027-05-31"] });
+    expect(check({ ...stable, preview: new Set(["1"]) }, ["2"])).toEqual({ breaking: [], notes: ["Components 1 (preview): no longer served"] });
+
+    // Its date can't be moved closer, or be in the past when it's first set.
+    expect(check(retiring, ["1", "2"], { 1: { since: "2025-01-01", until: "2026-01-01" } }).breaking).toEqual([expect.stringContaining("can't move closer")]);
+    expect(check(retiring, ["1", "2"], { 1: { since: "2026-01-01", until: "2027-08-01" } }).breaking).toEqual([]);
+    expect(check(stable, ["1", "2"], { 1: { since: "2025-01-01", until: "2026-01-01" } }).breaking).toEqual([expect.stringContaining("12 months from 2027-06-01")]);
+    expect(check(stable, ["1", "2"], { 1: { since: today, until: "2028-06-01" } }).breaking).toEqual([]);
+  });
+
   it("finds what would break a page", () => {
     const contract = (attributes: { name: string; type?: { text: string } }[], extra: Record<string, unknown> = {}): ComponentManifest => ({
       schemaVersion: "2.1.0",
@@ -478,6 +501,14 @@ describe("plugin check", () => {
       "main.js": 'document.body.textContent = "<omg-example>";',
     });
     expect(await messages(page, "error")).toEqual([]);
+    expect(await messages(await plugin({ "index.html": `<script data-src="https://example.com/x.js" src="./main.js"></script>${load}<p>Moving on: /_ohmygame/ui/999/index.js</p>` }), "error")).toEqual([]);
+    expect(await messages(await plugin({ "index.html": '<script type="module" src="./main.js"></script><omg-button></omg-button>', "main.js": 'import(`/_ohmygame/ui/${major}/index.js`);' }), "error")).toEqual([]);
+    // At the package's root, only the page itself is served.
+    const rootPage = await plugin({}, { preview: true, major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./index.html" }] } });
+    await writeFile(path.join(rootPage, "index.html"), load);
+    await mkdir(path.join(rootPage, "templates"));
+    await writeFile(path.join(rootPage, "templates/game.html"), "<script>game()</script>");
+    expect(await messages(rootPage, "error")).toEqual([]);
     // A page's major isn't known here, so what it uses can't be judged, beyond saying so.
     expect(await messages(await plugin({ "index.html": '<script type="module" src="/_ohmygame/ui/999/index.js"></script><omg-future></omg-future>' }), "error")).toEqual([expect.stringContaining("aren't served")]);
   });

@@ -468,8 +468,9 @@ every plugin. Featured and certified plugins won't use preview components.
 A stable major only grows. A change that would break a page waits for a new
 major, and both are then served side by side: a replaced major goes in
 `PLUGIN_UI_RETIRING` with the dates it was replaced and until which it stays,
-at least `PLUGIN_UI_SUPPORT_MONTHS` (12) apart, and the contract check lets it
-go only once that date has passed.
+at least `PLUGIN_UI_SUPPORT_MONTHS` (12) apart. The contract check wants that
+much from the day it is listed, won't let the date move closer, and lets the
+major go only once the date has passed.
 
 To retire something inside a major, keep it working and mark it: `@deprecated
 what to use instead` on a component, or `@deprecated attr name - what to use

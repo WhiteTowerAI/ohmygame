@@ -38,6 +38,19 @@ async function filesIn(directory: string): Promise<string[]> {
   return found.flat();
 }
 
+/** An HTML tag's attributes by lowercase name, read whole, so `data-src` isn't `src`. */
+function attributesOf(text: string): Map<string, string> {
+  return new Map([...text.matchAll(/([^\s=/"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g)].map(([, name, double, single, bare]) => [name!.toLowerCase(), double ?? single ?? bare ?? ""]));
+}
+
+const scriptsIn = (html: string) => [...html.matchAll(/<script\b((?:"[^"]*"|'[^']*'|[^'">])*)>/gi)].map(([, attributes]) => attributesOf(attributes!));
+
+/** The component majors a file really loads: a script's address, not a mention in its text. */
+function majorsIn(file: string, text: string): string[] {
+  if (file.endsWith(".html")) return scriptsIn(text).flatMap((script) => /^(?:\.\.?\/)*\/?_ohmygame\/ui\/(\d+)\//.exec(script.get("src") ?? "")?.[1] ?? []);
+  return [...text.matchAll(/["'`](?:\$\{[^}]*\})?(?:\.\.?\/)*\/?_ohmygame\/ui\/(\d+)\/[^"'`\s]*["'`]/g)].map(([, major]) => major!);
+}
+
 /** A file's text without comments, which may name anything. */
 function withoutComments(file: string, text: string): string {
   const normal = text.replace(/\r\n/g, "\n");
@@ -70,15 +83,21 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
   if (!panels.length) return findings;
 
   const majors = new Map(await Promise.all(PLUGIN_UI_MAJORS.map(async (major) => [major, declarations(await componentManifest(major))] as const)));
-  const folders = new Set(panels.map((panel) => path.join(root, path.dirname(panel.entry))));
-  const files = [...new Set((await Promise.all([...folders].map(filesIn))).flat())].sort();
+  // What the app serves for a panel: its folder, or only its page when that is at the package's root.
+  const panelFiles = panels.map((panel) => {
+    const folder = path.dirname(panel.entry);
+    return folder === "." ? Promise.resolve([path.join(root, panel.entry)]) : filesIn(path.join(root, folder));
+  });
+  const files = [...new Set((await Promise.all(panelFiles)).flat())].sort();
   const sources = await Promise.all(files.map(async (file) => ({ file: path.relative(root, file), text: withoutComments(file, await readFile(file, "utf8").catch(() => "")) })));
   const page = sources.filter(({ file }) => /\.(?:html|js|mjs)$/.test(file));
   const add = (level: PluginCheckFinding["level"], file: string, message: string) => findings.push({ level, file, message });
 
   // Which majors the pages load, by the addresses in them.
   const loaded = new Map<string, string>();
-  for (const { file, text } of page) for (const [, major] of text.matchAll(/\/_ohmygame\/ui\/(\d+)\//g)) if (!loaded.has(major!)) loaded.set(major!, file);
+  for (const { file, text } of page) for (const major of majorsIn(file, text)) if (!loaded.has(major)) loaded.set(major, file);
+  // An address a script puts together loads a major this can't name.
+  const puttingTogether = page.some(({ file, text }) => !file.endsWith(".html") && text.includes("/_ohmygame/ui/"));
   for (const [major, file] of loaded) {
     if (!majors.has(major)) add("error", file, `Page components ${major} aren't served by this version of OhMyGame`);
     else if (PLUGIN_UI_PREVIEW_MAJORS.has(major)) {
@@ -95,8 +114,8 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
   // that names no major may be part of a page with any of them.
   const served = [...loaded.keys()].filter((major) => majors.has(major));
   const contract = (served.length ? served : [String(manifest.ui?.major ?? PLUGIN_UI_MAJORS[0])]).flatMap((major) => majors.get(major) ?? []);
-  const contractFor = (text: string) => {
-    const own = [...text.matchAll(/\/_ohmygame\/ui\/(\d+)\//g)].map(([, major]) => major!);
+  const contractFor = (file: string, text: string) => {
+    const own = majorsIn(file, text);
     return own.length ? own.flatMap((major) => majors.get(major) ?? []) : contract;
   };
   const events = new Set(contract.flatMap((item) => item.events.map((event) => event.name)));
@@ -106,16 +125,15 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
   for (const { file, text } of page) {
     const html = file.endsWith(".html");
     if (html) {
-      for (const [, attributes] of text.matchAll(/<script\b([^>]*)>/gi)) {
-        const source = /\bsrc\s*=\s*["']?([^"'\s>]+)/i.exec(attributes!)?.[1];
-        const type = /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*))/i.exec(attributes!);
-        if (!source && !RUNS.test((type?.[1] ?? type?.[2] ?? type?.[3] ?? "").trim().toLowerCase())) continue;
+      for (const script of scriptsIn(text)) {
+        const source = script.get("src");
+        if (!source && !RUNS.test((script.get("type") ?? "").trim().toLowerCase())) continue;
         if (!source) add("error", file, "The page's policy allows no inline scripts; put the script in a file next to it");
         else if (/^(?:https?:)?\/\//.test(source)) add("error", file, `The page's policy allows no remote scripts: ${source}`);
       }
-      if (!loaded.size && /<omg-[a-z]/.test(markupOf(text))) add("error", file, "The page uses page components but no script loads /_ohmygame/ui/<major>/index.js");
+      if (!loaded.size && !puttingTogether && /<omg-[a-z]/.test(markupOf(text))) add("error", file, "The page uses page components but no script loads /_ohmygame/ui/<major>/index.js");
     }
-    const known = new Map(contractFor(text).map((item) => [item.tagName, item]));
+    const known = new Map(contractFor(file, text).map((item) => [item.tagName, item]));
     // Only a page's own markup is sure to be an element; a script may just be
     // saying a name. And a major this app doesn't have can't be checked against.
     const used = new Set<string>();
