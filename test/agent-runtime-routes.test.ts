@@ -611,6 +611,63 @@ describe("coding agent routes", () => {
     expect((await call("POST", `${base}/branch`, {})).status).toBe(400);
     expect((await call("POST", `/projects/${project.id}/conversations/missing/branch`, { entryId })).status).toBe(404);
   });
+  it.skipIf(process.platform === "win32")("continues a conversation stopped at a usage limit once it resets, and follows the agent's setting", async () => {
+    const { call, claude } = await start(FAKE_CLAUDE.replace(
+      'if (message.type !== "control_request") return;',
+      `if (message.type === "user") {
+    const log = process.argv[1] + ".log", fs = require("node:fs");
+    fs.appendFileSync(log, JSON.stringify(message.message.content) + "\\n");
+    const limited = fs.readFileSync(log, "utf8").includes("Hit the limit") && !fs.readFileSync(log, "utf8").includes("Continue where you left off");
+    const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
+    if (limited) {
+      send({ type: "rate_limit_event", rate_limit_info: { rateLimitType: "five_hour", utilization: 1, resetsAt: Math.floor(Date.now() / 1000) + 2 } });
+      send({ type: "result", subtype: "success", is_error: true, result: "You've hit your 5-hour limit · resets 2:30am (Asia/Shanghai)" });
+    } else send({ type: "result", subtype: "success" });
+    return;
+  }
+  if (message.type !== "control_request") return;`,
+    ));
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    const project = (await call<ProjectState>("POST", "/projects", { name: "Limit", preset: "blank" })).body;
+    const create = async () => `/projects/${project.id}/conversations/${(await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, { model: { provider: "claude-code-cli", id: "sonnet" } })).body.id}`;
+    const stopped = async (base: string) => {
+      expect(await call("POST", `${base}/turns`, { prompt: "Hit the limit" })).toMatchObject({ status: 202 });
+      await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("error"));
+    };
+    const usage = async (base: string) => (await call<{ contextUsage?: { limitResume?: { state: string } } }>("GET", `${base}/context-usage?passive=1`)).body.contextUsage?.limitResume;
+    const sent = async () => (await readFile(`${claude}.log`, "utf8")).split("Continue where you left off").length - 1;
+
+    // Only the wait for the margin after the reset is cut short.
+    const realTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delay?: number) => realTimeout(run, delay !== undefined && delay > 30_000 && delay <= 32_000 ? 1_000 : delay)) as typeof setTimeout);
+
+    const off = await create();
+    await stopped(off);
+    await expect(usage(off)).resolves.toMatchObject({ state: "armed" });
+    const turnedOff = await call<AgentRuntimeStatus>("PATCH", "/agent-runtimes/claude-code-cli", { autoContinue: false });
+    expect(turnedOff.body.autoContinue).toBe(false);
+    await expect(usage(off)).resolves.toMatchObject({ state: "off" });
+    await new Promise((resolve) => realTimeout(resolve, 1_500));
+    expect(await sent()).toBe(0);
+    await expect(usage(off)).resolves.toBeUndefined();
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { autoContinue: true });
+
+    const skipped = await create();
+    await stopped(skipped);
+    expect((await call("POST", `${skipped}/limit-resume/skip`)).status).toBe(204);
+    await expect(usage(skipped)).resolves.toMatchObject({ state: "skipped" });
+    await new Promise((resolve) => realTimeout(resolve, 1_500));
+    expect(await sent()).toBe(0);
+
+    // Nothing reads this conversation between its failure and the continue.
+    const armed = await create();
+    await stopped(armed);
+    await vi.waitFor(async () => expect(await sent()).toBe(1), { timeout: 5_000 });
+    await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", armed)).body.agent.status).toBe("idle"));
+    expect(JSON.stringify((await call<ConversationDetail>("GET", armed)).body.turns)).toContain("Continue where you left off.");
+    await expect(usage(armed)).resolves.toBeUndefined();
+  });
+
   it.skipIf(process.platform === "win32")("accepts models returned by Claude initialize without requesting list_models", async () => {
     const { call, claude } = await start(
       FAKE_CLAUDE.replace('=== "list_models"', '=== "initialize"'),

@@ -1805,6 +1805,8 @@ const zhCN: typeof en = {
     diagnostics: "问题",
     configuration: "配置",
     permissions: "权限",
+    autoContinue: "用量上限重置后自动继续",
+    autoContinueHint: "{{name}} 因用量上限停下时，在上限重置后发送一条消息让它接着做。需要保持 OhMyGame 打开。",
     permissionModesHint: "这些是 {{name}} 自己的权限模式。它的询问会显示在对话中。规划始终只读。",
     permissionMode: {
       claudeDefault: "手动",
@@ -1999,7 +2001,7 @@ const zhCN: typeof en = {
       available: "已达到用量上限，将在 {{time}} 重置。",
       armed: "将在 {{time}} 自动继续，请保持 OhMyGame 打开。",
       arm: "重置后自动继续",
-      cancel: "取消",
+      turnOff: "关闭",
     },
     placeholder: {
       review: "请查看上方的计划",

@@ -1826,6 +1826,8 @@ const en = {
     diagnostics: "Problems",
     configuration: "Configuration",
     permissions: "Permissions",
+    autoContinue: "Continue after a usage limit resets",
+    autoContinueHint: "When {{name}} stops at its usage limit, send one message to carry on once the limit resets. OhMyGame must stay open.",
     permissionModesHint: "These are {{name}}’s own permission modes. What it asks appears in the conversation. Planning is always read-only.",
     permissionMode: {
       claudeDefault: "Manual",
@@ -2031,7 +2033,7 @@ const en = {
       available: "Usage limit reached. It resets at {{time}}.",
       armed: "Continues automatically at {{time}}. Keep OhMyGame open.",
       arm: "Continue after reset",
-      cancel: "Cancel",
+      turnOff: "Turn off",
     },
     placeholder: {
       review: "Review the plan above",

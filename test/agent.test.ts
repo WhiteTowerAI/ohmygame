@@ -1354,6 +1354,32 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("tells of a usage limit outside a plan, and of every change after it", async () => {
+    const onLimitChange = vi.fn();
+    const limit = "You've hit your 5-hour limit · resets 2:30am (Asia/Shanghai)";
+    let failure = limit;
+    const manager = new AgentManager(new RuntimeEventBus(), { onLimitChange, createSession: async () => { throw new Error(failure); } });
+    const project = createProject();
+    const conversation = createConversation(project);
+    await expect(manager.prompt(project, conversation, "Build").result).rejects.toThrow(limit);
+    expect(onLimitChange).toHaveBeenLastCalledWith(project.id, conversation.summary.id, true);
+    expect(manager.agentState(conversation)).toEqual({ status: "error", error: limit });
+
+    // The next turn takes it back as soon as it starts, and another failure doesn't bring it back.
+    failure = "Auth unavailable";
+    onLimitChange.mockClear();
+    await expect(manager.prompt(project, conversation, "Build").result).rejects.toThrow(failure);
+    expect(onLimitChange.mock.calls.map(([, , reached]) => reached).every((reached) => !reached)).toBe(true);
+    expect(onLimitChange).toHaveBeenCalled();
+
+    // Going on outside a plan would drop its limits.
+    failure = limit;
+    onLimitChange.mockClear();
+    await expect(manager.prompt(project, conversation, "Plan it", [], [], "planning").result).rejects.toThrow(limit);
+    expect(onLimitChange.mock.calls.map(([, , reached]) => reached).every((reached) => !reached)).toBe(true);
+    await manager.close();
+  });
+
   it("surfaces session initialization failures", async () => {
     const events = new RuntimeEventBus();
     const manager = new AgentManager(events, { createSession: async () => { throw new Error("Auth unavailable"); } });
@@ -2321,7 +2347,8 @@ describe("AgentManager", () => {
     session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
     const events = new RuntimeEventBus();
     const snapshot = deferred<string>();
-    const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => snapshot.promise, changed: async () => ({ files: 1 }) } });
+    const onLimitChange = vi.fn();
+    const manager = new AgentManager(events, { onLimitChange, createSession: async () => session, checkpoints: { snapshot: () => snapshot.promise, changed: async () => ({ files: 1 }) } });
     const project = createProject();
     const conversation = createConversation(project);
 
@@ -2332,10 +2359,12 @@ describe("AgentManager", () => {
     expect(manager.isProjectBusy(project.id)).toBe(true);
     const restoreFiles = vi.fn(async (_commit: string, rewind: (previous: string) => Promise<void>) => rewind("c".repeat(40)));
     const restoring = manager.restoreCheckpoint(project, conversation, "checkpoint-1", restoreFiles);
+    onLimitChange.mockClear();
     snapshot.resolve("b".repeat(40));
 
     await restoring;
     expect(restoreFiles).toHaveBeenCalledExactlyOnceWith("a".repeat(40), expect.any(Function));
+    expect(onLimitChange).toHaveBeenCalledWith(project.id, conversation.summary.id, false);
     await turn.result;
     await manager.close();
   });
@@ -2343,7 +2372,8 @@ describe("AgentManager", () => {
   it("marks a turn as undone after its files change, including partial Undo", async () => {
     const { session, entries, userMessage } = checkpointSession();
     session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
-    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session, checkpoints: { snapshot: async () => "b".repeat(40), changed: async () => ({ files: 24 }) } });
+    const onLimitChange = vi.fn();
+    const manager = new AgentManager(new RuntimeEventBus(), { onLimitChange, createSession: async () => session, checkpoints: { snapshot: async () => "b".repeat(40), changed: async () => ({ files: 24 }) } });
     const project = createProject();
     const conversation = createConversation(project);
     await manager.prompt(project, conversation, "Build").result;
@@ -2351,7 +2381,9 @@ describe("AgentManager", () => {
 
     // With nothing but files to leave alone, nothing was undone: the turn is not marked.
     const kept = { previous, changed: [], conflicts: ["src/game.ts"] };
+    onLimitChange.mockClear();
     await expect(manager.undoCheckpoint(project, conversation, "checkpoint-1", async () => kept)).resolves.toMatchObject(kept);
+    expect(onLimitChange).toHaveBeenCalledWith(project.id, conversation.summary.id, false);
     const refusal = new Error("These files cannot be put back");
     await expect(manager.undoCheckpoint(project, conversation, "checkpoint-1", async () => { throw refusal; })).rejects.toBe(refusal);
     await expect(manager.undoCheckpoint(project, conversation, "checkpoint-9", async () => kept)).rejects.toThrow("Checkpoint not found");

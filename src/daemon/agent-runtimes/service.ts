@@ -147,6 +147,7 @@ export class AgentRuntimeService {
       cause?: Error;
     }
   >();
+  onLimitsReported?: () => void;
   /** Each account's quota windows as last reported; they outlive the conversation that reported them. */
   #limits = new Map<string, AgentUsageLimit[]>();
   #deleting = new Set<string>();
@@ -188,6 +189,7 @@ export class AgentRuntimeService {
   #recordLimits(id: string, limits: AgentUsageLimit[]): void {
     this.#limits.set(id, limits);
     this.#recordLimitsCache();
+    this.onLimitsReported?.();
   }
 
   #recordLimitsCache(): void {
@@ -238,6 +240,7 @@ export class AgentRuntimeService {
       name: definition.name,
       testedVersion: definition.testedVersion,
       enabled: settings.enabled,
+      autoContinue: settings.autoContinue,
       permissionMode: settings.permissionMode,
       ...(isAccountRuntimeId(id) ? { defaultProfileId: settings.defaultProfileId ?? "system" } : {}),
       ...(settings.binaryPath
@@ -324,6 +327,7 @@ export class AgentRuntimeService {
     await this.settings.update(id, {
       ...(request.defaultProfileId !== undefined ? { defaultProfileId: request.defaultProfileId } : {}),
       ...(request.enabled !== undefined ? { enabled: request.enabled } : {}),
+      ...(request.autoContinue !== undefined ? { autoContinue: request.autoContinue } : {}),
       ...(request.permissionMode !== undefined
         ? { permissionMode: request.permissionMode }
         : {}),

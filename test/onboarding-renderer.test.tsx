@@ -1109,6 +1109,7 @@ describe("three-step setup with coding agents", () => {
     enabled: false,
     installed: true,
     auth: { status: "signed-in", billing: "subscription" },
+    autoContinue: true,
     permissionMode: ":workspace",
     diagnostics: [],
   } satisfies import("../src/shared/agent-runtimes.js").AgentRuntimeStatus;
