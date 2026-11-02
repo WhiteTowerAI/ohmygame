@@ -474,7 +474,7 @@ describe("AgentTimeline", () => {
     await act(async () => root.render(<AgentTimeline items={[user(), {
       id: "assistant-error", turnId: "turn-1", type: "agentMessage", text: "", status: "failed",
       error: { code: "dns_error", message: "Connection error.", diagnostics: {
-        provider: "deepseek", requestId: "req-123", network: { source: "manual", proxyUrl: "http://localhost:7890/" },
+        provider: "deepseek", requestId: "req-123", retryAttempts: 5, network: { source: "manual", proxyUrl: "http://localhost:7890/" },
         causes: [{ code: "ENOTFOUND", message: "getaddrinfo api.deepseek.com" }],
       } },
     }]} failedTurnId="turn-1" />));
@@ -484,6 +484,8 @@ describe("AgentTimeline", () => {
     expect(rows).toContain("ENOTFOUND");
     expect(rows).toContain("req-123");
     expect(rows).toContain("Manual proxy");
+    // Beside a reconnect's own "3/3", this count has to say it covers the whole turn.
+    expect(rows).toContain("Total retries this turn");
     await act(async () => button("Copy diagnostics").click());
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining("DNS lookup failed"));
     expect(button("Diagnostics copied")).toBeTruthy();
