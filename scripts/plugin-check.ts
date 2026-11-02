@@ -85,7 +85,6 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
   const majors = new Map(await Promise.all(PLUGIN_UI_MAJORS.map(async (major) => [major, declarations(await componentManifest(major))] as const)));
   // What the app serves for a panel: its folder, or only its page when that is
   // at the package's root, and the package's assets, which a page may load from.
-  const relative = (file: string) => path.relative(root, file);
   const panelFiles = await Promise.all(
     panels.map((panel) => {
       const folder = path.dirname(panel.entry);
@@ -94,7 +93,7 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
   );
   const assets = (await filesIn(path.join(root, "assets"))).filter((file) => !file.endsWith(".html"));
   const files = [...new Set([...panelFiles.flat(), ...assets])].sort();
-  const sources = await Promise.all(files.map(async (file) => ({ file: relative(file), text: withoutComments(file, await readFile(file, "utf8").catch(() => "")) })));
+  const sources = await Promise.all(files.map(async (file) => ({ file: path.relative(root, file), text: withoutComments(file, await readFile(file, "utf8").catch(() => "")) })));
   const page = sources.filter(({ file }) => /\.(?:html|js|mjs)$/.test(file));
   const add = (level: PluginCheckFinding["level"], file: string, message: string) => findings.push({ level, file, message });
 
@@ -171,19 +170,13 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
   }
 
   // Each page loads the components itself, as another page's don't reach it: by
-  // a script tag, or from one of its own scripts if one of those it can reach
-  // loads them. An address a script puts together loads a major this can't name.
-  const missing = new Set<string>();
-  for (const own of panelFiles) {
-    const reach = new Set([...own, ...assets].map(relative));
-    const reached = page.filter(({ file }) => reach.has(file));
-    const scriptLoads = reached.some(({ file, text }) => !file.endsWith(".html") && text.includes("/_ohmygame/ui/"));
-    for (const { file, text } of reached) {
-      if (!file.endsWith(".html") || !/<omg-[a-z]/.test(markupOf(text)) || majorsIn(file, text).length) continue;
-      if (!scriptLoads || !scriptsIn(text).some((script) => script.get("src"))) missing.add(file);
-    }
+  // a script tag, or through a script of its own, which may be any the app serves
+  // here. An address a script puts together loads a major this can't name.
+  const scriptLoads = page.some(({ file, text }) => !file.endsWith(".html") && text.includes("/_ohmygame/ui/"));
+  for (const { file, text } of page) {
+    if (!file.endsWith(".html") || !/<omg-[a-z]/.test(markupOf(text)) || majorsIn(file, text).length) continue;
+    if (!scriptLoads || !scriptsIn(text).some((script) => script.get("src"))) add("error", file, "The page uses page components but no script loads /_ohmygame/ui/<major>/index.js");
   }
-  for (const file of missing) add("error", file, "The page uses page components but no script loads /_ohmygame/ui/<major>/index.js");
 
   // Styles keep to the app's tokens, so a page follows its themes.
   for (const { file, text } of sources.filter((source) => source.file.endsWith(".css") || source.file.endsWith(".html"))) {

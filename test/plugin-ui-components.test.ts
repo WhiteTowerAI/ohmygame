@@ -546,6 +546,11 @@ describe("plugin check", () => {
     await mkdir(path.join(rootPage, "templates"));
     await writeFile(path.join(rootPage, "templates/game.html"), "<script>game()</script>");
     expect(await messages(rootPage, "error")).toEqual([]);
+    // Panels may share a script that loads them.
+    const shared = await plugin({ "index.html": '<script type="module" src="./main.js"></script><omg-button></omg-button>', "main.js": 'import "/_ohmygame/ui/1/index.js";' }, { preview: true, major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }, { id: "settings", title: "Settings", area: "center", entry: "./settings/index.html" }] } });
+    await mkdir(path.join(shared, "settings"));
+    await writeFile(path.join(shared, "settings/index.html"), '<script type="module" src="../panel/main.js"></script><omg-button></omg-button>');
+    expect(await messages(shared, "error")).toEqual([]);
     // Nor does it have to load them from its own folder.
     const fromAssets = await plugin({}, { preview: true, major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./index.html" }] } });
     await writeFile(path.join(fromAssets, "index.html"), '<script type="module" src="./assets/main.js"></script><omg-button></omg-button>');
