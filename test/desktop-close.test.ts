@@ -13,6 +13,7 @@ const host = vi.hoisted(() => ({
   install: undefined as (() => Promise<void>) | undefined,
   options: undefined as Record<string, unknown> | undefined,
   applicationMenu: undefined as { template: Array<{ id?: string; label?: string }> } | undefined,
+  menuBeforeLabels: undefined as { template: Array<{ id?: string; label?: string }> } | undefined,
   popup: vi.fn(),
 }));
 vi.mock("electron", () => ({
@@ -85,6 +86,7 @@ vi.doMock(path.resolve("src/desktop/window.ts"), () => ({
       once: (name: string, fn: (...args: any[]) => void) => host.windowEvents.set(name, fn),
     };
     options.beforeLoad(window);
+    host.menuBeforeLabels = host.applicationMenu;
     // The page sends its labels as it loads, before the window has finished opening.
     host.handlers.get("ohmygame:set-application-menu-labels")!({ sender: host.sender }, { window: "Sent while loading" });
     return window;
@@ -96,6 +98,8 @@ beforeEach(async () => {
   vi.resetModules(); vi.clearAllMocks(); vi.useFakeTimers();
   host.appEvents.clear(); host.ipcEvents.clear(); host.handlers.clear(); host.windowEvents.clear();
   host.thumbnails.length = 0;
+  host.applicationMenu = undefined;
+  host.menuBeforeLabels = undefined;
   process.argv.push("--built-renderer");
   host.quit.mockImplementation(() => host.appEvents.get("before-quit")!({ preventDefault() {} }));
   await import("../src/desktop/main.js");
@@ -112,7 +116,11 @@ function quit() { const event = { preventDefault: vi.fn() }; host.appEvents.get(
 
 const fileMenuLabel = () => host.applicationMenu!.template.find((item) => item.id === "File")!.label;
 
-it("starts with an English application menu that only the main window can relabel", async () => {
+it("has an English application menu before the main window loads", () => {
+  expect(host.menuBeforeLabels!.template.map((item) => item.label)).not.toContain("Sent while loading");
+  expect(host.menuBeforeLabels!.template.find((item) => item.id === "File")).toEqual(expect.objectContaining({ label: undefined }));
+});
+it("lets only the main window relabel the application menu", async () => {
   const setLabels = host.handlers.get("ohmygame:set-application-menu-labels")!;
   expect(fileMenuLabel()).toBeUndefined();
 
