@@ -166,11 +166,15 @@ describe("plugin page files API", () => {
     const { app, base, workspace, put } = await setup("write");
     await writeFile(workspace(".env"), "SECRET=1");
     await link(workspace(".env"), workspace("public.txt"));
+    // macOS may resolve the path to the file's other name, which is refused as a link before the count is looked at.
+    const refused = [400, 403];
     const aliased = await app.inject({ method: "GET", url: `${base}/content?path=public.txt` });
-    expect(aliased.statusCode, aliased.body).toBe(403);
+    expect(refused, aliased.body).toContain(aliased.statusCode);
+    expect(aliased.body).not.toContain("SECRET");
     // Nor changes it: Undo would bring the other name's contents back as a file of its own.
-    expect((await put("public.txt", "x")).statusCode).toBe(403);
-    expect((await app.inject({ method: "DELETE", url: `${base}?path=public.txt` })).statusCode).toBe(403);
+    expect(refused).toContain((await put("public.txt", "x")).statusCode);
+    expect(refused).toContain((await app.inject({ method: "DELETE", url: `${base}?path=public.txt` })).statusCode);
+    expect(await readFile(workspace(".env"), "utf8")).toBe("SECRET=1");
     // A name near the limit still has room for the file written beside it.
     expect((await put(`${"a".repeat(240)}.txt`, "long")).statusCode).toBe(200);
     if (process.platform === "win32") return;
