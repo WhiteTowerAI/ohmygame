@@ -625,6 +625,8 @@ export function createAgentTools(
       let jobs: Promise<ToolJob[]> | undefined;
       const latestJobs = () => jobs ??= canvasStore.jobs(project.id).finally(() => setTimeout(() => { jobs = undefined; }, 200));
       const generate = async (nodeId: string, retried = false): Promise<{ job: ToolJob; text: string }> => {
+        // Once the agent is stopped, no new run starts, such as one waiting for another node's output.
+        signal?.throwIfAborted();
         let job: Awaited<ReturnType<typeof canvasStore.generateNode>>;
         try {
           job = await canvasStore.generateNode(project.id, input.boardId, nodeId, !input.regenerate);
@@ -633,31 +635,24 @@ export function createAgentTools(
           if (!retried && cause instanceof CanvasError && cause.statusCode === 409 && cause.message.startsWith("The node settings changed")) return generate(nodeId, true);
           throw cause;
         }
-        // Stopping the agent cancels only a run this call started. A followed run belongs to whoever started it,
-        // so aborting just ends this wait.
-        const cancel = () => { void canvasStore.cancel(project.id, job.id).catch(() => {}); };
-        if (!job.reused) {
-          signal?.addEventListener("abort", cancel, { once: true });
-          if (signal?.aborted) cancel();
-        }
-        try {
-          let current: ToolJob = job;
-          while (current.status === "running") {
-            signal?.throwIfAborted();
-            await new Promise((resolve) => setTimeout(resolve, 250));
-            const next = (await latestJobs()).find((candidate) => candidate.id === job.id);
-            if (!next) throw new Error("Generation job is no longer available");
-            current = next;
-          }
+        // Stopping the agent ends only this wait. The provider may already be charging for the run, so it finishes
+        // on the canvas, where the node's own button can cancel it.
+        let current: ToolJob = job;
+        while (current.status === "running") {
           signal?.throwIfAborted();
-          if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
-          const manifest = await readCanvasAssets(project.workspacePath);
-          const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
-          const text = job.reused === "output"
-            ? `Node ${nodeId} already has output from these settings, so nothing new was generated. Existing: ${paths.join(", ")}. Pass regenerate: true only when another variation is wanted.`
-            : `${job.reused === "running" ? `Node ${nodeId} was already generating, so this waited for that run instead of starting another.` : `Generated media for node ${nodeId}.`} Saved: ${paths.join(", ")}.`;
-          return { job: current, text };
-        } finally { signal?.removeEventListener("abort", cancel); }
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          const next = (await latestJobs()).find((candidate) => candidate.id === job.id);
+          if (!next) throw new Error("Generation job is no longer available");
+          current = next;
+        }
+        signal?.throwIfAborted();
+        if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
+        const manifest = await readCanvasAssets(project.workspacePath);
+        const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
+        const text = job.reused === "output"
+          ? `Node ${nodeId} already has output from these settings, so nothing new was generated. Existing: ${paths.join(", ")}. Pass regenerate: true only when another variation is wanted.`
+          : `${job.reused === "running" ? `Node ${nodeId} was already generating, so this waited for that run instead of starting another.` : `Generated media for node ${nodeId}.`} Saved: ${paths.join(", ")}.`;
+        return { job: current, text };
       };
       const runs = new Map<string, Promise<{ job: ToolJob; text: string }>>();
       const run = (nodeId: string): Promise<{ job: ToolJob; text: string }> => {

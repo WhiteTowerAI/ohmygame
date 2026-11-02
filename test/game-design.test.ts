@@ -420,15 +420,24 @@ describe("Markdown design workspace", () => {
     await tool.execute("variation", { boardId, nodeIds: [node.id], regenerate: true }, undefined, undefined, {} as never);
     expect(generate).toHaveBeenCalledTimes(3);
     expect((await store.jobs(project.id))[0]).not.toHaveProperty("inputRevision");
-    // A run the agent started itself is still cancelled when the agent stops.
+    // Stopping the agent ends its wait too: a run it started may already be paid for, so it finishes on the canvas,
+    // while a listed node waiting for that output never starts.
     gate = new Promise<void>((resolve) => { release = resolve; });
+    const waiting = await store.board(project.id, boardId), after = createAssetGenerationNode("image", { x: 0, y: 0 });
+    if (after.type !== "image") throw new Error("Expected image node");
+    Object.assign(after, { id: "after" }); after.data.prompt = "Later"; after.data.images = [{ type: "node", nodeId: node.id }];
+    waiting.board.nodes.push(after); waiting.board.editorLayout.nodes.after = after.position;
+    await store.saveBoard(project.id, waiting.board, waiting.revision);
     const owned = new AbortController();
-    const ownRun = tool.execute("owned", { boardId, nodeIds: [node.id], regenerate: true }, owned.signal, undefined, {} as never);
+    const ownRun = tool.execute("owned", { boardId, nodeIds: [node.id, "after"], regenerate: true }, owned.signal, undefined, {} as never);
     await expect.poll(() => generate.mock.calls.length).toBe(4);
     owned.abort();
     await expect(ownRun).rejects.toThrow();
-    await expect.poll(async () => (await store.jobs(project.id)).find((job) => job.status === "running" || job.status === "cancelled")?.status).toBe("cancelled");
+    const started = (await store.jobs(project.id)).find((job) => job.status === "running")!;
+    expect(started.context).toMatchObject({ nodeId: node.id });
     release();
+    await expect.poll(async () => (await store.jobs(project.id)).find((job) => job.id === started.id)?.status).toBe("succeeded");
+    expect(generate).toHaveBeenCalledTimes(4);
   });
   it("lets the agent generate several nodes at once, starting a node that uses another's output after it", async () => {
     let release!: () => void;
