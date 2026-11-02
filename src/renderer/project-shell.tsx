@@ -361,7 +361,6 @@ export function ProjectShell({
     unsubscribeEvents.current?.();
     let disposed = false;
     setGameTuning(undefined);
-    savedTuning.current = undefined;
     const unsubscribe = subscribeToProject(projectId, cursor, {
       onEvent: (event) => {
         dispatch({ type: "runtime-event", event });
@@ -384,7 +383,7 @@ export function ProjectShell({
           setGameTuning(event.data);
           // Saved values are in a file, which the Code and Git views show.
           const saved = JSON.stringify([event.data.file, event.data.values]);
-          if (savedTuning.current !== undefined && savedTuning.current !== saved) setWorkspaceRevision((value) => value + 1);
+          if (savedTuning.current !== saved) setWorkspaceRevision((value) => value + 1);
           savedTuning.current = saved;
         }
         if (event.type === "preview.picked") {
