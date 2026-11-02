@@ -19,6 +19,7 @@ import {
   type ExternalMcpEndpoint,
 } from "../shared/external-mcp.js";
 import { matchesBearerToken } from "./access.js";
+import { CANCEL_GENERATION } from "./agent-tools.js";
 import type { NativeToolResult } from "./agent-runtimes/native-session.js";
 import { ToolBridge, type BridgeTool } from "./agent-runtimes/tool-bridge.js";
 
@@ -686,7 +687,7 @@ export class ExternalMcpService {
     if (name === "cancel_job" && job.status === "running") {
       job.status = "cancelled";
       job.finishedAt = this.#now();
-      job.controller.abort();
+      job.controller.abort(CANCEL_GENERATION);
     }
     if (name !== "wait_job") return this.#settle(job, 0);
     const seconds =

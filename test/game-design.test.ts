@@ -9,7 +9,7 @@ import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { checkCanvasWorkspace } from "../src/daemon/canvas-check.js";
 import { readCanvasAssets } from "../src/daemon/canvas-assets.js";
-import { createAgentTools } from "../src/daemon/agent-tools.js";
+import { CANCEL_GENERATION, createAgentTools } from "../src/daemon/agent-tools.js";
 import { ImageGenerationError, type ImageGenerator } from "../src/daemon/openai-image.js";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createCanvasDocument, canvasDocumentPath, mergeCanvasDocumentContent } from "../src/shared/canvas-document.js";
@@ -438,6 +438,16 @@ describe("Markdown design workspace", () => {
     release();
     await expect.poll(async () => (await store.jobs(project.id)).find((job) => job.id === started.id)?.status).toBe("succeeded");
     expect(generate).toHaveBeenCalledTimes(4);
+    // Cancelling the call itself, as an external agent's cancel_job does, cancels the run it started.
+    gate = new Promise<void>((resolve) => { release = resolve; });
+    const cancelled = new AbortController();
+    const cancelledRun = tool.execute("cancelled", { boardId, nodeIds: [node.id], regenerate: true }, cancelled.signal, undefined, {} as never);
+    await expect.poll(() => generate.mock.calls.length).toBe(5);
+    const running = (await store.jobs(project.id)).find((job) => job.status === "running")!;
+    cancelled.abort(CANCEL_GENERATION);
+    await expect(cancelledRun).rejects.toBeDefined();
+    await expect.poll(async () => (await store.jobs(project.id)).find((job) => job.id === running.id)?.status).toBe("cancelled");
+    release();
   });
   it("lets the agent generate several nodes at once, starting a node that uses another's output after it", async () => {
     let release!: () => void;
@@ -476,6 +486,19 @@ describe("Markdown design workspace", () => {
     expect(partial.content[0]).toMatchObject({ text: expect.stringContaining("Node cracked failed: Provider refused") });
     expect(partial.content[0]).toMatchObject({ text: expect.stringContaining("Node planted failed: Not generated, because node cracked, whose output it uses, failed") });
     await expect(tool.execute("failed", { boardId, nodeIds: ["cracked"] }, undefined, undefined, {} as never)).rejects.toThrow("Provider refused");
+    // Only the inputs a generation uses order it: a prompt's text node and a name a video keeps for a removed reference don't.
+    const kept = await store.board(project.id, boardId), video = createAssetGenerationNode("video", { x: 0, y: 0 });
+    if (video.type !== "video") throw new Error("Expected video node");
+    Object.assign(video, { id: "clip" }); video.data.prompt = "Walk"; video.data.referenceMentions = { Image1: { type: "node", nodeId: "cracked" } };
+    kept.board.nodes.push(video, { id: "note", type: "text", position: { x: 0, y: 0 }, data: { text: "Warm light", instruction: "" } });
+    kept.board.editorLayout.nodes.clip = video.position; kept.board.editorLayout.nodes.note = { x: 0, y: 0 };
+    const seedNode = kept.board.nodes.find((candidate) => candidate.id === "seed")!;
+    if (seedNode.type !== "image") throw new Error("Expected image node");
+    seedNode.data.promptSource = { type: "node", nodeId: "note" };
+    await store.saveBoard(project.id, kept.board, kept.revision);
+    const unordered = await tool.execute("unordered", { boardId, nodeIds: ["note", "cracked", "seed", "clip"], regenerate: true }, undefined, undefined, {} as never);
+    expect(unordered.content[0]).toMatchObject({ text: expect.stringContaining("Generated media for node seed.") });
+    expect(unordered.content[0]).not.toMatchObject({ text: expect.stringContaining("Not generated, because") });
     // Nodes that use each other's output cannot be ordered.
     const looped = await store.board(project.id, boardId), seed = looped.board.nodes.find((candidate) => candidate.id === "seed")!;
     if (seed.type !== "image") throw new Error("Expected image node");

@@ -635,24 +635,31 @@ export function createAgentTools(
           if (!retried && cause instanceof CanvasError && cause.statusCode === 409 && cause.message.startsWith("The node settings changed")) return generate(nodeId, true);
           throw cause;
         }
-        // Stopping the agent ends only this wait. The provider may already be charging for the run, so it finishes
-        // on the canvas, where the node's own button can cancel it.
-        let current: ToolJob = job;
-        while (current.status === "running") {
-          signal?.throwIfAborted();
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          const next = (await latestJobs()).find((candidate) => candidate.id === job.id);
-          if (!next) throw new Error("Generation job is no longer available");
-          current = next;
+        // Stopping the agent ends only this wait: the provider may already be charging for the run, so it finishes on
+        // the canvas, where the node's own button can cancel it. Cancelling the call itself cancels a run it started.
+        const cancel = () => { if (signal?.reason === CANCEL_GENERATION) void canvasStore.cancel(project.id, job.id).catch(() => {}); };
+        if (!job.reused) {
+          signal?.addEventListener("abort", cancel, { once: true });
+          if (signal?.aborted) cancel();
         }
-        signal?.throwIfAborted();
-        if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
-        const manifest = await readCanvasAssets(project.workspacePath);
-        const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
-        const text = job.reused === "output"
-          ? `Node ${nodeId} already has output from these settings, so nothing new was generated. Existing: ${paths.join(", ")}. Pass regenerate: true only when another variation is wanted.`
-          : `${job.reused === "running" ? `Node ${nodeId} was already generating, so this waited for that run instead of starting another.` : `Generated media for node ${nodeId}.`} Saved: ${paths.join(", ")}.`;
-        return { job: current, text };
+        try {
+          let current: ToolJob = job;
+          while (current.status === "running") {
+            signal?.throwIfAborted();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            const next = (await latestJobs()).find((candidate) => candidate.id === job.id);
+            if (!next) throw new Error("Generation job is no longer available");
+            current = next;
+          }
+          signal?.throwIfAborted();
+          if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
+          const manifest = await readCanvasAssets(project.workspacePath);
+          const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
+          const text = job.reused === "output"
+            ? `Node ${nodeId} already has output from these settings, so nothing new was generated. Existing: ${paths.join(", ")}. Pass regenerate: true only when another variation is wanted.`
+            : `${job.reused === "running" ? `Node ${nodeId} was already generating, so this waited for that run instead of starting another.` : `Generated media for node ${nodeId}.`} Saved: ${paths.join(", ")}.`;
+          return { job: current, text };
+        } finally { signal?.removeEventListener("abort", cancel); }
       };
       const runs = new Map<string, Promise<{ job: ToolJob; text: string }>>();
       const run = (nodeId: string): Promise<{ job: ToolJob; text: string }> => {
@@ -684,13 +691,19 @@ export function createAgentTools(
     : [])];
 }
 
-/** The nodes whose output a node's settings use, wherever they name one. */
+/** The reason to abort a generation call with when it is cancelled, rather than its agent stopped. */
+export const CANCEL_GENERATION = Symbol("cancel generation");
+
+/**
+ * The nodes whose output a node's generation uses. A prompt source is text, and a video keeps
+ * the names of references it no longer uses.
+ */
 function nodeReferences(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap(nodeReferences);
   if (!value || typeof value !== "object") return [];
   const record = value as Record<string, unknown>;
   if (record.type === "node" && typeof record.nodeId === "string") return [record.nodeId];
-  return Object.values(record).flatMap(nodeReferences);
+  return Object.entries(record).flatMap(([key, item]) => key === "promptSource" || key === "referenceMentions" ? [] : nodeReferences(item));
 }
 
 /** Matches an agent-supplied action name to the library, case-insensitively, and suggests close names when it misses. */
