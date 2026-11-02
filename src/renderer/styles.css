@@ -7021,10 +7021,12 @@ button {
   background: none;
 }
 
+/* Only where the row's actions show: the list focuses the open conversation's
+   row when it opens, and that row keeps its mark. */
 .conversation-row:hover .conversation-option-mark,
 .conversation-row:hover .conversation-option-meta,
-.conversation-row:focus-within .conversation-option-mark,
-.conversation-row:focus-within .conversation-option-meta {
+.conversation-row:has(.conversation-row-actions:focus-within) .conversation-option-mark,
+.conversation-row:has(.conversation-row-actions:focus-within) .conversation-option-meta {
   opacity: 0;
 }
 
