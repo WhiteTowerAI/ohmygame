@@ -7,6 +7,7 @@ import {
 import { defaultImageSettings, defaultModel3DSettings, defaultVideoSettings, IMAGE_PROTOCOL_LABELS, VIDEO_PROTOCOL_LABELS } from "../shared/custom-models.js";
 import { knownImageReferenceLimit } from "../shared/image-reference-limits.js";
 import { t } from "./i18n.js";
+import { Disclosure } from "./ui/index.js";
 
 export function CustomModelUsageFields({ usages, preset, modelId, onChange }: {
   usages: CustomModelUsages; preset?: CustomProviderPreset; modelId: string; onChange: (usages: CustomModelUsages) => void;
@@ -39,7 +40,7 @@ export function CustomModelUsageFields({ usages, preset, modelId, onChange }: {
       }}>
         {Object.entries(IMAGE_PROTOCOL_LABELS).map(([protocol, label]) => <option key={protocol} value={protocol}>{label}</option>)}
       </select></label>
-      <details className="custom-provider-advanced"><summary>{t("modelUsage.imageSettings")}</summary>
+      <Disclosure className="custom-provider-advanced" summary={t("modelUsage.imageSettings")}>
         <EndpointField value={image.baseUrl} onChange={(baseUrl) => onChange({ ...usages, image: { ...image, baseUrl } })} />
         <ChoiceFields label={t("modelUsage.imageResolutions")} options={IMAGE_RESOLUTIONS.filter((value) => value !== "512" || image.protocol === "gemini-generate-content" || image.protocol === "openrouter-images")} value={image.resolutions} onChange={(resolutions) => onChange({ ...usages, image: { ...image, resolutions } })} />
         <ChoiceFields label={t("modelUsage.imageAspectRatios")} options={IMAGE_ASPECT_RATIOS} value={image.aspectRatios} onChange={(aspectRatios) => onChange({ ...usages, image: { ...image, aspectRatios } })} />
@@ -48,20 +49,20 @@ export function CustomModelUsageFields({ usages, preset, modelId, onChange }: {
           <label><span>{t("modelUsage.maxOutputs")}</span><select value={image.maxOutputs} onChange={(event) => onChange({ ...usages, image: { ...image, maxOutputs: Number(event.target.value) as typeof image.maxOutputs } })}>{IMAGE_OUTPUT_COUNTS.map((count) => <option key={count}>{count}</option>)}</select></label>
         </div>
         {referenceDefault !== undefined && referenceDefault !== image.maxReferenceImages ? <button className="settings-secondary-button" type="button" onClick={() => onChange({ ...usages, image: { ...image, maxReferenceImages: referenceDefault } })}>{t("modelUsage.useReferenceDefault", { count: referenceDefault })}</button> : null}
-      </details>
+      </Disclosure>
     </div> : null}
     {video ? <div className="custom-model-use-settings">
       <label><span>{t("modelUsage.videoProtocol")}</span><select value={video.protocol} onChange={(event) => onChange({ ...usages, video: { ...video, protocol: event.target.value as VideoProtocol } })}>
         {Object.entries(VIDEO_PROTOCOL_LABELS).map(([protocol, label]) => <option key={protocol} value={protocol}>{label}</option>)}
       </select></label>
-      <details className="custom-provider-advanced"><summary>{t("modelUsage.videoSettings")}</summary>
+      <Disclosure className="custom-provider-advanced" summary={t("modelUsage.videoSettings")}>
         <EndpointField value={video.baseUrl} onChange={(baseUrl) => onChange({ ...usages, video: { ...video, baseUrl } })} />
         <ChoiceFields label={t("modelUsage.videoResolutions")} options={VIDEO_RESOLUTIONS} value={video.resolutions} onChange={(resolutions) => onChange({ ...usages, video: { ...video, resolutions } })} />
         <ChoiceFields label={t("modelUsage.videoAspectRatios")} options={VIDEO_ASPECT_RATIOS} value={video.aspectRatios} onChange={(aspectRatios) => onChange({ ...usages, video: { ...video, aspectRatios } })} />
         <NumberListField label={t("modelUsage.durations")} value={video.durations} onChange={(durations) => onChange({ ...usages, video: { ...video, durations } })} />
         <NumberField label={t("modelUsage.maxVideoReferences")} value={video.maxReferenceImages} min={0} max={30} onChange={(maxReferenceImages) => onChange({ ...usages, video: { ...video, maxReferenceImages } })} />
         <ChoiceFields label={t("modelUsage.videoReferenceModes")} options={["frame", "reference"] as const} labels={{ frame: t("modelUsage.referenceMode.frame"), reference: t("modelUsage.referenceMode.reference") }} value={video.referenceModes} onChange={(referenceModes) => onChange({ ...usages, video: { ...video, referenceModes } })} />
-      </details>
+      </Disclosure>
     </div> : null}
     {model3d ? <Model3DSettingsFields value={model3d} onChange={(settings) => onChange({ ...usages, "3d": settings })} /> : null}
   </>;
@@ -87,7 +88,7 @@ export function Model3DSettingsFields({ value, onChange, lockCapabilities = fals
       <label><input type="checkbox" checked={defaults.texture} disabled={!value.supportsTexture} onChange={(event) => update({ defaults: { texture: event.target.checked, pbr: event.target.checked && defaults.pbr } })} />{t("modelUsage.texture")}</label>
       <label><input type="checkbox" checked={defaults.pbr} disabled={!defaults.texture || !value.supportsPbr} onChange={(event) => update({ defaults: { ...defaults, pbr: event.target.checked } })} />PBR</label>
     </div></fieldset>
-    <details className="custom-provider-advanced"><summary>{t("modelUsage.capabilities")}</summary>
+    <Disclosure className="custom-provider-advanced" summary={t("modelUsage.capabilities")}>
       {lockCapabilities ? <p className="custom-provider-hint">{t("modelUsage.officialFixed")}</p> : <p className="custom-provider-hint">{t("modelUsage.matchDocs")}</p>}
       {showEndpoint ? <EndpointField value={value.baseUrl} onChange={(baseUrl) => update({ baseUrl })} /> : null}
       <fieldset disabled={lockCapabilities} className="custom-model-capability-fields">
@@ -112,7 +113,7 @@ export function Model3DSettingsFields({ value, onChange, lockCapabilities = fals
         </div>
         {!lockCapabilities ? <ChoiceFields label={t("modelUsage.operations")} options={protocolOperations(value.protocol).filter((operation) => operation !== "image")} labels={Object.fromEntries(protocolOperations(value.protocol).map((operation) => [operation, t(`assetCanvas.op.${operation}`)]))} value={value.operations ?? []} onChange={(operations) => update({ operations })} /> : null}
       </fieldset>
-    </details>
+    </Disclosure>
   </div>;
 }
 

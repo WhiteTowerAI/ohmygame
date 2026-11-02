@@ -466,7 +466,7 @@ describe("renderer project API", () => {
 
     await expect(sendPrompt("project-1", "conversation-1", "Build a game")).resolves.toMatchObject({ turnId: "turn-1" });
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/conversations/conversation-1/turns", expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/conversations/conversation-1/turns?locale=en", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ prompt: "Build a game" }),
       headers: { "content-type": "application/json", "x-workspace-version": "0" },
@@ -481,7 +481,7 @@ describe("renderer project API", () => {
 
     await sendPrompt("project-1", "conversation-1", "Use @Godot", [], [], "normal", [mention]);
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/conversations/conversation-1/turns", expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/conversations/conversation-1/turns?locale=en", expect.objectContaining({
       body: JSON.stringify({ prompt: "Use @Godot", mentions: [mention] }),
     }));
   });
@@ -516,7 +516,7 @@ describe("renderer project API", () => {
     await refinePlan("project-1", "conversation-1");
     await cancelPlan("project-1", "conversation-1");
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1/conversations/conversation-1/turns", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1/conversations/conversation-1/turns?locale=en", expect.objectContaining({
       body: JSON.stringify({ prompt: "Plan this", mode: "planning" }),
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/conversations/conversation-1/plan/approve", expect.objectContaining({ method: "POST" }));
@@ -657,7 +657,7 @@ describe("renderer project API", () => {
 
     await sendPrompt("project-1", "conversation-1", "Describe this", [], [image]);
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/conversations/conversation-1/turns", expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-1/conversations/conversation-1/turns?locale=en", expect.objectContaining({
       body: JSON.stringify({ prompt: "Describe this", images: [image] }),
     }));
   });
@@ -670,7 +670,7 @@ describe("renderer project API", () => {
     await sendPrompt("project-1", "conversation-1", "Review this", [{ type: "workspace-file", path: "src/app.ts" }]);
     await removePendingPrompt("project-1", "conversation-1", "turn-2");
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1/conversations/conversation-1/turns", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1/conversations/conversation-1/turns?locale=en", expect.objectContaining({
       body: JSON.stringify({ prompt: "Review this", references: [{ type: "workspace-file", path: "src/app.ts" }] }),
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/conversations/conversation-1/queue/turn-2", expect.objectContaining({

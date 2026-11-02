@@ -485,6 +485,7 @@ export class PluginServices {
   async projectReady(
     folder: string,
     type: string,
+    locale: PluginLocale = "en",
   ): Promise<{ ready: true } | { ready: false; message?: string; panel: string }> {
     const owner = projectTypePlugin(type);
     if (!owner) return { ready: true };
@@ -508,7 +509,8 @@ export class PluginServices {
     const message = (answer as { message?: unknown }).message;
     return {
       ready: false,
-      ...(typeof message === "string" && message.trim() ? { message: message.slice(0, 500) } : {}),
+      // A `%key%` message comes from the plugin's locale files, in the person's language.
+      ...(typeof message === "string" && message.trim() ? { message: localizePluginString(entry, message, locale).slice(0, 500) } : {}),
       panel: `${owner}:${check.panel}`,
     };
   }

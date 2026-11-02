@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { t } from "./i18n.js";
 import { TriangleAlert } from "./icons.js";
-import { Button } from "./ui/index.js";
+import { Button, Disclosure } from "./ui/index.js";
 
 export function RuntimeNotice() {
   const state = useRuntimeConnection();
@@ -44,10 +44,9 @@ export function RuntimeNotice() {
             : t("runtimeNotice.restartHint")}
         </p>
         {state.error || error ? (
-          <details>
-            <summary>{t("common.errorDetails")}</summary>
+          <Disclosure summary={t("common.errorDetails")}>
             <pre>{error ?? state.error}</pre>
-          </details>
+          </Disclosure>
         ) : null}
       </div>
       {!recovering ? (

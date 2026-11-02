@@ -24,7 +24,7 @@ import { readLanguagePreference, setLanguagePreference, t, type LanguagePreferen
 import { ChangelogPanel } from "./changelog-panel.js";
 import { exportDiagnostics, getProjectLocation, setProjectLocation } from "./api.js";
 import { readGeneralPreferences, setGeneralPreference, type GeneralPreferences } from "./general-preferences.js";
-import { Badge, Button, Progress, SegmentedControl, Select, Spinner, Switch, Tooltip } from "./ui/index.js";
+import { Badge, Button, Disclosure, Progress, SegmentedControl, Select, Spinner, Switch, Tooltip } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import "./settings.css";
 import { readUsageDataEnabled, setUsageDataEnabled } from "./analytics.js";
@@ -418,10 +418,9 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
               <p>{status.message}</p>
               {status.dataSafe ? <p className="settings-muted">{t("settings.about.dataSafe")}</p> : null}
             </div>
-            <details className="settings-details">
-              <summary>{t("common.technicalDetails")}</summary>
+            <Disclosure summary={t("common.technicalDetails")}>
               <code>{status.detail}</code>
-            </details>
+            </Disclosure>
             <div className="settings-actions is-start">
               {status.code === "network" ? <Button size="sm" onClick={onOpenNetwork}>{t("settings.about.networkSettings")}</Button> : null}
               <Button size="sm" variant="ghost" onClick={() => void copyDetails()}>{copied ? t("common.copied") : t("common.copyDetails")}</Button>

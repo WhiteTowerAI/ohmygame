@@ -4,6 +4,7 @@ import { act, useEffect, type ComponentProps, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopRuntimeState } from "../src/shared/desktop-runtime.js";
+import { promptText } from "./prompt-field.js";
 import type {
   CheckpointChangeItem,
   ConversationDetail,
@@ -298,10 +299,11 @@ describe("project shell layout", () => {
 });
 
 describe("plugins in the project shell", () => {
-  it("holds the initial message until a plugin type's project is set up, opening the panel that sets it up", async () => {
+  it("puts the initial message back in the input box until a plugin type's project is set up, opening the panel that sets it up", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     let ready = false;
     const handled = vi.fn();
+    const attachment = { id: "file", batchId: "batch", name: "sketch.txt", relativePath: "sketch.txt", size: 12, kind: "text" as const };
     const daemon = await openProject(
       (route, init) => {
         if (route === "/projects/project")
@@ -313,31 +315,39 @@ describe("plugins in the project shell", () => {
         if (route.startsWith("/projects/project/plugin-panels")) return Response.json([
           { id: "setup", plugin: "acme/maker", version: "1.0.0", title: "Maker setup", area: "right", capabilities: {}, commands: [], url: "about:blank" },
         ]);
-        if (route.endsWith("/turns") && init.method === "POST" && !ready)
+        if (/\/turns(\?|$)/.test(route) && init.method === "POST" && !ready)
           return Response.json({ error: "Connect a Maker project first", code: "project-not-ready", panel: "acme/maker:setup" }, { status: 409 });
         return undefined;
       },
       detail("live-turn"),
-      { initialPrompt: { generation: 1, prompt: "Build my Maker game", mentions: [], images: [], mode: "normal" }, onInitialPromptHandled: handled },
+      { initialPrompt: { generation: 1, prompt: "Build my Maker game", mentions: [], images: [], mode: "planning", attachments: [attachment] }, onInitialPromptHandled: handled },
     );
     await settle();
-    expect(handled).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("Your initial message has not been sent.");
-    expect(container.textContent).toContain("Connect a Maker project first");
-    expect(container.querySelector(".paused-initial-prompt pre")?.textContent).toBe("Build my Maker game");
+    // The message is the input box's to send again or change, with what it carried and why it waits.
+    expect(handled).toHaveBeenCalledOnce();
+    expect(container.querySelector(".composer-info")?.textContent).toBe("Your first message hasn't been sent yet, so it's back in the message box. Connect a Maker project first");
+    expect(container.querySelector(".composer-error")).toBeNull();
+    expect(promptText(container)).toBe("Build my Maker game");
+    expect(container.querySelector(".composer-attachment")?.textContent).toBe("sketch.txt");
     const tabs = () => [...container.querySelectorAll(".dock-area-right .dock-tab-label")].map((tab) => tab.textContent);
+    expect(tabs()).toContain("Maker setup");
     // Closed, the panel comes back when the message is refused again.
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close Maker setup"]')!.click());
     expect(tabs()).not.toContain("Maker setup");
-    await click("Send original message");
+    const send = () => act(async () => container.querySelector<HTMLButtonElement>(".send-button")!.click());
+    await send();
+    await settle();
     expect(tabs()).toContain("Maker setup");
-    expect(handled).not.toHaveBeenCalled();
+    expect(promptText(container)).toBe("Build my Maker game");
     ready = true;
-    await click("Send original message");
-    expect(handled).toHaveBeenCalledOnce();
-    const sent = daemon.requests.filter((request) => request.method === "POST" && request.route.endsWith("/turns"));
+    await send();
+    await settle();
+    const sent = daemon.requests.filter((request) => request.method === "POST" && /\/turns(\?|$)/.test(request.route));
     expect(sent).toHaveLength(3);
-    expect(JSON.parse(sent[2]!.body!).prompt).toBe("Build my Maker game");
+    expect(JSON.parse(sent[2]!.body!)).toMatchObject({ prompt: "Build my Maker game", mode: "planning", attachments: [{ id: "file", batchId: "batch" }] });
+    expect(container.querySelector(".composer-info")).toBeNull();
+    expect(promptText(container)).toBe("");
+    expect(container.querySelector(".composer-attachment")).toBeNull();
   });
 
   it("shows a plugin's frame once its page has the app's theme", async () => {

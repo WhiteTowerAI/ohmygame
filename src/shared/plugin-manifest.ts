@@ -178,7 +178,7 @@ const ProjectType = Type.Object(
         {
           additionalProperties: false,
           description:
-            "Before a prompt is sent in a project of this type, the app runs this native command (no input), which returns { ready, message? }; when not ready, the prompt waits and the panel opens",
+            "Before a prompt is sent in a project of this type, the app runs this native command (no input), which returns { ready, message? }; when not ready, the prompt waits and the panel opens. A message of the form %key% is looked up in the plugin's locale files",
         },
       ),
     ),

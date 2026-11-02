@@ -115,13 +115,10 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
     .sort((left, right) => left.plugin.displayName.localeCompare(right.plugin.displayName));
   const card = (group: StorePluginGroup) => <StorePluginCard key={group.plugin.id} group={group} market={market} disabled={Boolean(updating)}
     onToggle={enabled => void togglePlugin(group.plugin.id, enabled)} onOpen={() => onPluginChange(group.plugin.id)} />;
-  const appWide = matching.filter(({ plugin }) => plugin.appWide && !madeByPerson(plugin));
-  const perProject = matching.filter(({ plugin }) => !plugin.appWide && !madeByPerson(plugin));
+  // Plugins group by what they are for, whether they apply by themselves or a
+  // project turns them on; each card says which.
+  const published = matching.filter(({ plugin }) => !madeByPerson(plugin));
   const made = matching.filter(({ plugin }) => madeByPerson(plugin));
-  const perProjectSection = perProject.length ? <section className="plugins-section" aria-label={t("pluginStore.section")}>
-    <h2>{t("pluginStore.section")} <span className="plugins-count">{perProject.length}</span></h2>
-    <div className="plugins-grid">{perProject.map(card)}</div>
-  </section> : null;
   // Only categories some plugin falls in, so no choice leads to an empty page.
   const installedIds = new Set(groups.map(group => group.plugin.id));
   const onMarket = (market?.plugins ?? []).filter(plugin => !installedIds.has(plugin.id));
@@ -155,14 +152,12 @@ export function PluginsSettings({ pluginId, adds: initialAdds, onPluginChange, o
 
   const installedTab = normalizedQuery ? (
     matching.length ? <>
-      {appWide.length || made.length ? <div className="plugins-grid">{[...appWide, ...made].map(card)}</div> : null}
-      {perProjectSection}
+      <div className="plugins-grid">{[...published, ...made].map(card)}</div>
     </> : <Empty title={t("plugins.noMatch")} />
   ) : <>
-    {PLUGIN_GROUPS.map(group => ({ id: group.id, plugins: appWide.filter(({ plugin }) => storePluginGroup(plugin) === group.id) }))
+    {PLUGIN_GROUPS.map(group => ({ id: group.id, plugins: published.filter(({ plugin }) => storePluginGroup(plugin) === group.id) }))
       .filter(group => group.plugins.length)
       .map(group => <PluginGroup key={group.id} title={t(`plugins.categories.${group.id}`)} cards={group.plugins.map(card)} />)}
-    {perProjectSection}
     <section className="plugins-section" aria-label={t("plugins.personal")}>
       <h2>{t("plugins.personal")} <span className="plugins-count">{made.length}</span></h2>
       <div className="plugins-grid">

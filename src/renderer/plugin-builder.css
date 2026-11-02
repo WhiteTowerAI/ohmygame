@@ -4,8 +4,7 @@
 .plugin-builder-error { padding: 12px; margin: 12px 0; border-radius: 6px; background: color-mix(in srgb, var(--color-danger) 7%, transparent); color: var(--color-danger); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .plugin-builder-error button { margin-left: 8px; }
 .plugin-builder-notice { margin: 12px 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
-.plugin-builder-notice summary { cursor: pointer; }
-.plugin-builder-notice pre { font-size: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.plugin-builder-service-check .ui-disclosure { margin-top: 8px; }
 .plugin-builder-preview { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .plugin-builder-preview-content { flex: 1; min-height: 0; overflow-y: auto; padding: 28px; }
 .plugin-builder-preview-content.is-files { display: flex; overflow: hidden; padding: 0; }
