@@ -42,8 +42,10 @@ const CLOSED_TABS = `(() => {
       for (let outer = group.parentElement?.closest('omg-tab'); outer; outer = outer.parentElement?.closest('omg-tab'))
         if (outer.parentElement?.localName === 'omg-tabs') open.unshift([groups.indexOf(outer.parentElement), outer.getAttribute('name')]);
       const path = open.map(([, name]) => name).join(' / ');
-      const label = seen.has(path) ? path + ' #' + at : path;
-      seen.add(path);
+      // Groups can repeat a path, and a numbered one can match another name, so count until it's new.
+      let label = path;
+      for (let count = 2; seen.has(label); count++) label = path + ' #' + count;
+      seen.add(label);
       return { label, open };
     }),
   );
@@ -82,6 +84,9 @@ async function runJob(job, origins) {
   /** Draws the page as it now is and reports on it, with what went wrong since the last report. */
   const report = async (scenario, target) => {
     if (frame) {
+      // A page is at least as tall as its window, so the last picture's height would carry over.
+      window.setContentSize(WIDTH, HEIGHT);
+      await sleep(300);
       const height = await frame.executeJavaScript('Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0)');
       window.setContentSize(WIDTH, Math.min(TALLEST, Math.max(HEIGHT, height)));
       await sleep(300);
