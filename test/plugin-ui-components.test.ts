@@ -489,6 +489,7 @@ describe("plugin check", () => {
     ]);
     expect(await messages(await plugin({ "index.html": "<omg-button></omg-button>" }), "error")).toEqual([expect.stringContaining("no script loads")]);
     expect(await messages(await plugin({ "index.html": '<script type="module" src="/_ohmygame/ui/999/index.js"></script>' }), "error")).toEqual([expect.stringContaining("aren't served")]);
+    expect(await messages(await plugin({ "index.html": '<script src="/_ohmygame/ui/1/index.js"></script>' }), "error")).toEqual([expect.stringContaining('type="module"')]);
     // Another panel loading them doesn't help: it's another page.
     const two = await plugin({ "index.html": load }, { preview: true, major: 1 }, { contributes: { panels: [{ id: "one", title: "One", area: "center", entry: "./panel/index.html" }, { id: "two", title: "Two", area: "center", entry: "./two/index.html" }] } });
     await mkdir(path.join(two, "two"));

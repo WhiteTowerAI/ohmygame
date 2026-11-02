@@ -130,7 +130,9 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
     if (html) {
       for (const script of scriptsIn(text)) {
         const source = script.get("src");
-        if (!source && !RUNS.test((script.get("type") ?? "").trim().toLowerCase())) continue;
+        const type = (script.get("type") ?? "").trim().toLowerCase();
+        if (!source && !RUNS.test(type)) continue;
+        if (source && type !== "module" && majorsIn(file, `<script src="${source}">`).length) add("error", file, `${source} is a module, so it loads only with type="module"`);
         if (!source) add("error", file, "The page's policy allows no inline scripts; put the script in a file next to it");
         else if (/^(?:https?:)?\/\//.test(source)) add("error", file, `The page's policy allows no remote scripts: ${source}`);
       }

@@ -518,7 +518,8 @@ which are in preview.
 `bun run plugin:check <folder>` (`scripts/plugin-check.ts`) tells an author
 what would go wrong before anyone installs the plugin. It runs the checks every
 install runs, then reads the pages. Errors, which also fail the command: an
-inline or remote script, a major this app doesn't serve, a preview major without
+inline or remote script, components loaded without `type="module"`, a major this
+app doesn't serve, a preview major without
 `ui.preview`, a component in a page's markup that doesn't exist, or components
 with nothing loading them. Warnings: preview components, a major being retired,
 `ui.major` missing or different from what the pages load, deprecated components
