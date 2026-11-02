@@ -578,9 +578,10 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
 
   useEffect(() => {
     dialog.current?.focus();
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onCloseRef.current(); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    // Captured first, like ui/ overlays, so a dialog this opens over keeps its Escape.
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); onCloseRef.current(); } };
+    document.addEventListener("keydown", closeOnEscape, true);
+    return () => document.removeEventListener("keydown", closeOnEscape, true);
   }, []);
 
   const categories = useMemo(() => [...new Set(actions.map((action) => action.category))], [actions]);

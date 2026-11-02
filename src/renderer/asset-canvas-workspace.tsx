@@ -827,6 +827,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       Boolean(node?.type === "document" && documents.generations?.[node.data.documentId ?? ""]?.generating);
   }
 
+  // Read after an await, when this render's nodeBusy may be stale.
+  const nodeBusyRef = useRef(nodeBusy);
+  nodeBusyRef.current = nodeBusy;
+
   function canPickReferences(nodeId: string): boolean {
     const node = nodes.find((candidate) => candidate.id === nodeId);
     return Boolean(node && !["asset", "file", "table"].includes(node.type) && !nodeBusy(nodeId) && !hidden && !conflicted && !resolving);
@@ -894,7 +898,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       }
       const current = nodesRef.current;
       const anchor = current.find((node) => node.id === menu.nodeId);
-      if (!anchor || nodeBusy(anchor.id) || current.length >= MAX_ASSET_CANVAS_NODES) return;
+      if (!anchor || nodeBusyRef.current(anchor.id) || current.length >= MAX_ASSET_CANVAS_NODES) return;
       const [source, target] = menu.type === "source" ? [anchor, candidate] : [candidate, anchor];
       const relation = connectionRelation(source, target, OUTPUT_HANDLE, [...current, candidate], libraryAssets, imageModels, model3DModels, audioModels);
       if (!relation) return;
