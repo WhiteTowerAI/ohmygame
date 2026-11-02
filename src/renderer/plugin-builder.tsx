@@ -23,7 +23,7 @@ import { readPluginBuilderInput, removePluginBuilderInput, savePluginBuilderInpu
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import { ArrowLeft, Check, ChevronRight, FileCode2, FileText, LoaderCircle, Package, MessageSquarePlus, PanelToggle,
   MoreHorizontal, Plug, RefreshCw, Settings, Sparkles, Trash2 } from "./icons.js";
-import { Alert, Button, Dialog, DropdownMenu, Empty, IconButton } from "./ui/index.js";
+import { Alert, Button, Dialog, Disclosure, DropdownMenu, Empty, IconButton } from "./ui/index.js";
 import "./plugin-builder.css";
 import { t } from "./i18n.js";
 
@@ -369,7 +369,7 @@ function PluginChecks({ draft, disabled, operation, onTest }: {
       const check = draft.checks?.[server.id];
       const current = check?.revision === draft.revision;
       const result = current ? check?.result : undefined;
-      return <div className="plugin-builder-service-check" key={server.id}><div className="plugin-builder-check"><Plug size={18} /><span><strong>{server.title}</strong><small>{result?.status === "connected" ? t("pluginBuilder.connectedTools", { count: result.toolCount }) : result?.status === "needs-auth" ? t("pluginControls.authorizationRequired") : result?.status === "failed" ? t("providers.status.failed") : check ? t("pluginBuilder.outdated") : t("pluginBuilder.notTested")}</small></span><button className="plugin-detail-secondary" type="button" aria-label={t("pluginBuilder.testServer", { name: server.title })} disabled={disabled || Boolean(draft.errors.length)} onClick={() => onTest(server.id)}>{operation === `test:${server.id}` ? <LoaderCircle className="spin" size={12} /> : null}{t("pluginControls.test")}</button></div>{result?.message && result.status !== "connected" ? <details className="plugin-builder-notice"><summary>{t("common.details")}</summary><pre>{result.message}</pre></details> : null}</div>;
+      return <div className="plugin-builder-service-check" key={server.id}><div className="plugin-builder-check"><Plug size={18} /><span><strong>{server.title}</strong><small>{result?.status === "connected" ? t("pluginBuilder.connectedTools", { count: result.toolCount }) : result?.status === "needs-auth" ? t("pluginControls.authorizationRequired") : result?.status === "failed" ? t("providers.status.failed") : check ? t("pluginBuilder.outdated") : t("pluginBuilder.notTested")}</small></span><button className="plugin-detail-secondary" type="button" aria-label={t("pluginBuilder.testServer", { name: server.title })} disabled={disabled || Boolean(draft.errors.length)} onClick={() => onTest(server.id)}>{operation === `test:${server.id}` ? <LoaderCircle className="spin" size={12} /> : null}{t("pluginControls.test")}</button></div>{result?.message && result.status !== "connected" ? <Disclosure summary={t("common.details")}><pre>{result.message}</pre></Disclosure> : null}</div>;
     })}
   </div>;
 }

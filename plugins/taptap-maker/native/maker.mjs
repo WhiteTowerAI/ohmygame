@@ -221,6 +221,7 @@ export async function status({ directory, workspace, signal }) {
 
 /**
  * Whether the agent can work here: Maker is prepared and the folder is bound.
+ * Its messages are keys of the plugin's locale files, shown in the app's language.
  * Reads files only, apart from keeping OhMyGame's files out of Maker's
  * commits, since it runs before every prompt.
  */
@@ -228,14 +229,13 @@ export async function ready({ directory, workspace }) {
   if (!(await installed(directory)))
     return {
       ready: false,
-      message: "Prepare TapTap Maker in its panel before sending a message.",
+      message: "%ready.prepare%",
     };
   const record = (await initialization(directory, workspace)).state;
   if (!(await binding(workspace)) || (record && !record.completed))
     return {
       ready: false,
-      message:
-        "Connect this project to a Maker project in the TapTap Maker panel before sending a message.",
+      message: "%ready.connect%",
     };
   await excludeAppFiles(workspace);
   return { ready: true };

@@ -4,7 +4,7 @@ import { addCustomProviderModel, getCloudQuotas, getProviderModels, refreshProvi
 import { ProviderModel3DForm } from "./provider-model3d-form.js";
 import { Check, ChevronDown, ExternalLink, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
 import { SegmentedControl } from "./segmented-control.js";
-import { Button } from "./ui/index.js";
+import { Button, Disclosure } from "./ui/index.js";
 import { hyper3DCredits } from "../shared/cloud-models.js";
 import { language, t } from "./i18n.js";
 
@@ -161,7 +161,7 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
       </div> : null}
     </div>
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
-    {settings?.catalogNotice ? <details className="settings-detail-hint provider-catalog-info"><summary>{t("models.catalogInfo")}</summary><p>{settings.catalogNotice}</p>{settings.catalogDocsUrl ? <a href={settings.catalogDocsUrl} target="_blank" rel="noreferrer">{t("models.officialVersions")} <ExternalLink size={11} /></a> : null}</details> : null}
+    {settings?.catalogNotice ? <Disclosure className="settings-detail-hint provider-catalog-info" summary={t("models.catalogInfo")}><p>{settings.catalogNotice}</p>{settings.catalogDocsUrl ? <a href={settings.catalogDocsUrl} target="_blank" rel="noreferrer">{t("models.officialVersions")} <ExternalLink size={11} /></a> : null}</Disclosure> : null}
     {adding && settings?.model3DProtocol ? <ProviderModel3DForm key={`${providerId}-new`} protocol={settings.model3DProtocol} busy={busy} onCancel={() => { setAdding(false); setError(undefined); }} onSave={async (model) => {
       if (await update(() => addCustomProviderModel(providerId, model))) { setAdding(false); setQuery(""); setFilter("all"); }
     }} /> : adding && settings ? <CustomModelForm key={providerId} settings={settings} busy={busy} onCancel={() => { setAdding(false); setError(undefined); }} onAdd={async (model) => {

@@ -13,12 +13,15 @@ from the [plugin market](#the-plugin-market).
 
 The Plugins page reads `GET /plugin-store/plugins` and has three tabs.
 
-- **Installed** groups the plugins that apply by themselves into **Game
-  creation**, **Engines & platforms**, **Art & assets** and **Other plugins**.
-  Each group shows up to six cards and a **View all**. **Turned on per project**
-  comes next, then **Personal**: the plugins the person made (`personal/<name>`),
-  ending with **Create a plugin with AI**, then the AI workspaces. Search shows
-  every match in one list. Switching a plugin doesn't move it.
+- **Installed** groups plugins by their `categories` into **Game creation**,
+  **Engines & platforms**, **Art & assets** and **Other plugins**, whether they
+  apply by themselves or a project turns them on; each card says which. Each
+  group shows up to six cards and a **View all**. **Personal** comes next: the
+  plugins the person made (`personal/<name>`), ending with **Create a plugin
+  with AI**, then the AI workspaces. Search shows every match in one list.
+  Only a plugin that applies by itself has a switch on its card, and switching
+  it doesn't move it. One a project turns on is turned on in that project; its
+  card says when it is off everywhere, and its page has that switch.
 - **Browse** lists every plugin with its source and what it adds, and filters by
   source and by what it adds. The [plugin market](#the-plugin-market)'s plugins
   come first, under **Featured** and **On npm**, leaving out what's installed.
@@ -162,8 +165,9 @@ shows it in the call's progress.
   Before each prompt the app runs the command (up to 20 seconds); when it
   answers `{ ready: false, message? }`, the prompt route answers 409 with
   `code: "project-not-ready"` and the panel, which the project opens, and a
-  new project's first message waits there. A failed or missing check lets the
-  prompt through.
+  new project's first message goes back into the composer. A `%key%` message
+  comes from the plugin's locale files in the language the prompt request
+  names (`?locale=`). A failed or missing check lets the prompt through.
 - Commands and changes: `GET`/`POST /projects/:id/plugin-commands`
   (`{ command, input? }`; `PluginServices.runCommand` runs it),
   `GET /projects/:id/plugin-changes`,

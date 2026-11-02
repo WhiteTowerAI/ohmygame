@@ -7,6 +7,7 @@ import {
   Combobox,
   CommandMenu,
   Dialog,
+  Disclosure,
   DropdownMenu,
   Popover,
   SegmentedControl,
@@ -476,4 +477,21 @@ it("gives Escape to the dialog that holds focus, whichever opened last", async (
   inner.focus();
   await key(inner, "Escape");
   expect(closed).toEqual(["inner"]);
+});
+
+it("shows a disclosure's content once it opens, and only then when it is lazy", async () => {
+  const changes: boolean[] = [];
+  await act(async () => root.render(<>
+    <Disclosure summary="Error details" lazy onOpenChange={(open) => changes.push(open)}><pre>stack</pre></Disclosure>
+    <Disclosure variant="section" summary="Cleanup" defaultOpen><p>fields</p></Disclosure>
+  </>));
+  const [details, section] = [...container.querySelectorAll("details")];
+  expect(details!.className).toBe("ui-disclosure is-inline");
+  expect(details!.querySelector("summary")?.textContent).toBe("Error details");
+  expect(details!.querySelector("pre")).toBeNull();
+  await act(async () => { details!.open = true; });
+  expect(details!.querySelector("pre")?.textContent).toBe("stack");
+  expect(changes).toEqual([true]);
+  expect(section!.open).toBe(true);
+  expect(section!.textContent).toContain("fields");
 });

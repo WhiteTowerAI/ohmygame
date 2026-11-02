@@ -3320,7 +3320,7 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { projectId: string; conversationId: string }; Body: PromptRequest }>(
+  app.post<{ Params: { projectId: string; conversationId: string }; Querystring: { locale?: string }; Body: PromptRequest }>(
     "/projects/:projectId/conversations/:conversationId/turns",
     { schema: promptSchema, bodyLimit: Number.MAX_SAFE_INTEGER },
     async (request, reply) => {
@@ -3346,7 +3346,7 @@ export function createApp(options: AppOptions = {}) {
       }
       // A plugin type can hold prompts back until its project is set up, such as signed in and bound.
       if (project.pluginType) {
-        const ready = await pluginServices.projectReady(project.workspacePath, project.pluginType.id);
+        const ready = await pluginServices.projectReady(project.workspacePath, project.pluginType.id, request.query.locale === "zh-CN" ? "zh-CN" : "en");
         if (!ready.ready) return reply.code(409).send({ error: ready.message ?? "Finish setting up this project in its panel first", code: "project-not-ready", panel: ready.panel });
       }
       let references;

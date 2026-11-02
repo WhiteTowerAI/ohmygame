@@ -111,6 +111,7 @@ import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
 import { FloatingChat } from "./floating-chat.js";
 import { composerDrafts } from "./composer-drafts.js";
+import { imageAttachment } from "./composer-attachments.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { ApprovalCard } from "./approval-card.js";
@@ -126,7 +127,7 @@ import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
-import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
+import { fitLayout, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { PluginFrame, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
@@ -161,14 +162,14 @@ interface ProjectShellProps {
 }
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
-const PANELS: Record<WorkspacePanel, { title: () => string; icon: IconComponent }> = {
-  chat: { title: () => t("panels.chat"), icon: ChatSquare },
-  game: { title: () => t("panels.game"), icon: Gamepad2 },
-  design: { title: () => t("panels.design"), icon: FileDocument },
-  code: { title: () => t("workspace.tab.code"), icon: Code },
-  assets: { title: () => t("workspace.tab.assets"), icon: Layers3 },
-  story: { title: () => t("panels.story"), icon: Book },
-  canvas: { title: () => t("panels.canvas"), icon: GalleryWide },
+const PANEL_ICONS: Record<WorkspacePanel, IconComponent> = {
+  chat: ChatSquare,
+  game: Gamepad2,
+  design: FileDocument,
+  code: Code,
+  assets: Layers3,
+  story: Book,
+  canvas: GalleryWide,
 };
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
@@ -204,7 +205,8 @@ export function ProjectShell({
   const latestConversations = useRef(conversations);
   latestConversations.current = conversations;
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
-  const [initialPromptDeferred, setInitialPromptDeferred] = useState(false);
+  /** Says why a new project's first message is back in the input box, until a message is sent. */
+  const [initialPromptReturned, setInitialPromptReturned] = useState<string>();
   const [creatingConversation, setCreatingConversation] = useState(false);
   // The workspace's panels, in the one layout every project shares (see
   // workspace-layout.ts). Each panel's view renders into nodes of its own,
@@ -223,7 +225,7 @@ export function ProjectShell({
   const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered, homes)) : undefined;
   const visible = layout ? visiblePanels(layout, new Set(offered)) : [];
   const chatShown = !layout || visible.includes("chat");
-  const [nodes] = useState(() => Object.fromEntries(Object.keys(PANELS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
+  const [nodes] = useState(() => Object.fromEntries(Object.keys(PANEL_ICONS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
   // A plugin page gets its nodes once its panel is first placed, and keeps
   // them, so moving or closing the panel never reloads the page.
   const pluginNodes = useRef(new Map<PanelId, PanelNodes>()).current;
@@ -248,8 +250,7 @@ export function ProjectShell({
   function panelInfo(id: PanelId): { title: string; icon: IconComponent; source?: string } {
     const plugin = pluginPanels.get(id);
     if (plugin) return { title: plugin.title, icon: Plug, source: plugin.plugin };
-    const builtIn = PANELS[id as WorkspacePanel];
-    return { title: builtIn.title(), icon: builtIn.icon };
+    return { title: panelTitle(id as WorkspacePanel), icon: PANEL_ICONS[id as WorkspacePanel] };
   }
   const [publishing, setPublishing] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
@@ -548,26 +549,55 @@ export function ProjectShell({
     sendInitialPrompt();
   }, [state.connection, state.project?.id, state.conversation?.id, conversationId, initialPrompt, runtime.generation, runtime.status]);
 
+  useEffect(() => {
+    // A message held while the service restarted is never sent on its own: it goes back to the input box.
+    if (
+      !state.project || !state.conversation || state.conversation.id !== conversationId ||
+      !initialPrompt || initialPromptAttempted.current || initialPrompt.generation === runtime.generation
+    ) return;
+    initialPromptAttempted.current = true;
+    returnInitialPrompt(state.conversation.id, t("projectShell.promptPaused"));
+  }, [state.project?.id, state.conversation?.id, conversationId, initialPrompt, runtime.generation]);
+
   function sendInitialPrompt(): void {
     const project = state.project;
     const conversation = state.conversation;
     if (!initialPrompt || !project || !conversation || conversation.id !== conversationId || sendingInitialPrompt || runtime.status !== "ready") return;
     initialPromptAttempted.current = true;
     setSendingInitialPrompt(true);
-    setInitialPromptDeferred(false);
-    let sent = true;
     notifyPromptSent();
     void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments).then(() => {
-      if (sent && (initialPrompt.images.length || initialPrompt.attachments?.length)) setWorkspaceRevision((value) => value + 1);
-    }).catch((error) => {
-      // The message waits, as when it was paused, until the project is set up.
-      if (revealSetupPanel(error)) sent = false;
-      dispatch({ type: "notice", message: errorMessage(error) });
-    }).finally(() => {
-      if (sent) onInitialPromptHandled?.();
-      else setInitialPromptDeferred(true);
-      setSendingInitialPrompt(false);
-    });
+      if (initialPrompt.images.length || initialPrompt.attachments?.length) setWorkspaceRevision((value) => value + 1);
+      onInitialPromptHandled?.();
+    }, (error) => {
+      // Only a refusal is certainly not sent. A request lost on the way may have started the
+      // turn, so the message is not offered again, where sending it would make a second turn.
+      if (!(error instanceof ApiError)) {
+        dispatch({ type: "notice", message: errorMessage(error) });
+        onInitialPromptHandled?.();
+        return;
+      }
+      // A project that isn't set up says what to do in its panel; any other refusal is shown as one.
+      const notReady = revealSetupPanel(error);
+      returnInitialPrompt(conversation.id, notReady ? t("projectShell.promptReturnedBecause", { reason: errorMessage(error) }) : t("projectShell.promptReturned"));
+      if (!notReady) dispatch({ type: "notice", message: errorMessage(error) });
+    }).finally(() => setSendingInitialPrompt(false));
+  }
+
+  /** Puts a new project's first message, which was not sent, back in the input box to send again or change. */
+  function returnInitialPrompt(target: string, reason: string): void {
+    if (!initialPrompt) return;
+    const { prompt, mentions, images, mode, attachments = [] } = initialPrompt;
+    composerDrafts.get({ projectId, conversationId: target }).update((current) => ({
+      prompt: current.prompt.trim() ? `${prompt}\n${current.prompt}` : prompt,
+      mentions: [...mentions, ...current.mentions],
+      planning: current.planning || mode === "planning",
+      attachments: [...current.attachments, ...images.map(imageAttachment)],
+      uploaded: attachments.length ? [...current.uploaded ?? [], ...attachments] : current.uploaded,
+      focusRequestId: crypto.randomUUID(),
+    }));
+    setInitialPromptReturned(reason);
+    onInitialPromptHandled?.();
   }
 
   useEffect(() => {
@@ -654,6 +684,7 @@ export function ProjectShell({
       if (picks.length) setPreviewPicks((current) => current.filter((item) => !picks.includes(item)));
       if (sentImages.length || attachments.length) setWorkspaceRevision((value) => value + 1);
       if (previewContexts.length) playableChat?.clearAttachments();
+      setInitialPromptReturned(undefined);
       return true;
     } catch (error) {
       revealSetupPanel(error);
@@ -1263,13 +1294,6 @@ export function ProjectShell({
       </div>
     ) : null}
 
-    {initialPrompt && (initialPromptDeferred || (initialPrompt.generation !== runtime.generation && !initialPromptAttempted.current)) ? <div className="paused-initial-prompt" role="status">
-      <p>{t(initialPromptDeferred ? "projectShell.promptNotSent" : "projectShell.promptPaused")}</p>
-      <details><summary>{t("projectShell.reviewMessage")}</summary><pre>{initialPrompt.prompt}</pre>
-        {initialPrompt.images.length || initialPrompt.attachments?.length ? <p>{t("projectShell.attachmentsRetained", { count: initialPrompt.images.length + (initialPrompt.attachments?.length ?? 0) })}</p> : null}
-      </details>
-      <button type="button" disabled={runtime.status !== "ready" || state.connection !== "open" || !conversation || conversation.id !== conversationId} onClick={sendInitialPrompt}>{t("projectShell.sendOriginal")}</button>
-    </div> : null}
     {unfinishedRestore ? <UnfinishedRestoreBanner
       projectId={projectId}
       disabled={agentBusy || state.connection !== "open"}
@@ -1288,6 +1312,7 @@ export function ProjectShell({
       plan={activePlan}
       planMode={state.plan.mode}
       notice={state.connection === "reconnecting" ? t("projectShell.reconnecting") : state.notice}
+      status={initialPromptReturned}
       limitReached={!currentConversationBusy && items.findLast((item) => item.type === "agentMessage")?.error?.code === "quota_exceeded"}
       models={modelCatalog.models}
       modelStatus={modelCatalog.status}
@@ -1536,19 +1561,21 @@ export function ProjectShell({
           visible: storyVisible,
           onShow: revealPanel,
         }}
-      /> : createPortal(<Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+      /> : createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         onSaveReady={registerDesignSave}
         onContextChange={setDesignContext}
         headerActionsTarget={nodes.canvas.toolbar}
-      /></Suspense>, nodes.canvas.body)}
+      /></Suspense></ErrorBoundary>, nodes.canvas.body)}
       {project ? [...pluginNodes].flatMap(([id, target]) => {
         const panel = pluginPanels.get(id);
         return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(pluginPanelToolbar(panel), target.toolbar, `${id}:toolbar`)] : [];
       }) : null}
-      {project && canvasOnly && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={t("workspace.tab.code")}>
-        <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />
+      {project && canvasOnly && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={panelTitle("code")}>
+        <ErrorBoundary label={panelTitle("code")} resetKey={project.id}>
+          <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />
+        </ErrorBoundary>
       </main>, nodes.code.body) : null}
       </ErrorBoundary>
     </ProjectFrame>

@@ -1,4 +1,4 @@
-import type { PluginMention, PromptContext, PromptReference } from "../shared/contracts.js";
+import type { PluginMention, PromptAttachment, PromptContext, PromptReference } from "../shared/contracts.js";
 import type { ChatReference } from "./chat-reference.js";
 import type { ComposerAttachment } from "./composer-attachments.js";
 import { formatSkillInvocation } from "./composer-mentions.js";
@@ -19,6 +19,8 @@ export interface SavedComposerDraft extends ComposerDraft {
   /** Home's other chosen plugins, sent as mentions after `selectedPlugin`. */
   extraPlugins?: PluginMention[];
   attachments: ComposerAttachment[];
+  /** Files already in the project from a message that was not sent, such as a new project's first. Never saved. */
+  uploaded?: PromptAttachment[];
   reference?: ChatReference;
   designReference?: { references: PromptReference[]; context: PromptContext };
   planning: boolean;
@@ -61,6 +63,7 @@ export function createComposerDraftStore(storage?: DraftStorage) {
       planning,
       ...restored,
       attachments: [],
+      uploaded: undefined,
       submitting: false,
     };
     const listeners = new Set<() => void>();
@@ -91,7 +94,7 @@ export function createComposerDraftStore(storage?: DraftStorage) {
         // Only clear the message that was sent, never a newer message or reference.
         if (!active || !sameMessage(snapshot, submitted)) return false;
         session.update({ prompt: "", mentions: [], selectedPlugin: undefined, extraPlugins: undefined,
-          attachments: [], reference: undefined, designReference: undefined, focusRequestId: undefined });
+          attachments: [], uploaded: undefined, reference: undefined, designReference: undefined, focusRequestId: undefined });
         return true;
       },
       insertPrompt: (text) => {
@@ -164,7 +167,7 @@ function sameMessage(left: SavedComposerDraft, right: SavedComposerDraft): boole
   return left.prompt === right.prompt && left.mentions === right.mentions
     && left.selectedPlugin === right.selectedPlugin
     && left.extraPlugins === right.extraPlugins
-    && left.attachments === right.attachments && left.reference === right.reference
+    && left.attachments === right.attachments && left.uploaded === right.uploaded && left.reference === right.reference
     && left.designReference === right.designReference;
 }
 

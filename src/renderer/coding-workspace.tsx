@@ -39,7 +39,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
@@ -64,13 +64,14 @@ import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { useWebGamePlayer } from "./use-web-game-player.js";
 import { GameRecordButton } from "./game-recording.js";
 import { ErrorBoundary } from "./error-boundary.js";
+import { panelTitle } from "./workspace-layout.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { DesktopGamePreview } from "./desktop-game-preview.js";
 import { t } from "./i18n.js";
 import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./workspace-git-changes.js";
 import type { PanelNodes } from "./panel-layout.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
-import { Button, CategoryMark, DropdownMenu, Empty, IconButton, MediaTile, SearchInput, Tabs } from "./ui/index.js";
+import { Button, CategoryMark, Disclosure, DropdownMenu, Empty, IconButton, MediaTile, SearchInput, Tabs } from "./ui/index.js";
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 const DesignDocumentPanel = lazy(() => import("./design-document-panel.js").then((module) => ({ default: module.DesignDocumentPanel })));
@@ -509,9 +510,10 @@ export function CodingWorkspace({
     }
     if (!opened.current.has(view)) return null;
     const nodes = panels.nodes[view];
+    // Each panel fails by itself, where it is, and leaves the others showing.
     return <Fragment key={view}>
       {content.toolbar ? createPortal(<div className="viewer-publish">{content.toolbar}</div>, nodes.toolbar) : null}
-      {createPortal(viewPane(view, content.body), nodes.body)}
+      {createPortal(<ErrorBoundary label={panelTitle(view === "preview" ? "game" : view)} resetKey={project?.id}>{viewPane(view, content.body)}</ErrorBoundary>, nodes.body)}
     </Fragment>;
   });
 
@@ -918,7 +920,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
       </div> : null}
       {diagnostic ? <div className="preview-diagnostic" role="alert">
         <strong>{diagnostic.kind === "compile" ? t("workspace.compileFailed") : diagnostic.kind === "runtime" ? t("workspace.runtimeError") : t("workspace.loadFailed")}</strong>
-        <details><summary>{t("common.errorDetails")}</summary><pre>{diagnostic.message}</pre></details>
+        <Disclosure summary={t("common.errorDetails")}><pre>{diagnostic.message}</pre></Disclosure>
         <p>{diagnostic.source === "playtest" ? t("workspace.source.playtest") : diagnostic.source === "player" ? t("workspace.source.player") : t("workspace.previewSource")}{diagnostic.path ? ` · ${diagnostic.path}` : ""}</p>
         <div className="preview-recovery-actions">
           <button type="button" onClick={() => void navigator.clipboard.writeText(diagnostic.message)}>{t("workspace.copyError")}</button>
@@ -944,6 +946,21 @@ export function normalizePreviewPath(value: string): string {
   const path = value.trim().replaceAll("\\", "/").replace(/^\/+/, "");
   return path ? `/${path}` : "/";
 }
+
+/**
+ * The file tree neither drags nor drops, so it keeps out of the page's drag and
+ * drop. react-dnd's HTML5 backend allows one per window, and two trees that
+ * end up with their own (one opened while another is still mounted) would
+ * throw "Cannot have two HTML5 backends at the same time".
+ */
+const NO_DRAG_AND_DROP: NonNullable<ComponentProps<typeof Tree>["dndBackend"]> = () => ({
+  setup() {},
+  teardown() {},
+  connectDragSource: () => () => {},
+  connectDragPreview: () => () => {},
+  connectDropTarget: () => () => {},
+  profile: () => ({}),
+});
 
 export function WorkspaceFileBrowser({
   files,
@@ -1107,6 +1124,7 @@ export function WorkspaceFileBrowser({
               searchMatch={(node, term) => node.data.name.toLocaleLowerCase().includes(term.toLocaleLowerCase())}
               disableDrag
               disableDrop
+              dndBackend={NO_DRAG_AND_DROP}
               disableEdit
               disableMultiSelection
               onActivate={(node) => {
@@ -1736,7 +1754,7 @@ function PreviewLogs({ project, onClose }: { project?: ProjectState; onClose: ()
     <p>{preview?.directory ?? project?.startupDirectory ?? "."} · {preview?.command ?? t("workspace.notStarted")}</p>
     {preview?.manager ? <p>{preview.manager} · {preview.managerSource}</p> : null}
     <pre>{preview?.logs || preview?.error || t("workspace.noOutput")}</pre>
-    {preview?.diagnostics?.map((diagnostic, index) => <details key={`${diagnostic.client}:${index}`}><summary>{diagnostic.source ?? t("workspace.previewSource")} · {diagnostic.path ?? "/"}</summary><pre>{diagnostic.message}</pre></details>)}
+    {preview?.diagnostics?.map((diagnostic, index) => <Disclosure key={`${diagnostic.client}:${index}`} summary={`${diagnostic.source ?? t("workspace.previewSource")} · ${diagnostic.path ?? "/"}`}><pre>{diagnostic.message}</pre></Disclosure>)}
   </aside>;
 }
 

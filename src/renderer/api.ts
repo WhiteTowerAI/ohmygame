@@ -1248,7 +1248,8 @@ export async function sendPrompt(
   attachments: PromptAttachment[] = [],
   contexts: PromptContext[] = [],
 ): Promise<PromptResponse> {
-  return request(`/projects/${projectId}/conversations/${conversationId}/turns`, {
+  // The language is for what the app says back, such as a project that isn't set up yet.
+  return request(`/projects/${projectId}/conversations/${conversationId}/turns?locale=${encodeURIComponent(language)}`, {
     method: "POST",
     body: JSON.stringify({ prompt, ...(mode === "planning" ? { mode } : {}), ...(mentions.length ? { mentions } : {}), ...(references.length ? { references } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments: attachments.map(({ id, batchId }) => ({ id, batchId })) } : {}), ...(contexts.length ? { contexts } : {}) }),
   });

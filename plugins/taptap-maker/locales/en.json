@@ -6,6 +6,8 @@
   "panel.title": "TapTap Maker",
   "command.status": "Check Maker status",
   "command.ready": "Check the project is set up",
+  "ready.prepare": "Prepare TapTap Maker in its panel before sending a message.",
+  "ready.connect": "Connect this project to a Maker project in the TapTap Maker panel before sending a message.",
   "command.prepare": "Prepare Maker",
   "command.signIn": "Sign in to Maker",
   "command.projects": "List Maker projects",

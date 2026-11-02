@@ -45,7 +45,7 @@ import { Provider3DBalance } from "./provider-3d-balance.js";
 import { MODEL3D_CONNECTION_ID } from "../shared/model3d-operations.js";
 import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
 import { openModelAuthExternal as openExternal, useModelProviderAuth } from "./use-model-provider-auth.js";
-import { Badge, Button, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
+import { Badge, Button, Disclosure, IconButton, SearchInput, Switch, Tabs } from "./ui/index.js";
 import { useAgentModels } from "./model-selector.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { useAuth } from "./auth.js";
@@ -830,10 +830,9 @@ function useProviderDeletion(providerId: string, onRemoved?: () => void) {
 }
 
 function ProviderAdvanced({ children, defaultOpen = true }: { children: ReactNode; defaultOpen?: boolean }) {
-  return <details className="settings-details settings-provider-advanced" open={defaultOpen}>
-    <summary>{t("common.advanced")}</summary>
+  return <Disclosure className="settings-provider-advanced" summary={t("common.advanced")} defaultOpen={defaultOpen}>
     <div className="settings-form">{children}</div>
-  </details>;
+  </Disclosure>;
 }
 
 function ProviderDeleteButton({ deletion, disabled = false, label = t("providers.delete.button") }: { deletion: ReturnType<typeof useProviderDeletion>; disabled?: boolean; label?: string }) {
