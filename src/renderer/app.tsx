@@ -18,6 +18,7 @@ import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connecti
 import { Onboarding, OnboardingArrival, OnboardingLoading, type OnboardingStart } from "./onboarding.js";
 import { useOnboarding } from "./use-onboarding.js";
 import { CommandMenuHost } from "./command-menu.js";
+import { useNotificationTargets } from "./agent-notifications.js";
 import { rememberLastProject } from "./general-preferences.js";
 import { useRunAlerts } from "./run-alerts.js";
 import { GameRecordingNotices } from "./game-recording.js";
@@ -66,6 +67,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
     if (projectId !== routeProjectId) openProject(projectId);
     setPlaytestEditorProjectId(projectId);
   }), [routeProjectId]);
+  useNotificationTargets((target) => navigateToConversation(target.projectId, target.conversationId));
 
   if ((route.page === "home" || onboarding.replaying) && onboarding.state?.status === "pending") {
     return <Onboarding step={onboarding.state.step}
