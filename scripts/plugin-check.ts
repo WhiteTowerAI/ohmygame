@@ -83,21 +83,24 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
   if (!panels.length) return findings;
 
   const majors = new Map(await Promise.all(PLUGIN_UI_MAJORS.map(async (major) => [major, declarations(await componentManifest(major))] as const)));
-  // What the app serves for a panel: its folder, or only its page when that is at the package's root.
-  const panelFiles = panels.map((panel) => {
-    const folder = path.dirname(panel.entry);
-    return folder === "." ? Promise.resolve([path.join(root, panel.entry)]) : filesIn(path.join(root, folder));
-  });
-  const files = [...new Set((await Promise.all(panelFiles)).flat())].sort();
-  const sources = await Promise.all(files.map(async (file) => ({ file: path.relative(root, file), text: withoutComments(file, await readFile(file, "utf8").catch(() => "")) })));
+  // What the app serves for a panel: its folder, or only its page when that is
+  // at the package's root, and the package's assets, which a page may load from.
+  const relative = (file: string) => path.relative(root, file);
+  const panelFiles = await Promise.all(
+    panels.map((panel) => {
+      const folder = path.dirname(panel.entry);
+      return folder === "." ? Promise.resolve([path.join(root, panel.entry)]) : filesIn(path.join(root, folder));
+    }),
+  );
+  const assets = (await filesIn(path.join(root, "assets"))).filter((file) => !file.endsWith(".html"));
+  const files = [...new Set([...panelFiles.flat(), ...assets])].sort();
+  const sources = await Promise.all(files.map(async (file) => ({ file: relative(file), text: withoutComments(file, await readFile(file, "utf8").catch(() => "")) })));
   const page = sources.filter(({ file }) => /\.(?:html|js|mjs)$/.test(file));
   const add = (level: PluginCheckFinding["level"], file: string, message: string) => findings.push({ level, file, message });
 
   // Which majors the pages load, by the addresses in them.
   const loaded = new Map<string, string>();
   for (const { file, text } of page) for (const major of majorsIn(file, text)) if (!loaded.has(major)) loaded.set(major, file);
-  // An address a script puts together loads a major this can't name.
-  const puttingTogether = page.some(({ file, text }) => !file.endsWith(".html") && text.includes("/_ohmygame/ui/"));
   for (const [major, file] of loaded) {
     if (!majors.has(major)) add("error", file, `Page components ${major} aren't served by this version of OhMyGame`);
     else if (PLUGIN_UI_PREVIEW_MAJORS.has(major)) {
@@ -131,7 +134,6 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
         if (!source) add("error", file, "The page's policy allows no inline scripts; put the script in a file next to it");
         else if (/^(?:https?:)?\/\//.test(source)) add("error", file, `The page's policy allows no remote scripts: ${source}`);
       }
-      if (!loaded.size && !puttingTogether && /<omg-[a-z]/.test(markupOf(text))) add("error", file, "The page uses page components but no script loads /_ohmygame/ui/<major>/index.js");
     }
     const known = new Map(contractFor(file, text).map((item) => [item.tagName, item]));
     // Only a page's own markup is sure to be an element; a script may just be
@@ -158,6 +160,17 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
       else if (item.deprecated) add("warning", file, `<${tag}> is deprecated: ${item.deprecated}`);
     }
   }
+
+  // Each panel is its own page, so another panel's components don't reach it.
+  // An address a script puts together loads a major this can't name.
+  const missing = new Set<string>();
+  for (const own of panelFiles) {
+    const reach = new Set([...own, ...assets].map(relative));
+    const reached = page.filter(({ file }) => reach.has(file));
+    if (reached.some(({ file, text }) => majorsIn(file, text).length || (!file.endsWith(".html") && text.includes("/_ohmygame/ui/")))) continue;
+    for (const { file, text } of reached) if (file.endsWith(".html") && /<omg-[a-z]/.test(markupOf(text))) missing.add(file);
+  }
+  for (const file of missing) add("error", file, "The page uses page components but no script loads /_ohmygame/ui/<major>/index.js");
 
   // Styles keep to the app's tokens, so a page follows its themes.
   for (const { file, text } of sources.filter((source) => source.file.endsWith(".css") || source.file.endsWith(".html"))) {
