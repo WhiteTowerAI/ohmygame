@@ -177,9 +177,9 @@ export class GameRecorder {
 
   #closeSink(recording: Recording): Promise<void> {
     return new Promise((resolve, reject) => {
-      if (recording.sink.closed) { resolve(); return; }
-      recording.sink.once("error", reject);
-      recording.sink.end(() => resolve());
+      // A last write that fails, as on a full disk, must not pass as a whole file.
+      if (recording.sink.errored) { reject(recording.sink.errored); return; }
+      recording.sink.end((cause?: Error | null) => { if (cause) reject(cause); else resolve(); });
     });
   }
 

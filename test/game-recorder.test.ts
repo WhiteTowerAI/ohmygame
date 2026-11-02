@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { Writable } from "node:stream";
 import { dirname } from "node:path";
 import { rm } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +13,8 @@ const electron = vi.hoisted(() => {
     displayHandler: undefined as undefined | ((request: { frame?: unknown }, callback: (streams: unknown) => void) => void),
     /** What the page does when told to start. */
     onStart: (() => ({ mediaType: "video/mp4", extension: "mp4" })) as () => unknown,
+    /** Replaces the file being written. */
+    sink: undefined as undefined | (() => unknown),
     /** How loading the page goes. */
     onLoad: (async () => {}) as () => Promise<void>,
     /** Whether the page answers when told to stop. */
@@ -44,6 +47,10 @@ const electron = vi.hoisted(() => {
   return { state, FakeHost };
 });
 
+vi.mock("node:fs", async (original) => {
+  const fs = await original<typeof import("node:fs")>();
+  return { ...fs, createWriteStream: (file: string) => electron.state.sink?.() ?? fs.createWriteStream(file) };
+});
 vi.mock("electron", () => ({
   BrowserWindow: electron.FakeHost,
   ipcMain: { on: (channel: string, listener: (event: { sender: { id: number } }, value: unknown) => void) => electron.state.channels.set(channel, listener) },
@@ -80,6 +87,7 @@ beforeEach(() => {
   saved.length = 0;
   state.onStart = () => ({ mediaType: "video/mp4", extension: "mp4" });
   state.onLoad = async () => {};
+  state.sink = undefined;
   state.answersStop = true;
 });
 
@@ -169,6 +177,17 @@ describe("game recorder", () => {
     await expect(outcome).rejects.toThrow("The encoder stopped.");
     expect(save).not.toHaveBeenCalled();
     expect(state.hosts[0]!.destroyed).toBe(true);
+    expect(game.isRecording("project")).toBe(false);
+  });
+
+  it("doesn't save a file whose last write failed", async () => {
+    state.sink = () => new Writable({ write: (_chunk, _encoding, done) => done(), final: (done) => done(new Error("The disk is full.")) });
+    const save = vi.fn();
+    const game = recorder(save);
+    const { outcome } = await game.start("project", target() as never, options);
+    game.stop("project");
+    await expect(outcome).rejects.toThrow("The disk is full.");
+    expect(save).not.toHaveBeenCalled();
     expect(game.isRecording("project")).toBe(false);
   });
 
