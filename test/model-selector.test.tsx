@@ -74,7 +74,7 @@ describe("ModelSelector interaction", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
   it("quietly reloads a pending Pi catalog while keeping existing models available", async () => {
     vi.useFakeTimers();
@@ -180,6 +180,28 @@ describe("ModelSelector interaction", () => {
     expect(document.activeElement).toBe(button);
     expect(button.querySelector(".model-selector-reasoning-value")?.textContent).toBe(nextLabel);
     expect(button.getAttribute("aria-description")).toBe(`Reasoning: ${nextLabel}`);
+  });
+
+  it("keeps the depth levels beside the button when the picker changes height", async () => {
+    // Models 400px tall and depth 200px, opened from a button at y=700.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("model-picker")) return { width: 240, height: this.querySelector(".model-picker-search") ? 400 : 200 } as DOMRect;
+      return { top: 700, bottom: 726, left: 300, right: 500 } as DOMRect;
+    });
+    vi.stubGlobal("innerHeight", 800);
+    vi.stubGlobal("innerWidth", 1000);
+    await act(async () => root.render(<ModelSelector models={[reasoningModel]} value={reasoningModel} onChange={() => {}} onReasoningChange={() => {}} />));
+    await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+    const picker = document.querySelector<HTMLElement>(".model-picker")!;
+    expect(picker.style.top).toBe("296px");
+    await act(async () => document.querySelector<HTMLButtonElement>(".model-picker-depth")!.click());
+    expect(picker.style.top).toBe("496px");
+    // The separator spans the popup, so inside the scrolling list it would add a horizontal scrollbar.
+    expect(document.querySelector(".model-picker-list .ui-menu-separator")).toBeNull();
+    expect(document.querySelector(".model-picker-back")!.closest('[role="menu"]')?.getAttribute("aria-label")).toBe("Thinking depth");
+    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1);
+    await act(async () => document.querySelector<HTMLButtonElement>(".model-picker-back")!.click());
+    expect(picker.style.top).toBe("296px");
   });
 
   it("closes with Escape or a click outside and restores focus", async () => {
