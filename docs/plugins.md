@@ -437,8 +437,9 @@ The app also draws around and over a page, with what a page can't change:
 
 - **Brand colour.** The manifest's `ui.accent`, a `#rrggbb` colour or
   `{ "light": …, "dark": … }`, becomes `--omg-accent` on the page's `:root`,
-  with `--omg-on-accent` for text on it. It marks progress and links; buttons
-  and the current step stay ink. A colour with less than 3:1 contrast
+  with `--omg-on-accent` for text on it. It marks the busy spinner, switches and
+  checkboxes that are on, and links; buttons, the current step and progress bars
+  stay ink. A colour with less than 3:1 contrast
   against the panel's surface in the current appearance gives way to the
   app's accent, as it does when there is none.
 - **Toolbar.** Commands with the `panel.toolbar` slot show as buttons in the
@@ -499,13 +500,20 @@ can go in the next major.
 | `omg-divider` | A line between groups. `label`. |
 | `omg-tabs`, `omg-tab` | One view at a time. `value` names the open tab; each `omg-tab` has a `name`, a `heading` and maybe `disabled`. Fires `omg-tab-change`. |
 | `omg-steps`, `omg-step` | A numbered flow. A step's `state` is `pending`, `current`, `done` or `error`; a current or failed step, or one that is `open`, shows its content. Slot `summary` always shows. |
+| `omg-badge` | A short label. `tone`: `neutral`, `info`, `good`, `warning`, `bad`. |
+| `omg-progress` | A bar, or a moving one without `value`. `value`, `max`, `label`. |
 | `omg-status` | A state after a coloured dot, or a spinner. `tone`: `neutral`, `good`, `warning`, `bad`, `busy`. A live region. |
 | `omg-banner` | A message across the page. `tone`: `info`, `good`, `warning`, `bad` (an alert); `heading`; slot `actions`. |
 | `omg-log` | Monospace output that scrolls. `empty` text; `follow` keeps the latest line in view; the `text` property. |
 | `omg-empty` | What to show when there is nothing yet. `heading`, `description`; slots `icon` and actions. |
 | `omg-button` | The app's button. `variant`: `secondary`, `primary`, `ghost`, `danger`; `disabled`; `busy`. |
 | `omg-command-button` | Runs one of the plugin's commands by its manifest id. `command`, and `input` as JSON or a property. While running, it is busy, shows the command's progress, and other command buttons wait unless `concurrent`; a failure shows beside it unless `quiet`, and stays its `error` attribute until the next run, so a page that draws it again can pass it on. Events: `omg-command-start` (cancelable), `omg-command-result`, `omg-command-error` (cancelable). |
-| `omg-select` | The app's select over its `<option>` children. `label` or `aria-label`, `value`, `disabled`; fires `change` and `input`. |
+| `omg-input`, `omg-textarea` | Text to type. `value`, `placeholder`, `readonly`, an input's `type`, a textarea's `rows`. |
+| `omg-select` | The app's dropdown over its `<option>` children. `value`. |
+| `omg-segmented` | A few choices side by side, from its `<option>` children. `value`. |
+| `omg-switch`, `omg-checkbox` | On or off. `checked`. A switch acts at once; a checkbox goes with the rest of a form. |
+
+Form controls also share `label` or `aria-label`, `hint`, `error` and `disabled`, and fire `change` and `input`.
 
 The components connect to the app themselves, so a page may use them
 without calling `connect()`.

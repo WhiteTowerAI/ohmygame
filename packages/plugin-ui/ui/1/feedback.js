@@ -259,8 +259,80 @@ class OmgStep extends OmgElement {
   }
 }
 
+/**
+ * `<omg-badge tone>`: a short label for what something is or how it stands.
+ *
+ * @attr {"neutral" | "info" | "good" | "warning" | "bad"} tone - Its colour; neutral by default.
+ * @slot - The label.
+ */
+class OmgBadge extends OmgElement {
+  static styles = [
+    TONES,
+    css(`
+      :host {
+        --tone: var(--color-text-secondary); display: inline-flex; align-items: center; height: 20px; padding: 0 7px; width: fit-content;
+        border-radius: var(--radius-pill); background: color-mix(in srgb, var(--tone) 16%, transparent); color: var(--tone);
+        font-size: var(--text-xs); font-weight: var(--weight-medium); white-space: nowrap;
+      }
+    `),
+  ];
+  static template = `<slot></slot>`;
+}
+
+/**
+ * `<omg-progress value max label>`: how far something has got, or a moving bar
+ * while nobody knows yet.
+ *
+ * @attr {number} value - How far it has got; without one, the bar just moves.
+ * @attr {number} max - What finished means; 100 by default.
+ * @attr {string} label - What is in progress, above the bar and for screen readers.
+ * @part label - The label; hidden when empty.
+ * @part track - The whole bar.
+ * @part bar - The part that is done.
+ */
+class OmgProgress extends OmgElement {
+  static observedAttributes = ["value", "max", "label"];
+  static styles = [
+    css(`
+      :host { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+      .label { color: var(--color-text-secondary); font-size: var(--text-sm); }
+      .track { height: 4px; overflow: hidden; border-radius: 2px; background: var(--color-border-strong); }
+      .bar { height: 100%; border-radius: inherit; background: var(--color-ink); transition: width var(--duration-base) var(--ease-out); }
+      @keyframes omg-progress { from { translate: -100%; } to { translate: 250%; } }
+      .bar.moving { width: 40%; animation: omg-progress 1.4s ease-in-out infinite; }
+    `),
+  ];
+  static template = `<span class="label" part="label"></span><div class="track" part="track" role="progressbar"><div class="bar" part="bar"></div></div>`;
+
+  update() {
+    const track = this.part("track");
+    const bar = this.part("bar");
+    const label = this.getAttribute("label");
+    text(this.part("label"), label);
+    if (label) track.setAttribute("aria-label", label);
+    else track.removeAttribute("aria-label");
+    const given = this.getAttribute("value");
+    const value = given === null || given === "" ? NaN : Number(given);
+    const max = Number(this.getAttribute("max")) > 0 ? Number(this.getAttribute("max")) : 100;
+    const known = Number.isFinite(value);
+    bar.classList.toggle("moving", !known);
+    if (known) {
+      const done = Math.min(Math.max(value, 0), max);
+      bar.style.width = `${(done / max) * 100}%`;
+      track.setAttribute("aria-valuenow", String(done));
+      track.setAttribute("aria-valuemax", String(max));
+    } else {
+      bar.style.removeProperty("width");
+      track.removeAttribute("aria-valuenow");
+      track.removeAttribute("aria-valuemax");
+    }
+  }
+}
+
 define("omg-status", OmgStatus);
 define("omg-banner", OmgBanner);
 define("omg-log", OmgLog);
 define("omg-steps", OmgSteps);
 define("omg-step", OmgStep);
+define("omg-badge", OmgBadge);
+define("omg-progress", OmgProgress);

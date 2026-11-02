@@ -114,6 +114,40 @@
           </omg-section>
         </omg-tab>
         <omg-tab name="forms" heading="Forms">
+          <omg-section heading="omg-input" description="One line of text. A control carries its own label, hint and error.">
+            <omg-input id="name" label="Game name" placeholder="Zombie farm" hint="Shown on the store page."></omg-input>
+            <omg-input label="Access key" type="password" value="not-a-real-key"></omg-input>
+            <omg-input label="Build number" type="number" value="" error="Use a whole number."></omg-input>
+            <omg-input label="Disabled" value="Can't be changed" disabled></omg-input>
+            <omg-status id="typed">Typed: nothing yet</omg-status>
+          </omg-section>
+
+          <omg-section heading="omg-textarea" description="Several lines of text.">
+            <omg-textarea label="What changed" placeholder="Fixed the save button." rows="3"></omg-textarea>
+          </omg-section>
+
+          <omg-section heading="omg-segmented" description="A few choices side by side, all in view.">
+            <omg-segmented id="segmented" label="Build for" value="web">
+              <option value="web">Web</option>
+              <option value="windows">Windows</option>
+              <option value="android">Android</option>
+              <option value="ios" disabled>iOS</option>
+            </omg-segmented>
+          </omg-section>
+
+          <omg-section heading="omg-switch" description="Takes effect at once.">
+            <omg-switch label="Upload after each build" checked></omg-switch>
+            <omg-switch label="Show the debug overlay" hint="Only you see it."></omg-switch>
+            <omg-switch label="Beta channel" disabled></omg-switch>
+          </omg-section>
+
+          <omg-section heading="omg-checkbox" description="Goes with the rest of a form.">
+            <omg-checkbox label="Include source maps" checked></omg-checkbox>
+            <omg-checkbox label="Compress images" hint="Takes longer."></omg-checkbox>
+            <omg-checkbox label="Accept the terms" error="Needed to publish."></omg-checkbox>
+            <omg-checkbox label="Disabled" disabled checked></omg-checkbox>
+          </omg-section>
+
           <omg-section heading="omg-select">
             <omg-select id="select" label="Project" value="b">
               <option value="">Choose a project</option>
@@ -133,6 +167,21 @@
               <omg-status tone="bad">Didn't start</omg-status>
               <omg-status tone="busy">Starting</omg-status>
             </omg-stack>
+          </omg-section>
+
+          <omg-section heading="omg-badge" description="A short label for what something is or how it stands.">
+            <omg-stack direction="row" wrap>
+              <omg-badge>Draft</omg-badge>
+              <omg-badge tone="info">New</omg-badge>
+              <omg-badge tone="good">Published</omg-badge>
+              <omg-badge tone="warning">In review</omg-badge>
+              <omg-badge tone="bad">Rejected</omg-badge>
+            </omg-stack>
+          </omg-section>
+
+          <omg-section heading="omg-progress" description="How far something has got, or a moving bar until that's known.">
+            <omg-progress label="Uploading" value="40"></omg-progress>
+            <omg-progress label="Preparing"></omg-progress>
           </omg-section>
 
           <omg-section heading="omg-banner">
