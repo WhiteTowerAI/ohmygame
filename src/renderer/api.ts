@@ -1778,6 +1778,43 @@ export async function setPluginPageValue(projectId: string, plugin: string, key:
   await request(`/projects/${encodeURIComponent(projectId)}/plugin-storage/${plugin}/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value }) });
 }
 
+const pluginFilesPath = (projectId: string, plugin: string) => `/projects/${encodeURIComponent(projectId)}/plugin-files/${plugin}`;
+
+/** A plugin page's listing of its project's files. */
+export async function listPluginFiles(projectId: string, plugin: string, options: { path?: string; recursive?: boolean }): Promise<unknown> {
+  const query = new URLSearchParams({ ...(options.path ? { path: options.path } : {}), ...(options.recursive ? { recursive: "true" } : {}) });
+  return request(`${pluginFilesPath(projectId, plugin)}?${query}`);
+}
+
+export async function readPluginFile(projectId: string, plugin: string, filePath: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`${pluginFilesPath(projectId, plugin)}/content?path=${encodeURIComponent(filePath)}`), { headers: runtimeHeaders() });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+export async function writePluginFile(projectId: string, plugin: string, filePath: string, contents: Blob): Promise<string> {
+  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/content?path=${encodeURIComponent(filePath)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/octet-stream" },
+    body: contents,
+  });
+  return value;
+}
+
+export async function createPluginFolder(projectId: string, plugin: string, folderPath: string): Promise<string> {
+  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/folder`, { method: "POST", body: JSON.stringify({ path: folderPath }) });
+  return value;
+}
+
+export async function movePluginFile(projectId: string, plugin: string, from: string, to: string): Promise<string> {
+  const { value } = await request<{ value: string }>(`${pluginFilesPath(projectId, plugin)}/move`, { method: "POST", body: JSON.stringify({ from, to }) });
+  return value;
+}
+
+export async function deletePluginFile(projectId: string, plugin: string, filePath: string): Promise<void> {
+  await request(`${pluginFilesPath(projectId, plugin)}?path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
+}
+
 /** The plugin commands a project offers. */
 export async function listProjectPluginCommands(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginCommand[]> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands?locale=${encodeURIComponent(language)}`);

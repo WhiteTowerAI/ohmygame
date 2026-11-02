@@ -8477,6 +8477,48 @@ summary.work-summary:hover {
   object-fit: contain;
 }
 
+/* A thumbnail opens the image larger. */
+.image-gallery-item {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+}
+
+.image-gallery-item:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.image-preview-backdrop {
+  position: fixed;
+  z-index: 95;
+  inset: 0;
+  display: grid;
+  padding: 24px;
+  place-items: center;
+  background: rgb(0 0 0 / 80%);
+  app-region: no-drag;
+}
+
+.image-preview {
+  display: grid;
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  place-items: center;
+  outline: 0;
+}
+
+.image-preview img {
+  display: block;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100dvh - 48px);
+  border-radius: 6px;
+  object-fit: contain;
+}
+
 .tool-shell-details {
   gap: 0;
   margin: 2px 0 0;

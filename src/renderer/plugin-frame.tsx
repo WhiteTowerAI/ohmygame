@@ -41,6 +41,15 @@ export interface PluginPageContext {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
   };
+  /** The project's files, as far as `capabilities["project.files"]` allows; the daemon checks too. */
+  files: {
+    list(options: { path?: string; recursive?: boolean }): Promise<unknown>;
+    read(path: string): Promise<Blob>;
+    write(path: string, contents: Blob): Promise<string>;
+    createFolder(path: string): Promise<string>;
+    move(from: string, to: string): Promise<string>;
+    delete(path: string): Promise<void>;
+  };
   runCommand(command: string, input?: unknown): Promise<unknown>;
   /** The plugin's brand colour, from its manifest. */
   accent?: PluginAccent;
@@ -136,6 +145,24 @@ export async function handlePluginUiRequest(
         ...(params.message === undefined ? {} : { message: params.message as string }),
         ...(params.confirmLabel === undefined ? {} : { confirmLabel: params.confirmLabel as string }),
       });
+    case "files.list":
+      return context.files.list({
+        ...(params.path === undefined ? {} : { path: params.path as string }),
+        ...(params.recursive === undefined ? {} : { recursive: params.recursive as boolean }),
+      });
+    case "files.read":
+      return context.files.read(params.path as string);
+    case "files.write": {
+      const { data } = params;
+      return context.files.write(params.path as string, data instanceof Blob ? data : new Blob([data as string]));
+    }
+    case "files.createFolder":
+      return context.files.createFolder(params.path as string);
+    case "files.move":
+      return context.files.move(params.from as string, params.to as string);
+    case "files.delete":
+      await context.files.delete(params.path as string);
+      return null;
   }
 }
 
@@ -210,6 +237,7 @@ export function PluginFrame({
   context,
   visible = true,
   progress,
+  filesRevision,
   onToolbarRun,
 }: {
   url: string;
@@ -218,6 +246,8 @@ export function PluginFrame({
   visible?: boolean;
   /** The latest progress of a plugin command; the page hears its own plugin's. */
   progress?: CommandProgress;
+  /** Grows when the project's files may have changed; a page that can use them hears of it. */
+  filesRevision?: number;
   /** Listens for commands run from a panel's toolbar; the page hears its own plugin's. Each is told once, however close together they finish. */
   onToolbarRun?: (listener: (run: PluginToolbarRun) => void) => () => void;
 }) {
@@ -243,6 +273,14 @@ export function PluginFrame({
     storage: {
       get: (key) => latest.current.storage.get(key),
       set: (key, value) => latest.current.storage.set(key, value),
+    },
+    files: {
+      list: (options) => latest.current.files.list(options),
+      read: (path) => latest.current.files.read(path),
+      write: (path, contents) => latest.current.files.write(path, contents),
+      createFolder: (path) => latest.current.files.createFolder(path),
+      move: (from, to) => latest.current.files.move(from, to),
+      delete: (path) => latest.current.files.delete(path),
     },
     runCommand: (command, input) => latest.current.runCommand(command, input),
     get accent() { return latest.current.accent; },
@@ -303,6 +341,13 @@ export function PluginFrame({
     if (progress?.command.startsWith(prefix))
       connection.current?.send({ event: "progress", command: progress.command.slice(prefix.length), message: progress.message });
   }, [progress]);
+
+  const heardFiles = useRef(filesRevision);
+  useEffect(() => {
+    if (heardFiles.current === filesRevision) return;
+    heardFiles.current = filesRevision;
+    if (latest.current.capabilities["project.files"]) connection.current?.send({ event: "files" });
+  }, [filesRevision]);
 
   useEffect(() => onToolbarRun?.(({ command, ...outcome }) => {
     const prefix = `${latest.current.plugin.id}:`;

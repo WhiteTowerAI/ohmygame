@@ -68,6 +68,12 @@ export const PLUGIN_UI_METHODS = [
   "command.run",
   "ui.toast",
   "ui.confirm",
+  "files.list",
+  "files.read",
+  "files.write",
+  "files.createFolder",
+  "files.move",
+  "files.delete",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -86,6 +92,7 @@ export type PluginUiReply =
 export type PluginUiEvent =
   | { event: "theme"; tokens: Record<string, string>; appearance: "dark" | "light" }
   | { event: "visibility"; visible: boolean }
+  | { event: "files" }
   /** How one of the plugin's own commands is going while it runs, by its id in the manifest. */
   | { event: "progress"; command: string; message: string }
   /** A command the person ran from the panel's toolbar finished; it has `error` if it failed. */
@@ -107,13 +114,27 @@ export type PluginAccent = string | { light?: string; dark?: string };
 export interface PluginUiCapabilities {
   "project.selection"?: boolean;
   composer?: boolean;
+  "project.files"?: "read" | "write";
 }
 
 /** The capability a method needs beyond what every page has. */
-const NEEDS: Partial<Record<PluginUiMethod, keyof PluginUiCapabilities>> = {
+const NEEDS: Partial<Record<PluginUiMethod, "project.selection" | "composer">> = {
   "selection.get": "project.selection",
   "composer.fill": "composer",
 };
+
+/** How much of `project.files` a method needs; writing covers reading. */
+const FILE_NEEDS: Partial<Record<PluginUiMethod, "read" | "write">> = {
+  "files.list": "read",
+  "files.read": "read",
+  "files.write": "write",
+  "files.createFolder": "write",
+  "files.move": "write",
+  "files.delete": "write",
+};
+
+/** A path a page gave, of a sane length; the daemon decides whether it may use it. */
+const filePath = (value: unknown) => typeof value === "string" && value.length > 0 && value.length <= 1000 && !value.includes("\0");
 
 const STORAGE_KEY = /^[A-Za-z0-9._-]{1,100}$/;
 
@@ -166,6 +187,23 @@ export function readPluginUiRequest(
       if (p.message !== undefined && !text(p.message, 1000)) return fail("ui.confirm's message is at most 1,000 characters");
       if (p.confirmLabel !== undefined && !text(p.confirmLabel, 40)) return fail("ui.confirm's confirmLabel is at most 40 characters");
       break;
+    case "files.list":
+      if (p.path !== undefined && !filePath(p.path)) return fail("files.list's path is a path in the project");
+      if (p.recursive !== undefined && typeof p.recursive !== "boolean") return fail("files.list's recursive is true or false");
+      break;
+    case "files.read":
+    case "files.createFolder":
+    case "files.delete":
+      if (!filePath(p.path)) return fail(`${String(method)} needs a path in the project`);
+      break;
+    case "files.write":
+      if (!filePath(p.path)) return fail("files.write needs a path in the project");
+      // A blob isn't in the size above: it is the point of sending one.
+      if (typeof p.data !== "string" && !(typeof Blob !== "undefined" && p.data instanceof Blob)) return fail("files.write's data is a string or a Blob");
+      break;
+    case "files.move":
+      if (!filePath(p.from) || !filePath(p.to)) return fail("files.move needs from and to, paths in the project");
+      break;
   }
   return { ok: true, request: { id: id as number, method: method as PluginUiMethod, ...(params ? { params: p } : {}) } };
 }
@@ -175,6 +213,11 @@ export function pluginUiRefusal(
   method: PluginUiMethod,
   capabilities: PluginUiCapabilities,
 ): string | undefined {
+  const files = FILE_NEEDS[method];
+  if (files) {
+    const allowed = capabilities["project.files"];
+    return allowed === "write" || allowed === files ? undefined : `${method} needs the project.files capability set to ${files}`;
+  }
   const needed = NEEDS[method];
   return needed && capabilities[needed] !== true
     ? `${method} needs the ${needed} capability`

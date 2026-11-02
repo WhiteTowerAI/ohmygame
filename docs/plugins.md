@@ -104,7 +104,7 @@ shows it in the call's progress.
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
-| Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts` |
+| Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
@@ -173,7 +173,13 @@ shows it in the call's progress.
   `GET /projects/:id/plugin-changes`,
   `POST /projects/:id/plugin-changes/:changeId/undo`.
 - Pages: `GET /projects/:id/plugin-panels`,
-  `GET`/`PUT /projects/:id/plugin-storage/:publisher/:name/:key`.
+  `GET`/`PUT /projects/:id/plugin-storage/:publisher/:name/:key`, and a
+  page's [project files](#plugin-pages) under
+  `/projects/:id/plugin-files/:publisher/:name`: `GET ?path=&recursive=`
+  lists, `GET`/`PUT content?path=` reads and writes the bytes
+  (`application/octet-stream`), `DELETE ?path=` deletes, and `POST folder`
+  (`{ path }`) and `POST move` (`{ from, to }`). They answer a plugin the
+  project uses, with a panel and the level of `project.files` the route needs.
 - Adding: `POST /plugin-sources/inspect` and `/plugin-sources/install` take a
   source as JSON; `POST /plugin-sources/file/inspect` and
   `/plugin-sources/file/install?digest=` take a `.tgz` as `application/gzip`.
@@ -457,6 +463,32 @@ The app also draws around and over a page, with what a page can't change:
   showing can't ask, one question waits at a time, and a plugin, across its
   panels, gets at most five toasts in ten seconds and five questions in a
   minute. Beyond that the request fails.
+- **Project files.** With `capabilities["project.files"]`, `read` or
+  `write`, a page has `host.files` (`src/daemon/plugin-files.ts`):
+  `list(path?, { recursive })`, `read(path)` as a Blob, `text(path)`,
+  `url(path)` for `<img>`, `<audio>` or `<video>` (a `blob:` address, which
+  the page's CSP allows), and with `write` also `write(path, text | Blob)`,
+  `createFolder`, `move(from, to)` and `delete`. Paths are relative to the
+  project. A page never reaches a hidden file or folder, so neither `.env`
+  nor an agent's or editor's settings, follows no link, and reads no file
+  that has another name (a hard link). It can't change `ohmygame.json`, an
+  agent's instructions (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and variants
+  such as `AGENTS.override.md` or `CLAUDE.local.md`), or Canvas files, and a
+  move never replaces anything. Each change is one the person can undo, as a
+  plugin command's is, so a page changes only what the project's
+  [snapshots](checkpoints.md) keep: not what a `.gitignore` leaves out, nor
+  `node_modules` or root build output. A folder it moves or deletes may hold
+  only such files, with no links, hidden files (besides `.gitkeep`, `.keep`
+  and `.DS_Store`; a `.gitignore` decides what Undo keeps, so it stays) or
+  agent instructions. A replaced file keeps its permissions. A change to a
+  file that can't be read, has other names, isn't a plain file, or is in a
+  folder that can't be listed is refused. Snapshots don't keep empty
+  folders, so making or removing one isn't in the history. A recursive
+  listing leaves out `build`, `dist`, `node_modules` and `out` and stops at
+  10,000 entries; a write is at most
+  200 MB. The agent hears of each change, and while an agent, a job or
+  publishing works in the project a change is refused. The page hears a
+  `files` event when the project's files may have changed.
 
 ### Page components
 
@@ -496,7 +528,7 @@ can go in the next major.
 | `omg-grid` | Equal columns, as many as fit at `min` pixels, or exactly `columns`. `gap`. |
 | `omg-split` | A sidebar (slot `sidebar`) beside the content, stacked when narrow. `side`: `start`, `end`; `side-width`. |
 | `omg-card` | A raised surface. `heading`, `description`; slot `actions`. |
-| `omg-list`, `omg-list-item` | Rows. An item's `heading` and `description`, its content as a value at the end; slots `leading` and `actions`. |
+| `omg-list`, `omg-list-item` | Rows. An item's `heading` and `description`, its content as a value at the end; slots `leading` (an `omg-image` there is a 40px thumbnail) and `actions`. |
 | `omg-divider` | A line between groups. `label`. |
 | `omg-tabs`, `omg-tab` | One view at a time. `value` names the open tab; each `omg-tab` has a `name`, a `heading` and maybe `disabled`. Fires `omg-tab-change`. |
 | `omg-steps`, `omg-step` | A numbered flow. A step's `state` is `pending`, `current`, `done` or `error`; a current or failed step, or one that is `open`, shows its content. Slot `summary` always shows. |
@@ -512,6 +544,8 @@ can go in the next major.
 | `omg-select` | The app's dropdown over its `<option>` children. `value`. |
 | `omg-segmented` | A few choices side by side, from its `<option>` children. `value`. |
 | `omg-switch`, `omg-checkbox` | On or off. `checked`. A switch acts at once; a checkbox goes with the rest of a form. |
+| `omg-image` | A picture, on a raised surface until it loads and with a mark if it can't. `src`, `alt`, `ratio` (such as `16/9`) for a frame of that shape, `fit`: `contain`, `cover`; `pixelated`; `checker` behind transparent parts. Fires `load` and `error`. |
+| `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
 
 Form controls also share `label` or `aria-label`, `hint`, `error` and `disabled`, and fire `change` and `input`.
 
@@ -519,8 +553,8 @@ The components connect to the app themselves, so a page may use them
 without calling `connect()`.
 
 Each component's doc comment is its contract: tags such as `@attr`,
-`@prop`, `@fires`, `@slot`, `@part` and `@cssprop` list what a page may rely
-on, and anything else in its Shadow DOM may change in any release.
+`@prop`, `@readonly`, `@fires`, `@slot`, `@part` and `@cssprop` list what a
+page may rely on, and anything else in its Shadow DOM may change in any release.
 `bun run plugin-ui:contract` writes them to
 `packages/plugin-ui/ui/<major>/custom-elements.json`, a
 [Custom Elements Manifest](https://github.com/webcomponents/custom-elements-manifest)
