@@ -349,6 +349,9 @@ describe("page components", () => {
     expect(shadow(progress, "bar").style.width).toBe("50%");
     progress.setAttribute("value", "600");
     expect(shadow(progress, "bar").style.width).toBe("100%");
+    progress.setAttribute("value", "30");
+    progress.setAttribute("max", "Infinity");
+    expect([track.getAttribute("aria-valuemax"), shadow(progress, "bar").style.width]).toEqual(["100", "30%"]);
     progress.removeAttribute("value");
     expect(track.hasAttribute("aria-valuenow")).toBe(false);
     expect(shadow(progress, "bar").classList.contains("moving")).toBe(true);

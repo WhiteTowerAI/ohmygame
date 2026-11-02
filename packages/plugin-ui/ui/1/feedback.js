@@ -313,7 +313,9 @@ class OmgProgress extends OmgElement {
     else track.removeAttribute("aria-label");
     const given = this.getAttribute("value");
     const value = given === null || given === "" ? NaN : Number(given);
-    const max = Number(this.getAttribute("max")) > 0 ? Number(this.getAttribute("max")) : 100;
+    // A maximum that is no finite positive number counts as the default.
+    const givenMax = Number(this.getAttribute("max"));
+    const max = Number.isFinite(givenMax) && givenMax > 0 ? givenMax : 100;
     const known = Number.isFinite(value);
     bar.classList.toggle("moving", !known);
     if (known) {
