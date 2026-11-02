@@ -59,7 +59,7 @@ export function GameRecordButton({ projectId, gameRunning }: { projectId: string
 
 /** Calls back each time a recording reaches the Library. */
 export function onGameRecordingSaved(listener: () => void): () => void {
-  return recordingBridge()?.onState((state) => { if (state.saved) listener(); }) ?? (() => {});
+  return recordingBridge()?.onSaved(listener) ?? (() => {});
 }
 
 /** Says how a recording came out, from whichever page the person has moved on to. */

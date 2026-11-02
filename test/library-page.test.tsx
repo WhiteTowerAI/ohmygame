@@ -5,7 +5,6 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { LibraryAssetReference } from "../src/renderer/api.js";
 import type { LibraryAssetSummary } from "../src/shared/contracts.js";
-import type { GameRecordingState } from "../src/shared/game-recording.js";
 
 const forest = { id: "forest", name: "Forest", type: "web-game" as const };
 const city = { id: "city", name: "City", type: "web-game" as const };
@@ -73,17 +72,16 @@ const click = (element: Element) => act(async () => { (element as HTMLElement).c
 const openTile = (name: string) => click([...document.querySelectorAll(".ui-media")].find((tile) => tile.textContent?.includes(name))!);
 
 it("shows a recording saved while the page is open", async () => {
-  let announce!: (state: GameRecordingState) => void;
+  let announce!: () => void;
   const desktop = window as unknown as { ohMyGameDesktop?: unknown };
-  desktop.ohMyGameDesktop = { webGamePlayer: { recording: { onState: (listener: typeof announce) => { announce = listener; return () => {}; } } } };
+  desktop.ohMyGameDesktop = { webGamePlayer: { recording: { onSaved: (listener: typeof announce) => { announce = listener; return () => {}; } } } };
   try {
     await act(async () => root!.unmount());
     root = createRoot(container!);
     await act(async () => root!.render(<LibraryPage onNavigate={() => {}} onOpenProject={onOpenProject} />));
     assets.push({ ...assets[1]!, id: "clip", name: "clip.mp4" });
-    await act(async () => announce({ projectId: "p", status: "saving" }));
     expect(tiles()).not.toContain("clip.mp4");
-    await act(async () => announce({ projectId: "p", status: "idle", saved: { assetId: "clip", name: "clip.mp4", duration: 3, bytes: 9 } }));
+    await act(async () => announce());
     expect(tiles()).toContain("clip.mp4");
   } finally {
     delete desktop.ohMyGameDesktop;

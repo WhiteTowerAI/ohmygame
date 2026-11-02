@@ -31,6 +31,8 @@ export interface GameRecordingBridge {
   stop(projectId: string): Promise<void>;
   state(projectId: string): Promise<GameRecordingState>;
   onState(listener: (state: GameRecordingState) => void): () => void;
+  /** Any recording reached the Library, a person's or an agent's. */
+  onSaved(listener: () => void): () => void;
 }
 
 /** What the desktop asks the hidden recorder page to record. */

@@ -17,6 +17,7 @@ const bridge = {
     listeners.push(listener);
     return () => { listeners = listeners.filter((entry) => entry !== listener); };
   }),
+  onSaved: vi.fn(() => () => {}),
 } satisfies GameRecordingBridge;
 const roots: ReturnType<typeof createRoot>[] = [];
 async function render(node: React.ReactNode): Promise<HTMLElement> {

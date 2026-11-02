@@ -461,6 +461,7 @@ async function saveGameRecording(file: GameRecordingFile): Promise<GameRecording
   } as RequestInit);
   const asset = await response.json().catch(() => undefined) as { id?: string; error?: string; message?: string } | undefined;
   if (!response.ok || !asset?.id) throw new Error(asset?.message ?? asset?.error ?? "The recording could not be saved to the Library.");
+  mainWindow?.webContents.send("ohmygame:game-recording-saved");
   return { assetId: asset.id, name, duration: file.duration, bytes: file.bytes };
 }
 

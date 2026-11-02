@@ -98,6 +98,11 @@ if (process.isMainFrame) {
           ipcRenderer.on("ohmygame:game-recording-state", callback);
           return () => ipcRenderer.removeListener("ohmygame:game-recording-state", callback);
         },
+        onSaved: (listener: () => void) => {
+          const callback = () => listener();
+          ipcRenderer.on("ohmygame:game-recording-saved", callback);
+          return () => ipcRenderer.removeListener("ohmygame:game-recording-saved", callback);
+        },
       }),
       open: (projectId: string, request: WebGamePlayerRequest) => ipcRenderer.invoke("ohmygame:open-web-game-player", projectId, request) as Promise<void>,
       state: (projectId: string) => ipcRenderer.invoke("ohmygame:web-game-player-state", projectId) as Promise<WebGamePlayerState>,
