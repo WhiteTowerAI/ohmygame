@@ -1,0 +1,16 @@
+{
+  "displayName": "TapTap Maker",
+  "description": "Make TapTap Maker games (UrhoX/Lua) with the official Maker CLI: create or connect a Maker project, preview it in Maker Runtime, and submit builds. Needs a Maker account and Python 3.8 or later.",
+  "type.title": "TapTap Maker game",
+  "type.description": "A UrhoX/Lua game on TapTap Maker. Sign in and create or connect a Maker project in its panel.",
+  "panel.title": "TapTap Maker",
+  "command.status": "Check Maker status",
+  "command.ready": "Check the project is set up",
+  "command.prepare": "Prepare Maker",
+  "command.signIn": "Sign in to Maker",
+  "command.projects": "List Maker projects",
+  "command.create": "Create a Maker project",
+  "command.bind": "Connect a Maker project",
+  "command.preview": "Control the Maker preview",
+  "mcp.title": "TapTap Maker"
+}

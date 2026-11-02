@@ -17,6 +17,8 @@ export interface ExtensionHostPlugin {
   version: string;
   root: string;
   entry: string;
+  /** The plugin's own data folder, shared by its versions and projects. */
+  dataFolder: string;
   /** Tools the manifest declares; the entry can register only these. */
   tools: string[];
   /** Native command handlers the manifest names, likewise. */
@@ -67,7 +69,8 @@ export type HostMessage =
   | { type: "ready"; protocol: number }
   | { type: "result"; id: number; value: unknown }
   | { type: "error"; id: number; message: string; cancelled?: boolean }
-  | { type: "progress"; id: number; message: string }
+  /** `url` is an https link the person may open, such as a device sign-in page. */
+  | { type: "progress"; id: number; message: string; url?: string }
   | {
       type: "activated";
       id: number;
@@ -88,7 +91,12 @@ export type PluginConfigurationValues = Record<string, string | boolean>;
 export interface ToolCall {
   /** Aborted when the caller cancels or the call times out. */
   signal: AbortSignal;
-  progress(message: string): void;
+  /**
+   * Says how the call is going. With `url`, an https link the person needs,
+   * such as a sign-in page, the app offers to open it once they see its
+   * host; those updates are never dropped.
+   */
+  progress(message: string, options?: { url?: string }): void;
   /** The agent turn the call belongs to, when it comes from one. */
   turn?: string;
   /** The plugin's configuration as it is for this call, defaults filled in. */
@@ -109,6 +117,12 @@ export interface PluginContext {
   version: string;
   /** The project this host serves; undefined in the app host. */
   project?: { folder: string };
+  /**
+   * A folder only this plugin uses, for downloads, caches and state it keeps
+   * between projects. Every version shares it; it is deleted when the last
+   * version is uninstalled.
+   */
+  dataFolder: string;
   /** Registers a tool the plugin declared in its manifest. */
   registerTool(name: string, handler: ToolHandler): Disposable;
   /** Registers the handler a manifest command names in `run.native`. */
@@ -124,6 +138,11 @@ export interface PluginContext {
   ): Disposable;
   /** Run when the plugin is deactivated or its host stops. */
   onDispose(dispose: () => void | Promise<void>): void;
+}
+
+/** Whether a progress update's link is one the app may offer to open: https, of a bounded length. */
+export function isProgressLink(value: unknown): value is string {
+  return typeof value === "string" && value.length <= HOST_MESSAGE_MAX_CHARS && URL.canParse(value) && new URL(value).protocol === "https:";
 }
 
 const isStrings = (value: unknown): value is string[] =>
@@ -145,7 +164,8 @@ export function isHostMessage(value: unknown): value is HostMessage {
           typeof message.cancelled === "boolean")
       );
     case "progress":
-      return typeof message.message === "string";
+      // Checked here too: native code can send its own messages to the daemon.
+      return typeof message.message === "string" && (message.url === undefined || isProgressLink(message.url));
     case "activated":
       return (
         isStrings(message.tools) &&

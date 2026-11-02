@@ -1,61 +1,81 @@
-import { Type, type Static } from "typebox";
+import { Type } from "typebox";
 import { Check } from "typebox/value";
-import { PROJECT_TYPE_IDS, type PluginMention, type ProjectType } from "./contracts.js";
-import { PLUGIN_ICON_PRESETS, type PluginIconPresetId } from "./plugin-icons.js";
-import type { PluginIntegrationDefinition } from "./plugin-integration.js";
+import type { PluginMention } from "./contracts.js";
+import type { PluginCategory } from "./plugin-manifest.js";
 
 export type PluginOrigin =
   | { type: "github"; repository: string; commit: string; release?: string }
-  | { type: "claude-marketplace"; marketplace: string; repository?: string };
+  | { type: "npm"; package: string; version: string; registry: PluginNpmRegistry };
+
+export const PLUGIN_NPM_REGISTRIES = ["npmjs", "npmmirror"] as const;
+export type PluginNpmRegistry = (typeof PLUGIN_NPM_REGISTRIES)[number];
+
+/** Where the Add plugin dialog gets a package. A `.tgz` file is uploaded, so it isn't one of these. */
+export type PluginAddSource =
+  /** `market`: opened from a market card, so only a version the market signs off will do. */
+  | { type: "npm"; name: string; registry: PluginNpmRegistry; version?: string; market?: true }
+  | { type: "github"; url: string; commit?: string }
+  | { type: "directory"; path: string };
+
+/** A plugin published on npm that the market lists, at its newest version. */
+export interface MarketPlugin {
+  id: string;
+  package: string;
+  version: string;
+  displayName: string;
+  description: string;
+  /** What it asks to be allowed. */
+  asks: string[];
+  /** How many of each list its manifest contributes, and how many Skills. */
+  adds: Record<string, number>;
+  publishedAt?: string;
+  repository?: string;
+  /** npm's provenance names the repository, or the repository's package.json names the package. */
+  sourceVerified: boolean;
+  /** Only when the source is verified. */
+  stars?: number;
+  weeklyDownloads?: number;
+  featured: boolean;
+}
+
+/** One published version the maintainers blocked. */
+export interface MarketBlock {
+  package: string;
+  version: string;
+  reason: string;
+}
+
+export interface PluginMarketListing {
+  /** `off`: no index is set up. `unavailable`: none could be read. `stale`: the last one, as a new one couldn't be read. */
+  status: "off" | "unavailable" | "ready" | "stale";
+  plugins: MarketPlugin[];
+  blocked: MarketBlock[];
+}
+
+/** What the person reviews before adding a package. */
+export interface PluginAddPreview {
+  /** The same source, pinned to what was read: an npm version or a commit. */
+  source?: PluginAddSource;
+  /** Adding checks the package is still this one. */
+  digest: string;
+  id: string;
+  version: string;
+  displayName: string;
+  description: string;
+  appWide: boolean;
+  asks: string[];
+  skills: number;
+  mcpServers: string[];
+  settings: boolean;
+  /** Versions already installed, so the dialog can say what adding this does to them. */
+  installedVersions: string[];
+  origin?: PluginOrigin;
+}
 
 export const PLUGIN_MANIFEST_PATH = ".ohmygame-plugin/plugin.json";
-export const PLUGIN_FORMAT_VERSION = 1;
 export const PLUGIN_ARCHIVE_MAX_ENTRIES = 5_000;
 export const PLUGIN_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024;
 export const PLUGIN_SKILL_CONTENT_MAX_BYTES = 512 * 1024;
-export const PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES: readonly string[] = [
-  ".agents",
-  ".claude-plugin",
-  ".codex-plugin",
-  ".ohmygame-plugin",
-];
-
-export type PluginSource =
-  | { type: "builtIn" }
-  | { type: "authored" }
-  | { type: "archive" }
-  | { type: "directory" }
-  | { type: "git"; url: string; commit: string }
-  | { type: "preinstalled"; pluginId: string; releaseId: string };
-
-export type InstallPluginRequest =
-  | { type: "directory"; path: string; candidate?: string }
-  | { type: "git"; url: string; candidate?: string };
-
-export interface PluginInstallCandidate {
-  key: string;
-  name: string;
-  displayName: string;
-  description: string;
-  skillCount: number;
-  format: "ohmygame" | "codex" | "claude" | "pi" | "agent-skills";
-  marketplace: PluginMarketplaceRef;
-}
-
-export interface PluginInstallInspection {
-  candidates: PluginInstallCandidate[];
-}
-
-export interface PluginMarketplaceRef {
-  id: string;
-  displayName: string;
-  /** Trusted catalog adapters may mark official community marketplaces public. */
-  visibility?: "public" | "personal";
-}
-
-export const OHMYGAME_MARKETPLACE: PluginMarketplaceRef = { id: "ohmygame", displayName: "OhMyGame" };
-export const PERSONAL_MARKETPLACE: PluginMarketplaceRef = { id: "personal", displayName: "Personal" };
-
 const PLUGIN_MENTION_PATTERN = /\[(@[^\]]+)\]\(plugin:\/\/([^@\s)]+)@([^\s)]+)\)/g;
 
 export function pluginMentionToken(mention: Pick<PluginMention, "displayName">): string {
@@ -63,15 +83,45 @@ export function pluginMentionToken(mention: Pick<PluginMention, "displayName">):
 }
 
 export function serializePluginMentions(prompt: string, mentions: readonly PluginMention[]): string {
-  const ordered = uniquePluginMentions(mentions)
-    .sort((left, right) => pluginMentionToken(right).length - pluginMentionToken(left).length);
-  if (ordered.length === 0) return prompt;
-  const byToken = new Map(ordered.map((mention) => [pluginMentionToken(mention), mention]));
-  const pattern = new RegExp(`(?:${[...byToken.keys()].map(escapeRegExp).join("|")})(?=$|[\\s.,!?;:)}\\]])`, "g");
-  return prompt.replace(pattern, (token) => {
-    const mention = byToken.get(token)!;
+  const tokens = pluginMentionTokens(mentions);
+  if (!tokens) return prompt;
+  return prompt.replace(tokens.pattern, (token) => {
+    const mention = tokens.byToken.get(token)!;
     return `[${token}](plugin://${encodeURIComponent(mention.name)}@${encodeURIComponent(mention.marketplaceId)})`;
   });
+}
+
+/** Where each plugin mention sits in the prompt, `end` exclusive. */
+export function pluginMentionRanges(prompt: string, mentions: readonly PluginMention[]): Array<{ start: number; end: number; mention: PluginMention }> {
+  const tokens = pluginMentionTokens(mentions);
+  if (!tokens) return [];
+  return [...prompt.matchAll(tokens.pattern)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+    mention: tokens.byToken.get(match[0])!,
+  }));
+}
+
+/** The prompt cut at its plugin mentions, for showing each as itself. */
+export function splitPluginMentions(prompt: string, mentions: readonly PluginMention[]): Array<string | PluginMention> {
+  const parts: Array<string | PluginMention> = [];
+  let end = 0;
+  for (const range of pluginMentionRanges(prompt, mentions)) {
+    if (range.start > end) parts.push(prompt.slice(end, range.start));
+    parts.push(range.mention);
+    end = range.end;
+  }
+  if (end < prompt.length) parts.push(prompt.slice(end));
+  return parts;
+}
+
+/** Longer names match first, so `@Foo Bar` is not read as `@Foo`. */
+function pluginMentionTokens(mentions: readonly PluginMention[]): { pattern: RegExp; byToken: Map<string, PluginMention> } | undefined {
+  const ordered = uniquePluginMentions(mentions)
+    .sort((left, right) => pluginMentionToken(right).length - pluginMentionToken(left).length);
+  if (ordered.length === 0) return undefined;
+  const byToken = new Map(ordered.map((mention) => [pluginMentionToken(mention), mention]));
+  return { pattern: new RegExp(`(?:${[...byToken.keys()].map(escapeRegExp).join("|")})(?=$|[\\s.,!?;:)}\\]])`, "g"), byToken };
 }
 
 export function hasPluginMentionToken(prompt: string, mention: Pick<PluginMention, "displayName">): boolean {
@@ -105,129 +155,38 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export interface PluginSummary {
-  id: string;
-  name: string;
-  displayName: string;
-  description: string;
-  projectTypes?: ProjectType[];
-  integration?: PluginIntegrationDefinition;
-  icon?: PluginIcon;
-  iconRevision?: string;
-  version?: string;
-  beta?: boolean;
-  marketplace: PluginMarketplaceRef;
-  source: PluginSource;
-  installed: boolean;
-  enabled: boolean;
-  origin?: PluginOrigin;
-  preinstalled?: boolean;
-  configurationStatus?: "ready" | "needs-configuration";
-  mcpServerCount?: number;
-}
-
-export function pluginCollection(plugin: Pick<PluginSummary, "source" | "marketplace">): "public" | "personal" {
-  if (plugin.source.type === "builtIn" || plugin.source.type === "preinstalled" || plugin.marketplace.id === OHMYGAME_MARKETPLACE.id)
-    return "public";
-  return plugin.marketplace.visibility ?? "personal";
-}
-
-export interface PluginComponentSummary {
-  id: string;
-  name: string;
-  description?: string;
-  enabled: boolean;
-}
-
-export interface PluginConnectionSummary extends PluginComponentSummary {
-  status?: "enabled" | "disabled" | "not-configured" | "connected" | "failed" | "needs-auth";
-  ownerPluginId?: string;
-  toolCount?: number;
-  transport?: "stdio" | "http";
-}
-
-export type ConfigurablePluginComponentType = "skill" | "mcp";
-
-export interface PluginSettings {
-  enabled: boolean;
-  components: Record<string, boolean>;
-}
-
-export function pluginComponentKey(type: ConfigurablePluginComponentType, id: string): string {
-  return `${type}:${id}`;
-}
-
-export interface PluginDetail extends PluginSummary {
-  requirements?: PluginManifest["requirements"];
-  longDescription?: string;
-  skills: PluginComponentSummary[];
-  connections: PluginConnectionSummary[];
-  defaultPrompts?: string[];
-  mcpServers?: PluginConnectionSummary[];
-  mcpConfigPath?: string;
-  configuration?: Record<string, PluginConfigurationField>;
-}
+/** What a plugin adds, for its card's tags and the browse page's category filter. */
+export type PluginContribution = "projectType" | "skills" | "mcp" | "service";
+export const PLUGIN_CONTRIBUTIONS: readonly PluginContribution[] = ["projectType", "skills", "mcp", "service"];
 
 export interface PluginSkillContent {
   id: string;
   content: string;
 }
 
-export interface PluginCatalog {
-  plugins: PluginSummary[];
-  errors: PluginMarketplaceError[];
-}
-
-export interface PluginMarketplaceError {
-  marketplaceId: string;
-  message: string;
-}
-
-const RelativePathSchema = Type.String({
-  pattern: "^\\./(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))[^\\\\]+$",
-  minLength: 3,
-});
-const IdentifierSchema = Type.String({ pattern: "^[a-z0-9]+(?:[-_.][a-z0-9]+)*$" });
 const SemVerSchema = Type.String({
   pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
   maxLength: 256,
 });
 
-export const PluginIconSchema = Type.Union([
-  Type.Object({
-    type: Type.Literal("preset"),
-    id: Type.Union(PLUGIN_ICON_PRESETS.map(icon => Type.Literal(icon.id))),
-  }, { additionalProperties: false }),
-  Type.Object({
-    type: Type.Literal("asset"),
-    path: Type.String({ pattern: "^\\./(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|webp|svg)$", maxLength: 1000 }),
-  }, { additionalProperties: false }),
-]);
-export type PluginIcon = { type: "preset"; id: PluginIconPresetId } | { type: "asset"; path: string };
+export const PluginIconSchema = Type.Object({
+  type: Type.Literal("asset"),
+  path: Type.String({ pattern: "^\\./(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|webp|svg)$", maxLength: 1000 }),
+}, { additionalProperties: false });
+export type PluginIcon = { type: "asset"; path: string };
 
 export function isPluginIcon(value: unknown): value is PluginIcon {
   return Check(PluginIconSchema, value);
 }
 
-const InterfaceSchema = Type.Object({
-  beta: Type.Optional(Type.Boolean()),
-  displayName: Type.Optional(Type.String({ minLength: 1 })),
-  shortDescription: Type.Optional(Type.String({ minLength: 1 })),
-  longDescription: Type.Optional(Type.String({ minLength: 1 })),
-  icon: Type.Optional(Type.Unsafe<PluginIcon>(PluginIconSchema)),
-  defaultPrompt: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
-  projectTypes: Type.Optional(Type.Array(Type.Union(PROJECT_TYPE_IDS.map((type) => Type.Literal(type))), { minItems: 1, uniqueItems: true })),
-}, { additionalProperties: false });
-
-const ConfigurationFieldSchema = Type.Object({
-  type: Type.Union([Type.Literal("text"), Type.Literal("secret"), Type.Literal("path"), Type.Literal("boolean"), Type.Literal("select")]),
-  label: Type.String({ minLength: 1 }),
-  description: Type.Optional(Type.String()),
-  required: Type.Optional(Type.Boolean()),
-  default: Type.Optional(Type.Union([Type.String(), Type.Boolean()])),
-  options: Type.Optional(Type.Array(Type.String(), { minItems: 1, uniqueItems: true })),
-}, { additionalProperties: false });
-export type PluginConfigurationField = Static<typeof ConfigurationFieldSchema>;
+export interface PluginConfigurationField {
+  type: "text" | "secret" | "path" | "boolean" | "select";
+  label: string;
+  description?: string;
+  required?: boolean;
+  default?: string | boolean;
+  options?: string[];
+}
 export type PluginConfigurationValues = Record<string, string | boolean | null>;
 export interface PluginConfigurationView {
   fields: Record<string, PluginConfigurationField>;
@@ -236,14 +195,6 @@ export interface PluginConfigurationView {
   missing: string[];
 }
 export type McpServerDefinition = Record<string, unknown> & { command?: string; url?: string; disabled?: boolean };
-export interface CreateMcpPluginRequest {
-  name: string;
-  displayName?: string;
-  description?: string;
-  icon?: PluginIcon;
-  servers: Record<string, McpServerDefinition>;
-  configuration?: Record<string, PluginConfigurationField>;
-}
 export interface PluginMcpResult {
   status: "connected" | "failed" | "needs-auth";
   toolCount: number;
@@ -251,32 +202,8 @@ export interface PluginMcpResult {
   authorizationUrl?: string;
 }
 
-export const PluginManifestSchema = Type.Object({
-  enabledByDefault: Type.Optional(Type.Boolean()),
-  formatVersion: Type.Optional(Type.Integer({ minimum: 1 })),
-  minimumHostVersion: Type.Optional(SemVerSchema),
-  requirements: Type.Optional(Type.Object({
-    commands: Type.Optional(Type.Array(Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }), { maxItems: 30, uniqueItems: true })),
-    platforms: Type.Optional(Type.Array(Type.Union([Type.Literal("darwin"), Type.Literal("win32"), Type.Literal("linux")]), { minItems: 1, uniqueItems: true })),
-  }, { additionalProperties: false })),
-  name: Type.String({ pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }),
-  version: SemVerSchema,
-  description: Type.String({ minLength: 1 }),
-  skills: Type.Optional(Type.Union([RelativePathSchema, Type.Array(RelativePathSchema, { minItems: 1, uniqueItems: true })])),
-  connections: Type.Optional(Type.Array(IdentifierSchema, { uniqueItems: true })),
-  mcpServers: Type.Optional(RelativePathSchema),
-  integration: Type.Optional(Type.Object({
-    entry: RelativePathSchema,
-    createProject: Type.Optional(Type.Boolean()),
-    projectFiles: Type.Optional(Type.Array(RelativePathSchema, { minItems: 1, maxItems: 20, uniqueItems: true })),
-    preview: Type.Optional(Type.Literal("external")),
-  }, { additionalProperties: false })),
-  configuration: Type.Optional(Type.Record(IdentifierSchema, ConfigurationFieldSchema)),
-  interface: Type.Optional(InterfaceSchema),
-}, { additionalProperties: false });
-
-export type PluginManifest = Static<typeof PluginManifestSchema>;
-export type ResolvedPluginManifest = Omit<PluginManifest, "version"> & { version?: string };
+/** The npm name of a plugin, `@publisher/name`: captures the scope and the name. */
+export const NPM_PLUGIN_PACKAGE = /^@([a-z0-9-]+)\/([a-z0-9][a-z0-9._-]*)$/;
 
 export function isPluginVersion(value: unknown): value is string {
   return Check(SemVerSchema, value);
@@ -313,12 +240,121 @@ function parsedVersion(value: string): { core: number[]; prerelease?: string[] }
   } : undefined;
 }
 
-export function isPluginManifest(value: unknown): value is PluginManifest {
-  if (!Check(PluginManifestSchema, value)) return false;
-  return Object.values(value.configuration ?? {}).every(field => {
-    if (field.type === "secret" && field.default !== undefined) return false;
-    if (field.type === "select" && (!field.options?.length || (field.default !== undefined && !field.options.includes(String(field.default))))) return false;
-    if (field.default !== undefined && (field.type === "boolean" ? typeof field.default !== "boolean" : typeof field.default !== "string")) return false;
-    return true;
-  });
+/** A setting a plugin asks for, as its settings page shows it. */
+export interface StorePluginSetting {
+  name: string;
+  type: "text" | "secret" | "path" | "boolean" | "select";
+  title: string;
+  description?: string;
+  required?: boolean;
+  options?: string[];
+}
+
+/** One installed version of a plugin (GET /plugin-store/plugins). */
+export interface StorePlugin {
+  /** `publisher/name`. */
+  id: string;
+  version: string;
+  /** Changes with the installed package, even at the same version. */
+  revision: string;
+  displayName: string;
+  description: string;
+  /** What it asks to be allowed, such as `network:api.example.com`. */
+  capabilities: string[];
+  /** The person's decisions; `null` before any. */
+  grants: { enabled: boolean; allowed: string[] } | null;
+  /** Ships with the app, so it can't be uninstalled. */
+  bundled: boolean;
+  /** Installed with the app from another repository; it can be uninstalled. */
+  preinstalled?: boolean;
+  origin?: PluginOrigin;
+  /** Only adds Skills, so it applies to every project it suits without a project turning it on. */
+  appWide: boolean;
+  categories?: PluginCategory[];
+  /** Still being checked on real projects. */
+  beta?: boolean;
+  icon?: PluginIcon;
+  iconRevision?: string;
+  /** Shown under About. */
+  longDescription?: string;
+  /** Prompts its page offers to try it with. */
+  examples: string[];
+  /** The project types it works in; absent means every type. */
+  appliesTo?: string[];
+  homepage?: string;
+  settings: StorePluginSetting[];
+  /** Its Skills; each `id` reads its content from `/plugins/:id/skill-content`. */
+  skills: Array<{ id: string; name: string; description: string }>;
+  /** What it adds, by title; tools and skills are counted. */
+  adds: { projectTypes: string[]; panels: string[]; commands: string[]; mcpServers: string[]; tools: number; skills: number };
+}
+
+/** What a plugin's settings page shows; secrets only say whether they are set. */
+export type StorePluginConfiguration = Record<
+  string,
+  | { type: Exclude<StorePluginSetting["type"], "secret">; value: string | boolean | null }
+  | { type: "secret"; configured: boolean }
+>;
+
+/** A plugin command a project offers (GET /projects/:id/plugin-commands). */
+export interface ProjectPluginCommand {
+  /** `publisher/name:command`. */
+  id: string;
+  plugin: string;
+  title: string;
+  slash?: string;
+  slots: Array<{ slot: string; when?: string }>;
+  run:
+    | { prompt: string; skill?: string; insert?: boolean }
+    | { tool: string; input?: unknown }
+    | { openPanel: string }
+    | { openSettings: true }
+    | { url: string }
+    | { native: string };
+}
+
+/** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */
+export interface ProjectPluginChange {
+  id: string;
+  plugin: string;
+  action: string;
+  title: string;
+  changed: string[];
+  at: string;
+  undone?: boolean;
+  failed?: string;
+}
+
+/** A plugin as one project sees it, for the project's Plugins sheet. */
+export interface ProjectPluginItem {
+  id: string;
+  displayName: string;
+  description: string;
+  /** The newest installed version, offered when turning it on. */
+  version: string;
+  /** The version this project uses; absent while it is off here. */
+  used?: string;
+  /** Provides the project's type, so it stays on. */
+  providesType: boolean;
+  /** Why a plugin the project asks for is not running. */
+  status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "not-applicable" | "needs-consent" | "needs-approval";
+  /** What it asks to be allowed, such as `network:api.example.com`. */
+  capabilities: string[];
+  /** The person allowed what it asks for when it was installed. */
+  consented: boolean;
+}
+
+/** A plugin a new project can turn on for itself, before the project exists (GET /project-plugins). */
+export interface ProjectPluginChoice extends Pick<ProjectPluginItem, "id" | "displayName" | "description" | "version" | "capabilities" | "consented"> {
+  /** The project types it adds, as `publisher/name:type`; a project of one of them has it on already. */
+  providesTypes: string[];
+  /** The project types it works in (`appliesTo`); absent means every type. */
+  appliesTo?: string[];
+}
+
+export interface ProjectPluginsView {
+  /** Plugins on for every project they work with; switched in Plugins. */
+  global: Array<{ id: string; displayName: string; description: string; icon?: PluginIcon; iconRevision?: string }>;
+  /** Plugins each project turns on for itself, recorded in its `ohmygame.json`. */
+  plugins: ProjectPluginItem[];
 }

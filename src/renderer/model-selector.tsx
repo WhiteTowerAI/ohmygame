@@ -10,6 +10,7 @@ import { listModels, MODELS_CHANGED_EVENT, waitForRuntime } from "./api.js";
 import { menuPlacement } from "./popover-placement.js";
 import { settingsHash } from "./routes.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
+import "./model-selector.css";
 
 interface ModelSelectorProps {
   models: AgentModel[];
@@ -25,18 +26,18 @@ interface ModelSelectorProps {
   onNativeReasoningChange?: (level: string) => void;
 }
 
-type ModelPanel = "models" | "reasoning";
-
 export function ModelSelector({ models, status = "ready", value, reasoningLevel, nativeReasoningLevel, disabled, variant = "chat", placement = "above", onChange, onReasoningChange, onNativeReasoningChange }: ModelSelectorProps) {
-  const [panel, setPanel] = useState<ModelPanel>();
+  const [open, setOpen] = useState(false);
+  // The depth opens in place of the models, so the list keeps its room and a rarely changed setting stays one row.
+  const [depthOpen, setDepthOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number }>();
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const reasoningEntry = useRef<HTMLButtonElement>(null);
-  const returningToModels = useRef(false);
   const popover = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  const depthEntry = useRef<HTMLButtonElement>(null);
+  const returningToModels = useRef(false);
   const menuId = useId();
   const currentKey = value ? modelKey(value) : "";
   const current = models.find((model) => modelKey(model) === currentKey) ?? (value && "name" in value ? value : undefined);
@@ -49,28 +50,21 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const label = (level: string | undefined) => level && (AGENT_REASONING_LEVELS as readonly string[]).includes(level) ? reasoningLabel(level as AgentReasoningLevel) : level ?? "";
   const reasoningText = label(effectiveLevel);
   const supportsReasoning = levels.length > 1;
-  const open = !!panel;
-  const showReasoning = panel === "reasoning";
   const positioned = position !== undefined;
   const canvas = variant === "canvas";
   const canSelect = status === "ready" && models.length > 0;
 
   function close(restoreFocus = false): void {
-    setPanel(undefined);
+    setOpen(false);
     if (restoreFocus) trigger.current?.focus();
   }
 
   function toggle(): void {
     if (open) { close(); return; }
-    returningToModels.current = false;
     setQuery("");
+    setDepthOpen(false);
     setPosition(undefined);
-    setPanel("models");
-  }
-
-  function backToModels(): void {
-    returningToModels.current = true;
-    setPanel("models");
+    setOpen(true);
   }
 
   function select(model: AgentModel): void {
@@ -78,27 +72,41 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
     close(true);
   }
 
+  function selectLevel(level: string): void {
+    if (level !== effectiveLevel) {
+      if (native) onNativeReasoningChange?.(level);
+      else onReasoningChange(level as AgentReasoningLevel);
+    }
+    close(true);
+  }
+
+  function backToModels(): void {
+    returningToModels.current = true;
+    setDepthOpen(false);
+  }
+
   useLayoutEffect(() => {
-    if (!panel) return;
+    if (!open) return;
     const anchor = trigger.current?.getBoundingClientRect();
     const bounds = popover.current?.getBoundingClientRect();
     if (anchor && bounds) setPosition(menuPlacement(anchor, bounds, { width: window.innerWidth, height: window.innerHeight }, canvas ? "start" : "end", placement));
     // Query changes keep the popup anchored in place while its list shrinks.
-  }, [panel, canvas, placement]);
+  }, [open, canvas, placement]);
 
   useEffect(() => {
-    if (!panel || !positioned) return;
-    if (panel === "reasoning") {
-      const selected = popover.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]') ?? popover.current?.querySelector<HTMLButtonElement>('[role="menuitemradio"]');
-      selected?.focus();
-    }
-    else (returningToModels.current ? reasoningEntry : search).current?.focus();
+    if (!open || !positioned) return;
+    if (depthOpen) popover.current?.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-checked="true"]')?.focus();
+    else (returningToModels.current ? depthEntry : search).current?.focus();
     returningToModels.current = false;
-  }, [panel, positioned]);
+  }, [open, positioned, depthOpen]);
+
+  useEffect(() => {
+    if (!supportsReasoning) setDepthOpen(false);
+  }, [supportsReasoning]);
 
   useEffect(() => {
     if (!open) return;
-    const close = () => setPanel(undefined);
+    const close = () => setOpen(false);
     const onPointerDown = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node) && !popover.current?.contains(event.target as Node)) close();
     };
@@ -118,12 +126,8 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   }, [open]);
 
   useEffect(() => {
-    setPanel(undefined);
+    setOpen(false);
   }, [disabled, status]);
-
-  useEffect(() => {
-    if (!supportsReasoning) setPanel((current) => current === "reasoning" ? undefined : current);
-  }, [supportsReasoning]);
 
   const unavailableLabel = status === "loading" ? t("modelSelector.loading")
     : status === "error" ? t("modelSelector.error")
@@ -144,111 +148,94 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
         onClick={toggle}
         title={current ? `${t("modelSelector.textModelTitle", { provider: current.providerName, name: current.name })}${supportsReasoning ? ` · ${reasoningText}` : ""}` : unavailableLabel}
       >
-        {native ? <AgentIcon provider={current?.provider} /> : null}
+        {current ? <ProviderMark provider={current.provider} name={current.providerName} /> : null}
         <span className="model-selector-name">{current?.name ?? unavailableLabel}</span>
         {supportsReasoning ? <span className="model-selector-reasoning-value">{reasoningText}</span> : null}
-        <ChevronDown aria-hidden="true" size={12} />
+        <ChevronDown className="model-selector-caret" aria-hidden="true" size={canvas ? 12 : 14} />
       </button>
 
-      {panel ? createPortal(
-        <div className={`model-selector-popover nodrag nowheel${canvas ? " model-selector-popover-canvas" : ""}`} ref={popover} id={menuId} style={position ?? { top: 0, left: 0, visibility: "hidden" }} onKeyDown={(event) => {
+      {open ? createPortal(
+        <div className={`model-picker nodrag nowheel${canvas ? " is-canvas" : ""}`} ref={popover} id={menuId} data-native-preview-overlay style={position ?? { top: 0, left: 0, visibility: "hidden" }} onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-          if (event.key === "Escape" || (showReasoning && event.key === "ArrowLeft")) {
+          if (event.key === "Escape" || (depthOpen && event.key === "ArrowLeft")) {
             event.preventDefault();
             event.stopPropagation();
-            if (showReasoning) backToModels();
+            if (depthOpen) backToModels();
             else close(true);
-          } else moveModelFocus(event, popover.current, showReasoning ? undefined : search.current);
+          } else moveModelFocus(event, popover.current, depthOpen ? undefined : search.current);
         }}>
-          {!showReasoning ? (
-            <div className="model-selector-menu" role="menu" aria-label={t("models.title")}>
-              <div className="model-selector-search-row">
-                <label className="model-selector-search">
-                  <Search size={13} aria-hidden="true" />
-                  <input ref={search} value={query} placeholder={t("models.search")} aria-label={t("models.search")} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
-                    if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    const first = visibleModels[0];
-                    if (!first) return;
-                    select(first);
-                  }} />
-                </label>
-                <button className="model-selector-manage" type="button" aria-label={t("modelSelector.manage")} title={t("modelSelector.manage")} onClick={() => {
-                  close(true);
-                  window.location.hash = settingsHash(native ? "agents" : "providers");
-                }}><Settings aria-hidden="true" size={13} /></button>
-              </div>
-              <div className="model-selector-model-list">
-                {providerGroups.map((group) => (
-                  <div className="model-selector-provider-group" role="group" aria-label={group.providerName} key={group.provider}>
-                    <div className="model-selector-provider-name"><AgentIcon provider={group.provider} />{group.providerName}</div>
-                    {group.models.map((model) => {
-                      const selected = modelKey(model) === currentKey;
-                      return (
-                        <button
-                          className={selected ? "active" : ""}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={selected}
-                          key={modelKey(model)}
-                          onClick={() => select(model)}
-                          title={`${model.provider}/${model.id}`}
-                        >
-                          <span className="model-selector-name">{model.name}</span>
-                          {selected ? <Check aria-hidden="true" size={12} /> : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
-                {visibleModels.length === 0 ? <p className="model-selector-empty" role="status">{status !== "ready" || !query.trim() ? unavailableLabel : t("modelSelector.noMatch")}</p> : null}
-              </div>
-              {supportsReasoning && canSelect ? <button
-                ref={reasoningEntry}
-                className="model-selector-reasoning"
-                type="button"
-                role="menuitem"
-                aria-haspopup="menu"
-                onClick={() => setPanel("reasoning")}
-                onKeyDown={(event) => {
-                  if (event.key !== "ArrowRight") return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setPanel("reasoning");
-                }}
-              >
-                <span>{t("models.reasoning")}</span>
-                <span className="model-selector-setting-value">{reasoningText}<ChevronRight aria-hidden="true" size={12} /></span>
-              </button> : null}
-            </div>
-          ) : (
-            <div className="model-selector-reasoning-menu" role="menu" aria-label={t("customProvider.reasoningLevels")}>
-              <button className="model-selector-back" type="button" role="menuitem" aria-label={t("modelSelector.backToModels")} onClick={backToModels}>
+          {depthOpen ? (
+            <div className="model-picker-list" role="menu" aria-label={t("modelSelector.depth")}>
+              <button className="model-picker-back" type="button" role="menuitem" aria-label={t("modelSelector.backToModels")} onClick={backToModels}>
                 <ChevronLeft aria-hidden="true" size={12} />
-                <span>{t("models.reasoning")}</span>
+                {t("modelSelector.depth")}
               </button>
+              <div className="ui-menu-separator" role="separator" />
               {levels.map((level) => {
                 const selected = level === effectiveLevel;
                 return (
-                  <button
-                    className={selected ? "active" : ""}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={selected}
-                    key={level}
-                    onClick={() => {
-                      if (!selected) { if (native) onNativeReasoningChange?.(level); else onReasoningChange(level as AgentReasoningLevel); }
-                      close(true);
-                    }}
-                  >
-                    <span>{label(level)}</span>
-                    {selected ? <Check aria-hidden="true" size={12} /> : null}
+                  <button className="model-picker-item" type="button" role="menuitemradio" aria-checked={selected} key={level} onClick={() => selectLevel(level)}>
+                    <span className="model-picker-item-name">{label(level)}</span>
+                    {selected ? <Check className="model-picker-check" aria-hidden="true" size={14} /> : null}
                   </button>
                 );
               })}
             </div>
-          )}
+          ) : (<>
+          <div className="model-picker-search">
+            <Search size={14} aria-hidden="true" />
+            <input ref={search} value={query} placeholder={t("models.search")} aria-label={t("models.search")} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+              if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
+              event.preventDefault();
+              event.stopPropagation();
+              const first = visibleModels[0];
+              if (first) select(first);
+            }} />
+            <button className="model-picker-manage" type="button" aria-label={t("modelSelector.manage")} title={t("modelSelector.manage")} onClick={() => {
+              close(true);
+              window.location.hash = settingsHash(native ? "agents" : "providers");
+            }}><Settings aria-hidden="true" size={14} /></button>
+          </div>
+          <div className="ui-menu-separator" role="separator" />
+          <div className="model-picker-list" role="menu" aria-label={t("models.title")}>
+            {providerGroups.map((group) => (
+              <div className="model-picker-group" role="group" aria-label={group.providerName} key={group.provider}>
+                <div className="model-picker-heading"><ProviderMark provider={group.provider} name={group.providerName} size={12} />{group.providerName}</div>
+                {group.models.map((model) => {
+                  const selected = modelKey(model) === currentKey;
+                  return (
+                    <button
+                      className="model-picker-item"
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={selected}
+                      key={modelKey(model)}
+                      onClick={() => select(model)}
+                      title={`${model.provider}/${model.id}`}
+                    >
+                      <span className="model-picker-item-name">{model.name}</span>
+                      {selected ? <Check className="model-picker-check" aria-hidden="true" size={14} /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {visibleModels.length === 0 ? <p className="model-picker-empty" role="status">{status !== "ready" || !query.trim() ? unavailableLabel : t("modelSelector.noMatch")}</p> : null}
+          </div>
+          {/* Only a model whose thinking can be set shows the depth. */}
+          {canSelect && supportsReasoning ? (<>
+            <div className="ui-menu-separator" role="separator" />
+            <button ref={depthEntry} className="model-picker-depth" type="button" role="menuitem" aria-haspopup="menu" onClick={() => setDepthOpen(true)} onKeyDown={(event) => {
+              if (event.key !== "ArrowRight") return;
+              event.preventDefault();
+              event.stopPropagation();
+              setDepthOpen(true);
+            }}>
+              <span>{t("modelSelector.depth")}</span>
+              <span className="model-picker-depth-value">{reasoningText}<ChevronRight aria-hidden="true" size={12} /></span>
+            </button>
+          </>) : null}
+          </>)}
         </div>,
         document.body,
       ) : null}
@@ -298,9 +285,12 @@ export function useAgentModels(options: { agentRuntimes?: boolean; accountProfil
   return catalog;
 }
 
-function AgentIcon({ provider }: { provider?: string }) {
-  const icon = isAgentRuntimeId(provider) ? PROVIDER_ICONS[provider] : undefined;
-  return icon ? <img className={`model-selector-agent-icon is-${icon.tone}`} src={icon.src} width={14} height={14} alt="" aria-hidden="true" /> : null;
+/** A provider's logo, or its initial when it has none (custom providers). */
+export function ProviderMark({ provider, name, size = 14 }: { provider?: string; name?: string; size?: number }) {
+  const icon = provider ? PROVIDER_ICONS[provider] : undefined;
+  if (icon) return <img className={`provider-mark is-${icon.tone}`} src={icon.src} width={size} height={size} alt="" aria-hidden="true" />;
+  const initial = (name ?? provider ?? "").trim().charAt(0).toUpperCase();
+  return initial ? <span className="provider-mark is-initial" style={{ width: size, height: size, fontSize: Math.round(size * 0.62) }} aria-hidden="true">{initial}</span> : null;
 }
 
 function modelKey(model: AgentModelRef): string {

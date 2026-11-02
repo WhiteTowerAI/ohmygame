@@ -23,6 +23,8 @@ export const PLUGIN_UI_METHODS = [
   "selection.get",
   "composer.fill",
   "command.run",
+  "ui.toast",
+  "ui.confirm",
 ] as const;
 
 export type PluginUiMethod = (typeof PLUGIN_UI_METHODS)[number];
@@ -40,7 +42,24 @@ export type PluginUiReply =
 /** What the host tells a page without being asked. */
 export type PluginUiEvent =
   | { event: "theme"; tokens: Record<string, string>; appearance: "dark" | "light" }
-  | { event: "visibility"; visible: boolean };
+  | { event: "visibility"; visible: boolean }
+  /** How one of the plugin's own commands is going while it runs, by its id in the manifest. */
+  | { event: "progress"; command: string; message: string }
+  /** A command the person ran from the panel's toolbar finished; it has `error` if it failed. */
+  | { event: "command"; command: string; result?: unknown; error?: string };
+
+export const PLUGIN_UI_TOAST_TONES = ["default", "success", "danger"] as const;
+export type PluginUiToastTone = (typeof PLUGIN_UI_TOAST_TONES)[number];
+
+/** What a page asks the person with `ui.confirm`. */
+export interface PluginUiConfirm {
+  title: string;
+  message?: string;
+  confirmLabel?: string;
+}
+
+/** A plugin's brand colour, or one for each appearance. */
+export type PluginAccent = string | { light?: string; dark?: string };
 
 export interface PluginUiCapabilities {
   "project.selection"?: boolean;
@@ -54,6 +73,9 @@ const NEEDS: Partial<Record<PluginUiMethod, keyof PluginUiCapabilities>> = {
 };
 
 const STORAGE_KEY = /^[A-Za-z0-9._-]{1,100}$/;
+
+/** Text with something to read, of at most `max` characters. */
+const text = (value: unknown, max: number) => typeof value === "string" && value.trim().length > 0 && value.length <= max;
 
 /**
  * Checks a message from a page: its shape, size and parameters. Returns the
@@ -91,6 +113,15 @@ export function readPluginUiRequest(
       break;
     case "command.run":
       if (typeof p.command !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(p.command)) return fail("command.run needs one of the plugin's command ids");
+      break;
+    case "ui.toast":
+      if (!text(p.message, 500)) return fail("ui.toast needs a message of at most 500 characters");
+      if (p.tone !== undefined && !(PLUGIN_UI_TOAST_TONES as readonly unknown[]).includes(p.tone)) return fail(`ui.toast's tone is one of ${PLUGIN_UI_TOAST_TONES.join(", ")}`);
+      break;
+    case "ui.confirm":
+      if (!text(p.title, 200)) return fail("ui.confirm needs a title of at most 200 characters");
+      if (p.message !== undefined && !text(p.message, 1000)) return fail("ui.confirm's message is at most 1,000 characters");
+      if (p.confirmLabel !== undefined && !text(p.confirmLabel, 40)) return fail("ui.confirm's confirmLabel is at most 40 characters");
       break;
   }
   return { ok: true, request: { id: id as number, method: method as PluginUiMethod, ...(params ? { params: p } : {}) } };

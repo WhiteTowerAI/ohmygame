@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopRuntimeState } from "../src/shared/desktop-runtime.js";
 import type { ProjectState, RuntimeEvent } from "../src/shared/contracts.js";
+import { promptField, promptText, typePrompt } from "./prompt-field.js";
 
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
@@ -251,14 +252,8 @@ describe("renderer service recovery", () => {
         </AuthProvider>,
       ),
     );
-    const input = container.querySelector("textarea")!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!.call(input, "My unsent game idea");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    const input = promptField(container);
+    await typePrompt("My unsent game idea", container);
     await act(async () =>
       updateRuntimeConnection({
         status: "recovering",
@@ -267,8 +262,8 @@ describe("renderer service recovery", () => {
       }),
     );
     await act(async () => updateRuntimeConnection(ready(2)));
-    expect(container.querySelector("textarea")).toBe(input);
-    expect(input.value).toBe("My unsent game idea");
+    expect(promptField(container)).toBe(input);
+    expect(promptText(container)).toBe("My unsent game idea");
   });
 
   it("uses new credentials and rejects mutations while offline without replaying them", async () => {
@@ -355,47 +350,42 @@ describe("renderer service recovery", () => {
     expect(input.value).toBe("http://127.0.0.1:9999");
   });
 
-  it.each([false, true])("loads plugin details once and preserves loaded drafts across recovery (loaded: %s)", async (loaded) => {
+  it.each([false, true])("loads a plugin's page and preserves its unsaved settings across recovery (loaded: %s)", async (loaded) => {
     installDesktop();
     const { updateRuntimeConnection } = await import("../src/renderer/runtime-connection.js");
     const { PluginsSettings } = await import("../src/renderer/plugins.js");
     updateRuntimeConnection(ready(1));
-    let detailReads = 0;
     let catalogReads = 0;
-    const configuration = {
-      fields: { endpoint: { type: "string", label: "Endpoint" } }, values: { endpoint: "Saved endpoint" }, configuredSecrets: [], missing: [],
-    };
     const plugin = {
-      id: "test", name: "test", displayName: "Test plugin", description: "Test", marketplace: { id: "test", displayName: "Test" },
-      source: { type: "builtIn" }, installed: true, enabled: true, skills: [], connections: [], configuration: configuration.fields,
+      id: "acme/test", version: "1.0.0", revision: "a".repeat(64), displayName: "Test plugin", description: "Test",
+      capabilities: [], grants: { enabled: true, allowed: [] }, bundled: false, appWide: false, examples: [], skills: [],
+      settings: [{ name: "endpoint", type: "text", title: "Endpoint", required: true }],
+      adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 },
     };
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       const route = new URL(url).pathname;
-      if (route === "/plugins/test") {
-        detailReads++;
-        if (!loaded && detailReads === 1) return Response.json({ error: "Detail failed" }, { status: 500 });
-        return Response.json(plugin);
+      if (route === "/plugin-store/plugins") {
+        catalogReads++;
+        if (!loaded && catalogReads === 1) return Response.json({ error: "Catalog failed" }, { status: 500 });
+        return Response.json([plugin]);
       }
-      if (route === "/plugins") { catalogReads++; return Response.json({ plugins: [], errors: [] }); }
-      if (route === "/plugins/test/configuration") return Response.json(configuration);
+      if (route === "/plugin-store/acme/test/configuration") return Response.json({ endpoint: { type: "text", value: null } });
       return Response.json({ status: "ok" });
     }));
-    await act(async () => root.render(<PluginsSettings pluginId="test" onPluginChange={() => {}} onTryPlugin={async () => {}} />));
-    expect(detailReads).toBe(1);
+    await act(async () => root.render(<PluginsSettings pluginId="acme/test" onPluginChange={() => {}} onTryPlugin={async () => {}} />));
+    expect(catalogReads).toBe(1);
     const input = container.querySelector<HTMLInputElement>(".plugin-configuration input");
     if (loaded) await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Unsaved endpoint");
       input!.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    else expect(input).toBeNull();
     await act(async () => updateRuntimeConnection({ status: "recovering", generation: 2, recovered: true }));
     await act(async () => updateRuntimeConnection(ready(2)));
     expect(catalogReads).toBe(2);
-    expect(detailReads).toBe(loaded ? 1 : 2);
     if (loaded) {
       expect(container.querySelector(".plugin-configuration input")).toBe(input);
       expect(input!.value).toBe("Unsaved endpoint");
-      await act(async () => container.querySelector(".plugin-configuration form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-      expect(detailReads).toBe(2); // An explicit configuration save still refreshes the details.
     } else expect(container.textContent).toContain("Test plugin");
   });
 
@@ -510,7 +500,7 @@ describe("pane and preview boundaries", () => {
     updateRuntimeConnection(ready(1));
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     const project: ProjectState = { id: "routes", name: "Routes", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/routes", preview: { status: "ready", url: "http://127.0.0.1:4000" } };
-    const props = { project, agentBusy: false, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, onStop: async () => {} };
+    const props = { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, onStop: async () => {} };
     await act(async () => root.render(createElement(CodingWorkspace, props)));
     const frame = container.querySelector("iframe")!;
     const client = new URL(frame.src).searchParams.get("__ohmygame_client")!;
@@ -519,17 +509,25 @@ describe("pane and preview boundaries", () => {
     expect(container.querySelector("iframe")).toBe(frame);
     expect(new URL(frame.src).pathname).toBe("/");
     expect(container.querySelector(".preview-location-path")?.textContent).toBe("/scene-2?level=2#boss");
-    // Like a browser's address: the preview's state, the page, then reload.
-    const location = container.querySelector(".preview-location")!;
-    expect(location.querySelector(".preview-location-status.is-ready")?.getAttribute("aria-label")).toBe("Preview running");
-    expect([...location.children].map((child) => child.className)).toEqual(["preview-location-status is-ready", "preview-location-trigger", "preview-location-refresh"]);
-    await act(async () => (container.querySelector('[aria-label="Project settings"]') as HTMLButtonElement).click());
+    // The page picker leads the toolbar; reload sits with the actions on the right.
+    const controls = [...container.querySelector(".preview-controls")!.children];
+    expect(controls[0]!.className).toBe("preview-location");
+    expect(controls.findIndex((child) => child.getAttribute("aria-label") === "Reload preview")).toBe(controls.length - 2);
+    await act(async () => (container.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Project settings"))!.click());
     const browser = [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Open preview in browser")!;
     await act(async () => browser.click());
     const url = new URL(String(open.mock.calls[0][0]));
     expect(`${url.pathname}?level=${url.searchParams.get("level")}${url.hash}`).toBe("/scene-2?level=2#boss");
     expect(container.querySelector(".preview-run-menu")).toBeNull();
     await act(async () => (container.querySelector('.project-settings [aria-label="Close"]') as HTMLButtonElement).click());
+    // The toolbar's browser page is a client of its own, so the editor keeps its reload stream.
+    await act(async () => (container.querySelector('[aria-label="More"]') as HTMLButtonElement).click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open in browser"))!.click());
+    const page = new URL(String(open.mock.calls[1][0]));
+    expect(page.searchParams.get("__ohmygame_view")).toBe("external");
+    expect(page.searchParams.get("__ohmygame_client")).toMatch(/.+/);
+    expect(page.searchParams.get("__ohmygame_client")).not.toBe(client);
     await act(async () => (container.querySelector('[aria-label="Reload preview"]') as HTMLButtonElement).click());
     expect(container.querySelector("iframe")).not.toBe(frame);
     const reloaded = new URL(container.querySelector("iframe")!.src);
@@ -552,7 +550,7 @@ describe("pane and preview boundaries", () => {
     panel.append(nodes.code.toolbar, nodes.code.body);
     document.body.append(panel);
     const panels = { nodes, visible: new Set(["code"] as const), onShow: () => {} };
-    await act(async () => root.render(createElement(CodingWorkspace, { project, agentBusy: false, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, panels })));
+    await act(async () => root.render(createElement(CodingWorkspace, { project, publishing: false, workspaceRevision: 0, onPublish: async () => false, onClosePublish: () => {}, onRestart: () => {}, panels })));
     await act(async () => (document.querySelector('[aria-label="Project settings"]') as HTMLButtonElement).click());
     const logs = [...document.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Preview logs")!;
     await act(async () => logs.click());

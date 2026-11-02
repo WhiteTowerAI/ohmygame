@@ -70,7 +70,7 @@ async function openWorkspace() {
     container.remove(); delete window.ohMyGameDesktop;
   };
   const render = (revision: number) => act(async () => root.render(<PlayableEditorWorkspace
-    project={{ id: "p", type: "interactive-story" } as ProjectState} agentBusy={false} publishing={false}
+    project={{ id: "p", type: "interactive-story" } as ProjectState} publishing={false}
     workspaceRevision={revision} onPublish={async () => false} onClosePublish={() => {}}
   />));
   await render(0);

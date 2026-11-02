@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { communityProfileHash, communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, playtestHash, pluginHash, pluginBuilderHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
+import { communityProfileHash, communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, playtestHash, pluginBrowseHash, pluginHash, pluginBuilderHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
@@ -54,6 +54,9 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/plugins/personal%3Agame%20tools")).toEqual({ page: "plugins", pluginId: "personal:game tools" });
     expect(parseAppRoute("#/plugins")).toEqual({ page: "plugins" });
     expect(parseAppRoute("#/settings/plugins")).toEqual({ page: "plugins" });
+    // More types… opens the marketplace at the plugins that add a project type.
+    expect(parseAppRoute(pluginBrowseHash("projectType"))).toEqual({ page: "plugins", adds: "projectType" });
+    expect(parseAppRoute("#/plugins?adds=unknown")).toEqual({ page: "home" });
     expect(parseAppRoute("#/settings/plugins/personal%3Agame%20tools")).toEqual({ page: "plugins", pluginId: "personal:game tools" });
     expect(parseAppRoute("#/plugins/%")).toEqual({ page: "plugins" });
     expect(parseAppRoute("#/settings/plugins/%")).toEqual({ page: "plugins" });
@@ -87,11 +90,10 @@ describe("renderer routes", () => {
   it("parses and formats Settings routes", () => {
     expect(DEFAULT_SETTINGS_SECTION).toBe("general");
     expect(parseAppRoute("#/settings")).toEqual({ page: "settings", section: "general" });
-    for (const section of ["general", "account", "billing", "appearance", "notifications", "providers", "agents", "web-search", "network", "mcp-server", "about"] as const) {
+    for (const section of ["general", "account", "billing", "appearance", "notifications", "providers", "agents", "web-search", "network", "connections", "mcp-server", "about"] as const) {
       expect(parseAppRoute(`#/settings/${section}`)).toEqual({ page: "settings", section });
       expect(settingsHash(section)).toBe(`#/settings/${section}`);
     }
-    expect(parseAppRoute("#/settings/connections")).toEqual({ page: "plugins" });
     expect(parseAppRoute("#/settings/agents/claude-code-cli")).toEqual({ page: "settings", section: "agents", agent: "claude-code-cli" });
     expect(settingsHash("agents", "ohmygame")).toBe("#/settings/agents/ohmygame");
     expect(settingsHash("providers", "ohmygame")).toBe("#/settings/providers");

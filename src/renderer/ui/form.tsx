@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -299,31 +300,56 @@ export interface SelectOption<T extends string> {
 }
 
 function OptionList<T extends string>({
+  id,
   options,
   value,
   onPick,
   active,
   setActive,
 }: {
+  /** Prefix for the list's and options' ids, for `aria-activedescendant`. */
+  id: string;
   options: readonly SelectOption<T>[];
   value?: T;
   onPick: (value: T) => void;
   active: number;
   setActive: (index: number) => void;
 }) {
+  // Keep the highlighted option visible inside the scrolling popover, unless
+  // the pointer chose it: scrolling under the pointer would make the list jump.
+  const hovered = useRef(false);
+  useEffect(() => {
+    if (hovered.current) {
+      hovered.current = false;
+      return;
+    }
+    const item = document.getElementById(`${id}-${active}`);
+    const scroller = item?.closest<HTMLElement>(".ui-popover");
+    if (!item || !scroller) return;
+    const box = scroller.getBoundingClientRect();
+    const rect = item.getBoundingClientRect();
+    if (rect.top < box.top) scroller.scrollTop -= box.top - rect.top;
+    else if (rect.bottom > box.bottom)
+      scroller.scrollTop += rect.bottom - box.bottom;
+  }, [id, active]);
   if (!options.length)
     return <p className="ui-listbox-empty">{t("ui.noMatchingOptions")}</p>;
   return (
-    <div className="ui-listbox" role="listbox">
+    <div className="ui-listbox" role="listbox" id={id}>
       {options.map((option, index) => (
         <button
           key={option.value}
+          id={`${id}-${index}`}
           type="button"
           role="option"
           aria-selected={option.value === value}
           disabled={option.disabled}
           className={`ui-option${index === active ? " is-active" : ""}`}
-          onPointerEnter={() => setActive(index)}
+          onPointerEnter={() => {
+            if (index === active) return;
+            hovered.current = true;
+            setActive(index);
+          }}
           onClick={() => onPick(option.value)}
         >
           {option.icon ? (
@@ -381,6 +407,7 @@ export function Select<T extends string>({
   placeholder = t("ui.selectPlaceholder"),
   size = "md",
   id,
+  disabled = false,
 }: {
   value?: T;
   options: readonly SelectOption<T>[];
@@ -389,6 +416,7 @@ export function Select<T extends string>({
   placeholder?: string;
   size?: "sm" | "md";
   id?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
@@ -400,28 +428,44 @@ export function Select<T extends string>({
   };
   const keys = useListKeys(options, (index) => pick(options[index]!.value));
   const current = options.find((option) => option.value === value);
+  const listId = useId();
+  // Opening starts on the saved option, as a native select does.
+  const show = () => {
+    keys.setActive(options.findIndex((option) => option.value === value));
+    setOpen(true);
+  };
   return (
     <>
       <button
         ref={anchor}
         id={id}
         type="button"
+        role="combobox"
         className={`ui-select ui-select-${size}`}
         aria-label={label}
+        aria-describedby={`${listId}-value`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => setOpen((state) => !state)}
+        aria-controls={open && options.length ? listId : undefined}
+        aria-activedescendant={
+          open && options[keys.active] ? `${listId}-${keys.active}` : undefined
+        }
+        disabled={disabled}
+        onClick={() => (open ? setOpen(false) : show())}
         onKeyDown={(event) => {
           if (!open && (event.key === "ArrowDown" || event.key === "Enter")) {
             event.preventDefault();
-            setOpen(true);
+            show();
           } else if (open) keys.onKeyDown(event);
         }}
       >
         {current?.icon ? (
           <span className="ui-option-icon">{current.icon}</span>
         ) : null}
-        <span className={current ? "ui-select-value" : "ui-select-placeholder"}>
+        <span
+          id={`${listId}-value`}
+          className={current ? "ui-select-value" : "ui-select-placeholder"}
+        >
           {current?.label ?? placeholder}
         </span>
         <ChevronDown size={14} className="ui-select-caret" />
@@ -434,6 +478,7 @@ export function Select<T extends string>({
         label={label}
       >
         <OptionList
+          id={listId}
           options={options}
           value={value}
           onPick={pick}
@@ -484,6 +529,7 @@ export function Combobox<T extends string>({
   };
   const keys = useListKeys(filtered, (index) => pick(filtered[index]!.value));
   const current = options.find((option) => option.value === value);
+  const listId = useId();
   return (
     <>
       <span ref={anchor} className={`ui-input ui-input-${size} ui-combobox`}>
@@ -492,6 +538,12 @@ export function Combobox<T extends string>({
           aria-label={label}
           aria-expanded={open}
           aria-autocomplete="list"
+          aria-controls={open && filtered.length ? listId : undefined}
+          aria-activedescendant={
+            open && filtered[keys.active]
+              ? `${listId}-${keys.active}`
+              : undefined
+          }
           value={
             open
               ? query
@@ -518,6 +570,7 @@ export function Combobox<T extends string>({
         label={label}
       >
         <OptionList
+          id={listId}
           options={filtered}
           value={value}
           onPick={pick}

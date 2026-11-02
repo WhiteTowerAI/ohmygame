@@ -23,16 +23,12 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-const versionSelect = () =>
-  container.querySelector<HTMLButtonElement>(
-    'button[aria-label="Release notes version"]',
+const release = (version: string) =>
+  [...container.querySelectorAll<HTMLButtonElement>(".ui-collapsible-trigger")].find(
+    (item) => item.querySelector(".ui-collapsible-title")?.textContent === `v${version}`,
   );
-async function chooseVersion(version: string): Promise<void> {
-  await act(async () => versionSelect()!.click());
-  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (item) => item.textContent === `v${version}`,
-  )!;
-  await act(async () => option.click());
+async function toggle(version: string): Promise<void> {
+  await act(async () => release(version)!.click());
 }
 
 afterEach(async () => {
@@ -46,10 +42,8 @@ it("shows the installed release offline with safe external links", async () => {
     root.render(<ChangelogPanel currentVersion={installed} />),
   );
   expect(container.textContent).toContain("AI plugin builder");
-  expect(container.textContent).toContain(`v${installed}`);
-  expect(container.textContent).not.toContain("Installed version");
+  expect(release(installed)?.getAttribute("aria-expanded")).toBe("true");
   expect(container.textContent).not.toContain("All releases");
-  expect(versionSelect()).toBeNull();
   expect(container.querySelector("time")?.dateTime).toBe("2026-10-12");
   const link = container.querySelector<HTMLAnchorElement>(
     'a[href$="/pull/205"]',
@@ -58,42 +52,53 @@ it("shows the installed release offline with safe external links", async () => {
   expect(link.rel).toContain("noreferrer");
 });
 
-it("shows new update notes and lets the user switch back to the installed release", async () => {
-  const release = {
+it("opens new update notes first and keeps the installed release one click away", async () => {
+  const update = {
     version: "0.0.0-beta.4.7",
     notes: "### Fixed\n\n- Recover previews.\n\n<script>alert(1)</script>",
   };
   await act(async () =>
     root.render(
-      <ChangelogPanel currentVersion={installed} availableRelease={release} />,
+      <ChangelogPanel currentVersion={installed} availableRelease={update} />,
     ),
   );
   expect(container.textContent).toContain("Recover previews.");
-  expect(versionSelect()?.textContent).toBe(`v${release.version}`);
+  expect(container.textContent).not.toContain("AI plugin builder");
   expect(container.querySelector("script")).toBeNull();
-  await chooseVersion(installed);
+  await toggle(installed);
   expect(container.textContent).toContain("AI plugin builder");
-  expect(container.textContent).not.toContain("Recover previews.");
 });
 
-it("handles missing notes and falls back to the installed version when an update disappears", async () => {
-  const release = { version: "0.0.0-beta.4.7", notes: "" };
+it("handles missing notes and opens the installed version when an update disappears", async () => {
+  const update = { version: "0.0.0-beta.4.7", notes: "" };
   await act(async () =>
     root.render(
-      <ChangelogPanel currentVersion={installed} availableRelease={release} />,
+      <ChangelogPanel currentVersion={installed} availableRelease={update} />,
     ),
   );
   expect(container.textContent).toContain("Release notes are unavailable");
   expect(
     container.querySelector('a[href$="/tag/v0.0.0-beta.4.7"]'),
   ).not.toBeNull();
-  await chooseVersion(release.version);
   await act(async () =>
     root.render(<ChangelogPanel currentVersion={installed} />),
   );
   expect(container.textContent).toContain("AI plugin builder");
-  expect(versionSelect()).toBeNull();
-  expect(container.textContent).toContain(`v${installed}`);
+  expect(release(update.version)).toBeUndefined();
+});
+
+it("links to every release once there are more than it lists", async () => {
+  vi.stubGlobal("__APP_CHANGELOG__", Array.from({ length: 8 }, (_, index) => ({
+    version: `0.0.0-beta.4.${8 - index}`,
+    date: "2026-10-12",
+    notes: `- Release ${8 - index}.`,
+  })));
+  await act(async () =>
+    root.render(<ChangelogPanel currentVersion="0.0.0-beta.4.1" />),
+  );
+  expect(container.querySelectorAll(".ui-collapsible")).toHaveLength(7);
+  expect(release("0.0.0-beta.4.1")?.getAttribute("aria-expanded")).toBe("true");
+  expect(container.textContent).toContain("All releases");
 });
 
 it("labels an unknown installed version without showing another version's notes", async () => {

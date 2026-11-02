@@ -1,0 +1,7 @@
+{
+  "displayName": "WeChat Mini Games",
+  "description": "Adapt, preview, and check WeChat mini-game builds.",
+  "longDescription": "Package games through the engine's WeChat route, check mini-game configuration, and verify builds in WeChat DevTools and on a device. Requires WeChat DevTools and an authorized AppID for account operations. Uploads happen only on request.",
+  "example.1": "Check this project's WeChat Mini Game integration and local prerequisites.",
+  "example.2": "Build this game for WeChat and prepare developer-tool and device checks without uploading."
+}

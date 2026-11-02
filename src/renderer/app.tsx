@@ -9,16 +9,19 @@ import { SidebarPageLayout } from "./sidebar-page.js";
 import type { SidebarActive } from "./app-sidebar.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
-import type { PluginDetail } from "../shared/plugins.js";
+import type { PluginTryTarget } from "./plugin-try.js";
 import { pluginMentionToken } from "../shared/plugins.js";
-import { createConversation, createProject, getProject, MODELS_CHANGED_EVENT } from "./api.js";
+import { t } from "./i18n.js";
+import { createConversation, createProject, getProject, MODELS_CHANGED_EVENT, turnOnProjectPlugin } from "./api.js";
 import type { ComposerDraft } from "./composer.js";
 import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Onboarding, OnboardingArrival, OnboardingLoading } from "./onboarding.js";
+import { Onboarding, OnboardingArrival, OnboardingLoading, type OnboardingStart } from "./onboarding.js";
 import { useOnboarding } from "./use-onboarding.js";
-import { usePluginIntegrationGate } from "./plugin-integration.js";
 import { CommandMenuHost } from "./command-menu.js";
 import { useNotificationTargets } from "./agent-notifications.js";
+import { rememberLastProject } from "./general-preferences.js";
+import { useRunAlerts } from "./run-alerts.js";
+import { GameRecordingNotices } from "./game-recording.js";
 
 // Home and onboarding stay in the main chunk; every other route loads on first visit.
 const CommunityProfilePage = lazy(() => import("./community-profile.js").then((module) => ({ default: module.CommunityProfilePage })));
@@ -33,9 +36,11 @@ const PluginBuilder = lazy(() => import("./plugin-builder.js").then((module) => 
 
 export function App() {
   const navigation = useAppNavigation();
+  useRunAlerts((projectId) => navigation.navigate(projectHash(projectId)));
   return <>
     <AppRoute navigation={navigation} />
     <CommandMenuHost navigate={navigation.navigate} />
+    <GameRecordingNotices />
   </>;
 }
 
@@ -44,10 +49,10 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   const { route, navigate, projectReturnTo, projectBackLabel } = navigation;
   const onboarding = useOnboarding(route.page === "home");
   const [welcoming, setWelcoming] = useState(false);
+  const [start, setStart] = useState<OnboardingStart>();
   const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
   const [playtestEditorProjectId, setPlaytestEditorProjectId] = useState<string>();
-  const creationGate = usePluginIntegrationGate();
 
   // A reconnected runtime may have different providers; model pickers reload theirs.
   useEffect(() => {
@@ -56,6 +61,8 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
 
   // A Playtest window that cannot play asks for its project's editor.
   const routeProjectId = route.page === "project" ? route.projectId : undefined;
+  // Settings → General can reopen it at the next launch.
+  useEffect(() => { if (routeProjectId) rememberLastProject(routeProjectId); }, [routeProjectId]);
   useEffect(() => window.ohMyGameDesktop?.onShowPlaytestEditor?.((projectId) => {
     if (projectId !== routeProjectId) openProject(projectId);
     setPlaytestEditorProjectId(projectId);
@@ -65,18 +72,18 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   if ((route.page === "home" || onboarding.replaying) && onboarding.state?.status === "pending") {
     return <Onboarding step={onboarding.state.step}
       onStepChange={(step) => onboarding.save({ status: "pending", step })}
-      onFinish={async (status) => { await onboarding.save({ status, step: onboarding.state?.step ?? "welcome" }); setWelcoming(true); navigate("#/"); }} />;
+      onFinish={async (status, next) => { await onboarding.save({ status, step: onboarding.state?.step ?? "welcome" }); setStart(next); setWelcoming(true); navigate("#/"); }} />;
   }
   if (route.page === "home" && !onboarding.state) return <OnboardingLoading error={onboarding.error} onRetry={onboarding.retry} />;
   if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} /></Suspense>;
   if (route.page === "settings") {
     return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} agent={route.agent} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;
   }
-  if (route.page === "plugins") return <>{creationGate.dialog}<SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
-    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
-  </SidebarPageLayout></>;
+  if (route.page === "plugins") return <SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
+    <Suspense fallback={null}><PluginsSettings pluginId={route.pluginId} adds={route.adds} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} /></Suspense>
+  </SidebarPageLayout>;
   if (route.page === "home") {
-    return <><Home inert={welcoming} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
+    return <><Home inert={welcoming} start={start} onStartHandled={() => setStart(undefined)} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
   }
   if (route.page === "community") {
     return <Suspense fallback={sidebarFallback("community")}><GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} /></Suspense>;
@@ -119,7 +126,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   function openCreatedProject(project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]): void {
     const connection = runtimeConnection();
     setInitialPrompt({ generation: connection.status === "ready" ? connection.generation : -1, conversationId, prompt, mentions, images, mode, attachments });
-    navigateToConversation(project.id, conversationId, false, project.integration ? undefined : createdProjectView(project.type));
+    navigateToConversation(project.id, conversationId, false, createdProjectView(project.type));
   }
 
   function openProject(projectId: string, view?: "design"): void {
@@ -128,25 +135,17 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
     navigate(projectHash(projectId, view));
   }
 
-  async function tryPlugin(plugin: PluginDetail, prompt: string, projectId?: string): Promise<void> {
-    let project = projectId ? await getProject(projectId) : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game", ...(plugin.integration ? { pluginId: plugin.id } : {}) });
-    if (!projectId && plugin.integration) {
-      const ready = await creationGate.ensure(project, plugin.id, { canCreate: !!plugin.integration.createProject });
-      if (!ready) return;
-      project = ready;
-    }
+  async function tryPlugin({ mention, turnOn, newProjectType }: PluginTryTarget, prompt: string, projectId?: string): Promise<void> {
+    const project = projectId ? await getProject(projectId) : await createProject({ type: newProjectType ?? "general" });
+    const blocked = turnOn ? await turnOnProjectPlugin(project.id, turnOn) : undefined;
+    if (blocked) throw new Error(blocked === "not-offered" ? t("pluginStore.doesNotSuitProject") : t(`projectPlugins.status.${blocked}`));
     const conversation = await createConversation(project.id);
-    const mention: PluginMention = {
-      name: plugin.name,
-      displayName: plugin.displayName,
-      marketplaceId: plugin.marketplace.id,
-    };
     setInitialPrompt(undefined);
     setInitialDraft({
       conversationId: conversation.id,
-      draft: { prompt: `${pluginMentionToken(mention)} ${prompt}`, mentions: [mention] },
+      draft: mention ? { prompt: `${pluginMentionToken(mention)} ${prompt}`, mentions: [mention] } : { prompt, mentions: [] },
     });
-    navigateToConversation(project.id, conversation.id, false, project.integration ? undefined : createdProjectView(project.type));
+    navigateToConversation(project.id, conversation.id, false, createdProjectView(project.type));
   }
 
   function clearInitialPrompt(): void {

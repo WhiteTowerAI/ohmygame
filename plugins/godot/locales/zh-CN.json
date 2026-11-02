@@ -1,0 +1,14 @@
+{
+  "displayName": "Godot",
+  "description": "制作 Godot 游戏：项目在游戏面板中以 Web 构建运行，提供搭建场景和运行游戏的工具与 MCP 服务，以及场景和脚本技能。",
+  "type.title": "Godot 游戏",
+  "type.description": "Godot 4 项目。需要 Godot 4.3 或更新版本及其 Web 导出模板。",
+  "command.run": "在 Godot 中运行",
+  "config.godotPath": "Godot 可执行文件",
+  "config.godotPath.description": "留空时依次使用 GODOT_PATH、PATH 和常见安装位置。",
+  "longDescription": "创建场景和脚本、导入游戏素材、无窗口运行场景、启动编辑器或游戏并读取调试输出。Godot 游戏项目在游戏面板中以 Web 构建运行；其他项目需在项目插件中开启 Godot。需要本地安装 Godot 4，Godot MCP 服务还需要带 npx 的 Node.js。画面检查和游戏输入需要另外受支持的流程。",
+  "example.1": "在 Godot 中创建一个可玩的 3D 场景。",
+  "example.2": "检查当前 Godot 项目并建议下一步实现。",
+  "example.3": "为当前 Godot 场景制作角色控制器。",
+  "mcp.title": "Godot MCP"
+}

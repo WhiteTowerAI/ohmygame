@@ -1,5 +1,5 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AgentManager, conversationItems } from "../src/daemon/agent.js";
 import { projectPiToolNames } from "../src/daemon/agent-tools.js";
 import { CHECKPOINT_ENTRY } from "../src/daemon/checkpoint-extension.js";
@@ -14,6 +14,7 @@ import {
   type NativeTurnOutcome,
   type NativeTurnSink,
 } from "../src/daemon/agent-runtimes/native-session.js";
+import { handoffSummary } from "../src/daemon/agent-runtimes/handoff.js";
 import type {
   AgentUsageLimit,
   ProjectState,
@@ -53,8 +54,10 @@ class ScriptedDriver implements NativeDriver {
     sink.compaction("start");
     sink.compaction("end", { summary: "compacted" });
   }
-  dispose(): void {
+  slowDispose?: () => Promise<void>;
+  dispose(): void | Promise<void> {
     this.disposed = true;
+    return this.slowDispose?.();
   }
 }
 
@@ -370,8 +373,10 @@ describe("coding agent sessions", () => {
         },
       ],
       sm,
+      { skills: () => [{ name: "review", description: "" }] },
     );
-    await session.prompt("continue");
+    await session.prompt("continue with $review");
+    expect(drivers.map((driver) => driver.inputs[0]!.skills)).toEqual([["review"], ["review"]]);
     expect(drivers.map((driver) => driver.resume)).toEqual([
       "expired",
       undefined,
@@ -472,6 +477,179 @@ describe("coding agent sessions", () => {
     await Promise.all([run, cancelled]);
     expect(drivers.flatMap((driver) => driver.inputs)).toEqual([]);
     session.dispose();
+  });
+
+  describe("after the person stops a turn", () => {
+    const stoppedTurn = (reported: { status: "aborted"; resumable?: boolean }, id = "native-1"): Script =>
+      async (_input, sink, signal) => {
+        sink.nativeSession(id);
+        sink.text("a", "Working");
+        await new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        return reported;
+      };
+    const stop = async (session: NativeCodingSession, prompt: string, id = "native-1") => {
+      const run = session.prompt(prompt);
+      // Stop only once the agent has named its session: a fixed delay raced a slow runner.
+      await vi.waitFor(() =>
+        expect(
+          session.sessionManager.getBranch().some(
+            (entry) =>
+              entry.type === "custom" &&
+              entry.customType === NATIVE_SESSION_ENTRY &&
+              (entry.data as { sessionId?: string } | undefined)?.sessionId === id,
+          ),
+        ).toBe(true),
+      );
+      await session.abort();
+      await run;
+    };
+
+    it("continues the native session and says once that the turn was stopped", async () => {
+      const { session, sessionManager, drivers } = fixture([
+        stoppedTurn({ status: "aborted", resumable: true }),
+        async () => ({ status: "completed" }),
+        async () => ({ status: "completed" }),
+      ]);
+      await stop(session, "first");
+      expect(latestNativeSession(sessionManager.getBranch(), "claude-code-cli")).toMatchObject({
+        sessionId: "native-1",
+        interrupted: true,
+      });
+
+      await session.prompt("second");
+      await session.prompt("third");
+
+      expect(drivers).toHaveLength(1);
+      expect(drivers[0]!.disposed).toBeFalsy();
+      expect(drivers[0]!.inputs[1]!.text).toContain("stopped the previous turn");
+      expect(drivers[0]!.inputs[1]!.text).toContain("second");
+      expect(drivers[0]!.inputs[1]!.text).not.toContain("<conversation-handoff>");
+      expect(drivers[0]!.inputs[2]!.text).toBe("third");
+      expect(latestNativeSession(sessionManager.getBranch(), "claude-code-cli")?.interrupted).toBeUndefined();
+      session.dispose();
+    });
+
+    it("still says so after a restart", async () => {
+      const first = fixture([stoppedTurn({ status: "aborted", resumable: true })]);
+      await stop(first.session, "first");
+      first.session.dispose();
+
+      const second = fixture([async () => ({ status: "completed" })], first.sessionManager);
+      await second.session.prompt("second");
+
+      expect(second.drivers[0]!.resume).toBe("native-1");
+      expect(second.drivers[0]!.inputs[0]!.text).toContain("stopped the previous turn");
+      expect(second.drivers[0]!.inputs[0]!.text).not.toContain("<conversation-handoff>");
+      second.session.dispose();
+    });
+
+    it("rebuilds the context when the agent did not report the turn's end", async () => {
+      const { session, drivers } = fixture([
+        stoppedTurn({ status: "aborted" }),
+        async () => ({ status: "completed" }),
+      ]);
+      await stop(session, "first");
+      await session.prompt("second");
+
+      expect(drivers).toHaveLength(2);
+      expect(drivers[0]!.disposed).toBe(true);
+      expect(drivers[1]!.resume).toBeUndefined();
+      expect(drivers[1]!.inputs[0]!.text).toContain("<conversation-handoff>");
+      expect(drivers[1]!.inputs[0]!.text).not.toContain("stopped the previous turn");
+      session.dispose();
+    });
+
+    it("rebuilds the context when the agent had to be closed to stop it", async () => {
+      const { session, drivers } = fixture(
+        [
+          async (_input, sink, signal) => {
+            sink.nativeSession("native-1");
+            sink.text("a", "Working");
+            await new Promise<void>((resolve) =>
+              signal.addEventListener("abort", () => setTimeout(resolve, 30), { once: true }),
+            );
+            return { status: "aborted", resumable: true };
+          },
+          async () => ({ status: "completed" }),
+        ],
+        undefined,
+        { cancellationTimeoutMs: 1 },
+      );
+      await stop(session, "first");
+      await session.prompt("second");
+
+      expect(drivers).toHaveLength(2);
+      expect(drivers[1]!.inputs[0]!.text).toContain("<conversation-handoff>");
+      session.dispose();
+    });
+
+    it("hands over every tool the stop cut off, including calls still buffered", async () => {
+      const { session, sessionManager } = fixture([
+        async (_input, sink, signal) => {
+          sink.nativeSession("native-1");
+          sink.toolCall("a", "bash", { command: "started-command" });
+          sink.toolStarted("a");
+          sink.toolCall("b", "bash", { command: "buffered-command" });
+          sink.toolCall("c", "bash", { command: "other-buffered-command" });
+          await new Promise<void>((resolve) =>
+            signal.addEventListener("abort", () => resolve(), { once: true }),
+          );
+          return { status: "aborted" };
+        },
+      ]);
+      await stop(session, "first");
+
+      const summary = handoffSummary(sessionManager.getBranch())!;
+      expect(summary).toContain("- bash (started-command): Stopped");
+      expect(summary).toContain("- bash (buffered-command): Stopped");
+      expect(summary).toContain("- bash (other-buffered-command): Stopped");
+      session.dispose();
+    });
+
+    it("does not hold a forced close of one turn against the next", async () => {
+      const { session, drivers } = fixture(
+        [
+          async (_input, sink, signal) => {
+            sink.nativeSession("native-1");
+            sink.text("a", "Working");
+            await new Promise<void>((resolve) =>
+              signal.addEventListener("abort", () => setTimeout(resolve, 25), { once: true }),
+            );
+            return { status: "aborted" };
+          },
+          stoppedTurn({ status: "aborted", resumable: true }, "native-2"),
+          async () => ({ status: "completed" }),
+        ],
+        undefined,
+        { cancellationTimeoutMs: 20 },
+      );
+      const run = session.prompt("first");
+      await vi.waitFor(() => expect(drivers[0]!.inputs).toHaveLength(1));
+      drivers[0]!.slowDispose = () => new Promise((resolve) => setTimeout(resolve, 60));
+      // Cancelling a turn calls abort twice; the second one times out while the
+      // first is still closing the old driver.
+      const first = session.abort();
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      await Promise.all([first, session.abort(), run]);
+
+      await stop(session, "second", "native-2");
+      await session.prompt("third");
+
+      expect(drivers).toHaveLength(2);
+      expect(drivers[1]!.disposed).toBeFalsy();
+      expect(drivers[1]!.inputs[1]!.text).toContain("stopped the previous turn");
+      session.dispose();
+    });
+
+    it("hands off instead when the conversation moved to another account", async () => {
+      const { session, sessionManager } = fixture([stoppedTurn({ status: "aborted", resumable: true })]);
+      await stop(session, "first");
+      session.dispose();
+
+      expect(latestNativeSession(sessionManager.getBranch(), "claude-code-cli", "work")).toBeUndefined();
+    });
   });
 
   it("rebuilds context for legacy or interrupted native metadata", () => {
@@ -907,6 +1085,25 @@ describe("coding agent sessions", () => {
       .result;
     expect(drivers[0]!.inputs[0]!.readOnly).toBe(true);
   });
+});
+
+it("hands the agent the Skills a message names, leaving the message as written", async () => {
+  const driver = new ScriptedDriver([], undefined);
+  const session = new NativeCodingSession({
+    runtime: "codex-cli",
+    model: "model",
+    sessionManager: SessionManager.inMemory("/tmp/native-skills"),
+    toolNames: [],
+    requestApproval: async () => "deny",
+    skills: () => [{ name: "review", description: "" }, { name: "map-design", description: "" }],
+    createDriver: () => driver,
+  });
+  await session.prompt("Use $map-design, then $review. It costs $5 and $unknown");
+  await session.prompt("No Skills here");
+  expect(driver.inputs.map(({ text, skills }) => ({ text, skills }))).toEqual([
+    { text: "Use $map-design, then $review. It costs $5 and $unknown", skills: ["map-design", "review"] },
+    { text: "No Skills here", skills: undefined },
+  ]);
 });
 
 it("does not duplicate delayed native text completions after a tool flushes the assistant", async () => {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentNotificationPermission, AgentNotificationTarget } from "../shared/agent-notifications.js";
+import { readGeneralPreferences } from "./general-preferences.js";
 import { t } from "./i18n.js";
 
 const NOTIFICATIONS_STORAGE_KEY = "ohmygame:notifications";
@@ -10,7 +11,10 @@ export interface NotificationSettings {
 
 export function readNotificationSettings(): NotificationSettings {
   try {
-    const stored = JSON.parse(localStorage.getItem(NOTIFICATIONS_STORAGE_KEY) ?? "{}") as Partial<NotificationSettings>;
+    // Preserve an existing General → Notifications choice when upgrading.
+    const saved = localStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
+    if (saved === null) return { enabled: readGeneralPreferences().runNotifications };
+    const stored = JSON.parse(saved) as Partial<NotificationSettings>;
     return { enabled: stored.enabled !== false };
   } catch {
     return { enabled: true };

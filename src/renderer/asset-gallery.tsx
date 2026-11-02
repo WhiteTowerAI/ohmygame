@@ -27,30 +27,6 @@ export function useNearViewport<T extends Element>(): readonly [RefObject<T | nu
   return [target, visible] as const;
 }
 
-export function AssetCardShell({ title, subtitle, preview, badge, footer, actions, className = "", articleRef, onOpen }: {
-  title: string;
-  subtitle?: ReactNode;
-  preview: ReactNode;
-  badge?: ReactNode;
-  footer?: ReactNode;
-  actions?: ReactNode;
-  className?: string;
-  articleRef?: Ref<HTMLElement>;
-  onOpen: () => void;
-}) {
-  return <article className={`library-asset-card${className ? ` ${className}` : ""}`} ref={articleRef}>
-    <button className="library-asset-card-open" type="button" onClick={onOpen} title={title}>
-      <div className="library-asset-thumbnail">
-        {preview}
-        {badge ? <span className="library-asset-type">{badge}</span> : null}
-      </div>
-      <span className="library-asset-info"><strong>{title}</strong>{subtitle ? <span>{subtitle}</span> : null}</span>
-    </button>
-    {actions}
-    {footer}
-  </article>;
-}
-
 export function AssetDialogShell({ title, subtitle, preview, footer, headerActions, headerActionsRef, labelledBy, onClose, onEscape }: {
   title: string;
   subtitle?: ReactNode;

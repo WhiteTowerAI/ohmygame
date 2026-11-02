@@ -30,6 +30,10 @@ describe("workspace layouts", () => {
     expect(tabs(presetLayout("art", STORY)).center).toBe("*canvas,story,design,code,assets");
     expect(tabs(presetLayout("code", STORY)).center).toBe("*code,story,design,canvas,assets");
     expect(presetsFor(["chat", "canvas"])).toEqual(["default"]);
+    // An asset canvas opens on its canvas, with its files in a Code panel.
+    const canvas = panelsOf({ type: "asset-canvas" });
+    expect(canvas).toEqual(["chat", "canvas", "code"]);
+    expect(tabs(presetLayout("default", canvas)).center).toBe("*canvas,code");
     // Art brings the canvas forward, not the design document.
     expect(tabs(presetLayout("art", GAME)).center).toBe("*canvas,game,design,code,assets");
   });
@@ -54,6 +58,22 @@ describe("workspace layouts", () => {
     // A story's panel, never seen before, opens where the default puts it, in
     // front; the panels it shares with games stay where they were.
     expect(tabs(fitLayout(saved, STORY, presetLayout("default", STORY)))).toMatchObject({ left: "*chat", center: "design,canvas,*story", right: "*code" });
+  });
+
+  it("opens a plugin's panels in the areas it names, and keeps them closed once closed", () => {
+    const preview = "plugin:acme/maker:preview" as const;
+    const log = "plugin:acme/maker:log" as const;
+    const homes = { [preview]: "right", [log]: "bottom" } as const;
+    const offered = [...GAME, preview, log];
+    const fallback = presetLayout("default", offered, homes);
+    expect(tabs(fallback)).toMatchObject({ left: "*chat", center: "*game,design,canvas,code,assets", right: `*${preview}`, bottom: `*${log}` });
+    // A saved layout from before the plugin gets its panels where they belong.
+    const before = { layout: presetLayout("default", GAME), known: GAME };
+    expect(tabs(fitLayout(before, offered, fallback))).toMatchObject({ right: `*${preview}`, bottom: `*${log}` });
+    // Closed, the panel stays closed; the plugin turned off, it goes.
+    const closed = mergeLayout(before, fitLayout(before, offered, fallback), closePanel(fitLayout(before, offered, fallback), log), offered);
+    expect(tabs(fitLayout(closed, offered, fallback)).bottom).toBe("");
+    expect(tabs(fitLayout(closed, GAME, presetLayout("default", GAME))).right).toBe("");
   });
 
   it("opens new panels on the default's front tab", () => {

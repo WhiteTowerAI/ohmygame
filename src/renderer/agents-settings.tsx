@@ -8,7 +8,7 @@ import type { SettingsSection } from "./routes.js";
 import { Badge, Button, IconButton } from "./ui/index.js";
 import { SettingsDetailHead, SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { t } from "./i18n.js";
-import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
+import { BrandLogo } from "./brand-logo.js";
 
 /** OhMyGame's own agent has a page like the coding agents do. */
 export const OHMYGAME_AGENT = "ohmygame";
@@ -46,10 +46,10 @@ export function AgentsSettings({
   return <AgentList onOpen={onOpen} />;
 }
 
-function BrandMark() {
+function BrandMark({ size = 20 }: { size?: number }) {
   return (
     <span className="settings-mark is-brand" aria-hidden="true">
-      <img src={brandMark} alt="" />
+      <BrandLogo size={size} />
     </span>
   );
 }
@@ -123,7 +123,7 @@ function OhMyGameAgent({ onBack, onOpenSection, onOpenPlugins }: {
   const chevron = <ChevronRight size={16} className="settings-row-chevron" />;
   return (
     <>
-      <SettingsDetailHead mark={<BrandMark />} title="OhMyGame" description={t("settings.agents.ohmygameDescription")} onBack={onBack} backLabel={t("settings.agents.back")} />
+      <SettingsDetailHead mark={<BrandMark size={28} />} title="OhMyGame" description={t("settings.agents.ohmygameDescription")} onBack={onBack} backLabel={t("settings.agents.back")} />
       <SettingsGroup
         title={t("settings.agents.models")}
         description={t("settings.agents.modelsHint")}

@@ -136,6 +136,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
       <div
         ref={menu}
         className="canvas-chip-menu nodrag nowheel"
+        data-native-preview-overlay
         style={position ?? { top: 0, left: 0, visibility: "hidden" }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {

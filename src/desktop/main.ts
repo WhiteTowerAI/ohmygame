@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdirSync, readFileSync } from "node:fs";
+import { createReadStream, mkdirSync, readFileSync } from "node:fs";
+import { rmdir } from "node:fs/promises";
+import { Readable } from "node:stream";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, session, shell } from "electron";
 import { clipboardFilePaths, loadClipboardFiles } from "./file-clipboard.js";
 import { installExternalMcpLauncher, markExternalMcpApp } from "./external-mcp-install.js";
 import { DaemonSupervisor } from "./daemon-supervisor.js";
@@ -23,6 +25,8 @@ import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, w
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
 import { DesktopUpdateCheckScheduler } from "./update-check-scheduler.js";
 import { ElectronPlaytestDriver } from "./playtest-driver.js";
+import { GameRecorder, type GameRecordingFile } from "./game-recorder.js";
+import { GAME_RECORDING_MAX_SECONDS, gameRecordingFileName, type GameRecordingSaved, type GameRecordingState } from "../shared/game-recording.js";
 import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
 import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
@@ -73,14 +77,32 @@ function handle(channel: string, listener: Parameters<typeof ipcMain.handle>[1])
     return listener(event, ...args);
   });
 }
+const rendererPage = (page: string) => useBuiltRenderer
+  ? pathToFileURL(path.join(moduleDirectory, "../renderer", page)).href
+  : new URL(page, `${developmentRendererUrl}/`).href;
+const gameRecorder = new GameRecorder({
+  hostUrl: rendererPage("game-recorder.html"),
+  preloadPath: path.join(moduleDirectory, "game-recorder-preload.cjs"),
+  save: saveGameRecording,
+  onSaving: (id) => {
+    // Agents' recordings are not announced. A person can stop one that is still starting.
+    if (gameRecordings.has(id) || gameRecordingStarts.has(id)) publishGameRecording({ projectId: id, status: "saving" });
+  },
+});
 const agentPlaytests = new ElectronPlaytestDriver((state) => {
   mainWindow?.webContents.send("ohmygame:agent-playtest-state", state);
-});
+}, undefined, gameRecorder);
 const webGamePlayers = new WebGamePlayerWindows((state) => {
   mainWindow?.webContents.send("ohmygame:web-game-player-state", state);
-}, useBuiltRenderer
-  ? pathToFileURL(path.join(moduleDirectory, "../renderer/web-game-host.html")).href
-  : new URL("web-game-host.html", `${developmentRendererUrl}/`).href);
+}, rendererPage("web-game-host.html"), (projectId) => {
+  if (gameRecorder.isRecording(projectId)) gameRecorder.stop(projectId);
+  else void startGameRecording(projectId).catch((cause: unknown) => {
+    publishGameRecording({ projectId, status: "idle", error: cause instanceof Error ? cause.message : String(cause) });
+  });
+});
+/** People's recordings, by project; an agent's belong to its playtest session. */
+const gameRecordings = new Map<string, GameRecordingState>();
+const gameRecordingStarts = new Set<string>();
 let quitting = false;
 let quitPending = false;
 let restartPending = false;
@@ -164,6 +186,7 @@ async function stopServices(): Promise<void> {
   agentNotifications.stop();
   webGamePlayers.close();
   agentPlaytests.close();
+  gameRecorder.close();
   await Promise.all([daemon?.stop(), oauth.cancel()]);
   await clearExternalMcpApp?.().catch(() => undefined);
   await Promise.all([daemonLog.close(), mainLog.close()]);
@@ -271,7 +294,7 @@ handle("ohmygame:popup-window-menu", (event, label: unknown, x: unknown, y: unkn
 });
 handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
-  if (!validRouteId(pluginId) || !daemon) throw new Error("Invalid plugin");
+  if (!validPluginId(pluginId) || !daemon) throw new Error("Invalid plugin");
   const response = await fetch(`${daemon.runtime.url}/plugins/${encodeURIComponent(pluginId)}/directory`, {
     headers: { authorization: `Bearer ${daemon.runtime.token}` },
   });
@@ -297,7 +320,7 @@ handle("ohmygame:open-project-file", async (event, projectId: unknown, filePath:
 });
 handle("ohmygame:reveal-plugin-skill", async (event, pluginId: unknown, skillId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
-  if (!validRouteId(pluginId) || typeof skillId !== "string" || !skillId || skillId.length > 1_000 || !daemon) {
+  if (!validPluginId(pluginId) || typeof skillId !== "string" || !skillId || skillId.length > 1_000 || !daemon) {
     throw new Error("Invalid Plugin Skill");
   }
   const response = await fetch(`${daemon.runtime.url}/plugins/${encodeURIComponent(pluginId)}/skill-file?id=${encodeURIComponent(skillId)}`, {
@@ -307,6 +330,30 @@ handle("ohmygame:reveal-plugin-skill", async (event, pluginId: unknown, skillId:
   const result = await response.json() as { path?: unknown };
   if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid Plugin Skill path");
   shell.showItemInFolder(result.path);
+});
+// Removes a project from OhMyGame. The daemon moves the files of a project in
+// its own storage aside and says where; they go to the Trash from there, so
+// removing never deletes what the person made.
+handle("ohmygame:remove-project", async (event, projectId: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid project source");
+  if (!validRouteId(projectId) || !daemon) throw new Error("Invalid project");
+  const response = await fetch(`${daemon.runtime.url}/projects/${encodeURIComponent(projectId)}?keep=1`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${daemon.runtime.token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => undefined) as { error?: unknown } | undefined;
+    throw new Error(typeof body?.error === "string" ? body.error : "The project could not be removed");
+  }
+  const result = await response.json() as { movedTo?: unknown };
+  if (result.movedTo === undefined) return;
+  if (typeof result.movedTo !== "string" || !path.isAbsolute(result.movedTo)) throw new Error("Invalid removed project folder");
+  try {
+    await shell.trashItem(result.movedTo);
+  } catch {
+    throw new Error(`The project was removed, but its files could not be moved to the Trash. They are in ${result.movedTo}`);
+  }
+  await rmdir(path.dirname(result.movedTo)).catch(() => {});
 });
 handle("ohmygame:open-logs-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid logs folder source");
@@ -422,6 +469,18 @@ handle("ohmygame:refresh-web-game-player", (event, projectId: unknown, reload: u
   if (typeof reload !== "boolean") throw new Error("Invalid game player refresh");
   return webGamePlayers.refresh(projectId, () => resolvePlayerTarget(projectId), reload);
 });
+handle("ohmygame:start-game-recording", (event, projectId: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  return startGameRecording(projectId);
+});
+handle("ohmygame:stop-game-recording", (event, projectId: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  gameRecorder.stop(projectId);
+});
+handle("ohmygame:game-recording-state", (event, projectId: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  return gameRecordings.get(projectId) ?? { projectId, status: "idle" };
+});
 handle("ohmygame:runtime-state", (event) => {
   if (!BrowserWindow.fromWebContents(event.sender) || !daemon) throw new Error("Invalid background service source");
   return daemon.state();
@@ -430,6 +489,53 @@ handle("ohmygame:restart-runtime", (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents || !daemon || quitting) throw new Error("Invalid background service source");
   return daemon.restart();
 });
+
+async function startGameRecording(projectId: string): Promise<void> {
+  // The button and the shortcut can both ask before the first has started.
+  if (gameRecordingStarts.has(projectId)) return;
+  gameRecordingStarts.add(projectId);
+  let outcome: Promise<GameRecordingSaved>;
+  try {
+    const { contents, title } = await webGamePlayers.recordingTarget(projectId);
+    ({ outcome } = await gameRecorder.start(projectId, contents, { title, maxSeconds: GAME_RECORDING_MAX_SECONDS }));
+  } catch (cause) {
+    if (gameRecordings.has(projectId)) publishGameRecording({ projectId, status: "idle" });
+    throw cause;
+  } finally {
+    gameRecordingStarts.delete(projectId);
+  }
+  if (gameRecordings.get(projectId)?.status !== "saving") {
+    publishGameRecording({ projectId, status: "recording", startedAt: Date.now(), maxSeconds: GAME_RECORDING_MAX_SECONDS });
+  }
+  webGamePlayers.setRecording(projectId, true);
+  void outcome.then(
+    (saved) => publishGameRecording({ projectId, status: "idle", saved }),
+    (cause: unknown) => publishGameRecording({ projectId, status: "idle", error: cause instanceof Error ? cause.message : String(cause) }),
+  ).finally(() => webGamePlayers.setRecording(projectId, false));
+}
+
+function publishGameRecording(state: GameRecordingState): void {
+  if (state.status === "idle") gameRecordings.delete(state.projectId);
+  else gameRecordings.set(state.projectId, state);
+  mainWindow?.webContents.send("ohmygame:game-recording-state", state);
+}
+
+/** Recordings go to the Library, where the trimmer can cut them down. */
+async function saveGameRecording(file: GameRecordingFile): Promise<GameRecordingSaved> {
+  if (!daemon) throw new Error("The game service is unavailable.");
+  const name = gameRecordingFileName(file.title, new Date(), file.extension);
+  const query = new URLSearchParams({ name, mediaType: file.mediaType, duration: file.duration.toFixed(3) });
+  const response = await fetch(`${daemon.runtime.url}/library/assets/upload?${query}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${daemon.runtime.token}`, "content-type": "application/octet-stream" },
+    body: Readable.toWeb(createReadStream(file.path)) as ReadableStream,
+    duplex: "half",
+  } as RequestInit);
+  const asset = await response.json().catch(() => undefined) as { id?: string; error?: string; message?: string } | undefined;
+  if (!response.ok || !asset?.id) throw new Error(asset?.message ?? asset?.error ?? "The recording could not be saved to the Library.");
+  mainWindow?.webContents.send("ohmygame:game-recording-saved");
+  return { assetId: asset.id, name, duration: file.duration, bytes: file.bytes };
+}
 
 function requirePlayerSource(sender: Electron.WebContents, projectId: unknown): asserts projectId is string {
   if (!mainWindow || sender !== mainWindow.webContents || !validRouteId(projectId) || !daemon) {
@@ -563,6 +669,30 @@ handle("ohmygame:update-state", () => updater?.state() ?? null);
 handle("ohmygame:check-for-update", () => (updateChecks ? updateChecks.manual() : updater?.check()));
 handle("ohmygame:download-update", () => updater?.download());
 handle("ohmygame:install-update", () => updater?.install());
+// Settings → General: the main window says when an agent is working and the person wants no sleep.
+let keepAwakeBlocker: number | undefined;
+function setKeepAwake(enabled: boolean): void {
+  if (enabled && keepAwakeBlocker === undefined) keepAwakeBlocker = powerSaveBlocker.start("prevent-app-suspension");
+  else if (!enabled && keepAwakeBlocker !== undefined) {
+    powerSaveBlocker.stop(keepAwakeBlocker);
+    keepAwakeBlocker = undefined;
+  }
+}
+handle("ohmygame:set-keep-awake", (event, enabled: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid keep-awake source");
+  setKeepAwake(enabled === true);
+});
+handle("ohmygame:focus-window", (event) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) throw new Error("Invalid focus source");
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
+handle("ohmygame:set-automatic-updates", (event, enabled: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid update source");
+  if (typeof enabled !== "boolean") throw new Error("Invalid automatic update setting");
+  updater?.setAutomatic(enabled);
+});
 handle("ohmygame:restart-app", (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid restart source");
   if (quitting) return;
@@ -668,6 +798,7 @@ try {
       if (state.status !== "ready") {
         webGamePlayers.close();
         agentPlaytests.close();
+        gameRecorder.close();
       }
       for (const window of BrowserWindow.getAllWindows()) {
         if (!window.isDestroyed()) window.webContents.send("ohmygame:runtime-state", state);
@@ -749,6 +880,7 @@ async function openMainWindow(): Promise<void> {
           mainWindow = undefined;
           rendererClose = undefined;
           agentNotifications.setView(null);
+          setKeepAwake(false);
         }
         webGamePlayers.close();
         for (const playtest of playtestWindows.values()) {
@@ -867,6 +999,11 @@ async function captureNodeThumbnail(projectId: string, nodeId: string, viewport:
 function isSceneHashes(value: unknown): value is Record<string, string> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     && Object.values(value).every((hash) => typeof hash === "string" && /^[0-9a-f]{8,64}$/.test(hash));
+}
+
+/** `publisher/name`, encoded into the route. */
+function validPluginId(value: unknown): value is string {
+  return typeof value === "string" && /^[^/]{1,200}\/[^/]{1,200}$/.test(value);
 }
 
 function validRouteId(value: unknown): value is string {

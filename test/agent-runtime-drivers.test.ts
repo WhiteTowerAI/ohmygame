@@ -25,8 +25,7 @@ import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { conversationItems } from "../src/daemon/agent.js";
 import {
   NativeCodingSession,
-  NativeSessionExpiredError,
-} from "../src/daemon/agent-runtimes/native-session.js";
+  NativeSessionExpiredError, latestNativeSession } from "../src/daemon/agent-runtimes/native-session.js";
 
 const cleanup: Array<() => Promise<unknown> | void> = [];
 afterEach(async () => {
@@ -420,6 +419,30 @@ describe("Claude Code adapter", () => {
     ]);
   });
 
+  it("asks Claude Code for the named Skills, staged ones by their names in the session's plugin", async () => {
+    const skill = await mkdtemp(path.join(tmpdir(), "ohmygame-skill-"));
+    cleanup.push(() => rm(skill, { recursive: true, force: true }));
+    await writeFile(path.join(skill, "SKILL.md"), "---\nname: fixture\n---\n");
+    const name = path.basename(skill);
+    const sent: unknown[] = [];
+    fakeCli((message, cli) => {
+      if (message.type === "control_request")
+        cli.send({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
+      if (message.type === "user") {
+        sent.push((message.message as { content: unknown }).content);
+        cli.send({ type: "result", subtype: "success" });
+      }
+    });
+    const driver = new ClaudeCodeDriver(await context({ skillDirectories: [skill] }));
+    cleanup.push(() => driver.dispose());
+    for (const skills of [[name, "project-skill"], undefined])
+      await driver.runTurn({ text: "work", images: [], readOnly: false, ...(skills ? { skills } : {}) }, recordingSink().sink, new AbortController().signal);
+    expect(sent).toEqual([
+      [{ type: "text", text: `Load and follow these Skills before you answer: ohmygame:${name}, project-skill.\n\nwork` }],
+      [{ type: "text", text: "work" }],
+    ]);
+  });
+
   it("works in the Claude Code mode the person chose and plans in default mode", async () => {
     const skill = await mkdtemp(path.join(tmpdir(), "ohmygame-skill-"));
     cleanup.push(() => rm(skill, { recursive: true, force: true }));
@@ -601,6 +624,129 @@ describe("Claude Code adapter", () => {
         tool.findIndex((call) => call.startsWith("toolCall:t1")),
       );
     }
+  });
+
+  it.each([
+    ["was interrupted", { subtype: "error_during_execution", is_error: true, terminal_reason: "aborted_tools" }],
+    ["finished as it was stopped", { subtype: "success", is_error: false }],
+  ])("continues in the same Claude Code process after a turn that %s", async (_name, ending) => {
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const users: Array<Record<string, unknown>> = [];
+    const clis = fakeCli((message, cli) => {
+      if (message.type === "control_request") {
+        cli.send({
+          type: "control_response",
+          response: { subtype: "success", request_id: message.request_id, response: {} },
+        });
+        if ((message.request as { subtype?: string } | undefined)?.subtype === "interrupt")
+          cli.send({ type: "result", ...ending });
+      }
+      if (message.type === "user") {
+        users.push(message);
+        if (users.length === 1) {
+          cli.send({ type: "system", subtype: "init", session_id: "claude-1" });
+          started();
+        } else cli.send({ type: "result", subtype: "success" });
+      }
+    });
+    const ctx = await context();
+    const sessionManager = SessionManager.inMemory(ctx.workspacePath);
+    const session = new NativeCodingSession({
+      runtime: "claude-code-cli",
+      model: "sonnet",
+      sessionManager,
+      toolNames: [],
+      createDriver: () => new ClaudeCodeDriver(ctx),
+      requestApproval: async () => "deny",
+    });
+    cleanup.push(() => session.dispose());
+
+    const run = session.prompt("wait");
+    await ready;
+    await session.abort();
+    await run;
+    await session.prompt("carry on");
+
+    expect(clis).toHaveLength(1);
+    expect(clis[0]!.exited).toBeFalsy();
+    const text = JSON.stringify(users[1]);
+    expect(text).toContain("stopped the previous turn");
+    expect(text).toContain("carry on");
+    expect(text).not.toContain("conversation-handoff");
+  });
+
+  it.each([
+    ["ran out of quota", { subtype: "success", is_error: true, result: "You've hit your session limit" }],
+    ["reported an error", { subtype: "error_during_execution", is_error: true, errors: ["Usage limit reached"] }],
+  ])("rebuilds the context when a stopped turn %s instead", async (_name, ending) => {
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const clis = fakeCli((message, cli) => {
+      if (message.type === "control_request") {
+        cli.send({
+          type: "control_response",
+          response: { subtype: "success", request_id: message.request_id, response: {} },
+        });
+        if ((message.request as { subtype?: string } | undefined)?.subtype === "interrupt")
+          cli.send({ type: "result", ...ending });
+      }
+      if (message.type === "user") {
+        cli.send({ type: "system", subtype: "init", session_id: "claude-1" });
+        started();
+      }
+    });
+    const ctx = await context();
+    const sessionManager = SessionManager.inMemory(ctx.workspacePath);
+    const session = new NativeCodingSession({
+      runtime: "claude-code-cli",
+      model: "sonnet",
+      sessionManager,
+      toolNames: [],
+      createDriver: () => new ClaudeCodeDriver(ctx),
+      requestApproval: async () => "deny",
+    });
+    cleanup.push(() => session.dispose());
+
+    const run = session.prompt("wait");
+    await ready;
+    await session.abort();
+    await run;
+
+    expect(latestNativeSession(sessionManager.getBranch(), "claude-code-cli")).toBeUndefined();
+    expect(clis[0]!.exited).toBe(true);
+  });
+
+  it("treats a missing session as expired when the process it continues was restarted", async () => {
+    const clis = fakeCli((message, cli) => {
+      if (message.type !== "user") {
+        if (message.type === "control_request")
+          cli.send({
+            type: "control_response",
+            response: { subtype: "success", request_id: message.request_id, response: {} },
+          });
+        return;
+      }
+      if (clis.length === 1) {
+        cli.send({ type: "system", subtype: "init", session_id: "claude-1" });
+        cli.send({ type: "result", subtype: "success" });
+      } else {
+        cli.send({ type: "result", subtype: "error_during_execution", is_error: true, errors: ["No conversation found with session ID: claude-1"] });
+      }
+    });
+    const driver = new ClaudeCodeDriver(await context());
+    cleanup.push(() => driver.dispose());
+    const run = (text: string) =>
+      driver.runTurn({ text, images: [], readOnly: false }, recordingSink().sink, new AbortController().signal);
+
+    await expect(run("first")).resolves.toEqual({ status: "completed" });
+    clis[0]!.exit(0);
+    await expect(run("second")).rejects.toBeInstanceOf(NativeSessionExpiredError);
+    expect(clis[1]!.args).toContain("--resume");
   });
 
   it("stops a native process when interrupt is acknowledged without a terminal result", async () => {
@@ -1045,6 +1191,32 @@ describe("Codex adapter", () => {
       details: { artifact: { type: "image", path: "assets/generated/cat.png", mediaType: "image/png" } },
     } });
     expect(recorded.calls.filter((call) => call.startsWith("toolResult:cat:"))).toHaveLength(1);
+  });
+
+  it("sends each named Skill as Codex's own Skill item, and asks in words for one it was not given", async () => {
+    const skill = await mkdtemp(path.join(tmpdir(), "ohmygame-skill-"));
+    cleanup.push(() => rm(skill, { recursive: true, force: true }));
+    await writeFile(path.join(skill, "SKILL.md"), "---\nname: fixture\n---\n");
+    let input: unknown;
+    fakeCli((message, cli) => {
+      if (typeof message.method !== "string" || message.id === undefined) return;
+      const params = message.params as Record<string, unknown>;
+      cli.send({ id: message.id, result: message.method === "thread/start"
+        ? { thread: { id: "skill-thread" }, activePermissionProfile: { id: params.permissions } }
+        : {} });
+      if (message.method !== "turn/start") return;
+      input = params.input;
+      setTimeout(() => cli.send({ method: "turn/completed", params: { turn: { status: "completed" } } }));
+    });
+    const ctx = await context({ skillDirectories: [skill] });
+    const driver = new CodexDriver(ctx);
+    cleanup.push(() => driver.dispose());
+    const name = path.basename(skill);
+    await driver.runTurn({ text: "work", images: [], readOnly: false, skills: [name, "elsewhere"] }, recordingSink().sink, new AbortController().signal);
+    expect(input).toEqual([
+      { type: "text", text: "Load and follow these Skills before you answer: elsewhere.\n\nwork", text_elements: [] },
+      { type: "skill", name, path: path.join(stagedSkillsRoot("codex-cli", ctx.privateDirectory), name, "SKILL.md") },
+    ]);
   });
 
   it.each(["failed", "invalid", "save", "planning"])("surfaces %s native image delivery failures", async (failure) => {
@@ -2117,7 +2289,7 @@ describe("OpenCode adapter", () => {
     }
   });
 
-  it("drives v2 messages, images, thinking, tools, usage and planning permissions", async () => {
+  it("drives v2 messages, images, named Skills, thinking, tools, usage and planning permissions", async () => {
     const f = await openCodeFixture();
     const recorded = recordingSink();
     f.onPrompt(() => {
@@ -2171,6 +2343,7 @@ describe("OpenCode adapter", () => {
         text: "go",
         images: [{ type: "image", mimeType: "image/png", data: "aGVsbG8=" }],
         readOnly: true,
+        skills: ["review", "map-design"],
       },
       recorded.sink,
       new AbortController().signal,
@@ -2219,7 +2392,7 @@ describe("OpenCode adapter", () => {
       method: "POST",
       route: "/api/session/ses_1/prompt",
       body: {
-        text: "go",
+        text: "Load and follow these Skills before you answer: review, map-design.\n\ngo",
         files: [{ name: "image-1", uri: "data:image/png;base64,aGVsbG8=" }],
       },
     });

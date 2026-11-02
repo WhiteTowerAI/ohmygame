@@ -6,7 +6,6 @@ import type { Readable } from "node:stream";
 import { ZipFile } from "yazl";
 import type { ProjectState } from "../../shared/contracts.js";
 import { isWebRuntimeProjectType } from "../../shared/project-runtime.js";
-import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES } from "../../shared/plugins.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
 import { packageManagerCommand, packageManagerRunArguments, resolvePackageManager } from "../package-manager.js";
 import { ensureProjectDependencies } from "../project-dependencies.js";
@@ -39,8 +38,10 @@ export class ArtifactBuilder {
     return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES);
   }
 
-  async buildInteractiveStory(project: ProjectState): Promise<Buffer> {
-    if (project.type !== "interactive-story") throw new PublishError("Build requires an Interactive Story project");
+  /** The game as it would publish, without the size limit, for hosting elsewhere. */
+  async build(project: ProjectState): Promise<Buffer> {
+    if (project.pluginType?.preview === "native" || (project.type !== "interactive-story" && !isWebRuntimeProjectType(project.type)))
+      throw new PublishError("Build requires a Web Game, General Game or Interactive Story project");
     return this.#create(project);
   }
 
@@ -237,7 +238,7 @@ async function run(command: string, args: string[], cwd: string, track: (child: 
 function ignored(name: string, relative: string, plugin: boolean): boolean {
   if (name === "node_modules" || name === ".git" || name === ".data" || (!plugin && name === "AGENTS.md")) return true;
   if (!name.startsWith(".")) return false;
-  return !(plugin && !relative && PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES.includes(name));
+  return !(plugin && !relative && name === ".ohmygame-plugin");
 }
 
 async function exists(target: string): Promise<boolean> {

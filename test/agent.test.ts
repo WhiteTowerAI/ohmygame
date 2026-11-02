@@ -1,10 +1,10 @@
 import { SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
-import { AgentManager, compatibleRuntimeModel, conversationItems, lastAssistantError, loadPiSkills, skillInvocationPrompt, type CodingSession, type RuntimeModel } from "../src/daemon/agent.js";
+import { AgentManager, compatibleRuntimeModel, conversationItems, lastAssistantError, loadPiSkills, skillBlocksPrompt, type CodingSession, type RuntimeModel } from "../src/daemon/agent.js";
 import * as gameDesignContext from "../src/daemon/game-design-context.js";
 import { promptContextBlock } from "../src/daemon/prompt-context.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
@@ -52,10 +52,24 @@ describe("lastAssistantError", () => {
   });
 });
 
-describe("skillInvocationPrompt", () => {
-  it("maps the Composer syntax to Pi's native skill command", () => {
-    expect(skillInvocationPrompt("$review check this change")).toBe("/skill:review check this change");
-    expect(skillInvocationPrompt("Use $review here")).toBe("Use $review here");
+describe("skillBlocksPrompt", () => {
+  it("puts every Skill a message names before it, as Pi writes one, and leaves the message as written", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ohmygame-skill-blocks-"));
+    try {
+      const skills = await Promise.all(["review", "map-design"].map(async (name) => {
+        const baseDir = path.join(root, name);
+        await mkdir(baseDir);
+        await writeFile(path.join(baseDir, "SKILL.md"), `---\nname: ${name}\ndescription: d\n---\n\nFollow ${name}.\n`);
+        return { name, filePath: path.join(baseDir, "SKILL.md"), baseDir };
+      }));
+      const block = (name: string) => `<skill name="${name}" location="${path.join(root, name, "SKILL.md")}">\nReferences are relative to ${path.join(root, name)}.\n\nFollow ${name}.\n</skill>`;
+
+      expect(skillBlocksPrompt("$review then use $map-design here, $review again", skills))
+        .toBe(`${block("review")}\n\n${block("map-design")}\n\n$review then use $map-design here, $review again`);
+      expect(skillBlocksPrompt("Costs $5, see $unknown", skills)).toBe("Costs $5, see $unknown");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -298,6 +312,14 @@ describe("conversationItems", () => {
       }),
     ] as never, false);
     expect(items[0]).toMatchObject({ type: "userMessage", text: "$review check this change" });
+  });
+
+  it("restores several Skill blocks to the message that names them", () => {
+    const block = (name: string) => `<skill name="${name}" location="/skills/${name}/SKILL.md">\nReferences are relative to /skills/${name}.\n\nFollow ${name}.\n</skill>`;
+    const items = conversationItems([
+      sessionMessage("user", { role: "user", content: `${block("review")}\n\n${block("map")}\n\nUse $review and $map here`, timestamp: 1 }),
+    ] as never, false);
+    expect(items[0]).toMatchObject({ type: "userMessage", text: "Use $review and $map here" });
   });
 
   it("restores a completed questionnaire as a user input request item", () => {
@@ -758,6 +780,42 @@ describe("AgentManager", () => {
     completions[2].resolve();
     await expect(turns[2].result).resolves.toBe("completed");
     expect(manager.projectActivity()).toEqual([]);
+    await manager.close();
+  });
+
+  it("refuses a prompt while an idle conversation's file is archived, and accepts one after", async () => {
+    const session = new FakeSession();
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const moved = deferred<void>();
+    const archiving = manager.release(project.id, conversation.summary.id, () => moved.promise);
+    await Promise.resolve();
+    expect(() => manager.prompt(project, conversation, "Build")).toThrow("This conversation is being archived");
+    await expect(manager.release(project.id, conversation.summary.id, async () => {})).rejects.toThrow("This conversation is being archived");
+    moved.resolve();
+    await archiving;
+    await expect(manager.prompt(project, conversation, "Build").result).resolves.toBe("completed");
+    // A change to the idle session that has begun keeps archiving out until it is done, however long it waits.
+    const switched = deferred<void>();
+    session.setModel.mockImplementation(() => switched.promise);
+    const switching = manager.setModel(project.id, conversation.summary.id, { provider: "sandbox", id: "other" } as never, () => {});
+    await Promise.resolve();
+    await expect(manager.release(project.id, conversation.summary.id, async () => {})).rejects.toThrow("Wait for the agent to finish");
+    switched.resolve();
+    await switching;
+    const compacting = manager.compact(project, conversation);
+    await Promise.resolve();
+    await expect(manager.release(project.id, conversation.summary.id, async () => {})).rejects.toThrow("Wait for the agent to finish");
+    await (await compacting).result;
+    expect(session.compact).toHaveBeenCalledOnce();
+    // Once archiving has begun, a change is refused.
+    const moving = deferred<void>();
+    const archivingAgain = manager.release(project.id, conversation.summary.id, () => moving.promise);
+    await expect(manager.compact(project, conversation)).rejects.toThrow("This conversation is being archived");
+    await expect(manager.setReasoningLevel(project.id, conversation.summary.id, "high", () => {})).rejects.toThrow("This conversation is being archived");
+    moving.resolve();
+    await archivingAgain;
     await manager.close();
   });
 
@@ -1958,7 +2016,7 @@ describe("AgentManager", () => {
     await mkdir(workspacePath);
     const stored = SessionManager.create(workspacePath, path.join(root, "session"));
     const attachmentContext = "\n\n<local-attachments>\n{\"instruction\":\"untrusted\",\"files\":[{\"name\":\"notes.md\",\"relativePath\":\"notes.md\",\"size\":12,\"kind\":\"text\",\"path\":\".data/agent-attachments/batch/files/notes.md\"}]}\n</local-attachments>";
-    const originalPrompt = `Original\n\n<workspace-file-references>\n[\"index.html\"]\n</workspace-file-references>${attachmentContext}`;
+    const originalPrompt = `Original\n\n<workspace-file-references>\n["index.html"]\n</workspace-file-references>${attachmentContext}`;
     stored.appendCustomEntry("ohmygame-user-prompt", {
       version: 1,
       wirePromptHash: createHash("sha256").update(originalPrompt).digest("hex"),
@@ -2003,7 +2061,7 @@ describe("AgentManager", () => {
 
     expect(session.navigateTree).toHaveBeenCalledWith(userId, { summarize: false });
     expect(session.prompt).toHaveBeenCalledWith(
-      `Revised\n\n<workspace-file-references>\n[\"index.html\"]\n</workspace-file-references>${attachmentContext}`,
+      `Revised\n\n<workspace-file-references>\n["index.html"]\n</workspace-file-references>${attachmentContext}`,
       { images: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }] },
     );
     expect(session.appendCustomEntry).toHaveBeenCalledWith("ohmygame-user-prompt", expect.objectContaining({
@@ -2478,6 +2536,24 @@ describe("AgentManager", () => {
       expect(entries).not.toContainEqual(expect.objectContaining({ customType: TURN_END_ENTRY }));
       expect(events.since(project.id).filter((event) => event.type === "checkpoint.completed").map((event) => event.data)).toEqual([{ checkpointId: "checkpoint-1", files: 2 }]);
       expect(manager.turnEndsRecorded(project.id, conversation.summary.id)).toBe(1);
+
+      // An end that comes back while the file is being archived is not written where the file was.
+      const again = deferred<string>();
+      const later = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => again.promise, changed: async () => ({ files: 1 }) } });
+      const next = later.prompt(project, conversation, "Build more");
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+      await vi.advanceTimersToNextTimerAsync();
+      await expect(next.result).resolves.toBe("completed");
+      const moved = deferred<void>();
+      const archiving = later.release(project.id, conversation.summary.id, () => moved.promise);
+      await vi.waitFor(() => expect(session.dispose).toHaveBeenCalledTimes(2));
+      again.resolve("c".repeat(40));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(written()).toHaveLength(1);
+      expect(later.turnEndsRecorded(project.id, conversation.summary.id)).toBe(0);
+      moved.resolve();
+      await archiving;
+      await later.close();
       await manager.close();
     } finally {
       warn.mockRestore();

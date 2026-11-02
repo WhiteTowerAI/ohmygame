@@ -1,0 +1,34 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "rules": {
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "ignoreRestSiblings": true
+      }
+    ],
+    // Terminal output and agent text are matched for ANSI and other control characters on purpose.
+    "no-control-regex": "off",
+    // `new Request(request, { body })` keeps the method of the request it copies, which this rule cannot see.
+    "unicorn/no-invalid-fetch-options": "off",
+    // The code base uses `condition ? a() : b()` as a statement.
+    "no-unused-expressions": ["error", { "allowTernary": true }],
+    // Result arrays are allocated at their final length, and one test builds a sparse array on purpose.
+    "unicorn/no-new-array": "off",
+    // Copying a Map or Set before a loop that changes it is a deliberate snapshot.
+    "unicorn/no-useless-spread": "off",
+    // Fastify handlers and spied prototype methods need their own `this` alongside the outer one.
+    "typescript/no-this-alias": "off"
+  },
+  "overrides": [
+    {
+      // A test that reads past a missing value throws and fails, which is the assertion it needs.
+      "files": ["test/**"],
+      "rules": {
+        "no-unsafe-optional-chaining": "off"
+      }
+    }
+  ]
+}

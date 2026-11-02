@@ -50,7 +50,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
 }));
 const { CommunityProfilePage } =
   await import("../src/renderer/community-profile.js");
-const { GamesPage, GamePlayer } = await import("../src/renderer/games.js");
+const { GamesPage, GamePlayer, COMMUNITY_REFRESH_AFTER_MS } = await import("../src/renderer/games.js");
 
 const profile: CommunityProfile = {
   author: { id: "creator", displayName: "Creator" },
@@ -529,6 +529,40 @@ describe("Community card interactions", () => {
     );
   }
 
+  // The window comes back after `elapsed` ms.
+  async function returnAfter(elapsed: number) {
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + elapsed);
+    await act(async () => window.dispatchEvent(new Event("focus")));
+  }
+
+  it("leads the header with search and My games, and has no refresh button", async () => {
+    await renderGames();
+    const head = container.querySelector(".community-page-head")!;
+    expect([...head.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["My games"]);
+    expect(head.querySelector('[aria-label="Refresh"]')).toBeNull();
+  });
+
+  it("reloads the list when the window comes back after a minute, not sooner", async () => {
+    await renderGames();
+    expect(mocks.games).toHaveBeenCalledTimes(1);
+    await returnAfter(COMMUNITY_REFRESH_AFTER_MS - 1000);
+    expect(mocks.games).toHaveBeenCalledTimes(1);
+    mocks.games.mockResolvedValueOnce([profile.games[1]]);
+    await returnAfter(COMMUNITY_REFRESH_AFTER_MS);
+    expect(mocks.games).toHaveBeenCalledTimes(2);
+    expect(displayedGames()).toEqual(["Hidden game"]);
+  });
+
+  it("keeps the grid when a background reload fails", async () => {
+    await renderGames();
+    mocks.games.mockRejectedValueOnce(new Error("offline"));
+    await returnAfter(COMMUNITY_REFRESH_AFTER_MS);
+    expect(mocks.games).toHaveBeenCalledTimes(2);
+    expect(displayedGames()).toHaveLength(2);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("reorders the list when a card's like count changes", async () => {
     await renderGames();
     await sortByLikes();
@@ -556,7 +590,7 @@ describe("Community card interactions", () => {
         resolveLike = done;
       }),
     );
-    await click("Refresh");
+    await returnAfter(COMMUNITY_REFRESH_AFTER_MS);
     await click("Like Public game");
     expect(mocks.like).toHaveBeenCalledWith("listed", undefined, true);
     await act(async () =>

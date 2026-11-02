@@ -7,7 +7,7 @@ export const SEEDREAM_REFERENCE_LIMITS = {
 /** Reference counts used when a provider lists a known model without its limits. */
 export function knownImageReferenceLimit(modelId: string): number | undefined {
   const id = modelId.split("/").at(-1) ?? modelId;
-  if (/^gpt-image-/.test(id)) return 16;
+  if (id.startsWith("gpt-image-")) return 16;
   if (/^gemini-3(?:\.\d+)?-[\w.-]*-image(?:-|$)/.test(id)) return 14;
   if (/^gemini-2\.5-flash-image(?:-|$)/.test(id)) return 3;
   return Object.hasOwn(SEEDREAM_REFERENCE_LIMITS, id) ? SEEDREAM_REFERENCE_LIMITS[id as keyof typeof SEEDREAM_REFERENCE_LIMITS] : undefined;

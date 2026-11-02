@@ -72,11 +72,13 @@ function gameUseParameters<Action extends TSchema>(action: Action) {
       Type.Literal("inspect"),
       Type.Literal("act"),
       Type.Literal("capture"),
+      Type.Literal("recordStart"),
+      Type.Literal("recordStop"),
       Type.Literal("close"),
     ]),
     path: Type.Optional(Type.String({ maxLength: 1_000, description: "Path, query, or hash within a web game target; used only by open" })),
     viewport: Type.Optional(viewportSchema),
-    sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 100, description: "Session returned by open; required for inspect, act, capture, and close" })),
+    sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 100, description: "Session returned by open; required for every operation but open" })),
     actions: Type.Optional(Type.Array(action, { minItems: 1, maxItems: 20, description: "Actions to run; required for act" })),
   }, { additionalProperties: false });
 }
@@ -95,6 +97,7 @@ export function createGameUseTool(
       "Use game_use for game runtime or visual verification; a successful build alone is not a playtest",
       "Batch adjacent input and wait steps into one act call; open and act already return fresh state, so inspect only when a separate refresh is needed",
       "Capture screenshots for Canvas or WebGL verification and close playtest sessions when finished",
+      "Record video only when the person asks for a clip or a video of the game: recordStart, then act, then recordStop. A recording lasts at most 60 seconds, goes to the Library, and is not something you can watch, so use screenshots for your own verification",
     ],
     parameters: bridge === "reset" ? resetOnlyParameters : parameters,
     executionMode: "sequential",
@@ -128,11 +131,23 @@ export function createGameUseTool(
               width: result.capture.width,
               height: result.capture.height,
               analysis: result.capture.analysis,
-            }, null, 2) },
+            }) },
             { type: "image", data: result.capture.data, mimeType: result.capture.mediaType },
           ],
           details: { playtestCapture: { ...result.capture, data: undefined } },
         };
+      }
+      if (input.operation === "recordStart") {
+        requireCapability(driver, "video", "observation");
+        const result = await driver.request({ operation: "recordStart", sessionId: requiredSessionId(input.operation, input.sessionId) }, signal);
+        if (result.operation !== "recordStart") throw new Error("Unexpected game use response");
+        return { content: [{ type: "text", text: JSON.stringify(result) }], details: undefined };
+      }
+      if (input.operation === "recordStop") {
+        requireCapability(driver, "video", "observation");
+        const result = await driver.request({ operation: "recordStop", sessionId: requiredSessionId(input.operation, input.sessionId) }, signal);
+        if (result.operation !== "recordStop") throw new Error("Unexpected game use response");
+        return { content: [{ type: "text", text: `Saved the recording to the Library: ${JSON.stringify(result.recording)}` }], details: undefined };
       }
       if (input.operation === "close") {
         const sessionId = requiredSessionId(input.operation, input.sessionId);
@@ -206,7 +221,8 @@ function requireCapability(
 function snapshotResult(snapshot: GameUseSnapshot) {
   const compact = compactSnapshot(snapshot);
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(compact, null, 2) }],
+    // Stays in the model's context and is resent with every later request, so no indentation.
+    content: [{ type: "text" as const, text: JSON.stringify(compact) }],
     details: { playtest: snapshot },
   };
 }

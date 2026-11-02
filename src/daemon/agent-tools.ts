@@ -5,7 +5,7 @@ import { Type } from "typebox";
 import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
-import type { PluginDetail } from "../shared/plugins.js";
+import { isAppWidePlugin } from "../shared/plugin-manifest.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
 import { getWorkspaceMedia } from "./workspace.js";
@@ -20,6 +20,7 @@ import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
+import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -67,7 +68,7 @@ export type AskQuestionnaire = (
   signal?: AbortSignal,
 ) => Promise<QuestionnaireResult>;
 
-export type InstallPlugin = (sourcePath: string) => Promise<PluginDetail>;
+export type InstallPlugin = (sourcePath: string) => Promise<PluginIndexEntry>;
 export type SearchWeb = (input: WebSearchInput, signal?: AbortSignal) => Promise<WebSearchExecution>;
 
 const mediaModelParameter = () => Type.Object({
@@ -202,14 +203,18 @@ export function createAgentTools(
       const draft = await inspectPluginDraft(sourcePath);
       if (draft.errors.length) throw new Error(draft.errors.join("\n"));
       const plugin = await installPlugin(sourcePath);
+      const servers = plugin.manifest.contributes?.mcpServers?.length ?? 0;
       const counts = [
         plugin.skills.length ? `${plugin.skills.length} Skill${plugin.skills.length === 1 ? "" : "s"}` : undefined,
-        plugin.mcpServers?.length ? `${plugin.mcpServers.length} MCP service${plugin.mcpServers.length === 1 ? "" : "s"}` : undefined,
-        plugin.connections.length ? `${plugin.connections.length} Connection${plugin.connections.length === 1 ? "" : "s"}` : undefined,
+        servers ? `${servers} MCP service${servers === 1 ? "" : "s"}` : undefined,
       ].filter(Boolean).join(" · ") || "No components";
+      const displayName = localizePluginString(plugin, plugin.manifest.displayName, "en");
+      const next = isAppWidePlugin(plugin.manifest)
+        ? "It applies by itself to every project it suits."
+        : "The person turns it on in a project's Plugins sheet, which also asks them to approve what it asks for.";
       return {
-        content: [{ type: "text", text: `Created and installed ${plugin.displayName}.\n${counts}\nSource: ${sourcePath}` }],
-        details: { plugin: { id: plugin.id, displayName: plugin.displayName, sourcePath } },
+        content: [{ type: "text", text: `Created and installed ${displayName} (${plugin.id} ${plugin.version}).\n${counts}\n${next}\nSource: ${sourcePath}` }],
+        details: { plugin: { id: plugin.id, displayName, sourcePath } },
       };
     },
   }), defineTool({

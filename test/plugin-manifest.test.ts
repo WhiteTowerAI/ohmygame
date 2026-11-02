@@ -2,10 +2,11 @@ import { createHash, generateKeyPairSync, sign as sign_ } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { ZipFile } from "yazl";
+import { createProjectPlugins, resolveProjectPlugins } from "../src/daemon/project-plugins.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { availableUpdates, downloadRelease, installRelease, readCatalog, releaseMessage } from "../src/daemon/plugin-releases.js";
 import { compileWhen, matchesWhen } from "../src/shared/plugin-when.js";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   cp,
   mkdir,
@@ -19,7 +20,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PLUGIN_INDEX_SCHEMA_VERSION,
   PluginIndex,
@@ -37,7 +38,7 @@ import {
   pluginSchemaJson,
 } from "../scripts/plugin-schema.js";
 
-const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins-v2");
+const FIXTURES = path.join(import.meta.dirname, "fixtures/plugins");
 const BUNDLED = path.join(import.meta.dirname, "../plugins");
 
 const cleanup: string[] = [];
@@ -60,7 +61,7 @@ async function solarized() {
   return dir;
 }
 
-/** Game Studio as format 2: the bundled skills and icon with the new manifest. */
+/** Game Studio: the bundled skills and icon with the new manifest. */
 async function gameStudio() {
   const dir = path.join(await temporary(), "game-studio");
   await cp(path.join(BUNDLED, "game-studio"), dir, { recursive: true });
@@ -90,7 +91,7 @@ const messages = (value: unknown) => {
     : result.issues.map((issue) => `${issue.path} ${issue.message}`);
 };
 
-describe("plugin manifest format 2", () => {
+describe("plugin manifest", () => {
   it("publishes a JSON Schema that matches its source", async () => {
     expect(await readFile(PLUGIN_SCHEMA_FILE, "utf8")).toBe(pluginSchemaJson());
   });
@@ -99,7 +100,28 @@ describe("plugin manifest format 2", () => {
     expect(messages(minimal)).toEqual([]);
   });
 
-  it("rejects unknown fields and format 1 fields", () => {
+  it("takes a brand colour for pages, one or one per appearance", () => {
+    expect(messages({ ...minimal, ui: { accent: "#00d8c4" } })).toEqual([]);
+    expect(messages({ ...minimal, ui: { accent: { light: "#00857a", dark: "#00D8C4" } } })).toEqual([]);
+    expect(messages({ ...minimal, ui: { accent: "teal" } })).not.toEqual([]);
+    expect(messages({ ...minimal, ui: { accent: { dim: "#00d8c4" } } })).not.toEqual([]);
+  });
+
+  it("keeps panel.toolbar to plugins with a panel and commands without input", () => {
+    const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
+    const toolbar = (run: unknown, withPanels = true) => ({
+      ...minimal,
+      icon: "./assets/icon.svg",
+      entrypoints: { native: "./native/index.mjs" },
+      capabilities: { native: true },
+      contributes: { ...(withPanels ? { panels } : {}), commands: [{ id: "go", title: "Go", run, slots: [{ slot: "panel.toolbar" }] }] },
+    });
+    expect(messages(toolbar({ native: "go" }))).toEqual([]);
+    expect(messages(toolbar({ native: "go", input: "./schemas/go.json" }))).toEqual(["/contributes/commands/0/slots/0/slot a toolbar button has no input to give this command"]);
+    expect(messages(toolbar({ native: "go" }, false))).toEqual(["/contributes/commands/0/slots/0/slot panel.toolbar needs a panel"]);
+  });
+
+  it("rejects unknown fields", () => {
     expect(
       messages({ ...minimal, interface: { displayName: "X" } }),
     ).toContainEqual(expect.stringContaining("additional properties"));
@@ -158,6 +180,74 @@ describe("plugin manifest format 2", () => {
       "/contributes/providers/0/apiKey must name a secret configuration field",
       "/contributes/providers/0 list models or discover them",
     ]);
+  });
+
+  it("checks MCP servers against what the plugin may run and read", () => {
+    const server = (fields: object) => ({
+      ...minimal,
+      configuration: {
+        region: { type: "text", title: "Region" },
+        token: { type: "secret", title: "Token" },
+      },
+      capabilities: { processes: ["maker"] },
+      contributes: { mcpServers: [{ id: "maker", title: "Maker", command: "maker", tools: ["build"], ...fields }] },
+    });
+    // env is passed as written, so it may name variables.
+    expect(messages(server({ args: ["--region", "${config.region}"], env: { HOME_HINT: "${HOME}" } }))).toEqual([]);
+    expect(messages(server({ command: "node", env: { TOKEN: "${config.token}", MODE: "${config.mode}" } }))).toEqual([
+      "/contributes/mcpServers/0/command node must be listed in capabilities.processes",
+      "/contributes/mcpServers/0 token is a secret, which needs capabilities.secrets",
+      "/contributes/mcpServers/0 no configuration field mode",
+    ]);
+    // The adapter would read the app's environment into args and cwd.
+    expect(messages(server({ args: ["$env:HOME"] }))).toEqual([
+      "/contributes/mcpServers/0 args and cwd can't name environment variables",
+    ]);
+    // The app sets the data folder variable; a request may take up to an hour.
+    expect(messages(server({ env: { ohmygame_plugin_data_dir: "/tmp" }, timeoutSeconds: 3600 }))).toEqual([
+      "/contributes/mcpServers/0/env OHMYGAME_PLUGIN_DATA_DIR is set by the app",
+    ]);
+    expect(messages(server({ timeoutSeconds: 3601 }))).toContainEqual(expect.stringContaining("/contributes/mcpServers/0/timeoutSeconds"));
+    // A server is a process or an HTTP endpoint, never both.
+    expect(messages(server({ url: "https://localhost/mcp" })).length).toBeGreaterThan(0);
+  });
+
+  it("checks HTTP MCP servers against the hosts the plugin may reach", () => {
+    const server = (fields: object, capabilities: object = { network: ["127.0.0.1", "api.example.com:8443"] }) => ({
+      ...minimal,
+      configuration: {
+        endpoint: { type: "text", title: "Endpoint", default: "http://127.0.0.1:8000/mcp" },
+        token: { type: "secret", title: "Token" },
+      },
+      capabilities,
+      contributes: { mcpServers: [{ id: "editor", title: "Editor", tools: ["call_tool"], ...fields }] },
+    });
+    // Any port of a host listed alone; plain HTTP only on this computer.
+    expect(messages(server({ url: "${config.endpoint}" }))).toEqual([]);
+    expect(messages(server({ url: "https://api.example.com:8443/mcp" }))).toEqual([]);
+    expect(messages(server({ url: "https://api.example.com/mcp" }))).toEqual([
+      "/contributes/mcpServers/0/url https://api.example.com/mcp is on api.example.com, which capabilities.network doesn't list",
+    ]);
+    expect(messages(server({ url: "http://api.example.com:8443/mcp" }))).toEqual([
+      "/contributes/mcpServers/0/url http://api.example.com:8443/mcp must use https, or http on this computer (127.0.0.1 or localhost)",
+    ]);
+    expect(messages(server({ url: "http://user:pass@127.0.0.1/mcp" }))).toEqual([
+      "/contributes/mcpServers/0/url http://user:pass@127.0.0.1/mcp can't carry a user name or password",
+    ]);
+    expect(messages(server({ url: "${config.endpoint}" }, {}))).toEqual([
+      "/contributes/mcpServers/0/url an HTTP server needs capabilities.network",
+      "/contributes/mcpServers/0/url http://127.0.0.1:8000/mcp is on 127.0.0.1:8000, which capabilities.network doesn't list",
+    ]);
+    // A secret goes in a header, which needs capabilities.secrets.
+    expect(messages(server({ url: "https://api.example.com:8443/${config.token}" }))).toEqual([
+      "/contributes/mcpServers/0/url token is a secret, which a URL can't carry; send it in a header",
+    ]);
+    expect(messages(server({ url: "${config.endpoint}", headers: { Authorization: "Bearer ${config.token}" } }))).toEqual([
+      "/contributes/mcpServers/0/headers token is a secret, which needs capabilities.secrets",
+    ]);
+    expect(messages(server({ url: "${config.endpoint}", headers: { Authorization: "Bearer ${config.token}" } }, { network: ["127.0.0.1"], secrets: true }))).toEqual([]);
+    // Adapter-only knobs aren't part of the contract.
+    expect(messages(server({ url: "${config.endpoint}", auth: "oauth" }))).not.toEqual([]);
   });
 
   it("closes keyed records and never throws on bad values", () => {
@@ -362,7 +452,7 @@ describe("plugin index", () => {
     expect(localizePluginString(result.entry, "Plain", "zh-CN")).toBe("Plain");
   });
 
-  it("indexes a bundled skills plugin rewritten for format 2", async () => {
+  it("indexes a bundled skills plugin", async () => {
     const result = await indexPluginPackage(await gameStudio());
     expect(result.ok ? [] : result.issues).toEqual([]);
     if (!result.ok) return;
@@ -376,9 +466,9 @@ describe("plugin index", () => {
     ).toBe(true);
   });
 
-  it("indexes the format 2 Godot plugin with its type, tools and command", async () => {
+  it("indexes the Godot plugin with its type, tools and command", async () => {
     const result = await indexPluginPackage(
-      path.join(BUNDLED, "..", "plugins-v2", "godot"),
+      path.join(BUNDLED, "godot"),
     );
     expect(result.ok ? [] : result.issues).toEqual([]);
     if (!result.ok) return;
@@ -404,6 +494,56 @@ describe("plugin index", () => {
         "zh-CN",
       ),
     ).toBe("在 Godot 中运行");
+    expect(manifest.contributes?.mcpServers).toMatchObject([
+      { id: "godot", command: "node", args: ["./native/mcp.mjs"], env: { OHMYGAME_GODOT_SETTING: "${config.godotPath}" } },
+    ]);
+  });
+
+  it("starts godot-mcp with the Godot the plugin's tools find", async () => {
+    const dir = await temporary();
+    const godot = path.join(dir, "Godot", process.platform === "win32" ? "godot.exe" : "godot");
+    await mkdir(path.dirname(godot), { recursive: true });
+    await writeFile(godot, "", { mode: 0o755 });
+    const bin = path.join(dir, "bin");
+    await mkdir(bin);
+    // Stands in for npx: says what it was given, and exits as godot-mcp might.
+    if (process.platform === "win32") await writeFile(path.join(bin, "npx.cmd"), "@echo off\r\necho %GODOT_PATH% %*\r\nexit /b 3\r\n");
+    else await writeFile(path.join(bin, "npx"), '#!/bin/sh\necho "$GODOT_PATH $*"\nexit 3\n', { mode: 0o755 });
+    const { Path: _windowsPath, ...env } = process.env;
+    const result = spawnSync(process.execPath, [path.join(BUNDLED, "godot", "native", "mcp.mjs")], {
+      env: { ...env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? process.env.Path ?? ""}`, OHMYGAME_GODOT_SETTING: godot },
+      encoding: "utf8",
+    });
+    expect(result.stdout.trim()).toBe(`${godot} -y @coding-solo/godot-mcp@0.1.1`);
+    expect(result.status).toBe(3);
+  });
+
+  it.skipIf(process.platform === "win32")("stops what godot-mcp started when its launcher is stopped", async () => {
+    const dir = await temporary();
+    const pidFile = path.join(dir, "game.pid");
+    // Stands in for npx running godot-mcp with a game it started.
+    await writeFile(path.join(dir, "npx"), '#!/bin/sh\nsleep 60 &\necho $! > "$GAME_PID_FILE"\nwait\n', { mode: 0o755 });
+    const launcher = spawn(process.execPath, [path.join(BUNDLED, "godot", "native", "mcp.mjs")], {
+      env: { ...process.env, PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}`, GAME_PID_FILE: pidFile },
+      stdio: "ignore",
+    });
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    let game = 0;
+    await vi.waitFor(async () => {
+      game = Number(await readFile(pidFile, "utf8"));
+      expect(alive(game)).toBe(true);
+    }, { timeout: 10_000 });
+    const exited = new Promise((resolve) => launcher.once("exit", resolve));
+    launcher.kill("SIGTERM");
+    await exited;
+    await vi.waitFor(() => expect(alive(game)).toBe(false), { timeout: 5_000 });
   });
 
   it("reads strings only from display fields", async () => {
@@ -431,6 +571,18 @@ describe("plugin index", () => {
       },
       { path: "./locales/en.json", message: "missing %starter.unknown%" },
     ]);
+  });
+
+  it("counts only a locale file's own strings", async () => {
+    const dir = await gameStudio();
+    await editManifest(dir, (manifest) => {
+      manifest.contributes.commands[0].title = "%toString%";
+    });
+    const result = await indexPluginPackage(dir);
+    expect(result.ok ? [] : result.issues).toEqual([
+      { path: "./locales/en.json", message: "missing %toString%" },
+    ]);
+    expect(localizePluginString({ strings: { en: {} } }, "%constructor%", "zh-CN")).toBe("%constructor%");
   });
 
   it("refuses links and plugins for another plugin API", async () => {
@@ -750,7 +902,6 @@ describe("plugin releases", () => {
     };
     const sign = (value: typeof release) => ({ ...value, signature: sign_(null, releaseMessage(value), privateKey).toString("base64") });
     const services = new PluginServices({ directory: path.join(dir, "store") });
-    cleanup.push(dir);
     const downloads: string[] = [];
     const download = async (url: string, file: string) => {
       downloads.push(url);
@@ -872,13 +1023,199 @@ describe("plugin releases", () => {
     }
   });
 
-  it("indexes the app's own format 2 plugins and allows what they ask for", async () => {
+  it("forgets the version a bundled folder used to hold when the plugin applies by itself, keeping one installed apart", async () => {
     const dir = await temporary();
     const services = new PluginServices({ directory: path.join(dir, "store") });
     try {
-      const results = await services.addBundled(path.join(BUNDLED, "..", "plugins-v2"));
-      expect(results.every((result) => result.ok)).toBe(true);
+      const bundled = path.join(dir, "bundled");
+      await cp(path.join(BUNDLED, "blender"), path.join(bundled, "blender"), { recursive: true });
+      const apart = path.join(dir, "blender");
+      await cp(path.join(BUNDLED, "blender"), apart, { recursive: true });
+      await editManifest(apart, (manifest) => (manifest.version = "9.0.0"));
+      await services.index.load();
+      // As an earlier version of the app indexed it, before an update replaced the folder.
+      await editManifest(path.join(bundled, "blender"), (manifest) => (manifest.version = "0.1.0"));
+      expect((await services.index.add(path.join(bundled, "blender"))).ok).toBe(true);
+      expect((await services.index.add(apart)).ok).toBe(true);
+      await editManifest(path.join(bundled, "blender"), (manifest) => (manifest.version = "0.2.0"));
+      await services.addBundled(bundled);
+      expect(services.index.versions("ohmygame/blender").map((entry) => entry.version)).toEqual(["9.0.0", "0.2.0"]);
+      // There is one version in use: the newest.
+      expect((await services.appWide()).map((entry) => entry.version)).toEqual(["9.0.0"]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("forgets a bundled version whose folder the app no longer has", async () => {
+    const dir = await temporary();
+    const services = new PluginServices({ directory: path.join(dir, "store") });
+    try {
+      for (const name of ["godot", "blender"]) {
+        const old = path.join(dir, "old", name);
+        await cp(path.join(BUNDLED, name), old, { recursive: true });
+        await editManifest(old, (manifest) => (manifest.version = "0.1.0"));
+        await services.index.load();
+        expect((await services.index.add(old)).ok).toBe(true);
+        await cp(path.join(BUNDLED, name), path.join(dir, "new", name), { recursive: true });
+        await editManifest(path.join(dir, "new", name), (manifest) => (manifest.version = "0.2.0"));
+      }
+      await rm(path.join(dir, "old"), { recursive: true });
+      await services.addBundled(path.join(dir, "new"));
+      for (const name of ["godot", "blender"])
+        expect(services.index.versions(`ohmygame/${name}`).map((entry) => entry.version)).toEqual(["0.2.0"]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("applies a plugin that only adds Skills by itself, to the projects it suits, in a fixed order", async () => {
+    const dir = await temporary();
+    const services = new PluginServices({ directory: path.join(dir, "store"), bundled: BUNDLED, bundledOff: ["ohmygame/unity"] });
+    try {
+      const plugins = async (project?: { type: string; pluginType?: { id: string } }) => (await services.appWide(project)).map((entry) => entry.id);
+      expect(await plugins()).toEqual(expect.arrayContaining(["ohmygame/blender", "ohmygame/game-studio", "ohmygame/web-game-studio"]));
+      expect(await plugins()).not.toContain("ohmygame/unity");
+      expect(await plugins()).not.toContain("ohmygame/godot");
+      expect(await plugins()).toEqual([...await plugins()].sort());
+      // By the project's kind, which `ohmygame.json` would call general.
+      expect(await plugins({ type: "web-game" })).toContain("ohmygame/web-game-studio");
+      expect(await plugins({ type: "web-game" })).not.toContain("ohmygame/game-studio");
+      expect(await plugins({ type: "general" })).toContain("ohmygame/game-studio");
+      expect(await plugins({ type: "general" })).not.toContain("ohmygame/web-game-studio");
+      // A kind that is a plugin type now matches by either name.
+      expect(await plugins({ type: "godot-game", pluginType: { id: "ohmygame/godot:godot-game" } })).toContain("ohmygame/game-studio");
+      const skills = await services.appWideSkills({ type: "general" });
+      expect(skills.map((skill) => path.basename(path.dirname(skill.path)))).toEqual(expect.arrayContaining(["game-studio", "blender-assets"]));
+      expect(skills.find((skill) => skill.path.includes("game-studio"))).toMatchObject({ pluginDisplayName: "Game Studio", marketplaceDisplayName: "ohmygame" });
+      await services.setEnabled("ohmygame/game-studio", false);
+      expect(await plugins({ type: "general" })).not.toContain("ohmygame/game-studio");
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("leaves a plugin that applies by itself out of what a project turns on", async () => {
+    const dir = await temporary();
+    const folder = path.join(dir, "project");
+    const services = new PluginServices({ directory: path.join(dir, "store"), bundled: BUNDLED });
+    try {
+      await services.ready();
+      await mkdir(folder);
+      await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/blender": "1.0.0" } }));
+      // A project file that names it doesn't load it a second time.
+      expect(await services.skills(folder)).toEqual([]);
+      await expect(services.setProjectPlugin(folder, "ohmygame/blender", "1.0.0")).rejects.toThrow("applies to every project it suits");
+      await expect(createProjectPlugins({ folder: path.join(dir, "new"), type: "general", plugins: { "ohmygame/blender": "1.0.0" }, index: services.index, grants: services.grants }))
+        .rejects.toThrow("applies to every project it suits");
+      // Taking it out of the file still works.
+      await services.setProjectPlugin(folder, "ohmygame/blender", null);
+      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins?.["ohmygame/blender"]).toBeUndefined();
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("keeps what it knew when the index can't be saved", async () => {
+    const dir = await temporary();
+    const file = path.join(dir, "index.json");
+    const index = new PluginIndex(file);
+    const root = path.join(dir, "blender");
+    await cp(path.join(BUNDLED, "blender"), root, { recursive: true });
+    await editManifest(root, (manifest) => (manifest.version = "1.0.0"));
+    await index.load();
+    const added = await index.add(root);
+    expect(added.ok).toBe(true);
+    const digest = index.get("ohmygame/blender", "1.0.0")?.digest;
+    await rm(file);
+    await mkdir(path.join(file, "occupied"), { recursive: true });
+    await writeFile(path.join(root, "added.txt"), "new");
+    await expect(index.add(root)).rejects.toThrow();
+    expect(index.get("ohmygame/blender", "1.0.0")?.digest).toBe(digest);
+    await editManifest(root, (manifest) => (manifest.version = "2.0.0"));
+    await expect(index.add(root)).rejects.toThrow();
+    expect(index.get("ohmygame/blender", "2.0.0")).toBeUndefined();
+  });
+
+  it("keeps an older version a project names when it asks for more than the newest", async () => {
+    const dir = await temporary();
+    const folder = path.join(dir, "project");
+    const services = new PluginServices({ directory: path.join(dir, "store") });
+    try {
+      await services.index.load();
+      const older = path.join(dir, "older");
+      const newer = path.join(dir, "newer");
+      await cp(path.join(BUNDLED, "blender"), older, { recursive: true });
+      await cp(path.join(BUNDLED, "blender"), newer, { recursive: true });
+      await editManifest(older, (manifest) => {
+        manifest.version = "1.0.0";
+        manifest.capabilities = { "project.files": "write" };
+      });
+      await editManifest(newer, (manifest) => (manifest.version = "2.0.0"));
+      expect((await services.index.add(older)).ok).toBe(true);
+      expect((await services.index.add(newer)).ok).toBe(true);
+      await mkdir(folder);
+      await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/blender": "1.0.0" } }));
+      const resolved = await resolveProjectPlugins({ folder, index: services.index, grants: services.grants });
+      expect(resolved?.ok && resolved.plugins.map((plugin) => plugin.version)).toEqual(["1.0.0"]);
+      await expect(services.setProjectPlugin(folder, "ohmygame/blender", "2.0.0")).rejects.toThrow("applies to every project it suits");
+      // The project runs the version it names, so the newest doesn't apply beside it.
+      const project = { type: "general", workspacePath: folder };
+      expect(await services.appWide(project)).toEqual([]);
+      expect(await services.appWideSkills(project)).toEqual([]);
+      expect((await services.appWide({ type: "general" })).map((entry) => entry.version)).toEqual(["2.0.0"]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("installs a package into the store and allows what it asks for", async () => {
+    const dir = await temporary();
+    const services = new PluginServices({ directory: path.join(dir, "store") });
+    try {
+      const source = path.join(dir, "source");
+      await cp(path.join(BUNDLED, "blender"), source, { recursive: true });
+      const entry = await services.installManaged(source);
+      expect(path.relative(services.packagesDirectory, entry.root)).toBe(path.join("ohmygame", "blender", entry.version));
+      expect(services.grants.plugin("ohmygame/blender")).toEqual({ enabled: true, allowed: [] });
+      // Installing the same version again replaces it, and a choice to turn it off stays.
+      await services.setEnabled("ohmygame/blender", false);
+      await services.installManaged(source);
+      expect(services.index.versions("ohmygame/blender")).toHaveLength(1);
+      expect(services.grants.plugin("ohmygame/blender")?.enabled).toBe(false);
+      await mkdir(path.join(dir, "empty"));
+      await expect(services.installManaged(path.join(dir, "empty"))).rejects.toThrow("Not a valid plugin");
+      // A copy that can't take over leaves the one in use in place.
+      const installed = path.join(services.packagesDirectory, "ohmygame", "blender", entry.version);
+      const before = await readFile(path.join(installed, ".ohmygame-plugin", "plugin.json"), "utf8");
+      const add = vi.spyOn(services.index, "add").mockResolvedValueOnce({ ok: false, issues: [{ path: "plugin.json", message: "unreadable" }] } as never);
+      await writeFile(path.join(source, "added.txt"), "new");
+      await expect(services.installManaged(source)).rejects.toThrow("unreadable");
+      add.mockRestore();
+      expect(await readFile(path.join(installed, ".ohmygame-plugin", "plugin.json"), "utf8")).toBe(before);
+      await expect(readFile(path.join(installed, "added.txt"))).rejects.toThrow();
+      expect((await readdir(services.packagesDirectory)).filter((name) => name.startsWith("."))).toEqual([]);
+    } finally {
+      await services.close();
+    }
+  });
+
+  it("indexes the app's own plugins and allows what they ask for, except one that starts off", async () => {
+    const dir = await temporary();
+    const services = new PluginServices({ directory: path.join(dir, "store"), bundledOff: ["ohmygame/taptap-maker", "ohmygame/unreal-engine"] });
+    try {
+      const results = await services.addBundled(BUNDLED);
+      expect(results.map((result) => (result.ok ? [] : result.issues))).toEqual(results.map(() => []));
       expect(services.grants.plugin("ohmygame/godot")?.allowed).toEqual(expect.arrayContaining(["native"]));
+      expect(services.index.entries().map((entry) => entry.id)).toEqual(expect.arrayContaining(["ohmygame/game-studio", "ohmygame/godot", "ohmygame/taptap-maker", "ohmygame/unreal-engine"]));
+      // One that only adds Skills asks for nothing, so it is simply on.
+      expect(services.grants.plugin("ohmygame/game-studio")).toEqual({ enabled: true, allowed: [] });
+      // It asks for consent when the person turns it on, and stays as they leave it.
+      expect(services.grants.plugin("ohmygame/taptap-maker")).toEqual({ enabled: false, allowed: [] });
+      await services.consent("ohmygame/taptap-maker", ["native"]);
+      await services.grants.setEnabled("ohmygame/taptap-maker", true);
+      await services.addBundled(BUNDLED);
+      expect(services.grants.plugin("ohmygame/taptap-maker")?.enabled).toBe(true);
     } finally {
       await services.close();
     }

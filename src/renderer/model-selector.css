@@ -1,0 +1,220 @@
+/* The model picker every composer opens: search, the connected providers'
+   models under their logos, and a thinking depth row that opens its levels. */
+
+/* provider logos: colour artwork as is, black artwork turned white on dark */
+.provider-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  object-fit: contain;
+}
+
+:root:not([data-appearance="light"]) .provider-mark.is-monochrome {
+  filter: invert(1);
+}
+
+.provider-mark.is-initial {
+  border-radius: 3px;
+  background: var(--color-selected);
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+}
+
+/* The composer's button, sized and coloured as the kit's small Select
+   (the type picker beside it on Home): 26px, 12px text, a quiet fill on hover. */
+.model-selector-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 240px;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.model-selector-trigger:hover:not(:disabled),
+.model-selector-trigger[aria-expanded="true"] {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.model-selector-trigger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.model-selector-trigger .model-selector-name {
+  font-weight: var(--weight-regular);
+}
+
+.model-selector-trigger .model-selector-reasoning-value {
+  color: var(--color-text-tertiary);
+}
+
+.model-selector-trigger .model-selector-caret {
+  flex: none;
+  color: var(--color-text-tertiary);
+}
+
+/* Built as the kit's menus (overlay.css): 4px inset, 30px rows at 13px,
+   its headings and full-width separators; the current model has a check. */
+.model-picker {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  max-width: calc(100vw - 16px);
+  max-height: min(420px, calc(100dvh - 16px));
+  padding: var(--space-1);
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--color-text);
+  font-size: var(--text-md);
+  animation: ui-pop-in var(--duration-fast) var(--ease-out);
+}
+
+.model-picker-search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  height: 30px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  color: var(--color-text-tertiary);
+}
+
+.model-picker-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+}
+
+.model-picker-search input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.model-picker-manage {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.model-picker-manage:hover,
+.model-picker-manage:focus-visible {
+  outline: none;
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.model-picker-list {
+  flex: 1;
+  min-height: 0;
+  max-height: 300px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.model-picker-group + .model-picker-group {
+  margin-top: var(--space-1);
+}
+
+.model-picker-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.model-picker-item,
+.model-picker-depth,
+.model-picker-back {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-picker-item:hover,
+.model-picker-item:focus-visible,
+.model-picker-depth:hover,
+.model-picker-depth:focus-visible,
+.model-picker-back:hover,
+.model-picker-back:focus-visible {
+  outline: none;
+  background: var(--color-hover);
+}
+
+.model-picker-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-picker-check {
+  flex: none;
+}
+
+.model-picker > .ui-menu-separator {
+  flex: none;
+}
+
+.model-picker-empty {
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.model-picker-depth {
+  flex: none;
+  justify-content: space-between;
+}
+
+.model-picker-depth-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-tertiary);
+}
+
+.model-picker-back {
+  gap: 6px;
+}

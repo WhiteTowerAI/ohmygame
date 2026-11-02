@@ -52,17 +52,15 @@ try {
   assert.notEqual(copy.id, story.id);
   assert.equal(copy.type, story.type);
   assert.equal(copy.name, story.name);
-  const installedResponse = await fetch(`${daemon.runtime.url}/plugins/mcp`, {
-    method: "POST", headers, body: JSON.stringify({ name: "node-runtime-fixture", servers: { local: {
+  const createdResponse = await fetch(`${daemon.runtime.url}/connections`, {
+    method: "POST", headers, body: JSON.stringify({ displayName: "Node runtime fixture", definition: {
       command: process.execPath, args: [path.join(root, "test", "fixtures", "plugin-mcp-server.mjs")],
-    } } }), signal: AbortSignal.timeout(10_000),
+    } }), signal: AbortSignal.timeout(10_000),
   });
-  assert.equal(installedResponse.status, 201, await installedResponse.text());
-  // Retrieve the stable ID after installation through the catalog.
-  const catalog = await fetch(`${daemon.runtime.url}/plugins`, { headers }).then(response => response.json());
-  const fixture = catalog.plugins.find(plugin => plugin.name === "node-runtime-fixture");
-  assert(fixture, "MCP plugin must appear in the Node daemon catalog");
-  const tested = await fetch(`${daemon.runtime.url}/plugins/${encodeURIComponent(fixture.id)}/mcp/local/test`, {
+  const created = await createdResponse.text();
+  assert.equal(createdResponse.status, 201, created);
+  const connection = JSON.parse(created);
+  const tested = await fetch(`${daemon.runtime.url}/connections/${encodeURIComponent(connection.id)}/test`, {
     method: "POST", headers, body: "{}", signal: AbortSignal.timeout(30_000),
   });
   assert.equal(tested.status, 200);

@@ -15,7 +15,7 @@ import { extractArchive } from "./archive-extraction.js";
 import { indexPluginPackage, type PluginIndex, type PluginIndexEntry } from "./plugin-index.js";
 import type { PluginServices } from "./plugin-services.js";
 
-// Format 2 plugins from a catalog. A release is a ZIP of the package with a
+// Plugins from a catalog. A release is a ZIP of the package with a
 // record that names its id, version, digest and a publisher key's signature.
 // The app trusts a few keys, each for its own publishers; a release installs
 // only when its key may sign for its publisher, its bytes match the digest,
@@ -245,7 +245,7 @@ export async function downloadRelease(url: string, file: string, maxBytes: numbe
   const limit = new Transform({
     transform(chunk: Buffer, _encoding, done) {
       received += chunk.byteLength;
-      if (received > maxBytes) done(new PluginReleaseError("The download is larger than its release says"));
+      if (received > maxBytes) done(new PluginReleaseError("The download is larger than allowed"));
       else done(null, chunk);
     },
   });

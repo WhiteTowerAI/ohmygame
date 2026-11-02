@@ -75,7 +75,6 @@ beforeEach(async () => {
     root.render(
       <PlayableEditorWorkspace
         project={{ id: "p", type: "interactive-story" } as ProjectState}
-        agentBusy={false}
         publishing={false}
         onPublish={async () => false}
         onClosePublish={() => {}}

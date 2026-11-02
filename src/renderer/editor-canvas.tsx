@@ -121,8 +121,11 @@ export function EditorCanvas<N extends Node>({
       snapGrid={SNAP_GRID}
       nodesDraggable={mode === "pointer"}
       elementsSelectable={mode === "pointer"}
-      selectionOnDrag={mode === "pointer"}
-      panOnDrag={mode === "pan" ? true : [1, 2]}
+      // Dragging empty canvas pans in either mode, as on most whiteboards;
+      // Shift-drag draws a selection box in pointer mode.
+      selectionOnDrag={false}
+      selectionKeyCode={mode === "pointer" ? "Shift" : null}
+      panOnDrag={[0, 1, 2]}
       panOnScroll
       zoomOnScroll={false}
       zoomOnPinch
@@ -155,7 +158,7 @@ export function EditorCanvas<N extends Node>({
       {needsInitialFit ? <InitialCanvasView onReady={onInitialFit} onVisible={setViewportReady} /> : null}
       <Panel className="story-canvas-toolbar" position="bottom-center">
         {addControl}
-        <button className={mode === "pointer" ? "is-active" : undefined} type="button" title={t("editorCanvas.select")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
+        <button className={mode === "pointer" ? "is-active" : undefined} type="button" title={t("editorCanvas.selectHint")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
           <MousePointer2 size={18} />
         </button>
         <button className={mode === "pan" ? "is-active" : undefined} type="button" title={t("editorCanvas.pan")} aria-label={t("editorCanvas.pan")} aria-pressed={mode === "pan"} onClick={() => setMode("pan")}>

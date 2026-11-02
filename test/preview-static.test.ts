@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import { startStaticPreview } from "../src/daemon/preview-static.js";
 import { PluginIndex } from "../src/daemon/plugin-index.js";
 import { PluginPageStorage } from "../src/daemon/plugin-page-storage.js";
 import { startPluginUiServer } from "../src/daemon/plugin-ui-server.js";
+import { PAGE_TOKENS } from "../src/renderer/plugin-frame.js";
 import { pluginFrameNavigationAllowed, pluginUiRefusal, readPluginUiRequest } from "../src/shared/plugin-ui-protocol.js";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -240,7 +241,7 @@ describe("static preview byte ranges", () => {
 });
 
 describe("plugin pages", () => {
-  async function pluginPackage() {
+  async function pluginPackage(extra: Record<string, unknown> = {}) {
     const root = path.join(await directory(), "panel");
     await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
     await mkdir(path.join(root, "ui"), { recursive: true });
@@ -264,6 +265,7 @@ describe("plugin pages", () => {
         contributes: {
           panels: [{ id: "main", title: "Main", area: "right", entry: "./ui/panel.html" }],
         },
+        ...extra,
       }),
     );
     return root;
@@ -283,6 +285,9 @@ describe("plugin pages", () => {
     const sdk = await directory();
     await writeFile(path.join(sdk, "index.js"), "export function connect() {}");
     await writeFile(path.join(sdk, "plugin-ui.css"), ":root {}");
+    await mkdir(path.join(sdk, "ui/1"), { recursive: true });
+    await writeFile(path.join(sdk, "ui/1/index.js"), "import './layout.js';");
+    await writeFile(path.join(sdk, "ui/1/notes.md"), "notes");
     const server = await startPluginUiServer({ index, sdkDirectory: sdk, frameAncestors: ["http://localhost:5173"] });
     cleanups.push(() => server.close());
 
@@ -292,7 +297,10 @@ describe("plugin pages", () => {
     const response = await fetch(page);
     expect(await response.text()).toBe("<p>panel</p>");
     const csp = response.headers.get("content-security-policy")!;
-    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/`);
+    // Only the bridge and styles, until the plugin opts in to preview components.
+    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js;`);
+    expect(csp).toContain(`style-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.css 'unsafe-inline'`);
+    expect(csp).not.toContain("/_ohmygame/ui/");
     expect(csp).toContain("connect-src 'none'");
     expect(csp).toContain("frame-ancestors http://localhost:5173");
     expect(csp).not.toContain("unsafe-eval");
@@ -301,6 +309,9 @@ describe("plugin pages", () => {
     expect((await fetch(`${server.url}/acme/panel/1.0.0/ui/panel.js`)).status).toBe(200);
     expect((await fetch(`${server.url}/acme/panel/1.0.0/assets/icon.svg`)).status).toBe(200);
     expect(await (await fetch(`${server.url}/_ohmygame/plugin-ui.js`)).text()).toContain("connect");
+    const components = await fetch(`${server.url}/_ohmygame/ui/1/index.js`);
+    expect(components.headers.get("content-type")).toContain("javascript");
+    expect(await components.text()).toContain("layout.js");
     for (const refused of [
       "/acme/panel/1.0.0/native/index.mjs",
       "/acme/panel/1.0.0/.ohmygame-plugin/plugin.json",
@@ -309,8 +320,57 @@ describe("plugin pages", () => {
       "/acme/panel/1.0.0/ui/%2e%2e/native/index.mjs",
       "/acme/panel/2.0.0/ui/panel.html",
       "/_ohmygame/index.js",
+      "/_ohmygame/ui/1/notes.md",
+      "/_ohmygame/ui/2/index.js",
+      "/_ohmygame/ui/1/%2e%2e/%2e%2e/index.js",
+      "/_ohmygame/ui/1/nested/index.js",
     ])
       expect((await fetch(`${server.url}${refused}`)).status, refused).toBe(404);
+  });
+
+  it("lets a page load preview components only when its plugin opts in", async () => {
+    const index = new PluginIndex(path.join(await directory(), "index.json"));
+    const added = await index.add(await pluginPackage({ ui: { preview: true } }));
+    expect(added.ok ? [] : added.issues).toEqual([]);
+    const sdk = await directory();
+    await mkdir(path.join(sdk, "ui/1"), { recursive: true });
+    await writeFile(path.join(sdk, "ui/1/index.js"), "import './layout.js';");
+    const server = await startPluginUiServer({ index, sdkDirectory: sdk });
+    cleanups.push(() => server.close());
+    const csp = (await fetch(server.panelUrl("acme/panel", "1.0.0", "main")!)).headers.get("content-security-policy")!;
+    // The policy's source for components covers the file the server sends.
+    const source = `${server.url}/_ohmygame/ui/1/`;
+    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js ${source};`);
+    expect((await fetch(`${source}index.js`)).status).toBe(200);
+  });
+
+  it("styles pages with the app's tokens and defaults", async () => {
+    /** The custom properties a rule declares, comments removed and spaces collapsed. */
+    const declared = (css: string, selector: string) => {
+      const start = css.indexOf(`${selector} {`);
+      expect(start, selector).toBeGreaterThanOrEqual(0);
+      const body = css.slice(start, css.indexOf("\n}", start)).replace(/\/\*[\s\S]*?\*\//g, "");
+      return new Map([...body.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map(([, name, value]) => [name!, value!.replace(/\s+/g, " ").trim()]));
+    };
+    // Windows checkouts may have CRLF line endings.
+    const read = async (file: string) => (await readFile(file, "utf8")).replace(/\r\n/g, "\n");
+    const app = await read("src/renderer/ui/tokens.css");
+    const page = await read("packages/plugin-ui/plugin-ui.css");
+    const tokens = new Set<string>(PAGE_TOKENS);
+    // Until the app sends its theme, a page has the app's own defaults.
+    for (const [appSelector, pageSelector] of [
+      [':root,\n[data-appearance="dark"]', ":root"],
+      ['[data-appearance="light"]', ':root[data-appearance="light"]'],
+    ] as const) {
+      const expected = [...declared(app, appSelector)].filter(([name]) => tokens.has(name));
+      expect(Object.fromEntries(declared(page, pageSelector)), pageSelector).toEqual(Object.fromEntries(expected));
+    }
+    // Every token the styles read is one the app sends.
+    const used = new Set([...page.matchAll(/var\((--[a-z0-9-]+)/g)].map(([, name]) => name!));
+    expect([...used].filter((name) => !tokens.has(name) && name !== "--omg-accent")).toEqual([]);
+    // The panel's surface shows through the page.
+    expect(declared(page, ":root").size).toBeGreaterThan(0);
+    expect(page).toMatch(/:root \{[^}]*background: transparent;/);
   });
 
   it("checks what a page asks for", async () => {
@@ -318,7 +378,19 @@ describe("plugin pages", () => {
     expect(readPluginUiRequest({ id: 2, method: "fs.read" })).toMatchObject({ ok: false, id: 2 });
     expect(readPluginUiRequest({ id: 3, method: "storage.get", params: { key: "../x" } })).toMatchObject({ ok: false, id: 3 });
     expect(readPluginUiRequest({ id: 4, method: "command.run", params: { command: "Run Now" } }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 6, method: "command.run", params: { command: "rename", input: { name: "map" } } })).toMatchObject({
+      ok: true,
+      request: { params: { input: { name: "map" } } },
+    });
     expect(readPluginUiRequest({ method: "theme.get" })).toEqual({ ok: false, error: "no id" });
+    expect(readPluginUiRequest({ id: 7, method: "ui.toast", params: { message: "Saved", tone: "success" } }).ok).toBe(true);
+    expect(readPluginUiRequest({ id: 8, method: "ui.toast", params: { message: " " } }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 9, method: "ui.toast", params: { message: "x".repeat(501) } }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 10, method: "ui.toast", params: { message: "Saved", tone: "loud" } }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 11, method: "ui.confirm", params: { title: "Reset?", message: "Clears it.", confirmLabel: "Reset" } }).ok).toBe(true);
+    expect(readPluginUiRequest({ id: 12, method: "ui.confirm" }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 13, method: "ui.confirm", params: { title: "Reset?", confirmLabel: "x".repeat(41) } }).ok).toBe(false);
+    expect(pluginUiRefusal("ui.confirm", {})).toBeUndefined();
     expect(readPluginUiRequest({ id: 5, method: "storage.set", params: { key: "a", value: "x".repeat(300_000) } }).ok).toBe(false);
     expect(pluginUiRefusal("composer.fill", {})).toContain("composer capability");
     expect(pluginUiRefusal("composer.fill", { composer: true })).toBeUndefined();

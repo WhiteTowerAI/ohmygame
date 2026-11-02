@@ -1,0 +1,958 @@
+{
+  "schemaVersion": "2.1.0",
+  "readme": "",
+  "modules": [
+    {
+      "kind": "javascript-module",
+      "path": "ui/1/controls.js",
+      "declarations": [
+        {
+          "kind": "class",
+          "name": "OmgButton",
+          "tagName": "omg-button",
+          "customElement": true,
+          "description": "`<omg-button variant=\"secondary|primary|ghost|danger\" disabled busy>`: the app's button. Primary is ink; there is one per view. A busy button shows a spinner and takes no clicks.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "busy",
+              "description": "Shows a spinner and takes no clicks.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Takes no clicks.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "variant",
+              "description": "Secondary by default.",
+              "type": {
+                "text": "\"secondary\" | \"primary\" | \"ghost\" | \"danger\""
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "busy",
+              "description": "The `busy` attribute.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "kind": "field",
+              "name": "disabled",
+              "description": "The `disabled` attribute.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The label."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "button",
+              "description": "The button."
+            },
+            {
+              "name": "spinner",
+              "description": "The spinner shown while busy."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgCommandButton",
+          "tagName": "omg-command-button",
+          "customElement": true,
+          "description": "`<omg-command-button command input variant concurrent quiet>`: runs one of the plugin's commands, by its manifest id, when clicked. `input` is JSON, or set the `input` property. While it runs, the button is busy and shows the command's progress beside it, and other command buttons wait unless they are `concurrent`. A failure shows beside it unless it is `quiet`, and is its `error` attribute until the next run, so a page that draws the button again can pass it on. Events: `omg-command-start` (cancelable, before it runs), `omg-command-result` with `detail.result`, and `omg-command-error` with `detail.error`, cancelable to show the failure yourself.",
+          "superclass": {
+            "name": "OmgButton",
+            "module": "ui/1/controls.js"
+          },
+          "attributes": [
+            {
+              "name": "busy",
+              "description": "Shows a spinner and takes no clicks.",
+              "type": {
+                "text": "boolean"
+              },
+              "inheritedFrom": {
+                "name": "OmgButton",
+                "module": "ui/1/controls.js"
+              }
+            },
+            {
+              "name": "command",
+              "description": "The command's id in the manifest.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "concurrent",
+              "description": "Runs while other command buttons run, and doesn't make them wait.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Takes no clicks.",
+              "type": {
+                "text": "boolean"
+              },
+              "inheritedFrom": {
+                "name": "OmgButton",
+                "module": "ui/1/controls.js"
+              }
+            },
+            {
+              "name": "error",
+              "description": "The last run's failure, until the next run.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The command's input, as JSON.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "quiet",
+              "description": "Doesn't show a failure beside it.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "variant",
+              "description": "Secondary by default.",
+              "type": {
+                "text": "\"secondary\" | \"primary\" | \"ghost\" | \"danger\""
+              },
+              "inheritedFrom": {
+                "name": "OmgButton",
+                "module": "ui/1/controls.js"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "busy",
+              "description": "The `busy` attribute.",
+              "type": {
+                "text": "boolean"
+              },
+              "inheritedFrom": {
+                "name": "OmgButton",
+                "module": "ui/1/controls.js"
+              }
+            },
+            {
+              "kind": "field",
+              "name": "disabled",
+              "description": "The `disabled` attribute.",
+              "type": {
+                "text": "boolean"
+              },
+              "inheritedFrom": {
+                "name": "OmgButton",
+                "module": "ui/1/controls.js"
+              }
+            },
+            {
+              "kind": "field",
+              "name": "input",
+              "description": "The command's input; it takes the place of the attribute.",
+              "type": {
+                "text": "unknown"
+              }
+            },
+            {
+              "kind": "method",
+              "name": "run",
+              "description": "Runs the command, as a click does; resolves to its result, or undefined when it didn't run or failed.",
+              "return": {
+                "type": {
+                  "text": "Promise<unknown>"
+                }
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "omg-command-error",
+              "description": "The command failed; cancel it to show the failure yourself.",
+              "type": {
+                "text": "CustomEvent<{ command: string; error: string }>"
+              }
+            },
+            {
+              "name": "omg-command-result",
+              "description": "The command's result.",
+              "type": {
+                "text": "CustomEvent<{ command: string; result: unknown }>"
+              }
+            },
+            {
+              "name": "omg-command-start",
+              "description": "Before it runs; cancel it to not run.",
+              "type": {
+                "text": "CustomEvent<{ command: string; input: unknown }>"
+              }
+            }
+          ],
+          "slots": [
+            {
+              "name": "",
+              "description": "The label."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "button",
+              "description": "The button."
+            },
+            {
+              "name": "error",
+              "description": "The failure."
+            },
+            {
+              "name": "progress",
+              "description": "The command's progress while it runs."
+            },
+            {
+              "name": "spinner",
+              "description": "The spinner shown while busy."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgSelect",
+          "tagName": "omg-select",
+          "customElement": true,
+          "description": "`<omg-select label value disabled>` with `<option>` children: the app's select. `label` is shown above it; without one, give it `aria-label`. It fires `change` and `input` as a native select does.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "aria-label",
+              "description": "Its name, without a label.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "disabled",
+              "description": "Can't be changed.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "label",
+              "description": "Shown above it.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "value",
+              "description": "The chosen option's value.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "value",
+              "description": "The chosen option's value.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "change",
+              "description": "The person chose an option.",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "input",
+              "description": "The person chose an option.",
+              "type": {
+                "text": "Event"
+              }
+            }
+          ],
+          "slots": [],
+          "cssParts": [
+            {
+              "name": "field",
+              "description": "The label around it."
+            },
+            {
+              "name": "label",
+              "description": "The label's text."
+            },
+            {
+              "name": "select",
+              "description": "The native select."
+            }
+          ],
+          "cssProperties": []
+        }
+      ],
+      "exports": [
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-button",
+          "declaration": {
+            "name": "OmgButton",
+            "module": "ui/1/controls.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-command-button",
+          "declaration": {
+            "name": "OmgCommandButton",
+            "module": "ui/1/controls.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-select",
+          "declaration": {
+            "name": "OmgSelect",
+            "module": "ui/1/controls.js"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "ui/1/feedback.js",
+      "declarations": [
+        {
+          "kind": "class",
+          "name": "OmgStatus",
+          "tagName": "omg-status",
+          "customElement": true,
+          "description": "`<omg-status tone=\"neutral|good|warning|bad|busy\">`: a short state, such as \"Running\", after a coloured dot, or a spinner while busy. It is a live region, so a change is read out.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "tone",
+              "description": "Neutral by default.",
+              "type": {
+                "text": "\"neutral\" | \"good\" | \"warning\" | \"bad\" | \"busy\""
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The state, in a few words."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "indicator",
+              "description": "The dot."
+            },
+            {
+              "name": "label",
+              "description": "The state."
+            },
+            {
+              "name": "spinner",
+              "description": "The spinner shown while busy."
+            }
+          ],
+          "cssProperties": [
+            {
+              "name": "--omg-accent",
+              "description": "The plugin's brand colour, for the busy spinner."
+            }
+          ]
+        },
+        {
+          "kind": "class",
+          "name": "OmgBanner",
+          "tagName": "omg-banner",
+          "customElement": true,
+          "description": "`<omg-banner tone=\"info|good|warning|bad\" heading>`: a message across the page, such as a failure and what to do about it. Slots: the message, and `actions`. A `bad` banner is an alert; the others are a status.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "heading",
+              "description": "A title above the message.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "tone",
+              "description": "Plain by default.",
+              "type": {
+                "text": "\"info\" | \"good\" | \"warning\" | \"bad\""
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The message."
+            },
+            {
+              "name": "actions",
+              "description": "Buttons after the message."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "actions",
+              "description": "The buttons' row; hidden when empty."
+            },
+            {
+              "name": "heading",
+              "description": "The title."
+            },
+            {
+              "name": "message",
+              "description": "The message."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgLog",
+          "tagName": "omg-log",
+          "customElement": true,
+          "description": "`<omg-log empty=\"No lines yet.\" follow>`: lines of output in the app's monospace type, scrolling past `--omg-log-height` (280px). Its text is its content, or set `text`. With `follow`, it keeps the latest line in view unless the person scrolled up.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "empty",
+              "description": "What it says with no lines.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "follow",
+              "description": "Keeps the latest line in view.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "text",
+              "description": "Its lines.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "Its lines, as text."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "empty",
+              "description": "The text shown with no lines."
+            },
+            {
+              "name": "log",
+              "description": "The lines; hidden with none."
+            }
+          ],
+          "cssProperties": [
+            {
+              "name": "--omg-log-height",
+              "default": "280px",
+              "description": "How tall it grows before it scrolls."
+            }
+          ]
+        },
+        {
+          "kind": "class",
+          "name": "OmgSteps",
+          "tagName": "omg-steps",
+          "customElement": true,
+          "description": "`<omg-steps>`: the steps of a flow, numbered in order. Each is an `<omg-step heading state=\"pending|current|done|error\" open>`; a current or failed step shows its content, and `open` shows it in any state. Slots of a step: `summary`, always shown under its heading, and its content.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "Its `omg-step` elements."
+            }
+          ],
+          "cssParts": [],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgStep",
+          "tagName": "omg-step",
+          "customElement": true,
+          "description": "`<omg-step heading state open>`: one step of an `omg-steps` flow.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "heading",
+              "description": "What the step does.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "number",
+              "description": "Its place in the flow, which `omg-steps` sets.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "open",
+              "description": "Shows its content in any state.",
+              "type": {
+                "text": "boolean"
+              }
+            },
+            {
+              "name": "state",
+              "description": "Pending by default.",
+              "type": {
+                "text": "\"pending\" | \"current\" | \"done\" | \"error\""
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "What the step shows while it is current or failed."
+            },
+            {
+              "name": "summary",
+              "description": "Always shown under the heading, such as what a finished step did."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "body",
+              "description": "The content."
+            },
+            {
+              "name": "heading",
+              "description": "The heading."
+            },
+            {
+              "name": "marker",
+              "description": "The number, check or failure mark."
+            },
+            {
+              "name": "summary",
+              "description": "The summary; hidden when empty."
+            }
+          ],
+          "cssProperties": [
+            {
+              "name": "--omg-accent",
+              "description": "The plugin's brand colour, for the current step's mark."
+            },
+            {
+              "name": "--omg-on-accent",
+              "description": "The colour of the number on that mark."
+            }
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-status",
+          "declaration": {
+            "name": "OmgStatus",
+            "module": "ui/1/feedback.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-banner",
+          "declaration": {
+            "name": "OmgBanner",
+            "module": "ui/1/feedback.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-log",
+          "declaration": {
+            "name": "OmgLog",
+            "module": "ui/1/feedback.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-steps",
+          "declaration": {
+            "name": "OmgSteps",
+            "module": "ui/1/feedback.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-step",
+          "declaration": {
+            "name": "OmgStep",
+            "module": "ui/1/feedback.js"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "ui/1/layout.js",
+      "declarations": [
+        {
+          "kind": "class",
+          "name": "OmgPage",
+          "tagName": "omg-page",
+          "customElement": true,
+          "description": "`<omg-page heading description>`: the page's column, centred and at most 720px wide. Slots: `brand` (a logo before the heading), `actions`, and the page's sections.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "description",
+              "description": "A line under the title.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "heading",
+              "description": "The page's title.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The page's sections."
+            },
+            {
+              "name": "actions",
+              "description": "Buttons beside the heading."
+            },
+            {
+              "name": "brand",
+              "description": "A logo before the heading."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "body",
+              "description": "The column of sections."
+            },
+            {
+              "name": "description",
+              "description": "The line under the title."
+            },
+            {
+              "name": "header",
+              "description": "The row of the brand, titles and actions; hidden when empty."
+            },
+            {
+              "name": "heading",
+              "description": "The title."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgSection",
+          "tagName": "omg-section",
+          "customElement": true,
+          "description": "`<omg-section heading description>`: a titled group of content. Slots: `actions` beside the heading, and the section's content.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "description",
+              "description": "A line under the title.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "heading",
+              "description": "The section's title, which names it.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The section's content."
+            },
+            {
+              "name": "actions",
+              "description": "Buttons beside the heading."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "body",
+              "description": "The column of content."
+            },
+            {
+              "name": "description",
+              "description": "The line under the title."
+            },
+            {
+              "name": "header",
+              "description": "The titles and actions; hidden when empty."
+            },
+            {
+              "name": "heading",
+              "description": "The title."
+            },
+            {
+              "name": "section",
+              "description": "The section."
+            }
+          ],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgStack",
+          "tagName": "omg-stack",
+          "customElement": true,
+          "description": "`<omg-stack direction=\"row|column\" gap=\"1|2|3|4|6\" align justify wrap>`: lays its children out in a row or a column, spaced by the app's steps.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "align",
+              "description": "How children line up across it.",
+              "type": {
+                "text": "\"start\" | \"center\" | \"end\" | \"stretch\" | \"baseline\""
+              }
+            },
+            {
+              "name": "direction",
+              "description": "Column by default.",
+              "type": {
+                "text": "\"column\" | \"row\""
+              }
+            },
+            {
+              "name": "gap",
+              "description": "A space token; 2 by default.",
+              "type": {
+                "text": "\"0\" | \"1\" | \"2\" | \"3\" | \"4\" | \"6\""
+              }
+            },
+            {
+              "name": "justify",
+              "description": "How children are spread along it.",
+              "type": {
+                "text": "\"start\" | \"center\" | \"end\" | \"between\""
+              }
+            },
+            {
+              "name": "wrap",
+              "description": "Lets a row wrap.",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "The children."
+            }
+          ],
+          "cssParts": [],
+          "cssProperties": []
+        },
+        {
+          "kind": "class",
+          "name": "OmgEmpty",
+          "tagName": "omg-empty",
+          "customElement": true,
+          "description": "`<omg-empty heading description>`: what a page shows when it has nothing yet. Slots: `icon`, and actions as its content.",
+          "superclass": {
+            "name": "HTMLElement",
+            "package": "global:"
+          },
+          "attributes": [
+            {
+              "name": "description",
+              "description": "What to do about it.",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "name": "heading",
+              "description": "What is missing.",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "members": [],
+          "events": [],
+          "slots": [
+            {
+              "name": "",
+              "description": "Actions."
+            },
+            {
+              "name": "icon",
+              "description": "An icon above the heading."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "actions",
+              "description": "The actions' row; hidden when empty."
+            },
+            {
+              "name": "description",
+              "description": "The description."
+            },
+            {
+              "name": "heading",
+              "description": "The heading."
+            },
+            {
+              "name": "icon",
+              "description": "The icon's place; hidden when empty."
+            }
+          ],
+          "cssProperties": []
+        }
+      ],
+      "exports": [
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-page",
+          "declaration": {
+            "name": "OmgPage",
+            "module": "ui/1/layout.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-section",
+          "declaration": {
+            "name": "OmgSection",
+            "module": "ui/1/layout.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-stack",
+          "declaration": {
+            "name": "OmgStack",
+            "module": "ui/1/layout.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "omg-empty",
+          "declaration": {
+            "name": "OmgEmpty",
+            "module": "ui/1/layout.js"
+          }
+        }
+      ]
+    }
+  ]
+}

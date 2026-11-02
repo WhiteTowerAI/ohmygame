@@ -1,9 +1,9 @@
-import { Copy, Download, FolderOpen, LoaderCircle, MoreHorizontal, Pencil, Play, Trash2 } from "./icons.js";
-import { useEffect, useState, type ReactNode } from "react";
+import { Check, Copy, Download, FolderOpen, LoaderCircle, MoreHorizontal, Pencil, Play, Trash2 } from "./icons.js";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, exportProject, getProjectCover, renameProject } from "./api.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
-import { projectDeletionConfirmation } from "./project-deletion.js";
+import { projectRemoval } from "./project-deletion.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { Button, ContextMenu, Dialog, DropdownMenu, IconButton, Tooltip, type MenuEntry } from "./ui/index.js";
 import { language, t } from "./i18n.js";
@@ -16,11 +16,43 @@ export interface ProjectCardActions {
   onDelete: () => void;
 }
 
+/** How a card takes part in selecting several projects on the Projects page. */
+export interface ProjectSelection {
+  /** Several projects are being selected, so a click toggles instead of opening. */
+  selecting: boolean;
+  selected: boolean;
+  /** Toggle this project; Shift extends the selection from the last one toggled. */
+  onToggle: (range: boolean) => void;
+}
+
 interface ProjectCardProps {
   project: ProjectState;
   onOpen: () => void;
   actions?: ProjectCardActions;
   agentStatus?: ProjectAgentActivity["status"];
+  selection?: ProjectSelection;
+}
+
+/** A click opens the project, or selects it while selecting or with ⌘/Ctrl or Shift held. */
+function openOrToggle(event: MouseEvent, onOpen: () => void, selection?: ProjectSelection): void {
+  if (selection && (selection.selecting || event.metaKey || event.ctrlKey || event.shiftKey)) {
+    event.preventDefault();
+    selection.onToggle(event.shiftKey);
+    return;
+  }
+  onOpen();
+}
+
+/** The checkbox on a project's cover: shown on hover, and always while selecting. */
+function SelectMark({ project, selection }: { project: ProjectState; selection: ProjectSelection }) {
+  return (
+    <button type="button" role="checkbox" aria-checked={selection.selected}
+      className={`project-select-mark${selection.selected ? " is-selected" : ""}`}
+      aria-label={t("projects.selectProject", { name: project.name })}
+      onClick={(event) => { event.stopPropagation(); selection.onToggle(event.shiftKey); }}>
+      {selection.selected ? <Check size={12} /> : null}
+    </button>
+  );
 }
 
 /**
@@ -48,13 +80,7 @@ function useProjectMenu(project: ProjectState, onOpen: () => void, actions?: Pro
     setExporting(true);
     setError(undefined);
     try {
-      const archive = await exportProject(project.id);
-      const url = URL.createObjectURL(archive);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${project.name}.zip`;
-      link.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      await downloadProjectArchive(project);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -70,7 +96,7 @@ function useProjectMenu(project: ProjectState, onOpen: () => void, actions?: Pro
     { label: exporting ? t("projectCard.exporting") : t("projectCard.export"), icon: <Download size={14} />, disabled: exporting, onSelect: () => void exportArchive() },
     "separator",
     {
-      label: project.workspaceLocation === "external" ? t("projectCard.remove") : t("common.delete"),
+      label: t("projectCard.remove"),
       icon: <Trash2 size={14} />,
       danger: true,
       onSelect: actions.onDelete,
@@ -102,13 +128,16 @@ function ProjectStatus({ project, agentStatus }: { project: ProjectState; agentS
 
 // The cover is the card and the text sits under it. One menu, from the "…"
 // that shows on hover and from a right-click.
-export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCardProps) {
+export function ProjectCard({ project, onOpen, actions, agentStatus, selection }: ProjectCardProps) {
   const { menu, error } = useProjectMenu(project, onOpen, actions);
+  // While selecting, a project's own menu would act on one project out of several.
+  const selecting = !!selection?.selecting;
   const card = (
-    <article className="project-card">
+    <article className={`project-card${selectionClass(selection)}`}>
       <div className="project-card-body">
-      <button className="project-card-open" type="button" onClick={onOpen} aria-label={t("projectCard.open", { name: project.name })}>
-        <ProjectCover projectId={project.id} />
+      <button className="project-card-open" type="button" onClick={(event) => openOrToggle(event, onOpen, selection)}
+        aria-label={t("projectCard.open", { name: project.name })}>
+        <ProjectCover project={project} />
         <span className="project-card-meta">
           <ProjectTypeMark type={project.type} />
           <span className="project-card-copy">
@@ -119,21 +148,24 @@ export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCa
           </span>
         </span>
       </button>
-      {menu ? <span className="project-card-actions"><ProjectMenuButton project={project} menu={menu} /></span> : null}
+      {selection ? <SelectMark project={project} selection={selection} /> : null}
+      {menu && !selecting ? <span className="project-card-actions"><ProjectMenuButton project={project} menu={menu} /></span> : null}
       </div>
       {error ? <p className="project-card-error" role="alert">{error}</p> : null}
     </article>
   );
-  return menu ? <ContextMenu items={menu}>{card}</ContextMenu> : card;
+  return menu ? <ContextMenu items={menu} disabled={selecting}>{card}</ContextMenu> : card;
 }
 
 /** A project as a row of the Projects list: cover, name, type and when it was edited, with the same menu as its card. */
-export function ProjectRow({ project, onOpen, actions, agentStatus }: ProjectCardProps) {
+export function ProjectRow({ project, onOpen, actions, agentStatus, selection }: ProjectCardProps) {
   const { menu, error } = useProjectMenu(project, onOpen, actions);
+  const selecting = !!selection?.selecting;
   const row = (
-    <div className="project-row">
-      <button className="project-row-open" type="button" onClick={onOpen} aria-label={t("projectCard.open", { name: project.name })}>
-        <ProjectCover projectId={project.id} />
+    <div className={`project-row${selectionClass(selection)}`}>
+      <button className="project-row-open" type="button" onClick={(event) => openOrToggle(event, onOpen, selection)}
+        aria-label={t("projectCard.open", { name: project.name })}>
+        <ProjectCover project={project} />
         <span className="project-card-name" title={project.name}>{project.name}</span>
         <span className="project-row-type">
           <ProjectTypeIcon type={project.type} size={14} />
@@ -143,11 +175,28 @@ export function ProjectRow({ project, onOpen, actions, agentStatus }: ProjectCar
           <ProjectStatus project={project} agentStatus={agentStatus} />
         </span>
       </button>
-      {menu ? <span className="project-row-actions"><ProjectMenuButton project={project} menu={menu} /></span> : null}
+      {selection ? <SelectMark project={project} selection={selection} /> : null}
+      {menu && !selecting ? <span className="project-row-actions"><ProjectMenuButton project={project} menu={menu} /></span> : null}
       {error ? <p className="project-card-error" role="alert">{error}</p> : null}
     </div>
   );
-  return menu ? <ContextMenu items={menu}>{row}</ContextMenu> : row;
+  return menu ? <ContextMenu items={menu} disabled={selecting}>{row}</ContextMenu> : row;
+}
+
+function selectionClass(selection?: ProjectSelection): string {
+  if (!selection?.selecting) return "";
+  return selection.selected ? " is-selecting is-selected" : " is-selecting";
+}
+
+/** Exports a project and saves it as `<name>.zip`. */
+export async function downloadProjectArchive(project: ProjectState): Promise<void> {
+  const archive = await exportProject(project.id);
+  const url = URL.createObjectURL(archive);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${project.name}.zip`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 /** The project's type as an icon, named in a tooltip. */
@@ -191,7 +240,7 @@ export function useProjectActions(reload: () => Promise<unknown>): {
     onDelete: () => setRemoving(project),
   });
 
-  const external = removing?.workspaceLocation === "external";
+  const removal = removing ? projectRemoval(removing) : undefined;
   const dialogs = (
     <>
       {renaming ? <ProjectRenameDialog name={renaming.name} returnFocus={null} onClose={() => setRenaming(undefined)} onConfirm={(input) => {
@@ -201,28 +250,31 @@ export function useProjectActions(reload: () => Promise<unknown>): {
         if (name && name !== project.name) void run(() => renameProject(project.id, name));
       }} /> : null}
       <Dialog open={!!removing} onClose={() => setRemoving(undefined)} size="sm"
-        title={removing ? projectDeletionConfirmation(removing) : ""}
+        title={removal?.title ?? ""} description={removal?.description}
         footer={<>
           <Button onClick={() => setRemoving(undefined)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={() => {
             const project = removing!;
             setRemoving(undefined);
             void run(() => deleteProject(project.id));
-          }}>{external ? t("projectCard.removeConfirm") : t("common.delete")}</Button>
+          }}>{removal?.deletes ? t("common.delete") : t("projectCard.removeConfirm")}</Button>
         </>} />
     </>
   );
   return { actionsFor, dialogs, error };
 }
 
-export function ProjectCover({ projectId }: { projectId: string }) {
+/** A project's cover, or the default template when it has none or chose the template. */
+export function ProjectCover({ project }: { project: ProjectState }) {
   const [url, setUrl] = useState<string>();
+  const template = project.appearance?.cover === "template";
 
   useEffect(() => {
     setUrl(undefined);
+    if (template) return;
     let objectUrl: string | undefined;
     let disposed = false;
-    void getProjectCover(projectId).then((cover) => {
+    void getProjectCover(project.id).then((cover) => {
       if (!cover || disposed) return;
       objectUrl = URL.createObjectURL(cover);
       setUrl(objectUrl);
@@ -231,11 +283,11 @@ export function ProjectCover({ projectId }: { projectId: string }) {
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [projectId]);
+  }, [project.id, project.updatedAt, template]);
 
   return (
     <span className="project-card-preview" aria-hidden="true">
-      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={projectId} />}
+      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={project.id} appearance={project.appearance} />}
     </span>
   );
 }

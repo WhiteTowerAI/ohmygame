@@ -27,11 +27,13 @@ import {
   textResult,
   type DriverContext,
 } from "./driver-context.js";
-import { stageSkills, stagedSkillsRoot } from "./skills.js";
+import { skillInstruction, stageSkills, stagedSkillsRoot } from "./skills.js";
 import { NativeSessionExpiredError } from "./native-session.js";
 import { cliProbeError, runtimeStartupError } from "./compatibility.js";
 
 const CONTROL_TIMEOUT_MS = 30_000;
+// The plugin each session's Skills reach Claude Code in.
+const SESSION_PLUGIN = "ohmygame";
 
 /**
  * Claude Code can launch subagents and shells in the background, and
@@ -70,7 +72,11 @@ export class ClaudeCodeDriver implements NativeDriver {
   #starting?: Promise<AgentProcess>;
   #turn?: PendingTurn;
   #sessionId?: string;
+  /** Whether the running process was asked to continue an existing session rather than start one. */
+  #resuming = false;
   #limits: AgentUsageLimit[] = [];
+  /** The Skills staged in the session's plugin, which Claude Code names `ohmygame:<name>`. */
+  #stagedSkills = new Set<string>();
   #permissionMode?: ClaudePermissionMode;
   #controls = new Map<
     string,
@@ -100,7 +106,7 @@ export class ClaudeCodeDriver implements NativeDriver {
     } catch (cause) {
       if (signal.aborted) return { status: "aborted" };
       if (
-        this.context.resume &&
+        this.#resuming &&
         /no (?:conversation|session) found|session (?:id )?.*(?:not found|does not exist)/i.test(
           String(cause),
         )
@@ -122,7 +128,7 @@ export class ClaudeCodeDriver implements NativeDriver {
         readOnly: input.readOnly,
       };
       try {
-        child.write(userMessage(input));
+        child.write(userMessage(input, this.#stagedSkills));
       } catch (cause) {
         this.#turn = undefined;
         resolve({
@@ -133,7 +139,7 @@ export class ClaudeCodeDriver implements NativeDriver {
     });
     if (
       outcome.status === "failed" &&
-      this.context.resume &&
+      this.#resuming &&
       /no (?:conversation|session) found|session (?:id )?.*(?:not found|does not exist)/i.test(
         outcome.error,
       )
@@ -267,16 +273,18 @@ export class ClaudeCodeDriver implements NativeDriver {
       await writeFile(
         path.join(plugin, ".claude-plugin", "plugin.json"),
         JSON.stringify({
-          name: "ohmygame",
+          name: SESSION_PLUGIN,
           version: "1.0.0",
           description: "OhMyGame Skills for this project",
         }),
       );
       // Its folder is a working directory too, so reading a Skill's files is not
       // a request to reach outside the project.
-      if ((await stageSkills(context.skillDirectories, skills)).length)
+      this.#stagedSkills = new Set(await stageSkills(context.skillDirectories, skills));
+      if (this.#stagedSkills.size)
         args.push("--plugin-dir", plugin, "--add-dir", plugin);
     }
+    this.#resuming = Boolean(this.#sessionId);
     if (this.#sessionId) args.push("--resume", this.#sessionId);
     else {
       this.#sessionId = randomUUID();
@@ -543,7 +551,10 @@ export class ClaudeCodeDriver implements NativeDriver {
       );
     }
     if (turn.signal.aborted) {
-      turn.resolve({ status: "aborted" });
+      // Claude Code reported the stopped turn's end, so nothing of it is still
+      // running. A failure that raced the stop, such as a spent quota, still
+      // resets the context as it would have without the stop.
+      turn.resolve({ status: "aborted", resumable: endedByStop(message) });
       return;
     }
     if (
@@ -723,6 +734,15 @@ const CLAUDE_CHANGE_TOOLS = new Set([
 ]);
 
 /** Why OhMyGame refuses a tool before Claude Code's permission rules decide, if it does. */
+/** Whether a stopped turn's result is the stop itself, or a clean finish that raced it. */
+function endedByStop(result: Record<string, unknown>): boolean {
+  return (
+    (typeof result.terminal_reason === "string" &&
+      result.terminal_reason.startsWith("aborted")) ||
+    (result.subtype === "success" && result.is_error !== true)
+  );
+}
+
 function refusedTool(tool: string, readOnly: boolean): string | undefined {
   if (tool === "ExitPlanMode")
     return "OhMyGame reviews plans itself: record the plan with update_plan and end your reply.";
@@ -730,13 +750,15 @@ function refusedTool(tool: string, readOnly: boolean): string | undefined {
   return undefined;
 }
 
-function userMessage(input: NativeTurnInput): Record<string, unknown> {
+/** A staged Skill is asked for by its name in the session's plugin, any other Skill by its own name. */
+function userMessage(input: NativeTurnInput, staged: ReadonlySet<string>): Record<string, unknown> {
+  const skills = (input.skills ?? []).map((name) => staged.has(name) ? `${SESSION_PLUGIN}:${name}` : name);
   return {
     type: "user",
     message: {
       role: "user",
       content: [
-        { type: "text", text: input.text },
+        { type: "text", text: skills.length ? `${skillInstruction(skills)}\n\n${input.text}` : input.text },
         ...input.images.map((image) => ({
           type: "image",
           source: {

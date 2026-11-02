@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "../src/renderer/composer.js";
 import { composerDrafts } from "../src/renderer/composer-drafts.js";
 import { LIMIT_RESUME_MARGIN_MS, LIMIT_RESUME_PROMPT, limitResumeAt } from "../src/renderer/limit-resume.js";
+import { pressKey, promptChips, promptText } from "./prompt-field.js";
 
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
@@ -76,27 +77,21 @@ describe("composer publish command", () => {
     await act(async () => command.click());
     expect(props.onPublish).toHaveBeenCalledOnce();
     expect(props.onSubmit).not.toHaveBeenCalled();
-    expect(container.querySelector("textarea")?.value).toBe("");
+    expect(promptText(container)).toBe("");
   });
 
   it("handles the send button locally after the command menu is dismissed", async () => {
     const props = await render({
       initialDraft: { prompt: "/PUBLISH", mentions: [] },
     });
-    await act(async () =>
-      container
-        .querySelector("textarea")!
-        .dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-        ),
-    );
+    await pressKey("Escape", {}, container);
     expect(container.querySelector('[role="listbox"]')).toBeNull();
     await act(async () =>
       container.querySelector<HTMLButtonElement>(".send-button")!.click(),
     );
     expect(props.onPublish).toHaveBeenCalledOnce();
     expect(props.onSubmit).not.toHaveBeenCalled();
-    expect(container.querySelector("textarea")?.value).toBe("");
+    expect(promptText(container)).toBe("");
   });
 
   it.each([
@@ -127,6 +122,18 @@ describe("composer publish command", () => {
       [],
       [],
     );
+  });
+});
+
+describe("composer status line", () => {
+  it("shows the latest response's speed and cache hits and how full the context is, without loading a session", async () => {
+    const onContextUsage = vi.fn(async () => ({ tokens: 11220, contextWindow: 128000, percent: 8.77, lastResponse: { outputTokens: 420, tokensPerSecond: 81, cacheHitPercent: 86 } }));
+    await render({ initialDraft: undefined, onContextUsage });
+    expect(onContextUsage).toHaveBeenCalledWith(true);
+    const status = container.querySelector(".composer-status")!;
+    expect(status.textContent).toBe("81 tok/sCache hit 86%9%");
+    await act(async () => status.querySelector<HTMLButtonElement>(".composer-status-context")!.click());
+    expect(document.querySelector(".composer-status-popover")?.textContent).toContain("~11.2K / 128K");
   });
 });
 
@@ -191,5 +198,27 @@ describe("composer usage limit resume", () => {
     expect(button().textContent).toBe("Continue after reset");
     await act(async () => { vi.advanceTimersByTime(3600_000); });
     expect(props.onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe("composer mentions", () => {
+  const blender = { id: "bundled/blender", name: "blender", displayName: "Blender", description: "3D", marketplaceId: "bundled", marketplaceDisplayName: "Bundled" };
+  const capabilities = { plugins: [blender], skills: [{ name: "review", description: "Review a change" }, { name: "game-design", description: "Write a brief" }] };
+  const mention = { name: "blender", displayName: "Blender", marketplaceId: "bundled" };
+
+  it("shows each plugin and Skill in the text as a chip, and sends the text as written", async () => {
+    const props = await render({ capabilities, canPublish: false, initialDraft: { prompt: "$review the @Blender scene with $game-design", mentions: [mention] } });
+    expect(promptChips(container)).toEqual(["Review", "Blender", "Game Design"]);
+    await act(async () => container.querySelector<HTMLButtonElement>(".send-button")!.click());
+    expect(props.onSubmit).toHaveBeenCalledWith("$review the @Blender scene with $game-design", [mention], [], "normal", [], [], []);
+  });
+
+  it("brings a Skill and plugin saved in slots before the text back into it", async () => {
+    localStorage.setItem("ohmygame:composer-draft:v1:publish-test:chat", JSON.stringify({
+      version: 1, prompt: "fix the scene", mentions: [mention], selectedSkill: "review", selectedPlugin: mention, planning: false,
+    }));
+    await render({ capabilities, canPublish: false, initialDraft: undefined });
+    expect(promptText(container)).toBe("$review @Blender fix the scene");
+    expect(promptChips(container)).toEqual(["Review", "Blender"]);
   });
 });

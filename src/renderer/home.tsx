@@ -15,10 +15,14 @@ import { useProjectShelfLayout } from "./use-project-shelf-layout.js";
 import { useProjectActivity } from "./use-project-activity.js";
 import { Button } from "./ui/index.js";
 import "./home.css";
+import type { OnboardingStart } from "./onboarding.js";
 import { t } from "./i18n.js";
 
 interface HomeProps {
   inert?: boolean;
+  /** Where setup's last step sent the person; Home acts on it once. */
+  start?: OnboardingStart;
+  onStartHandled?: () => void;
   onNavigate: (page: AppNavigationTarget) => void;
   onCreate: (project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
   onOpen: (projectId: string, view?: "design") => void;
@@ -32,10 +36,10 @@ interface CreateRequest {
   workspacePath?: string;
 }
 
-// Home is where every project starts: the prompt opens the new-project dialog
-// with the prompt as the first message; Start blank and Import folder open it
-// without one.
-export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps) {
+// Home is where every project starts: the prompt creates the project at once,
+// with the prompt as its first message, and opens the new-project dialog only
+// when something needs the person; Start blank and Import folder open it.
+export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onStartHandled }: HomeProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -79,12 +83,21 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
     }
   }
 
+  useEffect(() => {
+    if (!start || inert) return;
+    onStartHandled?.();
+    if (start === "blank") setCreating({});
+    else if (start === "import") void importFolder();
+    else document.querySelector<HTMLElement>(".home-hero textarea, .home-hero [contenteditable=\"true\"]")?.focus();
+  }, [start, inert]);
+
   const visibleProjects = projects.slice(0, recentProjectLimit);
   // Two rows, so every example type has room; Home scrolls when the window is short.
   const visibleExamples = examples.slice(0, columns * 2);
 
+  // While a prompt's project is being made, the page waits for it rather than lose it.
   return (
-    <PageFrame active="home" inert={inert} onNavigate={onNavigate}>
+    <PageFrame active="home" inert={inert || !!creating?.firstMessage} onNavigate={onNavigate}>
       <main className="home-page">
         <WindowDragRegion />
         <div className="home-body">
@@ -93,12 +106,13 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
             <ProjectPromptCreator
               draftKey="home"
               placeholder={t("home.placeholder")}
+              disabled={!!creating?.firstMessage}
               onSubmit={(firstMessage, clearDraft) => setCreating({ firstMessage, clearDraft })}
+              starts={<>
+                <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} disabled={!!creating} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
+                {canImportFolder ? <Button variant="ghost" size="sm" icon={<Import size={14} />} disabled={!!creating} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
+              </>}
             />
-            <div className="home-starts">
-              <Button variant="ghost" size="sm" icon={<FilePlus size={14} />} onClick={() => setCreating({})}>{t("home.startBlank")}</Button>
-              {canImportFolder ? <Button variant="ghost" size="sm" icon={<Import size={14} />} onClick={() => void importFolder()}>{t("home.importFolder")}</Button> : null}
-            </div>
             {importError ? <p className="home-notice" role="alert">{importError}</p> : null}
           </section>
 
@@ -143,6 +157,7 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps)
       {projectActions.dialogs}
       {creating ? <ProjectCreateDialog
         firstMessage={creating.firstMessage}
+        direct={!!creating.firstMessage}
         initialWorkspacePath={creating.workspacePath}
         onClose={() => setCreating(undefined)}
         onOpenProject={(projectId) => { setCreating(undefined); onOpen(projectId); }}

@@ -7,21 +7,39 @@
   gap: var(--space-4);
 }
 
+/* The workspace reads as one box beside the fields above, not as a field to type in. */
 .new-project-location {
   display: flex;
+  align-items: center;
   gap: var(--space-2);
+  height: 32px;
+  padding: 0 4px 0 var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-stage);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  font-size: var(--text-md);
 }
 
-.new-project-location .ui-input {
+.new-project-location-icon {
+  flex: none;
+  color: var(--color-text-tertiary);
+}
+
+/* A long path keeps its end, the folder's own name, in view. */
+.new-project-location-path {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
   color: var(--color-text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.new-project-location .ui-input input {
-  text-overflow: ellipsis;
+.new-project-location-path.is-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  direction: rtl;
+  text-align: left;
 }
 
 .new-project-form .ui-select {

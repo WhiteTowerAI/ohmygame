@@ -250,6 +250,8 @@ description. Built-in language providers show a
 icon); when the provider offers both methods, the section heading has a button
 to switch. The model list shows the global default language model
 first with a **Default** badge; hidden models stay under **Hidden models (n)**.
+Each row's checkbox shows or hides its model. A model switched off there stays
+in place, unchecked, until the page changes, so the list does not jump.
 Base URL and Responses connection settings sit in the **Advanced** section.
 
 ![Provider detail header with delete before the enable switch (sample data)](assets/provider-detail-controls.png)

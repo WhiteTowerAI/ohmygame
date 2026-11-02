@@ -5,14 +5,14 @@ import { AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { deleteLibraryAsset, forceDeleteLibraryAsset, getLibraryAsset, listLibraryAssetReferences, renameLibraryAsset, saveLibraryAsset, type LibraryAssetReference } from "./api.js";
 import { ModelPreview } from "./model-preview.js";
 import { Copy, Layers3, LoaderCircle, Pencil, Scissors, Trash2 } from "./icons.js";
+import { onGameRecordingSaved } from "./game-recording.js";
 import { filterLibraryAssets, loadLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
 import { LibraryFilterRow, libraryFiltersActive } from "./library-filters.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { Button, CategoryMark, ContextMenu, Dialog, DropdownMenu, Empty, IconButton, Input, MediaTile, SearchInput, Sheet, Skeleton, Tabs, type MenuEntry } from "./ui/index.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
-import { VideoTrimEditor } from "./video-trim-editor.js";
-import { saveTrimmedVideo, TrimProgress, trimSummary, useVideoTrimSave } from "./video-trimmer.js";
+import { saveTrimmedVideo, VideoTrimmer } from "./video-trimmer.js";
 import type { VideoTrim } from "./video-trim.js";
 import { t, tNodes } from "./i18n.js";
 import "./library.css";
@@ -58,6 +58,8 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   }
 
   useEffect(() => { void load(); }, [serviceGeneration]);
+  // A recording can finish while this page is open, as when it is stopped from the Play window.
+  useEffect(() => onGameRecordingSaved(() => void load()), []);
 
   async function runAssetAction(action: () => Promise<unknown>): Promise<boolean> {
     setActionError(undefined);
@@ -303,21 +305,9 @@ function RenameDialog({ asset, busy, error, onClose, onConfirm }: { asset: Libra
 function TrimEditor({ asset, onSave, onCancel }: { asset: LibraryAsset; onSave: (video: Blob, trim: VideoTrim) => Promise<void>; onCancel: () => void }) {
   const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, asset.assetId);
   const loadSource = useRef(() => getLibraryAsset(asset.id)).current;
-  const { file, trim, setTrim, saving, error, save } = useVideoTrimSave(loadSource, onSave);
   if (!preview.url) return <span className="library-sheet-state" role={preview.error ? "alert" : undefined}>{preview.error ?? <><LoaderCircle className="spin" size={16} />{t("assets.loading")}</>}</span>;
   return <div className="library-trim">
-    <VideoTrimEditor url={preview.url} label={fileName(asset.path)} loadSource={file} trim={trim} onTrimChange={setTrim} disabled={Boolean(saving)}
-      renderFooter={({ trim: selected, changed, reset, pause }) => <div className="library-trim-footer">
-        <span className="library-trim-summary" aria-live="polite">{trimSummary(selected, changed)}</span>
-        {error ? <span className="library-page-dialog-error" role="alert">{error}</span> : null}
-        {saving ? <>
-          <TrimProgress progress={saving.progress} />
-          <Button disabled={saving.uploading} onClick={() => saving.controller.abort()}>{t("common.cancel")}</Button>
-        </> : <>
-          {changed ? <Button variant="ghost" onClick={reset}>{t("videoTrim.reset")}</Button> : <Button variant="ghost" onClick={onCancel}>{t("common.cancel")}</Button>}
-          <Button variant="primary" icon={<Scissors size={14} />} disabled={!changed} title={t("videoTrim.saveTitle")} onClick={() => selected && void save(selected, pause)}>{t("videoTrim.save")}</Button>
-        </>}
-      </div>} />
+    <VideoTrimmer url={preview.url} label={fileName(asset.path)} loadSource={loadSource} onSave={onSave} onCancel={onCancel} />
   </div>;
 }
 

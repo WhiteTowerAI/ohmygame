@@ -336,6 +336,20 @@ it("refuses tools outside the public list and those the project does not have", 
   ).toMatchObject({ isError: true });
 });
 
+it("remembers which clients connected and how many tools they called", async () => {
+  const { game, rpc, call, service, authorization } = await fixture();
+  const answer = await rpc(undefined, "initialize", { protocolVersion: "2025-06-18", clientInfo: { name: "claude-code", version: "2.1.0" } }, [game]);
+  const session = answer.headers!["mcp-session-id"]!;
+  await call(session, "canvas_check");
+  await call(session, "canvas_check");
+  await rpc(undefined, "initialize", { protocolVersion: "2025-06-18" });
+  expect(service.recentClients()).toEqual([
+    { name: "claude-code", lastUsedAt: expect.any(String), calls: 2, active: true },
+  ]);
+  await service.end(authorization, session);
+  expect(service.recentClients()).toMatchObject([{ name: "claude-code", calls: 2, active: false }]);
+});
+
 it("turns slow generations into jobs that outlive the request", async () => {
   const { game, open, call, signals, finish } = await fixture();
   const session = await open([game]);
@@ -399,10 +413,7 @@ it("serves the public contract from the daemon without the app token", async () 
     headers: { authorization: "Bearer app-token" },
     payload: { enabled: true },
   });
-  expect(settings.json()).toMatchObject({
-    enabled: true,
-    clients: [{ id: "claude-code" }, { id: "codex" }],
-  });
+  expect(settings.json()).toMatchObject({ enabled: true });
   const endpoint = JSON.parse(
     await readFile(
       path.join(dataDirectory, "external-mcp", "endpoint.json"),

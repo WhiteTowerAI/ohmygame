@@ -1,5 +1,5 @@
 import { isUtf8 } from "node:buffer";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   CheckpointFile,
   CheckpointFileView,
@@ -47,16 +47,20 @@ export function registerCheckpointRoutes(
   // Cancel remains available while a boundary waits for generation to settle.
   // Upgrading a story and copying its Library media take the workspace to themselves, as Undo does.
   // So do plugin commands and undoing their changes; plugin pages' storage and lists aren't workspace files.
+  // So does saving tuned values, whose drafts aren't workspace files and move during a snapshot.
   const exempt = (url: string) =>
     /\/checkpoints\/|\/events(?:\?|$)/.test(url) ||
     /\/cancel(?:\?|$)/.test(url) ||
     /\/interactive-story\/(?:upgrade|library-media)(?:\/|\?|$)/.test(url) ||
     /\/plugin-(?:commands|changes|storage|panels)(?:\/|\?|$)/.test(url);
+  // By route: a raw URL can spell the path another way, and holding the workspace would deadlock the save.
+  const exemptRequest = (request: FastifyRequest) =>
+    exempt(request.url) || /^\/projects\/:projectId\/tuning(?:\/|$)/.test(request.routeOptions.url ?? "");
   app.addHook("preHandler", async (request, reply) => {
     const id = (request.params as { projectId?: string }).projectId;
     if (!id) return;
     reply.header("x-workspace-version", writes.version(id));
-    if (exempt(request.url)) return;
+    if (exemptRequest(request)) return;
     if (
       request.method === "DELETE" &&
       /^\/projects\/[^/?]+(?:\?|$)/.test(request.url)
@@ -104,7 +108,7 @@ export function registerCheckpointRoutes(
       }
       // Wait before entering the drain set: a closing turn's snapshot needs
       // this set empty, while publish/build need that snapshot to finish.
-      if (/\/(?:publish|interactive-story\/build)(?:\?|$)/.test(request.url))
+      if (/\/(?:publish|build)(?:\?|$)/.test(request.url))
         await agents.turnsClosed(id);
       // Export reads the current workspace, including from a project list
       // that has not observed its version. Still drain it before a restore.
@@ -127,7 +131,7 @@ export function registerCheckpointRoutes(
     const id = (request.params as { projectId?: string }).projectId;
     // A normal read's content belongs to its pre-handler version. A restore
     // can start after its handler settles, before this response is sent.
-    if (id && exempt(request.url))
+    if (id && exemptRequest(request))
       reply.header("x-workspace-version", writes.version(id));
   });
 

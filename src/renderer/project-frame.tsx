@@ -44,9 +44,9 @@ export function ProjectTop({ name, menu, status, children }: { name: string; men
  * The top bar's Publish button: an asset canvas has nothing to publish, and
  * Godot and plugin projects can't publish yet. It waits while the agent works.
  */
-export function publishAction(project: Pick<ProjectState, "type" | "integration">, { publishing, agentBusy }: { publishing: boolean; agentBusy: boolean }): { disabled: boolean; label: string } | undefined {
+export function publishAction(project: Pick<ProjectState, "type" | "pluginType">, { publishing, agentBusy }: { publishing: boolean; agentBusy: boolean }): { disabled: boolean; label: string } | undefined {
   if (project.type === "asset-canvas") return undefined;
-  const unavailable = project.type === "godot-game" || !!project.integration;
+  const unavailable = project.type === "godot-game" || project.pluginType?.preview === "native";
   return {
     disabled: unavailable || publishing || agentBusy,
     label: project.type === "godot-game" ? t("workspace.godotPublishing") : publishing ? t("workspace.publishing") : t("workspace.publish"),

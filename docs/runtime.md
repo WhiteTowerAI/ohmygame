@@ -95,41 +95,33 @@ requiring another selection. Failed sign-in can be retried in place.
 can return a browser URL or a terminal command,
 with a recheck after sign-in. Advanced CLI configuration stays in Settings → Agents.
 
-OhMyGame (Pi) appears first with a **Default** subtitle alongside the CLIs in a
-single horizontally scrolling row. Initially only agent choices are shown.
-Selecting one replaces those cards with a compact name and a **Switch**
-action, then shows its configuration. A short hint on the agent choices explains
-that multiple agents can stay connected and users can switch between them.
-The hint is hidden in an agent's configuration. Reopening the choices preserves model
-selections and hides configuration until an agent is selected again. It cannot be disabled. Selecting it
-does not disable any CLI. Sign-in, API key, and configuration actions use icons
-with accessible labels and tooltips. Connected
+The agents sit in one row: OhMyGame (Pi) first, then the CLIs. Each tile
+shows its status (ready, built in, installed, signed out, or not detected),
+which screen readers hear with the name. The chosen agent's configuration
+fills the panel below the row; choosing it again keeps its model selection.
+When discovery fails, a **Rescan** tile takes the CLIs' place, or follows them
+when a later check fails. OhMyGame cannot be
+disabled, and selecting it does not disable any CLI. Sign-in, API key, and
+configuration actions use icons with accessible labels and tooltips. Connected
 providers show a check; disabled connections offer an enable icon without
 changing their credentials.
-Wide windows show all four agents; narrower windows hide the scrollbar and
-allow wheel, touch, keyboard, and arrow navigation. Vertical wheel events only
-move the row while there is horizontal space in that direction.
 The connection screen also selects the default conversation model. It uses
 `/models?runtimes=1`, including enabled coding agents, and retries catalogs with
 `loadingRuntimes` without hiding models already available. Native defaults use
 `nativeReasoningLevel`; provider defaults use `reasoningLevel`. **Next** saves
-the default and opens optional creative tools. Completing setup requires an
+the default and opens the last step. Completing setup requires an
 enabled, visible provider model or an enabled CLI model, without sending inference.
-**Skip and start** on the connection screen records `skipped` when no model is ready.
+**Skip this step** on the connection screen, shown when no model is ready, moves
+to the last step without saving a model.
 
-The final `media` step offers image, video, 3D, and audio category filters and
-reuses Settings' provider connection forms. All providers in the selected category
-are shown directly, without a More section. The **+** button opens the shared
-custom-provider form inline, without changing the conversation model. The footer
-offers **Start creating**; step indicators handle navigation. The description points
-to **Settings → Providers** for later configuration.
-Media default models stay in Settings; this step does not load their catalogs.
-Media setup never changes the chat model or reloads the conversation catalog
-when media connections change. **Start creating** enters the studio without
-requiring media credentials or waiting for media catalogs; completion records
-`completed` when a conversation model is available, otherwise `skipped`.
-Actions remain outside the media form's scrolling area and above three step
-indicators.
+The final `start` step asks where to begin: **Describe a game** (Home's prompt
+box gets focus), **Blank project** (Home opens the new-project dialog), or
+**Import folder** (Home opens the folder picker; desktop only). Choosing one, or
+**Not now**, finishes setup and records `completed` when a conversation model is
+available, otherwise `skipped`. Home acts on the choice once, after the
+greeting. Image, video, 3D, and audio providers are connected in **Settings →
+Providers**; setup does not ask for them. A saved `media` step from an earlier
+version resumes at `start`.
 
 Settings → Providers and the setup list share one grouping. Every working
 connection, including free cloud and local services, is under **Connected
@@ -156,7 +148,7 @@ language model within the form. The recommendation mirrors Pi's per-provider
 defaults for popular providers and falls back to the provider's first visible
 model. The ready line names the selected model and its provider; its menu lists
 only the current agent's models. Switching agents retains each model choice
-without saving or reloading catalogs. **Next**, or navigating to the media step,
+without saving or reloading catalogs. **Next**, or navigating to the start step,
 saves the selected model once. Navigation stays disabled during that save;
 **Retry** retries a failed save without repeating authorization or enabling the
 agent again. Provider listing and conversation models load independently, so a
@@ -171,24 +163,21 @@ renderers do not pass through the home gate.
 
 **Settings → About → View getting started** reopens the welcome. Moving to the
 connection step with **Next** saves a pending preference again. The three bottom
-step indicators switch between welcome, AI connection, and optional creative
-tools. Selecting the provider step also returns from its inline forms to
-the provider list. Step navigation is disabled while saving. The welcome's
-illustration plays once per setup session in 5.2 seconds. Returning from a later
-step shows the final logo, title, and controls immediately, including when setup
-resumes at a later step. Only the forming game world
-is visible at first: terrain rises, paths unfold, and trees
-grow in sequence. Its outline then morphs into a small OhMyGame logo beside
-the wordmark, followed by **Your own game studio.** and **Next**. Hidden
-controls stay out of keyboard navigation. Reduced-motion preferences show the
-final logo, title, and controls immediately. The connection screen reuses
+step indicators switch between the welcome, choosing the AI, and where to
+start. Selecting the AI step also returns from its inline forms to the agent
+list. Step navigation is disabled while saving. The welcome is a short launch
+animation (the app mark and a dot grid) with **Get started**; it asks
+nothing. Language and appearance follow the
+system until changed in Settings, and reduced motion shows it still. The AI
+step shows OhMyGame and the Claude Code, Codex, and OpenCode CLIs in one row,
+with the chosen one's setup (OhMyGame's model providers by default) below it;
+**Next** stays in view while the setup scrolls. The connection screen reuses
 the daemon's provider authentication flow and custom-provider form; it does
 not require an OhMyGame cloud account. The add button beside provider search
 opens that form inline. Settings uses the same form in its existing dialog.
 Saving or cancelling returns to the provider list without adding a persisted
-setup step. Image, video, 3D, and audio connections can be configured in optional
-creative tools or in Settings, and never change the language-model completion
-requirement.
+setup step. Image, video, 3D, and audio connections are configured in Settings
+and never change the language-model completion requirement.
 
 After the completion or skip preference is saved, a 1.9-second localized
 **Welcome, Gamer!** greeting appears on one centered line in the app's system font
@@ -391,6 +380,9 @@ URLs are accepted. This capability is available only when the daemon is owned
 by the Electron process; browser-only daemon development does not register the
 tool.
 
+`game_use` can also [record a session](preview-runtime.md#recording-a-game) to
+the Library when the person asks for a video of the game.
+
 This is deliberately a game-use runtime, not unrestricted Browser Use or
 desktop Computer Use. It provides the smallest stable surface needed for
 repeatable gameplay and visual checks without adding Playwright, Puppeteer, or
@@ -452,11 +444,21 @@ projects/<project-id>/
 ├── cover-auto.webp last automatic cover, retained when a custom cover is applied
 ├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
 ├── cover-state.json explicit cover mode, including when no cover exists
+├── logo.webp      uploaded logo, shown in the sidebar instead of the icon
 ├── preview-origin.json stable local preview port
 ├── checkpoints/   snapshots of the workspace, one bare Git repository
 ├── workspace/     the project files (or an existing folder in the desktop app)
 └── session/       Pi session files, one per conversation
 ```
+
+Settings → General → **Project location** sets the folder new projects are
+made in when the dialog doesn't choose one: each gets a new subfolder named
+after it (`Name`, then `Name 2`, …), used as an existing folder is. Unset, new
+projects live in `projects/<project-id>/workspace/`. The choice is in
+`project-location.json` in the data directory; `GET`/`PUT
+/settings/project-location` read and change it, and a folder that isn't an
+absolute, existing directory, is the filesystem root, or overlaps the projects
+storage is refused.
 
 Removing a project never deletes an existing folder used as its workspace.
 Choosing a folder that is already a project's workspace when creating a project
@@ -484,12 +486,18 @@ Inside a project the sidebar becomes a rail: the logo (Home), the recent
 projects as covers, **New project** (Home), Search, the desktop update and the
 account. The open project is marked; hovering a project lists its
 conversations, newest first, and the open project's list ends with **New
-conversation**. On macOS the rail's Back and Forward sit beside the window
-controls. The top bar holds the project's name as its menu (**Rename
-project…**, **Open in folder** in the desktop app, **Export project**, and a
-return to the entry page) and **Publish**, which an asset canvas does not have
-and Godot and plugin projects show disabled. Leaving through the rail or the
-menu saves the open design first.
+conversation**. The rail's Back and Forward lead the top bar: beside the
+window controls on macOS, at the window's edge on Linux and in a browser. On
+Windows the app draws the title bar itself (`desktop-window-frame.tsx`): the
+window's menus, then Back and Forward, with the system's window controls at
+its right end, in the app's colours. The top bar holds the project's name as its menu (**Rename
+project…**, **Open in folder** in the desktop app, **Export project**,
+**Plugins…**, and a return to the entry page), **Play** while the Game panel
+isn't on screen, which shows it, and the **Publish** menu, which an asset canvas does
+not have and Godot and plugin projects show disabled. It publishes to the
+OhMyGame community or exports the web build: the publish artifact as a ZIP
+without the upload size limit, to host elsewhere. Leaving through the rail, the
+menu or the title bar, and either export, saves the open design first.
 
 The return item goes back to the page the project was opened from. The
 destination survives conversation/view changes and refreshes in the same tab; a
@@ -498,8 +506,9 @@ preserves its type filter, search (`q`), and name sorting (`sort=name`) when
 returning or refreshing.
 
 Pages outside a project share one sidebar: Search, Home, Projects, Library,
-Community, Plugins, the eight most recently edited projects, and the account.
-Its menu opens Settings (also **⌘,** or **Ctrl+,**), Account, Billing and About;
+Community, Plugins, the five most recently edited projects (Projects lists the
+rest), and the account.
+Its menu opens Settings (also **⌘,** or **Ctrl+,**), Account and About;
 signed out, it leads with **Sign in…**.
 
 Search, in the sidebar and the project rail, opens the command menu (also
@@ -511,26 +520,46 @@ project, most recently edited first, the Settings sections, and switching
 between dark and light. Leaving an open project from the menu or a shortcut
 saves its design first, as the rail does. While a dialog is open, the menu and
 these shortcuts wait for it to close. A pending desktop update shows above the account until
-it needs a restart. The sidebar collapses to icons and its edge drags between
+it needs a restart. The sidebar collapses to icons, each naming itself in a
+tooltip on hover or focus. As everywhere in the app, the first tooltip waits a
+moment and the next ones show at once while the pointer moves along the icons.
+Its edge drags between
 200 and 360px (double-click restores 232px); both stay across pages and
 restarts. Settings is a page in this frame, with its sections beside the
-content in four groups: General and Appearance; AI (Agents, Providers, Web
-Search); Connections (MCP Server, Network); and Account, Billing and About.
-`#/settings` opens General. Each agent, OhMyGame's own included, has its own
+content in four groups: General, Appearance, and desktop Notifications; AI (Agents, Providers, Web
+Search); Connections (MCP Server, Network); and Account and About. Billing is
+hidden until it ships; `#/settings/billing` still opens it.
+`#/settings` opens General. General's choices stay on this computer
+(`src/renderer/general-preferences.ts`): where the app opens (Home, or the
+project open when it last closed), whether Enter or ⌘/Ctrl+Enter sends, a
+browser notification and an optional sound when an agent finishes while the
+window is in the background, and, in the desktop app, keeping the computer awake while an agent
+works and updating by itself (off by default: a found release then downloads
+in the background and installs on quit), with the project location. Each agent, OhMyGame's own included, has its own
 page at `#/settings/agents/<id>`, and Back returns to the list. Appearance
 also sets the grey palette (Neutral, Warm, High contrast) and a serif chat
 font; both are stored in the renderer and applied as `data-palette` and
-`data-chat-font` on the root before the first render.
+`data-chat-font` on the root before the first render. The palette reaches every
+screen: the older colour variables at the top of `styles.css` point at the
+design tokens in `ui/tokens.css`.
 
-Every project starts from Home. Sending its prompt opens the new-project dialog
-(name, type and folder) with the prompt as the project's first message; **Blank
-project** opens the dialog empty, and **Import folder** (desktop app) picks an
-existing folder, opening its project if it already has one. The dialog offers
-every project type, narrowed to those the prompt's plugins support. A picker in
-the prompt box chooses the plugin to start with, from the enabled plugins that
-start projects (Web Game Studio, Game Studio, Godot, Three.js World and the
-engine and mini-game plugins); its plugin mention leads the first message.
-Ideas under the box fill the prompt. The former studio pages are gone; their
+Every project starts from Home. Sending its prompt creates the project at once,
+with the prompt as its first message: the type and plugins come from the prompt
+box, the name from the prompt, and the folder from Settings → General → Project
+location. The new-project dialog (name, type and folder) opens only when
+something needs the person: a type's plugin asking for access, a chosen type
+that is no longer available, plugins that fail to load, or creating failing or
+being cancelled. Home waits while it is made. **Blank project** opens
+the dialog empty, and **Import folder** (desktop app) picks an existing folder,
+opening its project if it already has one. The dialog offers every project
+type, narrowed to those the prompt's plugins support. The prompt
+box's type menu adds the enabled plugins that set up their own projects, such
+as TapTap Maker. Beside it, a plugin menu chooses any number of plugins to
+start with, from the enabled plugins that start projects (Web Game Studio,
+Game Studio, Godot, Three.js World and the engine and mini-game plugins); their
+mentions lead the first message in the order chosen. **Ideas**, in the row under
+the box with **Blank project** and **Import folder**, lists a few prompts for
+the type that fill the box. The former studio pages are gone; their
 links (`#/web-game`, `#/interactive-story`, `#/godot`, `#/asset-canvas`,
 `#/general`) open Home.
 
@@ -577,6 +606,9 @@ Game and opens on Code; a story opens on its Story map; panels new to the saved 
 default's order and front tab. A chat moved to the middle reads in one centered
 column.
 
+Chat's controls beside its tab name the open conversation; it opens the
+conversation list, to search, switch and rename, and **+** starts a new one.
+
 With Chat closed, its composer floats over the middle area instead
 (`src/renderer/floating-chat.tsx`), with the approval, question and plan cards
 when they wait on an answer. Turns sent while it is open stack above it, the
@@ -584,6 +616,15 @@ latest three at most; the chat panel keeps the whole conversation. The bar
 drags by its top edge (double-click puts it back), folds to a pill at the
 bottom, which unfolds when something waits on an answer, and opens into the
 chat panel. The composer's draft carries between the bar and the panel.
+
+The composer's and Home's prompt field (`src/renderer/prompt-editor.tsx`, a
+plain-text Lexical editor) shows each plugin (`@Name`) and Skill (`$name`) the
+prompt names as a chip, which the caret steps over and Backspace removes
+whole. Picking one from `@`, `$`, `/` or the **+** menu puts it where it is
+typed, any number of each; the field's text is the prompt as sent. A name
+typed by hand stays text until the prompt is shown again, as from history.
+Drafts saved when a Skill or plugin sat in a slot before the text come back
+with it in the text.
 
 Design is the game design document, the Markdown the agent reads as the game's
 design (`src/renderer/design-document-panel.tsx`). Its toolbar picks one of the
@@ -635,6 +676,9 @@ has finished, in any project, including while the main window is closed.
 - On Windows, closing the main window quits the app, so notifications arrive
   only while the window is open, minimized or in the background.
 - **Settings → Notifications** has one switch that turns notifications off.
+  It preserves the earlier General → Notifications choice when upgrading.
+  Desktop completion notices use this main-process path; browser notifications
+  and the optional General completion sound keep their existing behavior.
   Sound follows the system's notification settings. The renderer stores the
   choice and sends it to the main process with the notification wording in
   the UI language.
@@ -714,6 +758,26 @@ in the `--project-cover-*` variables in `src/renderer/styles.css`.
 
 ![Stable default project covers](assets/project-placeholders.webp)
 
+**Appearance…** in the project menu, also at the top of project settings,
+changes how a project looks. Changes apply at once and are kept in
+`appearance` in `project.json`:
+
+- `icon` and `tone` replace the icon and background the ID picks. The icons are
+  the 24 in `PROJECT_ICONS` (`src/shared/project-appearance.ts`), whose order
+  must stay stable, and the tones are `--project-cover-bg-0` to `-3`.
+- `cover: "template"` shows the icon on its background instead of the cover.
+  The captured and uploaded covers are kept, so choosing **Captured** or
+  **Image** again brings them back; `GET /projects/:id/cover` answers 404 and an
+  export packs no cover while the template is chosen.
+- `logo: true` marks an uploaded logo, a square WebP of up to 256 pixels in
+  `logo.webp`. `PUT`/`DELETE /projects/:id/logo` set and remove it;
+  `PUT /projects/:id/appearance` replaces the rest and keeps the logo.
+
+The sidebar shows the logo, else the chosen icon, else the cover, else the
+template, with the icon centred at the sidebar's size. Cards show the cover or
+the template. Duplicating, exporting and importing keep the appearance and the
+logo.
+
 Project covers are saved independently of publishing. Selecting an image in the
 publish dialog previews it; **Apply cover** saves it and stops automatic cover
 replacement. The **Automatic** switch beside **Cover** can also stop replacement
@@ -764,6 +828,9 @@ produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 and symbolic links are skipped. Binary assets retain their original bytes except
 for the Interactive Story publish-copy optimizations described above.
 The workspace, Pi sessions, conversations, and credentials are never sent.
+`POST /projects/:projectId/build` returns the same static output as a ZIP for
+web games, General projects, and Interactive Stories, without the upload size
+limit or the story publish-copy optimizations.
 
 Each publish creates an immutable Deployment of the same Game, so the play link
 stays the same. The project stores only the publication identity: Game ID,
@@ -784,8 +851,11 @@ colors following the app's light or dark theme. See the
 [dark](assets/community-gallery-dark.webp) and
 [light](assets/community-gallery-light.webp) examples (sample games).
 
-Author links open their public profile with listed works. **My profile** requires
-sign-in and includes deployed works. Profile cards open the game detail; they
+Author links open their public profile with listed works. **My games**, next to
+the search and in the account menu, opens your own profile; it requires sign-in
+and includes deployed works. While the gallery is open, the window coming back
+after a minute or more reloads the list in the background, keeping the grid if
+that fails. Profile cards open the game detail; they
 have no editing or unpublish controls. The game detail header shows **Edit game**
 and a **More game actions → Unpublish** menu only for the signed-in author,
 using the existing user and game author IDs without an extra ownership request.

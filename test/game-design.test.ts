@@ -398,8 +398,12 @@ describe("Markdown design workspace", () => {
     stopped.abort();
     await expect(abandoned).rejects.toThrow();
     expect((await store.jobs(project.id)).find((job) => job.id === manual.id)).toMatchObject({ status: "running" });
+    // The manual run may finish only once this call has joined it: finishing saves its output to the node.
+    const join = vi.spyOn(store, "generateNode");
     const followed = tool.execute("follow", { boardId, nodeId: node.id }, undefined, undefined, {} as never);
-    await expect.poll(() => generate.mock.calls.length).toBe(1);
+    await expect.poll(() => join.mock.calls.length).toBe(1);
+    expect(await join.mock.results[0]!.value).toMatchObject({ id: manual.id, reused: "running" });
+    join.mockRestore();
     release();
     const first = await followed;
     expect(first.content[0]).toMatchObject({ text: expect.stringContaining("was already generating") });

@@ -73,3 +73,17 @@ it("says nothing about the permission while notifications work", async () => {
   expect(container.querySelector('[role="status"]')).toBeNull();
   expect(notifications.requestPermission).not.toHaveBeenCalled();
 });
+
+it("preserves a disabled completion notification preference when upgrading", async () => {
+  localStorage.removeItem("ohmygame:notifications");
+  localStorage.setItem("ohmygame:run-notifications", "off");
+  try {
+    await render("allowed");
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+    await act(async () => toggle().click());
+    expect(toggle().getAttribute("aria-checked")).toBe("true");
+    expect(JSON.parse(localStorage.getItem("ohmygame:notifications")!)).toEqual({ enabled: true });
+  } finally {
+    localStorage.removeItem("ohmygame:run-notifications");
+  }
+});

@@ -2,6 +2,7 @@ import { assertWorkspaceVersion, workspaceVersion } from "./workspace-version.js
 import type { AssetCanvasDocument, ToolJob } from "../shared/contracts.js";
 import { isAssetCanvasDocument, withoutContentNodeSizes } from "../shared/asset-canvas.js";
 import { mergeCanvasDocument, type CanvasBoardDetail } from "../shared/canvas-workspace.js";
+import { sameJson } from "../shared/same-json.js";
 import { cancelCanvasJob, generateCanvasMedia, getCanvasBoard, listCanvasJobs, saveCanvasBoard } from "./canvas-api.js";
 import { t } from "./i18n.js";
 
@@ -37,8 +38,7 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
   const assertWritable = (local?: AssetCanvasDocument) => {
     assertWorkspaceVersion(projectId, version);
     if (!conflicting) return;
-    const serialized = JSON.stringify(local);
-    if (local && serialized !== JSON.stringify(canvasOnly(conflicting.remote.board)) && serialized !== JSON.stringify(conflicting.local)) {
+    if (local && !sameJson(local, canvasOnly(conflicting.remote.board)) && !sameJson(local, conflicting.local)) {
       remember(local, conflicting.base);
       conflicting = { ...conflicting, local };
       onConflict({ local, remote: conflicting.remote });
@@ -89,7 +89,8 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
     save: (local) => enqueue(async () => {
       await ready();
       assertWritable(local);
-      if (JSON.stringify(local) === JSON.stringify(canvasOnly(base!.board))) {
+      // The board as loaded, its keys perhaps in another order, is not an edit.
+      if (sameJson(local, canvasOnly(base!.board))) {
         try { localStorage.removeItem(recoveryKey); } catch { /* The disk version is already saved. */ }
         return local;
       }
@@ -120,7 +121,7 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
       const merged = mergeCanvasDocument(canvasOnly(base!.board), local, canvasOnly(remote.board));
       if (!merged) { conflict(local, remote); throw new Error(conflictMessage); }
       base = remote;
-      if (JSON.stringify(merged) !== JSON.stringify(canvasOnly(remote.board))) remember(merged);
+      if (!sameJson(merged, canvasOnly(remote.board))) remember(merged);
       loading = Promise.resolve(merged);
       return merged;
     }),

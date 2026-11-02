@@ -25,6 +25,19 @@ describe("DesktopWindowFrame", () => {
     expect(html.match(/desktop-window-menu-bar/g)).toHaveLength(1);
   });
 
+  it("puts back and forward after the menus, as far as the window can go", () => {
+    vi.stubGlobal("window", {
+      navigation: { canGoBack: true, canGoForward: false },
+      ohMyGameDesktop: { platform: "win32", windowMenu: { popup: vi.fn() } },
+    });
+
+    const html = renderToStaticMarkup(<DesktopWindowFrame><main>Workspace</main></DesktopWindowFrame>);
+
+    expect(html.indexOf(">Window</button>")).toBeLessThan(html.indexOf('aria-label="Back"'));
+    expect(html).toMatch(/<button type="button" aria-label="Back" title="Back">/);
+    expect(html).toMatch(/<button type="button" aria-label="Forward" title="Forward" disabled="">/);
+  });
+
   it("does not add the Windows menu bar in the browser", () => {
     vi.stubGlobal("window", {});
     expect(renderToStaticMarkup(<DesktopWindowFrame><main>Workspace</main></DesktopWindowFrame>))

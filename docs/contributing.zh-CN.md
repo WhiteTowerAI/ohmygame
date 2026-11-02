@@ -45,6 +45,7 @@ Supabase 配置时，本地开发支持调试账户和临时本地发布。测�
 bun run prepare:preinstalled-plugins
 bun run changelog:check
 bun run typecheck
+bun run lint
 bun run test
 bun run build:renderer
 bun run test:node-runtime

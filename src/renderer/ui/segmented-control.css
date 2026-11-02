@@ -38,7 +38,8 @@
 }
 
 .ui-segmented button.is-selected {
-  background: var(--color-selected);
+  background: var(--color-segment);
+  box-shadow: var(--shadow-segment);
   color: var(--color-text);
   font-weight: var(--weight-medium);
 }

@@ -13,7 +13,7 @@ describe("PluginsSettings", () => {
   });
 
   it("opens plugin details from the route without rendering catalog controls", () => {
-    const html = renderToStaticMarkup(<PluginsSettings pluginId="ohmygame:web-game-studio" onPluginChange={() => undefined} onTryPlugin={async () => undefined} />);
+    const html = renderToStaticMarkup(<PluginsSettings pluginId="ohmygame/web-game-studio" onPluginChange={() => undefined} onTryPlugin={async () => undefined} />);
 
     expect(html).toContain("</span>Plugins</button>");
     expect(html).toContain("Loading plugin");

@@ -19,6 +19,7 @@ import { createPortal } from "react-dom";
 import { Check, Search, X } from "../icons.js";
 import { t } from "../i18n.js";
 import { IconButton } from "./button.js";
+import { Kbd } from "./display.js";
 import "./overlay.css";
 
 type Placement =
@@ -27,6 +28,7 @@ type Placement =
   | "top-start"
   | "top"
   | "bottom"
+  | "right"
   | "right-start";
 
 /** Fixed-position coordinates for a floating element next to an anchor, flipped when it would leave the window. */
@@ -47,9 +49,11 @@ function useAnchoredPosition(
     const { width, height } = f.getBoundingClientRect();
     let top = placement.startsWith("top")
       ? a.top - height - offset
-      : placement.startsWith("right")
-        ? a.top
-        : a.bottom + offset;
+      : placement === "right"
+        ? a.top + a.height / 2 - height / 2
+        : placement === "right-start"
+          ? a.top
+          : a.bottom + offset;
     let left = placement.endsWith("end")
       ? a.right - width
       : placement === "top" || placement === "bottom"
@@ -76,19 +80,23 @@ function useAnchoredPosition(
     update();
     addEventListener("resize", update);
     addEventListener("scroll", update, true);
+    // A panel whose content changes size, as a list switching views, is placed again.
+    const resized = new ResizeObserver(update);
+    if (floating.current) resized.observe(floating.current);
     return () => {
       removeEventListener("resize", update);
       removeEventListener("scroll", update, true);
+      resized.disconnect();
     };
   }, [open, update]);
   return style;
 }
 
-/** Closes on Escape and on a pointer press outside both refs. */
+/** Closes on a press outside `refs` or on Escape; `refs[0]` is the anchor, which gets focus back from inside. */
 function useDismiss(
   open: boolean,
   onClose: () => void,
-  refs: RefObject<Element | null>[],
+  refs: RefObject<HTMLElement | null>[],
 ) {
   useEffect(() => {
     if (!open) return;
@@ -100,7 +108,9 @@ function useDismiss(
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.stopPropagation();
+        const focused = refs.some((ref) => ref.current?.contains(document.activeElement));
         onClose();
+        if (focused) refs[0]?.current?.focus();
       }
     };
     document.addEventListener("pointerdown", onPointer, true);
@@ -161,6 +171,13 @@ export function Popover({
 // ---------- Tooltip ----------
 
 /** Shows `content` after a short hover or on keyboard focus. The child must accept a ref and event props. */
+// A tooltip waits before showing, so passing over a control shows nothing. Once
+// one has shown, the next shows at once while the pointer moves along a row of
+// controls; after a short rest away from them, the wait comes back.
+const TOOLTIP_DELAY = 350;
+const TOOLTIP_WARM = 300;
+let tooltipsWarmUntil = 0;
+
 export function Tooltip({
   content,
   placement = "top",
@@ -178,13 +195,21 @@ export function Tooltip({
   const style = useAnchoredPosition(open, anchor, tip, placement);
   const show = () => {
     window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setOpen(true), 350);
+    if (Date.now() < tooltipsWarmUntil) setOpen(true);
+    else timer.current = window.setTimeout(() => setOpen(true), TOOLTIP_DELAY);
   };
   const hide = () => {
     window.clearTimeout(timer.current);
+    if (open) tooltipsWarmUntil = Date.now() + TOOLTIP_WARM;
     setOpen(false);
   };
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  // A tooltip that goes away while showing, as when the page changes, warms the next too.
+  const shown = useRef(false);
+  shown.current = open;
+  useEffect(() => () => {
+    window.clearTimeout(timer.current);
+    if (shown.current) tooltipsWarmUntil = Date.now() + TOOLTIP_WARM;
+  }, []);
   if (!isValidElement(children)) return children;
   return (
     <>
@@ -240,6 +265,8 @@ function MenuList({
   onClose: () => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
+  // Labels line up past an icon column only when some item has an icon.
+  const hasIcons = items.some((item) => typeof item === "object" && "label" in item && item.icon);
   useEffect(() => {
     list.current
       ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
@@ -281,9 +308,11 @@ function MenuList({
               onClose();
             }}
           >
-            <span className="ui-menu-icon" aria-hidden="true">
-              {item.icon}
-            </span>
+            {hasIcons ? (
+              <span className="ui-menu-icon" aria-hidden="true">
+                {item.icon}
+              </span>
+            ) : null}
             <span className="ui-menu-label">
               {item.label}
               {item.description ? (
@@ -353,9 +382,12 @@ export function DropdownMenu({
 /** Opens `items` at the pointer on right-click inside `children`. */
 export function ContextMenu({
   items,
+  disabled = false,
   children,
 }: {
   items: readonly MenuEntry[];
+  /** Right-click does nothing; the wrapper stays, so its children are not remounted. */
+  disabled?: boolean;
   children: ReactNode;
 }) {
   const [point, setPoint] = useState<{ x: number; y: number }>();
@@ -366,7 +398,7 @@ export function ContextMenu({
       className="ui-context-area"
       onContextMenu={(event) => {
         event.preventDefault();
-        setPoint({ x: event.clientX, y: event.clientY });
+        if (!disabled) setPoint({ x: event.clientX, y: event.clientY });
       }}
     >
       {children}
@@ -613,7 +645,7 @@ export function CommandMenu({
               }
             }}
           />
-          <kbd>Esc</kbd>
+          <Kbd>Esc</Kbd>
         </div>
         <div ref={list} id={`${id}-list`} className="ui-command-list" role="listbox" aria-label={t("commandMenu.label")}>
           {filtered.length ? filtered.map((command, index) => (

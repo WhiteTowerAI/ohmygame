@@ -175,6 +175,27 @@ describe("AgentTimeline", () => {
     expect(html.indexOf("I will write the game files.")).toBeLessThan(html.indexOf("Thinking"));
   });
 
+  it("shows Thinking once live text stalls for a second while the elapsed time keeps counting", async () => {
+    vi.useFakeTimers();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<AgentTimeline items={[
+      user(),
+      { ...assistant("commentary", "I will write the game files."), status: "inProgress", phase: undefined },
+    ]} activeTurnId="turn-1" />));
+    expect(container.textContent).not.toContain("Thinking");
+    expect(container.textContent).toContain("Working for 1s");
+    await act(async () => { vi.advanceTimersByTime(1_000); });
+    expect(container.textContent).toContain("Thinking");
+    expect(container.textContent).toContain("Working for 2s");
+    await act(async () => { vi.advanceTimersByTime(3_000); });
+    expect(container.textContent).toContain("Working for 5s");
+    act(() => root.unmount());
+    container.remove();
+    vi.useRealTimers();
+  });
+
   it("keeps unclassified text in the stable Working container until its phase is known", () => {
     const streaming = renderToStaticMarkup(<AgentTimeline items={[
       user(),
@@ -1085,6 +1106,23 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Attached image 1");
     expect(html).toContain('class="user-input"><div class="user-message-images"');
     expect(html).toContain('</div><div class="user-message">Build</div>');
+  });
+
+  it("shows the plugins a user message mentions as the plugins, in place", () => {
+    const mentions = [
+      { name: "web-game-studio", displayName: "Web Game Studio", marketplaceId: "ohmygame" },
+      { name: "gone", displayName: "Gone", marketplaceId: "personal" },
+    ];
+    const plugins = [{
+      id: "web-game-studio@ohmygame", name: "web-game-studio", displayName: "Web Game Studio", description: "",
+      marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame", icon: { type: "asset" as const, path: "./assets/icon.png" },
+    }];
+    const html = renderToStaticMarkup(<AgentTimeline plugins={plugins}
+      items={[{ ...user(), text: "@Web Game Studio hi with @Gone and @Someone", mentions }]} />);
+
+    expect(html).toMatch(/<div class="user-message"><span class="user-message-plugin" title="Plugin: Web Game Studio"><svg[^>]*>.*?<\/svg><span>Web Game Studio<\/span><\/span> hi with <span class="user-message-plugin" title="Plugin: Gone"><svg/);
+    expect(html).toContain("<span>Gone</span></span> and @Someone</div>");
+    expect(html).not.toContain("@Web Game Studio");
   });
 
   it("renders non-image attachments without duplicating image attachments", () => {

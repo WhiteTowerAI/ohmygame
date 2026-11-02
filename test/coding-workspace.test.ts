@@ -31,22 +31,21 @@ describe("coding workspace", () => {
     expect(renderToStaticMarkup(createElement(PreviewView, { ...props, active: true }))).toContain("<iframe");
   });
 
-  it("uses device presets and bounds the fit viewport to supported dimensions", () => {
+  it("uses device presets and a fixed fit viewport independent of the preview panel", () => {
     expect(playerViewport("mobile")).toEqual({ width: 375, height: 667 });
     expect(playerViewport("mobile-landscape")).toEqual({ width: 667, height: 375 });
     expect(playerViewport("tablet")).toEqual({ width: 768, height: 1024 });
-    expect(playerViewport("fit", { width: 930.4, height: 660.8 })).toEqual({ width: 930, height: 661 });
-    expect(playerViewport("fit", { width: 0, height: 0 })).toEqual({ width: 1280, height: 720 });
-    expect(playerViewport("fit", { width: 20000, height: 200 })).toEqual({ width: 8192, height: 240 });
+    expect(playerViewport("fit")).toEqual({ width: 1280, height: 720 });
   });
 
-  it("browses project assets without file mutation menus and keeps a shared filter entry", () => {
+  it("browses project assets as Library tiles with the source and use filters, without file mutation menus", () => {
     const html = renderToStaticMarkup(createElement(AssetsView, {
       projectId: "project", files: [{ path: "hero.png", size: 3, mediaType: "image", origin: "generated", purpose: "asset", prompt: "A long generation prompt" }],
       loading: false, revision: 0, onShowInCode: () => undefined,
     }));
-    expect(html).toContain('aria-label="Filter assets"');
-    expect(html).toContain("<strong>hero.png</strong>");
+    expect(html).toContain('aria-label="Source"');
+    expect(html).toContain('aria-label="Use"');
+    expect(html).toContain('<span class="ui-media-name-text">hero.png</span>');
     expect(html).not.toContain("Asset actions");
     expect(html).not.toContain("Save to Library");
     expect(html).not.toContain("Rename");
@@ -84,7 +83,6 @@ describe("coding workspace", () => {
           workspacePath: "/tmp/project-1",
           preview: { status: "waiting" },
         },
-        agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
         onPublish: async () => false,
@@ -95,7 +93,9 @@ describe("coding workspace", () => {
 
     expect(html).toContain("Preview will appear here");
     expect(html).toContain("Describe your game in the agent panel");
-    expect(html).toContain('aria-label="Project settings"');
+    // Project settings moved into the More menu, beside picking an element.
+    expect(html).toContain('aria-label="More"');
+    expect(html).toContain('aria-label="Pick an element in the game"');
     expect(html).not.toContain('aria-label="View publication"');
   });
 
@@ -107,7 +107,7 @@ describe("coding workspace", () => {
         preview: { status: "waiting" },
         publication: { gameId: "game-1", deploymentId: "deployment-1", playUrl: "https://play.example/game-1", publishedAt: "2026-10-05T03:00:00.000Z" },
       },
-      agentBusy: false, publishing: false, workspaceRevision: 0,
+      publishing: false, workspaceRevision: 0,
       onPublish: async () => false, onRestart: () => undefined,
       onClosePublish: () => undefined,
     }));
@@ -124,7 +124,7 @@ describe("coding workspace", () => {
         preview: { status: "waiting" },
         publication: { gameId: "game-1", deploymentId: "deployment-1", title: "Published title", playUrl: "https://play.example/game-1", publishedAt: "2026-10-05T03:00:00.000Z" },
       },
-      agentBusy: false, publishing: false, workspaceRevision: 0,
+      publishing: false, workspaceRevision: 0,
       publishDialog: "success",
       onPublish: async () => false, onRestart: () => undefined,
       onClosePublish: () => undefined,
@@ -157,7 +157,6 @@ describe("coding workspace", () => {
           workspacePath: "/tmp/project-1",
           preview: { status: "stopped" },
         },
-        agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
         onPublish: async () => false,
@@ -184,7 +183,6 @@ describe("coding workspace", () => {
           previewViewport: viewport,
           preview: { status: "ready", url: "http://127.0.0.1:43121" },
         },
-        agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
         onPublish: async () => false,
@@ -199,7 +197,7 @@ describe("coding workspace", () => {
 
   it("respects the saved General preview capability when opening the workspace directly", () => {
     const props = {
-      agentBusy: false, publishing: false, workspaceRevision: 0,
+      publishing: false, workspaceRevision: 0,
       onPublish: async () => false,
       onClosePublish: () => undefined, onRestart: () => undefined,
     };
@@ -212,7 +210,7 @@ describe("coding workspace", () => {
     const runnable = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project: { ...project, webPreviewEnabled: true, preview: previewProject.preview } }));
     expect(runnable).toContain('data-active-tab="preview"');
     expect(runnable).toContain(`src="${previewProject.preview.url}/?__ohmygame_client=`);
-    expect(runnable).toContain('aria-label="Play"');
+    expect(runnable).toMatch(/preview-play-button[^>]*>.*Play<\/button>/);
     expect(runnable).not.toContain("Publishing requires a Web build");
   });
 
@@ -227,7 +225,6 @@ describe("coding workspace", () => {
           workspacePath: "/tmp/project-1",
           preview: { status: "ready", url: "http://127.0.0.1:43121" },
         },
-        agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
         onPublish: async () => false,

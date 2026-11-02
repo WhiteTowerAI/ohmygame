@@ -1,7 +1,10 @@
 import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import type { AgentRuntimeId } from "../../shared/agent-runtimes.js";
+import type {
+  AccountRuntimeId,
+  AgentRuntimeId,
+} from "../../shared/agent-runtimes.js";
 import { EXTERNAL_MCP_DISABLED_ENV } from "../../shared/external-mcp.js";
 
 /**
@@ -55,10 +58,16 @@ const SHARED = new Set([
   "USERNAME",
 ]);
 
-/** Each CLI's own sign-in and configuration location, which it needs to find the person's subscription. */
+/**
+ * Each CLI's own sign-in and configuration location, which it needs to find the person's subscription.
+ * `CLAUDE_CONFIG_DIR` and `CODEX_HOME` are not inherited: System default is the
+ * CLI's default folder, and the service names an account's folder itself. A
+ * value OhMyGame was launched with only reflects whichever account a terminal
+ * or account switcher had selected at that moment.
+ */
 const RUNTIME_KEEP: Record<AgentRuntimeId, readonly string[]> = {
-  "claude-code-cli": ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN"],
-  "codex-cli": ["CODEX_HOME"],
+  "claude-code-cli": ["CLAUDE_CODE_OAUTH_TOKEN"],
+  "codex-cli": [],
   "opencode-cli": ["OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG"],
 };
 
@@ -88,6 +97,14 @@ export function agentEnvironment(
   ]);
   // The person may have connected this CLI to OhMyGame; inside OhMyGame it already has OhMyGame's tools.
   return { ...result, [EXTERNAL_MCP_DISABLED_ENV]: "1", ...extra };
+}
+
+/** The folder each CLI uses when no account folder is named, which System default always uses. */
+export function systemConfigDirectory(
+  runtime: AccountRuntimeId,
+  home = os.homedir(),
+): string {
+  return path.join(home, runtime === "claude-code-cli" ? ".claude" : ".codex");
 }
 
 /** Where people usually install these CLIs, for an app started from the Dock with only the system PATH. */

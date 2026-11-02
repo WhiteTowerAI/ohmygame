@@ -10,6 +10,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   listProjects: async () => [project("old", "Old Garden", "2026-10-01T00:00:00Z"), project("new", "New Rocket", "2026-10-20T00:00:00Z")],
 }));
 const { CommandMenuHost, openCommandMenu, useCommands, useLeaveGuard } = await import("../src/renderer/command-menu.js");
+const { DesktopWindowFrame } = await import("../src/renderer/desktop-window-frame.js");
 
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 const navigate = vi.fn((hash: string) => { window.location.hash = hash; });
@@ -141,6 +142,22 @@ it("leaves the page through its guard, from the menu and from ⌘N and ⌘,", as
   await act(async () => openCommandMenu());
   await act(async () => option("Show Code").click());
   expect(navigate).toHaveBeenLastCalledWith("#code");
+});
+
+it("leaves the page through its guard from the Windows title bar's back and forward", async () => {
+  vi.stubGlobal("ohMyGameDesktop", { platform: "win32", windowMenu: { popup: vi.fn(async () => undefined) } });
+  const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
+  const forward = vi.spyOn(window.history, "forward").mockImplementation(() => undefined);
+  const pending: (() => void)[] = [];
+  await act(async () => root.render(<DesktopWindowFrame><Page guard={(go) => pending.push(go)} /></DesktopWindowFrame>));
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Back"]')!.click());
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Forward"]')!.click());
+  expect(back).not.toHaveBeenCalled();
+  await act(async () => { for (const go of pending) go(); });
+  expect(back).toHaveBeenCalledOnce();
+  expect(forward).toHaveBeenCalledOnce();
+  back.mockRestore();
+  forward.mockRestore();
 });
 
 it("leaves Settings alone on ⌘, when it is already open", async () => {

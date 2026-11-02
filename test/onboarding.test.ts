@@ -95,13 +95,12 @@ describe("onboarding persistence", () => {
     expect(store.get().status).toBe("pending");
   });
 
-  it("restores the optional media step without changing existing version-1 records", async () => {
+  it("resumes a saved media step, setup's old last step, at the start step", async () => {
     const { directory } = await fixture();
-    const store = new OnboardingStore(directory);
-    await store.update({ status: "pending", step: "media" });
+    await writeFile(path.join(directory, "onboarding.json"), JSON.stringify({ version: 1, status: "pending", step: "media" }));
     const restored = new OnboardingStore(directory);
     await restored.load();
-    expect(restored.get()).toEqual({ version: 1, status: "pending", step: "media" });
+    expect(restored.get()).toEqual({ version: 1, status: "pending", step: "start" });
   });
 
   it("keeps state unchanged after a failed write and permits a later retry", async () => {

@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
+import { PLUGIN_PROJECT_KINDS } from "../shared/project-runtime.js";
 import type { WebBuild } from "../shared/extension-host-protocol.js";
 import {
   CORE_PROJECT_TYPES,
@@ -36,10 +37,6 @@ import {
 // type's plugin builds a web version of the game, which the host serves in
 // the game panel like any web game.
 
-/** App project kinds that are plugin types now; the app's own routing still names them. */
-export const PLUGIN_PROJECT_KINDS = {
-  "godot-game": "ohmygame/godot:godot-game",
-} as const satisfies Record<string, string>;
 
 type ProjectTypeContribution = NonNullable<
   NonNullable<PluginIndexEntry["manifest"]["contributes"]>["projectTypes"]

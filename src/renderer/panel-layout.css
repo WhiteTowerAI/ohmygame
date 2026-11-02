@@ -59,6 +59,8 @@
   overflow-x: clip;
 }
 
+/* The toolbar beside the tabs starts at no width and takes what they leave, so
+   it gives way first; the tabs shrink and scroll only once it has none left. */
 .dock-tab-list {
   display: flex;
   flex: 0 1 auto;
@@ -87,13 +89,14 @@
 }
 
 .dock-tab:hover {
-  background: var(--color-hover);
+  background: color-mix(in srgb, var(--color-hover) 60%, transparent);
   color: var(--color-text-secondary);
 }
 
+/* The open tab is marked lightly; its text, not a heavy fill, says it is open. */
 .dock-tab.is-active {
   flex-shrink: 0;
-  background: var(--color-selected);
+  background: var(--color-hover);
   color: var(--color-text);
 }
 
@@ -196,6 +199,36 @@
   flex: none;
 }
 
+/* A strip whose labels don't fit keeps only icons for the tabs you aren't on. */
+.dock-tabs.is-compact .dock-tab:not(.is-active) {
+  min-width: 0;
+}
+
+.dock-tabs.is-compact .dock-tab:not(.is-active) :is(.dock-tab-label, .dock-tab-close) {
+  display: none;
+}
+
+.dock-tabs.is-compact .dock-tab:not(.is-active) .dock-tab-button {
+  padding: 0 var(--space-2);
+}
+
+/* A lone tab is the area's title: no selected fill, and it closes from its menu. */
+.dock-tabs.is-single .dock-tab.is-active {
+  background: transparent;
+}
+
+.dock-tabs.is-single .dock-tab.is-active:hover {
+  background: var(--color-hover);
+}
+
+.dock-tabs.is-single .dock-tab-close {
+  display: none;
+}
+
+.dock-tabs.is-single .dock-tab-button {
+  padding-right: var(--space-2);
+}
+
 /* A narrow area keeps only icons for the tabs you aren't on, and toolbar
    buttons marked collapsible drop their text. */
 @container dock-area (max-width: 520px) {
@@ -221,12 +254,31 @@
 /* the active panel's own controls, after the tabs */
 .dock-toolbar {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   align-self: stretch;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+  min-width: 0;
   padding-left: var(--space-2);
+}
+
+/* Titles in a toolbar shorten before the tabs give up their labels. */
+.dock-toolbar > *,
+.dock-toolbar .pane-header-actions > * {
+  flex: none;
+}
+
+.dock-toolbar .design-doc-picker,
+.dock-toolbar .conversation-menu {
+  flex: 0 1 auto;
+  min-width: 88px;
+}
+
+.dock-toolbar .design-doc-spacer,
+.dock-toolbar .chat-header-spacer {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .dock-toolbar[hidden] {
@@ -302,28 +354,31 @@
   cursor: row-resize;
 }
 
+/* The same light line as the home sidebar's resizer. */
 .dock-resizer::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: var(--space-2) 0;
   margin: auto;
-  border-radius: 1px;
+  border-radius: 2px;
   background: transparent;
   transition: background var(--duration-fast);
 }
 
 .dock-resizer-left::after,
 .dock-resizer-right::after {
-  width: 2px;
+  width: 3px;
 }
 
 .dock-resizer-bottom::after {
-  height: 2px;
+  inset: 0 var(--space-2);
+  height: 3px;
 }
 
 .dock-resizer:hover::after,
-.dock-resizer:focus-visible::after {
-  background: var(--color-focus);
+.dock-resizer:focus-visible::after,
+.dock-resizer:active::after {
+  background: var(--color-border-strong);
 }
 
 /* drop zones for the sides that have no panels yet */

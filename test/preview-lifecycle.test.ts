@@ -321,6 +321,11 @@ describe("preview policy and lifecycle", () => {
     const { directory, project } = await fixture();
     await rm(path.join(directory, "index.html"));
     await mkdir(path.join(directory, ".git"));
+    // Design writes its canvas as soon as a new project opens.
+    await mkdir(path.join(directory, "canvas", "boards"), { recursive: true });
+    await mkdir(path.join(directory, "canvas", "schemas"), { recursive: true });
+    await writeFile(path.join(directory, "canvas", "index.json"), "{}");
+    await writeFile(path.join(directory, "canvas", "AGENTS.md"), "# Canvas");
     const preview = manager();
     preview.acquire(project, "editor:new", true);
     await vi.waitFor(() => expect(project.preview.status).toBe("waiting"));

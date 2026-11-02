@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { cloneElement, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import {
   ArrowDownToLine,
   ArrowLeft,
@@ -21,20 +21,21 @@ import {
   Search,
   Settings,
   UserRound,
-  Wallet,
 } from "./icons.js";
-import { getProjectCover, listConversations, listProjects, waitForRuntime } from "./api.js";
+import { getProjectCover, getProjectLogo, listConversations, listProjects, waitForRuntime } from "./api.js";
 import { useAuth } from "./auth.js";
 import { BrandLogo } from "./brand-logo.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
-import { conversationHash, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
+import { ProjectCreateDialog } from "./project-create-dialog.js";
+import { communityProfileHash, conversationHash, createdProjectView, projectHash, settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { DropdownMenu, IconButton, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
+import { DropdownMenu, IconButton, Kbd, Popover, Tooltip, type MenuEntry } from "./ui/index.js";
 import { useDesktopUpdate } from "./use-desktop-update.js";
 import { UserAvatar } from "./user-avatar.js";
 import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
 import { language, t } from "./i18n.js";
-import { openCommandMenu, shortcut } from "./command-menu.js";
+import { openCommandMenu, shortcut, shortcutKeys } from "./command-menu.js";
+import { hasWindowsTitleBar } from "./desktop-window-frame.js";
 import "./app-sidebar.css";
 
 export type SidebarActive = SidebarPage | "settings";
@@ -43,6 +44,8 @@ const MIN_WIDTH = 200;
 const MAX_WIDTH = 360;
 const DEFAULT_WIDTH = 232;
 const RECENT_LIMIT = 8;
+// Home shows the recent projects too, so the pages' sidebar keeps a few and links to the rest.
+const SIDEBAR_RECENT = 5;
 const WIDTH_KEY = "ohmygame-sidebar-width";
 const COLLAPSED_KEY = "ohmygame-sidebar-collapsed";
 const RECENT_OPEN_KEY = "ohmygame-sidebar-recent-open";
@@ -151,34 +154,43 @@ function useRecentProjects(active?: SidebarActive): ProjectState[] {
   return useSyncExternalStore(subscribeRecent, () => recentProjects, () => recentProjects);
 }
 
-// Covers load once per project version and stay while the app runs.
-const covers = new Map<string, { version: string; url: Promise<string | undefined> }>();
+// Covers and logos load once per project version and stay while the app runs.
+const images = new Map<string, { version: string; url: Promise<string | undefined> }>();
 
-function coverUrl(project: ProjectState): Promise<string | undefined> {
-  const cached = covers.get(project.id);
+function imageUrl(project: ProjectState, kind: "cover" | "logo"): Promise<string | undefined> {
+  const key = `${kind}:${project.id}`;
+  const cached = images.get(key);
   if (cached?.version === project.updatedAt) return cached.url;
-  const url = getProjectCover(project.id)
-    .then((cover) => (cover ? URL.createObjectURL(cover) : undefined))
+  const url = (kind === "logo" ? getProjectLogo(project.id) : getProjectCover(project.id))
+    .then((image) => (image ? URL.createObjectURL(image) : undefined))
     .catch(() => undefined);
   void cached?.url.then((previous) => previous && URL.revokeObjectURL(previous));
-  covers.set(project.id, { version: project.updatedAt, url });
+  images.set(key, { version: project.updatedAt, url });
   return url;
 }
 
-function SidebarCover({ project, className }: { project: ProjectState; className: string }) {
+/**
+ * A recent project's mark: its uploaded logo, the default icon it chose, its
+ * cover, or else the default template, with the icon centred at the given size.
+ */
+function SidebarCover({ project, className, iconSize }: { project: ProjectState; className: string; iconSize: number }) {
+  const appearance = project.appearance;
+  const kind = appearance?.logo ? "logo" : appearance?.icon || appearance?.cover === "template" ? undefined : "cover";
   const [url, setUrl] = useState<string>();
   useEffect(() => {
+    setUrl(undefined);
+    if (!kind) return;
     let disposed = false;
-    void coverUrl(project).then((next) => {
+    void imageUrl(project, kind).then((next) => {
       if (!disposed) setUrl(next);
     });
     return () => {
       disposed = true;
     };
-  }, [project.id, project.updatedAt]);
+  }, [project.id, project.updatedAt, kind]);
   return (
     <span className={className} aria-hidden="true">
-      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={project.id} />}
+      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={project.id} appearance={appearance} size={iconSize} />}
     </span>
   );
 }
@@ -192,7 +204,8 @@ interface NavigationLike extends EventTarget {
   canGoForward: boolean;
 }
 
-function useHistoryState() {
+/** Whether the window can go back and forward, as the title bars show it. */
+export function useHistoryState() {
   const navigationApi = (window as unknown as { navigation?: NavigationLike }).navigation;
   const read = () => ({ back: navigationApi?.canGoBack ?? true, forward: navigationApi?.canGoForward ?? true });
   const [state, setState] = useState(read);
@@ -211,21 +224,33 @@ function useHistoryState() {
 function SidebarItem({ icon, label, shortcut: keys, dot, active = false, onClick }: {
   icon: ReactNode;
   label: string;
-  /** The keyboard shortcut, shown at the end while the sidebar is expanded. */
-  shortcut?: string;
+  /** The keyboard shortcut's keys, shown as keycaps at the end while the sidebar is expanded. */
+  shortcut?: readonly string[];
   /** Marks the icon, so it shows in the collapsed sidebar too. */
   dot?: "accent" | "warning";
   active?: boolean;
   onClick: () => void;
 }) {
   return (
-    <button type="button" className={`sidebar-item${active ? " is-active" : ""}`} title={label}
-      aria-current={active ? "page" : undefined} onClick={onClick}>
-      <span className="sidebar-item-icon" aria-hidden="true">{icon}{dot ? <span className={`sidebar-dot is-${dot}`} /> : null}</span>
-      <span className="sidebar-item-label">{label}</span>
-      {keys ? <kbd className="sidebar-item-shortcut">{keys}</kbd> : null}
-    </button>
+    <SidebarTip label={label}>
+      <button type="button" className={`sidebar-item${active ? " is-active" : ""}`}
+        aria-current={active ? "page" : undefined} onClick={onClick}>
+        <span className="sidebar-item-icon" aria-hidden="true">{icon}{dot ? <span className={`sidebar-dot is-${dot}`} /> : null}</span>
+        <span className="sidebar-item-label">{label}</span>
+        {keys ? <span className="sidebar-item-shortcut">{keys.map((key) => <Kbd key={key}>{key}</Kbd>)}</span> : null}
+      </button>
+    </SidebarTip>
   );
+}
+
+// Collapsed, an item is only its icon, so its name shows beside it on hover;
+// expanded, a long name cut off by the width shows in full the same way.
+function SidebarTip({ label, children }: { label: string; children: ReactElement<Record<string, unknown>> }) {
+  const { collapsed } = useSidebarPreferences();
+  // Collapsed, the label is hidden, so the button carries its name itself.
+  return collapsed
+    ? <Tooltip content={label} placement="right">{cloneElement(children, { "aria-label": label })}</Tooltip>
+    : cloneElement(children, { title: label });
 }
 
 // The expanded sidebar's right edge: drag or use the arrow keys to resize,
@@ -301,13 +326,14 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
         ) : null}
         <div className="sidebar-head">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => onNavigate("home")}>
-            <BrandLogo size={22} /><span>OhMyGame</span>
+            {/* Collapsed, the logo stands alone above the project icons, at their size as in a project's rail. */}
+            <BrandLogo size={collapsed ? 32 : 22} /><span>OhMyGame</span>
           </button>
           {mac || collapsed ? null : toggleButton}
         </div>
         <div className="sidebar-group">
           {collapsed && !mac && !narrow ? <SidebarItem icon={<PanelToggle size={18} />} label={t("sidebar.expand")} onClick={toggle} /> : null}
-          <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} shortcut={shortcut("k")} onClick={openCommandMenu} />
+          <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} shortcut={shortcutKeys("k")} onClick={openCommandMenu} />
         </div>
         <div className="sidebar-group">
           {SECTIONS.map((item) => (
@@ -329,14 +355,16 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
                 {t("sidebar.recent")}<ChevronRight size={12} className="sidebar-label-caret" />
               </button>
             )}
-            {recentOpen ? projects.map((project) => {
+            {recentOpen ? projects.slice(0, SIDEBAR_RECENT).map((project) => {
               const open = () => { window.location.hash = projectHash(project.id); };
               return collapsed ? (
-                <button key={project.id} type="button" className="sidebar-app" title={project.name} aria-label={project.name} onClick={open}>
-                  <SidebarCover project={project} className="sidebar-app-cover" />
-                </button>
+                <SidebarTip key={project.id} label={project.name}>
+                  <button type="button" className="sidebar-app" aria-label={project.name} onClick={open}>
+                    <SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />
+                  </button>
+                </SidebarTip>
               ) : (
-                <SidebarItem key={project.id} icon={<SidebarCover project={project} className="sidebar-cover" />} label={project.name} onClick={open} />
+                <SidebarItem key={project.id} icon={<SidebarCover project={project} className="sidebar-cover" iconSize={12} />} label={project.name} onClick={open} />
               );
             }) : null}
           </div>
@@ -364,7 +392,7 @@ export interface RailConversations {
 }
 
 /** "Edited 3 hours ago", from when a project or conversation last changed. */
-function editedAgo(value: string, now = Date.now()): string {
+export function editedAgo(value: string, now = Date.now()): string {
   const seconds = Math.round((new Date(value).getTime() - now) / 1000);
   const format = new Intl.RelativeTimeFormat(language, { numeric: "auto" });
   for (const [unit, size] of [["year", 31_536_000], ["month", 2_592_000], ["day", 86_400], ["hour", 3_600], ["minute", 60]] as const) {
@@ -452,7 +480,7 @@ function RailProject({ project, open: openProject, conversations }: {
           if (!focusFirst.current || body.current?.contains(event.relatedTarget as Node | null)) return;
           close();
         }}>
-        <SidebarCover project={project} className="sidebar-app-cover" />
+        <SidebarCover project={project} className="sidebar-app-cover" iconSize={18} />
       </button>
       <Popover open={open} onClose={close} anchor={anchor} placement="right-start" className="rail-popover"
         label={t("sidebar.projectConversations", { name: project.name })}>
@@ -515,12 +543,15 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
   const recent = !project || latest.some((item) => item.id === project.id)
     ? latest : [...latest.slice(0, RECENT_LIMIT - 1), project];
   const history = useHistoryState();
-  const mac = window.ohMyGameDesktop?.platform === "darwin";
+  const [creating, setCreating] = useState(false);
   const leaveTo = (page: AppNavigationTarget) => onLeave(() => onNavigate(page));
   const openHash = (hash: string) => onLeave(() => { window.location.hash = hash; });
   return (
     <nav className="sidebar project-rail" aria-label={t("sidebar.projectNavigation")}>
-      {mac ? (
+      {/* Back and forward lead the title bar: here, over the rail, beside the
+          macOS window controls or at the window's edge where the system draws
+          the title bar; on Windows they follow the window's menus instead. */}
+      {!hasWindowsTitleBar() ? (
         <div className="sidebar-titlebar">
           <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => onLeave(() => window.history.back())}><ArrowLeft size={16} /></IconButton>
           <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => onLeave(() => window.history.forward())}><ArrowRight size={16} /></IconButton>
@@ -529,7 +560,8 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
       <div className="sidebar-head">
         <Tooltip content={t("sidebar.home")} placement="right-start">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => leaveTo("home")}>
-            <BrandLogo size={22} />
+            {/* the size of the project icons below it */}
+            <BrandLogo size={32} />
           </button>
         </Tooltip>
       </div>
@@ -539,11 +571,16 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
             conversations={project.id === projectId ? conversations : undefined} />
         ))}
         <Tooltip content={t("sidebar.newProject")} placement="right-start">
-          <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => leaveTo("home")}>
+          <button type="button" className="sidebar-app sidebar-app-new" aria-label={t("sidebar.newProject")} onClick={() => setCreating(true)}>
             <CirclePlus size={16} />
           </button>
         </Tooltip>
       </div>
+      {creating ? <ProjectCreateDialog
+        onClose={() => setCreating(false)}
+        onOpenProject={(id) => { setCreating(false); openHash(projectHash(id)); }}
+        onCreated={(created) => { setCreating(false); openHash(projectHash(created.id, createdProjectView(created.type))); }}
+      /> : null}
       <span className="sidebar-spacer" />
       <div className="sidebar-group">
         <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} onClick={openCommandMenu} />
@@ -554,7 +591,7 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
   );
 }
 
-function openSettings(section: "account" | "billing" | "about"): void {
+function openSettings(section: "account" | "about"): void {
   window.location.hash = settingsHash(section);
 }
 
@@ -570,7 +607,8 @@ function AccountMenu({ active, avatarSize, onNavigate }: { active: boolean; avat
   const items: MenuEntry[] = signedIn ? [
     settings,
     { label: t("sidebar.account"), icon: <UserRound size={16} />, onSelect: () => openSettings("account") },
-    { label: t("sidebar.billing"), icon: <Wallet size={16} />, onSelect: () => openSettings("billing") },
+    // The games you published, to edit or unpublish.
+    { label: t("community.myGames"), icon: <Globe2 size={16} />, onSelect: () => { window.location.hash = communityProfileHash(signedIn.id); } },
     "separator",
     about,
   ] : [

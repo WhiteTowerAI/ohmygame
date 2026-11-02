@@ -155,6 +155,18 @@ it("lists recent projects newest first, folds them, and opens one", async () => 
   expect(window.location.hash).toBe("#/projects/old");
 });
 
+it("keeps five recent projects", async () => {
+  await render("library");
+  await act(async () =>
+    publishRecentProjects(Array.from({ length: 7 }, (_, index) => ({
+      ...projects[0]!, id: `p${index}`, name: `Project ${index}`, updatedAt: `2026-10-2${index}T00:00:00Z`,
+    }))),
+  );
+  const recent = [...sidebar().querySelectorAll(".sidebar-recent .sidebar-item")].map((item) => item.textContent);
+  // Projects in the sections above lists the rest.
+  expect(recent).toEqual(["Project 6", "Project 5", "Project 4", "Project 3", "Project 2"]);
+});
+
 it("collapses to icons and resizes from its edge, remembering both", async () => {
   await render();
   const frame = () => container.querySelector<HTMLElement>(".page-frame")!;
@@ -176,6 +188,13 @@ it("collapses to icons and resizes from its edge, remembering both", async () =>
   expect(frame().classList.contains("is-sidebar-collapsed")).toBe(true);
   expect(edge()).toBeNull();
   expect(localStorage.getItem("ohmygame-sidebar-collapsed")).toBe("true");
+  // Collapsed, an item's name shows in a tooltip beside its icon.
+  const library = button("Library")!;
+  expect(library.title).toBe("");
+  expect(library.getAttribute("aria-label")).toBe("Library");
+  await act(async () => library.focus());
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Library");
+  await act(async () => library.blur());
   // Another page's frame opens the same way.
   await act(async () =>
     root.render(
@@ -204,7 +223,7 @@ it("leads the signed-out menu with sign in and keeps settings and about", async 
   expect(window.location.hash).toBe("#/settings/about");
 });
 
-it("opens settings, account and billing from the signed-in menu", async () => {
+it("opens settings, account and my games from the signed-in menu", async () => {
   auth.state = {
     status: "signed-in",
     user: { id: "u", name: "Ada Lovelace", email: "ada@example.com" },
@@ -218,11 +237,14 @@ it("opens settings, account and billing from the signed-in menu", async () => {
   expect(menuLabels()).toEqual([
     "Settings",
     "Account",
-    "Billing",
+    "My games",
     "About OhMyGame",
   ]);
-  await act(async () => button("Billing")!.click());
-  expect(window.location.hash).toBe("#/settings/billing");
+  await act(async () => button("Account")!.click());
+  expect(window.location.hash).toBe("#/settings/account");
+  await act(async () => account.click());
+  await act(async () => button("My games")!.click());
+  expect(window.location.hash).toBe("#/community/creators/u");
   await act(async () => account.click());
   await act(async () => button("Settings")!.click());
   expect(onNavigate).toHaveBeenCalledWith("settings");
@@ -232,7 +254,7 @@ it("opens the command menu from Search, which shows its shortcut", async () => {
   const opened = vi.fn();
   window.addEventListener("ohmygame:command-menu", opened);
   await render();
-  expect(button("Search")!.querySelector("kbd")?.textContent).toMatch(/^(⌘K|Ctrl\+K)$/);
+  expect([...button("Search")!.querySelectorAll("kbd")].map((key) => key.textContent).join(" ")).toMatch(/^(⌘ K|Ctrl K)$/);
   button("Search")!.click();
   window.removeEventListener("ohmygame:command-menu", opened);
   expect(opened).toHaveBeenCalledOnce();
@@ -350,5 +372,17 @@ describe("in a project", () => {
     expect(onLeave).toHaveBeenCalledOnce();
     expect(back).toHaveBeenCalledOnce();
     back.mockRestore();
+  });
+
+  it("leads with back and forward where the system draws the title bar, and leaves them to the Windows one", async () => {
+    const rail = () => root.render(<ProjectRail projectId="p" onNavigate={onNavigate} onLeave={onLeave} conversations={{ items: [], onOpen, onNew }} />);
+    vi.stubGlobal("ohMyGameDesktop", { platform: "linux" });
+    await act(async () => rail());
+    expect(sidebar().querySelector(".sidebar-titlebar [aria-label='Back']")).not.toBeNull();
+    vi.stubGlobal("ohMyGameDesktop", { platform: "win32", windowMenu: { popup: vi.fn() } });
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => rail());
+    expect(sidebar().querySelector(".sidebar-titlebar")).toBeNull();
   });
 });

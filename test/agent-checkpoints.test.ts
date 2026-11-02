@@ -244,6 +244,9 @@ async function studio(steps: Step[], type = "web-game") {
       payload: { name: "Checkpoints", type },
     })
   ).json();
+  // Indexing the bundled plugins ends by dropping the project's idle agent sessions.
+  // This route waits for the indexing, so the drop can't land between a test's turns.
+  await app.inject({ method: "GET", url: `/projects/${project.id}/plugins` });
   const converse = async () =>
     (
       await app.inject({
@@ -1736,7 +1739,7 @@ describe("Agent turn changes", () => {
   });
 
   it("puts the files back after a restore or an undo that was cut off", async () => {
-    const { app, base, project, send, file, ended, published } = await studio([
+    const { app, base, project, file, published } = await studio([
       { write: { "notes.txt": "written by the Agent" } },
       { hang: true },
     ]);
@@ -2082,7 +2085,7 @@ describe("Agent turn changes", () => {
   });
 
   it("starts no turn in the project while files are being put back, and says why", async () => {
-    const { app, base, project, another, post, send, ended, undo } =
+    const { app, project, another, post, send, ended, undo } =
       await studio([
         { write: { "notes.txt": "first" } },
         { say: "Wrote the notes." },
@@ -2378,7 +2381,7 @@ describe("The end of a turn", () => {
     });
   });
 
-  it.each(["publish", "interactive-story/build"] as const)(
+  it.each(["publish", "build"] as const)(
     "waits for turn closure before tracking a %s request as an active workspace write",
     async (route) => {
       const { app, project, send, ended } = await studio(
@@ -2405,7 +2408,7 @@ describe("The end of a turn", () => {
       const artifact = vi
         .spyOn(
           ArtifactBuilder.prototype,
-          route === "publish" ? "create" : "buildInteractiveStory",
+          route === "publish" ? "create" : "build",
         )
         .mockRejectedValue(new PublishError("Fixture build stopped", 422));
       await send("Write the notes");

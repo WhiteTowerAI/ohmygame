@@ -3,22 +3,28 @@ import type { LibraryAsset } from "../shared/contracts.js";
 import { uploadLibraryAsset } from "./api.js";
 import { LoaderCircle, Scissors } from "./icons.js";
 import { t } from "./i18n.js";
+import { Button } from "./ui/index.js";
 import { trimVideo, trimmedVideoType, type VideoTrim } from "./video-trim.js";
 import { formatTime, VideoTrimEditor } from "./video-trim-editor.js";
 
 export { formatTime } from "./video-trim-editor.js";
 
-/** Asset Studio persistence wrapper: encoding and uploading never run in the shared editor. */
+/**
+ * Asset Studio persistence wrapper: encoding and uploading never run in the
+ * shared editor. With `onCancel`, an unchanged trim offers Cancel beside Save.
+ */
 export function VideoTrimmer({
   url,
   label,
   loadSource,
   onSave,
+  onCancel,
 }: {
   url: string;
   label: string;
   loadSource: () => Promise<Blob>;
   onSave: (video: Blob, trim: VideoTrim) => Promise<void>;
+  onCancel?: () => void;
 }) {
   const { file, trim, setTrim, saving, error, save } = useVideoTrimSave(
     loadSource,
@@ -46,31 +52,33 @@ export function VideoTrimmer({
           {saving ? (
             <>
               <TrimProgress progress={saving.progress} />
-              <button
-                type="button"
+              <Button
                 disabled={saving.uploading}
                 onClick={() => saving.controller.abort()}
               >
                 {t("common.cancel")}
-              </button>
+              </Button>
             </>
           ) : (
             <>
               {changed ? (
-                <button type="button" onClick={reset}>
+                <Button variant="ghost" onClick={reset}>
                   {t("videoTrim.reset")}
-                </button>
+                </Button>
+              ) : onCancel ? (
+                <Button variant="ghost" onClick={onCancel}>
+                  {t("common.cancel")}
+                </Button>
               ) : null}
-              <button
-                type="button"
-                className="video-trimmer-save"
+              <Button
+                variant="primary"
+                icon={<Scissors size={14} />}
                 disabled={!changed}
                 title={t("videoTrim.saveTitle")}
                 onClick={() => selected && void save(selected, pause)}
               >
-                <Scissors size={14} />
                 {t("videoTrim.save")}
-              </button>
+              </Button>
             </>
           )}
         </div>

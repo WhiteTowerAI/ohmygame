@@ -66,13 +66,14 @@ An Interactive Story opens in the project frame with two panels:
   Workbench of one Scene, with a breadcrumb (`Story › Case archive`) to
   return. The view is named for the whole story it shows, not for one Scene.
   Its toolbar holds **Playtest**, which opens the real Runtime, and its
-  settings: **Screen size** and **Export**. Design is the game design
+  settings: **Screen size**. Design is the game design
   document and Canvas the asset canvas, the same documents as a web game's.
 - The project name's menu returns to the page used to open the project,
   retaining project-list filters, search, and sorting. Opening a project link
   directly uses **Projects** as the return destination.
-- **Export game** downloads a build that players can play anywhere.
-  **Export project** downloads the editable project: its source files without
+- **Publish → Export web build** downloads a build that players can play
+  anywhere. **Export project** in the project name's menu downloads the
+  editable project: its source files without
   `node_modules/` or hidden folders such as `.data/` and `.ohmygame/`, with
   each Library asset copied to `assets/library/` and `graph.json` pointing at
   the copy. Copied filenames avoid collisions between letter case variants

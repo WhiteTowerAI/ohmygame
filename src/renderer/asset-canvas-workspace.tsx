@@ -67,7 +67,7 @@ import {
   type VideoGenerationReference,
 } from "../shared/contracts.js";
 import { createAssetGenerationNode, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { audioCanvasSettings, audioNodeHasSettings, audioSettings, isAudioNodeType, type AudioCanvasSettings, type AudioModel, type AudioProviderCatalogStatus } from "../shared/audio.js";
+import { audioCanvasSettings, audioNodeHasSettings, audioSettings, type AudioCanvasSettings, type AudioModel, type AudioProviderCatalogStatus } from "../shared/audio.js";
 import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset, importCanvasFile, createCanvasImportFolder } from "./api.js";
 import { canvasAssetDownloadName, downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { SendToProjectDialog } from "./send-to-project-dialog.js";
@@ -409,7 +409,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           const nodeId = job.context?.nodeId;
           if (nodeId && !latestJobs.has(nodeId)) latestJobs.set(nodeId, job);
         }
-        setCanvasJobs(Object.fromEntries(latestJobs));
+        // Most polls find nothing new; keep the same object so the canvas does not re-render.
+        const nextJobs = Object.fromEntries(latestJobs);
+        setCanvasJobs((current) => JSON.stringify(current) === JSON.stringify(nextJobs) ? current : nextJobs);
         const completedAssetIds: string[] = [];
         let completedCover: AssetCanvasCoverSource | undefined;
         // Jobs arrive newest first; the daemon persists outputs to the current board.
@@ -735,7 +737,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       else if (queuedCanvas.current === JSON.stringify(latestCanvas.current)) onStatusChange?.("saved");
     });
     operationChain.current = operation;
-    void operation.catch((cause) => {
+    void operation.catch(() => {
       if (!mounted.current || isDesktopClosing()) return;
       syncFailed.current = true;
       if (!saveFailed.current) onStatusChange?.("sync-error");
@@ -1332,7 +1334,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     // A render can arrive before React Flow publishes its first dimensions.
     // An empty measurement keeps it from clearing freshly measured handle bounds.
     const node = { ...original, measured: original.measured ?? {}, ...(size ? { style: { ...original.style, width: original.width ?? size.width, height: original.height ?? size.height } } : {}), data: { ...original.data,
-      audioAsset: libraryAssets.find((asset) => asset.id === original.data.assetId)?.audio,
       ...(size ? { resizeRuntime: {
         start: beginHistoryGesture, end: finishHistoryGesture,
         reset: () => { beginHistoryGesture(); setNodes((current) => current.map((node) => { if (node.id !== original.id) return node; const { width: _width, height: _height, ...rest } = node; return rest; })); finishHistoryGesture(); },
@@ -1491,7 +1492,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             },
             models: audioModels.filter((model) => model.capabilities.operations.includes(operation)),
             providers: audioProviders,
-            audio: node.data.audioAsset,
           } satisfies AudioNodeRuntime,
         },
       };

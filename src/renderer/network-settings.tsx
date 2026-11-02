@@ -144,7 +144,8 @@ export function NetworkSettingsPanel() {
             ) : null}
           </SettingsRow>
         ) : null}
-        <div className="settings-pad settings-form">
+        {/* Direct connections use no proxy, so there is nothing to bypass. */}
+        {form.mode !== "direct" ? <div className="settings-pad settings-form">
           {manual ? (
             <Field label={t("network.proxyUrl")} hint={t("network.clashHint")}>
               {(props) => (
@@ -175,7 +176,7 @@ export function NetworkSettingsPanel() {
               />
             )}
           </Field>
-        </div>
+        </div> : null}
       </SettingsGroup>
       {dirty || state.requiresRestart || saved || state.detected.warning ? (
         <div className="settings-form" aria-label={t("network.status")} role="group">

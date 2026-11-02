@@ -82,7 +82,8 @@ function isModalDialog(dialog: Element): boolean {
   }
 }
 
-function leave(go: () => void): void {
+/** Leaves the page in view through its guard, as the menu and the title bar do. */
+export function leave(go: () => void): void {
   if (leaveGuard) leaveGuard(go);
   else go();
 }
@@ -94,7 +95,12 @@ function isMac(): boolean {
 
 /** The platform's modifier before a key, as the menus show shortcuts. */
 export function shortcut(key: string): string {
-  return isMac() ? `⌘${key.toUpperCase()}` : `Ctrl+${key.toUpperCase()}`;
+  return shortcutKeys(key).join(isMac() ? "" : "+");
+}
+
+/** The same shortcut as its separate keys, each shown as a keycap. */
+export function shortcutKeys(key: string): string[] {
+  return [isMac() ? "⌘" : "Ctrl", key.toUpperCase()];
 }
 
 const PAGES: { page: SidebarPage; label: () => string; icon: typeof House }[] = [

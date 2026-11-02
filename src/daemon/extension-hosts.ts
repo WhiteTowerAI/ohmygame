@@ -73,7 +73,7 @@ export type InvokeOptions = {
   input?: unknown;
   signal?: AbortSignal;
   timeoutMs?: number;
-  onProgress?: (message: string) => void;
+  onProgress?: (message: string, url?: string) => void;
   /** The agent turn the call belongs to. */
   turn?: string;
   /** The plugin's configuration values, sent with the call so a change applies to the next one. */
@@ -135,7 +135,7 @@ interface Pending {
   settle(message: HostMessage | ExtensionHostError): void;
   /** Gives up on the call: cancels it, and stops the host if it doesn't settle. */
   giveUp(error: ExtensionHostError): void;
-  onProgress?: (message: string) => void;
+  onProgress?: (message: string, url?: string) => void;
 }
 
 interface Activation {
@@ -518,7 +518,7 @@ class ExtensionHost {
     plugin: string | undefined,
     timeoutMs: number,
     signal?: AbortSignal,
-    onProgress?: (message: string) => void,
+    onProgress?: (message: string, url?: string) => void,
   ): Promise<HostMessage> {
     if (!this.alive)
       return Promise.reject(
@@ -640,7 +640,7 @@ class ExtensionHost {
     if (message.type === "progress") {
       if (pending.type !== "invoke") return;
       try {
-        pending.onProgress?.(message.message);
+        pending.onProgress?.(message.message, message.url);
       } catch {
         // The caller's progress handler failing doesn't fail the call.
       }

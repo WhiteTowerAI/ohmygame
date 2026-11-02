@@ -71,6 +71,23 @@ const button = (name: string, scope: ParentNode = document) => [...scope.querySe
 const click = (element: Element) => act(async () => { (element as HTMLElement).click(); });
 const openTile = (name: string) => click([...document.querySelectorAll(".ui-media")].find((tile) => tile.textContent?.includes(name))!);
 
+it("shows a recording saved while the page is open", async () => {
+  let announce!: () => void;
+  const desktop = window as unknown as { ohMyGameDesktop?: unknown };
+  desktop.ohMyGameDesktop = { webGamePlayer: { recording: { onSaved: (listener: typeof announce) => { announce = listener; return () => {}; } } } };
+  try {
+    await act(async () => root!.unmount());
+    root = createRoot(container!);
+    await act(async () => root!.render(<LibraryPage onNavigate={() => {}} onOpenProject={onOpenProject} />));
+    assets.push({ ...assets[1]!, id: "clip", name: "clip.mp4" });
+    expect(tiles()).not.toContain("clip.mp4");
+    await act(async () => announce());
+    expect(tiles()).toContain("clip.mp4");
+  } finally {
+    delete desktop.ohMyGameDesktop;
+  }
+});
+
 it("shows every asset as a tile with where it is used and where it came from, and filters by kind and search", async () => {
   expect(tiles()).toEqual(["hero.webp", "intro.mp4", "theme.mp3"]);
   const meta = [...document.querySelectorAll(".ui-media-meta")].map((item) => item.textContent);
