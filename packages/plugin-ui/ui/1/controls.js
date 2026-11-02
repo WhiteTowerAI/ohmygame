@@ -266,10 +266,9 @@ class OmgSelect extends OmgElement {
         border: solid var(--color-text-tertiary); border-width: 0 1.5px 1.5px 0; transition: none;
       }
       ::picker(select) {
-        /* Below while it fits, not wherever there's more room. */
-        position-try-order: normal;
         margin-block: var(--space-1); padding: var(--space-1); border: 0; border-radius: var(--radius-lg);
-        max-height: min(320px, calc(100dvh - 16px)); overflow: auto;
+        /* The browser opens it on the side with more room and limits it to that room. */
+        overflow: auto;
         background: var(--color-surface-raised); color: var(--color-text); box-shadow: var(--shadow-float);
       }
       option {
