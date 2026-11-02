@@ -1281,7 +1281,7 @@ export function createApp(options: AppOptions = {}) {
   const pluginDigest = { type: "string", pattern: "^[0-9a-f]{64}$" } as const;
   const pluginLocaleQuery = { type: "object", additionalProperties: false, properties: { locale: { type: "string", maxLength: 16 } } } as const;
   const sourceReply = (reply: FastifyReply, cause: unknown) => {
-    if (cause instanceof PluginSourceError) return reply.code(cause.statusCode).send({ error: cause.message });
+    if (cause instanceof PluginSourceError) return reply.code(cause.statusCode).send({ error: cause.message, ...(cause.code ? { code: cause.code } : {}) });
     throw cause;
   };
   app.addContentTypeParser("application/gzip", { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES }, (_request, body, done) => done(null, body));

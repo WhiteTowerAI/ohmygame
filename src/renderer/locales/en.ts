@@ -2398,6 +2398,9 @@ const en = {
     coverProcessFailed: "Could not process this cover image",
   },
   pluginAdd: {
+    updateApp: "Update OhMyGame",
+    needsAppUpdate: "This plugin needs a newer version of OhMyGame. Update OhMyGame to use it.",
+    needsPluginUpdate: "This plugin was made for an older version of OhMyGame. Its author needs to update it.",
     reading: "Reading the package…",
     menu: "Add plugin…",
     title: "Add a plugin",
