@@ -534,7 +534,7 @@ describe("plugin check", () => {
 
   it("doesn't fail a page for what works", async () => {
     const page = await plugin({
-      "index.html": `<script SRC="./main.js" type="module"></script>${load}<script type="application/json">{}</script><script type="text/plain"><omg-note></omg-note></script><textarea><omg-example></textarea><title><omg-title></title><omg-button></omg-button>`,
+      "index.html": `<script SRC="./main.js" type="module"></script>${load}<script type="application/json">{}</script><script type="text/plain"><omg-note></omg-note></script><textarea><omg-example><script>startGame()</script></textarea><title><omg-title></title><omg-button></omg-button>`,
       "main.js": 'document.body.textContent = "<omg-example>";',
     });
     expect(await messages(page, "error")).toEqual([]);

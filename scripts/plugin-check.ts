@@ -43,7 +43,7 @@ function attributesOf(text: string): Map<string, string> {
   return new Map([...text.matchAll(/([^\s=/"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g)].map(([, name, double, single, bare]) => [name!.toLowerCase(), double ?? single ?? bare ?? ""]));
 }
 
-const scriptsIn = (html: string) => [...html.matchAll(/<script\b((?:"[^"]*"|'[^']*'|[^'">])*)>/gi)].map(([, attributes]) => attributesOf(attributes!));
+const scriptsIn = (html: string) => [...html.replace(/<(style|textarea|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "").matchAll(/<script\b((?:"[^"]*"|'[^']*'|[^'">])*)>/gi)].map(([, attributes]) => attributesOf(attributes!));
 
 /** The component majors a file really loads: a script's address, not a mention in its text. */
 function majorsIn(file: string, text: string): string[] {
