@@ -242,15 +242,12 @@ class OmgSplit extends OmgElement {
   static observedAttributes = ["side-width"];
   static styles = [
     css(`
-      :host { display: block; min-width: 0; container-type: inline-size; }
-      .split { display: grid; gap: var(--space-4); grid-template-columns: var(--_side) minmax(0, 1fr); }
-      :host([side="end"]) .split { grid-template-columns: minmax(0, 1fr) var(--_side); }
+      :host { display: block; min-width: 0; }
+      /* They wrap once the content would have less than half the width, whatever the sidebar's. */
+      .split { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+      .sidebar { flex: 1 1 var(--_side); min-width: 0; max-width: 100%; }
+      .main { flex: 999 1 0; min-width: 50%; }
       :host([side="end"]) .sidebar { order: 1; }
-      .sidebar, .main { min-width: 0; }
-      @container (max-width: 520px) {
-        .split, :host([side="end"]) .split { grid-template-columns: minmax(0, 1fr); }
-        :host([side="end"]) .sidebar { order: 0; }
-      }
     `),
   ];
   static template = `
@@ -261,6 +258,20 @@ class OmgSplit extends OmgElement {
 
   update() {
     this.part("split").style.setProperty("--_side", `${positive(this, "side-width") ?? 240}px`);
+  }
+}
+
+// A slot hears when nodes come and go, but not when a text node's words change.
+class OmgTextWatcher extends OmgElement {
+  #observer = new MutationObserver(() => this.update());
+
+  connectedCallback() {
+    this.#observer.observe(this, { characterData: true, subtree: true });
+    super.connectedCallback();
+  }
+
+  disconnectedCallback() {
+    this.#observer.disconnect();
   }
 }
 
@@ -276,7 +287,7 @@ class OmgSplit extends OmgElement {
  * @part description - The line under the title.
  * @part body - The content.
  */
-class OmgCard extends OmgElement {
+class OmgCard extends OmgTextWatcher {
   static observedAttributes = ["heading", "description"];
   static styles = [
     HEADING,
@@ -333,7 +344,7 @@ class OmgList extends OmgElement {
  * @part value - The value's place; hidden when empty.
  * @part actions - The buttons' place; hidden when empty.
  */
-class OmgListItem extends OmgElement {
+class OmgListItem extends OmgTextWatcher {
   static observedAttributes = ["heading", "description"];
   static styles = [
     css(`

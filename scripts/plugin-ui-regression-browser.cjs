@@ -1,6 +1,7 @@
 // The browser half of scripts/plugin-ui-regression.ts: opens each job's page in
 // Electron, the Chromium the app ships, and writes down what it finds.
 const { app, BrowserWindow } = require('electron');
+const { createHash } = require('node:crypto');
 const { mkdir, readFile, writeFile } = require('node:fs/promises');
 const path = require('node:path');
 const [jobFile, resultFile] = process.argv.slice(2);
@@ -24,6 +25,34 @@ async function settledPicture(contents) {
   }
   return image;
 }
+
+/**
+ * Each closed tab of the page, in document order: its name for the report and
+ * what to open to show it, outer tabs first. Each is shown from the page's
+ * starting state, so one picture doesn't depend on the last.
+ */
+const CLOSED_TABS = `(() => {
+  const groups = [...document.querySelectorAll('omg-tabs')];
+  const start = groups.map((group) => group.value);
+  window.__omgRegressionTabs = { groups, start };
+  const seen = new Set();
+  return groups.flatMap((group, at) =>
+    [...group.children].filter((tab) => tab.localName === 'omg-tab' && tab.hidden && !tab.hasAttribute('disabled')).map((tab) => {
+      const open = [[at, tab.getAttribute('name')]];
+      for (let outer = group.parentElement?.closest('omg-tab'); outer; outer = outer.parentElement?.closest('omg-tab'))
+        if (outer.parentElement?.localName === 'omg-tabs') open.unshift([groups.indexOf(outer.parentElement), outer.getAttribute('name')]);
+      const path = open.map(([, name]) => name).join(' / ');
+      const label = seen.has(path) ? path + ' #' + at : path;
+      seen.add(path);
+      return { label, open };
+    }),
+  );
+})()`;
+const showTab = (open) => `(() => {
+  const { groups, start } = window.__omgRegressionTabs;
+  groups.forEach((group, at) => { group.value = start[at]; });
+  for (const [at, name] of ${JSON.stringify(open)}) groups[at].value = name;
+})()`;
 
 async function runJob(job, origins) {
   const issues = [];
@@ -68,26 +97,26 @@ async function runJob(job, origins) {
     }
     const image = await settledPicture(contents);
     let file;
-    if (image.isEmpty()) issues.push('the page drew nothing');
+    if (image.isEmpty()) issues.push(`the page drew nothing${scenario === job.scenario ? '' : ` (${scenario})`}`);
     else {
       await mkdir(path.dirname(target), { recursive: true });
       await writeFile(target, image.toPNG());
       file = target;
     }
-    return { plugin: job.plugin, panel: job.panel, ...(scenario ? { scenario } : {}), appearance: job.appearance, connected, issues: [...new Set(issues.splice(0))], ...(file ? { file } : {}) };
+    return { plugin: job.plugin, panel: job.panel, ...(scenario ? { scenario } : {}), appearance: job.appearance, connected, issues: [], ...(file ? { file } : {}) };
   };
   const results = [await report(job.scenario, job.file)];
   // A closed tab isn't drawn, so each of the page's tabs gets its own picture.
-  const others = frame ? await frame.executeJavaScript(`(() => {
-    const tabs = document.querySelector('omg-tabs');
-    return tabs ? [...tabs.children].filter((tab) => tab.localName === 'omg-tab' && !tab.hasAttribute('disabled') && tab.hidden).map((tab) => tab.getAttribute('name')) : [];
-  })()`) : [];
-  for (const name of others) {
-    await frame.executeJavaScript(`document.querySelector('omg-tabs').value = ${JSON.stringify(name)}`);
+  const closed = frame ? await frame.executeJavaScript(CLOSED_TABS) : [];
+  for (const { label, open } of closed) {
+    await frame.executeJavaScript(showTab(open));
     await sleep(100);
-    const safe = String(name).replace(/[^a-z0-9-]+/gi, '_');
-    results.push(await report([job.scenario, `tab ${name}`].filter(Boolean).join(', '), job.file.replace(/(\.[^.]+\.png)$/, `-tab-${safe}$1`)));
+    // A name can hold anything, and two can differ only in what a file name can't.
+    const safe = createHash('sha256').update(label).digest('hex').slice(0, 12);
+    results.push(await report([job.scenario, `tab ${label}`].filter(Boolean).join(', '), job.file.replace(/(\.[^.]+\.png)$/, `-tab-${safe}$1`)));
   }
+  // An error may come at any moment, so what went wrong belongs to the page, not to whichever picture was next.
+  results[0].issues = [...new Set(issues)];
   window.destroy();
   return results;
 }

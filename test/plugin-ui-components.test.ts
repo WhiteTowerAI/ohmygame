@@ -111,6 +111,14 @@ describe("page components", () => {
     tabs.querySelector("omg-tab")!.setAttribute("heading", "First");
     await settle();
     expect(buttons().map((button) => button.textContent)).toEqual(["First", "B", "C", "D"]);
+
+    // The focused tab goes away: focus moves to the tab that opens instead.
+    tabs.value = "d";
+    buttons()[3]!.focus();
+    tabs.querySelector('omg-tab[name="d"]')!.setAttribute("disabled", "");
+    await settle();
+    expect(tabs.value).toBe("a");
+    expect(tabs.shadowRoot!.activeElement?.textContent).toBe("First");
   });
 
   it("arranges a grid and a split by their attributes, and hides a list item's empty places", async () => {
@@ -137,6 +145,19 @@ describe("page components", () => {
     await settle();
     expect(shadow(card, "header").hidden).toBe(true);
     expect(shadow(card, "body").hidden).toBe(true);
+
+    // A text node's words changing tells no slot; the place shows all the same.
+    const late = html(`<omg-card> </omg-card>`);
+    await settle();
+    expect(shadow(late, "body").hidden).toBe(true);
+    (late.firstChild as Text).data = "Loaded";
+    await settle();
+    expect(shadow(late, "body").hidden).toBe(false);
+    const row = html(`<omg-list-item> </omg-list-item>`);
+    await settle();
+    (row.firstChild as Text).data = "Loaded";
+    await settle();
+    expect(shadow(row, "value").hidden).toBe(false);
 
     const divider = html(`<omg-divider></omg-divider>`);
     expect(divider.getAttribute("role")).toBe("separator");

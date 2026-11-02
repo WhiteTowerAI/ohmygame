@@ -20,18 +20,15 @@ class OmgTabs extends OmgElement {
   static styles = [
     css(`
       :host { display: block; min-width: 0; }
-      .list {
-        display: flex; gap: var(--space-4); overflow-x: auto; scrollbar-width: none;
-        box-shadow: inset 0 -1px 0 var(--color-border);
-      }
+      .list { display: flex; flex-wrap: wrap; gap: 4px; }
       button {
-        flex: none; height: 36px; padding: 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
-        background: transparent; color: var(--color-text-secondary); font: inherit; white-space: nowrap; cursor: pointer;
+        height: 30px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-pill);
+        background: transparent; color: var(--color-text-secondary); font: inherit; font-size: var(--text-sm); white-space: nowrap; cursor: pointer;
+        transition: background var(--duration-fast), color var(--duration-fast);
       }
-      button:not(:disabled):hover { color: var(--color-text); }
-      button:focus-visible { outline-offset: -2px; }
+      button:not(:disabled):hover { background: color-mix(in srgb, var(--color-hover) 60%, transparent); color: var(--color-text); }
       button:disabled { opacity: 0.4; cursor: default; }
-      button[aria-selected="true"] { border-bottom-color: var(--color-ink); color: var(--color-text); font-weight: var(--weight-medium); }
+      button[aria-selected="true"], button[aria-selected="true"]:not(:disabled):hover { background: var(--color-hover); color: var(--color-text); font-weight: var(--weight-medium); }
       .panels { padding-top: var(--space-4); }
     `),
   ];
@@ -124,7 +121,11 @@ class OmgTabs extends OmgElement {
         return button;
       }),
     );
-    if (focused !== undefined) this.#button(focused)?.focus();
+    // A focused tab may have gone or been disabled; focus stays in the row.
+    if (focused !== undefined) {
+      const button = /** @type {HTMLButtonElement | undefined} */ (this.#button(focused));
+      (button && !button.disabled ? button : list.querySelector('[aria-selected="true"]'))?.focus();
+    }
     for (const tab of this.#tabs) tab.hidden = tab !== current;
   }
 }
