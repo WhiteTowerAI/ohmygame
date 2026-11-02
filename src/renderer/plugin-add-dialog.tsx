@@ -33,19 +33,20 @@ export function PluginAddDialog({ listed, onClose, onAdded }: { listed?: MarketP
   const [review, setReview] = useState<Review>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [needsUpdate, setNeedsUpdate] = useState(false);
+  const [versionIssue, setVersionIssue] = useState<"needs-app-update" | "needs-plugin-update">();
   const desktop = typeof window !== "undefined" ? window.ohMyGameDesktop : undefined;
 
   async function run(work: () => Promise<void>): Promise<void> {
     if (busy) return;
     setBusy(true);
     setError(undefined);
-    setNeedsUpdate(false);
+    setVersionIssue(undefined);
     try {
       await work();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
-      setNeedsUpdate(cause instanceof ApiError && cause.code === "needs-app-update");
+      const code = cause instanceof ApiError ? cause.code : undefined;
+      setVersionIssue(code === "needs-app-update" || code === "needs-plugin-update" ? code : undefined);
     } finally {
       setBusy(false);
     }
@@ -108,7 +109,7 @@ export function PluginAddDialog({ listed, onClose, onAdded }: { listed?: MarketP
           <PluginFilePicker label={t("pluginAdd.packageFile")} inputLabel={t("pluginAdd.packageFile")} chooseLabel={t("pluginAdd.chooseFile")} emptyLabel={t("pluginAdd.noFile")} file={file} accept=".tgz,.tar.gz,application/gzip" disabled={busy} onChange={setFile} />
         </> : null}
       </>}
-      {error ? <Alert tone="danger" title={error} action={needsUpdate ? <Button size="sm" onClick={() => {
+      {error ? <Alert tone="danger" title={versionIssue === "needs-app-update" ? t("pluginAdd.needsAppUpdate") : versionIssue ? t("pluginAdd.needsPluginUpdate") : error} action={versionIssue === "needs-app-update" && desktop?.updates ? <Button size="sm" onClick={() => {
         window.location.hash = settingsHash("about");
         onClose();
       }}>{t("pluginAdd.updateApp")}</Button> : undefined} /> : null}

@@ -43,8 +43,8 @@ starts in, and waits until what the plugin asks for is allowed.
   the running app, `PLUGIN_HOST_API_VERSION` in that file: its minor grows when
   a manifest field or something else a plugin can use is added, so a plugin
   that needs one asks for `^2.1.0`, say. Adding a plugin the app is too old for
-  says so and offers the update; one made for an API this app has left says its
-  author needs to update it.
+  says so and, in the desktop app, offers the update; one made for an API this
+  app has left says its author needs to update it.
 - **Project file:** `ohmygame.json` at a project's root names its type and the
   exact plugin versions it uses (`src/shared/project-file.ts`). It asks for
   plugins; it never allows them.
@@ -518,11 +518,12 @@ which are in preview.
 what would go wrong before anyone installs the plugin. It runs the checks every
 install runs, then reads the pages. Errors, which also fail the command: an
 inline or remote script, a major this app doesn't serve, a preview major without
-`ui.preview`, a component that doesn't exist, or components with nothing loading
-them. Warnings: preview components, a major being retired, `ui.major` missing or
-different from what the pages load, deprecated components or attributes,
-attributes and parts that don't exist, fixed colours, and custom properties that
-aren't the app's tokens or the page's own.
+`ui.preview`, a component in a page's markup that doesn't exist, or components
+with nothing loading them. Warnings: preview components, a major being retired,
+`ui.major` missing or different from what the pages load, deprecated components
+or attributes, a component named in a script that doesn't exist, attributes and
+parts that don't exist, fixed colours, and custom properties that aren't the
+app's tokens or the page's own.
 
 `packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
 shows every component in its states, with commands that report progress and

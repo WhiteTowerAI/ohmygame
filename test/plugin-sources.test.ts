@@ -218,8 +218,7 @@ describe("PluginSources", () => {
     expect(await check({ engines: { "ohmygame-api": "^3.0.0" } })).toMatchObject({ code: "needs-app-update", message: expect.stringContaining("Update OhMyGame") });
     expect(await check({ ui: { major: 999 } })).toMatchObject({ code: "needs-app-update", message: expect.stringContaining("page components 999") });
     const old = await check({ engines: { "ohmygame-api": "^1.0.0" } });
-    expect(old).toMatchObject({ message: expect.stringContaining("author") });
-    expect((old as PluginSourceError).code).toBeUndefined();
+    expect(old).toMatchObject({ code: "needs-plugin-update", message: expect.stringContaining("author") });
   });
 
   describe("a version on the market", () => {

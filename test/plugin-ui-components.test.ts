@@ -353,9 +353,18 @@ describe("page components' contract", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     html('<div><omg-old-test mode="a"></omg-old-test><omg-old-test mode="b"></omg-old-test><omg-old-test></omg-old-test></div>');
     await settle();
+    // Set after it connected, as a script would, it warns too.
+    class Late extends OmgElement {
+      static observedAttributes = ["mode"];
+      static deprecatedAttributes = { mode: "Use kind." };
+    }
+    customElements.define("omg-late-test", Late);
+    html("<omg-late-test></omg-late-test>").setAttribute("mode", "a");
+    await settle();
     expect(warn.mock.calls.map(([message]) => message)).toEqual([
       "[OhMyGame] <omg-old-test> is deprecated: Use omg-new.",
       "[OhMyGame] <omg-old-test>'s mode is deprecated: Use kind.",
+      "[OhMyGame] <omg-late-test>'s mode is deprecated: Use kind.",
     ]);
     warn.mockRestore();
   });
@@ -449,7 +458,7 @@ describe("plugin check", () => {
   });
 
   it("fails on what can't work", async () => {
-    const page = await plugin({ "index.html": `${load}<script>alert(1)</script><script src="https://cdn.example.com/x.js"></script><script type="application/json">{}</script><omg-nope></omg-nope>` });
+    const page = await plugin({ "index.html": `${load}<script>alert(1)</script><script src="https://cdn.example.com/x.js"></script><omg-nope></omg-nope>` });
     expect(await messages(page, "error")).toEqual([
       expect.stringContaining("no inline scripts"),
       expect.stringContaining("no remote scripts"),
@@ -458,8 +467,19 @@ describe("plugin check", () => {
     expect(await messages(await plugin({ "index.html": "<omg-button></omg-button>" }), "error")).toEqual([expect.stringContaining("no script loads")]);
     expect(await messages(await plugin({ "index.html": '<script type="module" src="/_ohmygame/ui/999/index.js"></script>' }), "error")).toEqual([expect.stringContaining("aren't served")]);
     expect(await messages(await plugin({ "index.html": load }, {}), "error")).toEqual([expect.stringContaining("are in preview")]);
+    expect(await messages(await plugin({ "index.html": `${load}<script TYPE="MODULE">go()</script>` }), "error")).toEqual([expect.stringContaining("no inline scripts")]);
     // The install's own checks come first.
     expect(await messages(await plugin({ "index.html": load }, { major: 999 }), "error")).toEqual([expect.stringContaining("Update OhMyGame")]);
+  });
+
+  it("doesn't fail a page for what works", async () => {
+    const page = await plugin({
+      "index.html": `<script SRC="./main.js" type="module"></script>${load}<script type="application/json">{}</script><script type="text/plain"><omg-note></omg-note></script><textarea><omg-example></textarea><title><omg-title></title><omg-button></omg-button>`,
+      "main.js": 'document.body.textContent = "<omg-example>";',
+    });
+    expect(await messages(page, "error")).toEqual([]);
+    // A page's major isn't known here, so what it uses can't be judged, beyond saying so.
+    expect(await messages(await plugin({ "index.html": '<script type="module" src="/_ohmygame/ui/999/index.js"></script><omg-future></omg-future>' }), "error")).toEqual([expect.stringContaining("aren't served")]);
   });
 
   it("warns about what won't match the app or won't last", async () => {

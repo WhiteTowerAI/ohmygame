@@ -69,13 +69,18 @@ export class OmgElement extends HTMLElement {
   connectedCallback() {
     const type = /** @type {typeof OmgElement} */ (this.constructor);
     if (type.deprecated) warnOnce(`<${this.localName}> is deprecated: ${type.deprecated}`);
-    for (const [name, reason] of Object.entries(type.deprecatedAttributes))
-      if (this.hasAttribute(name)) warnOnce(`<${this.localName}>'s ${name} is deprecated: ${reason}`);
+    for (const name of Object.keys(type.deprecatedAttributes)) if (this.hasAttribute(name)) this.#warnAttribute(name);
     this.update();
   }
 
-  attributeChangedCallback() {
+  attributeChangedCallback(name, _previous, value) {
+    if (value !== null && Object.hasOwn(/** @type {typeof OmgElement} */ (this.constructor).deprecatedAttributes, name)) this.#warnAttribute(name);
     if (this.isConnected) this.update();
+  }
+
+  #warnAttribute(name) {
+    const reason = /** @type {typeof OmgElement} */ (this.constructor).deprecatedAttributes[name];
+    warnOnce(`<${this.localName}>'s ${name} is deprecated: ${reason}`);
   }
 
   /** Draws the component from its attributes. */

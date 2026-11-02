@@ -46,6 +46,12 @@ function withoutComments(file: string, text: string): string {
   return normal.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 }
 
+/** What a script with no `src` is when it runs; any other type is data, which never does. */
+const RUNS = /^(?:|module|importmap|speculationrules|(?:text|application)\/(?:x-)?(?:java|ecma)script)$/;
+
+/** A page's markup, without the elements whose contents are only text. */
+const markupOf = (text: string) => text.replace(/<(script|style|textarea|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
+
 /** Each `<omg-…>` tag in markup, with the names of its attributes. */
 function tagsIn(text: string): { tag: string; attributes: string[] }[] {
   return [...text.matchAll(/<(omg-[a-z0-9-]+)((?:"[^"]*"|'[^']*'|\$\{[^}]*\}|[^'">])*)>/g)].map(([, tag, rest]) => ({
@@ -85,26 +91,38 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
   }
   if (loaded.size && manifest.ui?.major === undefined) add("warning", ".ohmygame-plugin/plugin.json", `Say which components the pages use with "ui": { "major": ${[...loaded.keys()][0]} }, so an app without them can tell the person to update`);
 
-  // What the pages use, against the contract of the major they load.
-  const contract = majors.get([...loaded.keys()].find((major) => majors.has(major)) ?? String(manifest.ui?.major ?? PLUGIN_UI_MAJORS[0])) ?? [];
-  const known = new Map(contract.map((item) => [item.tagName, item]));
+  // What the pages use, against the contracts of the majors they load: a file
+  // that names no major may be part of a page with any of them.
+  const served = [...loaded.keys()].filter((major) => majors.has(major));
+  const contract = (served.length ? served : [String(manifest.ui?.major ?? PLUGIN_UI_MAJORS[0])]).flatMap((major) => majors.get(major) ?? []);
+  const contractFor = (text: string) => {
+    const own = [...text.matchAll(/\/_ohmygame\/ui\/(\d+)\//g)].map(([, major]) => major!);
+    return own.length ? own.flatMap((major) => majors.get(major) ?? []) : contract;
+  };
   const events = new Set(contract.flatMap((item) => item.events.map((event) => event.name)));
   const parts = new Set(contract.flatMap((item) => item.cssParts.map((part) => part.name)));
   const properties = new Set(contract.flatMap((item) => item.cssProperties.map((property) => property.name)));
   const tokens = new Set<string>([...PAGE_TOKENS, ...properties, "--omg-accent", "--omg-on-accent"]);
   for (const { file, text } of page) {
-    if (file.endsWith(".html")) {
-      for (const [, attributes] of text.matchAll(/<script\b([^>]*)>/g)) {
-        const source = /\bsrc\s*=\s*["']?([^"'\s>]+)/.exec(attributes!)?.[1];
-        if (!source && /\btype\s*=\s*["']?[^"'\s>]*json/i.test(attributes!)) continue; // data, which never runs
+    const html = file.endsWith(".html");
+    if (html) {
+      for (const [, attributes] of text.matchAll(/<script\b([^>]*)>/gi)) {
+        const source = /\bsrc\s*=\s*["']?([^"'\s>]+)/i.exec(attributes!)?.[1];
+        const type = /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*))/i.exec(attributes!);
+        if (!source && !RUNS.test((type?.[1] ?? type?.[2] ?? type?.[3] ?? "").trim().toLowerCase())) continue;
         if (!source) add("error", file, "The page's policy allows no inline scripts; put the script in a file next to it");
         else if (/^(?:https?:)?\/\//.test(source)) add("error", file, `The page's policy allows no remote scripts: ${source}`);
       }
-      if (!loaded.size && /<omg-[a-z]/.test(text)) add("error", file, "The page uses page components but no script loads /_ohmygame/ui/<major>/index.js");
+      if (!loaded.size && /<omg-[a-z]/.test(markupOf(text))) add("error", file, "The page uses page components but no script loads /_ohmygame/ui/<major>/index.js");
     }
+    const known = new Map(contractFor(text).map((item) => [item.tagName, item]));
+    // Only a page's own markup is sure to be an element; a script may just be
+    // saying a name. And a major this app doesn't have can't be checked against.
     const used = new Set<string>();
-    for (const { tag, attributes } of tagsIn(text)) {
-      used.add(tag);
+    const named = new Set<string>();
+    if (!known.size) continue;
+    for (const { tag, attributes } of tagsIn(html ? markupOf(text) : text)) {
+      (html ? used : named).add(tag);
       const item = known.get(tag);
       if (!item) continue;
       const names = new Set(item.attributes.map((attribute) => attribute.name));
@@ -114,11 +132,8 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
         if (reason) add("warning", file, `<${tag}>'s ${name} is deprecated: ${reason}`);
       }
     }
-    // Scripts name components as strings, along with their events and maybe
-    // other things of the plugin's own, so a name nothing knows may be fine.
-    const named = new Set<string>();
-    if (!file.endsWith(".html"))
-      for (const [, name] of text.matchAll(/["'`](omg-[a-z0-9-]+)["'`]/g)) if (!events.has(name!) && !used.has(name!)) named.add(name!);
+    // They also name components as strings, along with their events.
+    if (!html) for (const [, name] of text.matchAll(/["'`](omg-[a-z0-9-]+)["'`]/g)) if (!events.has(name!)) named.add(name!);
     for (const tag of [...used, ...named]) {
       const item = known.get(tag);
       if (!item) add(used.has(tag) ? "error" : "warning", file, `There is no component <${tag}>`);

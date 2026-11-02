@@ -2328,6 +2328,8 @@ const zhCN: typeof en = {
   },
   pluginAdd: {
     updateApp: "更新 OhMyGame",
+    needsAppUpdate: "这个插件需要新版 OhMyGame。更新 OhMyGame 后才能使用。",
+    needsPluginUpdate: "这个插件是为旧版 OhMyGame 制作的，需要作者更新。",
     reading: "正在读取插件包…",
     menu: "添加插件…",
     title: "添加插件",
