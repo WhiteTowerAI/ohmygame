@@ -506,8 +506,8 @@ conversations, newest first, and the open project's list ends with **New
 conversation**. The rail's Back and Forward lead the top bar: beside the
 window controls on macOS, at the window's edge on Linux and in a browser. On
 Windows the app draws the title bar itself (`desktop-window-frame.tsx`): the
-window's menus, then Back and Forward, with the system's window controls at
-its right end, in the app's colours. The top bar holds the project's name as its menu (**Rename
+window's menus in the UI language, then Back and Forward, with the system's
+window controls at its right end, in the app's colours. The top bar holds the project's name as its menu (**Rename
 project…**, **Open in folder** in the desktop app, **Export project**,
 **Plugins…**, and a return to the entry page), **Play** while the Game panel
 isn't on screen, which shows it, and the **Publish** menu, which an asset canvas does

@@ -21,7 +21,7 @@ import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "../shared/log-redaction.js";
 import { desktopDiagnosticsArchive } from "./diagnostics-export.js";
 import { recordConsole, recordUncaughtErrors, rendererConsoleLines, runtimeStateLine, updateFailureLine } from "./console-log.js";
-import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
+import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, isMenuItemLabels, localizedMenuItems, windowsTitleBarOverlay } from "./window.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
 import { DesktopUpdateCheckScheduler } from "./update-check-scheduler.js";
 import { ElectronPlaytestDriver } from "./playtest-driver.js";
@@ -282,15 +282,16 @@ handle("ohmygame:set-appearance", (event, appearance: unknown) => {
     senderWindow.setTitleBarOverlay(windowsTitleBarOverlay(nativeTheme.shouldUseDarkColors));
   }
 });
-handle("ohmygame:popup-window-menu", (event, label: unknown, x: unknown, y: unknown) => {
+handle("ohmygame:popup-window-menu", (event, label: unknown, x: unknown, y: unknown, itemLabels: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents || typeof label !== "string" ||
       !windowMenuLabels.has(label) || typeof x !== "number" || !Number.isFinite(x) ||
-      typeof y !== "number" || !Number.isFinite(y)) {
+      typeof y !== "number" || !Number.isFinite(y) || !isMenuItemLabels(itemLabels)) {
     throw new Error("Invalid window menu request");
   }
   const item = Menu.getApplicationMenu()?.items.find((candidate) => candidate.label.replaceAll("&", "") === label);
   if (!item?.submenu) throw new Error(`Window menu is not available: ${label}`);
-  item.submenu.popup({ window: mainWindow, x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) });
+  Menu.buildFromTemplate(localizedMenuItems(item.submenu.items, itemLabels))
+    .popup({ window: mainWindow, x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) });
 });
 handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");

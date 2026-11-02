@@ -60,6 +60,7 @@ type EditorCanvasProps<N extends Node> = Omit<ReactFlowProps<N, Edge>, "onPaneCo
   onOpenMenu: (menu: CanvasContextMenuState) => void;
   /** Open the menu as "add" on a double-click on empty canvas in pointer mode. */
   addOnDoubleClick?: boolean;
+  pickingReferences?: boolean;
   fitViewOnLoad?: boolean;
   onInitialFit?: (viewport: { x: number; y: number; zoom: number }) => void;
 };
@@ -81,6 +82,7 @@ export function EditorCanvas<N extends Node>({
   onNodeDragStop,
   onNodeContextMenu,
   fitViewOnLoad = false,
+  pickingReferences = false,
   onInitialFit,
   style,
   children,
@@ -119,12 +121,12 @@ export function EditorCanvas<N extends Node>({
       maxZoom={2}
       snapToGrid
       snapGrid={SNAP_GRID}
-      nodesDraggable={mode === "pointer"}
-      elementsSelectable={mode === "pointer"}
+      nodesDraggable={mode === "pointer" && !pickingReferences}
+      elementsSelectable={mode === "pointer" && !pickingReferences}
       // Dragging empty canvas pans in either mode, as on most whiteboards;
       // Shift-drag draws a selection box in pointer mode.
       selectionOnDrag={false}
-      selectionKeyCode={mode === "pointer" ? "Shift" : null}
+      selectionKeyCode={mode === "pointer" && !pickingReferences ? "Shift" : null}
       panOnDrag={[0, 1, 2]}
       panOnScroll
       zoomOnScroll={false}
@@ -354,6 +356,9 @@ function DeleteKeys({ keys, canvas }: { keys: ReactFlowProps["deleteKeyCode"]; c
       const target = event.composedPath?.()[0] ?? event.target;
       if (target instanceof Element && (["INPUT", "SELECT", "TEXTAREA"].includes(target.nodeName) || target.hasAttribute("contenteditable") || target.closest(".nokey"))) return;
       if (!ownsCanvasKeys(canvas.current)) return;
+      // A modal over the canvas has the keys, wherever focus fell inside it. One
+      // left open in a panel out of sight isn't over anything.
+      if ([...document.querySelectorAll('[aria-modal="true"]')].some((modal) => inSight(modal) && !canvas.current?.contains(modal))) return;
       const { nodes, edges } = store.getState();
       void deleteElements({ nodes: nodes.filter((node) => node.selected), edges: edges.filter((edge) => edge.selected) });
       store.setState({ nodesSelectionActive: false });

@@ -475,9 +475,10 @@ The app also draws around and over a page, with what a page can't change:
   `write`, a page has `host.files` (`src/daemon/plugin-files.ts`):
   `list(path?, { recursive })`, `read(path)` as a Blob, `text(path)`,
   `url(path)` for `<img>`, `<audio>` or `<video>` (a `blob:` address, which
-  the page's CSP allows), and with `write` also `write(path, text | Blob)`,
-  `createFolder`, `move(from, to)` and `delete`. Paths are relative to the
-  project. A page never reaches a hidden file or folder, so neither `.env`
+  the page's CSP allows; `<omg-image file>` does this for a picture), and
+  with `write` also `write(path, text | Blob)`, `createFolder`,
+  `move(from, to)` and `delete`. Paths are relative to the project. A
+  page never reaches a hidden file or folder, so neither `.env`
   nor an agent's or editor's settings, follows no link, and reads no file
   that has another name (a hard link). It can't change `ohmygame.json`, an
   agent's instructions (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and variants
@@ -552,8 +553,8 @@ can go in the next major.
 | `omg-select` | The app's dropdown over its `<option>` children. `value`. |
 | `omg-segmented` | A few choices side by side, from its `<option>` children. `value`. |
 | `omg-switch`, `omg-checkbox` | On or off. `checked`. A switch acts at once; a checkbox goes with the rest of a form. |
-| `omg-image` | A picture, on a raised surface until it loads and with a mark if it can't. `src`, `alt`, `ratio` (such as `16/9`) for a frame of that shape, `fit`: `contain`, `cover`; `pixelated`; `checker` behind transparent parts. Fires `load` and `error`. |
-| `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
+| `omg-image` | A picture, on a raised surface until it loads and with a mark if it can't. `src`, or `file` for a picture in the project (with the `project.files` capability; set it again to show the file as it is now), `alt`, `ratio` (such as `16/9`) for a frame of that shape, `fit`: `contain`, `cover`; `pixelated`; `checker` behind transparent parts. Fires `load` and `error`. |
+| `omg-tile` | A picture with its name, as a button to pick from a grid. `heading`, `description`, `badge`, `selected`, `disabled`, and the picture's `src` or `file`, `alt`, `ratio` (`4/3` by default), `fit`, `pixelated`, `checker`; slot `media` in place of the picture. |
 
 Form controls also share `label` or `aria-label`, `hint`, `error` and `disabled`, and fire `change` and `input`.
 

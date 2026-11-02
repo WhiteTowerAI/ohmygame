@@ -51,8 +51,8 @@ if (process.isMainFrame) {
       return () => ipcRenderer.removeListener("ohmygame:cancel-close", callback);
     },
     windowMenu: Object.freeze({
-      popup: (label: string, x: number, y: number) =>
-        ipcRenderer.invoke("ohmygame:popup-window-menu", label, x, y) as Promise<void>,
+      popup: (label: string, x: number, y: number, itemLabels: Record<string, string>) =>
+        ipcRenderer.invoke("ohmygame:popup-window-menu", label, x, y, itemLabels) as Promise<void>,
     }),
     openExternal: (url: string) => ipcRenderer.invoke("ohmygame:open-auth-url", url) as Promise<void>,
     openProjectFile: (projectId: string, filePath: string, mode: ProjectFileOpenMode = "default") =>

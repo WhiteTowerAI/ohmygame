@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { Blob as NodeBlob } from "node:buffer";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ComponentManifest, componentManifest, componentTypes, contractChanges, contractFiles, declarations, parseComment, supportChanges } from "../scripts/plugin-ui-contract.js";
@@ -407,6 +408,137 @@ describe("page components", () => {
     expect(frame.style.aspectRatio).toBe("1.5 / 1");
     image.removeAttribute("src");
     expect([picture().hasAttribute("src"), shadow(image, "broken").hidden, image.complete]).toEqual([false, true, false]);
+  });
+
+  it("shows a project file, and lets go of its address once drawn", async () => {
+    let made = 0;
+    const create = vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:test-${++made}`);
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const refused = new Set(["secret/none.png"]);
+    answer = (id, method, params) =>
+      method === "files.read" && refused.has(String(params?.path))
+        ? app.postMessage({ id, error: "This plugin can't read the project's files" })
+        : app.postMessage({ id, result: method === "files.read" ? new NodeBlob(["png"]) : { ok: true } });
+    try {
+      type Image = HTMLElement & { complete: boolean };
+      const image = html<Image>(`<omg-image file="art/hero.png" src="fallback.png" alt="Hero"></omg-image>`);
+      const picture = () => shadow(image, "image") as HTMLImageElement;
+      const events: string[] = [];
+      image.addEventListener("load", () => events.push("load"));
+      image.addEventListener("error", () => events.push("error"));
+      await settle();
+      expect(calls).toEqual([{ method: "files.read", params: { path: "art/hero.png" } }]);
+      expect([picture().getAttribute("src"), image.complete]).toEqual(["blob:test-1", false]);
+      picture().dispatchEvent(new Event("load"));
+      expect([events, image.complete, revoke.mock.calls]).toEqual([["load"], true, [["blob:test-1"]]]);
+
+      // Set again, it reads the file again.
+      image.setAttribute("file", "art/hero.png");
+      await settle();
+      expect(calls.map((call) => call.params?.path)).toEqual(["art/hero.png", "art/hero.png"]);
+      expect(picture().getAttribute("src")).toBe(`blob:test-${made}`);
+      // Replaced at once, the first is never read; replaced while reading, its address goes unused.
+      image.setAttribute("file", "art/first.png");
+      image.setAttribute("file", "art/other.png");
+      await settle();
+      expect(calls.map((call) => call.params?.path)).toEqual(["art/hero.png", "art/hero.png", "art/other.png"]);
+      image.setAttribute("file", "art/slow.png");
+      await Promise.resolve();
+      await Promise.resolve();
+      image.setAttribute("file", "art/other.png");
+      await settle();
+      expect(calls.at(-2)?.params?.path).toBe("art/slow.png");
+      expect(picture().getAttribute("src")).toBe(`blob:test-${made}`);
+      expect(revoke.mock.calls).toContainEqual([`blob:test-${made - 1}`]);
+
+      // A read the app refuses is a picture that couldn't load.
+      image.setAttribute("file", "secret/none.png");
+      await settle();
+      expect([events, image.complete, shadow(image, "broken").hidden]).toEqual([["load", "error"], true, false]);
+      // While there's a file, src isn't the picture, so setting it reads nothing; without a file, it is.
+      const reads = calls.length;
+      image.setAttribute("src", "fallback.png");
+      await settle();
+      expect(calls.length).toBe(reads);
+      image.removeAttribute("file");
+      expect(picture().getAttribute("src")).toBe("fallback.png");
+
+      // Taken out of the page while the file is read, or before it's drawn, it lets go of the address and loads again if it comes back.
+      calls.length = 0;
+      revoke.mockClear();
+      const removed = html<Image>(`<omg-image file="art/hero.png"></omg-image>`);
+      await Promise.resolve();
+      await Promise.resolve();
+      removed.remove();
+      await settle();
+      expect(calls.length).toBe(1);
+      expect(revoke.mock.calls).toEqual([[`blob:test-${made}`]]);
+      expect([shadow(removed, "image").hasAttribute("src"), removed.complete]).toEqual([false, false]);
+      document.body.append(removed);
+      await settle();
+      expect(calls.length).toBe(2);
+      expect(shadow(removed, "image").getAttribute("src")).toBe(`blob:test-${made}`);
+      removed.remove();
+      expect(revoke.mock.calls.at(-1)).toEqual([`blob:test-${made}`]);
+
+      // Once drawn, it stays drawn: there's no address left to let go of, and nothing to read.
+      document.body.append(removed);
+      await settle();
+      shadow(removed, "image").dispatchEvent(new Event("load"));
+      const drawn = calls.length;
+      removed.remove();
+      document.body.append(removed);
+      await settle();
+      expect([calls.length, removed.complete]).toEqual([drawn, true]);
+
+      // Upgraded in a page, each attribute is reported first, already connected: drawing waits, so the file is read once.
+      for (const markup of [["omg-image", { src: "fallback.png", file: "art/hero.png" }], ["omg-tile", { heading: "Hero", file: "art/hero.png" }]] as const) {
+        document.body.replaceChildren();
+        calls.length = 0;
+        const element = document.createElement(markup[0]);
+        Object.defineProperty(element, "isConnected", { configurable: true, value: true });
+        for (const [name, value] of Object.entries(markup[1])) element.setAttribute(name, value);
+        await settle();
+        expect(calls.length, markup[0]).toBe(0);
+        delete (element as unknown as { isConnected?: boolean }).isConnected;
+        document.body.append(element);
+        await settle();
+        expect(calls.length, markup[0]).toBe(1);
+      }
+
+      // A tile removed while loading and given another file reads only that one when it comes back.
+      calls.length = 0;
+      const moved = html(`<omg-tile heading="hero.png" file="art/hero.png"></omg-tile>`);
+      moved.remove();
+      moved.setAttribute("file", "art/next.png");
+      await settle();
+      calls.length = 0;
+      document.body.append(moved);
+      await settle();
+      expect(calls.map((call) => call.params?.path)).toEqual(["art/next.png"]);
+
+      // A tile with both sources reads its file once, and uses src once the file goes.
+      calls.length = 0;
+      const tile = html(`<omg-tile heading="hero.png" file="art/hero.png" src="fallback.png"></omg-tile>`);
+      const inner = shadow(tile, "image");
+      await settle();
+      expect(calls.length).toBe(1);
+      expect([inner.getAttribute("file"), inner.hasAttribute("src")]).toEqual(["art/hero.png", false]);
+      tile.setAttribute("description", "PNG");
+      tile.setAttribute("src", "other.png");
+      await settle();
+      expect(calls.length).toBe(1);
+      tile.setAttribute("file", "art/hero.png");
+      await settle();
+      expect(calls.length).toBe(2);
+      tile.removeAttribute("file");
+      await settle();
+      expect([calls.length, inner.hasAttribute("file"), inner.getAttribute("src")]).toEqual([2, false, "other.png"]);
+      expect(create).toHaveBeenCalled();
+    } finally {
+      create.mockRestore();
+      revoke.mockRestore();
+    }
   });
 
   it("draws a tile as a button with its picture and name", () => {

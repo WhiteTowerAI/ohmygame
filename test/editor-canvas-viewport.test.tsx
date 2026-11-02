@@ -185,4 +185,21 @@ it("deletes only in the canvas used last while it is in sight, when canvases sha
   container.append(field);
   await press(field);
   expect(flow.deleted).toEqual(["story", "assets", "assets"]);
+  // A modal over the canvas keeps the keys, even with focus on its plain text.
+  const modal = document.createElement("div");
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.textContent = "Prompt editor";
+  document.body.append(modal);
+  await key(document.body);
+  modal.remove();
+  expect(flow.deleted).toEqual(["story", "assets", "assets"]);
+  // One left open in a panel out of sight doesn't.
+  const parked = document.createElement("div");
+  parked.className = "dock-parking";
+  parked.append(modal);
+  document.body.append(parked);
+  await key(document.body);
+  parked.remove();
+  expect(flow.deleted).toHaveLength(4);
 });
