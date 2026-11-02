@@ -502,6 +502,10 @@ describe("regression check", () => {
       failures: ["acme/panel main (dark): <omg-x> never registered"],
       changed: ["acme/panel main (dark)"],
     });
+    // A page needn't connect, but one that did and stopped has broken.
+    expect(compareRuns(undefined, [{ ...run([]), connected: false }]).failures).toEqual([]);
+    expect(compareRuns([{ ...run([]), connected: false }], [{ ...run([]), connected: false }]).failures).toEqual([]);
+    expect(compareRuns([{ ...run([]), connected: true }], [{ ...run([]), connected: false }]).failures).toEqual(["acme/panel main (dark): the page no longer connects to the app"]);
     // Each scenario is its own view.
     expect(compareRuns([run([], "a"), run([], "b", "connected")], [run([], "a"), run(["console: boom"], "b", "connected")]).failures).toEqual(["acme/panel main connected (dark): console: boom"]);
   });

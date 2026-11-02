@@ -19,7 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PluginIndex, type PluginIndexEntry } from "../src/daemon/plugin-index.js";
 import { startPluginUiServer } from "../src/daemon/plugin-ui-server.js";
-import { accentTokens, PAGE_TOKENS, PLUGIN_UI_HANDSHAKE, PLUGIN_UI_PROTOCOL_VERSION, type PluginAccent } from "../src/shared/plugin-ui-protocol.js";
+import { accentTokens, PAGE_TOKENS, PLUGIN_UI_HANDSHAKE, PLUGIN_UI_PROTOCOL_VERSION, pluginUiRefusal, readPluginUiRequest, type PluginAccent, type PluginUiCapabilities } from "../src/shared/plugin-ui-protocol.js";
 
 const DEFAULT_PLUGINS = ["packages/plugin-ui/gallery", "plugins/taptap-maker"];
 const APPEARANCES = ["dark", "light"] as const;
@@ -33,6 +33,8 @@ export interface PanelRun {
   appearance: string;
   /** What is wrong with it, with addresses that don't differ between runs. */
   issues: string[];
+  /** Whether its page connected to the app, which a page needn't do. */
+  connected?: boolean;
   /** The picture's file, and its SHA-256, so equal pictures compare equal. */
   file?: string;
   picture?: string;
@@ -46,9 +48,16 @@ export function compareRuns(base: readonly PanelRun[] | undefined, head: readonl
   for (const run of head) {
     const before = base?.find((other) => name(other) === name(run));
     for (const issue of run.issues) if (!before?.issues.includes(issue)) failures.push(`${name(run)}: ${issue}`);
+    if (before?.connected && !run.connected) failures.push(`${name(run)}: the page no longer connects to the app`);
     if (before && before.picture !== run.picture) changed.push(name(run));
   }
   return { failures, changed };
+}
+
+/** What a person who allowed everything the plugin asks for gives its pages. */
+function capabilitiesOf(entry: PluginIndexEntry): PluginUiCapabilities {
+  const asked = entry.manifest.capabilities;
+  return { "project.selection": asked?.["project.selection"] === true, composer: asked?.composer === true };
 }
 
 /** The page the panel loads in: the app's frame, its tokens and its answers, with nothing behind them. */
@@ -59,6 +68,8 @@ const harness = `<!doctype html>
 const query = new URLSearchParams(location.search);
 const appearance = query.get("appearance");
 const results = JSON.parse(query.get("results") || "null");
+const capabilities = JSON.parse(query.get("capabilities") || "{}");
+const stored = new Map();
 document.documentElement.dataset.appearance = appearance;
 const frame = document.querySelector("iframe");
 frame.addEventListener("load", async () => {
@@ -73,17 +84,24 @@ frame.addEventListener("load", async () => {
   const answers = {
     "theme.get": () => ({ tokens: theme.tokens, appearance }),
     "project.info": () => ({ name: "Regression check", type: "general" }),
+    "storage.get": ({ key }) => stored.get(key) ?? null,
+    "storage.set": ({ key, value }) => { stored.set(key, value); return null; },
     "command.run": ({ command }) => {
       if (results && command in results) return results[command];
       throw new Error("Commands don't run in this check");
     },
     "ui.confirm": () => false,
   };
-  channel.port1.onmessage = ({ data }) => {
+  channel.port1.onmessage = async ({ data }) => {
     if (data?.event === "ready") { window.pluginReady = true; return; }
-    if (typeof data?.id !== "number") return;
+    // The app's own checks, so a page is refused here what it would be refused there.
+    const checked = await (await fetch("/check", { method: "POST", body: JSON.stringify({ data, capabilities }) })).json();
+    if (checked.error) {
+      if (checked.id !== undefined) channel.port1.postMessage({ id: checked.id, error: checked.error });
+      return;
+    }
     try {
-      channel.port1.postMessage({ id: data.id, result: answers[data.method]?.(data.params) ?? null });
+      channel.port1.postMessage({ id: data.id, result: answers[data.method]?.(data.params ?? {}) ?? null });
     } catch (error) {
       channel.port1.postMessage({ id: data.id, error: error.message });
     }
@@ -137,6 +155,17 @@ async function main(): Promise<void> {
   const host = createServer((request, response) => {
     if (request.url?.startsWith("/harness.html")) return void response.writeHead(200, { "content-type": "text/html" }).end(harness);
     if (request.url === "/tokens.css") return void response.writeHead(200, { "content-type": "text/css" }).end(tokensCss);
+    if (request.url === "/check" && request.method === "POST") {
+      const parts: Buffer[] = [];
+      request.on("data", (part: Buffer) => parts.push(part));
+      request.on("end", () => {
+        const { data, capabilities } = JSON.parse(Buffer.concat(parts).toString()) as { data: unknown; capabilities: PluginUiCapabilities };
+        const read = readPluginUiRequest(data);
+        const answer = read.ok ? { error: pluginUiRefusal(read.request.method, capabilities), id: read.request.id } : { error: read.error, id: read.id };
+        response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(answer));
+      });
+      return;
+    }
     if (request.url === "/theme" && request.method === "POST") {
       const parts: Buffer[] = [];
       request.on("data", (part: Buffer) => parts.push(part));
@@ -159,7 +188,7 @@ async function main(): Promise<void> {
         (entry.manifest.contributes?.panels ?? []).flatMap((panel) =>
           [undefined, ...Object.keys(scenarios[entry.id] ?? {})].flatMap((scenario) =>
             APPEARANCES.map((appearance) => {
-              const query = new URLSearchParams({ src: server.panelUrl(entry.id, entry.version, panel.id)!, plugin: entry.id, version: entry.version, panel: panel.id, appearance, accent: JSON.stringify(entry.manifest.ui?.accent ?? null), results: JSON.stringify(scenario ? scenarios[entry.id]![scenario] : null) });
+              const query = new URLSearchParams({ src: server.panelUrl(entry.id, entry.version, panel.id)!, plugin: entry.id, version: entry.version, panel: panel.id, appearance, accent: JSON.stringify(entry.manifest.ui?.accent ?? null), capabilities: JSON.stringify(capabilitiesOf(entry)), results: JSON.stringify(scenario ? scenarios[entry.id]![scenario] : null) });
               const view = [entry.id.replace("/", "-"), panel.id, scenario, appearance].filter(Boolean).join("-");
               return { plugin: entry.id, panel: panel.id, ...(scenario ? { scenario } : {}), appearance, url: `${hostOrigin}/harness.html?${query}`, file: path.join(out, `${view}.${label}.png`) };
             }),

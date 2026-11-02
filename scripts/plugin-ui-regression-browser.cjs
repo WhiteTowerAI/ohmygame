@@ -38,12 +38,11 @@ async function runJob(job, origins) {
   contents.on('render-process-gone', (_event, details) => issues.push(`the page crashed: ${details.reason}`));
   await contents.loadURL(job.url);
   // The app shows a frame within 3 seconds, whether or not its page connects.
-  let ready = false;
-  for (let waited = 0; waited < 3000 && !ready; waited += 100) {
-    ready = await contents.executeJavaScript('window.pluginReady === true');
-    if (!ready) await sleep(100);
+  let connected = false;
+  for (let waited = 0; waited < 3000 && !connected; waited += 100) {
+    connected = await contents.executeJavaScript('window.pluginReady === true');
+    if (!connected) await sleep(100);
   }
-  if (!ready) issues.push('the page never connected to the app');
   await sleep(700);
   const frame = contents.mainFrame.frames[0];
   if (!frame) issues.push('the page has no frame');
@@ -72,7 +71,7 @@ async function runJob(job, origins) {
     file = job.file;
   }
   window.destroy();
-  return { plugin: job.plugin, panel: job.panel, ...(job.scenario ? { scenario: job.scenario } : {}), appearance: job.appearance, issues: [...new Set(issues)], ...(file ? { file } : {}) };
+  return { plugin: job.plugin, panel: job.panel, ...(job.scenario ? { scenario: job.scenario } : {}), appearance: job.appearance, connected, issues: [...new Set(issues)], ...(file ? { file } : {}) };
 }
 
 app.whenReady().then(async () => {
