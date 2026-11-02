@@ -9,7 +9,7 @@ export type PluginUiMethod =
   | "ui.toast"
   | "ui.confirm";
 
-/** Shows a toast the app draws, under the panel's title. At most 5 in 10 seconds. */
+/** Shows a toast the app draws, under the plugin's id. A plugin shows at most 5 in 10 seconds. */
 export interface PluginUiToast {
   /** At most 500 characters. */
   message: string;
@@ -19,7 +19,7 @@ export interface PluginUiToast {
 /**
  * Asks the person in a dialog the app draws, which says which plugin asks;
  * resolves to whether they agreed. A page that isn't showing can't ask, one
- * question waits at a time, and a page asks at most 5 in a minute.
+ * question waits at a time, and a plugin asks at most 5 in a minute.
  */
 export interface PluginUiConfirm {
   /** At most 200 characters. */

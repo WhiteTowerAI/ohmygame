@@ -433,7 +433,7 @@ describe("plugins in the project shell", () => {
     const toast = vi.fn();
     const confirm = vi.fn(async () => true);
     const context = {
-      plugin: { id: "acme/maker", version: "1.0.0", panel: "main" },
+      plugin: { id: "acme/noisy", version: "1.0.0", panel: "main" },
       locale: "en" as const,
       capabilities: {},
       commands: [],
@@ -464,6 +464,16 @@ describe("plugins in the project shell", () => {
       for (let id = 10; id <= 10 + PLUGIN_TOAST_LIMIT; id++) page!.postMessage({ id, method: "ui.toast", params: { message: "Hello" } });
       await vi.waitFor(() => expect(replies.get(10 + PLUGIN_TOAST_LIMIT)?.error).toContain("too many"));
       expect(toast).toHaveBeenCalledTimes(PLUGIN_TOAST_LIMIT);
+      // A second page of the plugin shares its limit.
+      const first = page!;
+      await act(async () => root.render(<PluginFrame key="other" url="about:blank#other" title="Other" context={{ ...context, plugin: { ...context.plugin, panel: "other" } }} visible />));
+      await act(async () => {
+        container.querySelector("iframe.plugin-frame")!.dispatchEvent(new Event("load"));
+      });
+      expect(page).not.toBe(first);
+      page!.onmessage = ({ data }) => replies.set(data.id, data);
+      page!.postMessage({ id: 30, method: "ui.toast", params: { message: "Hello" } });
+      await vi.waitFor(() => expect(replies.get(30)?.error).toContain("too many"));
       page!.close();
     } finally {
       post.mockRestore();

@@ -40,7 +40,7 @@ export interface PluginPageContext {
   runCommand(command: string, input?: unknown): Promise<unknown>;
   /** The plugin's brand colour, from its manifest. */
   accent?: PluginAccent;
-  /** Shows a toast the app draws, under the panel's title. */
+  /** Shows a toast the app draws, under the plugin's id. */
   toast(message: string, tone?: PluginUiToastTone): void;
   /** Asks the person in a dialog the app draws; a page only learns the answer. */
   confirm(request: PluginUiConfirm): Promise<boolean>;
@@ -167,11 +167,23 @@ export function rateLimit(limit: number, windowMs: number, now: () => number = D
   };
 }
 
-/** How many toasts a page shows in `PLUGIN_TOAST_WINDOW_MS`, and dialogs in `PLUGIN_CONFIRM_WINDOW_MS`, so one can't bury the app in them. */
+/** How many toasts a plugin shows in `PLUGIN_TOAST_WINDOW_MS`, and questions it asks in `PLUGIN_CONFIRM_WINDOW_MS`, so it can't bury the app in them. */
 export const PLUGIN_TOAST_LIMIT = 5;
 export const PLUGIN_TOAST_WINDOW_MS = 10_000;
 export const PLUGIN_CONFIRM_LIMIT = 5;
 export const PLUGIN_CONFIRM_WINDOW_MS = 60_000;
+
+const pluginLimits = new Map<string, { toast: () => boolean; confirm: () => boolean }>();
+
+/** A plugin's limits, which all its panels share and reloading a page doesn't start over. */
+function limitsOf(plugin: string) {
+  let limits = pluginLimits.get(plugin);
+  if (!limits) {
+    limits = { toast: rateLimit(PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS), confirm: rateLimit(PLUGIN_CONFIRM_LIMIT, PLUGIN_CONFIRM_WINDOW_MS) };
+    pluginLimits.set(plugin, limits);
+  }
+  return limits;
+}
 
 /** Answers one checked request; throwing sends the page the error's message. */
 export async function handlePluginUiRequest(
@@ -304,9 +316,6 @@ export function PluginFrame({
   latest.current = context;
   const shown = useRef(visible);
   shown.current = visible;
-  // Kept across the page's reloads, so reloading doesn't start them over.
-  const [toastAllowed] = useState(() => rateLimit(PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS));
-  const [confirmAllowed] = useState(() => rateLimit(PLUGIN_CONFIRM_LIMIT, PLUGIN_CONFIRM_WINDOW_MS));
   // The context changes every render; requests read the latest one.
   const stable: PluginPageContext = {
     get plugin() { return latest.current.plugin; },
@@ -326,13 +335,13 @@ export function PluginFrame({
     runCommand: (command, input) => latest.current.runCommand(command, input),
     get accent() { return latest.current.accent; },
     toast: (message, tone) => {
-      if (!toastAllowed()) throw new Error("This page is showing too many toasts");
+      if (!limitsOf(latest.current.plugin.id).toast()) throw new Error("This plugin is showing too many toasts");
       latest.current.toast(message, tone);
     },
     confirm: (request) => {
       // A hidden page can't ask: the person wouldn't know what the question is about.
       if (!shown.current) return Promise.reject(new Error("This page isn't showing, so it can't ask"));
-      if (!confirmAllowed()) return Promise.reject(new Error("This page is asking too often"));
+      if (!limitsOf(latest.current.plugin.id).confirm()) return Promise.reject(new Error("This plugin is asking too often"));
       return latest.current.confirm(request);
     },
   };

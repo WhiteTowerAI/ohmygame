@@ -438,13 +438,13 @@ The app also draws around and over a page, with what a page can't change:
   the app's toasts; the page hears a `command` event with `command`, and
   `result` or `error`, when one finishes.
 - **Toasts and questions.** `host.request("ui.toast", { message, tone })`
-  shows a toast under the panel's title; `tone` is `default`, `success` or
+  shows a toast under the plugin's id; `tone` is `default`, `success` or
   `danger`. `host.request("ui.confirm", { title, message, confirmLabel })`
   asks in a dialog that says which plugin asks, and resolves to whether the
   person agreed; it gives the page nothing but the answer. A page that isn't
-  showing can't ask, one question waits at a time, and a page gets at most
-  five toasts in ten seconds and five questions in a minute. Beyond that the
-  request fails.
+  showing can't ask, one question waits at a time, and a plugin, across its
+  panels, gets at most five toasts in ten seconds and five questions in a
+  minute. Beyond that the request fails.
 
 ### Page components
 

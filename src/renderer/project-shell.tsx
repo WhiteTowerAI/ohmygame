@@ -1028,6 +1028,7 @@ export function ProjectShell({
       const prompt = commandPrompt(run);
       if (run.insert) requestPrompt(prompt);
       else if (await submitPrompt(prompt, [], [], "normal")) revealPanel("chat");
+      else return { error: "The message wasn't sent" };
       return {};
     }
     if ("openPanel" in run) {
@@ -1042,7 +1043,10 @@ export function ProjectShell({
       // The manifest only checks that it starts with https://.
       const url = URL.canParse(run.url) ? new URL(run.url) : undefined;
       if (url) setPluginLink({ url });
-      else toast({ title: command.title, description: t("pluginCommands.badLink"), tone: "danger" });
+      else {
+        toast({ title: command.title, description: t("pluginCommands.badLink"), tone: "danger" });
+        return { error: "The command's link isn't a valid web address" };
+      }
       return {};
     }
     try {
@@ -1088,7 +1092,8 @@ export function ProjectShell({
     return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} toolbarRun={pluginToolbarRun} context={{
       plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
       ...(panel.accent ? { accent: panel.accent } : {}),
-      toast: (message, tone) => toast({ title: panel.title, description: message, ...(tone ? { tone } : {}) }),
+      // Under the plugin's id, which it can't choose as it can a panel's title.
+      toast: (message, tone) => toast({ title: panel.plugin, description: message, ...(tone ? { tone } : {}) }),
       confirm: (request) => new Promise<boolean>((resolve, reject) => {
         if (pluginConfirmOpen.current) {
           reject(new Error("Another question is waiting for an answer"));
