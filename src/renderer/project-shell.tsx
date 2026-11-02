@@ -114,6 +114,7 @@ import { composerDrafts } from "./composer-drafts.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { ApprovalCard } from "./approval-card.js";
+import { notifyPromptSent, useNotificationView } from "./agent-notifications.js";
 import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
@@ -555,6 +556,7 @@ export function ProjectShell({
     setSendingInitialPrompt(true);
     setInitialPromptDeferred(false);
     let sent = true;
+    notifyPromptSent();
     void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments).then(() => {
       if (sent && (initialPrompt.images.length || initialPrompt.attachments?.length)) setWorkspaceRevision((value) => value + 1);
     }).catch((error) => {
@@ -598,6 +600,8 @@ export function ProjectShell({
     const pending = takePendingPublish(sessionStorage, project.id);
     if (pending) void publish(pending).catch(() => undefined);
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
+
+  useNotificationView(state.project?.id, state.conversation?.id);
 
   const project = state.project;
   const conversation = state.conversation;
@@ -644,6 +648,7 @@ export function ProjectShell({
       const contexts = [surface?.context, ...previewContexts.map((attachment) => attachment.context)].filter((context) => context !== undefined);
       const sentImages = previewImage ? [...images, previewImage] : images;
       const allReferences = [...(surface?.references ?? []), ...references.filter((reference) => !(surface?.references ?? []).some((current) => current.path === reference.path))];
+      notifyPromptSent();
       const picks = previewPicks;
       await sendPrompt(project.id, conversation.id, nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : []), ...picks.map((item) => item.context)]);
       if (picks.length) setPreviewPicks((current) => current.filter((item) => !picks.includes(item)));
@@ -675,6 +680,7 @@ export function ProjectShell({
     const surface = playableChat?.surface;
     try {
       await saveDesign.current?.();
+      notifyPromptSent();
       await sendPrompt(project.id, conversation.id, text, surface?.references ?? [], [], "normal", [], [], [...(surface ? [surface.context] : []), ...contexts]);
       revealPanel("chat");
       return true;
