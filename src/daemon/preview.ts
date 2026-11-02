@@ -200,14 +200,16 @@ export class PreviewManager {
   /**
    * Holds a short lease for as long as `work` takes and one term after, so a
    * page it opens has time to connect. Cancelling releases the lease at once.
+   * Each call has its own lease, so cancelling one leaves the others held.
    */
   async holdWhile<T>(
     project: ProjectState,
-    id: string,
+    purpose: string,
     work: () => Promise<T>,
     signal?: AbortSignal,
   ): Promise<T> {
     signal?.throwIfAborted();
+    const id = `${purpose}:${crypto.randomUUID()}`;
     this.touch(project, id);
     const renew = setInterval(
       () => this.touch(project, id),

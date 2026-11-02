@@ -380,8 +380,9 @@ describe("preview policy and lifecycle", () => {
     await preview.ensureStarted(first.project);
     await preview.ensureStarted(second.project);
     let finish!: () => void;
-    const controller = new AbortController();
-    const holding = preview.holdWhile(first.project, "playtest:opening", () => new Promise<void>((resolve) => { finish = resolve; }), controller.signal);
+    const started = new Promise<void>((resolve) => { finish = resolve; });
+    const [controller, other] = [new AbortController(), new AbortController()];
+    const holding = [controller, other].map(({ signal }) => preview.holdWhile(first.project, "playtest:opening", () => started, signal));
     preview.acquire(second.project, "editor:second");
     preview.release(second.project, "editor:second");
     // Past the lease term, so only renewal keeps the first one out of the count.
@@ -389,12 +390,16 @@ describe("preview policy and lifecycle", () => {
     await preview.collectIdle();
     expect(first.project.preview.status).toBe("ready");
     expect(second.project.preview.status).toBe("ready");
-    // Cancelled, it counts as unused at once and was left last.
+    // Another call opening the same preview still holds it.
     controller.abort();
+    await preview.collectIdle();
+    expect(second.project.preview.status).toBe("ready");
+    // With every call cancelled, it counts as unused at once and was left last.
+    other.abort();
     await vi.waitFor(() => expect(second.project.preview.status).toBe("stopped"));
     expect(first.project.preview.status).toBe("ready");
     finish();
-    await holding;
+    await Promise.all(holding);
   });
 
   it("ranks a preview started again by when it started, not by when it was last left", async () => {
