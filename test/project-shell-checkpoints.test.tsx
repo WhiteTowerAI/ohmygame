@@ -694,6 +694,138 @@ describe("plugins in the project shell", () => {
   });
 });
 
+describe("continue after a usage limit in the project shell", () => {
+  /** A chat stopped at a usage limit, with a daemon that keeps the state of its continue. */
+  async function openStopped(otherRoutes: (route: string) => Response | Promise<Response> | undefined = () => undefined) {
+    const chat = detail("turn");
+    chat.settings = { model: { provider: "claude-code-cli", id: "sonnet" } };
+    chat.turns[0] = { id: "turn", conversationId: "conversation", status: "failed", items: [
+      { id: "turn:user", turnId: "turn", type: "userMessage", text: "Build", checkpointId: "checkpoint-1", changes: { files: 2 } },
+      { id: "turn:error", turnId: "turn", type: "agentMessage", text: "", status: "failed", error: { code: "quota_exceeded", message: "You've hit your limit" } },
+    ] };
+    let limitState = "armed";
+    return openProject((route, init) => {
+      const other = otherRoutes(route);
+      if (other) return other;
+      if (route.includes("/context-usage")) return Response.json({ contextUsage: { tokens: null, contextWindow: 0, percent: null, limitResume: { at: Date.UTC(2026, 9, 26, 12), state: limitState } } });
+      if (route === "/agent-runtimes/claude-code-cli" && init.method === "PATCH") {
+        limitState = JSON.parse(String(init.body)).autoContinue ? "armed" : "off";
+        return Response.json({});
+      }
+      if (route.endsWith("/limit-resume/skip")) {
+        limitState = "skipped";
+        return new Response(null, { status: 204 });
+      }
+    }, chat);
+  }
+  const toggle = () => container.querySelector<HTMLButtonElement>('.agent-error-card [role="switch"]');
+
+  it("shows the switch on the card and changes the coding agent's setting from it", async () => {
+    const daemon = await openStopped();
+    expect(toggle()?.getAttribute("aria-checked")).toBe("true");
+    await act(async () => toggle()!.click());
+    await settle();
+    expect(daemon.requests.find((request) => request.method === "PATCH")).toMatchObject({ route: "/agent-runtimes/claude-code-cli", body: JSON.stringify({ autoContinue: false }) });
+    expect(toggle()?.getAttribute("aria-checked")).toBe("false");
+    await act(async () => toggle()!.click());
+    await settle();
+    expect(toggle()?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("shows the switch when the turn on screen stops at the limit", async () => {
+    let limitResume: { at: number; state: string } | undefined;
+    const chat = detail("turn");
+    chat.settings = { model: { provider: "claude-code-cli", id: "sonnet" } };
+    chat.agent = { status: "running" };
+    chat.turns[0] = { id: "turn", conversationId: "conversation", status: "inProgress", items: [{ id: "turn:user", turnId: "turn", type: "userMessage", text: "Build" }] };
+    const daemon = await openProject((route) => route.includes("/context-usage") ? Response.json({ contextUsage: { tokens: null, contextWindow: 0, percent: null, limitResume } }) : undefined, chat);
+    expect(toggle()).toBeNull();
+    limitResume = { at: Date.UTC(2026, 9, 26, 12), state: "armed" };
+    await act(async () => {
+      daemon.send(1, "item.completed", { item: { id: "turn:error", turnId: "turn", type: "agentMessage", text: "", status: "failed", error: { code: "quota_exceeded", message: "You've hit your limit" } } }, "conversation", "turn");
+      daemon.send(2, "agent.error", { error: "You've hit your limit", code: "quota_exceeded" }, "conversation", "turn");
+    });
+    await settle();
+    expect(toggle()?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("doesn't carry the switch to another chat's card while that chat's state is read", async () => {
+    const other = detail("turn");
+    other.conversation = { ...other.conversation, id: "other", title: "Other" };
+    other.settings = { model: { provider: "claude-code-cli", id: "sonnet" } };
+    other.turns[0] = { id: "turn", conversationId: "other", status: "failed", items: [
+      { id: "turn:error", turnId: "turn", type: "agentMessage", text: "", status: "failed", error: { code: "authentication_failed", message: "Signed out" } },
+    ] };
+    const daemon = await openStopped((route) => {
+      if (route === "/projects/project/conversations") return Response.json([detail("turn").conversation, other.conversation]);
+      if (route.includes("/conversations/other/context-usage")) return new Promise<Response>(() => {});
+      if (route.split("?")[0] === "/projects/project/conversations/other") return Response.json(other);
+    });
+    expect(toggle()).not.toBeNull();
+    await daemon.route("other");
+    await settle();
+    expect(container.querySelector(".agent-error-card")).not.toBeNull();
+    expect(toggle()).toBeNull();
+  });
+
+  it("reads it again, without the old switch, when a turn starts and fails in one go", async () => {
+    let reads = 0;
+    let reading = false;
+    const daemon = await openStopped((route) => {
+      if (!reading || !route.includes("/context-usage")) return undefined;
+      reads += 1;
+      return new Promise<Response>(() => {});
+    });
+    expect(toggle()).not.toBeNull();
+    reading = true;
+    const event = (id: number, type: RuntimeEventType, data: unknown) => `id: ${id}\nevent: ${type}\ndata: ${JSON.stringify({ id, projectId: "project", conversationId: "conversation", turnId: "next", type, timestamp: new Date(0).toISOString(), data })}\n\n`;
+    await act(async () => daemon.events!.enqueue(new TextEncoder().encode([
+      event(1, "agent.started", { prompt: "Again" }),
+      event(2, "item.completed", { item: { id: "next:error", turnId: "next", type: "agentMessage", text: "", status: "failed", error: { code: "authentication_failed", message: "Signed out" } } }),
+      event(3, "agent.error", { error: "Signed out", code: "authentication_failed" }),
+    ].join(""))));
+    await settle();
+    expect(container.querySelectorAll(".agent-error-card")).toHaveLength(2);
+    expect(toggle()).toBeNull();
+    expect(reads).toBeGreaterThan(0);
+  });
+
+  it("takes the switch away as soon as another turn starts", async () => {
+    let reading = false;
+    const daemon = await openStopped((route) => reading && route.includes("/context-usage") ? new Promise<Response>(() => {}) : undefined);
+    expect(toggle()).not.toBeNull();
+    reading = true;
+    await act(async () => daemon.send(1, "agent.started", { prompt: "Again" }, "conversation", "next"));
+    await settle();
+    expect(toggle()).toBeNull();
+  });
+
+  it("takes the switch away when undoing the turn ended the continue", async () => {
+    let undone = false;
+    await openStopped((route) => {
+      if (route === `${BASE}/changes`) return Response.json({ changes: CHANGES });
+      if (route === `${BASE}/undo`) {
+        undone = true;
+        return Response.json({ changed: ["a.js", "b.js"], conflicts: [] });
+      }
+      if (undone && route.includes("/context-usage")) return Response.json({ contextUsage: { tokens: null, contextWindow: 0, percent: null } });
+    });
+    expect(toggle()).not.toBeNull();
+    await click("2 files changed");
+    await click("Undo");
+    expect(undone).toBe(true);
+    expect(toggle()).toBeNull();
+  });
+
+  it("skips the continue and takes the switch away once a message is being written", async () => {
+    localStorage.setItem("ohmygame:composer-draft:v1:project:conversation", JSON.stringify({ version: 1, prompt: "Change direction", mentions: [], planning: false }));
+    const daemon = await openStopped();
+    await settle();
+    expect(daemon.requests.filter((request) => request.route.endsWith("/limit-resume/skip"))).toHaveLength(1);
+    expect(toggle()).toBeNull();
+  });
+});
+
 describe("checkpoints in the project shell", () => {
   it.each(["claude-code-cli", "codex-cli"] as const)("switches the selected %s chat account without changing its model or other chats", async (runtime) => {
     const chat = detail("turn");

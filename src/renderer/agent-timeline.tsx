@@ -24,7 +24,7 @@ import {
   type IconComponent,
 } from "./icons.js";
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { ConversationAttachment, ConversationCapabilities, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
+import type { ConversationAttachment, ConversationCapabilities, LimitResume, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { splitPluginMentions } from "../shared/plugins.js";
 import { PluginMentionGlyph } from "./plugin-icons.js";
@@ -43,7 +43,7 @@ import { LazyDetails } from "./lazy-details.js";
 import { agentErrorDiagnosticRows, agentErrorDiagnosticText, agentErrorPresentation } from "./agent-error-presentation.js";
 import { language, t } from "./i18n.js";
 import { settingsHash, type SettingsSection } from "./routes.js";
-import { Button } from "./ui/index.js";
+import { Button, Switch } from "./ui/index.js";
 import { TurnChangesFooter, TurnChangesViews, type TurnChangesControls } from "./turn-changes.js";
 
 type ToolCallItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
@@ -65,11 +65,15 @@ interface AgentTimelineProps {
   waitingForInput?: boolean;
   /** The installed plugins, for the icons of those a message mentions. */
   plugins?: ConversationCapabilities["plugins"];
+  /** The continue after a usage limit, shown on the error card of the turn that failed last. */
+  limitResume?: LimitResume;
+  onLimitResumeChange?: (on: boolean) => void;
 }
 
 const WorkspaceLinkContext = createContext<{ workspacePath?: string; onOpenWorkspaceFile?: (path: string) => void }>({});
 const PluginsContext = createContext<ConversationCapabilities["plugins"]>([]);
 const NO_PLUGINS: ConversationCapabilities["plugins"] = [];
+const LimitResumeContext = createContext<(LimitResume & { onChange?: (on: boolean) => void }) | undefined>(undefined);
 const completedDisplays = new WeakMap<ThreadTurn, TurnDisplay>();
 
 function turnDisplay(turn: ThreadTurn): TurnDisplay {
@@ -79,7 +83,7 @@ function turnDisplay(turn: ThreadTurn): TurnDisplay {
   return display;
 }
 
-export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS }: AgentTimelineProps) {
+export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS, limitResume, onLimitResumeChange }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -89,7 +93,9 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
   const turns = useMemo(() => mergeCompletedCompactionTurns(sourceTurns), [sourceTurns]);
   const displays = useMemo(() => turns.map(turnDisplay), [turns]);
   const workspaceLinks = useMemo(() => ({ workspacePath, onOpenWorkspaceFile }), [workspacePath, onOpenWorkspaceFile]);
+  const limitResumeControl = useMemo(() => limitResume && { ...limitResume, onChange: onLimitResumeChange }, [limitResume, onLimitResumeChange]);
   const activeIndex = turns.findIndex((turn) => turn.status === "inProgress");
+  const lastFailedIndex = turns.findLastIndex((turn) => turn.status === "failed");
   const latestSteeringIndex = turns.findLastIndex((turn) => turn.steering);
   const steeringPending = activeIndex >= 0 && latestSteeringIndex > activeIndex;
   const latestUserId = [...turns].reverse().flatMap((turn) => turn.items).find((item) => item.type === "userMessage")?.id;
@@ -145,8 +151,8 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
         <div className="agent-timeline-selection-root" ref={setSelectionRoot}>
           <TurnChangesViews key={turns[0]?.conversationId} workspaceRevision={workspaceRevision}>
             {turns.map((turn, index) => (
+              <LimitResumeContext.Provider key={turn.id} value={index === lastFailedIndex ? limitResumeControl : undefined}>
               <Turn
-                key={turn.id}
                 projectId={projectId}
                 turn={turn}
                 waitingForInput={turn.status === "inProgress" && waitingForInput}
@@ -172,6 +178,7 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
                   onSubmit: submitRevision,
                 }}
               />
+              </LimitResumeContext.Provider>
             ))}
           </TurnChangesViews>
           {onAddToChat ? <SelectedTextMenu root={selectionRoot} onAdd={onAddToChat} /> : null}
@@ -707,6 +714,7 @@ function AgentErrorCard({ error }: { error: ThreadItemError }) {
   const presentation = agentErrorPresentation(error);
   const preview = error.code ? "" : error.message.replace(/\s+/g, " ").trim();
   const settings = errorSettings(error.code);
+  const limitResume = useContext(LimitResumeContext);
   async function copyDiagnostics() {
     try {
       await navigator.clipboard.writeText(agentErrorDiagnosticText(error));
@@ -725,6 +733,10 @@ function AgentErrorCard({ error }: { error: ThreadItemError }) {
         <dl className="agent-error-rows">{agentErrorDiagnosticRows(error).map(([label, value], index) => <div key={`${label}:${index}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       ) : null}
       {copyStatus === "failed" ? <p className="agent-error-text" role="status">{t("timeline.copyFailed")}</p> : null}
+      {limitResume && limitResume.state !== "skipped" ? <div className="agent-error-resume">
+        <span>{t(limitResume.state === "armed" ? "timeline.limitResume.armed" : "timeline.limitResume.off", { time: new Date(limitResume.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) })}</span>
+        <Switch size="sm" label={t("timeline.limitResume.label")} checked={limitResume.state === "armed"} onChange={(on) => limitResume.onChange?.(on)} />
+      </div> : null}
       <div className="agent-error-actions">
         {settings ? <Button size="sm" onClick={() => { window.location.hash = settingsHash(settings); }}>{t("timeline.openSettings")}</Button> : null}
         <span className="agent-error-spacer" />

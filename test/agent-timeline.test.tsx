@@ -539,6 +539,51 @@ describe("AgentTimeline", () => {
     container.remove();
   });
 
+  describe("continue after a usage limit", () => {
+    const stopped = (turnId: string): ThreadItem => ({ id: `${turnId}-error`, turnId, type: "agentMessage", text: "", status: "failed", error: { code: "quota_exceeded", message: "failed" } });
+    const turn = (id: string): Turn => ({ id, conversationId: "conversation-1", status: "failed", items: [stopped(id)] });
+    const limitResume = (state: "armed" | "off" | "skipped") => ({ at: Date.UTC(2026, 9, 26, 12), state });
+
+    it("shows a switch on the latest turn's card only, which changes the setting", async () => {
+      const container = document.createElement("div");
+      const root = createRoot(container);
+      const onLimitResumeChange = vi.fn();
+      await act(async () => root.render(<ThreadTimeline turns={[turn("turn-1"), turn("turn-2")]} limitResume={limitResume("armed")} onLimitResumeChange={onLimitResumeChange} />));
+      const cards = container.querySelectorAll(".agent-error-card");
+      expect(cards).toHaveLength(2);
+      expect(cards[0]!.querySelector('[role="switch"]')).toBeNull();
+      const toggle = cards[1]!.querySelector<HTMLButtonElement>('[role="switch"]')!;
+      expect(toggle.getAttribute("aria-checked")).toBe("true");
+      expect(cards[1]!.textContent).toContain("Continues automatically");
+      await act(async () => toggle.click());
+      expect(onLimitResumeChange).toHaveBeenCalledExactlyOnceWith(false);
+      await act(async () => root.unmount());
+    });
+
+    it("keeps the switch on the failed turn's card when a model change follows it", () => {
+      const modelChange: Turn = { id: "turn-2", conversationId: "conversation-1", status: "completed", items: [] };
+      expect(renderToStaticMarkup(<ThreadTimeline turns={[turn("turn-1"), modelChange]} limitResume={limitResume("armed")} />)).toContain('role="switch"');
+    });
+
+    it("shows the switch off with when the limit resets, so it can be turned back on", async () => {
+      const container = document.createElement("div");
+      const root = createRoot(container);
+      const onLimitResumeChange = vi.fn();
+      await act(async () => root.render(<ThreadTimeline turns={[turn("turn-1")]} limitResume={limitResume("off")} onLimitResumeChange={onLimitResumeChange} />));
+      const toggle = container.querySelector<HTMLButtonElement>('[role="switch"]')!;
+      expect(toggle.getAttribute("aria-checked")).toBe("false");
+      expect(container.textContent).toContain("Continue after reset is off");
+      await act(async () => toggle.click());
+      expect(onLimitResumeChange).toHaveBeenCalledExactlyOnceWith(true);
+      await act(async () => root.unmount());
+    });
+
+    it("shows nothing once the person began writing, or without a schedule", () => {
+      expect(renderToStaticMarkup(<ThreadTimeline turns={[turn("turn-1")]} limitResume={limitResume("skipped")} />)).not.toContain('role="switch"');
+      expect(renderToStaticMarkup(<ThreadTimeline turns={[turn("turn-1")]} />)).not.toContain('role="switch"');
+    });
+  });
+
   it.each(["quota_exceeded", "rate_limited", "access_denied", "stream_error"] as const)("offers no settings shortcut for %s", (code) => {
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
       id: "assistant-error", turnId: "turn-1", type: "agentMessage", text: "", status: "failed", error: { code, message: "failed" },

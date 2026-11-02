@@ -2029,12 +2029,6 @@ const en = {
     referencedDesign: "Referenced game design",
     removeDesign: "Remove game design reference",
     droppedFolder: "Could not read dropped folder: {{error}}",
-    resume: {
-      available: "Usage limit reached. It resets at {{time}}.",
-      armed: "Continues automatically at {{time}}. Keep OhMyGame open.",
-      arm: "Continue after reset",
-      turnOff: "Turn off",
-    },
     placeholder: {
       review: "Review the plan above",
       executing: "Executing plan",
@@ -2144,6 +2138,11 @@ const en = {
     showDetails: "Details",
     hideDetails: "Hide details",
     openSettings: "Open settings",
+    limitResume: {
+      label: "Continue after reset",
+      armed: "Continues automatically at {{time}}. Keep OhMyGame open.",
+      off: "Continue after reset is off. The limit resets at {{time}}.",
+    },
     detail: {
       query: "Query",
       provider: "Provider",

@@ -8216,6 +8216,16 @@ summary.work-summary:hover {
   flex: 1;
 }
 
+.agent-error-resume {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
 .connection-activity {
   width: fit-content;
   max-width: 100%;
@@ -9349,27 +9359,6 @@ summary.work-summary:hover {
 
 .composer-notice.composer-info > svg {
   color: var(--color-text-tertiary);
-}
-
-.composer-notice button {
-  flex: none;
-  height: 26px;
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--color-text);
-  font: inherit;
-  cursor: pointer;
-}
-
-.composer-notice button:hover:not(:disabled) {
-  background: var(--color-hover);
-}
-
-.composer-notice button:disabled {
-  cursor: default;
-  opacity: 0.5;
 }
 
 .prompt-box {

@@ -111,8 +111,9 @@ When a turn stops at a usage limit (such as Claude Code's "You've hit your
 5-hour limit") and an exhausted window of known length, opened before the
 failure, reports its reset time, the daemon sends one English
 `Continue where you left off.` 30 seconds after the last such window resets. The
-composer shows that time. It runs while OhMyGame is open, whichever conversation
-is showing; quitting ends the schedule and nothing is sent on the next launch.
+turn's error card shows that time beside a switch, on by default. It runs while
+OhMyGame is open, whichever conversation is showing; quitting ends the schedule
+and nothing is sent on the next launch.
 While the computer sleeps it waits until the computer wakes.
 
 Anything else that happens to the conversation ends the schedule: another turn,
@@ -120,8 +121,8 @@ restoring or undoing, moving to another agent or account, turning the agent off,
 or starting to write in it while it is open. A different model on the same
 account continues on that model. If another conversation holds the project, the
 message waits for it. A turn in a plan, or a compaction, does not continue by
-itself. **Turn off** in the composer, or the switch on the agent's settings page,
-turns it off for that agent.
+itself. The card's switch, or the one on the agent's settings page, turns it off
+for that agent.
 
 ![Claude Code and Codex quotas labeled as used (sample data)](assets/agent-usage-used-label.png)
 

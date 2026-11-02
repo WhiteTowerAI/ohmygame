@@ -1,4 +1,4 @@
-import { Clock, DangerCircle, FileText, InfoCircle, X } from "./icons.js";
+import { DangerCircle, FileText, InfoCircle, X } from "./icons.js";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference } from "../shared/contracts.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
@@ -37,7 +37,9 @@ interface ComposerProps {
   /** Something to know that isn't a failure, such as a message put back in the box. */
   status?: string;
   /** The person began writing while a continue was armed, or changed the agent's setting from the notice. */
-  onLimitResumeChange?: (change: "skip" | "turnOff" | "turnOn") => Promise<void>;
+  /** This conversation will continue by itself after a usage limit, until the person starts writing. */
+  limitResumeArmed?: boolean;
+  onSkipLimitResume?: () => void;
   models: AgentModel[];
   modelStatus: AgentModelCatalogStatus;
   model?: AgentModelRef;
@@ -83,7 +85,8 @@ export function Composer({
   planMode,
   notice,
   status,
-  onLimitResumeChange,
+  limitResumeArmed,
+  onSkipLimitResume,
   models,
   modelStatus,
   model,
@@ -128,8 +131,6 @@ export function Composer({
   const [runtimeUsage, setRuntimeUsage] = useState<AgentContextUsage>();
   const contextPercent = runtimeUsage?.percent == null ? undefined : Math.round(Math.max(0, Math.min(100, runtimeUsage.percent)));
   const [mentionCursor, setMentionCursor] = useState(0);
-  // Opting in pins the time, so later renders (a reset passing, a usage refresh) cannot drop the schedule.
-  const limitResume = runtimeUsage?.limitResume;
   const input = useRef<PromptInput>(null);
   useEffect(() => {
     // A draft saved when a plugin sat in a slot before the text gets it back in the text, after its Skill as it was sent.
@@ -324,14 +325,10 @@ export function Composer({
   }, [conversationId, running, model?.provider, model?.id]);
   useEffect(() => setStatusUsage(undefined), [conversationId]);
 
-  function changeLimitResume(change: "skip" | "turnOff" | "turnOn"): void {
-    void onLimitResumeChange?.(change).then(() => onContextUsage()).then(setRuntimeUsage).catch(() => {});
-  }
-
   const writing = Boolean(prompt.trim()) || attachments.length > 0;
   useEffect(() => {
-    if (writing && limitResume?.state === "armed") changeLimitResume("skip");
-  }, [writing, limitResume?.state]);
+    if (writing && limitResumeArmed) onSkipLimitResume?.();
+  }, [writing, limitResumeArmed]);
 
   useEffect(() => {
     if (planMode === "planning") updateDraft({ planning: true });
@@ -416,11 +413,6 @@ export function Composer({
       {notice || attachmentError ? <div className="composer-notice composer-error" role="alert">
         <DangerCircle size={14} aria-hidden="true" />
         <span>{attachmentError ?? notice}</span>
-      </div> : null}
-      {limitResume && !running ? <div className="composer-notice composer-resume" role="status">
-        <Clock size={14} aria-hidden="true" />
-        <span>{t(limitResume.state === "armed" ? "composer.resume.armed" : "composer.resume.available", { time: new Date(limitResume.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) })}</span>
-        {limitResume.state === "skipped" ? null : <button type="button" onClick={() => changeLimitResume(limitResume.state === "armed" ? "turnOff" : "turnOn")}>{t(limitResume.state === "armed" ? "composer.resume.turnOff" : "composer.resume.arm")}</button>}
       </div> : null}
       <PromptBox
         actions={<ComposerActions
