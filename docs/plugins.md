@@ -410,7 +410,8 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   stops partway, the note stays and the list says it can't be undone yet. It
   is recorded when the list is opened and before the next plugin write or
   undo, a turn's snapshot or a checkpoint restore, marked as late, since edits
-  saved in the meantime are part of it. Those are refused, with nothing
+  saved in the meantime are part of it. It also waits while a file that could
+  be read when it started can't be now. Those are refused, with nothing
   changed, while it can't be recorded, and a plugin write also while its own
   note can't be saved.
 

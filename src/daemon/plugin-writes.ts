@@ -73,7 +73,7 @@ export class PluginChangeError extends Error {
 }
 
 // These reach plugin pages, so they name no paths on the computer. The disk being full is the likely cause.
-const RECORD_EARLIER = "An earlier plugin change still can't be recorded for Undo, so nothing was changed. Check that the disk has free space, then try again.";
+const RECORD_EARLIER = "An earlier plugin change still can't be recorded for Undo, so nothing was changed. Check that the disk has free space and that no other program has the project's files locked, then try again.";
 const RECORD_START = "This change can't be recorded for Undo, so nothing was changed. Check that the disk has free space, then try again.";
 const RECORD_AFTER = "The change was made, but it couldn't be recorded for Undo yet. Check that the disk has free space; it will then appear in Plugin changes.";
 
@@ -162,6 +162,9 @@ export class PluginWrites {
   /** Puts a change that has run into the history, in one write with taking its note away. */
   async #record(project: ProjectState, pending: PendingChange, late: boolean): Promise<PluginChange | undefined> {
     const after = await this.options.snapshot(project);
+    // A file locked by now may be part of a change this is the last chance to record, so its note waits until it can be read.
+    if (late && (await this.options.checkpoints.lostSight(project, pending.before, after)))
+      throw new Error("A file that may be part of this change can't be read");
     const changed = (
       await this.options.checkpoints.diff(project, pending.before, after)
     ).map((change) => change.path);

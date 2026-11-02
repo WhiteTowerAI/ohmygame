@@ -3842,6 +3842,35 @@ describe("plugin writes", () => {
     await expect(plugins.settle(game)).resolves.toBeUndefined();
   });
 
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "keeps a change's note while a file it may hold can't be read",
+    async () => {
+      const game = { ...(await project({ "level.txt": "one" })), id: "plugin-writes-locked" } as unknown as ProjectState;
+      const store = new CheckpointStore();
+      let fail = 0;
+      const plugins = new PluginWrites({
+        writes: new ProjectWrites(),
+        checkpoints: store,
+        snapshot: (target) => (fail > 0 && --fail === 0 ? Promise.reject(new Error("full")) : store.snapshot(target)),
+        busy: () => false,
+        announce: () => {},
+      });
+      const level = path.join(game.workspacePath, "level.txt");
+      fail = 2;
+      await plugins.run(game, { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" }, () => writeFile(level, "two")).catch(() => {});
+
+      await chmod(level, 0o000);
+      await expect(plugins.settle(game)).rejects.toThrow("earlier plugin change");
+      expect(await plugins.history(game)).toMatchObject([{ title: "Tidy up", unrecorded: true }]);
+
+      await chmod(level, 0o644);
+      const [late] = await plugins.history(game);
+      expect(late).toMatchObject({ changed: ["level.txt"], late: true });
+      await plugins.undo(game, late!.id);
+      expect(await readFile(level, "utf8")).toBe("one");
+    },
+  );
+
   it("changes nothing when it can't note a change first", async () => {
     const { game, plugins } = await setup();
     const storage = game.storagePath ?? path.join(game.workspacePath, ".data");
