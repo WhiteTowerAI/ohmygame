@@ -2,7 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId } from "../shared/contracts.js";
+import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunToolRequest, type RunVideoToolRequest, type ToolId, type ToolJob } from "../shared/contracts.js";
 import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import { buildsWebPreview, supportsWebPreview } from "../shared/project-runtime.js";
 import { isAppWidePlugin } from "../shared/plugin-manifest.js";
@@ -18,6 +18,7 @@ import { PLAYABLE_PRESET_IDS, PLAYABLE_PRESETS } from "./playable-presets.js";
 import { checkCanvasWorkspace } from "./canvas-check.js";
 import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
+import { CanvasError } from "./canvas-files.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audioSettings } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
@@ -603,44 +604,98 @@ export function createAgentTools(
   }), defineTool({
     name: "generate_canvas_media",
     label: "Generate Canvas Media",
-    description: "Generate a saved media node using its current prompt, configured model and references. Use it only for a node whose generation model is available. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool. If the node is already generating, this waits for that run; if its current output came from the same settings, this returns it without generating again unless regenerate is true.",
+    description: "Generate saved media nodes using their current prompt, configured model and references. List nodes that don't depend on each other together to generate them at once; a node using another listed node's output starts after it. Use it only for nodes whose generation model is available. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the nodes and shares the canvas generation history. Edit ordinary canvas files before calling this tool. A node already generating is waited for; a node whose current output came from the same settings returns it without generating again unless regenerate is true.",
     parameters: Type.Object({
       boardId: Type.String({ minLength: 1, maxLength: 100 }),
-      nodeId: Type.String({ minLength: 1, maxLength: 120 }),
-      regenerate: Type.Optional(Type.Boolean({ description: "Start a new paid generation even when the node's current output came from the same settings, for example when the user wants another variation." })),
+      nodeIds: Type.Array(Type.String({ minLength: 1, maxLength: 120 }), { minItems: 1, maxItems: 8, uniqueItems: true }),
+      regenerate: Type.Optional(Type.Boolean({ description: "Start a new paid generation even when a node's current output came from the same settings, for example when the user wants another variation." })),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
-      const job = await canvasStore.generateNode(project.id, input.boardId, input.nodeId, !input.regenerate);
-      // Stopping the agent cancels only a run this call started. A followed run belongs to whoever started it,
-      // so aborting just ends this wait.
-      const cancel = () => { void canvasStore.cancel(project.id, job.id).catch(() => {}); };
-      if (!job.reused) {
-        signal?.addEventListener("abort", cancel, { once: true });
-        if (signal?.aborted) cancel();
-      }
-      try {
-        let current = job;
-        while (current.status === "running") {
-          signal?.throwIfAborted();
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          const next = (await canvasStore.jobs(project.id)).find((candidate) => candidate.id === job.id);
-          if (!next) throw new Error("Generation job is no longer available");
-          current = next;
+      const { board } = await canvasStore.board(project.id, input.boardId);
+      // A node waits for the listed nodes whose output it uses, such as an image a video starts from.
+      const waitsFor = new Map(input.nodeIds.map((nodeId) => [nodeId, nodeReferences(board.nodes.find((node) => node.id === nodeId)?.data)
+        .filter((other) => other !== nodeId && input.nodeIds.includes(other))]));
+      const visit = (nodeId: string, path: string[]): void => {
+        if (path.includes(nodeId)) throw new Error(`Nodes ${[...path.slice(path.indexOf(nodeId)), nodeId].join(" → ")} use each other's output`);
+        for (const other of waitsFor.get(nodeId) ?? []) visit(other, [...path, nodeId]);
+      };
+      for (const nodeId of input.nodeIds) visit(nodeId, []);
+      // The calls in one batch share one read of the jobs.
+      let jobs: Promise<ToolJob[]> | undefined;
+      const latestJobs = () => jobs ??= canvasStore.jobs(project.id).finally(() => setTimeout(() => { jobs = undefined; }, 200));
+      const generate = async (nodeId: string, retried = false): Promise<{ job: ToolJob; text: string }> => {
+        let job: Awaited<ReturnType<typeof canvasStore.generateNode>>;
+        try {
+          job = await canvasStore.generateNode(project.id, input.boardId, nodeId, !input.regenerate);
+        } catch (cause) {
+          // Another listed node saving its output changes the board while this one starts.
+          if (!retried && cause instanceof CanvasError && cause.statusCode === 409 && cause.message.startsWith("The node settings changed")) return generate(nodeId, true);
+          throw cause;
         }
-        signal?.throwIfAborted();
-        if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
-        const manifest = await readCanvasAssets(project.workspacePath);
-        const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
-        const summary = job.reused === "output"
-          ? `Node ${input.nodeId} already has output from these settings, so nothing new was generated. Existing: ${paths.join(", ")}. Pass regenerate: true only when another variation is wanted.`
-          : `${job.reused === "running" ? `Node ${input.nodeId} was already generating, so this waited for that run instead of starting another.` : `Generated media for node ${input.nodeId}.`} Saved: ${paths.join(", ")}.`;
-        return { content: [{ type: "text", text: `${summary} Inspect or play the relevant output to evaluate the actual result.` }], details: { canvasGeneration: current } };
-      } finally { signal?.removeEventListener("abort", cancel); }
+        // Stopping the agent cancels only a run this call started. A followed run belongs to whoever started it,
+        // so aborting just ends this wait.
+        const cancel = () => { void canvasStore.cancel(project.id, job.id).catch(() => {}); };
+        if (!job.reused) {
+          signal?.addEventListener("abort", cancel, { once: true });
+          if (signal?.aborted) cancel();
+        }
+        try {
+          let current: ToolJob = job;
+          while (current.status === "running") {
+            signal?.throwIfAborted();
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            const next = (await latestJobs()).find((candidate) => candidate.id === job.id);
+            if (!next) throw new Error("Generation job is no longer available");
+            current = next;
+          }
+          signal?.throwIfAborted();
+          if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
+          const manifest = await readCanvasAssets(project.workspacePath);
+          const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
+          const text = job.reused === "output"
+            ? `Node ${nodeId} already has output from these settings, so nothing new was generated. Existing: ${paths.join(", ")}. Pass regenerate: true only when another variation is wanted.`
+            : `${job.reused === "running" ? `Node ${nodeId} was already generating, so this waited for that run instead of starting another.` : `Generated media for node ${nodeId}.`} Saved: ${paths.join(", ")}.`;
+          return { job: current, text };
+        } finally { signal?.removeEventListener("abort", cancel); }
+      };
+      const runs = new Map<string, Promise<{ job: ToolJob; text: string }>>();
+      const run = (nodeId: string): Promise<{ job: ToolJob; text: string }> => {
+        const existing = runs.get(nodeId);
+        if (existing) return existing;
+        const started = (async () => {
+          for (const other of waitsFor.get(nodeId) ?? []) {
+            try { await run(other); } catch { throw new Error(`Not generated, because node ${other}, whose output it uses, failed`); }
+          }
+          return generate(nodeId);
+        })();
+        runs.set(nodeId, started);
+        return started;
+      };
+      const results = await Promise.allSettled(input.nodeIds.map(run));
+      signal?.throwIfAborted();
+      const failure = (result: PromiseSettledResult<unknown>) => result.status === "rejected" ? (result.reason instanceof Error ? result.reason.message : String(result.reason)) : "";
+      if (results.every((result) => result.status === "rejected")) {
+        throw new Error(input.nodeIds.length === 1 ? failure(results[0]!) : results.map((result, index) => `Node ${input.nodeIds[index]}: ${failure(result)}`).join("\n"));
+      }
+      const lines = results.map((result, index) => result.status === "fulfilled" ? result.value.text : `Node ${input.nodeIds[index]} failed: ${failure(result)}`);
+      return {
+        content: [{ type: "text", text: `${lines.join("\n")}\nInspect or play the relevant output to evaluate the actual result.` }],
+        details: { canvasGenerations: results.flatMap((result) => result.status === "fulfilled" ? [result.value.job] : []) },
+      };
     },
   })] : []), ...(playtest?.driver.available && (playtest.driver.capabilities.projectTypes.includes(project.type) || buildsWebPreview(project)) && (project.type !== "general" || supportsWebPreview(project))
     ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full" })]
     : [])];
+}
+
+/** The nodes whose output a node's settings use, wherever they name one. */
+function nodeReferences(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(nodeReferences);
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  if (record.type === "node" && typeof record.nodeId === "string") return [record.nodeId];
+  return Object.values(record).flatMap(nodeReferences);
 }
 
 /** Matches an agent-supplied action name to the library, case-insensitively, and suggests close names when it misses. */
