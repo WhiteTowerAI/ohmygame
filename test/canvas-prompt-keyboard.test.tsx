@@ -9,6 +9,7 @@ import {
   CanvasTextComposer,
 } from "../src/renderer/canvas-text-composer.js";
 import { VideoReferencePrompt } from "../src/renderer/video-reference-prompt.js";
+import { CanvasChipSelect } from "../src/renderer/canvas-chip-select.js";
 
 const model: AgentModel = {
   provider: "test",
@@ -205,4 +206,28 @@ it("keeps the prompt and settings when expanded, traps focus and restores the ex
   expect(host.querySelector("textarea")!.value).toBe("Edited expanded draft");
   expect(document.activeElement).toBe(host.querySelector('[aria-label="Expand prompt editor"]'));
   expect(generate).not.toHaveBeenCalled();
+});
+
+it("returns focus to a chip when Tab leaves its menu, which is portaled out of any dialog", async () => {
+  await render(<CanvasChipSelect label="Aspect ratio" value="1:1" options={[{ value: "1:1", label: "Square" }, { value: "16:9", label: "Wide" }]} onChange={vi.fn()} />);
+  const chip = document.querySelector<HTMLButtonElement>("button")!;
+  const menu = () => document.querySelector(".canvas-chip-menu");
+  const tab = async (target: HTMLElement, shiftKey = false) => {
+    target.focus();
+    const event = new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true });
+    await act(async () => target.dispatchEvent(event));
+    return event.defaultPrevented;
+  };
+  await act(async () => chip.click());
+  const [first, last] = [...menu()!.querySelectorAll<HTMLButtonElement>('[role="option"]')];
+  // Within the menu, Tab moves as usual.
+  expect(await tab(first!)).toBe(false);
+  expect(menu()).not.toBeNull();
+  expect(await tab(last!)).toBe(true);
+  expect(menu()).toBeNull();
+  expect(document.activeElement).toBe(chip);
+  await act(async () => chip.click());
+  expect(await tab(menu()!.querySelector<HTMLButtonElement>('[role="option"]')!, true)).toBe(true);
+  expect(menu()).toBeNull();
+  expect(document.activeElement).toBe(chip);
 });
