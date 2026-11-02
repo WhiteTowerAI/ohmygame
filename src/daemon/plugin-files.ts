@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { chmod, link, lstat, mkdir, open, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { access, chmod, link, lstat, mkdir, open, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { mediaFileInfo } from "../shared/media-files.js";
 import { PROJECT_FILE_NAME } from "../shared/project-file.js";
@@ -149,8 +150,10 @@ export async function listPluginFiles(
 export async function openPluginFile(workspacePath: string, requested: string) {
   const relative = readablePath(requested);
   const { absolutePath } = await resolveWorkspaceEntry(workspacePath, relative);
+  // A pipe would wait for a writer, and hold the workspace while it waits.
+  if (!(await stat(absolutePath)).isFile()) throw new PluginFileError("Path is not a file");
   // What is read is what was checked: the file opened is the one the path names now, no link on the way.
-  const handle = await open(absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const handle = await open(absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const opened = await handle.stat();
     if (!opened.isFile()) throw new PluginFileError("Path is not a file");
@@ -171,50 +174,76 @@ export async function openPluginFile(workspacePath: string, requested: string) {
 
 const NOT_KEPT = "Undo can't bring this back, as the project's snapshots leave it out (a .gitignore, node_modules or build output), so a page can't change it";
 
+/** Refuses an entry Undo couldn't bring back as it is: a link, a pipe or the like, a file with other names, or one that can't be read. */
+async function assertKept(absolute: string, shown: string, stats: Stats): Promise<void> {
+  if (stats.isSymbolicLink() || !(stats.isFile() || stats.isDirectory())) throw new PluginFileError(`${shown} is a link or not a plain file, so a page can't change it`, 403);
+  // Undo would bring back another name's contents as a file of its own, which the page could then read.
+  if (stats.isFile() && stats.nlink > 1) throw new PluginFileError(`${shown} has other names, so a page can't change it`, 403);
+  // A snapshot leaves out what it can't read, so Undo couldn't bring it back.
+  try {
+    await access(absolute, constants.R_OK);
+  } catch {
+    throw new PluginFileError(`${shown} can't be read, so Undo couldn't bring it back`, 403);
+  }
+}
+
 /**
  * Refuses a change to `relative`, or to anything in it when it is a folder,
- * that Undo couldn't take back or that touches what a page may not. Gives the
- * paths inside a folder, relative to it.
+ * that Undo couldn't take back or that touches what a page may not. Says what
+ * is there: nothing, or its details and, for a folder, the paths inside it.
  */
-async function assertChangeable(workspacePath: string, relative: string, folder: boolean, covers: ReturnType<typeof checkpointCoverage>): Promise<string[]> {
-  if (!(await covers(relative, folder))) throw new PluginFileError(NOT_KEPT, 403);
-  if (!folder) return [];
+async function assertChangeable(workspacePath: string, relative: string, covers: ReturnType<typeof checkpointCoverage>): Promise<{ stats: Stats; inside: string[] } | undefined> {
+  let absolutePath: string;
+  try {
+    ({ absolutePath } = await resolveWorkspaceEntry(workspacePath, relative));
+  } catch (cause) {
+    if (cause instanceof WorkspaceError && cause.code === "ENOENT") {
+      if (!(await covers(relative, false))) throw new PluginFileError(NOT_KEPT, 403);
+      return undefined;
+    }
+    throw cause;
+  }
+  const stats = await lstat(absolutePath);
+  await assertKept(absolutePath, relative, stats);
+  if (!(await covers(relative, stats.isDirectory()))) throw new PluginFileError(NOT_KEPT, 403);
+  if (!stats.isDirectory()) return { stats, inside: [] };
   const inside: string[] = [];
   const visit = async (absolute: string, prefix: string) => {
     for (const item of await readdir(absolute, { withFileTypes: true })) {
       if (inside.length >= LIST_MAX_ENTRIES) throw new PluginFileError("This folder holds too much to change from a page", 413);
       const child = prefix ? `${prefix}/${item.name}` : item.name;
+      const shown = `${relative}/${child}`;
       const name = item.name.toLowerCase();
-      if (item.isSymbolicLink() || !(item.isFile() || item.isDirectory())) throw new PluginFileError(`${relative}/${child} is a link or not a plain file, so a page can't change this folder`, 403);
       if (item.name.startsWith(".") && !HARMLESS_HIDDEN.has(name)) throw new PluginFileError(`${relative} holds hidden files, so a page can't change it`, 403);
       if (AGENT_INSTRUCTIONS.has(name)) throw new PluginFileError(`${relative} holds an agent's instructions, so a page can't change it`, 403);
+      const entry = path.join(absolute, item.name);
+      const details = await lstat(entry);
       // Junk the system leaves needn't come back.
-      if (name !== ".ds_store" && !(await covers(`${relative}/${child}`, item.isDirectory()))) throw new PluginFileError(`${relative}/${child}: ${NOT_KEPT}`, 403);
+      if (name !== ".ds_store") {
+        await assertKept(entry, shown, details);
+        if (!(await covers(shown, details.isDirectory()))) throw new PluginFileError(`${shown}: ${NOT_KEPT}`, 403);
+      } else if (!details.isFile()) throw new PluginFileError(`${shown} is a link or not a plain file, so a page can't change this folder`, 403);
       inside.push(child);
-      if (item.isDirectory()) await visit(path.join(absolute, item.name), child);
+      if (details.isDirectory()) await visit(entry, child);
     }
   };
-  await visit((await resolveWorkspaceEntry(workspacePath, relative)).absolutePath, "");
-  return inside;
+  await visit(absolutePath, "");
+  return { stats, inside };
 }
 
 export async function writePluginFile(workspacePath: string, requested: string, contents: Buffer): Promise<string> {
   const relative = writablePath(requested);
-  await assertChangeable(workspacePath, relative, false, checkpointCoverage(workspacePath));
+  // A link is refused; writing would otherwise replace it, and a folder can't be replaced by a file.
+  const existing = await assertChangeable(workspacePath, relative, checkpointCoverage(workspacePath));
+  if (existing?.stats.isDirectory()) throw new PluginFileError("Path is not a file");
   const parent = path.posix.dirname(relative);
   if (parent !== ".") await ensureFolder(workspacePath, parent);
   const { absolutePath } = await parentOf(workspacePath, relative);
-  let mode: number | undefined;
-  if (await exists(absolutePath)) {
-    // The check refuses a link; writing would otherwise replace it, and a folder can't be replaced by a file.
-    const { absolutePath: existing } = await resolveWorkspaceEntry(workspacePath, relative);
-    const stats = await stat(existing);
-    if (!stats.isFile()) throw new PluginFileError("Path is not a file");
-    // A script stays runnable, and a private file private.
-    mode = stats.mode & 0o7777;
-  }
+  // A script stays runnable, and a private file private.
+  const mode = existing ? existing.stats.mode & 0o7777 : undefined;
   // Written beside it and moved into place, so the file is the old one or the new one, never half of either.
-  const temporary = path.join(path.dirname(absolutePath), `.${path.basename(absolutePath)}.${randomUUID()}.tmp`);
+  // The name is short, so that a file whose own name is near the limit still has one.
+  const temporary = path.join(path.dirname(absolutePath), `.omg-${randomUUID()}.tmp`);
   try {
     await writeFile(temporary, contents, { flag: "wx" });
     if (mode !== undefined) await chmod(temporary, mode);
@@ -241,9 +270,11 @@ export async function movePluginFile(workspacePath: string, from: string, to: st
   const target = writablePath(to);
   if (target === source || target.startsWith(`${source}/`)) throw new PluginFileError("A folder can't move into itself");
   const { absolutePath: origin } = await resolveWorkspaceEntry(workspacePath, source);
-  const folder = (await stat(origin)).isDirectory();
   const covers = checkpointCoverage(workspacePath);
-  const inside = await assertChangeable(workspacePath, source, folder, covers);
+  const found = await assertChangeable(workspacePath, source, covers);
+  if (!found) throw new WorkspaceError("File not found", "ENOENT");
+  const folder = found.stats.isDirectory();
+  const { inside } = found;
   // Where it goes must be kept too, everything in it included.
   if (!(await covers(target, folder))) throw new PluginFileError(`${target}: ${NOT_KEPT}`, 403);
   for (const child of inside) if (!(await covers(`${target}/${child}`, false))) throw new PluginFileError(`${target}/${child}: ${NOT_KEPT}`, 403);
@@ -272,6 +303,6 @@ export async function movePluginFile(workspacePath: string, from: string, to: st
 export async function deletePluginFile(workspacePath: string, requested: string): Promise<void> {
   const relative = writablePath(requested);
   const { absolutePath } = await resolveWorkspaceEntry(workspacePath, relative);
-  await assertChangeable(workspacePath, relative, (await stat(absolutePath)).isDirectory(), checkpointCoverage(workspacePath));
+  await assertChangeable(workspacePath, relative, checkpointCoverage(workspacePath));
   await rm(absolutePath, { recursive: true });
 }

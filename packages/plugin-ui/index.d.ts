@@ -53,8 +53,10 @@ export interface PluginFileEntry {
  * The project's files, for a plugin whose manifest asks for `project.files`:
  * `read` for the first four, `write` for all. Paths are relative to the project.
  * Hidden files and folders are out of reach, and a page can't change the project
- * file, an agent's instructions or Canvas documents. Each change is one the
- * person can undo, and is refused while an agent works in the project.
+ * file, an agent's instructions or Canvas documents. Each change to a file is
+ * one the person can undo, so a page changes only what the project's snapshots
+ * keep (not what a `.gitignore` leaves out); an empty folder isn't kept. A
+ * change is refused while an agent works in the project.
  */
 export interface PluginFiles {
   /** A folder's entries, the project's root without a path; `recursive` skips generated folders such as `node_modules`. `truncated` means it stopped at 10,000. */

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { chmod, link, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -165,8 +166,26 @@ describe("plugin page files API", () => {
     const { app, base, workspace, put } = await setup("write");
     await writeFile(workspace(".env"), "SECRET=1");
     await link(workspace(".env"), workspace("public.txt"));
-    expect((await app.inject({ method: "GET", url: `${base}/content?path=public.txt` })).statusCode).toBe(403);
+    const aliased = await app.inject({ method: "GET", url: `${base}/content?path=public.txt` });
+    expect(aliased.statusCode, aliased.body).toBe(403);
+    // Nor changes it: Undo would bring the other name's contents back as a file of its own.
+    expect((await put("public.txt", "x")).statusCode).toBe(403);
+    expect((await app.inject({ method: "DELETE", url: `${base}?path=public.txt` })).statusCode).toBe(403);
+    // A name near the limit still has room for the file written beside it.
+    expect((await put(`${"a".repeat(240)}.txt`, "long")).statusCode).toBe(200);
     if (process.platform === "win32") return;
+    // What a snapshot can't read, Undo couldn't bring back.
+    await writeFile(workspace("locked.txt"), "locked");
+    await chmod(workspace("locked.txt"), 0o000);
+    const lockedPut = await put("locked.txt", "x");
+    expect(lockedPut.statusCode, lockedPut.body).toBe(403);
+    expect((await app.inject({ method: "DELETE", url: `${base}?path=locked.txt` })).statusCode).toBe(403);
+    await chmod(workspace("locked.txt"), 0o644);
+    // A pipe is neither read, which would wait for a writer, nor changed.
+    execFileSync("mkfifo", [workspace("pipe")]);
+    expect((await app.inject({ method: "GET", url: `${base}/content?path=pipe` })).statusCode).toBe(400);
+    expect((await app.inject({ method: "DELETE", url: `${base}?path=pipe` })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `${base}/move`, payload: { from: "pipe", to: "moved-pipe" } })).statusCode).toBe(403);
     await writeFile(workspace("build.sh"), "echo old");
     await chmod(workspace("build.sh"), 0o755);
     expect((await put("build.sh", "echo new")).statusCode).toBe(200);
