@@ -437,7 +437,8 @@ function modalFor(target: EventTarget | null): RefObject<HTMLDivElement | null> 
   return holding.find((modal) => holding.every((other) => other === modal || !modal.current?.contains(other.current))) ?? openModals.at(-1);
 }
 
-function useModal(open: boolean, onClose: () => void) {
+/** Focus, Esc and Tab handling for a modal panel, nested modals included. */
+export function useModal(open: boolean, onClose: () => void) {
   const panel = useRef<HTMLDivElement>(null);
   // Read the latest onClose without re-running the effect, which would move
   // focus back to the first field on every render of an inline handler.
@@ -469,6 +470,15 @@ function useModal(open: boolean, onClose: () => void) {
       ].filter((el) => !el.hasAttribute("disabled"));
       const first = focusable[0],
         last = focusable.at(-1);
+      // From the panel itself, or after a menu closed and left focus nowhere,
+      // Tab moves into the panel; with nothing to focus there, focus stays on it.
+      const active = document.activeElement;
+      if (!first || active === panel.current || active === document.body) {
+        event.preventDefault();
+        if (!first) panel.current.focus();
+        else (event.shiftKey ? last! : first).focus();
+        return;
+      }
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last?.focus();

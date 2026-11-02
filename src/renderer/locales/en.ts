@@ -2074,6 +2074,14 @@ const en = {
     imageSize: "Image references must be no larger than 30 MB",
     duration: "Could not read the duration of {{name}}",
   },
+  imageViewer: {
+    open: "Open {{name}}",
+    copy: "Copy image",
+    copied: "Image copied",
+    copyFailed: "Could not copy the image",
+    save: "Save image",
+    saveFailed: "Could not save the image",
+  },
   timeline: {
     waitingToSteer: "Waiting to steer",
     branchChat: "Branch in new chat",

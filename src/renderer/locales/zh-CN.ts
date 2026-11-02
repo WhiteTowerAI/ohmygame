@@ -2042,6 +2042,14 @@ const zhCN: typeof en = {
     imageSize: "参考图不能超过 30 MB",
     duration: "无法读取 {{name}} 的时长",
   },
+  imageViewer: {
+    open: "打开{{name}}",
+    copy: "复制图片",
+    copied: "已复制图片",
+    copyFailed: "无法复制图片",
+    save: "保存图片",
+    saveFailed: "无法保存图片",
+  },
   timeline: {
     waitingToSteer: "等待引导",
     branchChat: "在新聊天中创建分支",

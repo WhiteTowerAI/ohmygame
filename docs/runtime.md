@@ -77,6 +77,11 @@ rewrite, which it reads again in full. Pi only appends to a session in its
 current version, so a long session no longer costs a full read for every
 message sent while a turn runs.
 
+Images in the chat, both those a person attached and those a tool returned,
+show as thumbnails. Choosing one shows it whole, fitted to the window, until Esc
+or a click closes it. Right-clicking a thumbnail or the larger image copies or
+saves it.
+
 The UI reader keeps only what the chat shows of each tool's output, 6,000
 characters from its start and from its end, so a long session's text does not
 stay in memory twice. An agent's session holds its whole transcript in memory,
