@@ -75,8 +75,9 @@ class OmgBanner extends OmgElement {
       .content { flex: 1 1 240px; min-width: 0; display: grid; gap: var(--space-1); overflow-wrap: anywhere; }
       .heading { margin: 0; font-weight: var(--weight-semibold); color: var(--tone); }
       :host(:not([tone])) .heading { color: var(--color-text); }
-      .message { white-space: pre-wrap; }
       .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+      /* A see-through button turns muddy on the banner's colour. */
+      ::slotted(omg-button:not([variant])), ::slotted(omg-command-button:not([variant])) { --_button-background: var(--color-surface); }
     `),
   ];
   static template = `
@@ -202,8 +203,6 @@ class OmgSteps extends OmgElement {
  * @part heading - The heading.
  * @part summary - The summary; hidden when empty.
  * @part body - The content.
- * @cssprop --omg-accent - The plugin's brand colour, for the current step's mark.
- * @cssprop --omg-on-accent - The colour of the number on that mark.
  */
 class OmgStep extends OmgElement {
   static observedAttributes = ["heading", "state", "open", "number"];
@@ -215,16 +214,16 @@ class OmgStep extends OmgElement {
       }
       .badge {
         position: relative; z-index: 1; width: 24px; height: 24px; display: grid; place-items: center;
-        border-radius: var(--radius-pill); background: var(--color-hover); color: var(--color-text-secondary);
+        border-radius: var(--radius-pill); box-shadow: inset 0 0 0 1px var(--color-border); color: var(--color-text-secondary);
         font-size: var(--text-xs); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums;
       }
       .marker::after {
         content: ""; position: absolute; top: 28px; bottom: 4px; width: 1px; background: var(--color-border);
       }
       :host(:last-of-type) .marker::after { display: none; }
-      :host([state="current"]) .badge { background: var(--omg-accent, var(--color-accent)); color: var(--omg-on-accent, var(--color-on-accent)); }
-      :host([state="done"]) .badge { color: var(--color-success); }
-      :host([state="error"]) .badge { background: color-mix(in srgb, var(--color-danger) 16%, transparent); color: var(--color-danger); }
+      :host([state="current"]) .badge { background: var(--color-ink); box-shadow: none; color: var(--color-on-ink); }
+      :host([state="done"]) .badge { background: color-mix(in srgb, var(--color-success) 16%, transparent); box-shadow: none; color: var(--color-success); }
+      :host([state="error"]) .badge { background: color-mix(in srgb, var(--color-danger) 16%, transparent); box-shadow: none; color: var(--color-danger); }
       .content { min-width: 0; display: grid; gap: var(--space-1); padding-bottom: var(--space-6); }
       :host(:last-of-type) .content { padding-bottom: 0; }
       .heading { margin: 0; min-height: 24px; display: flex; align-items: center; font-weight: var(--weight-medium); }

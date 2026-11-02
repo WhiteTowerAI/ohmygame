@@ -437,8 +437,8 @@ The app also draws around and over a page, with what a page can't change:
 
 - **Brand colour.** The manifest's `ui.accent`, a `#rrggbb` colour or
   `{ "light": …, "dark": … }`, becomes `--omg-accent` on the page's `:root`,
-  with `--omg-on-accent` for text on it. It marks progress, selection, links
-  and the current step; buttons stay ink. A colour with less than 3:1 contrast
+  with `--omg-on-accent` for text on it. It marks progress and links; buttons
+  and the current step stay ink. A colour with less than 3:1 contrast
   against the panel's surface in the current appearance gives way to the
   app's accent, as it does when there is none.
 - **Toolbar.** Commands with the `panel.toolbar` slot show as buttons in the
@@ -547,7 +547,7 @@ artifact. Before a component changes, it can run on other plugins' folders too.
 
 `packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
 shows every component in its states, with commands that report progress and
-fail, its brand colour, a toolbar command, toasts and a question. It isn't
+fail, a toolbar command, toasts and a question. It isn't
 bundled: add it from that folder with **Add plugin…**, allow
 it, and turn it on in a project. `test/plugin-ui-components.test.ts` keeps it
 valid and using only documented components.
