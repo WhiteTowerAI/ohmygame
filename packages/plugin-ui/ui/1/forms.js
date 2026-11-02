@@ -52,7 +52,11 @@ class OmgField extends OmgElement {
 
   constructor() {
     super();
-    // `input` crosses the shadow boundary by itself; `change` doesn't.
+    // `input` crosses the shadow boundary by itself; `change` doesn't. A box, a
+    // radio or an option is chosen by the time `input` fires, so the choice is
+    // recorded then: a page that changes the hint as it hears `input` mustn't
+    // put back the one before.
+    this.control.addEventListener("input", () => this.commit());
     this.control.addEventListener("change", () => {
       this.commit();
       this.dispatchEvent(new Event("change", { bubbles: true }));
@@ -330,11 +334,6 @@ class OmgSelect extends OmgChoice {
   ];
   static template = field(`<select class="box" part="select"></select>`);
 
-  constructor() {
-    super();
-    this.control.addEventListener("input", () => this.commit());
-  }
-
   get value() {
     return this.control.value;
   }
@@ -413,6 +412,9 @@ class OmgSegmented extends OmgChoice {
   }
 
   drawOptions(sources, chosen) {
+    // The radios are drawn again, so one that had focus gives it to its successor.
+    const focused = /** @type {HTMLInputElement | null} */ (this.shadowRoot?.activeElement ?? null);
+    const had = focused?.type === "radio" ? focused.value : undefined;
     this.control.replaceChildren(
       ...sources.map((source) => {
         const label = document.createElement("label");
@@ -431,6 +433,10 @@ class OmgSegmented extends OmgChoice {
       }),
     );
     this.#mark();
+    if (had !== undefined) {
+      const radios = this.#radios().filter((radio) => !radio.disabled);
+      (radios.find((radio) => radio.value === had) ?? radios.find((radio) => radio.checked) ?? radios[0])?.focus();
+    }
   }
 
   #mark() {

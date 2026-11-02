@@ -295,6 +295,12 @@ describe("page components", () => {
       expect(heard).toEqual([false]);
       toggle.checked = true;
       expect(box.checked).toBe(true);
+      // A page clearing an error as it hears input keeps the box as the person left it.
+      toggle.setAttribute("error", "Required");
+      toggle.addEventListener("input", () => toggle.removeAttribute("error"), { once: true });
+      box.checked = false;
+      box.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+      expect([box.checked, toggle.hasAttribute("checked")]).toEqual([false, false]);
     }
     expect(shadow(html(`<omg-switch></omg-switch>`), "switch").getAttribute("role")).toBe("switch");
   });
@@ -322,6 +328,16 @@ describe("page components", () => {
     await settle();
     expect(radios().map((radio) => radio.value)).toEqual(["a", "b", "c", "d"]);
     expect(radios()[1]!.checked).toBe(true);
+    // A choice made heard as input stays when the page changes the hint then.
+    segmented.addEventListener("input", () => segmented.setAttribute("hint", "Saved"), { once: true });
+    radios()[0]!.checked = true;
+    radios()[0]!.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    expect([radios()[0]!.checked, segmented.getAttribute("value")]).toEqual([true, "a"]);
+    // Options that change keep the keyboard where it was.
+    radios()[0]!.focus();
+    segmented.insertAdjacentHTML("beforeend", `<option value="e">E</option>`);
+    await settle();
+    expect((segmented.shadowRoot!.activeElement as HTMLInputElement | null)?.value).toBe("a");
   });
 
   it("shows how far progress has got, or moves without a value", () => {
