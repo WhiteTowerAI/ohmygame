@@ -351,6 +351,8 @@ describe("plugins in the project shell", () => {
       project: () => ({ name: "Game", type: "web-game" }),
       storage: { get: async () => null, set: async () => {} },
       runCommand: async () => null,
+      toast: () => {},
+      confirm: async () => false,
     };
     // The page's bridge says once it has applied the theme it was sent.
     let page: MessagePort | undefined;
@@ -386,6 +388,106 @@ describe("plugins in the project shell", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("uses a plugin's brand colour only where it stands out, and keeps its page from flooding the app", async () => {
+    const { accentTokens, handlePluginUiRequest, rateLimit } = await import("../src/renderer/plugin-frame.js");
+    const app = { "--color-surface": "#1c1c1c", "--color-accent": "#2563eb", "--color-on-accent": "#ffffff" };
+    const light = { ...app, "--color-surface": "#ffffff" };
+    expect(accentTokens("#00d8c4", "dark", app)).toEqual({ "--omg-accent": "#00d8c4", "--omg-on-accent": "#000000" });
+    // Too faint on a light surface, so the app's accent takes its place.
+    expect(accentTokens("#00d8c4", "light", light)).toEqual({ "--omg-accent": "#2563eb", "--omg-on-accent": "#ffffff" });
+    expect(accentTokens({ dark: "#00d8c4", light: "#00857a" }, "light", light)).toEqual({ "--omg-accent": "#00857a", "--omg-on-accent": "#000000" });
+    expect(accentTokens({ dark: "#00d8c4" }, "light", light)["--omg-accent"]).toBe("#2563eb");
+    expect(accentTokens(undefined, "dark", app)["--omg-accent"]).toBe("#2563eb");
+    expect(accentTokens("#00d8c4", "dark", { ...app, "--color-surface": "color-mix(in srgb, red, blue)" })["--omg-accent"]).toBe("#2563eb");
+    expect(accentTokens("#00d8c4", "dark", { ...app, "--color-surface": "rgb(28, 28, 28)" })["--omg-accent"]).toBe("#00d8c4");
+
+    let time = 0;
+    const allowed = rateLimit(2, 100, () => time);
+    expect([allowed(), allowed(), allowed()]).toEqual([true, true, false]);
+    time = 100;
+    expect(allowed()).toBe(true);
+
+    const toast = vi.fn();
+    const confirm = vi.fn(async () => true);
+    const context = {
+      plugin: { id: "acme/maker", version: "1.0.0", panel: "main" },
+      locale: "en" as const,
+      capabilities: {},
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      runCommand: async () => null,
+      toast,
+      confirm,
+    };
+    await expect(handlePluginUiRequest({ id: 1, method: "ui.toast", params: { message: "Saved", tone: "success" } }, context)).resolves.toBeNull();
+    expect(toast).toHaveBeenCalledWith("Saved", "success");
+    await expect(handlePluginUiRequest({ id: 2, method: "ui.confirm", params: { title: "Reset?", message: "Clears it.", confirmLabel: "Reset", extra: "dropped" } }, context)).resolves.toBe(true);
+    expect(confirm).toHaveBeenCalledWith({ title: "Reset?", message: "Clears it.", confirmLabel: "Reset" });
+  });
+
+  it("refuses a question from a hidden page, and more toasts than the limit", async () => {
+    const { PluginFrame, PLUGIN_TOAST_LIMIT } = await import("../src/renderer/plugin-frame.js");
+    const toast = vi.fn();
+    const confirm = vi.fn(async () => true);
+    const context = {
+      plugin: { id: "acme/maker", version: "1.0.0", panel: "main" },
+      locale: "en" as const,
+      capabilities: {},
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      runCommand: async () => null,
+      toast,
+      confirm,
+    };
+    let page: MessagePort | undefined;
+    const post = vi.spyOn(HTMLIFrameElement.prototype, "contentWindow", "get").mockReturnValue({
+      postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]),
+    } as unknown as Window);
+    try {
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Page" context={context} visible={false} />));
+      const frame = container.querySelector<HTMLIFrameElement>("iframe.plugin-frame")!;
+      await act(async () => {
+        frame.dispatchEvent(new Event("load"));
+      });
+      const replies = new Map<number, Record<string, unknown>>();
+      page!.onmessage = ({ data }) => replies.set(data.id, data);
+      page!.postMessage({ id: 1, method: "ui.confirm", params: { title: "Reset?" } });
+      await vi.waitFor(() => expect(replies.get(1)?.error).toContain("isn't showing"));
+      expect(confirm).not.toHaveBeenCalled();
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Page" context={context} visible />));
+      page!.postMessage({ id: 2, method: "ui.confirm", params: { title: "Reset?" } });
+      await vi.waitFor(() => expect(replies.get(2)?.result).toBe(true));
+      for (let id = 10; id <= 10 + PLUGIN_TOAST_LIMIT; id++) page!.postMessage({ id, method: "ui.toast", params: { message: "Hello" } });
+      await vi.waitFor(() => expect(replies.get(10 + PLUGIN_TOAST_LIMIT)?.error).toContain("too many"));
+      expect(toast).toHaveBeenCalledTimes(PLUGIN_TOAST_LIMIT);
+      page!.close();
+    } finally {
+      post.mockRestore();
+    }
+  });
+
+  it("draws a panel's toolbar commands in manifest order, with the rest in a menu, one run at a time", async () => {
+    const { PluginPanelToolbar, PLUGIN_TOOLBAR_BUTTONS } = await import("../src/renderer/project-plugin-contributions.js");
+    const commands = ["one", "two", "three", "four"].map((id) => ({ id: `acme/maker:${id}`, plugin: "acme/maker", title: id, slots: [{ slot: "panel.toolbar" }], run: { native: id } }));
+    let finish!: () => void;
+    const onRun = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    await act(async () => root.render(<PluginPanelToolbar commands={commands as never} onRun={onRun} />));
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>(".plugin-toolbar .ui-button")];
+    expect(buttons.map((button) => button.textContent)).toEqual(["one", "two", "three"].slice(0, PLUGIN_TOOLBAR_BUTTONS));
+    expect(container.querySelector(".plugin-toolbar .ui-icon-button")).not.toBeNull();
+    await act(async () => buttons[0]!.click());
+    expect(onRun).toHaveBeenCalledTimes(1);
+    expect(buttons[0]!.disabled).toBe(true);
+    await act(async () => buttons[0]!.click());
+    expect(onRun).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+    expect(buttons[0]!.disabled).toBe(false);
+    await act(async () => root.render(<PluginPanelToolbar commands={[]} onRun={onRun} />));
+    expect(container.querySelector(".plugin-toolbar")).toBeNull();
   });
 
   it("shows a plugin's panel where it asks, and runs its menu command with Undo", async () => {

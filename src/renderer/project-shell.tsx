@@ -118,14 +118,15 @@ import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
 import { useAuth } from "./auth.js";
 import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from "./pending-publish.js";
+import type { PluginUiConfirm } from "../shared/plugin-ui-protocol.js";
 import type { PublishDetails } from "./publish-dialog.js";
 import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
 import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
-import { commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
-import { PluginFrame, type CommandProgress } from "./plugin-frame.js";
+import { commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
+import { PluginFrame, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
 import type { ProjectPluginCommand } from "../shared/plugins.js";
 import type { CodingView } from "./coding-workspace.js";
@@ -278,6 +279,14 @@ export function ProjectShell({
   /** A link a plugin command offers, opened only once the person sees its host; `message` is the plugin's. */
   const [pluginLink, setPluginLink] = useState<{ url: URL; message?: string }>();
   const [pluginProgress, setPluginProgress] = useState<CommandProgress>();
+  const [pluginToolbarRun, setPluginToolbarRun] = useState<PluginToolbarRun>();
+  /** The question a plugin's page is asking, in a dialog the app draws. */
+  const [pluginConfirm, setPluginConfirm] = useState<{ panel: PanelId; plugin: string; request: PluginUiConfirm; answer: (yes: boolean) => void }>();
+  const pluginConfirmOpen = useRef(false);
+  // A question from a panel that's gone has nobody to answer to.
+  useEffect(() => {
+    if (pluginConfirm && !pluginPanels.has(pluginConfirm.panel)) answerPluginConfirm(false);
+  }, [pluginConfirm, plugins.panels]);
   const toast = useToast();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
@@ -1007,34 +1016,50 @@ export function ProjectShell({
       dispatch({ type: "notice", message: errorMessage(cause) });
     }
   }
-  /** Runs a plugin command where its manifest says: the chat, a panel, a page, a link, or the plugin's code. */
-  async function runProjectPluginCommand(command: ProjectPluginCommand): Promise<void> {
-    if (!project) return;
+  /**
+   * Runs a plugin command where its manifest says: the chat, a panel, a page,
+   * a link, or the plugin's code. Resolves to what its code returned, or why
+   * it failed, which it has already shown.
+   */
+  async function runProjectPluginCommand(command: ProjectPluginCommand): Promise<{ result?: unknown; error?: string }> {
+    if (!project) return {};
     const run = command.run;
     if ("prompt" in run) {
       const prompt = commandPrompt(run);
       if (run.insert) requestPrompt(prompt);
       else if (await submitPrompt(prompt, [], [], "normal")) revealPanel("chat");
-      return;
+      return {};
     }
-    if ("openPanel" in run) return revealPanel(pluginPanelId({ plugin: command.plugin, id: run.openPanel }));
+    if ("openPanel" in run) {
+      revealPanel(pluginPanelId({ plugin: command.plugin, id: run.openPanel }));
+      return {};
+    }
     if ("openSettings" in run) {
       window.location.hash = pluginHash(command.plugin);
-      return;
+      return {};
     }
     if ("url" in run) {
       // The manifest only checks that it starts with https://.
       const url = URL.canParse(run.url) ? new URL(run.url) : undefined;
       if (url) setPluginLink({ url });
       else toast({ title: command.title, description: t("pluginCommands.badLink"), tone: "danger" });
-      return;
+      return {};
     }
     try {
-      const { change } = await runPluginCommand(project.id, command.id);
+      const { result, change } = await runPluginCommand(project.id, command.id);
       showPluginChange(command.title, change);
+      return { result };
     } catch (cause) {
-      toast({ title: command.title, description: errorMessage(cause), tone: "danger" });
+      const error = errorMessage(cause);
+      toast({ title: command.title, description: error, tone: "danger" });
+      return { error };
     }
+  }
+  /** Answers a plugin page's question, and lets another be asked. */
+  function answerPluginConfirm(yes: boolean): void {
+    pluginConfirmOpen.current = false;
+    pluginConfirm?.answer(yes);
+    setPluginConfirm(undefined);
   }
   /** Says a plugin's code ran, with Undo when it changed files. */
   function showPluginChange(title: string, change: { id: string; changed: string[] } | undefined): void {
@@ -1060,8 +1085,18 @@ export function ProjectShell({
   /** A plugin's page in its panel, talking to the app through its frame. */
   function pluginPanelContent(panel: PluginPanel, shown: boolean) {
     const current = project!;
-    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} context={{
+    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} toolbarRun={pluginToolbarRun} context={{
       plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
+      ...(panel.accent ? { accent: panel.accent } : {}),
+      toast: (message, tone) => toast({ title: panel.title, description: message, ...(tone ? { tone } : {}) }),
+      confirm: (request) => new Promise<boolean>((resolve, reject) => {
+        if (pluginConfirmOpen.current) {
+          reject(new Error("Another question is waiting for an answer"));
+          return;
+        }
+        pluginConfirmOpen.current = true;
+        setPluginConfirm({ panel: pluginPanelId(panel), plugin: panel.plugin, request, answer: resolve });
+      }),
       locale: language,
       capabilities: panel.capabilities,
       commands: panel.commands,
@@ -1084,6 +1119,13 @@ export function ProjectShell({
         if (change?.changed.length) showPluginChange(found?.title ?? command, change);
         return result;
       },
+    }} />;
+  }
+  /** A plugin panel's commands in its toolbar; the page hears how each one went. */
+  function pluginPanelToolbar(panel: PluginPanel) {
+    const commands = commandsForSlot(plugins.commands, "panel.toolbar", plugins.when).filter((command) => command.plugin === panel.plugin);
+    return <PluginPanelToolbar commands={commands} onRun={async (command) => {
+      setPluginToolbarRun({ command: command.id, ...await runProjectPluginCommand(command) });
     }} />;
   }
   const projectMenu: MenuEntry[] = [
@@ -1282,6 +1324,13 @@ export function ProjectShell({
       {pluginLink.message ? <p>{pluginLink.message}</p> : null}
       <p>{t("pluginCommands.openLinkHint", { host: pluginLink.url.host })}</p>
     </Dialog> : null}
+    {pluginConfirm ? <Dialog open size="sm" title={pluginConfirm.request.title} onClose={() => answerPluginConfirm(false)} footer={<>
+      <Button variant="ghost" onClick={() => answerPluginConfirm(false)}>{t("common.cancel")}</Button>
+      <Button variant="primary" onClick={() => answerPluginConfirm(true)}>{pluginConfirm.request.confirmLabel ?? t("pluginCommands.confirm")}</Button>
+    </>}>
+      {pluginConfirm.request.message ? <p className="plugin-confirm-message">{pluginConfirm.request.message}</p> : null}
+      <p className="plugin-confirm-source">{t("pluginCommands.askedBy", { plugin: pluginConfirm.plugin })}</p>
+    </Dialog> : null}
     {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
     {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} /> : null}
     {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}
@@ -1468,7 +1517,7 @@ export function ProjectShell({
       /></Suspense>, nodes.canvas.body)}
       {project ? [...pluginNodes].flatMap(([id, target]) => {
         const panel = pluginPanels.get(id);
-        return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id)] : [];
+        return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(pluginPanelToolbar(panel), target.toolbar, `${id}:toolbar`)] : [];
       }) : null}
       {project && canvasOnly && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={t("workspace.tab.code")}>
         <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />

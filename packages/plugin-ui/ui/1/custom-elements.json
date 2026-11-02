@@ -623,6 +623,10 @@
             {
               "name": "--omg-accent",
               "description": "The plugin's brand colour, for the current step's mark."
+            },
+            {
+              "name": "--omg-on-accent",
+              "description": "The colour of the number on that mark."
             }
           ]
         }

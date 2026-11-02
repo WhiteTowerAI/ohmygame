@@ -98,6 +98,8 @@ export interface ProjectPanel {
   capabilities: PluginUiCapabilities;
   /** The plugin's command ids, the only ones its page may run. */
   commands: string[];
+  /** The plugin's brand colour, which the app checks before using. */
+  accent?: string | { light?: string; dark?: string };
 }
 
 /**
@@ -449,6 +451,7 @@ export class PluginServices {
             ...(capabilities.composer ? { composer: true } : {}),
           },
           commands: (entry.manifest.contributes?.commands ?? []).map((command) => command.id),
+          ...(entry.manifest.ui?.accent ? { accent: entry.manifest.ui.accent } : {}),
         });
     }
     return panels;

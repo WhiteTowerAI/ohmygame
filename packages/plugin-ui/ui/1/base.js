@@ -3,7 +3,8 @@
 // :root and which reach every shadow tree. A plugin customizes them only
 // through their attributes, CSS custom properties and `::part()`.
 //
-// `--omg-accent` is the plugin's brand colour, the app's accent by default.
+// `--omg-accent` is the plugin's brand colour, the app's accent by default,
+// and `--omg-on-accent` the text that goes on it.
 // Components use it only for selection and progress; buttons stay ink.
 
 /** A stylesheet shared by every instance of a component. */

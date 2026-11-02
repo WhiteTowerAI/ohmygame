@@ -203,6 +203,7 @@ class OmgSteps extends OmgElement {
  * @part summary - The summary; hidden when empty.
  * @part body - The content.
  * @cssprop --omg-accent - The plugin's brand colour, for the current step's mark.
+ * @cssprop --omg-on-accent - The colour of the number on that mark.
  */
 class OmgStep extends OmgElement {
   static observedAttributes = ["heading", "state", "open", "number"];
@@ -221,7 +222,7 @@ class OmgStep extends OmgElement {
         content: ""; position: absolute; top: 28px; bottom: 4px; width: 1px; background: var(--color-border);
       }
       :host(:last-of-type) .marker::after { display: none; }
-      :host([state="current"]) .badge { background: var(--omg-accent, var(--color-accent)); color: var(--color-on-accent); }
+      :host([state="current"]) .badge { background: var(--omg-accent, var(--color-accent)); color: var(--omg-on-accent, var(--color-on-accent)); }
       :host([state="done"]) .badge { color: var(--color-success); }
       :host([state="error"]) .badge { background: color-mix(in srgb, var(--color-danger) 16%, transparent); color: var(--color-danger); }
       .content { min-width: 0; display: grid; gap: var(--space-1); padding-bottom: var(--space-6); }

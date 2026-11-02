@@ -422,13 +422,37 @@ the app's defaults, and `test/preview-static.test.ts` keeps them equal to
 `src/renderer/ui/tokens.css`. Pages may rely on these names: a release may
 add tokens but not rename or remove one.
 
+The app also draws around and over a page, with what a page can't change:
+
+- **Brand colour.** The manifest's `ui.accent`, a `#rrggbb` colour or
+  `{ "light": …, "dark": … }`, becomes `--omg-accent` on the page's `:root`,
+  with `--omg-on-accent` for text on it. It marks progress, selection, links
+  and the current step; buttons stay ink. A colour with less than 3:1 contrast
+  against the panel's surface in the current appearance gives way to the
+  app's accent, as it does when there is none.
+- **Toolbar.** Commands with the `panel.toolbar` slot show as buttons in the
+  toolbar of the plugin's panels, in manifest order, beside the app's own
+  controls, which a plugin can't hide. The first three are buttons and the
+  rest go in a menu. A toolbar button gives no input, so a native command
+  with an `input` schema isn't allowed there. They run as from a menu, with
+  the app's toasts; the page hears a `command` event with `command`, and
+  `result` or `error`, when one finishes.
+- **Toasts and questions.** `host.request("ui.toast", { message, tone })`
+  shows a toast under the panel's title; `tone` is `default`, `success` or
+  `danger`. `host.request("ui.confirm", { title, message, confirmLabel })`
+  asks in a dialog that says which plugin asks, and resolves to whether the
+  person agreed; it gives the page nothing but the answer. A page that isn't
+  showing can't ask, one question waits at a time, and a page gets at most
+  five toasts in ten seconds and five questions in a minute. Beyond that the
+  request fails.
+
 ### Page components
 
 `/_ohmygame/ui/<major>/index.js` defines the app's page components, which
 `packages/plugin-ui/ui/<major>/` holds. Each draws in its own Shadow DOM from
 the tokens above, so a page customizes one only through its attributes, CSS
-custom properties and `::part()`. `--omg-accent` is the plugin's brand
-colour, used only for the current step and progress; buttons stay ink.
+custom properties and `::part()`. `--omg-accent` is the plugin's
+[brand colour](#plugin-pages).
 
 Version 1 is in preview: a page's policy loads it only when the manifest has
 `"ui": { "preview": true }`. Once a major version is stable, it loads for
@@ -473,7 +497,8 @@ which are in preview.
 
 `packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
 shows every component in its states, with commands that report progress and
-fail. It isn't bundled: add it from that folder with **Add plugin…**, allow
+fail, its brand colour, a toolbar command, toasts and a question. It isn't
+bundled: add it from that folder with **Add plugin…**, allow
 it, and turn it on in a project. `test/plugin-ui-components.test.ts` keeps it
 valid and using only documented components.
 
