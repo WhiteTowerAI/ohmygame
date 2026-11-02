@@ -2,6 +2,7 @@
 import { cp, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { type ComponentManifest, componentManifest, componentTypes, contractChanges, contractFiles, declarations, parseComment } from "../scripts/plugin-ui-contract.js";
 import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
 
 // The components load as the app serves them, next to the bridge at
@@ -222,6 +223,22 @@ describe("page components", () => {
     expect(calls).toEqual([]);
   });
 
+  it("reports a failure for the command that ran, even if the button's command changed", async () => {
+    let fail!: () => void;
+    answer = (id) => {
+      fail = () => app.postMessage({ id, error: "Failed" });
+    };
+    const button = html(`<omg-command-button command="prepare">Prepare</omg-command-button>`);
+    const errors: unknown[] = [];
+    button.addEventListener("omg-command-error", (event) => errors.push((event as CustomEvent).detail));
+    shadow(button, "button").click();
+    await settle();
+    button.removeAttribute("command");
+    fail();
+    await settle();
+    expect(errors).toEqual([{ command: "prepare", error: "Failed" }]);
+  });
+
   it("takes no clicks while disabled", async () => {
     const button = html(`<omg-command-button command="prepare" disabled>Prepare</omg-command-button>`);
     const clicks: Event[] = [];
@@ -242,5 +259,136 @@ describe("page components", () => {
     expect([...used].filter((name) => !customElements.get(name))).toEqual([]);
     const docs = await readFile("docs/plugins.md", "utf8");
     expect([...used].filter((name) => !docs.includes(`\`${name}\``))).toEqual([]);
+  });
+});
+
+describe("page components' contract", () => {
+  it("is up to date with the components' doc comments", async () => {
+    // A Windows checkout may have CRLF line endings.
+    for (const { file, text } of await contractFiles()) expect((await readFile(file, "utf8")).replace(/\r\n/g, "\n"), file).toBe(text);
+  });
+
+  it("lists what each component observes, its parts and slots, and its members", async () => {
+    const manifest = await componentManifest("1");
+    const docs = await readFile("docs/plugins.md", "utf8");
+    expect(declarations(manifest).filter((item) => !docs.includes(`\`${item.tagName}\``)).map((item) => item.tagName)).toEqual([]);
+    for (const item of declarations(manifest)) {
+      const component = customElements.get(item.tagName) as (CustomElementConstructor & { observedAttributes?: string[] }) | undefined;
+      expect(component, item.tagName).toBeDefined();
+      const attributes = item.attributes.map((attribute) => attribute.name);
+      expect((component!.observedAttributes ?? []).filter((name) => !attributes.includes(name)), item.tagName).toEqual([]);
+      const element = document.createElement(item.tagName);
+      const parts = new Set([...element.shadowRoot!.querySelectorAll("[part]")].flatMap((node) => node.getAttribute("part")!.split(/\s+/)));
+      expect([...parts].sort(), `${item.tagName} parts`).toEqual(item.cssParts.map((part) => part.name).sort());
+      const slots = [...element.shadowRoot!.querySelectorAll("slot")].map((slot) => slot.getAttribute("name") ?? "");
+      expect(slots.sort(), `${item.tagName} slots`).toEqual(item.slots.map((slot) => slot.name).sort());
+      for (const member of item.members) expect(member.name in element, `${item.tagName}.${member.name}`).toBe(true);
+    }
+  });
+
+  it("reads every form of tag", () => {
+    const parsed = parseComment(
+      [
+        "`<omg-x>`: a thing.",
+        "@attr {'a' | 'b  c'} mode - The mode,",
+        "  over two lines.",
+        '@prop {{ close: "}" }} value - A value.',
+        "@method run",
+        "@fires {{ id: string }} omg-x-done - Done.",
+        "@fires change",
+        "@slot - The content.",
+        "@slot icon",
+        "@part body - The body.",
+        "@cssprop [--omg-x-height=calc(100vh - 20px)] - How tall.",
+        "@cssprop --omg-accent",
+        "@deprecated Use omg-y instead.",
+      ]
+        .map((line) => ` * ${line}`)
+        .join("\r\n"),
+      "OmgX",
+      "OmgElement",
+      "ui/1/x.js",
+    );
+    expect(parsed).toMatchObject({
+      description: "`<omg-x>`: a thing.",
+      deprecated: "Use omg-y instead.",
+      attributes: [{ name: "mode", type: { text: "'a' | 'b  c'" }, description: "The mode, over two lines." }],
+      members: [
+        { kind: "field", name: "value", type: { text: '{ close: "}" }' } },
+        { kind: "method", name: "run", return: { type: { text: "void" } } },
+      ],
+      events: [
+        { name: "omg-x-done", type: { text: "CustomEvent<{ id: string }>" } },
+        { name: "change", type: { text: "Event" } },
+      ],
+      slots: [{ name: "", description: "The content." }, { name: "icon" }],
+      cssParts: [{ name: "body" }],
+      cssProperties: [{ name: "--omg-x-height", default: "calc(100vh - 20px)", description: "How tall." }, { name: "--omg-accent" }],
+    });
+    expect(() => parseComment(" * @shout loud", "OmgX", "OmgElement", "ui/1/x.js")).toThrow("unknown tag @shout");
+  });
+
+  it("finds what would break a page", () => {
+    const contract = (attributes: { name: string; type?: { text: string } }[], extra: Record<string, unknown> = {}): ComponentManifest => ({
+      schemaVersion: "2.1.0",
+      readme: "",
+      modules: [
+        {
+          kind: "javascript-module",
+          path: "ui/1/controls.js",
+          declarations: [
+            { kind: "class", name: "OmgButton", tagName: "omg-button", customElement: true, description: "", attributes, members: [], events: [], slots: [{ name: "" }], cssParts: [{ name: "button" }], cssProperties: [], ...extra },
+          ],
+          exports: [],
+        },
+      ],
+    });
+    const before = contract([{ name: "variant", type: { text: '"primary" | "ghost"' } }, { name: "busy", type: { text: "boolean" } }]);
+    expect(contractChanges(before, before)).toEqual({ breaking: [], added: [] });
+    expect(contractChanges(before, contract([{ name: "variant", type: { text: '"primary" | "ghost" | "danger"' } }, { name: "busy", type: { text: "boolean" } }, { name: "size" }]))).toEqual({
+      breaking: [],
+      added: ['<omg-button> attribute variant takes "danger"', "<omg-button> attribute size"],
+    });
+    expect(contractChanges(before, contract([{ name: "variant", type: { text: '"primary"' } }], { cssParts: [] })).breaking).toEqual([
+      '<omg-button> attribute variant changed from "primary" | "ghost" to "primary"',
+      "<omg-button> attribute busy was removed",
+      "<omg-button> part button was removed",
+    ]);
+    expect(contractChanges(before, { ...before, modules: [] }).breaking).toEqual(["<omg-button> was removed"]);
+    // Its types are named after the class.
+    expect(contractChanges(before, contract(before.modules[0]!.declarations[0]!.attributes, { name: "OmgAction" })).breaking).toEqual([
+      "<omg-button>'s class OmgButton, which names its types, became OmgAction",
+    ]);
+    const run = (kind: "field" | "method") => contract([], { members: [{ kind, name: "run", ...(kind === "method" ? { return: { type: { text: "void" } } } : { type: { text: "void" } }) }] });
+    expect(contractChanges(run("method"), run("field")).breaking).toEqual(["<omg-button> member run became a property"]);
+    expect(contractChanges(contract([{ name: "mode", type: { text: "'a'" } }]), contract([{ name: "mode", type: { text: '"a" | "b"' } }])).added).toEqual([
+      '<omg-button> attribute mode takes "b"',
+    ]);
+  });
+
+  it("declares types for members a base class gives and events components share", () => {
+    const event = { name: "omg-done", type: { text: "CustomEvent<{ id: string }>" } };
+    const component = (name: string, tagName: string, extra: Record<string, unknown>) => ({
+      kind: "class" as const, name, tagName, customElement: true as const, description: "", attributes: [], members: [], events: [], slots: [], cssParts: [], cssProperties: [], ...extra,
+    });
+    const types = componentTypes({
+      schemaVersion: "2.1.0",
+      readme: "",
+      modules: [
+        {
+          kind: "javascript-module",
+          path: "ui/1/x.js",
+          declarations: [
+            // Its base class isn't a component, so its interface declares what that base gives.
+            component("OmgA", "omg-a", { superclass: { name: "Shared", module: "ui/1/x.js" }, members: [{ kind: "field", name: "shared", type: { text: "string" }, inheritedFrom: { name: "Shared", module: "ui/1/x.js" } }], events: [event] }),
+            component("OmgB", "omg-b", { superclass: { name: "OmgA", module: "ui/1/x.js" }, members: [{ kind: "field", name: "shared", type: { text: "string" }, inheritedFrom: { name: "Shared", module: "ui/1/x.js" } }], events: [event] }),
+          ],
+          exports: [],
+        },
+      ],
+    });
+    expect(types).toContain("export interface OmgAElement extends HTMLElement {\n  shared: string;\n}");
+    expect(types).toContain("export interface OmgBElement extends OmgAElement {}");
+    expect(types.match(/"omg-done":/g)).toHaveLength(1);
   });
 });

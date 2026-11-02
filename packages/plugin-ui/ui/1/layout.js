@@ -23,6 +23,16 @@ function updateHeader(element) {
  * `<omg-page heading description>`: the page's column, centred and at most
  * 720px wide. Slots: `brand` (a logo before the heading), `actions`, and the
  * page's sections.
+ *
+ * @attr {string} heading - The page's title.
+ * @attr {string} description - A line under the title.
+ * @slot brand - A logo before the heading.
+ * @slot actions - Buttons beside the heading.
+ * @slot - The page's sections.
+ * @part header - The row of the brand, titles and actions; hidden when empty.
+ * @part heading - The title.
+ * @part description - The line under the title.
+ * @part body - The column of sections.
  */
 class OmgPage extends OmgElement {
   static observedAttributes = ["heading", "description"];
@@ -56,6 +66,16 @@ class OmgPage extends OmgElement {
 /**
  * `<omg-section heading description>`: a titled group of content. Slots:
  * `actions` beside the heading, and the section's content.
+ *
+ * @attr {string} heading - The section's title, which names it.
+ * @attr {string} description - A line under the title.
+ * @slot actions - Buttons beside the heading.
+ * @slot - The section's content.
+ * @part section - The section.
+ * @part header - The titles and actions; hidden when empty.
+ * @part heading - The title.
+ * @part description - The line under the title.
+ * @part body - The column of content.
  */
 class OmgSection extends OmgElement {
   static observedAttributes = ["heading", "description"];
@@ -99,6 +119,13 @@ const SPACES = ["1", "2", "3", "4", "6"];
 /**
  * `<omg-stack direction="row|column" gap="1|2|3|4|6" align justify wrap>`:
  * lays its children out in a row or a column, spaced by the app's steps.
+ *
+ * @attr {"column" | "row"} direction - Column by default.
+ * @attr {"0" | "1" | "2" | "3" | "4" | "6"} gap - A space token; 2 by default.
+ * @attr {"start" | "center" | "end" | "stretch" | "baseline"} align - How children line up across it.
+ * @attr {"start" | "center" | "end" | "between"} justify - How children are spread along it.
+ * @attr {boolean} wrap - Lets a row wrap.
+ * @slot - The children.
  */
 class OmgStack extends OmgElement {
   static styles = [
@@ -119,6 +146,15 @@ class OmgStack extends OmgElement {
 /**
  * `<omg-empty heading description>`: what a page shows when it has nothing
  * yet. Slots: `icon`, and actions as its content.
+ *
+ * @attr {string} heading - What is missing.
+ * @attr {string} description - What to do about it.
+ * @slot icon - An icon above the heading.
+ * @slot - Actions.
+ * @part icon - The icon's place; hidden when empty.
+ * @part heading - The heading.
+ * @part description - The description.
+ * @part actions - The actions' row; hidden when empty.
  */
 class OmgEmpty extends OmgElement {
   static observedAttributes = ["heading", "description"];

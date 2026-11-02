@@ -30,6 +30,15 @@ const BUTTON = css(`
  * `<omg-button variant="secondary|primary|ghost|danger" disabled busy>`: the
  * app's button. Primary is ink; there is one per view. A busy button shows a
  * spinner and takes no clicks.
+ *
+ * @attr {"secondary" | "primary" | "ghost" | "danger"} variant - Secondary by default.
+ * @attr {boolean} disabled - Takes no clicks.
+ * @attr {boolean} busy - Shows a spinner and takes no clicks.
+ * @prop {boolean} disabled - The `disabled` attribute.
+ * @prop {boolean} busy - The `busy` attribute.
+ * @slot - The label.
+ * @part button - The button.
+ * @part spinner - The spinner shown while busy.
  */
 class OmgButton extends OmgElement {
   static observedAttributes = ["variant", "disabled", "busy"];
@@ -104,6 +113,19 @@ const changed = () => changes.dispatchEvent(new Event("change"));
  * Events: `omg-command-start` (cancelable, before it runs),
  * `omg-command-result` with `detail.result`, and `omg-command-error` with
  * `detail.error`, cancelable to show the failure yourself.
+ *
+ * @attr {string} command - The command's id in the manifest.
+ * @attr {string} input - The command's input, as JSON.
+ * @attr {boolean} concurrent - Runs while other command buttons run, and doesn't make them wait.
+ * @attr {boolean} quiet - Doesn't show a failure beside it.
+ * @attr {string} error - The last run's failure, until the next run.
+ * @prop {unknown} input - The command's input; it takes the place of the attribute.
+ * @method {Promise<unknown>} run - Runs the command, as a click does; resolves to its result, or undefined when it didn't run or failed.
+ * @fires {{ command: string; input: unknown }} omg-command-start - Before it runs; cancel it to not run.
+ * @fires {{ command: string; result: unknown }} omg-command-result - The command's result.
+ * @fires {{ command: string; error: string }} omg-command-error - The command failed; cancel it to show the failure yourself.
+ * @part progress - The command's progress while it runs.
+ * @part error - The failure.
  */
 class OmgCommandButton extends OmgButton {
   static observedAttributes = [...OmgButton.observedAttributes, "command", "input", "concurrent", "quiet", "error"];
@@ -160,7 +182,7 @@ class OmgCommandButton extends OmgButton {
     try {
       input = this.input;
     } catch {
-      this.#fail(new Error(`The input of command button "${command}" isn't JSON`));
+      this.#fail(command, new Error(`The input of command button "${command}" isn't JSON`));
       return undefined;
     }
     const start = new CustomEvent("omg-command-start", { bubbles: true, composed: true, cancelable: true, detail: { command, input } });
@@ -180,7 +202,7 @@ class OmgCommandButton extends OmgButton {
       this.dispatchEvent(new CustomEvent("omg-command-result", { bubbles: true, composed: true, detail: { command, result } }));
       return result;
     } catch (error) {
-      this.#fail(error instanceof Error ? error : new Error(String(error)));
+      this.#fail(command, error instanceof Error ? error : new Error(String(error)));
       return undefined;
     } finally {
       this.#stopProgress?.();
@@ -198,8 +220,8 @@ class OmgCommandButton extends OmgButton {
     text(this.part("error"), this.getAttribute("error"));
   }
 
-  #fail(error) {
-    const command = this.getAttribute("command");
+  /** Reports a failure of the run of `command`, whatever the attribute says now. */
+  #fail(command, error) {
     const event = new CustomEvent("omg-command-error", { bubbles: true, composed: true, cancelable: true, detail: { command, error: error.message } });
     if (this.dispatchEvent(event) && !this.hasAttribute("quiet")) this.setAttribute("error", error.message);
   }
@@ -209,6 +231,17 @@ class OmgCommandButton extends OmgButton {
  * `<omg-select label value disabled>` with `<option>` children: the app's
  * select. `label` is shown above it; without one, give it `aria-label`. It
  * fires `change` and `input` as a native select does.
+ *
+ * @attr {string} label - Shown above it.
+ * @attr {string} value - The chosen option's value.
+ * @attr {boolean} disabled - Can't be changed.
+ * @attr {string} aria-label - Its name, without a label.
+ * @prop {string} value - The chosen option's value.
+ * @fires change - The person chose an option.
+ * @fires input - The person chose an option.
+ * @part field - The label around it.
+ * @part label - The label's text.
+ * @part select - The native select.
  */
 class OmgSelect extends OmgElement {
   static observedAttributes = ["label", "value", "disabled", "aria-label"];

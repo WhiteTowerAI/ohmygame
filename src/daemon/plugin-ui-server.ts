@@ -3,6 +3,7 @@ import { lstat, realpath, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
+import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "../shared/plugin-ui-versions.js";
 import type { PluginIndex } from "./plugin-index.js";
 import { MIME } from "./preview-static.js";
 
@@ -22,9 +23,7 @@ const SDK_SOURCES: Record<string, string> = {
   "plugin-ui.css": "plugin-ui.css",
   "plugin-ui.js": "index.js",
 };
-/** The components' major versions the app serves, and those still in preview. */
-const UI_MAJORS = new Set(["1"]);
-const UI_PREVIEW_MAJORS = new Set(["1"]);
+const UI_MAJORS = new Set(PLUGIN_UI_MAJORS);
 const UI_FILE = /^[a-z0-9-]{1,64}\.js$/;
 
 export interface PluginUiServer {
@@ -53,7 +52,7 @@ export async function startPluginUiServer({
       "default-src 'none'",
       // Components in preview load only for a plugin that opts in.
       `script-src ${base} ${origin}/_ohmygame/plugin-ui.js ${[...UI_MAJORS]
-        .filter((major) => preview || !UI_PREVIEW_MAJORS.has(major))
+        .filter((major) => preview || !PLUGIN_UI_PREVIEW_MAJORS.has(major))
         .map((major) => `${origin}/_ohmygame/ui/${major}/`)
         .join(" ")}`.trimEnd(),
       `style-src ${base} ${origin}/_ohmygame/plugin-ui.css 'unsafe-inline'`,

@@ -4,7 +4,9 @@ A project archive is a ZIP file that moves one project to another computer or
 keeps a copy outside OhMyGame's data folder. **Export project** in a project
 card's menu saves one for any project type. **Export project** in an open
 project's name menu uses the same archive format and export service, after
-saving the editors' changes.
+saving the editors' changes. Selecting several projects on the Projects page
+(a cover's checkbox, or ⌘/Ctrl- or Shift-click) offers **Export** and
+**Remove** for all of them; Export saves one archive per project.
 **Import project ZIP…** in the Projects page's **New project** menu creates a
 new project from it. You can also drag one ZIP archive onto the Projects page. Both entry points use the
 same import checks. Import one archive at a time.
