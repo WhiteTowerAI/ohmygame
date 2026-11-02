@@ -52,7 +52,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport } from "../src/desktop/window.js";
+import { createDesktopWindow, fitPlaytestContentSize, isMenuItemLabels, isValidPlaytestViewport, localizedMenuItems } from "../src/desktop/window.js";
 
 beforeEach(() => {
   electron.windows.length = 0;
@@ -64,6 +64,27 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("window menu items", () => {
+  it("relabels items by role and keeps separators and items with no label given", () => {
+    expect(localizedMenuItems([
+      { role: "undo", type: "normal", label: "Undo" },
+      { role: undefined, type: "separator", label: "" },
+      { role: "zoom", type: "normal", label: "Zoom" },
+    ], { undo: "撤销" })).toEqual([
+      { role: "undo", label: "撤销" },
+      { type: "separator", label: "" },
+      { role: "zoom", label: "Zoom" },
+    ]);
+  });
+
+  it("accepts only a record of strings as labels", () => {
+    expect(isMenuItemLabels({ undo: "撤销" })).toBe(true);
+    expect(isMenuItemLabels(undefined)).toBe(false);
+    expect(isMenuItemLabels(null)).toBe(false);
+    expect(isMenuItemLabels({ undo: 1 })).toBe(false);
+  });
+});
 
 describe("desktop window", () => {
   it("uses a native title bar to keep Playtest window controls outside the game on macOS", async () => {

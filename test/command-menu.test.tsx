@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import path from "node:path";
 import { act } from "react";
+import i18next from "i18next";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ProjectState } from "../src/shared/contracts.js";
@@ -158,6 +159,22 @@ it("leaves the page through its guard from the Windows title bar's back and forw
   expect(forward).toHaveBeenCalledOnce();
   back.mockRestore();
   forward.mockRestore();
+});
+
+it("opens the Windows title bar's menus in the app's language", async () => {
+  const popup = vi.fn(async () => undefined);
+  vi.stubGlobal("ohMyGameDesktop", { platform: "win32", windowMenu: { popup } });
+  await i18next.changeLanguage("zh-CN");
+  try {
+    await act(async () => root.render(<DesktopWindowFrame><main /></DesktopWindowFrame>));
+    const menus = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+    expect(menus.map((menu) => menu.textContent)).toEqual(["文件", "编辑", "视图", "窗口"]);
+    await act(async () => menus[1]!.click());
+    // The main process finds the menu by its English name and labels its items from these.
+    expect(popup).toHaveBeenCalledWith("Edit", 0, 0, expect.objectContaining({ undo: "撤销", selectall: "全选" }));
+  } finally {
+    await i18next.changeLanguage("en");
+  }
 });
 
 it("leaves Settings alone on ⌘, when it is already open", async () => {
