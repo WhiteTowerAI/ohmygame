@@ -469,12 +469,18 @@ The app also draws around and over a page, with what a page can't change:
   the page's CSP allows), and with `write` also `write(path, text | Blob)`,
   `createFolder`, `move(from, to)` and `delete`. Paths are relative to the
   project. A page never reaches a hidden file or folder, so neither `.env`
-  nor an agent's or editor's settings, and follows no link; it can't change
-  `ohmygame.json`, an `AGENTS.md`, `CLAUDE.md` or `GEMINI.md`, or Canvas
-  files, and a move never replaces anything. A recursive listing leaves out
-  `build`, `dist`, `node_modules` and `out` and stops at 10,000 entries; a
-  write is at most 200 MB. Each change is one the person can undo, as a
-  plugin command's is, and the agent hears of it; while an agent, a job or
+  nor an agent's or editor's settings, follows no link, and reads no file
+  that has another name (a hard link). It can't change `ohmygame.json`, an
+  `AGENTS.md`, `CLAUDE.md` or `GEMINI.md`, or Canvas files, and a move never
+  replaces anything. Each change is one the person can undo, as a plugin
+  command's is, so a page changes only what the project's
+  [snapshots](checkpoints.md) keep: not what a `.gitignore` leaves out, nor
+  `node_modules` or root build output. A folder it moves or deletes may hold
+  only such files, with no links, hidden files (besides `.gitignore`,
+  `.gitkeep`, `.keep` and `.DS_Store`) or agent instructions. A replaced file
+  keeps its permissions. A recursive listing leaves out `build`, `dist`,
+  `node_modules` and `out` and stops at 10,000 entries; a write is at most
+  200 MB. The agent hears of each change, and while an agent, a job or
   publishing works in the project a change is refused. The page hears a
   `files` event when the project's files may have changed.
 

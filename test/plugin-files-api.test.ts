@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -127,6 +127,51 @@ describe("plugin page files API", () => {
     const listing = (await app.inject({ method: "GET", url: base })).json();
     expect(listing.entries.map((entry: { path: string }) => entry.path)).not.toContain("linked");
     await rm(outside, { recursive: true, force: true });
+  });
+
+  it("changes only what Undo can bring back, and no folder holding what a page can't touch", async () => {
+    const { app, base, workspace, put } = await setup("write");
+    await writeFile(workspace(".gitignore"), "*.log\nsecret/\n");
+    for (const kept of ["node_modules/pkg/index.js", "dist/game.js", "debug.log", "secret/key.txt"])
+      expect((await put(kept, "x")).statusCode, kept).toBe(403);
+    // Build output is left out at the root only; a game may keep its own.
+    expect((await put("levels/build/one.json", "{}")).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: `${base}/folder`, payload: { path: "node_modules/new" } })).statusCode).toBe(403);
+
+    await mkdir(workspace("vendor/game"), { recursive: true });
+    await writeFile(workspace("vendor/game/main.js"), "");
+    await writeFile(workspace("vendor/game/.env"), "SECRET=1");
+    await mkdir(workspace("docs"), { recursive: true });
+    await writeFile(workspace("docs/AGENTS.md"), "rules");
+    await mkdir(workspace("art/old"), { recursive: true });
+    await writeFile(workspace("art/old/hero.png"), "png");
+    await writeFile(workspace("art/old/trace.log"), "ignored");
+    for (const folder of ["vendor", "docs", "art"]) {
+      expect((await app.inject({ method: "DELETE", url: `${base}?path=${folder}` })).statusCode, folder).toBe(403);
+      expect((await app.inject({ method: "POST", url: `${base}/move`, payload: { from: folder, to: `moved-${folder}` } })).statusCode, folder).toBe(403);
+    }
+    expect(await readFile(workspace("vendor/game/.env"), "utf8")).toBe("SECRET=1");
+    expect(await readFile(workspace("docs/AGENTS.md"), "utf8")).toBe("rules");
+    // A folder may carry what the system leaves, and moves where everything it holds is still kept.
+    await mkdir(workspace("sprites"), { recursive: true });
+    await writeFile(workspace("sprites/hero.png"), "png");
+    await writeFile(workspace("sprites/.DS_Store"), "");
+    expect((await app.inject({ method: "POST", url: `${base}/move`, payload: { from: "sprites", to: "secret/sprites" } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `${base}/move`, payload: { from: "sprites", to: "art/sprites" } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "DELETE", url: `${base}?path=art/sprites` })).statusCode).toBe(200);
+  });
+
+  it("reads no file that has another name, and keeps a file's permissions when it replaces it", async () => {
+    const { app, base, workspace, put } = await setup("write");
+    await writeFile(workspace(".env"), "SECRET=1");
+    await link(workspace(".env"), workspace("public.txt"));
+    expect((await app.inject({ method: "GET", url: `${base}/content?path=public.txt` })).statusCode).toBe(403);
+    if (process.platform === "win32") return;
+    await writeFile(workspace("build.sh"), "echo old");
+    await chmod(workspace("build.sh"), 0o755);
+    expect((await put("build.sh", "echo new")).statusCode).toBe(200);
+    expect((await stat(workspace("build.sh"))).mode & 0o777).toBe(0o755);
+    expect(await readFile(workspace("build.sh"), "utf8")).toBe("echo new");
   });
 
   it("answers only a plugin that asked for the project's files, at the level it asked for", async () => {

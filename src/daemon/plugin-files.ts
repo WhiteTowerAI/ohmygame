@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { lstat, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { chmod, link, lstat, mkdir, open, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { mediaFileInfo } from "../shared/media-files.js";
 import { PROJECT_FILE_NAME } from "../shared/project-file.js";
+import { checkpointCoverage } from "./checkpoints.js";
 import { workspaceEntryName } from "./projects.js";
 import { resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
 
@@ -12,6 +13,12 @@ import { resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from
 // also keep the capability from becoming more than it says: hidden files hold
 // secrets and tools' settings, some of which run commands, and the project
 // file names which plugins the project uses. Native code isn't bound by this.
+//
+// Each change is one the person can undo, so a page changes only what the
+// project's snapshots keep, and a folder it moves or deletes holds nothing
+// else. The checks guard against the page; the daemon's own writers wait for
+// a page's change, and another program on the computer has the person's
+// access to these files already.
 
 /** The most a page may write at once; the daemon holds it in memory. */
 export const PLUGIN_FILE_MAX_BYTES = 200 * 1024 * 1024;
@@ -19,6 +26,8 @@ export const PLUGIN_FILE_MAX_BYTES = 200 * 1024 * 1024;
 const LIST_MAX_ENTRIES = 10_000;
 /** A recursive listing doesn't go into what tools generate; a listing of one of these still shows it. */
 const GENERATED_DIRECTORIES = new Set(["build", "dist", "node_modules", "out"]);
+/** Names a moved or deleted folder may hold although they are hidden: no secret or setting, and kept or meant to be lost. */
+const HARMLESS_HIDDEN = new Set([".ds_store", ".gitignore", ".gitkeep", ".keep"]);
 /** What tells an agent how to work; a page changing it would be telling the agent what to do. */
 const AGENT_INSTRUCTIONS = new Set(["agents.md", "claude.md", "gemini.md"]);
 
@@ -138,30 +147,77 @@ export async function listPluginFiles(
 
 /** A file to send to a page, with the type a blob of it needs to show as an image or play. */
 export async function openPluginFile(workspacePath: string, requested: string) {
-  const { absolutePath } = await resolveWorkspaceEntry(workspacePath, readablePath(requested));
-  const stats = await stat(absolutePath);
-  if (!stats.isFile()) throw new PluginFileError("Path is not a file");
-  return {
-    size: stats.size,
-    contentType: mediaFileInfo(absolutePath)?.contentType ?? "application/octet-stream",
-    stream: () => createReadStream(absolutePath),
+  const relative = readablePath(requested);
+  const { absolutePath } = await resolveWorkspaceEntry(workspacePath, relative);
+  // What is read is what was checked: the file opened is the one the path names now, no link on the way.
+  const handle = await open(absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile()) throw new PluginFileError("Path is not a file");
+    // Another name of the same file may be hidden, or outside the project.
+    if (opened.nlink > 1) throw new PluginFileError("Pages can't read a file that has other names", 403);
+    const now = await stat((await resolveWorkspaceEntry(workspacePath, relative)).absolutePath);
+    if (now.ino !== opened.ino || now.dev !== opened.dev) throw new PluginFileError("The file changed while it was opened", 409);
+    return {
+      size: opened.size,
+      contentType: mediaFileInfo(absolutePath)?.contentType ?? "application/octet-stream",
+      stream: () => handle.createReadStream(),
+    };
+  } catch (cause) {
+    await handle.close();
+    throw cause;
+  }
+}
+
+const NOT_KEPT = "Undo can't bring this back, as the project's snapshots leave it out (a .gitignore, node_modules or build output), so a page can't change it";
+
+/**
+ * Refuses a change to `relative`, or to anything in it when it is a folder,
+ * that Undo couldn't take back or that touches what a page may not. Gives the
+ * paths inside a folder, relative to it.
+ */
+async function assertChangeable(workspacePath: string, relative: string, folder: boolean, covers: ReturnType<typeof checkpointCoverage>): Promise<string[]> {
+  if (!(await covers(relative, folder))) throw new PluginFileError(NOT_KEPT, 403);
+  if (!folder) return [];
+  const inside: string[] = [];
+  const visit = async (absolute: string, prefix: string) => {
+    for (const item of await readdir(absolute, { withFileTypes: true })) {
+      if (inside.length >= LIST_MAX_ENTRIES) throw new PluginFileError("This folder holds too much to change from a page", 413);
+      const child = prefix ? `${prefix}/${item.name}` : item.name;
+      const name = item.name.toLowerCase();
+      if (item.isSymbolicLink() || !(item.isFile() || item.isDirectory())) throw new PluginFileError(`${relative}/${child} is a link or not a plain file, so a page can't change this folder`, 403);
+      if (item.name.startsWith(".") && !HARMLESS_HIDDEN.has(name)) throw new PluginFileError(`${relative} holds hidden files, so a page can't change it`, 403);
+      if (AGENT_INSTRUCTIONS.has(name)) throw new PluginFileError(`${relative} holds an agent's instructions, so a page can't change it`, 403);
+      // Junk the system leaves needn't come back.
+      if (name !== ".ds_store" && !(await covers(`${relative}/${child}`, item.isDirectory()))) throw new PluginFileError(`${relative}/${child}: ${NOT_KEPT}`, 403);
+      inside.push(child);
+      if (item.isDirectory()) await visit(path.join(absolute, item.name), child);
+    }
   };
+  await visit((await resolveWorkspaceEntry(workspacePath, relative)).absolutePath, "");
+  return inside;
 }
 
 export async function writePluginFile(workspacePath: string, requested: string, contents: Buffer): Promise<string> {
   const relative = writablePath(requested);
+  await assertChangeable(workspacePath, relative, false, checkpointCoverage(workspacePath));
   const parent = path.posix.dirname(relative);
   if (parent !== ".") await ensureFolder(workspacePath, parent);
   const { absolutePath } = await parentOf(workspacePath, relative);
+  let mode: number | undefined;
   if (await exists(absolutePath)) {
     // The check refuses a link; writing would otherwise replace it, and a folder can't be replaced by a file.
     const { absolutePath: existing } = await resolveWorkspaceEntry(workspacePath, relative);
-    if (!(await stat(existing)).isFile()) throw new PluginFileError("Path is not a file");
+    const stats = await stat(existing);
+    if (!stats.isFile()) throw new PluginFileError("Path is not a file");
+    // A script stays runnable, and a private file private.
+    mode = stats.mode & 0o7777;
   }
   // Written beside it and moved into place, so the file is the old one or the new one, never half of either.
   const temporary = path.join(path.dirname(absolutePath), `.${path.basename(absolutePath)}.${randomUUID()}.tmp`);
   try {
     await writeFile(temporary, contents, { flag: "wx" });
+    if (mode !== undefined) await chmod(temporary, mode);
     await rename(temporary, absolutePath);
   } finally {
     await rm(temporary, { force: true });
@@ -171,24 +227,51 @@ export async function writePluginFile(workspacePath: string, requested: string, 
 
 export async function createPluginFolder(workspacePath: string, requested: string): Promise<string> {
   const relative = writablePath(requested);
+  // A folder that is there already doesn't change, so only the new one needs to be kept.
+  if (!(await checkpointCoverage(workspacePath)(relative, true))) throw new PluginFileError(NOT_KEPT, 403);
   await ensureFolder(workspacePath, relative);
   return relative;
 }
+
+/** Codes for a file system without hard links, where a move checks first instead. */
+const NO_LINKS = new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP", "EXDEV", "ENOSYS", "EMLINK"]);
 
 export async function movePluginFile(workspacePath: string, from: string, to: string): Promise<string> {
   const source = writablePath(from);
   const target = writablePath(to);
   if (target === source || target.startsWith(`${source}/`)) throw new PluginFileError("A folder can't move into itself");
   const { absolutePath: origin } = await resolveWorkspaceEntry(workspacePath, source);
+  const folder = (await stat(origin)).isDirectory();
+  const covers = checkpointCoverage(workspacePath);
+  const inside = await assertChangeable(workspacePath, source, folder, covers);
+  // Where it goes must be kept too, everything in it included.
+  if (!(await covers(target, folder))) throw new PluginFileError(`${target}: ${NOT_KEPT}`, 403);
+  for (const child of inside) if (!(await covers(`${target}/${child}`, false))) throw new PluginFileError(`${target}/${child}: ${NOT_KEPT}`, 403);
   const parent = path.posix.dirname(target);
   if (parent !== ".") await ensureFolder(workspacePath, parent);
   const { absolutePath: destination } = await parentOf(workspacePath, target);
-  if (await exists(destination)) throw new PluginFileError(`${target} already exists`, 409);
+  const taken = () => new PluginFileError(`${target} already exists`, 409);
+  if (await exists(destination)) throw taken();
+  if (!folder) {
+    // A new name for the file, which fails if the name is taken, then the old one goes: nothing is replaced.
+    try {
+      await link(origin, destination);
+      await unlink(origin);
+      return target;
+    } catch (cause) {
+      const code = (cause as NodeJS.ErrnoException).code;
+      if (code === "EEXIST") throw taken();
+      if (!code || !NO_LINKS.has(code)) throw cause;
+    }
+  }
+  // A folder moved onto a name taken meanwhile replaces at most an empty folder, and only where the system allows.
   await rename(origin, destination);
   return target;
 }
 
 export async function deletePluginFile(workspacePath: string, requested: string): Promise<void> {
-  const { absolutePath } = await resolveWorkspaceEntry(workspacePath, writablePath(requested));
+  const relative = writablePath(requested);
+  const { absolutePath } = await resolveWorkspaceEntry(workspacePath, relative);
+  await assertChangeable(workspacePath, relative, (await stat(absolutePath)).isDirectory(), checkpointCoverage(workspacePath));
   await rm(absolutePath, { recursive: true });
 }
