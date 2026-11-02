@@ -464,6 +464,26 @@ describe("plugins in the project shell", () => {
       for (let id = 10; id <= 10 + PLUGIN_TOAST_LIMIT; id++) page!.postMessage({ id, method: "ui.toast", params: { message: "Hello" } });
       await vi.waitFor(() => expect(replies.get(10 + PLUGIN_TOAST_LIMIT)?.error).toContain("too many"));
       expect(toast).toHaveBeenCalledTimes(PLUGIN_TOAST_LIMIT);
+      // Both of two toolbar commands that finish together reach the page, and another plugin's doesn't.
+      const heard: unknown[] = [];
+      const listeners = new Set<(run: { command: string; result?: unknown; error?: string }) => void>();
+      const onToolbarRun = (listener: (run: { command: string; result?: unknown; error?: string }) => void) => {
+        listeners.add(listener);
+        return () => { listeners.delete(listener); };
+      };
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Page" context={context} visible onToolbarRun={onToolbarRun} />));
+      page!.onmessage = ({ data }) => {
+        if (data.event === "command") heard.push(data);
+        else replies.set(data.id, data);
+      };
+      await act(async () => {
+        for (const listener of listeners) {
+          listener({ command: "acme/noisy:one", result: 1 });
+          listener({ command: "acme/noisy:two", error: "Failed" });
+          listener({ command: "acme/other:three" });
+        }
+      });
+      await vi.waitFor(() => expect(heard).toEqual([{ event: "command", command: "one", result: 1 }, { event: "command", command: "two", error: "Failed" }]));
       // A second page of the plugin shares its limit.
       const first = page!;
       await act(async () => root.render(<PluginFrame key="other" url="about:blank#other" title="Other" context={{ ...context, plugin: { ...context.plugin, panel: "other" } }} visible />));

@@ -279,7 +279,11 @@ export function ProjectShell({
   /** A link a plugin command offers, opened only once the person sees its host; `message` is the plugin's. */
   const [pluginLink, setPluginLink] = useState<{ url: URL; message?: string }>();
   const [pluginProgress, setPluginProgress] = useState<CommandProgress>();
-  const [pluginToolbarRun, setPluginToolbarRun] = useState<PluginToolbarRun>();
+  const [pluginToolbarRuns] = useState(() => new Set<(run: PluginToolbarRun) => void>());
+  const onPluginToolbarRun = useCallback((listener: (run: PluginToolbarRun) => void) => {
+    pluginToolbarRuns.add(listener);
+    return () => { pluginToolbarRuns.delete(listener); };
+  }, [pluginToolbarRuns]);
   /** The question a plugin's page is asking, in a dialog the app draws. */
   const [pluginConfirm, setPluginConfirm] = useState<{ panel: PanelId; plugin: string; request: PluginUiConfirm; answer: (yes: boolean) => void }>();
   const pluginConfirmOpen = useRef(false);
@@ -1089,7 +1093,7 @@ export function ProjectShell({
   /** A plugin's page in its panel, talking to the app through its frame. */
   function pluginPanelContent(panel: PluginPanel, shown: boolean) {
     const current = project!;
-    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} toolbarRun={pluginToolbarRun} context={{
+    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} onToolbarRun={onPluginToolbarRun} context={{
       plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
       ...(panel.accent ? { accent: panel.accent } : {}),
       // Under the plugin's id, which it can't choose as it can a panel's title.
@@ -1130,7 +1134,8 @@ export function ProjectShell({
   function pluginPanelToolbar(panel: PluginPanel) {
     const commands = commandsForSlot(plugins.commands, "panel.toolbar", plugins.when).filter((command) => command.plugin === panel.plugin);
     return <PluginPanelToolbar commands={commands} onRun={async (command) => {
-      setPluginToolbarRun({ command: command.id, ...await runProjectPluginCommand(command) });
+      const outcome = await runProjectPluginCommand(command);
+      for (const listener of pluginToolbarRuns) listener({ command: command.id, ...outcome });
     }} />;
   }
   const projectMenu: MenuEntry[] = [

@@ -233,7 +233,7 @@ export interface CommandProgress {
   message: string;
 }
 
-/** A `panel.toolbar` command that finished, a new object for each. */
+/** A `panel.toolbar` command that finished. */
 export interface PluginToolbarRun {
   command: string;
   result?: unknown;
@@ -298,7 +298,7 @@ export function PluginFrame({
   context,
   visible = true,
   progress,
-  toolbarRun,
+  onToolbarRun,
 }: {
   url: string;
   title: string;
@@ -306,8 +306,8 @@ export function PluginFrame({
   visible?: boolean;
   /** The latest progress of a plugin command; the page hears its own plugin's. */
   progress?: CommandProgress;
-  /** The latest command run from a panel's toolbar; the page hears its own plugin's. */
-  toolbarRun?: PluginToolbarRun;
+  /** Listens for commands run from a panel's toolbar; the page hears its own plugin's. Each is told once, however close together they finish. */
+  onToolbarRun?: (listener: (run: PluginToolbarRun) => void) => () => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [mount, setMount] = useState(0);
@@ -392,13 +392,10 @@ export function PluginFrame({
       connection.current?.send({ event: "progress", command: progress.command.slice(prefix.length), message: progress.message });
   }, [progress]);
 
-  useEffect(() => {
+  useEffect(() => onToolbarRun?.(({ command, ...outcome }) => {
     const prefix = `${latest.current.plugin.id}:`;
-    if (toolbarRun?.command.startsWith(prefix)) {
-      const { command, ...outcome } = toolbarRun;
-      connection.current?.send({ event: "command", command: command.slice(prefix.length), ...outcome });
-    }
-  }, [toolbarRun]);
+    if (command.startsWith(prefix)) connection.current?.send({ event: "command", command: command.slice(prefix.length), ...outcome });
+  }), [onToolbarRun]);
 
   return (
     <iframe
