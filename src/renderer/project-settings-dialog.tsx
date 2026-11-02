@@ -1,5 +1,6 @@
 import { previewPageUrl } from "../shared/preview-page.js";
 import {
+  DEFAULT_PREVIEW_IDLE_MINUTES,
   previewSettings,
   type PreviewMode,
 } from "../shared/preview-settings.js";
@@ -186,7 +187,7 @@ export function ProjectSettingsDialog({
     project.previewPort?.toString() ?? "",
   );
   const [previewIdleMinutes, setPreviewIdleMinutes] = useState(
-    project.previewIdleMinutes ?? 5,
+    project.previewIdleMinutes ?? DEFAULT_PREVIEW_IDLE_MINUTES,
   );
   const [inspection, setInspection] = useState<{
     manager?: string;
