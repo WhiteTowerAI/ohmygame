@@ -126,7 +126,7 @@ import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { closePanel, createPanelNodes, PanelLayout, PanelMount, place, showPanel, visiblePanels, areaOf, type Layout, type PanelNodes } from "./panel-layout.js";
-import { fitLayout, homeOf, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
+import { fitLayout, homeOf, panelTitle, loadingLayout, mergeLayout, openingLayout, panelsOf, presetLayout, presetsFor, saveLayout, type PanelHomes, type PanelId, type SavedLayout, type WorkspacePanel } from "./workspace-layout.js";
 import { commandPrompt, commandsForSlot, pageCommand, pluginPanelId, PluginChangesSheet, PluginPanelToolbar, slashCommands, useProjectPluginContributions } from "./project-plugin-contributions.js";
 import { PluginFrame, type CommandProgress, type PluginToolbarRun } from "./plugin-frame.js";
 import { pluginHash } from "./routes.js";
@@ -161,14 +161,14 @@ interface ProjectShellProps {
 }
 
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
-const PANELS: Record<WorkspacePanel, { title: () => string; icon: IconComponent }> = {
-  chat: { title: () => t("panels.chat"), icon: ChatSquare },
-  game: { title: () => t("panels.game"), icon: Gamepad2 },
-  design: { title: () => t("panels.design"), icon: FileDocument },
-  code: { title: () => t("workspace.tab.code"), icon: Code },
-  assets: { title: () => t("workspace.tab.assets"), icon: Layers3 },
-  story: { title: () => t("panels.story"), icon: Book },
-  canvas: { title: () => t("panels.canvas"), icon: GalleryWide },
+const PANEL_ICONS: Record<WorkspacePanel, IconComponent> = {
+  chat: ChatSquare,
+  game: Gamepad2,
+  design: FileDocument,
+  code: Code,
+  assets: Layers3,
+  story: Book,
+  canvas: GalleryWide,
 };
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 /** How many of those files are named before they are only counted. */
@@ -223,7 +223,7 @@ export function ProjectShell({
   const layout = state.project && current ? fitLayout(current, offered, presetLayout("default", offered, homes)) : undefined;
   const visible = layout ? visiblePanels(layout, new Set(offered)) : [];
   const chatShown = !layout || visible.includes("chat");
-  const [nodes] = useState(() => Object.fromEntries(Object.keys(PANELS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
+  const [nodes] = useState(() => Object.fromEntries(Object.keys(PANEL_ICONS).map((id) => [id, createPanelNodes()])) as Record<WorkspacePanel, PanelNodes>);
   // A plugin page gets its nodes once its panel is first placed, and keeps
   // them, so moving or closing the panel never reloads the page.
   const pluginNodes = useRef(new Map<PanelId, PanelNodes>()).current;
@@ -248,8 +248,7 @@ export function ProjectShell({
   function panelInfo(id: PanelId): { title: string; icon: IconComponent; source?: string } {
     const plugin = pluginPanels.get(id);
     if (plugin) return { title: plugin.title, icon: Plug, source: plugin.plugin };
-    const builtIn = PANELS[id as WorkspacePanel];
-    return { title: builtIn.title(), icon: builtIn.icon };
+    return { title: panelTitle(id as WorkspacePanel), icon: PANEL_ICONS[id as WorkspacePanel] };
   }
   const [publishing, setPublishing] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
@@ -1536,19 +1535,21 @@ export function ProjectShell({
           visible: storyVisible,
           onShow: revealPanel,
         }}
-      /> : createPortal(<Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+      /> : createPortal(<ErrorBoundary label={panelTitle("canvas")} resetKey={project.id}><Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         onSaveReady={registerDesignSave}
         onContextChange={setDesignContext}
         headerActionsTarget={nodes.canvas.toolbar}
-      /></Suspense>, nodes.canvas.body)}
+      /></Suspense></ErrorBoundary>, nodes.canvas.body)}
       {project ? [...pluginNodes].flatMap(([id, target]) => {
         const panel = pluginPanels.get(id);
         return panel ? [createPortal(pluginPanelContent(panel, visible.includes(id)), target.body, id), createPortal(pluginPanelToolbar(panel), target.toolbar, `${id}:toolbar`)] : [];
       }) : null}
-      {project && canvasOnly && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={t("workspace.tab.code")}>
-        <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />
+      {project && canvasOnly && visible.includes("code") ? createPortal(<main className="story-code-view" aria-label={panelTitle("code")}>
+        <ErrorBoundary label={panelTitle("code")} resetKey={project.id}>
+          <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + canvasCodeRevision} openFileRequest={openFileRequest} />
+        </ErrorBoundary>
       </main>, nodes.code.body) : null}
       </ErrorBoundary>
     </ProjectFrame>
