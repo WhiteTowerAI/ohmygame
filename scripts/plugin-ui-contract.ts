@@ -13,6 +13,7 @@
 //   @deprecated what to use instead         the component is deprecated
 //   @deprecated attr name - what instead    one of its attributes is; also
 //                                           prop, method, fires, slot, part, cssprop
+//   @deprecated slot - what instead         its default slot is
 //
 // With --check, fails when the committed files are out of date. With
 // --base <git ref>, also compares each major's contract with the one at that
@@ -132,8 +133,8 @@ export function parseComment(comment: string, name: string, superclass: string, 
     const tag = raw.replace(/\s*\n\s*/g, " ").trim();
     const [, kind = "", rest = ""] = /^@(\w+)\s*([\s\S]*)$/.exec(tag) ?? [];
     if (kind === "deprecated") {
-      const member = /^(attr|prop|method|fires|slot|part|cssprop)\s+(\S+)\s+-\s+([\s\S]+)$/.exec(rest.trim());
-      if (member) deprecations.push({ kind: member[1]!, name: member[2]!, reason: member[3]!.replace(/\s+/g, " ") });
+      const member = /^(attr|prop|method|fires|slot|part|cssprop)(?:\s+(?!-\s)(\S+))?\s+-\s+([\s\S]+)$/.exec(rest.trim());
+      if (member) deprecations.push({ kind: member[1]!, name: member[2] ?? "", reason: member[3]!.replace(/\s+/g, " ") });
       else parsed.deprecated = rest.trim().replace(/\s+/g, " ") || "Deprecated.";
       continue;
     }
@@ -260,7 +261,7 @@ export function componentTypes(manifest: ComponentManifest): string {
     const parent = base ? element(base.name) : "HTMLElement";
     out += doc(item.description, "", item.deprecated);
     // What the parent's interface already declares, the same way.
-    const members = item.members.filter((entry) => !base?.members.some((other) => other.name === entry.name && other.kind === entry.kind && memberType(other) === memberType(entry)));
+    const members = item.members.filter((entry) => !base?.members.some((other) => other.name === entry.name && other.kind === entry.kind && memberType(other) === memberType(entry) && other.deprecated === entry.deprecated));
     out += `export interface ${element(item.name)} extends ${parent} {${members.length ? "\n" : ""}`;
     for (const member of members)
       out += doc(member.description, "  ", member.deprecated) + (member.kind === "method" ? `  ${key(member.name)}(): ${memberType(member)};\n` : `  ${key(member.name)}: ${memberType(member)};\n`);
@@ -281,7 +282,8 @@ export function componentTypes(manifest: ComponentManifest): string {
       if (event.type?.text === "Event") continue;
       const other = events.get(event.name);
       if (other && other.type?.text !== event.type?.text) throw new Error(`${event.name} has two details: ${other.type?.text} and ${event.type?.text}`);
-      events.set(event.name, other ?? event);
+      // It's deprecated here only if every component that fires it deprecated it.
+      events.set(event.name, other?.deprecated && !event.deprecated ? event : (other ?? event));
     }
   out += "declare global {\n  interface HTMLElementTagNameMap {\n";
   for (const item of all) out += `    ${JSON.stringify(item.tagName)}: ${element(item.name)};\n`;

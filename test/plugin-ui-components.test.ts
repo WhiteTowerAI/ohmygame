@@ -332,6 +332,9 @@ describe("page components' contract", () => {
       parseComment(" * @attr mode\n * @fires omg-x-done\n * @deprecated attr mode - Use kind.\n * @deprecated fires omg-x-done - Use change.", "OmgX", "OmgElement", "ui/1/x.js"),
     ).toMatchObject({ attributes: [{ name: "mode", deprecated: "Use kind." }], events: [{ name: "omg-x-done", deprecated: "Use change." }] });
     expect(parseComment(" * @deprecated", "OmgX", "OmgElement", "ui/1/x.js").deprecated).toBe("Deprecated.");
+    const slot = parseComment(" * @slot - The content.\n * @deprecated slot - Use body.", "OmgX", "OmgElement", "ui/1/x.js");
+    expect(slot).toMatchObject({ slots: [{ name: "", deprecated: "Use body." }] });
+    expect(slot.deprecated).toBeUndefined();
     expect(() => parseComment(" * @deprecated attr mode - Use kind.", "OmgX", "OmgElement", "ui/1/x.js")).toThrow("names nothing");
   });
 
@@ -458,6 +461,29 @@ describe("page components' contract", () => {
     expect(types).toContain("export interface OmgAElement extends HTMLElement {\n  shared: string;\n}");
     expect(types).toContain("export interface OmgBElement extends OmgAElement {}");
     expect(types.match(/"omg-done":/g)).toHaveLength(1);
+
+    const shared = { kind: "field" as const, name: "shared", type: { text: "string" } };
+    const go = { name: "omg-go", type: { text: "CustomEvent<string>" } };
+    const deprecation = componentTypes({
+      schemaVersion: "2.1.0",
+      readme: "",
+      modules: [
+        {
+          kind: "javascript-module",
+          path: "ui/1/x.js",
+          declarations: [
+            component("OmgA", "omg-a", { members: [shared], events: [{ ...go, deprecated: "Use omg-run." }, { name: "omg-old", type: go.type, deprecated: "Use omg-new." }] }),
+            // Only this one deprecates what it inherits, so its interface says so.
+            component("OmgB", "omg-b", { superclass: { name: "OmgA", module: "ui/1/x.js" }, members: [{ ...shared, deprecated: "Use other." }], events: [go] }),
+          ],
+          exports: [],
+        },
+      ],
+    });
+    expect(deprecation).toMatch(/interface OmgBElement extends OmgAElement \{\n[^}]*@deprecated Use other\.[^}]*shared: string;/);
+    // Another component still fires omg-go as it was, while nothing else fires omg-old.
+    expect(deprecation).not.toContain("Use omg-run.");
+    expect(deprecation).toContain("@deprecated Use omg-new.");
   });
 });
 
