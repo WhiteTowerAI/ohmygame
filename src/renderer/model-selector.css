@@ -216,5 +216,6 @@
 }
 
 .model-picker-back {
+  flex: none;
   gap: 6px;
 }

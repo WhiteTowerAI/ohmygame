@@ -90,8 +90,8 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
     const anchor = trigger.current?.getBoundingClientRect();
     const bounds = popover.current?.getBoundingClientRect();
     if (anchor && bounds) setPosition(menuPlacement(anchor, bounds, { width: window.innerWidth, height: window.innerHeight }, canvas ? "start" : "end", placement));
-    // Query changes keep the popup anchored in place while its list shrinks.
-  }, [open, canvas, placement]);
+    // The depth has its own height, so it anchors again; query changes keep the popup in place while its list shrinks.
+  }, [open, depthOpen, canvas, placement]);
 
   useEffect(() => {
     if (!open || !positioned) return;
@@ -155,7 +155,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
       </button>
 
       {open ? createPortal(
-        <div className={`model-picker nodrag nowheel${canvas ? " is-canvas" : ""}`} ref={popover} id={menuId} data-native-preview-overlay style={position ?? { top: 0, left: 0, visibility: "hidden" }} onKeyDown={(event) => {
+        <div className={`model-picker nodrag nowheel${canvas ? " is-canvas" : ""}`} ref={popover} id={menuId} role={depthOpen ? "menu" : undefined} aria-label={depthOpen ? t("modelSelector.depth") : undefined} data-native-preview-overlay style={position ?? { top: 0, left: 0, visibility: "hidden" }} onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Escape" || (depthOpen && event.key === "ArrowLeft")) {
             event.preventDefault();
@@ -164,13 +164,13 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
             else close(true);
           } else moveModelFocus(event, popover.current, depthOpen ? undefined : search.current);
         }}>
-          {depthOpen ? (
-            <div className="model-picker-list" role="menu" aria-label={t("modelSelector.depth")}>
-              <button className="model-picker-back" type="button" role="menuitem" aria-label={t("modelSelector.backToModels")} onClick={backToModels}>
-                <ChevronLeft aria-hidden="true" size={12} />
-                {t("modelSelector.depth")}
-              </button>
-              <div className="ui-menu-separator" role="separator" />
+          {depthOpen ? (<>
+            <button className="model-picker-back" type="button" role="menuitem" aria-label={t("modelSelector.backToModels")} onClick={backToModels}>
+              <ChevronLeft aria-hidden="true" size={12} />
+              {t("modelSelector.depth")}
+            </button>
+            <div className="ui-menu-separator" role="separator" />
+            <div className="model-picker-list">
               {levels.map((level) => {
                 const selected = level === effectiveLevel;
                 return (
@@ -181,7 +181,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                 );
               })}
             </div>
-          ) : (<>
+          </>) : (<>
           <div className="model-picker-search">
             <Search size={14} aria-hidden="true" />
             <input ref={search} value={query} placeholder={t("models.search")} aria-label={t("models.search")} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
