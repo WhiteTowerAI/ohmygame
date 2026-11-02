@@ -213,6 +213,21 @@ class OmgTile extends OmgElement {
 
   #reload = false;
 
+  constructor() {
+    super();
+    // A disabled tile reports no click, not even one a script sends it.
+    this.addEventListener(
+      "click",
+      (event) => {
+        if (this.disabled) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      },
+      { capture: true },
+    );
+  }
+
   attributeChangedCallback(name, previous, value) {
     if (name === "src") this.#reload = true;
     super.attributeChangedCallback(name, previous, value);

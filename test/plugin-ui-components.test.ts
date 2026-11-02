@@ -422,6 +422,14 @@ describe("page components", () => {
     tile.setAttribute("ratio", "1");
     tile.removeAttribute("badge");
     tile.removeAttribute("pixelated");
+    const picked = vi.fn();
+    tile.addEventListener("click", picked);
+    tile.click();
+    expect(picked).not.toHaveBeenCalled();
+    tile.disabled = false;
+    tile.click();
+    expect(picked).toHaveBeenCalledTimes(1);
+    tile.disabled = true;
     expect([button.hasAttribute("aria-current"), button.disabled, image.getAttribute("fit"), image.hasAttribute("pixelated"), shadow(tile, "badge").hidden]).toEqual([false, true, "contain", false, true]);
     expect(shadow(tile, "preview").style.aspectRatio).toBe("1 / 1");
   });
