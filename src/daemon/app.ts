@@ -829,6 +829,8 @@ export function createApp(options: AppOptions = {}) {
     if (!projects.get(project.id)) throw new Error("Project not found");
     if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before continuing.");
     await canvasStore.waitForProject(project.id);
+    // A plugin change left unrecorded goes in first, so a turn's snapshot doesn't count it as the turn's.
+    await pluginWrites.settle(project);
     return withCanvasLock(project.workspacePath, () => checkpoints.snapshot(project));
   });
   // A plugin's writes outside a turn get their own checkpoints and history entry.

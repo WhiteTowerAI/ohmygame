@@ -405,7 +405,13 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   it only when its `run.input` names a JSON Schema for it. Both are checked
   before the plugin runs.
 - **Plugin changes…** in the project menu lists `GET
-  /projects/:id/plugin-changes`, each with its own Undo.
+  /projects/:id/plugin-changes`, each with its own Undo. A change is noted
+  before it runs. If it can't be recorded afterwards (a full disk) or the app
+  stops partway, the note stays and the list says it can't be undone yet. It
+  is recorded before the next plugin write or undo, when the list is opened,
+  and before a turn's snapshot, marked as late, since it may include other
+  changes made by then. A plugin write is refused, with nothing changed, while
+  its note or an earlier unrecorded change can't be saved.
 
 Releases install only when they are signed by a key the app trusts for
 their publisher (`AppOptions.pluginReleaseKeys`). The app ships with none

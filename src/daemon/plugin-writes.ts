@@ -13,6 +13,13 @@ import { writeWorkspaceNotice } from "./workspace-notice.js";
 // after, runs while the workspace is held for it, and becomes an entry in
 // the project's plugin history that can be undone on its own.
 //
+// What is about to run is written down first. If its second checkpoint or
+// its entry then can't be saved (a full disk), or the app stops partway, the
+// note stays, and the change is recorded the next time that works: before the
+// next plugin write or undo, when the history is opened, and before a turn's
+// snapshot. It stands out as recorded late, since what else changed by then
+// is part of it.
+//
 // Native code can still write outside this path, and start programs that
 // write later (the Godot editor does). Those writes show in the next
 // snapshot; nothing here promises to undo them.
@@ -40,16 +47,34 @@ export interface PluginChange {
    * undo, for a file they follow themselves.
    */
   inPlace?: true;
+  /** Recorded after the fact, so it may hold other changes made by then. */
+  late?: true;
+  /** Ran, but not recorded yet, so it can't be undone yet. */
+  unrecorded?: true;
+}
+
+/** A plugin write that started and isn't in the history yet. */
+type PendingChange = Pick<PluginChange, "id" | "plugin" | "action" | "title" | "before" | "at" | "failed" | "inPlace">;
+
+interface History {
+  changes: PluginChange[];
+  pending?: PendingChange;
 }
 
 export class PluginChangeError extends Error {
   constructor(
     message: string,
     readonly statusCode = 409,
+    cause?: unknown,
   ) {
-    super(message);
+    super(message, cause === undefined ? undefined : { cause });
   }
 }
+
+// These reach plugin pages, so they name no paths on the computer. The disk being full is the likely cause.
+const RECORD_EARLIER = "An earlier plugin change still can't be recorded for Undo, so nothing was changed. Check that the disk has free space, then try again.";
+const RECORD_START = "This change can't be recorded for Undo, so nothing was changed. Check that the disk has free space, then try again.";
+const RECORD_AFTER = "The change was made, but it couldn't be recorded for Undo yet. Check that the disk has free space; it will then appear in Plugin changes.";
 
 type Project = Pick<ProjectState, "id" | "workspacePath" | "storagePath">;
 
@@ -84,7 +109,25 @@ export class PluginWrites {
     // the change and undo never takes back someone else's edit.
     return this.options.writes.exclusive(project.id, async () => {
       this.#assertIdle(project);
+      // Each change stands alone, so an earlier one is recorded before this one starts.
+      try {
+        await this.#settle(project);
+      } catch (cause) {
+        throw new PluginChangeError(RECORD_EARLIER, 409, cause);
+      }
       const before = await this.options.snapshot(project);
+      const pending: PendingChange = {
+        id: randomUUID(),
+        ...action,
+        before,
+        at: new Date().toISOString(),
+      };
+      try {
+        await this.#updateHistory(project, (history) => ({ ...history, pending }));
+      } catch (cause) {
+        // Nothing has run yet, so nothing is lost by stopping here.
+        throw new PluginChangeError(RECORD_START, 500, cause);
+      }
       let outcome: { ok: true; result: T } | { ok: false; error: unknown };
       try {
         outcome = { ok: true, result: await operation() };
@@ -92,41 +135,67 @@ export class PluginWrites {
         outcome = { ok: false, error };
       }
       // A command that wrote and then failed still leaves an undoable change.
-      const after = await this.options.snapshot(project);
-      const changed = (
-        await this.options.checkpoints.diff(project, before, after)
-      ).map((change) => change.path);
+      const failed = outcome.ok
+        ? undefined
+        : outcome.error instanceof Error
+          ? outcome.error.message
+          : String(outcome.error);
       let change: PluginChange | undefined;
-      if (changed.length) {
-        change = {
-          id: randomUUID(),
-          ...action,
-          before,
-          after,
-          changed,
-          at: new Date().toISOString(),
-          ...(outcome.ok
-            ? {}
-            : {
-                failed:
-                  outcome.error instanceof Error
-                    ? outcome.error.message
-                    : String(outcome.error),
-              }),
-        };
-        await this.#update(project, (entries) =>
-          [...entries, change!].slice(-HISTORY_MAX_ENTRIES),
-        );
-        await this.#tell(
-          project,
-          changed,
-          `The ${action.plugin} plugin's "${action.title}" ${outcome.ok ? "changed" : "failed after changing"} workspace files outside a conversation. Inspect them before continuing. Changed workspace paths: ${JSON.stringify(changed)}.`,
-          action.inPlace,
-        );
+      try {
+        change = await this.#record(project, { ...pending, ...(failed === undefined ? {} : { failed }) }, false);
+      } catch (cause) {
+        // The note stays, so this is recorded later. Why the command failed matters more than this.
+        if (failed !== undefined) {
+          await this.#updateHistory(project, (history) => ({ ...history, pending: { ...pending, failed } })).catch(() => {});
+          throw (outcome as { error: unknown }).error;
+        }
+        throw new PluginChangeError(RECORD_AFTER, 500, cause);
       }
       if (!outcome.ok) throw outcome.error;
       return { result: outcome.result, ...(change ? { change } : {}) };
     });
+  }
+
+  /** Puts a change that has run into the history, in one write with taking its note away. */
+  async #record(project: ProjectState, pending: PendingChange, late: boolean): Promise<PluginChange | undefined> {
+    const after = await this.options.snapshot(project);
+    const changed = (
+      await this.options.checkpoints.diff(project, pending.before, after)
+    ).map((change) => change.path);
+    const change: PluginChange | undefined = changed.length
+      ? {
+          ...pending,
+          after,
+          changed,
+          at: late ? pending.at : new Date().toISOString(),
+          ...(late ? { late: true as const } : {}),
+        }
+      : undefined;
+    await this.#updateHistory(project, ({ changes }) => ({
+      changes: change ? [...changes, change].slice(-HISTORY_MAX_ENTRIES) : changes,
+    }));
+    if (change)
+      await this.#tell(
+        project,
+        changed,
+        `The ${pending.plugin} plugin's "${pending.title}" ${pending.failed === undefined ? "changed" : "failed after changing"} workspace files outside a conversation.${late ? " It was recorded late, so these paths may include other changes." : ""} Inspect them before continuing. Changed workspace paths: ${JSON.stringify(changed)}.`,
+        pending.inPlace,
+      );
+    return change;
+  }
+
+  /** Records a change left unrecorded. The caller holds the workspace. */
+  async #settle(project: ProjectState): Promise<void> {
+    const { pending } = await this.#read(project);
+    if (pending) await this.#record(project, pending, true);
+  }
+
+  /**
+   * Records a change left unrecorded, if it can, before a snapshot the caller
+   * holds the workspace for. If it can't, the caller's snapshot finds out why.
+   */
+  async settle(project: ProjectState): Promise<void> {
+    await this.#settle(project).catch(() => {});
   }
 
   #assertIdle(project: ProjectState) {
@@ -136,9 +205,19 @@ export class PluginWrites {
       );
   }
 
-  /** The project's plugin changes, newest first. */
-  async history(project: Project): Promise<PluginChange[]> {
-    return (await this.#read(project)).reverse();
+  /** The project's plugin changes, newest first, trying first to record one left unrecorded. */
+  async history(project: ProjectState): Promise<PluginChange[]> {
+    // A write running now has a note too, and isn't left unrecorded.
+    const running = () => this.options.writes.isMutating(project.id);
+    if (!running() && (await this.#read(project)).pending && !this.options.busy(project))
+      await this.options.writes.exclusive(project.id, () => this.#settle(project)).catch(() => {});
+    const { changes, pending } = await this.#read(project);
+    return [
+      ...(pending && !running()
+        ? [{ ...pending, after: pending.before, changed: [], unrecorded: true as const }]
+        : []),
+      ...changes.reverse(),
+    ];
   }
 
   /**
@@ -148,7 +227,9 @@ export class PluginWrites {
   undo(project: ProjectState, id: string): Promise<PluginChange> {
     return this.options.writes.exclusive(project.id, async () => {
       this.#assertIdle(project);
-      const change = (await this.#read(project)).find(
+      // If it still can't be recorded, an older change can be undone anyway, which may free the room it needs.
+      await this.settle(project);
+      const change = (await this.#read(project)).changes.find(
         (entry) => entry.id === id,
       );
       if (!change) throw new PluginChangeError("No such plugin change", 404);
@@ -159,9 +240,10 @@ export class PluginWrites {
         after: change.after,
       });
       const undone = { ...change, undone: true };
-      await this.#update(project, (entries) =>
-        entries.map((entry) => (entry.id === id ? undone : entry)),
-      );
+      await this.#updateHistory(project, (history) => ({
+        ...history,
+        changes: history.changes.map((entry) => (entry.id === id ? undone : entry)),
+      }));
       if (result.changed.length)
         await this.#tell(
           project,
@@ -175,9 +257,11 @@ export class PluginWrites {
 
   /** Snapshots the history names, which pruning keeps. */
   async snapshots(project: Project): Promise<Set<string>> {
-    return new Set(
-      (await this.#read(project)).flatMap((entry) => [entry.before, entry.after]),
-    );
+    const { changes, pending } = await this.#read(project);
+    return new Set([
+      ...changes.flatMap((entry) => [entry.before, entry.after]),
+      ...(pending ? [pending.before] : []),
+    ]);
   }
 
   async #tell(project: ProjectState, changed: string[], notice: string, inPlace?: boolean) {
@@ -200,37 +284,43 @@ export class PluginWrites {
     );
   }
 
-  async #read(project: Project): Promise<PluginChange[]> {
+  async #read(project: Project): Promise<History> {
     let text: string;
     try {
       text = await readFile(this.#file(project), "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { changes: [] };
       throw error;
     }
-    const value = JSON.parse(text) as { changes?: unknown };
-    return Array.isArray(value.changes)
-      ? (value.changes as PluginChange[]).filter(
-          (entry) =>
-            typeof entry?.id === "string" &&
-            typeof entry.before === "string" &&
-            typeof entry.after === "string" &&
-            Array.isArray(entry.changed),
-        )
-      : [];
+    const value = JSON.parse(text) as { changes?: unknown; pending?: Partial<PendingChange> };
+    const pending = value.pending;
+    return {
+      changes: Array.isArray(value.changes)
+        ? (value.changes as PluginChange[]).filter(
+            (entry) =>
+              typeof entry?.id === "string" &&
+              typeof entry.before === "string" &&
+              typeof entry.after === "string" &&
+              Array.isArray(entry.changed),
+          )
+        : [],
+      ...(typeof pending?.id === "string" && typeof pending.before === "string"
+        ? { pending: pending as PendingChange }
+        : {}),
+    };
   }
 
-  /** Callers hold the project's exclusive write, so the history changes one at a time. */
-  async #update(
+  /** Callers hold the project's workspace, so the history changes one at a time. */
+  async #updateHistory(
     project: Project,
-    change: (entries: PluginChange[]) => PluginChange[],
+    change: (history: History) => History,
   ): Promise<void> {
     const file = this.#file(project);
     await mkdir(path.dirname(file), { recursive: true });
     await writeAtomically(
       path.dirname(file),
       file,
-      `${JSON.stringify({ version: 1, changes: change(await this.#read(project)) }, null, 2)}\n`,
+      `${JSON.stringify({ version: 1, ...change(await this.#read(project)) }, null, 2)}\n`,
     );
   }
 }
