@@ -1,3 +1,4 @@
+import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js";
 import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
@@ -1698,6 +1699,16 @@ export async function stopPreview(projectId: string): Promise<{ preview: Project
 }
 export async function acquirePreview(projectId: string, leaseId: string, automatic = false, paused = false): Promise<void> {
   await request(`/projects/${projectId}/preview/leases/${leaseId}`, { method: "PUT", body: JSON.stringify({ automatic, paused }) });
+}
+export function getGameTuning(projectId: string): Promise<GameTuningState> {
+  return request(`/projects/${projectId}/tuning`);
+}
+/** Passes values to the running game without saving them; null goes back to what is saved. */
+export function setGameTuningDraft(projectId: string, values: Record<string, GameTuningScalar | null>): Promise<GameTuningState> {
+  return request(`/projects/${projectId}/tuning/draft`, { method: "PUT", body: JSON.stringify({ values }) });
+}
+export function saveGameTuning(projectId: string): Promise<{ state: GameTuningState; changeId?: string }> {
+  return request(`/projects/${projectId}/tuning/save`, { method: "POST" });
 }
 /** Turns the preview page's next click into a `preview.picked` event, or stops that. */
 export async function setPreviewPicking(projectId: string, client: string, active: boolean): Promise<void> {

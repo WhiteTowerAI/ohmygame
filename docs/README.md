@@ -118,6 +118,7 @@ For the additional engine, mini-game, and asset-tool Beta packages, use the
 - [Web Game Studio](../plugins/web-game-studio/skills/web-game-studio/SKILL.md),
   [Web Game Foundations](../plugins/web-game-studio/skills/web-game-foundations/SKILL.md),
   [Game Playtest](../plugins/web-game-studio/skills/game-playtest/SKILL.md),
+  [Game Tuning](../plugins/web-game-studio/skills/game-tuning/SKILL.md),
   [Game UI Frontend](../plugins/web-game-studio/skills/game-ui-frontend/SKILL.md),
   [Phaser 2D](../plugins/web-game-studio/skills/phaser-2d-game/SKILL.md),
   [React Three Fiber](../plugins/web-game-studio/skills/react-three-fiber-game/SKILL.md),

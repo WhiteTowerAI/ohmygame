@@ -15,6 +15,41 @@ afterEach(async () => {
 });
 
 describe("preview content isolation", () => {
+  it("gives the person's pages tuned values, on connecting and after, but never an AI test's", async () => {
+    const server = createServer((_incoming, outgoing) => outgoing.writeHead(200, { "content-type": "text/html" }).end("<html><body>game</body></html>"));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const connected = vi.fn();
+    const proxy = await createPreviewProxy(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, vi.fn(), { onTuningConnected: connected });
+    cleanups.push(() => proxy.close());
+    proxy.setTuning({ "player.jump": 420 });
+    const open = async (view: string) => {
+      const html = await (await fetch(`${proxy.url}/?__ohmygame_client=${view}&__ohmygame_view=${view}`)).text();
+      const bridge = new URL(html.match(/src="([^"]+bridge[^"]+)"/)![1], proxy.url).href;
+      const controller = new AbortController();
+      cleanups.push(async () => controller.abort());
+      const events = (await fetch(`${bridge}&events=1`, { signal: controller.signal })).body!.getReader();
+      const next = async () => JSON.parse(new TextDecoder().decode((await events.read()).value).replace(/^data: /, ""));
+      const report = (value: unknown) => fetch(bridge, { method: "POST", headers: { origin: proxy.url }, body: JSON.stringify(value) });
+      return { next, report, close: () => controller.abort() };
+    };
+    const editor = await open("editor"), test = await open("playtest");
+    expect((await editor.next()).tuning).toEqual({ "player.jump": 420 });
+    expect(await test.next()).not.toHaveProperty("tuning");
+
+    proxy.setTuning({ "player.jump": 500 });
+    expect((await editor.next()).tuning).toEqual({ "player.jump": 500 });
+
+    // An AI test listening doesn't mean the person's game does.
+    await test.report({ type: "tuning" });
+    expect(connected).not.toHaveBeenCalled();
+    await editor.report({ type: "tuning" });
+    await editor.report({ type: "tuning" });
+    expect(connected.mock.calls).toEqual([[true]]);
+    editor.close();
+    await vi.waitFor(() => expect(connected.mock.calls).toEqual([[true], [false]]));
+  });
+
   it("moves a live document between editor and player without replacing its client or losing diagnostics", async () => {
     const server = createServer((_incoming, outgoing) => outgoing.writeHead(200, { "content-type": "text/html" }).end("<head></head>"));
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

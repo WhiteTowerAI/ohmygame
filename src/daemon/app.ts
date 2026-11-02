@@ -1,6 +1,8 @@
 import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
 import { inspectPreviewConfiguration } from "./preview-configuration.js";
 import { CheckpointConflictError, CheckpointStore } from "./checkpoints.js";
+import { GameTuning, GameTuningError } from "./game-tuning.js";
+import type { GameTuningScalar } from "../shared/game-tuning.js";
 import { ProjectWriteError, ProjectWrites } from "./project-writes.js";
 import { registerCheckpointRoutes } from "./checkpoint-routes.js";
 import { registerStoryWebRoutes } from "./story-web-routes.js";
@@ -608,7 +610,12 @@ export function createApp(options: AppOptions = {}) {
     visitorTokenFile: path.join(dataDirectory, "community-visitor.json"),
   });
   // The plugin services are made below; a build only runs once the app is up.
+  const gameTuning = new GameTuning({
+    push: (project, values) => previews.setTuning(project, values),
+    publish: (project, state) => events.publish(project.id, "preview.tuning", state),
+  });
   const previews = new PreviewManager(events, {
+    tuning: gameTuning,
     webBuild: (project, signal, log) => buildWebPreview({ folder: project.workspacePath, services: pluginServices, signal, onProgress: log }),
   });
   const checkpoints = new CheckpointStore();
@@ -2254,6 +2261,7 @@ export function createApp(options: AppOptions = {}) {
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before deleting this project" });
     return projectWrites.exclusive(project.id, async () => {
     await previews.forget(project);
+    gameTuning.forget(project);
     agents.forgetProject(project.id);
     conversations.forget(project);
     for (const [key, driver] of agentPlaytests) {
@@ -3224,6 +3232,34 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(204).send();
     },
   );
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/tuning", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return gameTuning.state(project);
+  });
+  // Changes reach the game at once and stay drafts until saved; null goes back to what is saved. A value of
+  // the wrong type is dropped against the file's entry, which knows the type.
+  app.put<{ Params: { projectId: string }; Body: { values: Record<string, GameTuningScalar | null> } }>(
+    "/projects/:projectId/tuning/draft",
+    { schema: { body: { type: "object", additionalProperties: false, required: ["values"], properties: { values: { type: "object", maxProperties: 100 } } } } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      return gameTuning.setDraft(project, request.body.values);
+    },
+  );
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/tuning/save", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try {
+      // Its own undoable change, kept with the changes plugins make outside a turn.
+      const { change } = await gameTuning.save(project, (operation) => pluginWrites.run(project, { plugin: "ohmygame/tuning", action: "tuning:save", title: "Save tuning values", inPlace: true }, operation));
+      return { state: await gameTuning.state(project), ...(change ? { changeId: change.id } : {}) };
+    } catch (cause) {
+      if (cause instanceof GameTuningError) return reply.code(409).send({ error: cause.message });
+      return pluginChangeReply(reply, cause);
+    }
+  });
   app.delete<{ Params: { projectId: string; leaseId: string } }>("/projects/:projectId/preview/leases/:leaseId", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });

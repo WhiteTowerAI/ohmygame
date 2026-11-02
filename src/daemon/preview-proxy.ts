@@ -1,3 +1,4 @@
+import type { GameTuningScalar } from "../shared/game-tuning.js";
 import type { PreviewPick } from "../shared/contracts.js";
 import {
   PREVIEW_CLIENT_QUERY,
@@ -31,6 +32,8 @@ export interface PreviewProxy {
   reload(): void;
   /** Turns a page's next click into a pick, or stops picking there. */
   setPicking(client: string, active: boolean): void;
+  /** The values the person's pages of the game should use; AI tests keep what is saved. */
+  setTuning(values: Record<string, GameTuningScalar>): void;
 }
 
 /** A separate loopback origin preserves asset paths and HMR without changing project files. */
@@ -48,6 +51,8 @@ export async function createPreviewProxy(
       source: PreviewPageSource,
       path: string,
     ) => void;
+    /** Whether any of the person's pages of the game listens for tuned values. */
+    onTuningConnected?: (connected: boolean) => void;
     /** A page reported a pick, or that picking was cancelled. */
     onPick?: (client: string, pick?: PreviewPick) => void;
     /**
@@ -75,9 +80,16 @@ export async function createPreviewProxy(
   const reloadStreams = new Map<number, ServerResponse>();
   /** Clients whose page is picking. */
   const picking = new Set<string>();
+  let tuning: Record<string, GameTuningScalar> = {};
+  /** Documents whose game listens for tuned values. */
+  const tuningDocuments = new Set<number>();
+  const tuningDocumentGone = (document: number) => {
+    if (tuningDocuments.delete(document) && !tuningDocuments.size) options.onTuningConnected?.(false);
+  };
   const closeReloadStream = (document: number) => {
     reloadStreams.get(document)?.end();
     reloadStreams.delete(document);
+    tuningDocumentGone(document);
   };
   const upstreamHeaders = (incoming: IncomingMessage) => {
     const headers = { ...incoming.headers, host: target.host };
@@ -182,12 +194,14 @@ export async function createPreviewProxy(
             connection: "keep-alive",
           });
           outgoing.write(
-            `data: ${JSON.stringify({ reload: reloadRevision, pick: picking.has(context.client) })}\n\n`,
+            `data: ${JSON.stringify({ reload: reloadRevision, pick: picking.has(context.client), ...(context.source === "playtest" ? {} : { tuning }) })}\n\n`,
           );
           reloadStreams.set(document, outgoing);
           outgoing.once("close", () => {
-            if (reloadStreams.get(document) === outgoing)
+            if (reloadStreams.get(document) === outgoing) {
               reloadStreams.delete(document);
+              tuningDocumentGone(document);
+            }
           });
           return;
         }
@@ -224,6 +238,10 @@ export async function createPreviewProxy(
                 // Only a pick the editor asked for: a page can't put text in the next message by itself.
                 if (message.type === "pick" && picking.delete(context.client))
                   options.onPick?.(context.client, message.pick ?? undefined);
+                if (message.type === "tuning" && context.source !== "playtest" && reloadStreams.has(document) && !tuningDocuments.has(document)) {
+                  tuningDocuments.add(document);
+                  if (tuningDocuments.size === 1) options.onTuningConnected?.(true);
+                }
                 if (message.type === "diagnostic") {
                   if (message.diagnostic === null) clearDiagnostics(document);
                   else if (message.diagnostic)
@@ -510,6 +528,13 @@ export async function createPreviewProxy(
       const stream = document === undefined ? undefined : reloadStreams.get(document);
       stream?.write(`data: ${JSON.stringify({ reload: reloadRevision, pick: active })}\n\n`);
     },
+    setTuning: (values) => {
+      if (JSON.stringify(values) === JSON.stringify(tuning)) return;
+      tuning = values;
+      for (const [document, stream] of reloadStreams)
+        if (documents.get(document)?.source !== "playtest")
+          stream.write(`data: ${JSON.stringify({ reload: reloadRevision, tuning })}\n\n`);
+    },
     reload: () => {
       reloadRevision += 1;
       for (const stream of reloadStreams.values())
@@ -601,7 +626,7 @@ function compilationMessage(body: string, pathname: string): string {
 }
 
 type BridgeMessage = {
-  type: "heartbeat" | "resume" | "navigation" | "close" | "diagnostic" | "source" | "pick";
+  type: "heartbeat" | "resume" | "navigation" | "close" | "diagnostic" | "source" | "pick" | "tuning";
   source?: "editor" | "player";
   path?: string;
   diagnostic?: PreviewDiagnostic | null;
@@ -621,7 +646,7 @@ async function receiveBridgeMessage(
   const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   if (
     !value ||
-    !["heartbeat", "resume", "navigation", "close", "diagnostic", "source", "pick"].includes(
+    !["heartbeat", "resume", "navigation", "close", "diagnostic", "source", "pick", "tuning"].includes(
       value.type,
     )
   )
@@ -676,7 +701,7 @@ function incomingUrlClient(
   return client && /^[a-zA-Z0-9-]{1,100}$/.test(client) ? client : undefined;
 }
 
-function previewBridgeScript(
+export function previewBridgeScript(
   documentId: number,
   context?: { client: string; source: PreviewPageSource },
 ): string {
@@ -795,15 +820,44 @@ const setPicking = (active) => {
   document.documentElement.style.cursor = active ? 'crosshair' : '';
   if (!active) showOutline(undefined);
 };
+// The game's own setter, which may appear long after the page loads or be
+// replaced when the game restarts itself. Only ids and values reach it.
+const tuningWanted = new Map();
+let tuningApplied = new Map();
+let tuningGame;
+let tuningReported = false;
+let tuningTimer;
+const applyTuning = () => {
+  const game = window.__OHMYGAME_TUNING__;
+  if (!game || typeof game.set !== 'function') return;
+  if (game !== tuningGame) { tuningGame = game; tuningApplied = new Map(); }
+  if (!tuningReported) { tuningReported = true; send({ type: 'tuning' }); }
+  for (const [id, value] of tuningWanted) {
+    if (tuningApplied.get(id) === value) continue;
+    tuningApplied.set(id, value);
+    try { game.set(id, value); } catch (error) {
+      send({ type: 'diagnostic', diagnostic: { kind: 'runtime', message: text(error) } });
+    }
+  }
+};
+const wantTuning = (values) => {
+  tuningWanted.clear();
+  for (const [id, value] of Object.entries(values)) tuningWanted.set(id, value);
+  applyTuning();
+  if (!tuningTimer && tuningWanted.size) tuningTimer = setInterval(applyTuning, 500);
+};
 let reloadEvents;
 const connectReload = () => {
   if (reloadEvents && reloadEvents.readyState !== EventSource.CLOSED) return;
   reloadEvents = new EventSource(endpoint + '&events=1');
+  // The daemon forgets who listens when the stream drops, so say it again.
+  reloadEvents.onopen = () => { tuningReported = false; };
   reloadEvents.onmessage = (event) => {
     const state = JSON.parse(event.data);
     if (revision !== undefined && revision !== state.reload) location.reload();
     revision = state.reload;
     if (typeof state.pick === 'boolean') setPicking(state.pick);
+    if (state.tuning) wantTuning(state.tuning);
   };
 };
 connectReload();
