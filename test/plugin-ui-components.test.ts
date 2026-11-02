@@ -253,7 +253,7 @@ describe("page components", () => {
     const manifest = JSON.parse(await readFile("packages/plugin-ui/gallery/.ohmygame-plugin/plugin.json", "utf8"));
     const checked = validatePluginManifest(manifest);
     expect(checked.ok ? [] : checked.issues).toEqual([]);
-    expect(manifest.ui).toEqual({ preview: true });
+    expect(manifest.ui.preview).toBe(true);
     const page = await readFile("packages/plugin-ui/gallery/panel/index.html", "utf8");
     const used = new Set([...page.matchAll(/<(omg-[a-z-]+)/g)].map(([, name]) => name!));
     expect([...used].filter((name) => !customElements.get(name))).toEqual([]);

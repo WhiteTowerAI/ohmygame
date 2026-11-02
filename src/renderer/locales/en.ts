@@ -1147,6 +1147,9 @@ const en = {
     openLinkHint: "A plugin wants to open a page on {{host}} in your browser.",
     openLink: "Open",
     badLink: "This command's link isn't a valid web address.",
+    more: "More commands",
+    confirm: "Confirm",
+    askedBy: "Asked by the plugin {{plugin}}",
   },
   pluginStore: {
     updateAvailable: "Update available",

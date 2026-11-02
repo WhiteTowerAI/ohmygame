@@ -367,7 +367,7 @@ describe("plugin pages", () => {
     }
     // Every token the styles read is one the app sends.
     const used = new Set([...page.matchAll(/var\((--[a-z0-9-]+)/g)].map(([, name]) => name!));
-    expect([...used].filter((name) => !tokens.has(name))).toEqual([]);
+    expect([...used].filter((name) => !tokens.has(name) && name !== "--omg-accent")).toEqual([]);
     // The panel's surface shows through the page.
     expect(declared(page, ":root").size).toBeGreaterThan(0);
     expect(page).toMatch(/:root \{[^}]*background: transparent;/);
@@ -383,6 +383,14 @@ describe("plugin pages", () => {
       request: { params: { input: { name: "map" } } },
     });
     expect(readPluginUiRequest({ method: "theme.get" })).toEqual({ ok: false, error: "no id" });
+    expect(readPluginUiRequest({ id: 7, method: "ui.toast", params: { message: "Saved", tone: "success" } }).ok).toBe(true);
+    expect(readPluginUiRequest({ id: 8, method: "ui.toast", params: { message: " " } }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 9, method: "ui.toast", params: { message: "x".repeat(501) } }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 10, method: "ui.toast", params: { message: "Saved", tone: "loud" } }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 11, method: "ui.confirm", params: { title: "Reset?", message: "Clears it.", confirmLabel: "Reset" } }).ok).toBe(true);
+    expect(readPluginUiRequest({ id: 12, method: "ui.confirm" }).ok).toBe(false);
+    expect(readPluginUiRequest({ id: 13, method: "ui.confirm", params: { title: "Reset?", confirmLabel: "x".repeat(41) } }).ok).toBe(false);
+    expect(pluginUiRefusal("ui.confirm", {})).toBeUndefined();
     expect(readPluginUiRequest({ id: 5, method: "storage.set", params: { key: "a", value: "x".repeat(300_000) } }).ok).toBe(false);
     expect(pluginUiRefusal("composer.fill", {})).toContain("composer capability");
     expect(pluginUiRefusal("composer.fill", { composer: true })).toBeUndefined();

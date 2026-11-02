@@ -100,6 +100,27 @@ describe("plugin manifest", () => {
     expect(messages(minimal)).toEqual([]);
   });
 
+  it("takes a brand colour for pages, one or one per appearance", () => {
+    expect(messages({ ...minimal, ui: { accent: "#00d8c4" } })).toEqual([]);
+    expect(messages({ ...minimal, ui: { accent: { light: "#00857a", dark: "#00D8C4" } } })).toEqual([]);
+    expect(messages({ ...minimal, ui: { accent: "teal" } })).not.toEqual([]);
+    expect(messages({ ...minimal, ui: { accent: { dim: "#00d8c4" } } })).not.toEqual([]);
+  });
+
+  it("keeps panel.toolbar to plugins with a panel and commands without input", () => {
+    const panels = [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }];
+    const toolbar = (run: unknown, withPanels = true) => ({
+      ...minimal,
+      icon: "./assets/icon.svg",
+      entrypoints: { native: "./native/index.mjs" },
+      capabilities: { native: true },
+      contributes: { ...(withPanels ? { panels } : {}), commands: [{ id: "go", title: "Go", run, slots: [{ slot: "panel.toolbar" }] }] },
+    });
+    expect(messages(toolbar({ native: "go" }))).toEqual([]);
+    expect(messages(toolbar({ native: "go", input: "./schemas/go.json" }))).toEqual(["/contributes/commands/0/slots/0/slot a toolbar button has no input to give this command"]);
+    expect(messages(toolbar({ native: "go" }, false))).toEqual(["/contributes/commands/0/slots/0/slot panel.toolbar needs a panel"]);
+  });
+
   it("rejects unknown fields", () => {
     expect(
       messages({ ...minimal, interface: { displayName: "X" } }),

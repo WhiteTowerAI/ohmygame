@@ -1739,6 +1739,7 @@ export interface PluginPanel {
   when?: string;
   capabilities: import("../shared/plugin-ui-protocol.js").PluginUiCapabilities;
   commands: string[];
+  accent?: import("../shared/plugin-ui-protocol.js").PluginAccent;
   url?: string;
 }
 

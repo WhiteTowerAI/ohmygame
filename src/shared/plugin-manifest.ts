@@ -206,6 +206,8 @@ const Tool = Type.Object(
   { additionalProperties: false },
 );
 
+const HexColor = Type.String({ pattern: "^#[0-9a-fA-F]{6}$" });
+
 const CommandRun = Type.Union([
   Type.Object(
     {
@@ -472,10 +474,25 @@ export const PluginManifestV2Schema = Type.Object(
       ),
     ),
     capabilities: Type.Optional(Capabilities),
-    /** The plugin's pages: `preview` lets them load page components still in preview. */
+    /**
+     * The plugin's pages: `preview` lets them load page components still in
+     * preview, and `accent` is its brand colour, used for progress, selection
+     * and links where it stands out from the panel's surface.
+     */
     ui: Type.Optional(
       Type.Object(
-        { preview: Type.Optional(Type.Boolean()) },
+        {
+          preview: Type.Optional(Type.Boolean()),
+          accent: Type.Optional(
+            Type.Union([
+              HexColor,
+              Type.Object(
+                { light: Type.Optional(HexColor), dark: Type.Optional(HexColor) },
+                { additionalProperties: false },
+              ),
+            ]),
+          ),
+        },
         { additionalProperties: false },
       ),
     ),
@@ -649,6 +666,12 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
       const compiled = slot.when === undefined ? undefined : compileWhen(slot.when);
       if (compiled && !compiled.ok)
         issue(`${path}/slots/${slotIndex}/when`, compiled.error);
+      if (slot.slot === "panel.toolbar") {
+        if (!panels.size)
+          issue(`${path}/slots/${slotIndex}/slot`, "panel.toolbar needs a panel");
+        if ("native" in run && run.input)
+          issue(`${path}/slots/${slotIndex}/slot`, "a toolbar button has no input to give this command");
+      }
     });
     if (command.slash) {
       if (slashes.has(command.slash))

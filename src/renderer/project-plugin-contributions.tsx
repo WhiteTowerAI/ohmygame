@@ -4,8 +4,9 @@ import { matchesWhen, type WhenContext } from "../shared/plugin-when.js";
 import type { ProjectPluginChange, ProjectPluginCommand } from "../shared/plugins.js";
 import { getPluginPanels, getProjectPlugins, listProjectPluginChanges, listProjectPluginCommands, undoProjectPluginChange, type PluginPanel } from "./api.js";
 import { language, t } from "./i18n.js";
+import { LoaderCircle, MoreHorizontal } from "./icons.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Alert, Button, Empty, Sheet, Skeleton } from "./ui/index.js";
+import { Alert, Button, DropdownMenu, Empty, IconButton, Sheet, Skeleton } from "./ui/index.js";
 import type { PanelId } from "./workspace-layout.js";
 
 // What a project's plugins add to its workspace: panels beside the
@@ -88,6 +89,43 @@ export function useProjectPluginContributions(project: Pick<ProjectState, "id" |
     commands: loaded.commands,
     when,
   };
+}
+
+/** How many of a panel's toolbar commands show as buttons; the rest are in a menu. */
+export const PLUGIN_TOOLBAR_BUTTONS = 3;
+
+/**
+ * A plugin panel's commands in its toolbar, in manifest order. The app draws
+ * them beside its own controls, which a plugin can't hide or move. A command
+ * runs once at a time.
+ */
+export function PluginPanelToolbar({ commands, onRun }: {
+  commands: readonly ProjectPluginCommand[];
+  onRun: (command: ProjectPluginCommand) => Promise<unknown>;
+}) {
+  const [running, setRunning] = useState<ReadonlySet<string>>(new Set());
+  const run = (command: ProjectPluginCommand) => {
+    if (running.has(command.id)) return;
+    setRunning((current) => new Set(current).add(command.id));
+    void onRun(command).finally(() => setRunning((current) => {
+      const next = new Set(current);
+      next.delete(command.id);
+      return next;
+    }));
+  };
+  if (!commands.length) return null;
+  const rest = commands.slice(PLUGIN_TOOLBAR_BUTTONS);
+  return <div className="plugin-toolbar">
+    {commands.slice(0, PLUGIN_TOOLBAR_BUTTONS).map((command) => {
+      const busy = running.has(command.id);
+      return <Button key={command.id} variant="ghost" size="sm" title={command.title} aria-busy={busy} disabled={busy}
+        icon={busy ? <LoaderCircle className="spin" size={14} /> : undefined} onClick={() => run(command)}>
+        <span className="plugin-toolbar-label">{command.title}</span>
+      </Button>;
+    })}
+    {rest.length ? <DropdownMenu placement="bottom-end" items={rest.map((command) => ({ label: command.title, disabled: running.has(command.id), onSelect: () => run(command) }))}
+      trigger={(props) => <IconButton {...props} size="sm" label={t("pluginCommands.more")}><MoreHorizontal size={14} /></IconButton>} /> : null}
+  </div>;
 }
 
 /** What the project's plugins changed outside a turn, each with its own Undo. */

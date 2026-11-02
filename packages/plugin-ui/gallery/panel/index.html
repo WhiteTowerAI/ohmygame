@@ -32,6 +32,15 @@
         <omg-status id="result">No command has finished yet.</omg-status>
       </omg-section>
 
+      <omg-section heading="The app's toasts and dialogs" description="The app draws these, outside the page. This plugin's brand colour marks the current step and progress, and its “Run a slow command” is in the panel's toolbar.">
+        <omg-stack direction="row" wrap>
+          <omg-button data-host="toast">Show a toast</omg-button>
+          <omg-button data-host="toast-bad">Show a failure</omg-button>
+          <omg-button data-host="confirm">Ask a question</omg-button>
+        </omg-stack>
+        <omg-status id="answer">No question asked yet.</omg-status>
+      </omg-section>
+
       <omg-section heading="omg-button">
         <omg-stack direction="row" wrap>
           <omg-button variant="primary">Primary</omg-button>

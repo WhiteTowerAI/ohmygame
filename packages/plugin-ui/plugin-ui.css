@@ -118,6 +118,8 @@ body { margin: 0; padding: var(--space-4); }
 
 /* Filled, no outline, as the app's buttons: secondary is a step up from the
    surface, primary is ink. */
+a { color: var(--omg-accent, var(--color-accent)); }
+
 .omg-button {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1);
   height: 30px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-md);

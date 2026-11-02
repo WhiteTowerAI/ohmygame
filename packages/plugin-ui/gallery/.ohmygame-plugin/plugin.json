@@ -8,13 +8,13 @@
   "icon": "./assets/icon.svg",
   "entrypoints": { "native": "./native/index.mjs" },
   "capabilities": { "native": true },
-  "ui": { "preview": true },
+  "ui": { "preview": true, "accent": "#7c5cff" },
   "contributes": {
     "panels": [
       { "id": "gallery", "title": "Components", "icon": "./assets/icon.svg", "area": "center", "entry": "./panel/index.html" }
     ],
     "commands": [
-      { "id": "work", "title": "Run a slow command", "run": { "native": "work", "timeoutSeconds": 60, "changesFiles": false } },
+      { "id": "work", "title": "Run a slow command", "run": { "native": "work", "timeoutSeconds": 60, "changesFiles": false }, "slots": [{ "slot": "panel.toolbar" }] },
       { "id": "fail", "title": "Run a failing command", "run": { "native": "fail", "timeoutSeconds": 60, "changesFiles": false } }
     ]
   }
