@@ -253,6 +253,9 @@ export class CodexDriver implements NativeDriver {
       config: await codexConfig(server, this.context.workspacePath),
     };
     if (this.#threadId) {
+      // Bind first: the resume reports the thread's usage so far, which the
+      // pool would drop for an unbound thread.
+      this.#lease?.bind(this.#threadId);
       try {
         const resumed = await server.request<{
           thread?: { id?: string };

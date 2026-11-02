@@ -1464,9 +1464,11 @@ describe("Codex adapter", () => {
       });
       if (message.method === "turn/start")
         setTimeout(() => {
-          cli.send(usage(1200, 200));
+          // The first report repeats the resumed total, so nothing is spent yet.
+          cli.send(usage(1000, 300));
+          cli.send(usage(1200, 50));
           // A repeated report, as when a usage limit is hit, spends nothing more.
-          cli.send(usage(1200, 200));
+          cli.send(usage(1200, 50));
           cli.send({
             method: "turn/completed",
             params: { turn: { status: "completed" } },
