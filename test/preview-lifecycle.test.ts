@@ -324,6 +324,40 @@ describe("preview policy and lifecycle", () => {
     expect(first.project.preview.status).toBe("ready");
   });
 
+  it("ranks a preview started again by when it started, not by when it was last left", async () => {
+    const [first, second] = await Promise.all([fixture(), fixture()]);
+    first.project.id = "first";
+    second.project.id = "second";
+    const events = new RuntimeEventBus();
+    const preview = new PreviewManager(events, { leaseTimeoutMs: 100_000 });
+    cleanups.push(() => preview.stopAll());
+    const pause = () => new Promise((resolve) => setTimeout(resolve, 5));
+    await preview.ensureStarted(first.project);
+    preview.acquire(first.project, "editor:first");
+    preview.release(first.project, "editor:first");
+    await preview.stop(first.project);
+    await pause();
+    await preview.ensureStarted(second.project);
+    preview.acquire(second.project, "editor:second");
+    preview.release(second.project, "editor:second");
+    await pause();
+    // Collect while the first is starting again, before it is ready.
+    let collecting: Promise<void> | undefined;
+    const unsubscribe = events.subscribe(first.project.id, (event) => {
+      if (event.type === "preview.updated" && event.data.preview.status === "starting")
+        collecting ??= preview.collectIdle(Date.now() + 1);
+    });
+    try {
+      await preview.ensureStarted(first.project);
+      await collecting;
+    } finally {
+      unsubscribe();
+    }
+    expect(collecting).toBeDefined();
+    expect(first.project.preview.status).toBe("ready");
+    expect(second.project.preview).toMatchObject({ status: "stopped", stopReason: "idle" });
+  });
+
   it("expires abandoned leases and allows idle previews to start again on project open", async () => {
     const { project } = await fixture();
     const preview = manager({ idleTimeoutMs: 10, leaseTimeoutMs: 10 });

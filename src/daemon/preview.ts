@@ -316,6 +316,9 @@ export class PreviewManager {
       controller: new AbortController(),
     };
     this.#setOperation(project.id, operation);
+    // A new launch is fresh: its unused time, and its place among unused
+    // previews, start now rather than from before an earlier stop.
+    if (!session.leases.size) session.idleSince = Date.now();
     const assertCurrent = () => {
       this.#assertCurrent(project.id, operation);
       if (operation.automatic && !this.#automaticAllowed(session))
