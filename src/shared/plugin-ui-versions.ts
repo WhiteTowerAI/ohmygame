@@ -10,8 +10,8 @@
 /** Every major the app serves. */
 export const PLUGIN_UI_MAJORS: readonly string[] = ["1"];
 
-/** Majors still in preview. */
-export const PLUGIN_UI_PREVIEW_MAJORS: ReadonlySet<string> = new Set(["1"]);
+/** Majors still in preview. Version 1 became stable in plugin API 2.2. */
+export const PLUGIN_UI_PREVIEW_MAJORS: ReadonlySet<string> = new Set<string>();
 
 /**
  * Stable majors a newer one has replaced, with the dates (YYYY-MM-DD) it came

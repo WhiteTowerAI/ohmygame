@@ -465,9 +465,12 @@ the tokens above, so a page customizes one only through its attributes, CSS
 custom properties and `::part()`. `--omg-accent` is the plugin's
 [brand colour](#plugin-pages).
 
-Version 1 is in preview: a page's policy loads it only when the manifest has
-`"ui": { "preview": true }`. Once a major version is stable, it loads for
-every plugin. Featured and certified plugins won't use preview components.
+Version 1 is stable and loads for every plugin; it became stable in plugin
+API 2.2.0, so a plugin that uses it without `ui.preview` asks for `^2.2.0`,
+and an older app that still has it in preview says so. A later major may first come
+out in preview: then a page's policy loads it only when the manifest has
+`"ui": { "preview": true }`. Featured and certified plugins won't use preview
+components.
 
 A stable major only grows. A change that would break a page waits for a new
 major, and both are then served side by side: a replaced major goes in

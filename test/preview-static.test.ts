@@ -297,10 +297,9 @@ describe("plugin pages", () => {
     const response = await fetch(page);
     expect(await response.text()).toBe("<p>panel</p>");
     const csp = response.headers.get("content-security-policy")!;
-    // Only the bridge and styles, until the plugin opts in to preview components.
-    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js;`);
+    // The bridge, styles and the stable components, which need no opt-in.
+    expect(csp).toContain(`script-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.js ${server.url}/_ohmygame/ui/1/;`);
     expect(csp).toContain(`style-src ${server.url}/acme/panel/1.0.0/ ${server.url}/_ohmygame/plugin-ui.css 'unsafe-inline'`);
-    expect(csp).not.toContain("/_ohmygame/ui/");
     expect(csp).toContain("connect-src 'none'");
     expect(csp).toContain("frame-ancestors http://localhost:5173");
     expect(csp).not.toContain("unsafe-eval");
@@ -328,7 +327,7 @@ describe("plugin pages", () => {
       expect((await fetch(`${server.url}${refused}`)).status, refused).toBe(404);
   });
 
-  it("lets a page load preview components only when its plugin opts in", async () => {
+  it("still serves stable components to a plugin that opts in to preview ones", async () => {
     const index = new PluginIndex(path.join(await directory(), "index.json"));
     const added = await index.add(await pluginPackage({ ui: { preview: true } }));
     expect(added.ok ? [] : added.issues).toEqual([]);

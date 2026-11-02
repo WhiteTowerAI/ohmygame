@@ -351,7 +351,8 @@ describe("page components", () => {
     const manifest = JSON.parse(await readFile("packages/plugin-ui/gallery/.ohmygame-plugin/plugin.json", "utf8"));
     const checked = validatePluginManifest(manifest);
     expect(checked.ok ? [] : checked.issues).toEqual([]);
-    expect(manifest.ui.preview).toBe(true);
+    // Version 1 is stable, so the gallery needs no opt-in.
+    expect(manifest.ui.preview).toBeUndefined();
     const page = await readFile("packages/plugin-ui/gallery/panel/index.html", "utf8");
     const used = new Set([...page.matchAll(/<(omg-[a-z-]+)/g)].map(([, name]) => name!));
     expect([...used].filter((name) => !customElements.get(name))).toEqual([]);
@@ -609,7 +610,7 @@ describe("regression check", () => {
 });
 
 describe("plugin check", () => {
-  async function plugin(files: Record<string, string>, ui: object = { preview: true, major: 1 }, extra: object = {}): Promise<string> {
+  async function plugin(files: Record<string, string>, ui: object = { major: 1 }, extra: object = {}): Promise<string> {
     const root = path.join(served, `check-${Math.random().toString(36).slice(2)}`);
     const manifest = { id: "acme/panel", version: "1.0.0", engines: { "ohmygame-api": "^2.0.0" }, displayName: "Panel", description: "A panel", icon: "./icon.svg", ui, contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }] }, ...extra };
     await mkdir(path.join(root, ".ohmygame-plugin"), { recursive: true });
@@ -640,14 +641,15 @@ describe("plugin check", () => {
     expect(await messages(await plugin({ "index.html": `${load}<omg-button onclick="save()" data-on="x"></omg-button>` }), "error")).toEqual([expect.stringContaining("inline event handlers: onclick")]);
     expect(await messages(await plugin({ "index.html": `${load}<script type="module" src="./main.js"></script>`, "main.js": 'import { html } from "https://esm.sh/lit";\nconst shown = "from https://example.com";' }), "error")).toEqual([expect.stringContaining("no remote scripts: https://esm.sh/lit")]);
     // Nor does a page beside it, in the same folder.
-    const beside = await plugin({ "main.html": load, "settings.html": "<omg-button></omg-button>" }, { preview: true, major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/main.html" }, { id: "settings", title: "Settings", area: "center", entry: "./panel/settings.html" }] } });
+    const beside = await plugin({ "main.html": load, "settings.html": "<omg-button></omg-button>" }, { major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/main.html" }, { id: "settings", title: "Settings", area: "center", entry: "./panel/settings.html" }] } });
     expect(await checkPlugin(beside)).toContainEqual({ level: "error", file: path.join("panel", "settings.html"), message: expect.stringContaining("no script loads") });
     // Another panel loading them doesn't help: it's another page.
-    const two = await plugin({ "index.html": load }, { preview: true, major: 1 }, { contributes: { panels: [{ id: "one", title: "One", area: "center", entry: "./panel/index.html" }, { id: "two", title: "Two", area: "center", entry: "./two/index.html" }] } });
+    const two = await plugin({ "index.html": load }, { major: 1 }, { contributes: { panels: [{ id: "one", title: "One", area: "center", entry: "./panel/index.html" }, { id: "two", title: "Two", area: "center", entry: "./two/index.html" }] } });
     await mkdir(path.join(two, "two"));
     await writeFile(path.join(two, "two/index.html"), "<omg-button></omg-button>");
     expect(await checkPlugin(two)).toContainEqual({ level: "error", file: path.join("two", "index.html"), message: expect.stringContaining("no script loads") });
-    expect(await messages(await plugin({ "index.html": load }, {}), "error")).toEqual([expect.stringContaining("are in preview")]);
+    // Version 1 is stable: a plugin needn't opt in to it.
+    expect(await messages(await plugin({ "index.html": load }, {}), "error")).toEqual([]);
     expect(await messages(await plugin({ "index.html": `${load}<script TYPE="MODULE">go()</script>` }), "error")).toEqual([expect.stringContaining("no inline scripts")]);
     // The install's own checks come first.
     expect(await messages(await plugin({ "index.html": load }, { major: 999 }), "error")).toEqual([expect.stringContaining("Update OhMyGame")]);
@@ -662,18 +664,18 @@ describe("plugin check", () => {
     expect(await messages(await plugin({ "index.html": `<script data-src="https://example.com/x.js" src="./main.js"></script>${load}<p>Moving on: /_ohmygame/ui/999/index.js</p>` }), "error")).toEqual([]);
     expect(await messages(await plugin({ "index.html": '<script type="module" src="./main.js"></script><omg-button></omg-button>', "main.js": 'import(`/_ohmygame/ui/${major}/index.js`);' }), "error")).toEqual([]);
     // At the package's root, only the page itself is served.
-    const rootPage = await plugin({}, { preview: true, major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./index.html" }] } });
+    const rootPage = await plugin({}, { major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./index.html" }] } });
     await writeFile(path.join(rootPage, "index.html"), load);
     await mkdir(path.join(rootPage, "templates"));
     await writeFile(path.join(rootPage, "templates/game.html"), "<script>game()</script>");
     expect(await messages(rootPage, "error")).toEqual([]);
     // Panels may share a script that loads them.
-    const shared = await plugin({ "index.html": '<script type="module" src="./main.js"></script><omg-button></omg-button>', "main.js": 'import "/_ohmygame/ui/1/index.js";' }, { preview: true, major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }, { id: "settings", title: "Settings", area: "center", entry: "./settings/index.html" }] } });
+    const shared = await plugin({ "index.html": '<script type="module" src="./main.js"></script><omg-button></omg-button>', "main.js": 'import "/_ohmygame/ui/1/index.js";' }, { major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./panel/index.html" }, { id: "settings", title: "Settings", area: "center", entry: "./settings/index.html" }] } });
     await mkdir(path.join(shared, "settings"));
     await writeFile(path.join(shared, "settings/index.html"), '<script type="module" src="../panel/main.js"></script><omg-button></omg-button>');
     expect(await messages(shared, "error")).toEqual([]);
     // Nor does it have to load them from its own folder.
-    const fromAssets = await plugin({}, { preview: true, major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./index.html" }] } });
+    const fromAssets = await plugin({}, { major: 1 }, { contributes: { panels: [{ id: "main", title: "Main", area: "center", entry: "./index.html" }] } });
     await writeFile(path.join(fromAssets, "index.html"), '<script type="module" src="./assets/main.js"></script><omg-button></omg-button>');
     await mkdir(path.join(fromAssets, "assets"));
     await writeFile(path.join(fromAssets, "assets/main.js"), 'import "/_ohmygame/ui/1/index.js";');
@@ -692,13 +694,12 @@ describe("plugin check", () => {
       "warning",
     );
     expect(warnings).toEqual([
-      expect.stringContaining("in preview"),
       "<omg-button> has no attribute wobble",
       "There is no component <omg-maybe>",
       expect.stringContaining("color: #abcdef"),
       "--mystery isn't one of the app's tokens",
       "No component has a part named nope",
     ]);
-    expect(await messages(await plugin({ "index.html": load }, { preview: true }), "warning")).toContainEqual(expect.stringContaining('"major": 1'));
+    expect(await messages(await plugin({ "index.html": load }, {}), "warning")).toContainEqual(expect.stringContaining('"major": 1'));
   });
 });
