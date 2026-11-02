@@ -114,6 +114,8 @@ it("says when a plugin change isn't recorded yet, and when it was recorded late"
   await act(async () => root.render(<PluginChangesSheet projectId="p1" open busy={false} onClose={() => {}} onUndone={() => {}} />));
   expect(document.body.textContent).toContain("not recorded yet");
   expect(document.body.textContent).toContain("Recorded late");
+  // Each says what to do about it, so it wraps rather than being cut off.
+  expect(document.querySelectorAll("small.project-plugin-note")).toHaveLength(2);
   // The unrecorded one has no file count and no Undo; the late one has both.
   expect(document.body.textContent).not.toContain("0 files");
   expect([...document.querySelectorAll("button")].filter((button) => button.textContent === "Undo")).toHaveLength(1);

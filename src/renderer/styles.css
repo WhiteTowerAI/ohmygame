@@ -13100,6 +13100,12 @@ summary.work-summary:hover {
   white-space: nowrap;
 }
 
+/* A sentence to act on is read to its end. */
+.project-plugin-text small.project-plugin-note {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .project-plugins-capabilities {
   margin: var(--space-2) 0 0;
   padding-left: var(--space-5);
