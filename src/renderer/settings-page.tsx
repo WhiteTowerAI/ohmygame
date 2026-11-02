@@ -26,6 +26,7 @@ import { exportDiagnostics, getProjectLocation, setProjectLocation } from "./api
 import { readGeneralPreferences, setGeneralPreference, type GeneralPreferences } from "./general-preferences.js";
 import { Badge, Button, Disclosure, Progress, SegmentedControl, Select, Spinner, Switch, Tooltip } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
+import { AccountUsage } from "./usage-stats.js";
 import "./settings.css";
 import { readUsageDataEnabled, setUsageDataEnabled } from "./analytics.js";
 
@@ -316,7 +317,18 @@ function AppearanceSettings() {
 
 // ---------- account and billing ----------
 
+// Who is signed in, then the agent's token use, which is this machine's and
+// shows either way.
 function AccountSettings() {
+  return (
+    <>
+      <AccountIdentity />
+      <AccountUsage />
+    </>
+  );
+}
+
+function AccountIdentity() {
   const auth = useAuth();
   const [error, setError] = useState<string>();
   if (auth.state.status !== "signed-in") {

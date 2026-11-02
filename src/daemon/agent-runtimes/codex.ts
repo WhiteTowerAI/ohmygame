@@ -31,7 +31,7 @@ import {
   acquireCodexServer,
   type CodexServerLease,
 } from "./codex-server-pool.js";
-import { NativeSessionExpiredError } from "./native-session.js";
+import { NativeSessionExpiredError, type NativeUsage } from "./native-session.js";
 import type { AgentContextUsage } from "../../shared/contracts.js";
 import { runtimeStartupError } from "./compatibility.js";
 import { importCodexImage } from "./codex-images.js";
@@ -71,6 +71,8 @@ export class CodexDriver implements NativeDriver {
   #lease?: CodexServerLease;
   #starting?: Promise<CodexAppServer>;
   #threadId?: string;
+  /** The thread's running total at the last report, to tell what each request spent. */
+  #countedTotal?: { threadId?: string; usage: NativeUsage };
   #turn?: CodexTurn;
   #bridged = new BridgeResults();
 
@@ -251,6 +253,9 @@ export class CodexDriver implements NativeDriver {
       config: await codexConfig(server, this.context.workspacePath),
     };
     if (this.#threadId) {
+      // Bind first: the resume reports the thread's usage so far, which the
+      // pool would drop for an unbound thread.
+      this.#lease?.bind(this.#threadId);
       try {
         const resumed = await server.request<{
           thread?: { id?: string };
@@ -299,6 +304,10 @@ export class CodexDriver implements NativeDriver {
       this.#turn?.sink.limits?.(this.#limits);
       return;
     }
+    // A resumed thread reports its total before any turn; it is the baseline
+    // the next turn's spending is measured from, not spending of its own.
+    if (method === "thread/tokenUsage/updated")
+      this.#countSpent(params, this.#turn?.sink);
     const turn = this.#turn;
     if (!turn) return;
     if (typeof params.turnId === "string") turn.turnId ??= params.turnId;
@@ -393,6 +402,40 @@ export class CodexDriver implements NativeDriver {
           "Codex could not finish the turn",
       });
     else turn.resolve({ status: "completed" });
+  }
+
+  /**
+   * Records what a request spent: the growth of the thread's total, so a
+   * repeated report adds nothing. With no total seen yet for the thread, as
+   * in a turn that started it, the latest request is what was spent.
+   */
+  #countSpent(params: Record<string, unknown>, sink?: NativeTurnSink): void {
+    const usage = record(params.tokenUsage);
+    const last = record(usage?.last);
+    const total = record(usage?.total);
+    const threadId =
+      typeof params.threadId === "string" ? params.threadId : this.#threadId;
+    if (!total) {
+      if (last) sink?.spent(codexUsage(last));
+      return;
+    }
+    const now = codexUsage(total);
+    const before =
+      this.#countedTotal && this.#countedTotal.threadId === threadId
+        ? this.#countedTotal.usage
+        : undefined;
+    this.#countedTotal = { threadId, usage: now };
+    if (!sink) return;
+    if (before && grewFrom(before, now)) {
+      const spent = {
+        input: now.input - before.input,
+        output: now.output - before.output,
+        cacheRead: now.cacheRead - before.cacheRead,
+        cacheWrite: now.cacheWrite - before.cacheWrite,
+      };
+      if (spent.input + spent.output + spent.cacheRead + spent.cacheWrite > 0)
+        sink.spent(spent);
+    } else if (!before && last) sink.spent(codexUsage(last));
   }
 
   #itemStarted(sink: NativeTurnSink, item: Record<string, unknown>): void {
@@ -870,4 +913,23 @@ function refusal(
     default:
       return { decision: "decline" };
   }
+}
+
+function codexUsage(usage: Record<string, unknown>): NativeUsage {
+  const cached = number(usage.cachedInputTokens);
+  return {
+    input: Math.max(0, number(usage.inputTokens) - cached),
+    output: number(usage.outputTokens),
+    cacheRead: cached,
+    cacheWrite: number(usage.cacheWriteInputTokens),
+  };
+}
+
+function grewFrom(before: NativeUsage, now: NativeUsage): boolean {
+  return (
+    now.input >= before.input &&
+    now.output >= before.output &&
+    now.cacheRead >= before.cacheRead &&
+    now.cacheWrite >= before.cacheWrite
+  );
 }

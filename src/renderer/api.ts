@@ -7,6 +7,7 @@ import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connect
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import { forgetLastProject } from "./general-preferences.js";
 import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
+import type { UsageStats } from "../shared/usage-stats.js";
 import type { AgentNotificationPermission, AgentNotificationPreferences, AgentNotificationTarget } from "../shared/agent-notifications.js";
 import {
   RUNTIME_EVENT_TYPES,
@@ -866,6 +867,11 @@ export async function publishProject(projectId: string, accessToken: string, met
  * When the background service cannot build it, the desktop app builds one
  * with the logs and the service's status.
  */
+/** Token use of OhMyGame's agent across projects, by day, project and model. */
+export async function getUsageStats(): Promise<UsageStats> {
+  return request("/usage");
+}
+
 export async function exportDiagnostics(): Promise<{ blob: Blob; fileName: string }> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 15_000);
