@@ -15,10 +15,11 @@ import { writeWorkspaceNotice } from "./workspace-notice.js";
 //
 // What is about to run is written down first. If its second checkpoint or
 // its entry then can't be saved (a full disk), or the app stops partway, the
-// note stays, and the change is recorded the next time that works: before the
-// next plugin write or undo, when the history is opened, and before a turn's
-// snapshot. It stands out as recorded late, since what else changed by then
-// is part of it.
+// note stays, and the change is recorded the next time that works: when the
+// history is opened, and before the next plugin write or undo, a turn's
+// snapshot or a checkpoint restore. Those refuse to go ahead until it can be,
+// or undoing the late entry would also take back what they did. It stands out
+// as recorded late, since an edit saved in the meantime is part of it.
 //
 // Native code can still write outside this path, and start programs that
 // write later (the Godot editor does). Those writes show in the next
@@ -110,11 +111,7 @@ export class PluginWrites {
     return this.options.writes.exclusive(project.id, async () => {
       this.#assertIdle(project);
       // Each change stands alone, so an earlier one is recorded before this one starts.
-      try {
-        await this.#settle(project);
-      } catch (cause) {
-        throw new PluginChangeError(RECORD_EARLIER, 409, cause);
-      }
+      await this.settle(project);
       const before = await this.options.snapshot(project);
       const pending: PendingChange = {
         id: randomUUID(),
@@ -197,7 +194,8 @@ export class PluginWrites {
 
   /** Records a change left unrecorded. The caller holds the workspace. */
   async #settle(project: ProjectState): Promise<void> {
-    const { pending } = await this.#read(project);
+    // A history that can't be read has no note to act on, and shouldn't stop a turn or a restore; writing to it still fails.
+    const { pending } = await this.#read(project).catch((): Partial<History> => ({}));
     if (!pending) return;
     const change = await this.#record(project, pending, true);
     // It's in the history now, whether or not the notice can be written.
@@ -205,11 +203,16 @@ export class PluginWrites {
   }
 
   /**
-   * Records a change left unrecorded, if it can, before a snapshot the caller
-   * holds the workspace for. If it can't, the caller's snapshot finds out why.
+   * Records a change left unrecorded, before the caller, who holds the
+   * workspace, lets anything else change it. Throws if it can't, and then the
+   * caller must not go ahead.
    */
   async settle(project: ProjectState): Promise<void> {
-    await this.#settle(project).catch(() => {});
+    try {
+      await this.#settle(project);
+    } catch (cause) {
+      throw new PluginChangeError(RECORD_EARLIER, 409, cause);
+    }
   }
 
   #assertIdle(project: ProjectState) {
@@ -241,7 +244,6 @@ export class PluginWrites {
   undo(project: ProjectState, id: string): Promise<PluginChange> {
     return this.options.writes.exclusive(project.id, async () => {
       this.#assertIdle(project);
-      // If it still can't be recorded, an older change can be undone anyway, which may free the room it needs.
       await this.settle(project);
       const change = (await this.#read(project)).changes.find(
         (entry) => entry.id === id,

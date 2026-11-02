@@ -408,10 +408,11 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   /projects/:id/plugin-changes`, each with its own Undo. A change is noted
   before it runs. If it can't be recorded afterwards (a full disk) or the app
   stops partway, the note stays and the list says it can't be undone yet. It
-  is recorded before the next plugin write or undo, when the list is opened,
-  and before a turn's snapshot, marked as late, since it may include other
-  changes made by then. A plugin write is refused, with nothing changed, while
-  its note or an earlier unrecorded change can't be saved.
+  is recorded when the list is opened and before the next plugin write or
+  undo, a turn's snapshot or a checkpoint restore, marked as late, since edits
+  saved in the meantime are part of it. Those are refused, with nothing
+  changed, while it can't be recorded, and a plugin write also while its own
+  note can't be saved.
 
 Releases install only when they are signed by a key the app trusts for
 their publisher (`AppOptions.pluginReleaseKeys`). The app ships with none

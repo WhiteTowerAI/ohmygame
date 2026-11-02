@@ -3814,6 +3814,34 @@ describe("plugin writes", () => {
     expect(announced).toEqual([["other.txt", "tuning.json"]]);
   });
 
+  it("lets nothing else land in a change it can't record yet", async () => {
+    const game = { ...(await project({ "level.txt": "one" })), id: "plugin-writes-held" } as unknown as ProjectState;
+    const store = new CheckpointStore();
+    let fail = 0;
+    const plugins = new PluginWrites({
+      writes: new ProjectWrites(),
+      checkpoints: store,
+      snapshot: (target) => (fail > 0 && --fail === 0 ? Promise.reject(new Error("full")) : store.snapshot(target)),
+      busy: () => false,
+      announce: () => {},
+    });
+    const level = path.join(game.workspacePath, "level.txt");
+    const tidy = { plugin: "acme/tiles", action: "command:tidy", title: "Tidy up" };
+    const { change } = await plugins.run(game, tidy, () => writeFile(level, "two"));
+    fail = 2;
+    await plugins.run(game, tidy, () => writeFile(level, "three")).catch(() => {});
+
+    fail = 1;
+    await expect(plugins.settle(game)).rejects.toThrow("earlier plugin change");
+    fail = 1;
+    await expect(plugins.undo(game, change!.id)).rejects.toThrow("earlier plugin change");
+    expect(await readFile(level, "utf8")).toBe("three");
+
+    // A history that can't be read has no note to act on, and doesn't stop a turn or a restore.
+    await writeFile(path.join(game.storagePath ?? path.join(game.workspacePath, ".data"), "plugin-changes.json"), "{");
+    await expect(plugins.settle(game)).resolves.toBeUndefined();
+  });
+
   it("changes nothing when it can't note a change first", async () => {
     const { game, plugins } = await setup();
     const storage = game.storagePath ?? path.join(game.workspacePath, ".data");

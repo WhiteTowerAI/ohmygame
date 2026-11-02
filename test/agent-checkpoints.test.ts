@@ -2206,6 +2206,72 @@ describe("Agent turn changes", () => {
   });
 });
 
+describe("A plugin change left unrecorded", () => {
+  it("holds up a turn and a restore until it's recorded, so their writes don't land in it", async () => {
+    const { app, project, detail, send, ended, file, missing, restore } =
+      await studio([
+        { write: { "level.txt": "from the turn" } },
+        { say: "Wrote the level." },
+        { write: { "other.txt": "from a turn that should not run" } },
+        { say: "Wrote the other file." },
+      ]);
+    await send("Write the level");
+    const first = await ended("Write the level");
+
+    // A plugin changed the level, and the app stopped before recording it.
+    const history = path.join(project.storagePath!, "plugin-changes.json");
+    const before = await new CheckpointStore().snapshot(project);
+    await writeFile(path.join(project.workspacePath, "level.txt"), "from the plugin");
+    await writeFile(
+      history,
+      JSON.stringify({
+        changes: [],
+        pending: { id: "left", plugin: "acme/tiles", action: "command:tidy", title: "Tidy up", before, at: new Date().toISOString() },
+      }),
+    );
+
+    // It can't be recorded yet, though snapshots still work.
+    const cannotRecord = vi
+      .spyOn(CheckpointStore.prototype, "diff")
+      .mockRejectedValue(new Error("ENOSPC: no space left on device"));
+    const refused = await restore(first.checkpointId!);
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json()).toMatchObject({ error: expect.stringContaining("earlier plugin change") });
+    expect(await file("level.txt")).toBe("from the plugin");
+
+    await send("Write another file");
+    await vi.waitFor(
+      async () => {
+        const current = await detail();
+        expect(current.agent.status).toBe("error");
+        expect(current.turns.at(-1)!.status).toBe("failed");
+      },
+      { timeout: 15_000 },
+    );
+    expect(await missing("other.txt")).toBe(true);
+    cannotRecord.mockRestore();
+
+    // Once it can be, the restore records it first, so undoing it can't take the restore back.
+    const restored = await restore(first.checkpointId!);
+    expect(restored.statusCode, restored.body).toBe(204);
+    expect(await missing("level.txt")).toBe(true);
+    const saved = JSON.parse(await readFile(history, "utf8")) as {
+      changes: Array<{ id: string; title: string; changed: string[]; late: boolean }>;
+      pending?: unknown;
+    };
+    expect(saved.pending).toBeUndefined();
+    expect(saved.changes).toMatchObject([
+      { id: "left", title: "Tidy up", changed: ["level.txt"], late: true },
+    ]);
+    const undo = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/plugin-changes/left/undo`,
+    });
+    expect(undo.statusCode, undo.body).toBe(409);
+    expect(await missing("level.txt")).toBe(true);
+  });
+});
+
 describe("The end of a turn", () => {
   const turn = (): Step[] => [
     { write: { "notes.txt": "first" } },

@@ -40,6 +40,8 @@ export function registerCheckpointRoutes(
     events: RuntimeEventBus;
     busy: (id: string) => boolean;
     snapshot: (project: ProjectState) => Promise<string>;
+    /** Records a plugin change left unrecorded, or throws. The caller holds the workspace. */
+    settle: (project: ProjectState) => Promise<void>;
   },
 ) {
   const { store, writes, projects, conversations, agents, previews, events } =
@@ -242,6 +244,8 @@ export function registerCheckpointRoutes(
             "Recover the interrupted file restore first.",
             "workspace_busy",
           );
+        // Recorded later, a plugin change would hold this one too, and undoing it would take this back. A restore left unfinished was entered with none left.
+        if (kind !== "recovery") await options.settle(project);
         await previews.stop(project);
         const previousNotice = await readWorkspaceNotice(project);
         const changed = new Set<string>();
