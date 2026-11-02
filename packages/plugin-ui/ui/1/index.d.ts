@@ -382,7 +382,7 @@ export interface OmgDividerAttributes {
   label?: string;
 }
 
-/** `<omg-image src alt ratio fit pixelated checker>`: a picture, on a raised surface until it loads and with a mark when it can't. With `ratio` it fills a frame of that shape; without, it is drawn at its own size, at most as wide as its place. */
+/** `<omg-image src file alt ratio fit pixelated checker>`: a picture, on a raised surface until it loads and with a mark when it can't. With `ratio` it fills a frame of that shape; without, it is drawn at its own size, at most as wide as its place. */
 export interface OmgImageElement extends HTMLElement {
   /** It has loaded, or failed to. */
   readonly complete: boolean;
@@ -398,6 +398,8 @@ export interface OmgImageAttributes {
   alt?: string;
   /** Draws a checkerboard behind it, to show where it is transparent. */
   checker?: boolean;
+  /** A picture in the project, by its path there, in place of `src`; the plugin needs the `project.files` capability. Set it again to show the file as it is now. */
+  file?: string;
   /** How the picture fills a frame of another shape: whole, or cropped to fill it. Whole by default. */
   fit?: "contain" | "cover";
   /** Scales pixel art without smoothing it. */
@@ -408,7 +410,7 @@ export interface OmgImageAttributes {
   src?: string;
 }
 
-/** `<omg-tile heading description badge src ratio selected disabled>`: a picture with its name and a line under it, such as an asset in a grid. It is a button: a click on it is the person picking it, and `selected` marks the one picked. */
+/** `<omg-tile heading description badge src file ratio selected disabled>`: a picture with its name and a line under it, such as an asset in a grid. It is a button: a click on it is the person picking it, and `selected` marks the one picked. */
 export interface OmgTileElement extends HTMLElement {
   /** The `disabled` attribute. */
   disabled: boolean;
@@ -428,6 +430,8 @@ export interface OmgTileAttributes {
   description?: string;
   /** It can't be picked. */
   disabled?: boolean;
+  /** A picture in the project, as for `omg-image`. */
+  file?: string;
   /** As for `omg-image`; cropped to fill by default. */
   fit?: "contain" | "cover";
   /** Its name, on one line. */

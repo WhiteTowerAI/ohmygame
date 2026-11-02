@@ -1,5 +1,19 @@
 // Media: a picture, and a tile that shows one with its name.
+import { connect } from "../../plugin-ui.js";
 import { OmgElement, css, define, text } from "./base.js";
+
+// Listens for the app's port from the start, for pictures of the project's files.
+const connection = connect();
+
+/** The `blob:` address each picture of a project file was given, released once it is drawn or failed. */
+const addresses = new WeakMap();
+
+function release(image) {
+  const address = addresses.get(image);
+  if (address === undefined) return;
+  addresses.delete(image);
+  URL.revokeObjectURL(address);
+}
 
 /** The `w/h` or number in a `ratio` attribute, as CSS `aspect-ratio`, when it is a positive one. */
 function aspect(value) {
@@ -38,12 +52,13 @@ const IMAGE = css(`
 `);
 
 /**
- * `<omg-image src alt ratio fit pixelated checker>`: a picture, on a raised
+ * `<omg-image src file alt ratio fit pixelated checker>`: a picture, on a raised
  * surface until it loads and with a mark when it can't. With `ratio` it fills
  * a frame of that shape; without, it is drawn at its own size, at most as wide
  * as its place.
  *
  * @attr {string} src - The picture's address: a file in the plugin's package, or a `data:` or `blob:` URL.
+ * @attr {string} file - A picture in the project, by its path there, in place of `src`; the plugin needs the `project.files` capability. Set it again to show the file as it is now.
  * @attr {string} alt - What it shows, for people who can't see it; leave it empty for a decoration.
  * @attr {string} ratio - The frame's shape, such as `16/9` or `1`; the picture's own by default.
  * @attr {"contain" | "cover"} fit - How the picture fills a frame of another shape: whole, or cropped to fill it. Whole by default.
@@ -60,7 +75,7 @@ const IMAGE = css(`
  * @cssprop --omg-image-radius - The frame's corners; the app's large radius by default.
  */
 class OmgImage extends OmgElement {
-  static observedAttributes = ["src", "alt", "ratio"];
+  static observedAttributes = ["src", "file", "alt", "ratio"];
   static styles = [IMAGE];
   static template = `
     <div class="frame" part="frame">
@@ -69,8 +84,13 @@ class OmgImage extends OmgElement {
     </div>`;
 
   #status = "empty";
-  /** The `src` attribute was set, to the same address too, which loads it again. */
+  /** The `src` or `file` attribute was set, to the same value too, which loads it again. */
   #reload = true;
+  /**
+   * Its connectedCallback has run. Markup upgraded in a page reports each attribute
+   * first, already connected, and drawing then would read a file once per attribute.
+   */
+  #inPage = false;
 
   constructor() {
     super();
@@ -78,10 +98,25 @@ class OmgImage extends OmgElement {
   }
 
   attributeChangedCallback(name, previous, value) {
-    if (name === "src") this.#reload = true;
+    // While there's a file, `src` isn't the picture, so setting it changes nothing.
+    const source = name === "file" || (name === "src" && !this.getAttribute("file"));
+    if (source) this.#reload = true;
     super.attributeChangedCallback(name, previous, value);
-    // Out of the page too, so the old picture's late load or error doesn't count for the new address.
-    if (name === "src" && !this.isConnected) this.update();
+    // Out of the page, the old picture goes at once, so its late load or error doesn't count; the new one loads once in the page.
+    if (source && !this.#inPage) this.#replace();
+  }
+
+  connectedCallback() {
+    this.#inPage = true;
+    super.connectedCallback();
+  }
+
+  disconnectedCallback() {
+    this.#inPage = false;
+    // A file still loading might never finish out of the page, and would keep its address. It loads again if it comes back.
+    if (this.#status !== "loading" || !this.getAttribute("file")) return;
+    this.#reload = true;
+    this.#replace();
   }
 
   get complete() {
@@ -101,6 +136,7 @@ class OmgImage extends OmgElement {
   }
 
   update() {
+    if (!this.#inPage) return;
     const image = this.#image();
     const frame = this.part("frame");
     const ratio = aspect(this.getAttribute("ratio"));
@@ -109,27 +145,56 @@ class OmgImage extends OmgElement {
     image.alt = this.getAttribute("alt") ?? "";
     if (!this.#reload) return;
     this.#reload = false;
+    const file = this.getAttribute("file") ?? "";
     const src = this.getAttribute("src") ?? "";
-    // Each address gets a picture of its own, so the old one's late load or error is told apart.
+    const next = this.#replace();
+    if (!file && !src) return;
+    this.#show("loading");
+    if (!file) {
+      next.src = src;
+      return;
+    }
+    void connection
+      // A picture replaced by now, as setting several attributes at once does, has nothing to read.
+      .then((host) => (next === this.#image() ? host.files.url(file) : undefined))
+      .then(
+        (address) => {
+          if (address === undefined) return;
+          addresses.set(next, address);
+          // Replaced while the file was read: its address isn't needed.
+          if (next !== this.#image()) release(next);
+          else next.src = address;
+        },
+        () => {
+          if (next === this.#image() && this.#status === "loading") this.#settle("error");
+        },
+      );
+  }
+
+  /** Each address gets a picture of its own, so the old one's late load or error is told apart. */
+  #replace() {
+    const image = this.#image();
     const next = /** @type {HTMLImageElement} */ (image.cloneNode(false));
     next.removeAttribute("src");
     this.#listen(next);
     image.replaceWith(next);
-    if (!src) {
-      this.#show("empty");
-      return;
-    }
-    this.#show("loading");
-    next.src = src;
+    release(image);
+    this.#show("empty");
+    return next;
   }
 
   #listen(image) {
     for (const type of ["load", "error"])
       image.addEventListener(type, () => {
-        if (image !== this.#image() || this.#status !== "loading") return;
-        this.#show(type);
-        this.dispatchEvent(new Event(type));
+        // Drawn or not, the picture no longer needs its file's address.
+        release(image);
+        if (image === this.#image() && this.#status === "loading") this.#settle(type);
       });
+  }
+
+  #settle(type) {
+    this.#show(type);
+    this.dispatchEvent(new Event(type));
   }
 
   #show(status) {
@@ -140,7 +205,7 @@ class OmgImage extends OmgElement {
 }
 
 /**
- * `<omg-tile heading description badge src ratio selected disabled>`: a
+ * `<omg-tile heading description badge src file ratio selected disabled>`: a
  * picture with its name and a line under it, such as an asset in a grid. It
  * is a button: a click on it is the person picking it, and `selected` marks
  * the one picked.
@@ -149,6 +214,7 @@ class OmgImage extends OmgElement {
  * @attr {string} description - A line under the name, such as its size or kind.
  * @attr {string} badge - A few words over the picture's corner, such as a duration.
  * @attr {string} src - The picture, as for `omg-image`.
+ * @attr {string} file - A picture in the project, as for `omg-image`.
  * @attr {string} alt - What the picture shows, when the name doesn't say; empty by default.
  * @attr {string} ratio - The picture's shape, as for `omg-image`; `4/3` by default.
  * @attr {"contain" | "cover"} fit - As for `omg-image`; cropped to fill by default.
@@ -167,7 +233,7 @@ class OmgImage extends OmgElement {
  * @part description - The line under the name; hidden when empty.
  */
 class OmgTile extends OmgElement {
-  static observedAttributes = ["heading", "description", "badge", "src", "alt", "ratio", "fit", "pixelated", "checker", "selected", "disabled"];
+  static observedAttributes = ["heading", "description", "badge", "src", "file", "alt", "ratio", "fit", "pixelated", "checker", "selected", "disabled"];
   static delegatesFocus = true;
   static styles = [
     css(`
@@ -214,7 +280,10 @@ class OmgTile extends OmgElement {
       </span>
     </button>`;
 
-  #reload = false;
+  /** The picture's attributes set since it was last drawn, to the same value too. */
+  #reload = new Set();
+  /** Its connectedCallback has run; see `omg-image`. */
+  #inPage = false;
 
   constructor() {
     super();
@@ -232,8 +301,17 @@ class OmgTile extends OmgElement {
   }
 
   attributeChangedCallback(name, previous, value) {
-    if (name === "src") this.#reload = true;
+    if (name === "src" || name === "file") this.#reload.add(name);
     super.attributeChangedCallback(name, previous, value);
+  }
+
+  connectedCallback() {
+    this.#inPage = true;
+    super.connectedCallback();
+  }
+
+  disconnectedCallback() {
+    this.#inPage = false;
   }
 
   get disabled() {
@@ -253,6 +331,7 @@ class OmgTile extends OmgElement {
   }
 
   update() {
+    if (!this.#inPage) return;
     const button = /** @type {HTMLButtonElement} */ (this.part("tile"));
     button.disabled = this.disabled;
     if (this.selected) button.setAttribute("aria-current", "true");
@@ -266,13 +345,16 @@ class OmgTile extends OmgElement {
     text(this.part("badge"), this.getAttribute("badge"));
     this.part("preview").style.aspectRatio = aspect(this.getAttribute("ratio")) ?? "4 / 3";
     const image = this.part("image");
-    // Set again only when it changed, or was set again, which loads it again.
-    const src = this.getAttribute("src");
-    if (this.#reload || image.getAttribute("src") !== src) {
-      if (src === null) image.removeAttribute("src");
-      else image.setAttribute("src", src);
+    // Only the source in use, so a tile with both reads its file once. It's set again
+    // only when it changed, or was set again, which loads it again.
+    const [source, unused] = this.getAttribute("file") ? ["file", "src"] : ["src", "file"];
+    image.removeAttribute(unused);
+    const value = this.getAttribute(source);
+    if (this.#reload.has(source) || image.getAttribute(source) !== value) {
+      if (value === null) image.removeAttribute(source);
+      else image.setAttribute(source, value);
     }
-    this.#reload = false;
+    this.#reload.clear();
     for (const name of ["alt", "pixelated", "checker"]) {
       const value = this.getAttribute(name);
       if (value === null) image.removeAttribute(name);
