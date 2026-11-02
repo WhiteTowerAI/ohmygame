@@ -178,3 +178,51 @@
 .canvas-table-notice[role=alert], .canvas-table-scroll small { color: color-mix(in srgb, var(--color-danger) 85%, var(--color-text)); }
 .canvas-table-scroll small { display: block; padding: 3px 8px; font-size: var(--text-xs); }
 .canvas-table-editor > .canvas-table-scroll { margin: 0 16px; }
+
+/* Handle bounds end at the node edge; the icon and hit area sit outside it. */
+.story-node .react-flow__handle.canvas-port { width: 16px; height: 16px; border: 0; border-radius: 50%; background: transparent; cursor: crosshair; z-index: 5; }
+.story-node .canvas-port.react-flow__handle-left { left: 8px; --canvas-port-offset: calc(var(--canvas-port-size) / -2); }
+.story-node .canvas-port.react-flow__handle-right { right: 8px; --canvas-port-offset: calc(var(--canvas-port-size) / 2); }
+.story-node .canvas-port::before { content: ""; position: absolute; left: calc(50% + var(--canvas-port-offset)); top: 50%; width: var(--canvas-port-size); height: var(--canvas-port-size); transform: translate(-50%, -50%); border-radius: 50%; }
+.canvas-port-icon { position: absolute; left: calc(50% + var(--canvas-port-offset)); top: 50%; display: grid; place-items: center; width: calc(var(--canvas-port-size) / 2); height: calc(var(--canvas-port-size) / 2); translate: -50% -50%; scale: 0.6; border: 1px solid var(--color-border); border-radius: 50%; background: var(--color-surface-raised); color: var(--color-text-secondary); box-shadow: var(--shadow-float); opacity: 0; pointer-events: none; transition: opacity var(--duration-fast), scale var(--duration-fast), background-color var(--duration-fast), color var(--duration-fast); }
+/* Hovering a node, or selecting only it, shows where it connects; the port under the pointer turns ink, like the selection ring. */
+:is(.react-flow__node:hover, .has-single-selection .react-flow__node.selected) .canvas-port-icon { opacity: 1; scale: 1; }
+.canvas-port:is(:hover, :active, :focus-visible, .connectingfrom, .connectingto) .canvas-port-icon { opacity: 1; scale: 1.1; border-color: var(--color-ink); background: var(--color-ink); color: var(--color-on-ink); }
+.canvas-port-icon > svg { width: 64%; height: 64%; }
+.canvas-port[aria-disabled="true"] { pointer-events: none; }
+.canvas-port[aria-disabled="true"] .canvas-port-icon { display: none; }
+.canvas-port:focus-visible { outline: none; }
+.canvas-port:focus-visible .canvas-port-icon { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.canvas-edge-disconnect { position: absolute; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; pointer-events: all; color: var(--color-text-secondary); background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: 50%; box-shadow: var(--shadow-float); cursor: pointer; }
+.canvas-edge-disconnect:is(:hover, :focus-visible) { color: var(--color-danger); border-color: var(--color-danger); }
+.canvas-edge-disconnect:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+
+/* Composer tools sit in the corner so they add no row above the prompt. */
+.canvas-composer-anchor { position: relative; left: 50%; translate: -50% 0; width: max(100%, 440px); max-width: calc(100vw - 32px); }
+.canvas-composer { position: relative; }
+.canvas-composer-toolbar { position: absolute; z-index: 2; top: 8px; right: 8px; display: flex; align-items: center; gap: 2px; }
+.canvas-composer-toolbar + * { padding-right: 56px; }
+/* In the dialog the composer is the body, so it drops its own card. */
+.ui-dialog .canvas-composer.is-expanded:is(.story-media-composer, .story-text-composer, *) { margin: 0; padding: 0; border: 0; background: none; box-shadow: none; }
+.canvas-composer.is-expanded > .canvas-composer-toolbar { position: static; margin-bottom: var(--space-2); }
+.canvas-composer.is-expanded > .canvas-composer-toolbar + * { padding-right: 0; }
+.canvas-composer.is-expanded > textarea, .canvas-composer.is-expanded .video-reference-prompt textarea { min-height: min(45dvh, 420px); font-size: var(--text-md); line-height: 1.7; resize: vertical; }
+.canvas-composer.is-expanded .video-mention-menu { top: 32px; bottom: auto; }
+
+/* Reference selection keeps pickable nodes readable and fades only what cannot connect. */
+.canvas-reference-mode { position: absolute; z-index: 10; top: 14px; left: 50%; translate: -50% 0; display: flex; align-items: center; gap: var(--space-2); width: max-content; max-width: calc(100% - 24px); padding: 6px 6px 6px 12px; border-radius: var(--radius-lg); background: var(--color-surface-raised); box-shadow: var(--shadow-float); font-size: var(--text-sm); }
+.canvas-reference-mode > svg { flex-shrink: 0; color: var(--color-text-secondary); }
+.canvas-reference-mode > div { display: flex; min-width: 0; flex-direction: column; margin-right: 6px; line-height: 1.35; }
+.canvas-reference-mode strong { color: var(--color-text); font-weight: var(--weight-semibold); }
+.canvas-reference-mode span { overflow: hidden; color: var(--color-text-secondary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.canvas-reference-mode .ui-button { flex-shrink: 0; }
+.react-flow__node:is(.canvas-reference-candidate, .canvas-reference-selected, .canvas-reference-target)::after { content: ""; position: absolute; inset: -6px; z-index: 6; border-radius: calc(var(--radius-lg) + 6px); pointer-events: none; transition: box-shadow var(--duration-fast), background-color var(--duration-fast); }
+.react-flow__node.canvas-reference-candidate { cursor: pointer; }
+.react-flow__node.canvas-reference-candidate:is(:hover, :focus-visible)::after { box-shadow: 0 0 0 2px var(--color-border-strong); background: var(--color-hover); }
+.react-flow__node.canvas-reference-selected { cursor: pointer; }
+.react-flow__node.canvas-reference-selected::after { box-shadow: 0 0 0 2px var(--color-ink); }
+.react-flow__node.canvas-reference-target::after { outline: 2px dashed var(--color-border-strong); }
+.react-flow__node.canvas-reference-unavailable { opacity: 0.35; filter: grayscale(1); cursor: not-allowed; }
+.react-flow__node:is(.canvas-reference-candidate, .canvas-reference-selected, .canvas-reference-unavailable) .story-node { pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .canvas-port-icon, .react-flow__node::after { transition: none; } }
+@media (max-width: 600px) { .canvas-composer-anchor { width: max(100%, 340px); } .canvas-reference-mode { width: calc(100% - 24px); } .canvas-reference-mode > div > span { display: none; } }
