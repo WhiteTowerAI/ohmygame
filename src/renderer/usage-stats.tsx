@@ -485,35 +485,47 @@ function UsageShareDialog({
   );
 }
 
+/** Well above the largest avatar a card draws, so it stays sharp. */
+const AVATAR_PIXELS = 256;
+
 /**
  * An image as a data URL, so an exported SVG can show it: an SVG drawn as
- * an image doesn't load other files. Undefined until it loads, or when its
- * server doesn't allow reading it; the card then shows initials.
+ * an image doesn't load other files. It loads as an image because the app's
+ * content policy lets images, not fetches, reach any host. Undefined until it
+ * loads, or when its server doesn't allow reading it; the card then shows
+ * initials.
  */
 function useImageData(url: string | undefined): string | undefined {
   const [data, setData] = useState<{ url: string; value: string }>();
   useEffect(() => {
     if (!url || data?.url === url) return;
     let live = true;
-    void fetch(url, { referrerPolicy: "no-referrer" })
-      .then((response) => (response.ok ? response.blob() : undefined))
-      .then(
-        (blob) =>
-          blob &&
-          new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result));
-            reader.onerror = () => reject(reader.error);
-            reader.readAsDataURL(blob);
-          }),
-      )
-      .then((value) => {
-        if (live && value) setData({ url, value });
-      })
-      .catch(() => undefined);
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.referrerPolicy = "no-referrer";
+    image.onload = () => {
+      if (!live) return;
+      const value = imageDataUrl(image);
+      if (value) setData({ url, value });
+    };
+    image.src = url;
     return () => {
       live = false;
     };
   }, [url, data?.url]);
   return url && data?.url === url ? data.value : undefined;
+}
+
+function imageDataUrl(image: HTMLImageElement): string | undefined {
+  const scale = Math.min(
+    1,
+    AVATAR_PIXELS / Math.min(image.naturalWidth, image.naturalHeight),
+  );
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(image.naturalWidth * scale);
+  canvas.height = Math.round(image.naturalHeight * scale);
+  const context = canvas.getContext("2d");
+  if (!context) return undefined;
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/png");
 }

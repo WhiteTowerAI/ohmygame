@@ -166,6 +166,63 @@ it("keeps the colour choice in the share dialog and remembers it for the page", 
   expect(page().style.getPropertyValue("--usage-color")).toBe("#22A55B");
 });
 
+it("draws the account's avatar on the card, or initials if it can't be read", async () => {
+  const images: {
+    crossOrigin?: string;
+    src?: string;
+    naturalWidth: number;
+    naturalHeight: number;
+    onload?: () => void;
+  }[] = [];
+  vi.stubGlobal(
+    "Image",
+    class {
+      naturalWidth = 460;
+      naturalHeight = 460;
+      constructor() {
+        images.push(this);
+      }
+    },
+  );
+  // The app's content policy blocks fetching avatar hosts.
+  const fetchAvatar = vi.fn();
+  vi.stubGlobal("fetch", fetchAvatar);
+  const drawImage = vi.fn();
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    drawImage,
+  } as unknown as ReturnType<HTMLCanvasElement["getContext"]>);
+  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+    "data:image/png;base64,AVATAR",
+  );
+  const avatarUrl = "https://avatars.example/ada.png";
+  authState = {
+    status: "signed-in",
+    user: { id: "u1", name: "Ada Lovelace", avatarUrl },
+  };
+  getUsageStats.mockResolvedValue(usage([{ input: 2_000, output: 100 }]));
+  await renderAccount();
+  await openShare();
+  const card = () => document.body.querySelector(".usage-share-preview svg")!;
+  const loading = images.find((image) => image.src === avatarUrl)!;
+
+  expect(loading.crossOrigin).toBe("anonymous");
+  expect(fetchAvatar).not.toHaveBeenCalledWith(
+    avatarUrl,
+    expect.anything(),
+  );
+  // Until it loads, and if it never does, the card shows initials.
+  expect(card().querySelector("image")).toBeNull();
+  expect(card().textContent).toContain("AL");
+
+  await act(async () => loading.onload?.());
+
+  expect(card().querySelector("image")?.getAttribute("href")).toBe(
+    "data:image/png;base64,AVATAR",
+  );
+  expect(card().textContent).not.toContain("AL");
+  expect(drawImage).toHaveBeenCalledWith(loading, 0, 0, 256, 256);
+});
+
 it("puts the signed-in person's name on the card unless they hide it", async () => {
   authState = { status: "signed-in", user: { id: "u1", name: "Ada Lovelace" } };
   getUsageStats.mockResolvedValue(usage([{ input: 2_000, output: 100 }]));
