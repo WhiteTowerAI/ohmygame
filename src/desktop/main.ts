@@ -21,7 +21,8 @@ import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "../shared/log-redaction.js";
 import { desktopDiagnosticsArchive } from "./diagnostics-export.js";
 import { recordConsole, recordUncaughtErrors, rendererConsoleLines, runtimeStateLine, updateFailureLine } from "./console-log.js";
-import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, isMenuItemLabels, localizedMenuItems, windowsTitleBarOverlay } from "./window.js";
+import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
+import { applicationMenuTemplate, isApplicationMenuLabels } from "./application-menu.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
 import { DesktopUpdateCheckScheduler } from "./update-check-scheduler.js";
 import { ElectronPlaytestDriver } from "./playtest-driver.js";
@@ -111,7 +112,6 @@ let shutdown: Promise<void> | undefined;
 let updater: DesktopUpdater | undefined;
 let updateChecks: DesktopUpdateCheckScheduler | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));
-const windowMenuLabels = new Set(["File", "Edit", "View", "Window"]);
 /** The conversation a clicked notification opens, kept until the main window takes it. */
 let notificationTarget: AgentNotificationTarget | undefined;
 const notificationPermission = new NotificationPermission({
@@ -282,16 +282,21 @@ handle("ohmygame:set-appearance", (event, appearance: unknown) => {
     senderWindow.setTitleBarOverlay(windowsTitleBarOverlay(nativeTheme.shouldUseDarkColors));
   }
 });
-handle("ohmygame:popup-window-menu", (event, label: unknown, x: unknown, y: unknown, itemLabels: unknown) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents || typeof label !== "string" ||
-      !windowMenuLabels.has(label) || typeof x !== "number" || !Number.isFinite(x) ||
-      typeof y !== "number" || !Number.isFinite(y) || !isMenuItemLabels(itemLabels)) {
+handle("ohmygame:set-application-menu-labels", (event, labels: unknown) => {
+  // Hidden thumbnail windows run Scene code, so only the main window may name the menus.
+  if (!mainWindow || event.sender !== mainWindow.webContents || !isApplicationMenuLabels(labels)) {
+    throw new Error("Invalid application menu labels");
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate(labels, process.platform)));
+});
+handle("ohmygame:popup-window-menu", (event, id: unknown, x: unknown, y: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || typeof id !== "string" ||
+      typeof x !== "number" || !Number.isFinite(x) || typeof y !== "number" || !Number.isFinite(y)) {
     throw new Error("Invalid window menu request");
   }
-  const item = Menu.getApplicationMenu()?.items.find((candidate) => candidate.label.replaceAll("&", "") === label);
-  if (!item?.submenu) throw new Error(`Window menu is not available: ${label}`);
-  Menu.buildFromTemplate(localizedMenuItems(item.submenu.items, itemLabels))
-    .popup({ window: mainWindow, x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) });
+  const item = Menu.getApplicationMenu()?.getMenuItemById(id);
+  if (!item?.submenu) throw new Error(`Window menu is not available: ${id}`);
+  item.submenu.popup({ window: mainWindow, x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) });
 });
 handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
@@ -726,6 +731,8 @@ app.on("before-quit", (event) => {
 
 try {
   await app.whenReady();
+  // English until the main window's renderer sends the app's language.
+  Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate({}, process.platform)));
   nativeTheme.themeSource = "system";
   const rendererOrigin = useBuiltRenderer ? "null" : new URL(developmentRendererUrl).origin;
   const dataDirectory = process.env.OHMYGAME_DATA_DIR ?? path.join(app.getPath("userData"), "data");
