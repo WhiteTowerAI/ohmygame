@@ -12,6 +12,8 @@ const electron = vi.hoisted(() => {
     displayHandler: undefined as undefined | ((request: { frame?: unknown }, callback: (streams: unknown) => void) => void),
     /** What the page does when told to start. */
     onStart: (() => ({ mediaType: "video/mp4", extension: "mp4" })) as () => unknown,
+    /** How loading the page goes. */
+    onLoad: (async () => {}) as () => Promise<void>,
     /** Whether the page answers when told to stop. */
     answersStop: true,
     nextId: 1,
@@ -31,7 +33,7 @@ const electron = vi.hoisted(() => {
     readonly webContents = new FakeContents();
     readonly options: Record<string, any>;
     destroyed = false;
-    loadURL = vi.fn(async () => {});
+    loadURL = vi.fn(() => state.onLoad());
     destroy = vi.fn(() => { this.destroyed = true; });
     isDestroyed = () => this.destroyed;
     constructor(options: Record<string, any>) {
@@ -77,6 +79,7 @@ beforeEach(() => {
   state.hosts.length = 0;
   saved.length = 0;
   state.onStart = () => ({ mediaType: "video/mp4", extension: "mp4" });
+  state.onLoad = async () => {};
   state.answersStop = true;
 });
 
@@ -231,6 +234,28 @@ describe("game recorder", () => {
       await vi.advanceTimersByTimeAsync(20_000);
       await failed;
     } finally { vi.useRealTimers(); }
+    expect(state.hosts[0]!.destroyed).toBe(true);
+    expect(game.isRecording("project")).toBe(false);
+  });
+
+  it("gives up on a page that never loads", async () => {
+    state.onLoad = () => new Promise(() => {});
+    const game = recorder();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const failed = expect(game.start("project", target() as never, options)).rejects.toThrow("could not be started");
+      await vi.advanceTimersByTimeAsync(20_000);
+      await failed;
+    } finally { vi.useRealTimers(); }
+    expect(game.isRecording("project")).toBe(false);
+  });
+
+  it("abandons a recording still starting when the app closes", async () => {
+    state.onLoad = () => new Promise(() => {});
+    const game = recorder();
+    const starting = game.start("project", target() as never, options);
+    game.close();
+    await expect(starting).rejects.toThrow("closed while recording");
     expect(state.hosts[0]!.destroyed).toBe(true);
     expect(game.isRecording("project")).toBe(false);
   });

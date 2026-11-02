@@ -79,7 +79,8 @@ const gameRecorder = new GameRecorder({
   preloadPath: path.join(moduleDirectory, "game-recorder-preload.cjs"),
   save: saveGameRecording,
   onSaving: (id) => {
-    if (gameRecordings.has(id)) publishGameRecording({ projectId: id, status: "saving" });
+    // Agents' recordings are not announced. A person can stop one that is still starting.
+    if (gameRecordings.has(id) || gameRecordingStarts.has(id)) publishGameRecording({ projectId: id, status: "saving" });
   },
 });
 const agentPlaytests = new ElectronPlaytestDriver((state) => {
@@ -425,10 +426,15 @@ async function startGameRecording(projectId: string): Promise<void> {
   try {
     const { contents, title } = await webGamePlayers.recordingTarget(projectId);
     ({ outcome } = await gameRecorder.start(projectId, contents, { title, maxSeconds: GAME_RECORDING_MAX_SECONDS }));
+  } catch (cause) {
+    if (gameRecordings.has(projectId)) publishGameRecording({ projectId, status: "idle" });
+    throw cause;
   } finally {
     gameRecordingStarts.delete(projectId);
   }
-  publishGameRecording({ projectId, status: "recording", startedAt: Date.now(), maxSeconds: GAME_RECORDING_MAX_SECONDS });
+  if (gameRecordings.get(projectId)?.status !== "saving") {
+    publishGameRecording({ projectId, status: "recording", startedAt: Date.now(), maxSeconds: GAME_RECORDING_MAX_SECONDS });
+  }
   webGamePlayers.setRecording(projectId, true);
   void outcome.then(
     (saved) => publishGameRecording({ projectId, status: "idle", saved }),

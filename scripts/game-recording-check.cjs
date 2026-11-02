@@ -104,12 +104,12 @@ app.whenReady().then(async () => {
     console.log('Recording an agent playtest...');
     const { ElectronPlaytestDriver } = await import(pathToFileURL(path.join(root, 'dist/desktop/playtest-driver.js')).href);
     const driver = new ElectronPlaytestDriver(undefined, undefined, recorder);
-    const opened = await driver.request({ operation: 'open', target: { runtime: 'web', url }, viewport: { width: 640, height: 960 } });
+    const opened = await driver.request({ operation: 'open', target: { runtime: 'web', url }, viewport: { width: 480, height: 640 } });
     const { sessionId } = opened.snapshot;
     await driver.request({ operation: 'recordStart', sessionId });
     await driver.request({ operation: 'act', sessionId, actions: [{ type: 'wait', milliseconds: 2000 }] });
     const { recording } = await driver.request({ operation: 'recordStop', sessionId });
-    await expectVideo('agent', recording, { aspect: 2 / 3, seconds: 2, minEdge: 900 });
+    await expectVideo('agent', recording, { aspect: 3 / 4, seconds: 2, minEdge: 600 });
     driver.close();
 
     await assert.rejects(recorder.start('gone', contents, { title: 'Check', maxSeconds: 60 }), /no longer running/);

@@ -90,21 +90,21 @@ export class GameRecorder {
     host.webContents.on("render-process-gone", () => recording.hostFinished.reject(new Error("The recorder stopped unexpectedly.")));
     const stopWithGame = () => this.stop(id);
     target.once("destroyed", stopWithGame);
+    let startLimit: ReturnType<typeof setTimeout> | undefined;
     try {
-      await host.loadURL(this.options.hostUrl);
-      // Display capture needs a user gesture, which this stands in for: the
-      // page is ours, and it only ever captures the target this class names.
-      const started = host.webContents.executeJavaScript(`window.startRecording(${JSON.stringify(SETTINGS)})`, true) as Promise<GameRecorderStarted>;
-      let startLimit: ReturnType<typeof setTimeout> | undefined;
       recording.started = await Promise.race([
-        started,
+        this.#startPage(recording),
         new Promise<never>((_resolve, reject) => { startLimit = setTimeout(() => reject(new Error("The recording could not be started.")), START_TIMEOUT_MS); }),
-      ]).finally(() => clearTimeout(startLimit));
+        // The recorder crashing or the app closing ends the wait as well.
+        recording.finished.then(() => new Promise<never>(() => {})),
+      ]);
     } catch (cause) {
+      clearTimeout(startLimit);
       target.removeListener("destroyed", stopWithGame);
       await this.#discard(recording);
       throw cause;
     }
+    clearTimeout(startLimit);
     if (recording.stopRequested) this.#askToFinish(recording);
     else recording.timer = setTimeout(() => this.stop(id), maxSeconds * 1000);
     return {
@@ -123,6 +123,13 @@ export class GameRecorder {
     this.options.onSaving?.(id);
     // A page still starting has nothing to stop yet; `start` asks once it does.
     if (recording.started) this.#askToFinish(recording);
+  }
+
+  async #startPage({ host }: Recording): Promise<GameRecorderStarted> {
+    await host.loadURL(this.options.hostUrl);
+    // Display capture needs a user gesture, which this stands in for: the
+    // page is ours, and it only ever captures the target this class names.
+    return await host.webContents.executeJavaScript(`window.startRecording(${JSON.stringify(SETTINGS)})`, true) as GameRecorderStarted;
   }
 
   #askToFinish(recording: Recording): void {
@@ -163,8 +170,8 @@ export class GameRecorder {
       // Five minutes of play are worth keeping when the Library can't take them.
       throw new Error(`${cause instanceof Error ? cause.message : String(cause)} The recording is still at ${recording.file}.`, { cause });
     }
-    this.#forget(recording);
     await rm(recording.directory, { recursive: true, force: true }).catch(() => undefined);
+    this.#forget(recording);
     return saved;
   }
 
@@ -188,9 +195,9 @@ export class GameRecorder {
   }
 
   async #discard(recording: Recording): Promise<void> {
-    this.#forget(recording);
     recording.sink.destroy();
     await rm(recording.directory, { recursive: true, force: true }).catch(() => undefined);
+    this.#forget(recording);
   }
 
   #install(): void {
