@@ -33,9 +33,9 @@ for `Intl` and `toLocale*` formatting.
   Two things in the main process are the exception, because the renderer sends
   it their wording: system notifications (see
   [agent notifications](runtime.md#agent-notifications)) and the application
-  menu, which is the macOS menu bar and the menus of the Windows title bar. It
-  takes `windowMenu` when the main window loads (`src/desktop/application-menu.ts`)
-  and is in English until then.
+  menu: the macOS menu bar, the menus of the Windows title bar, and the native
+  menu in a Linux development run. It takes `windowMenu` when the main window
+  loads (`src/desktop/application-menu.ts`) and is in English until then.
 - Content from outside the app: examples, plugin and skill descriptions,
   Community games, provider and model names.
 

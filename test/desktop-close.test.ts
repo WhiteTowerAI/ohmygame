@@ -85,6 +85,8 @@ vi.doMock(path.resolve("src/desktop/window.ts"), () => ({
       once: (name: string, fn: (...args: any[]) => void) => host.windowEvents.set(name, fn),
     };
     options.beforeLoad(window);
+    // The page sends its labels as it loads, before the window has finished opening.
+    host.handlers.get("ohmygame:set-application-menu-labels")!({ sender: host.sender }, { window: "Sent while loading" });
     return window;
   },
   waitForRenderer: async () => {}, fitPlaytestContentSize: vi.fn(), isValidPlaytestViewport: () => true, windowsTitleBarOverlay: vi.fn(),
@@ -121,6 +123,9 @@ it("starts with an English application menu that only the main window can relabe
 
   await setLabels({ sender: host.sender }, { file: "文件" });
   expect(fileMenuLabel()).toBe("文件");
+});
+it("accepts the labels the main window sends while it loads", () => {
+  expect(host.applicationMenu!.template.find((item) => item.id === "Window")!.label).toBe("Sent while loading");
 });
 it("opens the application menu's own submenu by id, whatever its label", async () => {
   const popup = host.handlers.get("ohmygame:popup-window-menu")!;
