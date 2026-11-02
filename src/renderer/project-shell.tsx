@@ -93,7 +93,13 @@ import {
   subscribeToProject,
   undoCheckpoint,
   waitForRuntime,
+  createPluginFolder,
+  deletePluginFile,
   getPluginPageValue,
+  listPluginFiles,
+  movePluginFile,
+  readPluginFile,
+  writePluginFile,
   setPluginPageValue,
   runPluginCommand,
   undoProjectPluginChange,
@@ -1138,10 +1144,16 @@ export function ProjectShell({
     const commands = commandsForSlot(plugins.commands, slot, plugins.when);
     return commands.length ? ["separator", ...commands.map((command): MenuEntry => ({ label: command.title, icon: <Plug size={14} />, onSelect: () => void runProjectPluginCommand(command) }))] : [];
   }
+  /** Refreshes the views of the project's files once a page's change to them lands. */
+  async function changedFiles<T>(change: Promise<T>): Promise<T> {
+    const result = await change;
+    setWorkspaceRevision((value) => value + 1);
+    return result;
+  }
   /** A plugin's page in its panel, talking to the app through its frame. */
   function pluginPanelContent(panel: PluginPanel, shown: boolean) {
     const current = project!;
-    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} onToolbarRun={onPluginToolbarRun} context={{
+    return <PluginFrame url={panel.url!} title={panel.title} visible={shown} progress={pluginProgress} filesRevision={workspaceRevision} onToolbarRun={onPluginToolbarRun} context={{
       plugin: { id: panel.plugin, version: panel.version, panel: panel.id },
       ...(panel.accent ? { accent: panel.accent } : {}),
       // Under the plugin's id, which it can't choose as it can a panel's title.
@@ -1162,6 +1174,15 @@ export function ProjectShell({
       storage: {
         get: (key) => getPluginPageValue(current.id, panel.plugin, key),
         set: (key, value) => setPluginPageValue(current.id, panel.plugin, key, value),
+      },
+      files: {
+        list: (options) => listPluginFiles(current.id, panel.plugin, options),
+        read: (filePath) => readPluginFile(current.id, panel.plugin, filePath),
+        // What a page changes shows in the app's views and history like any other change.
+        write: (filePath, contents) => changedFiles(writePluginFile(current.id, panel.plugin, filePath, contents)),
+        createFolder: (folderPath) => changedFiles(createPluginFolder(current.id, panel.plugin, folderPath)),
+        move: (from, to) => changedFiles(movePluginFile(current.id, panel.plugin, from, to)),
+        delete: (filePath) => changedFiles(deletePluginFile(current.id, panel.plugin, filePath)),
       },
       runCommand: async (command, input) => {
         const id = `${panel.plugin}:${command}`;

@@ -225,6 +225,16 @@ async function openProject(
   return Object.assign(daemon, { route: render });
 }
 
+/** A page context's files, for pages that don't use them. */
+const NO_FILES = {
+  list: async () => ({ entries: [], truncated: false }),
+  read: async () => new Blob(),
+  write: async (path: string) => path,
+  createFolder: async (path: string) => path,
+  move: async (_from: string, to: string) => to,
+  delete: async () => {},
+};
+
 const settle = () =>
   act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -378,6 +388,7 @@ describe("plugins in the project shell", () => {
       commands: [],
       project: () => ({ name: "Game", type: "web-game" }),
       storage: { get: async () => null, set: async () => {} },
+      files: NO_FILES,
       runCommand: async () => null,
       toast: () => {},
       confirm: async () => false,
@@ -446,6 +457,7 @@ describe("plugins in the project shell", () => {
       commands: [],
       project: () => ({ name: "Game", type: "web-game" }),
       storage: { get: async () => null, set: async () => {} },
+      files: NO_FILES,
       runCommand: async () => null,
       toast,
       confirm,
@@ -467,6 +479,7 @@ describe("plugins in the project shell", () => {
       commands: [],
       project: () => ({ name: "Game", type: "web-game" }),
       storage: { get: async () => null, set: async () => {} },
+      files: NO_FILES,
       runCommand: async () => null,
       toast,
       confirm,
@@ -522,6 +535,65 @@ describe("plugins in the project shell", () => {
       page!.onmessage = ({ data }) => replies.set(data.id, data);
       page!.postMessage({ id: 30, method: "ui.toast", params: { message: "Hello" } });
       await vi.waitFor(() => expect(replies.get(30)?.error).toContain("too many"));
+      page!.close();
+    } finally {
+      post.mockRestore();
+    }
+  });
+
+  it("hands a page the project's files as far as it may use them, and says when they change", async () => {
+    const { PluginFrame } = await import("../src/renderer/plugin-frame.js");
+    // A browser's port carries a Blob; jsdom's Blob doesn't survive Node's port, and Node's own does.
+    vi.stubGlobal("Blob", (await import("node:buffer")).Blob);
+    const written: Array<[string, string]> = [];
+    const files = {
+      ...NO_FILES,
+      read: async () => new Blob(["level"], { type: "application/json" }),
+      write: async (path: string, contents: Blob) => {
+        written.push([path, await contents.text()]);
+        return path;
+      },
+    };
+    const context = {
+      plugin: { id: "acme/files", version: "1.0.0", panel: "main" },
+      locale: "en" as const,
+      capabilities: { "project.files": "read" as "read" | "write" },
+      commands: [],
+      project: () => ({ name: "Game", type: "web-game" }),
+      storage: { get: async () => null, set: async () => {} },
+      files,
+      runCommand: async () => null,
+      toast: () => {},
+      confirm: async () => false,
+    };
+    let page: MessagePort | undefined;
+    const post = vi.spyOn(HTMLIFrameElement.prototype, "contentWindow", "get").mockReturnValue({
+      postMessage: (_data: unknown, _origin: string, ports: MessagePort[]) => (page = ports[0]),
+    } as unknown as Window);
+    try {
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={context} visible filesRevision={1} />));
+      await act(async () => {
+        container.querySelector("iframe.plugin-frame")!.dispatchEvent(new Event("load"));
+      });
+      const replies = new Map<number, Record<string, unknown>>();
+      const events: unknown[] = [];
+      page!.onmessage = ({ data }) => (data.event ? events.push(data) : replies.set(data.id, data));
+      page!.postMessage({ id: 1, method: "files.read", params: { path: "levels/one.json" } });
+      await vi.waitFor(() => expect(replies.get(1)?.result).toBeInstanceOf(Blob));
+      expect(await (replies.get(1)!.result as Blob).text()).toBe("level");
+      // Reading doesn't cover writing.
+      page!.postMessage({ id: 2, method: "files.write", params: { path: "a.txt", data: "x" } });
+      await vi.waitFor(() => expect(replies.get(2)?.error).toContain("project.files capability set to write"));
+      expect(written).toEqual([]);
+      const writer = { ...context, capabilities: { "project.files": "write" as const } };
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={writer} visible filesRevision={1} />));
+      page!.postMessage({ id: 3, method: "files.write", params: { path: "a.txt", data: "text" } });
+      page!.postMessage({ id: 4, method: "files.write", params: { path: "b.bin", data: new Blob(["bytes"]) } });
+      await vi.waitFor(() => expect(replies.get(4)?.result).toBe("b.bin"));
+      expect(written).toEqual([["a.txt", "text"], ["b.bin", "bytes"]]);
+      expect(events.filter((event) => (event as { event: string }).event === "files")).toEqual([]);
+      await act(async () => root.render(<PluginFrame url="about:blank" title="Files" context={writer} visible filesRevision={2} />));
+      await vi.waitFor(() => expect(events).toContainEqual({ event: "files" }));
       page!.close();
     } finally {
       post.mockRestore();

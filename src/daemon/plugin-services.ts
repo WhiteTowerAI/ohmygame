@@ -449,6 +449,7 @@ export class PluginServices {
           capabilities: {
             ...(capabilities["project.selection"] ? { "project.selection": true } : {}),
             ...(capabilities.composer ? { composer: true } : {}),
+            ...(capabilities["project.files"] ? { "project.files": capabilities["project.files"] } : {}),
           },
           commands: (entry.manifest.contributes?.commands ?? []).map((command) => command.id),
           ...(entry.manifest.ui?.accent ? { accent: entry.manifest.ui.accent } : {}),

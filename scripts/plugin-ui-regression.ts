@@ -57,7 +57,11 @@ export function compareRuns(base: readonly PanelRun[] | undefined, head: readonl
 /** What a person who allowed everything the plugin asks for gives its pages. */
 function capabilitiesOf(entry: PluginIndexEntry): PluginUiCapabilities {
   const asked = entry.manifest.capabilities;
-  return { "project.selection": asked?.["project.selection"] === true, composer: asked?.composer === true };
+  return {
+    "project.selection": asked?.["project.selection"] === true,
+    composer: asked?.composer === true,
+    ...(asked?.["project.files"] ? { "project.files": asked["project.files"] } : {}),
+  };
 }
 
 /** The page the panel loads in: the app's frame, its tokens and its answers, with nothing behind them. */
@@ -93,13 +97,21 @@ frame.addEventListener("load", async () => {
       throw new Error("Commands don't run in this check");
     },
     "ui.confirm": () => false,
+    "files.list": () => ({ entries: [], truncated: false }),
+    "files.read": () => { throw new Error("Project files don't exist in this check"); },
+    "files.write": ({ path }) => path,
+    "files.createFolder": ({ path }) => path,
+    "files.move": ({ to }) => to,
+    "files.delete": () => null,
   };
   channel.port1.onmessage = async ({ data }) => {
     if (data?.event === "ready") { window.pluginReady = true; return; }
     // The app's own checks, so a page is refused here what it would be refused there.
     let body;
     try {
-      body = JSON.stringify({ data, capabilities });
+      // A blob doesn't survive JSON, and the app's check takes one or a string.
+      const sent = data?.params?.data instanceof Blob ? { ...data, params: { ...data.params, data: "" } } : data;
+      body = JSON.stringify({ data: sent, capabilities });
     } catch {
       // Too odd for JSON; the app's check refuses these for the same reason.
       if (Number.isSafeInteger(data?.id) && data.id >= 0) channel.port1.postMessage({ id: data.id, error: "the request can't be sent as JSON" });

@@ -104,7 +104,7 @@ shows it in the call's progress.
 | MCP host | `src/daemon/plugin-mcp-host.ts`, `src/daemon/mcp-definitions.ts` | `test/plugin-mcp-host.test.ts` |
 | Project types and web builds | `src/daemon/project-types.ts`, `src/daemon/preview.ts` | `test/extension-hosts.test.ts`, `test/preview.test.ts` |
 | Writes outside a turn | `src/daemon/plugin-writes.ts` | `test/checkpoints.test.ts` |
-| Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts` |
+| Plugin pages | `src/daemon/plugin-ui-server.ts`, `src/shared/plugin-ui-protocol.ts`, `src/renderer/plugin-frame.tsx`, `src/daemon/plugin-page-storage.ts`, `src/daemon/plugin-files.ts`, `packages/plugin-ui/` | `test/preview-static.test.ts`, `test/plugin-ui-components.test.ts`, `test/plugin-files-api.test.ts` |
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
@@ -173,7 +173,13 @@ shows it in the call's progress.
   `GET /projects/:id/plugin-changes`,
   `POST /projects/:id/plugin-changes/:changeId/undo`.
 - Pages: `GET /projects/:id/plugin-panels`,
-  `GET`/`PUT /projects/:id/plugin-storage/:publisher/:name/:key`.
+  `GET`/`PUT /projects/:id/plugin-storage/:publisher/:name/:key`, and a
+  page's [project files](#plugin-pages) under
+  `/projects/:id/plugin-files/:publisher/:name`: `GET ?path=&recursive=`
+  lists, `GET`/`PUT content?path=` reads and writes the bytes
+  (`application/octet-stream`), `DELETE ?path=` deletes, and `POST folder`
+  (`{ path }`) and `POST move` (`{ from, to }`). They answer a plugin the
+  project uses, with a panel and the level of `project.files` the route needs.
 - Adding: `POST /plugin-sources/inspect` and `/plugin-sources/install` take a
   source as JSON; `POST /plugin-sources/file/inspect` and
   `/plugin-sources/file/install?digest=` take a `.tgz` as `application/gzip`.
@@ -456,6 +462,21 @@ The app also draws around and over a page, with what a page can't change:
   showing can't ask, one question waits at a time, and a plugin, across its
   panels, gets at most five toasts in ten seconds and five questions in a
   minute. Beyond that the request fails.
+- **Project files.** With `capabilities["project.files"]`, `read` or
+  `write`, a page has `host.files` (`src/daemon/plugin-files.ts`):
+  `list(path?, { recursive })`, `read(path)` as a Blob, `text(path)`,
+  `url(path)` for `<img>`, `<audio>` or `<video>` (a `blob:` address, which
+  the page's CSP allows), and with `write` also `write(path, text | Blob)`,
+  `createFolder`, `move(from, to)` and `delete`. Paths are relative to the
+  project. A page never reaches a hidden file or folder, so neither `.env`
+  nor an agent's or editor's settings, and follows no link; it can't change
+  `ohmygame.json`, an `AGENTS.md`, `CLAUDE.md` or `GEMINI.md`, or Canvas
+  files, and a move never replaces anything. A recursive listing leaves out
+  `build`, `dist`, `node_modules` and `out` and stops at 10,000 entries; a
+  write is at most 200 MB. Each change is one the person can undo, as a
+  plugin command's is, and the agent hears of it; while an agent, a job or
+  publishing works in the project a change is refused. The page hears a
+  `files` event when the project's files may have changed.
 
 ### Page components
 
