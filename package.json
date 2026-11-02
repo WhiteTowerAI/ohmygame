@@ -32,6 +32,7 @@
     "plugin:schema": "node --import tsx scripts/plugin-schema.ts",
     "plugin-ui:contract": "node --import tsx scripts/plugin-ui-contract.ts",
     "plugin:check": "node --import tsx scripts/plugin-check.ts",
+    "plugin-ui:regression": "node --import tsx scripts/plugin-ui-regression.ts",
     "voices:doubao": "bun scripts/sync-doubao-voices.ts",
     "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",
     "changelog:check": "node scripts/release-notes.mjs --check",

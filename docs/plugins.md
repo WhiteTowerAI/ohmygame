@@ -533,6 +533,18 @@ or attributes, a component named in a script that doesn't exist, attributes and
 parts that don't exist, fixed colours, and custom properties that aren't the
 app's tokens or the page's own.
 
+`bun run plugin-ui:regression [--base <git ref>] [--out <folder>] [plugin folders]`
+(`scripts/plugin-ui-regression.ts`) loads panels in Electron, in both
+appearances, and fails on errors in the console or components that never
+registered. It keeps a picture of each. With `--base` it first runs on that
+ref's components, on the same machine, so only what is newly wrong fails, and
+pictures that changed are listed without failing: a change in how things look
+isn't a break. With no folders it runs this repository's panel plugins. Commands
+fail there, so each panel shows how it takes that;
+`scripts/plugin-ui-regression-scenarios.json` gives a plugin's commands results
+for other states. CI runs it on macOS and Windows, with the pictures as an
+artifact. Before a component changes, it can run on other plugins' folders too.
+
 `packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
 shows every component in its states, with commands that report progress and
 fail, its brand colour, a toolbar command, toasts and a question. It isn't

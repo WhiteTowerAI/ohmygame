@@ -203,3 +203,53 @@ export function pluginFrameNavigationAllowed(from: string, to: string, pluginUiO
     return false;
   }
 }
+
+/** The contrast a brand colour needs against the panel's surface, as any control does (WCAG 1.4.11). */
+export const PLUGIN_ACCENT_MIN_CONTRAST = 3;
+
+/** A `#rgb`, `#rrggbb` or `rgb()` colour's channels, 0 to 255. Other forms aren't read. */
+function channels(color: string): [number, number, number] | undefined {
+  const value = color.trim();
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value)?.[1];
+  if (hex) {
+    const full = hex.length === 3 ? [...hex].map((digit) => digit + digit).join("") : hex;
+    return [0, 2, 4].map((at) => Number.parseInt(full.slice(at, at + 2), 16)) as [number, number, number];
+  }
+  const rgb = /^rgba?\(\s*(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)\s*(?:[,/]\s*1(?:\.0+)?\s*|[,/]\s*100%\s*)?\)$/i.exec(value);
+  return rgb ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])] : undefined;
+}
+
+/** WCAG's contrast between two colours, from 1 to 21. */
+function contrast(a: [number, number, number], b: [number, number, number]): number {
+  const luminance = (color: [number, number, number]) => {
+    const [red, green, blue] = color.map((channel) => {
+      const value = channel / 255;
+      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    }) as [number, number, number];
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+  return (light + 0.05) / (dark + 0.05);
+}
+
+const WHITE: [number, number, number] = [255, 255, 255];
+const BLACK: [number, number, number] = [0, 0, 0];
+
+/**
+ * `--omg-accent` and the text that goes on it, for a page in this appearance:
+ * the plugin's brand colour if it stands out from the surface, otherwise the
+ * app's accent, so no plugin's colour makes its progress hard to see. A
+ * surface it can't read counts as not standing out.
+ */
+export function accentTokens(
+  accent: PluginAccent | undefined,
+  appearance: "dark" | "light",
+  tokens: Record<string, string>,
+): Record<string, string> {
+  const wanted = typeof accent === "string" ? accent : accent?.[appearance];
+  const brand = wanted ? channels(wanted) : undefined;
+  const surface = channels(tokens["--color-surface"] ?? "");
+  if (wanted && brand && surface && contrast(brand, surface) >= PLUGIN_ACCENT_MIN_CONTRAST)
+    return { "--omg-accent": wanted, "--omg-on-accent": contrast(brand, WHITE) >= contrast(brand, BLACK) ? "#ffffff" : "#000000" };
+  return { "--omg-accent": tokens["--color-accent"] ?? "", "--omg-on-accent": tokens["--color-on-accent"] ?? "" };
+}

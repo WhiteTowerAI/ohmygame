@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ComponentManifest, componentManifest, componentTypes, contractChanges, contractFiles, declarations, parseComment, supportChanges } from "../scripts/plugin-ui-contract.js";
 import { checkPlugin } from "../scripts/plugin-check.js";
+import { compareRuns } from "../scripts/plugin-ui-regression.js";
 import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
 import { PLUGIN_UI_MAJORS } from "../src/shared/plugin-ui-versions.js";
 
@@ -485,6 +486,28 @@ describe("page components' contract", () => {
     // Another component still fires omg-go as it was, while nothing else fires omg-old.
     expect(deprecation).not.toContain("Use omg-run.");
     expect(deprecation).toContain("@deprecated Use omg-new.");
+  });
+});
+
+describe("regression check", () => {
+  const run = (issues: string[], picture = "a", scenario?: string) => ({ plugin: "acme/panel", panel: "main", ...(scenario ? { scenario } : {}), appearance: "dark", issues, picture });
+
+  it("fails on anything wrong when there is nothing to compare with", () => {
+    expect(compareRuns(undefined, [run([]), run(["console: boom"])])).toEqual({ failures: ["acme/panel main (dark): console: boom"], changed: [] });
+  });
+
+  it("fails only on what is newly wrong, and lists what looks different without failing", () => {
+    expect(compareRuns([run(["console: old"])], [run(["console: old"])])).toEqual({ failures: [], changed: [] });
+    expect(compareRuns([run(["console: old"])], [run(["console: old", "<omg-x> never registered"], "b")])).toEqual({
+      failures: ["acme/panel main (dark): <omg-x> never registered"],
+      changed: ["acme/panel main (dark)"],
+    });
+    // A page needn't connect, but one that did and stopped has broken.
+    expect(compareRuns(undefined, [{ ...run([]), connected: false }]).failures).toEqual([]);
+    expect(compareRuns([{ ...run([]), connected: false }], [{ ...run([]), connected: false }]).failures).toEqual([]);
+    expect(compareRuns([{ ...run([]), connected: true }], [{ ...run([]), connected: false }]).failures).toEqual(["acme/panel main (dark): the page no longer connects to the app"]);
+    // Each scenario is its own view.
+    expect(compareRuns([run([], "a"), run([], "b", "connected")], [run([], "a"), run(["console: boom"], "b", "connected")]).failures).toEqual(["acme/panel main connected (dark): console: boom"]);
   });
 });
 
