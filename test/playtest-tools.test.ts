@@ -43,6 +43,8 @@ class FakeDriver implements GameRuntimeAdapter {
         },
       };
     }
+    if (request.operation === "recordStart") return { operation: "recordStart", sessionId: request.sessionId, maxSeconds: 60 };
+    if (request.operation === "recordStop") return { operation: "recordStop", sessionId: request.sessionId, recording: { assetId: "asset-1", name: "Agent playtest.mp4", duration: 12, bytes: 1000 } };
     if (request.operation === "close" || request.operation === "closeAll") return { operation: request.operation };
     return { operation: request.operation, snapshot };
   }
@@ -140,6 +142,24 @@ describe("game use tool", () => {
       operation: "inspect",
       sessionId: "session-1",
     }, undefined, undefined, {} as never)).rejects.toThrow("not available");
+  });
+
+  it("records a session on request and says where the file went", async () => {
+    const driver = new FakeDriver();
+    const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
+    const started = await tool.execute("record-1", { operation: "recordStart", sessionId: "session-1" }, undefined, undefined, {} as never);
+    expect(started.content[0]).toMatchObject({ text: expect.stringContaining("\"maxSeconds\":60") });
+    const stopped = await tool.execute("record-2", { operation: "recordStop", sessionId: "session-1" }, undefined, undefined, {} as never);
+    expect(stopped.content[0]).toMatchObject({ text: expect.stringContaining("Saved the recording to the Library") });
+    expect(driver.requests).toEqual([{ operation: "recordStart", sessionId: "session-1" }, { operation: "recordStop", sessionId: "session-1" }]);
+    await expect(tool.execute("record-3", { operation: "recordStart" }, undefined, undefined, {} as never)).rejects.toThrow("sessionId is required");
+  });
+
+  it("refuses to record on a runtime without video", async () => {
+    const driver = new FakeDriver({ ...WEB_GAME_USE_CAPABILITIES, observation: ["screenshot"] });
+    const tool = createGameUseTool(driver, async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }));
+    await expect(tool.execute("record-1", { operation: "recordStart", sessionId: "session-1" }, undefined, undefined, {} as never)).rejects.toThrow("video");
+    expect(driver.requests).toHaveLength(0);
   });
 
   it("validates fields required by session operations", async () => {

@@ -126,6 +126,16 @@ const zhCN: typeof en = {
     removeName: "移除 {{name}}",
     deleteName: "删除 {{name}}",
   },
+  gameRecording: {
+    start: "录制游戏",
+    startHint: "录制游戏（游玩时按 {{shortcut}}）",
+    stop: "停止录制",
+    saving: "正在保存…",
+    recordingStatus: "正在录制，{{time}}。停止录制。",
+    saved: "录像已保存到素材库",
+    open: "打开素材库",
+    failed: "无法录制游戏",
+  },
   gameTuning: {
     title: "调手感",
     close: "关闭",

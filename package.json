@@ -48,7 +48,8 @@
     "lint": "oxlint --deny-warnings",
     "test:node-runtime": "bun run build:daemon && node scripts/test-node-runtime.mjs",
     "test:installer-progress": "node scripts/test-installer-progress.mjs",
-    "test:desktop-game": "bun run build:host && bun run build:renderer && node scripts/test-web-game-runtime.mjs"
+    "test:desktop-game": "bun run build:host && bun run build:renderer && node scripts/test-web-game-runtime.mjs",
+    "test:game-recording": "bun run build:host && bun run build:renderer && node scripts/test-game-recording.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.3.0",
