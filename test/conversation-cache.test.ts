@@ -1,8 +1,17 @@
-import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const reads = vi.hoisted(() => [] as Array<{ start?: number }>);
+vi.mock("node:fs", async (original) => {
+  const fs = await original<typeof import("node:fs")>();
+  return { ...fs, createReadStream: (file: string, options?: { start?: number }) => {
+    reads.push({ start: options?.start });
+    return fs.createReadStream(file, options);
+  } };
+});
 import { ConversationManager } from "../src/daemon/conversations.js";
 import { ConversationCache } from "../src/daemon/conversation-cache.js";
 import { ConversationImageStore } from "../src/daemon/conversation-images.js";
@@ -154,6 +163,32 @@ describe("conversation UI cache", () => {
     expect(before!.getSessionName()).not.toBe("Appended at read completion");
     expect(after!.getSessionName()).toBe("Appended at read completion");
     expect(latest).toBe(after);
+  });
+
+  it("reads only what a long session gained, not all of it again", async () => {
+    const { project, stored, conversations, session } = await fixture();
+    session.appendCustomEntry("padding", { text: "x".repeat(400_000) });
+    await conversations.view(project, stored);
+    const { size } = await stat(stored.sessionPath);
+    reads.length = 0;
+
+    session.appendSessionInfo("Renamed while running");
+    const view = await conversations.view(project, stored);
+    expect(view.getSessionName()).toBe("Renamed while running");
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.every((read) => (read.start ?? 0) >= size)).toBe(true);
+  });
+
+  it("reads a long session again when its start was rewritten", async () => {
+    const { project, stored, conversations, session } = await fixture();
+    session.appendCustomEntry("padding", { text: "x".repeat(400_000) });
+    await conversations.view(project, stored);
+    const original = await readFile(stored.sessionPath, "utf8");
+    await writeFile(stored.sessionPath, original.replace('"text":"Inspect"', '"text":"Changed"'));
+    await appendFile(stored.sessionPath, `${JSON.stringify({ type: "session_info", id: "renamed", parentId: null,
+      timestamp: new Date().toISOString(), name: "Renamed" })}\n`);
+    const user = conversationItems((await conversations.view(project, stored)).getEntries()).find((item) => item.type === "userMessage");
+    expect(user).toMatchObject({ text: "Changed" });
   });
 
   it("invalidates a rewritten prefix even when the previous file boundary is unchanged", async () => {

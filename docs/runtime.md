@@ -71,6 +71,11 @@ The UI reader collects incomplete JSONL records as byte chunks and decodes
 each complete line once. Large inline images therefore do not cause repeated
 copying and scanning of the growing record; the authoritative session stays
 unchanged, including when the final record is still being appended.
+When the file has grown, the reader parses only the new records. It compares
+the first and last 64 KiB of what it read before to tell an append from a
+rewrite, which it reads again in full. Pi only appends to a session in its
+current version, so a long session no longer costs a full read for every
+message sent while a turn runs.
 
 The UI reader keeps only what the chat shows of each tool's output, 6,000
 characters from its start and from its end, so a long session's text does not
