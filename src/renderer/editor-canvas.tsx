@@ -356,6 +356,8 @@ function DeleteKeys({ keys, canvas }: { keys: ReactFlowProps["deleteKeyCode"]; c
       const target = event.composedPath?.()[0] ?? event.target;
       if (target instanceof Element && (["INPUT", "SELECT", "TEXTAREA"].includes(target.nodeName) || target.hasAttribute("contenteditable") || target.closest(".nokey"))) return;
       if (!ownsCanvasKeys(canvas.current)) return;
+      // A modal over the canvas has the keys, wherever focus fell inside it.
+      if ([...document.querySelectorAll('[aria-modal="true"]')].some((modal) => !canvas.current?.contains(modal))) return;
       const { nodes, edges } = store.getState();
       void deleteElements({ nodes: nodes.filter((node) => node.selected), edges: edges.filter((edge) => edge.selected) });
       store.setState({ nodesSelectionActive: false });
