@@ -2,6 +2,7 @@ import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
 import { CUSTOM_MODEL_APIS } from "./contracts.js";
 import { isNewerPluginVersion, isPluginVersion } from "./plugins.js";
+import { PLUGIN_UI_MAJORS, PLUGIN_UI_PREVIEW_MAJORS } from "./plugin-ui-versions.js";
 import { compileWhen } from "./plugin-when.js";
 
 // The plugin manifest at `.ohmygame-plugin/plugin.json`, read at
@@ -12,7 +13,7 @@ import { compileWhen } from "./plugin-when.js";
 export const PLUGIN_MANIFEST_SCHEMA_URL =
   "https://ohmygame.dev/schema/plugin-2.json";
 /** The plugin API this host implements; manifests name the range they need. */
-export const PLUGIN_HOST_API_VERSION = "2.0.0";
+export const PLUGIN_HOST_API_VERSION = "2.1.0";
 
 /** `./path` inside the package, without `..` segments or backslashes. */
 const RelativePath = (pattern = "") =>
@@ -178,7 +179,7 @@ const ProjectType = Type.Object(
         {
           additionalProperties: false,
           description:
-            "Before a prompt is sent in a project of this type, the app runs this native command (no input), which returns { ready, message? }; when not ready, the prompt waits and the panel opens",
+            "Before a prompt is sent in a project of this type, the app runs this native command (no input), which returns { ready, message? }; when not ready, the prompt waits and the panel opens. A message of the form %key% is looked up in the plugin's locale files",
         },
       ),
     ),
@@ -475,13 +476,15 @@ export const PluginManifestV2Schema = Type.Object(
     ),
     capabilities: Type.Optional(Capabilities),
     /**
-     * The plugin's pages: `preview` lets them load page components still in
-     * preview, and `accent` is its brand colour, used for progress, selection
-     * and links where it stands out from the panel's surface.
+     * The plugin's pages: `major` is the version of the page components they
+     * use, `preview` lets them load one still in preview, and `accent` is its
+     * brand colour, used for progress, selection and links where it stands out
+     * from the panel's surface.
      */
     ui: Type.Optional(
       Type.Object(
         {
+          major: Type.Optional(Type.Integer({ minimum: 1, maximum: 999 })),
           preview: Type.Optional(Type.Boolean()),
           accent: Type.Optional(
             Type.Union([
@@ -546,7 +549,12 @@ export function isAppWidePlugin(manifest: PluginManifestV2): boolean {
   );
 }
 
+/** What makes a plugin and this version of the app work together. */
+export type PluginVersionFix = "update-app" | "update-plugin";
+
 export interface PluginManifestIssue {
+  /** When the plugin is fine but made for another version of the app. */
+  fix?: PluginVersionFix;
   /** JSON Pointer into the manifest, such as `/contributes/themes/0/dark`. */
   path: string;
   message: string;
@@ -874,11 +882,42 @@ export function satisfiesVersionRange(version: string, range: string): boolean {
 export function pluginApiIssue(
   manifest: Pick<PluginManifestV2, "engines">,
   hostApi = PLUGIN_HOST_API_VERSION,
-): string | undefined {
+): { message: string; fix: PluginVersionFix } | undefined {
   const range = manifest.engines["ohmygame-api"];
-  return satisfiesVersionRange(hostApi, range)
-    ? undefined
-    : `Plugin needs OhMyGame plugin API ${range} (this version has ${hostApi})`;
+  if (satisfiesVersionRange(hostApi, range)) return undefined;
+  const lowest = /\d+\.\d+\.\d+/.exec(range)?.[0];
+  return lowest && isNewerPluginVersion(lowest, hostApi)
+    ? {
+        fix: "update-app",
+        message: `This plugin needs a newer version of OhMyGame: plugin API ${range}, and this version has ${hostApi}. Update OhMyGame to use it.`,
+      }
+    : {
+        fix: "update-plugin",
+        message: `This plugin was made for an older version of OhMyGame: plugin API ${range}, and this version has ${hostApi}. Its author needs to update it.`,
+      };
+}
+
+/** Why this version of the app can't show a plugin's pages, from the component major they declare. */
+export function pluginUiIssue(
+  manifest: Pick<PluginManifestV2, "ui">,
+  served: readonly string[] = PLUGIN_UI_MAJORS,
+  preview: ReadonlySet<string> = PLUGIN_UI_PREVIEW_MAJORS,
+): { message: string; fix?: PluginVersionFix } | undefined {
+  const major = manifest.ui?.major;
+  if (major === undefined) return undefined;
+  if (served.includes(String(major)))
+    return preview.has(String(major)) && !manifest.ui?.preview
+      ? { message: `Page components ${major} are in preview, so ui.preview must be true to use them` }
+      : undefined;
+  return major > Math.max(0, ...served.map(Number))
+    ? {
+        fix: "update-app",
+        message: `This plugin needs a newer version of OhMyGame: its pages use page components ${major}. Update OhMyGame to use it.`,
+      }
+    : {
+        fix: "update-plugin",
+        message: `This plugin was made for an older version of OhMyGame: its pages use page components ${major}, which it no longer has. Its author needs to update it.`,
+      };
 }
 
 /** Longest tool name the model APIs accept. */

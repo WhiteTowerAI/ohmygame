@@ -9,7 +9,7 @@
   "categories": ["engine"],
   "links": { "homepage": "https://maker.taptap.cn" },
   "entrypoints": { "native": "./native/index.mjs" },
-  "ui": { "preview": true, "accent": { "dark": "#00d8c4", "light": "#00857a" } },
+  "ui": { "major": 1, "preview": true, "accent": { "dark": "#00d8c4", "light": "#00857a" } },
   "capabilities": {
     "native": true,
     "project.files": "write",

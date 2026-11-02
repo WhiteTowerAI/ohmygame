@@ -40,44 +40,18 @@
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
 }
-.runtime-notice summary {
-  color: var(--color-text-tertiary);
-  font-size: var(--text-xs);
-  cursor: pointer;
-}
-.runtime-notice pre {
-  max-height: 180px;
-  margin: var(--space-1) 0 0;
-  padding: var(--space-2);
-  overflow: auto;
-  border-radius: var(--radius-sm);
-  background: var(--color-stage);
-  color: var(--color-text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 .preview-diagnostic p {
   margin: 6px 0 0;
   opacity: 0.75;
 }
-.pane-error-boundary pre,
-.preview-diagnostic pre,
-.paused-initial-prompt pre {
-  max-height: 180px;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 12px;
+.pane-error-boundary .ui-disclosure {
+  max-width: min(560px, 100%);
 }
-.pane-error-boundary details,
-.preview-diagnostic details {
+.preview-diagnostic .ui-disclosure {
   margin-top: 8px;
 }
 .pane-error-boundary button,
 .preview-recovery-actions button,
-.paused-initial-prompt button,
 .unfinished-restore button {
   border: 1px solid var(--border, #666);
   border-radius: 6px;
@@ -104,7 +78,6 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.paused-initial-prompt,
 .unfinished-restore {
   margin: 8px 16px;
   padding: 12px;

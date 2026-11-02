@@ -3,8 +3,8 @@ import {
   previewSettings,
   type PreviewMode,
 } from "../shared/preview-settings.js";
-import { ChevronDown, ExternalLink, LoaderCircle, X } from "./icons.js";
-import { Button, IconButton, Switch } from "./ui/index.js";
+import { ExternalLink, LoaderCircle, X } from "./icons.js";
+import { Button, Disclosure, IconButton, Switch } from "./ui/index.js";
 import {
   useEffect,
   useId,
@@ -436,13 +436,11 @@ export function ProjectSettingsDialog({
               </p>
             ) : null}
             {previewMode !== "static" ? (
-              <details className="project-settings-fold is-nested">
-                <summary>
-                  {previewMode === "command"
-                    ? t("projectSettings.serverPort")
-                    : t("projectSettings.portArguments")}
-                  <ChevronDown size={14} aria-hidden="true" />
-                </summary>
+              <Disclosure
+                summary={previewMode === "command"
+                  ? t("projectSettings.serverPort")
+                  : t("projectSettings.portArguments")}
+              >
                 <div className="project-settings-section">
                   <label>
                     <span>{t("projectSettings.serverPort")}</span>
@@ -470,7 +468,7 @@ export function ProjectSettingsDialog({
                     </label>
                   ) : null}
                 </div>
-              </details>
+              </Disclosure>
             ) : null}
           </fieldset>
         </section>
@@ -510,11 +508,7 @@ export function ProjectSettingsDialog({
             </div>
           </fieldset>
         </section>
-        <details className="project-settings-fold">
-          <summary>
-            {t("projectSettings.cleanup")}
-            <ChevronDown size={14} aria-hidden="true" />
-          </summary>
+        <Disclosure variant="section" className="project-settings-fold" summary={t("projectSettings.cleanup")}>
           <fieldset
             className="project-settings-section"
             disabled={saving || !webPreviewEnabled}
@@ -539,13 +533,9 @@ export function ProjectSettingsDialog({
               </select>
             </label>
           </fieldset>
-        </details>
+        </Disclosure>
         {previewActions ? (
-          <details className="project-settings-fold">
-            <summary>
-              {t("projectSettings.previewActions")}
-              <ChevronDown size={14} aria-hidden="true" />
-            </summary>
+          <Disclosure variant="section" className="project-settings-fold" summary={t("projectSettings.previewActions")}>
             <fieldset
               className="project-settings-preview-actions"
               disabled={saving}
@@ -590,7 +580,7 @@ export function ProjectSettingsDialog({
                 </Button>
               ) : null}
             </fieldset>
-          </details>
+          </Disclosure>
         ) : null}
         {webPreviewEnabled && previewUrl ? (
           <Button

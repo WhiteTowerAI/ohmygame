@@ -27,6 +27,7 @@ import { ModelRuntime, SettingsManager, type SessionEntry } from "@earendil-work
 import Fastify, { LogController, type FastifyReply, type FastifyRequest } from "fastify";
 import { daemonLoggerOptions, logFailedRequests } from "./request-log.js";
 import { ActivityLog } from "./activity-log.js";
+import { AgentNoticeLog } from "./agent-notices.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { registerUsageRoutes, UsageIndex } from "./usage-stats.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
@@ -595,6 +596,8 @@ export function createApp(options: AppOptions = {}) {
   const events = new RuntimeEventBus(1_000, (event) => conversationImages.event(event));
   const library = new AssetLibrary(dataDirectory);
   const projects = new ProjectManager(dataDirectory, library);
+  const notices = new AgentNoticeLog((projectId) => projects.get(projectId)?.name ?? null);
+  events.subscribeAll((event) => notices.event(event));
   const attachments = new AgentAttachmentStore();
   const conversations = new ConversationManager(conversationImages, (runtime, id) => agentRuntimes.settings.resolveProfileId(runtime, id));
   const agentPlaytests = new Map<string, OwnedPlaytestDriver>();
@@ -1141,6 +1144,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/health", async () => ({ status: "ok" }));
+  app.get<{ Querystring: { after?: string } }>("/agent-notices", async (request) => notices.read(Number(request.query.after ?? 0) || 0));
 
   // The plugin store: what is installed, the person's decisions, and signed releases.
   const storeReply = (reply: { code(status: number): { send(body: unknown): unknown } }, cause: unknown) =>
@@ -1278,7 +1282,7 @@ export function createApp(options: AppOptions = {}) {
   const pluginDigest = { type: "string", pattern: "^[0-9a-f]{64}$" } as const;
   const pluginLocaleQuery = { type: "object", additionalProperties: false, properties: { locale: { type: "string", maxLength: 16 } } } as const;
   const sourceReply = (reply: FastifyReply, cause: unknown) => {
-    if (cause instanceof PluginSourceError) return reply.code(cause.statusCode).send({ error: cause.message });
+    if (cause instanceof PluginSourceError) return reply.code(cause.statusCode).send({ error: cause.message, ...(cause.code ? { code: cause.code } : {}) });
     throw cause;
   };
   app.addContentTypeParser("application/gzip", { parseAs: "buffer", bodyLimit: PLUGIN_ARCHIVE_MAX_BYTES }, (_request, body, done) => done(null, body));
@@ -3318,7 +3322,7 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { projectId: string; conversationId: string }; Body: PromptRequest }>(
+  app.post<{ Params: { projectId: string; conversationId: string }; Querystring: { locale?: string }; Body: PromptRequest }>(
     "/projects/:projectId/conversations/:conversationId/turns",
     { schema: promptSchema, bodyLimit: Number.MAX_SAFE_INTEGER },
     async (request, reply) => {
@@ -3344,7 +3348,7 @@ export function createApp(options: AppOptions = {}) {
       }
       // A plugin type can hold prompts back until its project is set up, such as signed in and bound.
       if (project.pluginType) {
-        const ready = await pluginServices.projectReady(project.workspacePath, project.pluginType.id);
+        const ready = await pluginServices.projectReady(project.workspacePath, project.pluginType.id, request.query.locale === "zh-CN" ? "zh-CN" : "en");
         if (!ready.ready) return reply.code(409).send({ error: ready.message ?? "Finish setting up this project in its panel first", code: "project-not-ready", panel: ready.panel });
       }
       let references;
@@ -3807,6 +3811,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    notices.close();
     // Indexing writes to the plugin store and restarts sessions; it finishes before they close.
     await pluginServicesReady;
     catalogRefresh.close();

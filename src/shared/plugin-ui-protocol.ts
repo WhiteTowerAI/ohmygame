@@ -4,8 +4,51 @@
 // host transfers one end of a MessageChannel to it; every request comes back
 // on that port, so only that frame can make them, and each is checked against
 // the plugin's capabilities before it runs.
+import { THEME_TOKENS } from "./plugin-manifest.js";
 
 export const PLUGIN_UI_PROTOCOL_VERSION = 1;
+
+/**
+ * The design tokens a page gets on its `:root`, with the values the app has
+ * now: the colours a theme sets, then the roles, type, shape, space and motion
+ * the app's own components use (`src/renderer/ui/tokens.css`). Pages and
+ * `plugin-ui.css` use these names, so a release may add tokens but never
+ * renames or removes one.
+ */
+export const PAGE_TOKENS = [
+  ...THEME_TOKENS,
+  ...[
+    "app",
+    "stage",
+    "surface",
+    "surface-raised",
+    "hover",
+    "selected",
+    "border",
+    "border-strong",
+    "text",
+    "text-secondary",
+    "text-tertiary",
+    "ink",
+    "on-ink",
+    "focus",
+    "control-thumb",
+    "success",
+    "danger",
+    "warning",
+  ].map((role) => `--color-${role}`),
+  "--shadow-hairline",
+  "--shadow-float",
+  "--font-sans",
+  "--font-mono",
+  ...["xs", "sm", "md", "lg", "xl"].map((size) => `--text-${size}`),
+  ...["regular", "medium", "semibold"].map((weight) => `--weight-${weight}`),
+  ...["sm", "md", "lg", "pill"].map((size) => `--radius-${size}`),
+  ...[1, 2, 3, 4, 6].map((step) => `--space-${step}`),
+  "--ease-out",
+  "--duration-fast",
+  "--duration-base",
+] as const;
 
 /** The handshake the host posts to the frame, with the port as its only transfer. */
 export const PLUGIN_UI_HANDSHAKE = "ohmygame-plugin-ui";

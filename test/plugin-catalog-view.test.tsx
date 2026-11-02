@@ -131,29 +131,32 @@ async function search(value: string, label = "Search plugins") {
 }
 
 describe("plugin catalog browsing", () => {
-  it("groups plugins by the categories they declare, apart from those a project turns on", async () => {
+  it("groups plugins by the categories they declare, including those a project turns on", async () => {
     await renderCatalog();
     const sections = [...container.querySelectorAll(".plugins-section")];
     expect(
       sections.map((section) => section.querySelector("h2")?.textContent),
     ).toEqual([
       "Game creation 3",
-      "Engines & platforms 4",
+      "Engines & platforms 5",
       "Art & assets 4",
       "Other plugins 1",
-      "Turned on per project 1",
       "Personal 2",
     ]);
     expect(cards(sections[0])).toEqual(["Game Studio", "Three.js World", "Web Game Studio"]);
-    expect(cards(sections[1])).toEqual(["Cocos Creator", "Douyin Mini Games", "Unity", "WeChat Mini Games"]);
+    expect(cards(sections[1])).toEqual(["Cocos Creator", "Douyin Mini Games", "Unity", "Unreal Engine", "WeChat Mini Games"]);
     expect(cards(sections[2])).toEqual(["Aseprite", "Blender", "Image to Three.js", "Tiled"]);
     expect(cards(sections[3])).toEqual(["New tool"]);
-    expect(cards(sections[4])).toEqual(["Unreal Engine"]);
-    expect(cards(sections[5])).toEqual(["Alpha", "Zebra"]);
-    expect(sections[5].textContent).toContain("Create a plugin with AI");
-    // Each says how it applies.
+    expect(cards(sections[4])).toEqual(["Alpha", "Zebra"]);
+    expect(sections[4].textContent).toContain("Create a plugin with AI");
+    // Each says how it applies. One a project turns on has no switch here, as
+    // projects turn it on; it says when it is off everywhere.
     expect(sections[0].textContent).toContain("Every project");
-    expect(sections[4].textContent).toContain("Per project");
+    const unreal = [...sections[1].querySelectorAll(".plugin-card")].find((item) => item.textContent?.includes("Unreal Engine"))!;
+    expect(unreal.textContent).toContain("Per project");
+    expect(unreal.textContent).toContain("Disabled");
+    expect(unreal.querySelector('[role="switch"]')).toBeNull();
+    expect(sections[1].querySelector('[aria-label="Enable Unity"]')).not.toBeNull();
   });
 
   it("expands and collapses an individual group", async () => {

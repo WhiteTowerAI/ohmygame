@@ -13,12 +13,15 @@ from the [plugin market](#the-plugin-market).
 
 The Plugins page reads `GET /plugin-store/plugins` and has three tabs.
 
-- **Installed** groups the plugins that apply by themselves into **Game
-  creation**, **Engines & platforms**, **Art & assets** and **Other plugins**.
-  Each group shows up to six cards and a **View all**. **Turned on per project**
-  comes next, then **Personal**: the plugins the person made (`personal/<name>`),
-  ending with **Create a plugin with AI**, then the AI workspaces. Search shows
-  every match in one list. Switching a plugin doesn't move it.
+- **Installed** groups plugins by their `categories` into **Game creation**,
+  **Engines & platforms**, **Art & assets** and **Other plugins**, whether they
+  apply by themselves or a project turns them on; each card says which. Each
+  group shows up to six cards and a **View all**. **Personal** comes next: the
+  plugins the person made (`personal/<name>`), ending with **Create a plugin
+  with AI**, then the AI workspaces. Search shows every match in one list.
+  Only a plugin that applies by itself has a switch on its card, and switching
+  it doesn't move it. One a project turns on is turned on in that project; its
+  card says when it is off everywhere, and its page has that switch.
 - **Browse** lists every plugin with its source and what it adds, and filters by
   source and by what it adds. The [plugin market](#the-plugin-market)'s plugins
   come first, under **Featured** and **On npm**, leaving out what's installed.
@@ -39,7 +42,12 @@ starts in, and waits until what the plugin asks for is allowed.
 - **Manifest:** `.ohmygame-plugin/plugin.json` in the package, checked by
   `src/shared/plugin-manifest.ts`. The JSON Schema is
   `schemas/plugin-2.json` (`bun run plugin:schema` rebuilds it). Ids are
-  `publisher/name`; `engines["ohmygame-api"]` must allow 2.0.0.
+  `publisher/name`. `engines["ohmygame-api"]` must allow the plugin API of
+  the running app, `PLUGIN_HOST_API_VERSION` in that file: its minor grows when
+  a manifest field or something else a plugin can use is added, so a plugin
+  that needs one asks for `^2.1.0`, say. Adding a plugin the app is too old for
+  says so and, in the desktop app, offers the update; one made for an API this
+  app has left says its author needs to update it.
 - **Project file:** `ohmygame.json` at a project's root names its type and the
   exact plugin versions it uses (`src/shared/project-file.ts`). It asks for
   plugins; it never allows them.
@@ -157,8 +165,9 @@ shows it in the call's progress.
   Before each prompt the app runs the command (up to 20 seconds); when it
   answers `{ ready: false, message? }`, the prompt route answers 409 with
   `code: "project-not-ready"` and the panel, which the project opens, and a
-  new project's first message waits there. A failed or missing check lets the
-  prompt through.
+  new project's first message goes back into the composer. A `%key%` message
+  comes from the plugin's locale files in the language the prompt request
+  names (`?locale=`). A failed or missing check lets the prompt through.
 - Commands and changes: `GET`/`POST /projects/:id/plugin-commands`
   (`{ command, input? }`; `PluginServices.runCommand` runs it),
   `GET /projects/:id/plugin-changes`,
@@ -344,7 +353,9 @@ HTTP on this computer), there's no market and nothing is read.
 
 A manifest can also give a `longDescription` and up to five `examples`, shown
 on the plugin's page, and mark itself `beta`. `ui.preview` lets its pages
-load page components still in preview (see [Page components](#page-components)).
+load page components still in preview, and `ui.major` says which major its
+pages use, so an app without it can say which way to go (see
+[Page components](#page-components)).
 
 ## Packaging a repository of Skills
 
@@ -456,8 +467,22 @@ custom properties and `::part()`. `--omg-accent` is the plugin's
 
 Version 1 is in preview: a page's policy loads it only when the manifest has
 `"ui": { "preview": true }`. Once a major version is stable, it loads for
-every plugin, and a new one doesn't remove it for at least 12 months.
-Featured and certified plugins won't use preview components.
+every plugin. Featured and certified plugins won't use preview components.
+
+A stable major only grows. A change that would break a page waits for a new
+major, and both are then served side by side: a replaced major goes in
+`PLUGIN_UI_RETIRING` with the dates it was replaced and until which it stays,
+at least `PLUGIN_UI_SUPPORT_MONTHS` (12) apart. The contract check wants that
+much from the day it is listed, won't let the date move closer, and lets the
+major go only once the date has passed.
+
+To retire something inside a major, keep it working and mark it: `@deprecated
+what to use instead` on a component, or `@deprecated attr name - what to use
+instead` on one of its members (also `prop`, `method`, `fires`, `slot`, `part`,
+`cssprop`). The same words go in the component's static `deprecated` and
+`deprecatedAttributes`, which warn once in the page's console; a deprecated
+attribute must stay in `observedAttributes` so setting it later warns too. It
+can go in the next major.
 
 | Component | What it is |
 | --- | --- |
@@ -494,6 +519,19 @@ that stops being served or goes back to preview. An attribute that takes
 more values is an addition. A preview major's changes are only listed.
 `src/shared/plugin-ui-versions.ts` says which majors the app serves and
 which are in preview.
+
+`bun run plugin:check <folder>` (`scripts/plugin-check.ts`) tells an author
+what would go wrong before anyone installs the plugin. It runs the checks every
+install runs, then reads the pages. Errors, which also fail the command: an
+inline or remote script, an inline event handler, components loaded without
+`type="module"`, a major this
+app doesn't serve, a preview major without
+`ui.preview`, a component in a page's markup that doesn't exist, or components
+with nothing loading them. Warnings: preview components, a major being retired,
+`ui.major` missing or different from what the pages load, deprecated components
+or attributes, a component named in a script that doesn't exist, attributes and
+parts that don't exist, fixed colours, and custom properties that aren't the
+app's tokens or the page's own.
 
 `packages/plugin-ui/gallery/` is a plugin, `demo/ui-gallery`, whose panel
 shows every component in its states, with commands that report progress and

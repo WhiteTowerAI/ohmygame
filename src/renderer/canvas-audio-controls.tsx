@@ -10,6 +10,7 @@ import {
 } from "../shared/audio.js";
 import { DoubaoVoiceOptions, DoubaoVoiceSample } from "./doubao-voices.js";
 import { language as uiLanguage, t } from "./i18n.js";
+import { Disclosure } from "./ui/index.js";
 
 const languageNames = new Intl.DisplayNames([uiLanguage], { type: "language" });
 
@@ -111,8 +112,7 @@ export function CanvasAudioControls({
     </label>
   );
   return (
-    <details className="canvas-audio-options nodrag nopan nokey">
-      <summary>{t("audioStudio.options")}</summary>
+    <Disclosure variant="section" className="canvas-audio-options nodrag nopan nokey" summary={t("audioStudio.options")}>
       <fieldset disabled={disabled}>
         {caps && hasUnsupportedOptions(value, caps) ? (
           <button
@@ -316,8 +316,7 @@ export function CanvasAudioControls({
           </label>
         ) : null}
         {tts ? (
-          <details className="audio-advanced-options audio-control-wide">
-            <summary>{t("audioStudio.speechOptions")}</summary>
+          <Disclosure className="audio-advanced-options audio-control-wide" summary={t("audioStudio.speechOptions")}>
             <div className="audio-control-grid">
               <label className="audio-checkbox">
                 <input
@@ -411,9 +410,9 @@ export function CanvasAudioControls({
                 />
               </label>
             </div>
-          </details>
+          </Disclosure>
         ) : null}
       </fieldset>
-    </details>
+    </Disclosure>
   );
 }

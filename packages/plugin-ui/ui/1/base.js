@@ -33,12 +33,25 @@ const BASE = css(`
   }
 `);
 
+const warned = new Set();
+
+/** Tells a plugin's author once, in the page's console. */
+function warnOnce(message) {
+  if (warned.has(message)) return;
+  warned.add(message);
+  console.warn(`[OhMyGame] ${message}`);
+}
+
 /** A component: its template is static HTML, and attributes fill it as text. */
 export class OmgElement extends HTMLElement {
   /** @type {CSSStyleSheet[]} */
   static styles = [];
   static template = "";
   static delegatesFocus = false;
+  /** What to use instead, when the component is deprecated; matches its `@deprecated` tag. */
+  static deprecated = undefined;
+  /** What to use instead of each deprecated attribute; matches its `@deprecated attr` tags. Each must be observed, to warn when a script sets it later. */
+  static deprecatedAttributes = {};
 
   constructor() {
     super();
@@ -54,11 +67,20 @@ export class OmgElement extends HTMLElement {
   }
 
   connectedCallback() {
+    const type = /** @type {typeof OmgElement} */ (this.constructor);
+    if (type.deprecated) warnOnce(`<${this.localName}> is deprecated: ${type.deprecated}`);
+    for (const name of Object.keys(type.deprecatedAttributes)) if (this.hasAttribute(name)) this.#warnAttribute(name);
     this.update();
   }
 
-  attributeChangedCallback() {
+  attributeChangedCallback(name, _previous, value) {
+    if (value !== null && Object.hasOwn(/** @type {typeof OmgElement} */ (this.constructor).deprecatedAttributes, name)) this.#warnAttribute(name);
     if (this.isConnected) this.update();
+  }
+
+  #warnAttribute(name) {
+    const reason = /** @type {typeof OmgElement} */ (this.constructor).deprecatedAttributes[name];
+    warnOnce(`<${this.localName}>'s ${name} is deprecated: ${reason}`);
   }
 
   /** Draws the component from its attributes. */

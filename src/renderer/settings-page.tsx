@@ -19,11 +19,12 @@ import { ConnectionsSettings } from "./connections-settings.js";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { NetworkSettingsPanel } from "./network-settings.js";
 import { ExternalAgentsSettings } from "./external-agents-settings.js";
+import { readNotificationSettings, setNotificationSettings, useNotificationPermission, type NotificationSettings as NotificationPreferences } from "./agent-notifications.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
 import { ChangelogPanel } from "./changelog-panel.js";
 import { exportDiagnostics, getProjectLocation, setProjectLocation } from "./api.js";
 import { readGeneralPreferences, setGeneralPreference, type GeneralPreferences } from "./general-preferences.js";
-import { Badge, Button, Progress, SegmentedControl, Select, Spinner, Switch, Tooltip } from "./ui/index.js";
+import { Badge, Button, Disclosure, Progress, SegmentedControl, Select, Spinner, Switch, Tooltip } from "./ui/index.js";
 import { SettingsGroup, SettingsNote, SettingsRow } from "./settings-parts.js";
 import { AccountUsage } from "./usage-stats.js";
 import "./settings.css";
@@ -86,6 +87,7 @@ export function SettingsPage({ section, agent, onSectionChange, onNavigate, onOp
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "account" ? <AccountSettings /> : null}
           {section === "billing" ? <BillingSettings /> : null}
+          {section === "notifications" ? <NotificationSettings /> : null}
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} onOpenAgents={() => chooseSection("agents")} onOpenChatModel={() => onSectionChange("agents", OHMYGAME_AGENT)} /> : null}
           {section === "agents" ? <AgentsSettings agent={agent} onOpen={(id) => onSectionChange("agents", id)} onBack={() => onSectionChange("agents")} onOpenSection={chooseSection} onOpenPlugins={() => onNavigate("plugins")} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
@@ -136,9 +138,9 @@ function GeneralSettings() {
         </SettingsRow>
       </SettingsGroup>
       <SettingsGroup title={t("settings.general.notifications")}>
-        <SettingsRow title={t("settings.general.runNotifications")} description={t("settings.general.runNotificationsHint")}>
+        {!window.ohMyGameDesktop?.notifications ? <SettingsRow title={t("settings.general.runNotifications")} description={t("settings.general.runNotificationsHint")}>
           <Switch label={t("settings.general.runNotifications")} checked={preferences.runNotifications} onChange={(value) => change("runNotifications", value)} />
-        </SettingsRow>
+        </SettingsRow> : null}
         <SettingsRow title={t("settings.general.runSound")} description={t("settings.general.runSoundHint")}>
           <Switch label={t("settings.general.runSound")} checked={preferences.runSound} onChange={(value) => change("runSound", value)} />
         </SettingsRow>
@@ -199,6 +201,38 @@ function ProjectLocationRow() {
         {choose ? <Button size="sm" disabled={busy || !loaded} onClick={() => void pick()}>{t("settings.general.projectLocationChange")}</Button> : null}
       </SettingsRow>
       {error ? <div className="settings-pad"><SettingsNote tone="danger">{error}</SettingsNote></div> : null}
+    </>
+  );
+}
+
+// ---------- notifications ----------
+
+function NotificationSettings() {
+  const [notifications, updateNotifications] = useState<NotificationPreferences>(readNotificationSettings);
+  const [permission, setPermission] = useNotificationPermission();
+  const desktop = window.ohMyGameDesktop?.notifications;
+
+  function changeEnabled(enabled: boolean): void {
+    const next = { ...notifications, enabled };
+    updateNotifications(next);
+    setNotificationSettings(next);
+    // Turning them on is the moment to ask macOS, while it has not asked yet.
+    if (enabled && permission === "not-determined" && desktop) void desktop.requestPermission().then(setPermission, () => undefined);
+  }
+
+  return (
+    <>
+      <SettingsGroup>
+        <SettingsRow title={t("settings.notifications.enabled")} description={t("settings.notifications.enabledDescription")}>
+          <Switch label={t("settings.notifications.enabled")} checked={notifications.enabled} onChange={changeEnabled} />
+        </SettingsRow>
+      </SettingsGroup>
+      {notifications.enabled && permission === "denied" ? (
+        <SettingsNote role="status">
+          {t("settings.notifications.blocked")}{" "}
+          <Button size="sm" variant="ghost" onClick={() => void desktop?.openSettings()}>{t("settings.notifications.openSystemSettings")}</Button>
+        </SettingsNote>
+      ) : null}
     </>
   );
 }
@@ -396,10 +430,9 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
               <p>{status.message}</p>
               {status.dataSafe ? <p className="settings-muted">{t("settings.about.dataSafe")}</p> : null}
             </div>
-            <details className="settings-details">
-              <summary>{t("common.technicalDetails")}</summary>
+            <Disclosure summary={t("common.technicalDetails")}>
               <code>{status.detail}</code>
-            </details>
+            </Disclosure>
             <div className="settings-actions is-start">
               {status.code === "network" ? <Button size="sm" onClick={onOpenNetwork}>{t("settings.about.networkSettings")}</Button> : null}
               <Button size="sm" variant="ghost" onClick={() => void copyDetails()}>{copied ? t("common.copied") : t("common.copyDetails")}</Button>

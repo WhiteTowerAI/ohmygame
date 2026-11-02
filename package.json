@@ -31,6 +31,7 @@
     "prepare:examples": "bun scripts/prepare-examples.ts",
     "plugin:schema": "node --import tsx scripts/plugin-schema.ts",
     "plugin-ui:contract": "node --import tsx scripts/plugin-ui-contract.ts",
+    "plugin:check": "node --import tsx scripts/plugin-check.ts",
     "voices:doubao": "bun scripts/sync-doubao-voices.ts",
     "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",
     "changelog:check": "node scripts/release-notes.mjs --check",
@@ -119,5 +120,8 @@
     "@earendil-works/pi-ai@1.3.0": "patches/@earendil-works%2Fpi-ai@1.3.0.patch",
     "electron-updater@6.8.9": "patches/electron-updater@6.8.9.patch",
     "pi-mcp-adapter@2.27.0": "patches/pi-mcp-adapter@2.27.0.patch"
+  },
+  "optionalDependencies": {
+    "objc-js": "1.6.0"
   }
 }

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+import { act, memo } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../src/renderer/api.js";
@@ -99,6 +99,29 @@ describe("Code Git changes view", () => {
     expect(toolbar.querySelector('button[aria-label="Hide files"]')).toBeNull();
     expect(container.querySelector<HTMLElement>(".file-explorer")?.hidden).toBe(false);
     toolbar.remove();
+  });
+
+  it("opens a second file tree while another is still mounted", async () => {
+    vi.stubGlobal("ResizeObserver", class { constructor(callback: () => void) { queueMicrotask(callback); } observe() {} disconnect() {} });
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(320);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(320);
+    const props = { files: [{ path: "src/saved.ts", size: 1 }], selectedPath: "src/saved.ts", loading: false, onSelect: () => {} };
+    const First = memo(() => <WorkspaceFileBrowser {...props} />);
+    const errors: unknown[] = [];
+    const tree = (second: boolean) => <><First />{second ? <WorkspaceFileBrowser {...props} /> : null}</>;
+    await act(async () => root.render(tree(false)));
+    expect(container.querySelectorAll('[role="tree"]')).toHaveLength(1);
+    // react-dnd forgets its shared manager once no provider holds it, as when
+    // the one tree was hidden and shown again, while that tree keeps using it.
+    (globalThis as Record<symbol, unknown>)[Symbol.for("__REACT_DND_CONTEXT_INSTANCE__")] = null;
+    try {
+      await act(async () => root.render(tree(true)));
+    } catch (cause) {
+      errors.push(cause);
+    }
+    expect(errors).toEqual([]);
+    expect(container.querySelectorAll('[role="tree"]')).toHaveLength(2);
+    expect((window as unknown as { __isReactDndBackendSetUp?: boolean }).__isReactDndBackendSetUp).toBeFalsy();
   });
 
   it("opens diffs only in Changes and preserves the selected file when returning to Files", async () => {

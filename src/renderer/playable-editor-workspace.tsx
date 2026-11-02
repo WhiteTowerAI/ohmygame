@@ -76,6 +76,8 @@ import { useDesktopSave } from "./desktop-close-guard.js";
 import type { PanelNodes } from "./panel-layout.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
 import { t } from "./i18n.js";
+import { ErrorBoundary } from "./error-boundary.js";
+import { panelTitle } from "./workspace-layout.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -1321,9 +1323,10 @@ export function PlayableEditorWorkspace({ project, publishing, workspaceRevision
     }
     if (!opened.current.has(view)) return null;
     const nodes = panels.nodes[view];
+    // Each panel fails by itself, where it is, and leaves the others showing.
     return <Fragment key={view}>
       {content.toolbar ? createPortal(<div className="viewer-publish">{content.toolbar}</div>, nodes.toolbar) : null}
-      {createPortal(viewPane(view, content.body), nodes.body)}
+      {createPortal(<ErrorBoundary label={panelTitle(view)} resetKey={projectId}>{viewPane(view, content.body)}</ErrorBoundary>, nodes.body)}
     </Fragment>;
   });
 

@@ -1,39 +1,26 @@
 /* Community: the game list, a game's page and a creator's page. Layout pieces
    only; controls are ui components. Values come from ui/tokens.css. */
 
-.community-page {
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
-}
-
+/* The page is the frame's .sidebar-page, as Library and Plugins are, so it
+   scrolls, sits and titles itself as they do. */
 .community-page-body {
   container: community / inline-size;
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
-  max-width: 1360px;
-  margin: 0 auto;
-  padding: var(--space-6) clamp(16px, 4vw, 40px) 80px;
   color: var(--color-text);
   font-family: var(--font-sans);
   font-size: var(--text-md);
 }
 
-.community-page-head {
+/* The title row of .sidebar-page-header, with a way back before the title. */
+.community-page .community-page-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  min-height: 32px;
-}
-
-.community-page-head h1 {
-  margin: 0;
-  font-size: var(--text-xl);
-  font-weight: var(--weight-semibold);
+  min-height: 34px;
+  padding-bottom: 0;
 }
 
 .community-page-head .ui-input {

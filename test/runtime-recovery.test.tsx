@@ -120,13 +120,15 @@ describe("renderer service recovery", () => {
         ),
       );
       if (promptGeneration === 1) {
+        // A message held while the service restarted goes back to the input box, to send again.
         expect(posts).toEqual([]);
-        expect(container.textContent).toContain("Build my game");
-        const button = container.querySelector<HTMLButtonElement>(
-          ".paused-initial-prompt button",
-        )!;
+        expect(handled).toHaveBeenCalledTimes(1);
+        expect(container.querySelector(".composer-info")?.textContent).toContain("wasn't sent while the service restarted");
+        expect(promptText(container)).toBe("Build my game");
+        const button = container.querySelector<HTMLButtonElement>(".send-button")!;
         expect(button.disabled).toBe(false);
         await act(async () => button.click());
+        expect(container.querySelector(".composer-info")).toBeNull();
       }
       expect(posts).toHaveLength(1);
       expect(JSON.parse(posts[0])).toMatchObject({ prompt: "Build my game" });
