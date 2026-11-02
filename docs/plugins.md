@@ -465,8 +465,9 @@ them up to date and matched to what each component observes, its parts,
 slots and members. On a pull request, CI compares each major's contract
 with the target branch's: a removed component, attribute, member, event,
 slot, part or CSS property, or a changed type, fails for a stable major,
-whose breaking changes wait for the next major. An attribute that takes more
-values is an addition. A preview major's changes are only listed.
+whose breaking changes wait for the next major, and so does a stable major
+that stops being served or goes back to preview. An attribute that takes
+more values is an addition. A preview major's changes are only listed.
 `src/shared/plugin-ui-versions.ts` says which majors the app serves and
 which are in preview.
 

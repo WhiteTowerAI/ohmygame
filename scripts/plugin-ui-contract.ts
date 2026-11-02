@@ -401,6 +401,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       }
     }
     for (const major of PLUGIN_UI_MAJORS) {
+      // A major in preview loads only for plugins that opt in, so a stable one stays stable.
+      if (then.majors.includes(major) && !then.preview.has(major) && PLUGIN_UI_PREVIEW_MAJORS.has(major)) {
+        console.error(`Components ${major} were stable at ${base} and can't go back to preview.`);
+        failed = true;
+      }
       const previous = atRef(base, `packages/plugin-ui/ui/${major}/custom-elements.json`);
       if (previous === undefined) {
         console.log(`Components ${major}: new since ${base}.`);
