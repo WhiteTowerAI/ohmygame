@@ -2,6 +2,7 @@
 import { cp, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { type ComponentManifest, componentManifest, contractChanges, contractFiles, declarations } from "../scripts/plugin-ui-contract.js";
 import { validatePluginManifest } from "../src/shared/plugin-manifest.js";
 
 // The components load as the app serves them, next to the bridge at
@@ -242,5 +243,58 @@ describe("page components", () => {
     expect([...used].filter((name) => !customElements.get(name))).toEqual([]);
     const docs = await readFile("docs/plugins.md", "utf8");
     expect([...used].filter((name) => !docs.includes(`\`${name}\``))).toEqual([]);
+  });
+});
+
+describe("page components' contract", () => {
+  it("is up to date with the components' doc comments", async () => {
+    for (const { file, text } of await contractFiles()) expect(await readFile(file, "utf8"), file).toBe(text);
+  });
+
+  it("lists what each component observes, its parts and slots, and its members", async () => {
+    const manifest = await componentManifest("1");
+    const docs = await readFile("docs/plugins.md", "utf8");
+    expect(declarations(manifest).filter((item) => !docs.includes(`\`${item.tagName}\``)).map((item) => item.tagName)).toEqual([]);
+    for (const item of declarations(manifest)) {
+      const component = customElements.get(item.tagName) as (CustomElementConstructor & { observedAttributes?: string[] }) | undefined;
+      expect(component, item.tagName).toBeDefined();
+      const attributes = item.attributes.map((attribute) => attribute.name);
+      expect((component!.observedAttributes ?? []).filter((name) => !attributes.includes(name)), item.tagName).toEqual([]);
+      const element = document.createElement(item.tagName);
+      const parts = new Set([...element.shadowRoot!.querySelectorAll("[part]")].flatMap((node) => node.getAttribute("part")!.split(/\s+/)));
+      expect([...parts].sort(), `${item.tagName} parts`).toEqual(item.cssParts.map((part) => part.name).sort());
+      const slots = [...element.shadowRoot!.querySelectorAll("slot")].map((slot) => slot.getAttribute("name") ?? "");
+      expect(slots.sort(), `${item.tagName} slots`).toEqual(item.slots.map((slot) => slot.name).sort());
+      for (const member of item.members) expect(member.name in element, `${item.tagName}.${member.name}`).toBe(true);
+    }
+  });
+
+  it("finds what would break a page", () => {
+    const contract = (attributes: { name: string; type?: { text: string } }[], extra: Record<string, unknown> = {}): ComponentManifest => ({
+      schemaVersion: "2.1.0",
+      readme: "",
+      modules: [
+        {
+          kind: "javascript-module",
+          path: "ui/1/controls.js",
+          declarations: [
+            { kind: "class", name: "OmgButton", tagName: "omg-button", customElement: true, description: "", attributes, members: [], events: [], slots: [{ name: "" }], cssParts: [{ name: "button" }], cssProperties: [], ...extra },
+          ],
+          exports: [],
+        },
+      ],
+    });
+    const before = contract([{ name: "variant", type: { text: '"primary" | "ghost"' } }, { name: "busy", type: { text: "boolean" } }]);
+    expect(contractChanges(before, before)).toEqual({ breaking: [], added: [] });
+    expect(contractChanges(before, contract([{ name: "variant", type: { text: '"primary" | "ghost" | "danger"' } }, { name: "busy", type: { text: "boolean" } }, { name: "size" }]))).toEqual({
+      breaking: [],
+      added: ['<omg-button> attribute variant takes "danger"', "<omg-button> attribute size"],
+    });
+    expect(contractChanges(before, contract([{ name: "variant", type: { text: '"primary"' } }], { cssParts: [] })).breaking).toEqual([
+      '<omg-button> attribute variant changed from "primary" | "ghost" to "primary"',
+      "<omg-button> attribute busy was removed",
+      "<omg-button> part button was removed",
+    ]);
+    expect(contractChanges(before, { ...before, modules: [] }).breaking).toEqual(["<omg-button> was removed"]);
   });
 });
