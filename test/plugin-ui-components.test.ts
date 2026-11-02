@@ -223,6 +223,22 @@ describe("page components", () => {
     expect(calls).toEqual([]);
   });
 
+  it("reports a failure for the command that ran, even if the button's command changed", async () => {
+    let fail!: () => void;
+    answer = (id) => {
+      fail = () => app.postMessage({ id, error: "Failed" });
+    };
+    const button = html(`<omg-command-button command="prepare">Prepare</omg-command-button>`);
+    const errors: unknown[] = [];
+    button.addEventListener("omg-command-error", (event) => errors.push((event as CustomEvent).detail));
+    shadow(button, "button").click();
+    await settle();
+    button.removeAttribute("command");
+    fail();
+    await settle();
+    expect(errors).toEqual([{ command: "prepare", error: "Failed" }]);
+  });
+
   it("takes no clicks while disabled", async () => {
     const button = html(`<omg-command-button command="prepare" disabled>Prepare</omg-command-button>`);
     const clicks: Event[] = [];

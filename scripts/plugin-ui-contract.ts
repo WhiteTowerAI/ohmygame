@@ -186,21 +186,24 @@ export async function componentManifest(major: string): Promise<ComponentManifes
     if (found.length !== [...source.matchAll(DEFINE_CALL)].length) throw new Error(`${module}: a define() call doesn't name its tag as a string and its class`);
     for (const [, , tag, name] of found) definitions.push({ tag: tag!, name: name!, module });
   }
+  const components = new Set(definitions.map((definition) => definition.name));
   const modules = new Map<string, Module>();
   for (const { tag, name, module } of definitions) {
     const own = classes.get(name);
     if (!own) throw new Error(`${tag}: its class ${name} has no doc comment`);
     // A component inherits what its superclass offers, as the manifest records.
+    // Only components are declared, so the manifest refers only to them: what
+    // another base class gives is the component's own.
     const chain: Parsed[] = [];
     for (let current: Parsed | undefined = own; current; current = classes.get(current.superclass)) chain.push(current);
     const inherited = <T extends Named>(pick: (item: Parsed) => T[], mark: boolean) => {
       const seen = new Map<string, T>();
       for (const item of chain)
         for (const entry of pick(item))
-          if (!seen.has(entry.name)) seen.set(entry.name, item === own || !mark ? entry : { ...entry, inheritedFrom: { name: item.name, module: item.module } });
+          if (!seen.has(entry.name)) seen.set(entry.name, item === own || !mark || !components.has(item.name) ? entry : { ...entry, inheritedFrom: { name: item.name, module: item.module } });
       return byName([...seen.values()]);
     };
-    const parent = classes.get(own.superclass);
+    const parent = chain.slice(1).find((item) => components.has(item.name));
     const declaration: Declaration = {
       kind: "class",
       name,

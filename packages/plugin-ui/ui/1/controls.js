@@ -182,7 +182,7 @@ class OmgCommandButton extends OmgButton {
     try {
       input = this.input;
     } catch {
-      this.#fail(new Error(`The input of command button "${command}" isn't JSON`));
+      this.#fail(command, new Error(`The input of command button "${command}" isn't JSON`));
       return undefined;
     }
     const start = new CustomEvent("omg-command-start", { bubbles: true, composed: true, cancelable: true, detail: { command, input } });
@@ -202,7 +202,7 @@ class OmgCommandButton extends OmgButton {
       this.dispatchEvent(new CustomEvent("omg-command-result", { bubbles: true, composed: true, detail: { command, result } }));
       return result;
     } catch (error) {
-      this.#fail(error instanceof Error ? error : new Error(String(error)));
+      this.#fail(command, error instanceof Error ? error : new Error(String(error)));
       return undefined;
     } finally {
       this.#stopProgress?.();
@@ -220,8 +220,8 @@ class OmgCommandButton extends OmgButton {
     text(this.part("error"), this.getAttribute("error"));
   }
 
-  #fail(error) {
-    const command = this.getAttribute("command");
+  /** Reports a failure of the run of `command`, whatever the attribute says now. */
+  #fail(command, error) {
     const event = new CustomEvent("omg-command-error", { bubbles: true, composed: true, cancelable: true, detail: { command, error: error.message } });
     if (this.dispatchEvent(event) && !this.hasAttribute("quiet")) this.setAttribute("error", error.message);
   }
