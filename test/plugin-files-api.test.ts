@@ -106,7 +106,7 @@ describe("plugin page files API", () => {
     }
     expect((await app.inject({ method: "GET", url: `${base}?path=.claude` })).statusCode).toBe(403);
     expect(await readFile(workspace(".env"), "utf8")).toBe("SECRET=1");
-    for (const refused of ["ohmygame.json", "AGENTS.md", "docs/CLAUDE.md", "gemini.md", "canvas/board.json", "Canvas/board.json", "CLAUDE~1.MD"]) {
+    for (const refused of ["ohmygame.json", "AGENTS.md", "docs/CLAUDE.md", "gemini.md", "AGENTS.override.md", "CLAUDE.local.md", "canvas/board.json", "Canvas/board.json", "CLAUDE~1.MD"]) {
       expect((await put(refused, "x")).statusCode, refused).toBe(403);
       expect((await app.inject({ method: "DELETE", url: `${base}?path=${encodeURIComponent(refused)}` })).statusCode, refused).toBe(403);
     }
@@ -181,6 +181,22 @@ describe("plugin page files API", () => {
     expect(lockedPut.statusCode, lockedPut.body).toBe(403);
     expect((await app.inject({ method: "DELETE", url: `${base}?path=locked.txt` })).statusCode).toBe(403);
     await chmod(workspace("locked.txt"), 0o644);
+    // A link to itself is refused without saying where the project is.
+    await symlink("loop", workspace("loop"));
+    const loop = await app.inject({ method: "GET", url: `${base}/content?path=loop` });
+    expect(loop.statusCode).toBeGreaterThanOrEqual(400);
+    expect(loop.statusCode).toBeLessThan(500);
+    expect(loop.body).not.toContain(workspace());
+    // A move that can't take the old name away leaves it where it was, with one name.
+    await mkdir(workspace("held"));
+    await writeFile(workspace("held/one.txt"), "one");
+    await chmod(workspace("held"), 0o555);
+    const held = await app.inject({ method: "POST", url: `${base}/move`, payload: { from: "held/one.txt", to: "one.txt" } });
+    await chmod(workspace("held"), 0o755);
+    expect(held.statusCode).toBe(403);
+    expect(held.body).not.toContain(workspace());
+    expect((await stat(workspace("held/one.txt"))).nlink).toBe(1);
+    await expect(stat(workspace("one.txt"))).rejects.toThrow();
     // A pipe is neither read, which would wait for a writer, nor changed.
     execFileSync("mkfifo", [workspace("pipe")]);
     expect((await app.inject({ method: "GET", url: `${base}/content?path=pipe` })).statusCode).toBe(400);

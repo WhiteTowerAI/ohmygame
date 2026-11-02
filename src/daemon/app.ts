@@ -1517,8 +1517,12 @@ export function createApp(options: AppOptions = {}) {
     if (cause instanceof WorkspaceError) return reply.code(cause.code === "ENOENT" ? 404 : 400).send({ error: cause.message });
     if (cause instanceof PluginChangeError) return reply.code(cause.statusCode).send({ error: cause.message });
     // What the file system refuses is the page's to hear about, not the daemon's failure.
-    const status = { EACCES: 403, EPERM: 403, ENOENT: 404, ENOTDIR: 400, EISDIR: 400, EEXIST: 409, ENOTEMPTY: 409, ENAMETOOLONG: 400 }[(cause as NodeJS.ErrnoException).code ?? ""];
-    if (status) return reply.code(status).send({ error: status === 403 ? "This file or folder can't be read or changed" : (cause as Error).message.replace(/ '[^']*'/g, "") });
+    // Its message names paths on this computer, which a page has no business knowing.
+    const { code, syscall } = cause as NodeJS.ErrnoException;
+    if (code && syscall) {
+      const status = ({ EACCES: 403, EPERM: 403, ENOENT: 404, EEXIST: 409, ENOTEMPTY: 409 } as Record<string, number>)[code] ?? 400;
+      return reply.code(status).send({ error: status === 403 ? "This file or folder can't be read or changed" : `The file system refused this (${code})` });
+    }
     throw cause;
   };
   const NO_PLUGIN_FILES = { error: "This plugin has no such access to this project's files" };

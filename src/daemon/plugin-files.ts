@@ -30,7 +30,8 @@ const GENERATED_DIRECTORIES = new Set(["build", "dist", "node_modules", "out"]);
 /** Names a moved or deleted folder may hold although they are hidden: no secret or setting, and kept or meant to be lost. */
 const HARMLESS_HIDDEN = new Set([".ds_store", ".gitignore", ".gitkeep", ".keep"]);
 /** What tells an agent how to work; a page changing it would be telling the agent what to do. */
-const AGENT_INSTRUCTIONS = new Set(["agents.md", "claude.md", "gemini.md"]);
+// Agents also read variants of them, such as Codex's AGENTS.override.md and Claude Code's CLAUDE.local.md.
+const isAgentInstructions = (name: string) => /^(?:agents|claude|gemini)(?:\.[^.]+)*\.md$/i.test(name);
 
 export class PluginFileError extends Error {
   constructor(
@@ -74,7 +75,7 @@ function writablePath(value: string): string {
   if (parts[0]!.toLowerCase() === "canvas") throw new PluginFileError("Manage Canvas documents and boards in Design", 403);
   if (normalized.toLowerCase() === PROJECT_FILE_NAME.toLowerCase())
     throw new PluginFileError("Pages can't change the project file", 403);
-  if (AGENT_INSTRUCTIONS.has(parts.at(-1)!.toLowerCase()))
+  if (isAgentInstructions(parts.at(-1)!))
     throw new PluginFileError("Pages can't change an agent's instructions", 403);
   return normalized;
 }
@@ -215,7 +216,7 @@ async function assertChangeable(workspacePath: string, relative: string, covers:
       const shown = `${relative}/${child}`;
       const name = item.name.toLowerCase();
       if (item.name.startsWith(".") && !HARMLESS_HIDDEN.has(name)) throw new PluginFileError(`${relative} holds hidden files, so a page can't change it`, 403);
-      if (AGENT_INSTRUCTIONS.has(name)) throw new PluginFileError(`${relative} holds an agent's instructions, so a page can't change it`, 403);
+      if (isAgentInstructions(name)) throw new PluginFileError(`${relative} holds an agent's instructions, so a page can't change it`, 403);
       const entry = path.join(absolute, item.name);
       const details = await lstat(entry);
       // Junk the system leaves needn't come back.
@@ -285,14 +286,24 @@ export async function movePluginFile(workspacePath: string, from: string, to: st
   if (await exists(destination)) throw taken();
   if (!folder) {
     // A new name for the file, which fails if the name is taken, then the old one goes: nothing is replaced.
+    let linked = false;
     try {
       await link(origin, destination);
-      await unlink(origin);
-      return target;
+      linked = true;
     } catch (cause) {
       const code = (cause as NodeJS.ErrnoException).code;
       if (code === "EEXIST") throw taken();
       if (!code || !NO_LINKS.has(code)) throw cause;
+    }
+    if (linked) {
+      try {
+        await unlink(origin);
+      } catch (cause) {
+        // The old name stays, so the new one goes: a move leaves one name or the other.
+        await unlink(destination).catch(() => {});
+        throw cause;
+      }
+      return target;
     }
   }
   // A folder moved onto a name taken meanwhile replaces at most an empty folder, and only where the system allows.
