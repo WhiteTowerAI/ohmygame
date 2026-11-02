@@ -444,12 +444,56 @@ describe("page components", () => {
       image.setAttribute("file", "secret/none.png");
       await settle();
       expect([events, image.complete, shadow(image, "broken").hidden]).toEqual([["load", "error"], true, false]);
-      // Without a file, its src is the picture.
+      // While there's a file, src isn't the picture, so setting it reads nothing; without a file, it is.
+      const reads = calls.length;
+      image.setAttribute("src", "fallback.png");
+      await settle();
+      expect(calls.length).toBe(reads);
       image.removeAttribute("file");
       expect(picture().getAttribute("src")).toBe("fallback.png");
 
-      const tile = html(`<omg-tile heading="hero.png" file="art/hero.png"></omg-tile>`);
-      expect(shadow(tile, "image").getAttribute("file")).toBe("art/hero.png");
+      // Taken out of the page while the file is read, or before it's drawn, it lets go of the address and loads again if it comes back.
+      calls.length = 0;
+      revoke.mockClear();
+      const removed = html<Image>(`<omg-image file="art/hero.png"></omg-image>`);
+      removed.remove();
+      await settle();
+      expect(revoke.mock.calls).toEqual([[`blob:test-${made}`]]);
+      expect([shadow(removed, "image").hasAttribute("src"), removed.complete]).toEqual([false, false]);
+      document.body.append(removed);
+      await settle();
+      expect(calls.length).toBe(2);
+      expect(shadow(removed, "image").getAttribute("src")).toBe(`blob:test-${made}`);
+      removed.remove();
+      expect(revoke.mock.calls.at(-1)).toEqual([`blob:test-${made}`]);
+
+      // Once drawn, it stays drawn: there's no address left to let go of, and nothing to read.
+      document.body.append(removed);
+      await settle();
+      shadow(removed, "image").dispatchEvent(new Event("load"));
+      const drawn = calls.length;
+      removed.remove();
+      document.body.append(removed);
+      await settle();
+      expect([calls.length, removed.complete]).toEqual([drawn, true]);
+
+      // A tile with both sources reads its file once, and uses src once the file goes.
+      calls.length = 0;
+      const tile = html(`<omg-tile heading="hero.png" file="art/hero.png" src="fallback.png"></omg-tile>`);
+      const inner = shadow(tile, "image");
+      await settle();
+      expect(calls.length).toBe(1);
+      expect([inner.getAttribute("file"), inner.hasAttribute("src")]).toEqual(["art/hero.png", false]);
+      tile.setAttribute("description", "PNG");
+      tile.setAttribute("src", "other.png");
+      await settle();
+      expect(calls.length).toBe(1);
+      tile.setAttribute("file", "art/hero.png");
+      await settle();
+      expect(calls.length).toBe(2);
+      tile.removeAttribute("file");
+      await settle();
+      expect([calls.length, inner.hasAttribute("file"), inner.getAttribute("src")]).toEqual([2, false, "other.png"]);
       expect(create).toHaveBeenCalled();
     } finally {
       create.mockRestore();

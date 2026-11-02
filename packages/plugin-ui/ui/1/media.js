@@ -93,11 +93,19 @@ class OmgImage extends OmgElement {
   }
 
   attributeChangedCallback(name, previous, value) {
-    const source = name === "src" || name === "file";
+    // While there's a file, `src` isn't the picture, so setting it changes nothing.
+    const source = name === "file" || (name === "src" && !this.getAttribute("file"));
     if (source) this.#reload = true;
     super.attributeChangedCallback(name, previous, value);
     // Out of the page, the old picture goes at once, so its late load or error doesn't count; the new one loads once in the page.
     if (source && !this.isConnected) this.#replace();
+  }
+
+  disconnectedCallback() {
+    // A file still loading might never finish out of the page, and would keep its address. It loads again if it comes back.
+    if (this.#status !== "loading" || !this.getAttribute("file")) return;
+    this.#reload = true;
+    this.#replace();
   }
 
   get complete() {
@@ -311,12 +319,14 @@ class OmgTile extends OmgElement {
     text(this.part("badge"), this.getAttribute("badge"));
     this.part("preview").style.aspectRatio = aspect(this.getAttribute("ratio")) ?? "4 / 3";
     const image = this.part("image");
-    // Set again only when it changed, or was set again, which loads it again.
-    for (const name of ["file", "src"]) {
-      const value = this.getAttribute(name);
-      if (!this.#reload.has(name) && image.getAttribute(name) === value) continue;
-      if (value === null) image.removeAttribute(name);
-      else image.setAttribute(name, value);
+    // Only the source in use, so a tile with both reads its file once. It's set again
+    // only when it changed, or was set again, which loads it again.
+    const [source, unused] = this.getAttribute("file") ? ["file", "src"] : ["src", "file"];
+    image.removeAttribute(unused);
+    const value = this.getAttribute(source);
+    if (this.#reload.has(source) || image.getAttribute(source) !== value) {
+      if (value === null) image.removeAttribute(source);
+      else image.setAttribute(source, value);
     }
     this.#reload.clear();
     for (const name of ["alt", "pixelated", "checker"]) {
