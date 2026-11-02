@@ -137,6 +137,13 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
         else if (/^(?:https?:)?\/\//.test(source)) add("error", file, `The page's policy allows no remote scripts: ${source}`);
       }
     }
+    if (html)
+      for (const [, attributes] of markupOf(text).matchAll(/<[a-zA-Z][^\s/>]*((?:"[^"]*"|'[^']*'|[^'">])*)>/g))
+        for (const name of attributesOf(attributes!).keys())
+          if (/^on[a-z]+$/.test(name)) add("error", file, `The page's policy allows no inline event handlers: ${name}`);
+    if (!html)
+      for (const [, address] of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)["'`]((?:https?:)?\/\/[^"'`]+)["'`]/g))
+        add("error", file, `The page's policy allows no remote scripts: ${address}`);
     const known = new Map(contractFor(file, text).map((item) => [item.tagName, item]));
     // Only a page's own markup is sure to be an element; a script may just be
     // saying a name. And a major this app doesn't have can't be checked against.
@@ -163,14 +170,18 @@ export async function checkPlugin(root: string): Promise<PluginCheckFinding[]> {
     }
   }
 
-  // Each panel is its own page, so another panel's components don't reach it.
-  // An address a script puts together loads a major this can't name.
+  // Each page loads the components itself, as another page's don't reach it: by
+  // a script tag, or from one of its own scripts if one of those it can reach
+  // loads them. An address a script puts together loads a major this can't name.
   const missing = new Set<string>();
   for (const own of panelFiles) {
     const reach = new Set([...own, ...assets].map(relative));
     const reached = page.filter(({ file }) => reach.has(file));
-    if (reached.some(({ file, text }) => majorsIn(file, text).length || (!file.endsWith(".html") && text.includes("/_ohmygame/ui/")))) continue;
-    for (const { file, text } of reached) if (file.endsWith(".html") && /<omg-[a-z]/.test(markupOf(text))) missing.add(file);
+    const scriptLoads = reached.some(({ file, text }) => !file.endsWith(".html") && text.includes("/_ohmygame/ui/"));
+    for (const { file, text } of reached) {
+      if (!file.endsWith(".html") || !/<omg-[a-z]/.test(markupOf(text)) || majorsIn(file, text).length) continue;
+      if (!scriptLoads || !scriptsIn(text).some((script) => script.get("src"))) missing.add(file);
+    }
   }
   for (const file of missing) add("error", file, "The page uses page components but no script loads /_ohmygame/ui/<major>/index.js");
 
