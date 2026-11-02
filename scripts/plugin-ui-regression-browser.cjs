@@ -37,16 +37,19 @@ const CLOSED_TABS = `(() => {
   window.__omgRegressionTabs = { groups, start };
   const seen = new Set();
   return groups.flatMap((group, at) =>
-    [...group.children].filter((tab) => tab.localName === 'omg-tab' && tab.hidden && !tab.hasAttribute('disabled')).map((tab) => {
+    [...group.children].filter((tab) => tab.localName === 'omg-tab' && tab.hidden && !tab.hasAttribute('disabled')).flatMap((tab) => {
       const open = [[at, tab.getAttribute('name')]];
-      for (let outer = group.parentElement?.closest('omg-tab'); outer; outer = outer.parentElement?.closest('omg-tab'))
+      for (let outer = group.parentElement?.closest('omg-tab'); outer; outer = outer.parentElement?.closest('omg-tab')) {
+        // Tabs inside a disabled tab never show, so they get no picture.
+        if (outer.hasAttribute('disabled')) return [];
         if (outer.parentElement?.localName === 'omg-tabs') open.unshift([groups.indexOf(outer.parentElement), outer.getAttribute('name')]);
+      }
       const path = open.map(([, name]) => name).join(' / ');
       // Groups can repeat a path, and a numbered one can match another name, so count until it's new.
       let label = path;
       for (let count = 2; seen.has(label); count++) label = path + ' #' + count;
       seen.add(label);
-      return { label, open };
+      return [{ label, open }];
     }),
   );
 })()`;
