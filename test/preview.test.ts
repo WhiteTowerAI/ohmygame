@@ -531,7 +531,7 @@ describe("PreviewManager", () => {
     managers.push(manager);
 
     await expect(manager.start(project)).rejects.toThrow(
-      /did not become ready[\s\S]*server error/,
+      /did not become ready at http:\/\/127\.0\.0\.1:\d+ within 1000ms[\s\S]*server error/,
     );
     const pid = Number(
       await readFile(path.join(workspacePath, "server.pid"), "utf8"),

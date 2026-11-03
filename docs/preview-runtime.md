@@ -64,7 +64,8 @@ servers; configure a separate browser script or command for their Web output.
 Failed or cancelled installs leave a pending marker for a clean retry.
 **Reinstall dependencies and restart** forces that retry. Installation has a
 two-minute limit; the server has
-30 seconds to respond after launch. The log panel shows phases, elapsed startup
+30 seconds to respond after launch. A timeout reports the URL OhMyGame probed
+alongside recent server output so you can compare the listening address. The log panel shows phases, elapsed startup
 time, directory, command, manager and the last 8 KiB of process output.
 
 ## Automatic policy and idle collection
