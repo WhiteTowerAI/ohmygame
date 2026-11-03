@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from "react";
 import type { ResponsesTransportMode } from "../shared/contracts.js";
 import { getResponsesTransport, updateResponsesTransport } from "./api.js";
 import { t } from "./i18n.js";
+import { Select } from "./ui/index.js";
 
 export function ProviderResponsesTransport({
   providerId,
@@ -46,38 +47,27 @@ export function ProviderResponsesTransport({
     }
   }
   return (
-    <section
-      className="settings-detail-section settings-responses-transport"
-      aria-label={t("responsesTransport.label")}
-    >
-      <div className="settings-detail-field">
-        <label className="settings-search-field-label" htmlFor={id}>
-          {t("responsesTransport.title")}
-        </label>
-        <select
-          id={id}
-          className="settings-provider-inline-select"
+    <section className="settings-card settings-responses-transport" aria-label={t("responsesTransport.label")}>
+      <div className="settings-row">
+        <div className="settings-row-text">
+          <strong id={id}>{t("responsesTransport.title")}</strong>
+          <span title={t("responsesTransport.hint")}>{t("responsesTransport.shortHint")}</span>
+        </div>
+        <Select<ResponsesTransportMode>
+          size="sm"
+          label={t("responsesTransport.title")}
           value={mode}
           disabled={disabled || loading || saving}
-          onChange={(event) =>
-            void save(event.target.value as ResponsesTransportMode)
-          }
-        >
-          <option value="auto">{t("customProvider.automatic")}</option>
-          <option value="sse">HTTP / SSE</option>
-          <option value="websocket">
-            {t("responsesTransport.preferWebSocket")}
-          </option>
-        </select>
+          onChange={(value) => void save(value)}
+          options={[
+            { value: "auto", label: t("customProvider.automatic") },
+            { value: "sse", label: "HTTP / SSE" },
+            { value: "websocket", label: t("responsesTransport.preferWebSocket") },
+          ]}
+        />
       </div>
-      <small
-        className="settings-detail-hint"
-        title={t("responsesTransport.hint")}
-      >
-        {t("responsesTransport.shortHint")}
-      </small>
       {error ? (
-        <p className="settings-error" role="alert">
+        <p className="settings-error settings-pad" role="alert">
           {error}
         </p>
       ) : null}

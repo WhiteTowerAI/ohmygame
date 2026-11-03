@@ -49,7 +49,7 @@ replace a driver's transport without changing orchestration or persistence.
 
 Configure CLIs under **Settings → Agents**, next to OhMyGame's own agent, and
 choose native models in the existing conversation model picker. Agents is its
-own settings section rather than a group in Providers & Models: a provider
+own settings section rather than a group in Providers: a provider
 supplies models and credentials for every capability, while an agent runs the
 conversation with its own install, account, configuration and sandbox. Do not add a competing
 runtime selector or runtime-specific conversation settings route.
@@ -132,7 +132,9 @@ profileId }`. Missing selections mean System default; changing the new-chat
 default does not change existing chats.
 
 The service passes `CLAUDE_CONFIG_DIR` or `CODEX_HOME` to login, discovery and
-inference. Explicit Claude profiles omit ambient OAuth tokens. Managed Codex
+inference for a profile. System default runs without either, so an inherited
+value never replaces the CLI's default directory. Explicit Claude profiles omit
+ambient OAuth tokens. Managed Codex
 homes are created with file-backed credentials; imported homes keep their native
 settings. Credentials remain CLI-owned. Each profile records `managed` ownership;
 only directories directly inside the runtime's reserved account folder may be
@@ -175,19 +177,38 @@ interface StoredNativeSession {
   state: "active" | "ready" | "invalid";
   sessionId?: string;
   profileId?: string;
+  interrupted?: true;
 }
 ```
 
 Only the latest matching `ready` marker on the current branch may resume.
-Write `active` before native work and `ready` only after successful completion;
-crashes, failed turns, cancellation, and interrupted writes cannot reuse a
-previous ready context. Invalidate on every rewind/edit/restore, even if the
-native ID is unchanged, and after intervening Pi work, incompatible model
-changes, or legacy metadata.
+Write `active` before native work and `ready` only after successful completion
+or a stop the CLI reported as finished. Crashes, failed turns, other
+cancellations, and interrupted writes cannot reuse a previous ready context.
+Invalidate on every rewind/edit/restore, even if the native ID is unchanged, and
+after intervening Pi work, incompatible model changes, or legacy metadata.
+
+When the person stops a turn, an adapter may return `resumable` once the CLI
+itself has reported that the turn ended, so nothing of it is still running. Only
+Claude Code does this today, on its terminal `result`. The marker is then `ready`
+with `interrupted`, and the next message, including after a restart, tells the
+agent the previous turn was stopped and may have left a tool partway. The agent
+keeps what it knew; a CLI that continues costs less at first but carries a larger
+context afterwards than a handoff does. Without that report, when the turn's end
+reports a failure that raced the stop such as a spent quota, or when the bounded
+interrupt wait ends in stopping the process, the context is rebuilt as for any
+other failed turn. Codex and OpenCode rebuild it for every stop until their turn
+ends are proven separate from the next turn's events.
 
 When context is absent or invalid, start fresh with a deterministic, bounded
-handoff: recent visible turns, changed files, the structured plan, and restore
-notices. Exclude private prompt context and do not make another model call.
+handoff: recent visible turns, how a cut-off last turn ended, the tool failures
+it ended on, files whose change succeeded apart from the others, the structured
+plan, and restore notices. Tool text is labeled as data, and stored text cannot
+close the handoff block. Leave out failures the earlier agent went on from and
+game state the next agent can look at again; replaying local conversations
+showed 98% of recent failures were already behind the agent and half of the
+playtest snapshots were older than the latest file change. Exclude private
+prompt context and do not make another model call.
 An explicitly expired/not-found native resume receives one fresh-context retry,
 without appending the user message twice. Other failures remain visible.
 Moving back to Pi uses the shared messages; native hidden state is not imported.
@@ -338,6 +359,16 @@ Each agent reads its staged roots without asking: Claude Code through
 read them. Running staged scripts follows the agent's own rules.
 Remove staged files only after the CLI stops.
 
+A message names Skills as `$name`, anywhere and any number; only names the
+agent has count. The message stays as written, and each agent gets the named
+Skills its own way: Pi a `<skill>` block per Skill before the message (the
+block Pi writes for `/skill:`, which takes only one), Codex a `skill` input
+item with the staged `SKILL.md`, and Claude Code (`ohmygame:<name>`, the
+session plugin's names) and OpenCode a first line asking them to load the
+Skills with their own tool. A Skill that was not staged for the session, such
+as one of the project's own, is asked for in words by its own name. A restored
+Pi message drops its blocks and shows the `$name` again.
+
 New plugin capabilities must be expressible as Skills or MCP. Pi extensions are
 not portable. Native canvas file edits still need `canvas_check`; media jobs,
 artifacts, retries, defaults, and cancellation reuse their existing handlers.
@@ -483,6 +514,6 @@ maintained compatibility code.
 - [Shared model and runtime events](../src/shared/contracts.ts)
 - [Agent tools](../src/daemon/agent-tools.ts)
 - [Checkpoint and Undo contract](checkpoints.md)
-- [Plugin package and portability contract](plugins.md)
+- [Plugin package contract](plugins.md)
 - [Runtime and trust boundary](runtime.md)
 - [Contribution checks](../CONTRIBUTING.md#make-and-check-your-change)

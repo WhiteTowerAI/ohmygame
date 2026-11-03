@@ -133,6 +133,8 @@ export interface AgentRuntimeStatus {
   id: AgentRuntimeId;
   name: string;
   enabled: boolean;
+  /** Send one message to carry on once a usage limit resets. */
+  autoContinue: boolean;
   installed: boolean;
   /** The executable that runs, resolved to an absolute path. */
   binaryPath?: string;
@@ -160,6 +162,7 @@ export interface AgentRuntimeStatus {
 export interface UpdateAgentRuntimeRequest {
   defaultProfileId?: string;
   enabled?: boolean;
+  autoContinue?: boolean;
   permissionMode?: AgentPermissionMode;
   /** An executable to use instead of the one found on PATH; empty clears it. */
   binaryPath?: string;

@@ -1,17 +1,18 @@
 import { approvalOutcomeLabel } from "./approval-card.js";
 import { ChangeCounts } from "./change-counts.js";
 import { FileDiff } from "./file-diff.js";
+import { sendsMessage } from "./general-preferences.js";
 import {
   Check,
   GitBranch,
   ChevronRight,
   Copy,
+  DangerCircle,
   Diskette,
   FilePenLine,
   FileText,
   Gamepad2,
   Image,
-  LoaderCircle,
   Pencil,
   Plug,
   Search,
@@ -19,20 +20,21 @@ import {
   Wrench,
   WandSparkles,
   Wifi,
-  WifiOff,
   X,
   type IconComponent,
 } from "./icons.js";
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { ConversationAttachment, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
+import type { ConversationAttachment, ConversationCapabilities, LimitResume, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
-import { ConversationImage } from "./image-attachments.js";
+import { splitPluginMentions } from "../shared/plugins.js";
+import { PluginMentionGlyph } from "./plugin-icons.js";
+import { ImageGallery } from "./image-viewer.js";
 import { useNearViewport } from "./asset-gallery.js";
 import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
 import { ModelPreview } from "./model-preview.js";
 import { formatBytes } from "./format-bytes.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
-import { mergeCompletedCompactionTurns, projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
+import { mergeCompletedCompactionTurns, projectTurnDisplay, turnDisplayClock, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
 import { PromptContextIcon } from "./chat-reference.js";
 import { GodotIcon } from "./godot-icon.js";
@@ -40,6 +42,9 @@ import { MarkdownContent } from "./markdown-content.js";
 import { LazyDetails } from "./lazy-details.js";
 import { agentErrorDiagnosticRows, agentErrorDiagnosticText, agentErrorPresentation } from "./agent-error-presentation.js";
 import { language, t } from "./i18n.js";
+import { scheduleTime } from "./later-command.js";
+import { settingsHash, type SettingsSection } from "./routes.js";
+import { Button, Switch } from "./ui/index.js";
 import { TurnChangesFooter, TurnChangesViews, type TurnChangesControls } from "./turn-changes.js";
 
 type ToolCallItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
@@ -59,9 +64,17 @@ interface AgentTimelineProps {
   onBranch?: (entryId: string) => void;
   branchDisabled?: boolean;
   waitingForInput?: boolean;
+  /** The installed plugins, for the icons of those a message mentions. */
+  plugins?: ConversationCapabilities["plugins"];
+  /** The continue after a usage limit, shown on the error card of the turn that failed last. */
+  limitResume?: LimitResume;
+  onLimitResumeChange?: (on: boolean) => void;
 }
 
 const WorkspaceLinkContext = createContext<{ workspacePath?: string; onOpenWorkspaceFile?: (path: string) => void }>({});
+const PluginsContext = createContext<ConversationCapabilities["plugins"]>([]);
+const NO_PLUGINS: ConversationCapabilities["plugins"] = [];
+const LimitResumeContext = createContext<(LimitResume & { onChange?: (on: boolean) => void }) | undefined>(undefined);
 const completedDisplays = new WeakMap<ThreadTurn, TurnDisplay>();
 
 function turnDisplay(turn: ThreadTurn): TurnDisplay {
@@ -71,7 +84,7 @@ function turnDisplay(turn: ThreadTurn): TurnDisplay {
   return display;
 }
 
-export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false }: AgentTimelineProps) {
+export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS, limitResume, onLimitResumeChange }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -81,7 +94,9 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
   const turns = useMemo(() => mergeCompletedCompactionTurns(sourceTurns), [sourceTurns]);
   const displays = useMemo(() => turns.map(turnDisplay), [turns]);
   const workspaceLinks = useMemo(() => ({ workspacePath, onOpenWorkspaceFile }), [workspacePath, onOpenWorkspaceFile]);
+  const limitResumeControl = useMemo(() => limitResume && { ...limitResume, onChange: onLimitResumeChange }, [limitResume, onLimitResumeChange]);
   const activeIndex = turns.findIndex((turn) => turn.status === "inProgress");
+  const lastFailedIndex = turns.findLastIndex((turn) => turn.status === "failed");
   const latestSteeringIndex = turns.findLastIndex((turn) => turn.steering);
   const steeringPending = activeIndex >= 0 && latestSteeringIndex > activeIndex;
   const latestUserId = [...turns].reverse().flatMap((turn) => turn.items).find((item) => item.type === "userMessage")?.id;
@@ -133,40 +148,43 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
 
   return (
     <WorkspaceLinkContext.Provider value={workspaceLinks}>
-      <div className="agent-timeline-selection-root" ref={setSelectionRoot}>
-        <TurnChangesViews key={turns[0]?.conversationId} workspaceRevision={workspaceRevision}>
-          {turns.map((turn, index) => (
-            <Turn
-              key={turn.id}
-              projectId={projectId}
-              turn={turn}
-              waitingForInput={turn.status === "inProgress" && waitingForInput}
-              steeringPending={steeringPending && index === latestSteeringIndex}
-              changeControls={changeControls}
-              assistantControls={{
-                copiedItemId: copiedAssistantId,
-                latestItemId: latestAssistantId,
-                onCopy: copyAssistant,
-                onBranch,
-                branchDisabled,
-              }}
-              userControls={{
-                editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
-                draft: displays[index].user?.id === editingItemId ? draft : "",
-                copied: displays[index].user?.id === copiedItemId,
-                canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
-                disabled: Boolean(revisionDisabled || submitting),
-                onCopy: copy,
-                onEdit: edit,
-                onDraftChange: setDraft,
-                onCancel: cancelEdit,
-                onSubmit: submitRevision,
-              }}
-            />
-          ))}
-        </TurnChangesViews>
-        {onAddToChat ? <SelectedTextMenu root={selectionRoot} onAdd={onAddToChat} /> : null}
-      </div>
+      <PluginsContext.Provider value={plugins}>
+        <div className="agent-timeline-selection-root" ref={setSelectionRoot}>
+          <TurnChangesViews key={turns[0]?.conversationId} workspaceRevision={workspaceRevision}>
+            {turns.map((turn, index) => (
+              <LimitResumeContext.Provider key={turn.id} value={index === lastFailedIndex ? limitResumeControl : undefined}>
+              <Turn
+                projectId={projectId}
+                turn={turn}
+                waitingForInput={turn.status === "inProgress" && waitingForInput}
+                steeringPending={steeringPending && index === latestSteeringIndex}
+                changeControls={changeControls}
+                assistantControls={{
+                  copiedItemId: copiedAssistantId,
+                  latestItemId: latestAssistantId,
+                  onCopy: copyAssistant,
+                  onBranch,
+                  branchDisabled,
+                }}
+                userControls={{
+                  editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
+                  draft: displays[index].user?.id === editingItemId ? draft : "",
+                  copied: displays[index].user?.id === copiedItemId,
+                  canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
+                  disabled: Boolean(revisionDisabled || submitting),
+                  onCopy: copy,
+                  onEdit: edit,
+                  onDraftChange: setDraft,
+                  onCancel: cancelEdit,
+                  onSubmit: submitRevision,
+                }}
+              />
+              </LimitResumeContext.Provider>
+            ))}
+          </TurnChangesViews>
+          {onAddToChat ? <SelectedTextMenu root={selectionRoot} onAdd={onAddToChat} /> : null}
+        </div>
+      </PluginsContext.Provider>
     </WorkspaceLinkContext.Provider>
   );
 });
@@ -201,22 +219,30 @@ const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPend
   assistantControls: AssistantControls;
   changeControls?: TurnChangesControls;
 }) {
-  const [now, setNow] = useState(Date.now());
   const active = turn.status === "inProgress";
+  // Rebuilding the display every second re-renders the whole turn, so wait
+  // for the next moment the display can change instead.
+  const [displayTime, setDisplayTime] = useState(() => turnDisplayClock(turn, Date.now()).time);
   useEffect(() => {
     if (!active) return;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [active]);
-  const display = useMemo(() => active ? projectTurnDisplay(turn, now, waitingForInput) : turnDisplay(turn), [turn, active, now, waitingForInput]);
+    let timer: number | undefined;
+    const update = () => {
+      const now = Date.now();
+      const clock = turnDisplayClock(turn, now);
+      setDisplayTime(clock.time);
+      if (clock.next !== undefined) timer = window.setTimeout(update, clock.next - now);
+    };
+    update();
+    return () => window.clearTimeout(timer);
+  }, [turn, active]);
+  const display = useMemo(() => active ? projectTurnDisplay(turn, displayTime, waitingForInput) : turnDisplay(turn), [turn, active, displayTime, waitingForInput]);
   const fileChanges = changeControls && display.status !== "inProgress" && display.user?.checkpointId && display.user.changes && display.user.changes.files > 0
     ? <TurnChangesFooter checkpointId={display.user.checkpointId} changes={display.user.changes} controls={changeControls} />
     : null;
   return (
     <article className="agent-turn">
       <UserInput item={display.user} controls={userControls} />
-      {display.status === "inProgress" ? <ActiveWork display={display} now={now} /> : null}
+      {display.status === "inProgress" ? <ActiveWork display={display} /> : null}
       {display.status !== "inProgress" && (display.work.length > 0 || display.status === "cancelled") ? <CompletedWork display={display} /> : null}
       {display.messages.map((item) => <TimelineItem key={item.id} item={item} />)}
       {display.finalMessages.length > 0
@@ -282,21 +308,31 @@ function formatResponseTime(timestamp: number): string {
   }).format(timestamp);
 }
 
+/** The message as written, with each plugin it mentions shown as the plugin. */
+function UserMessageText({ text, mentions = [] }: { text: string; mentions?: Extract<ThreadItem, { type: "userMessage" }>["mentions"] }) {
+  const plugins = useContext(PluginsContext);
+  return <>{splitPluginMentions(text, mentions).map((part, index) => {
+    if (typeof part === "string") return part;
+    return <span key={index} className="user-message-plugin" title={t("timeline.pluginMention", { name: part.displayName })}>
+      <PluginMentionGlyph mention={part} plugins={plugins} size={14} />
+      <span>{part.displayName}</span>
+    </span>;
+  })}</>;
+}
+
 function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "userMessage" }> | undefined; controls: UserControls }) {
   if (!item) return null;
   const visualAttachmentNames = new Set(item.images?.map((image) => image.name).filter((name): name is string => Boolean(name)) ?? []);
   const attachments = item.attachments?.filter((attachment) => !visualAttachmentNames.has(attachment.relativePath)) ?? [];
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    if (event.nativeEvent.isComposing || !sendsMessage(event)) return;
     event.preventDefault();
     controls.onSubmit();
   }
   return (
     <div className="user-input">
       {item.images?.length ? (
-        <div className="user-message-images">
-          {item.images.map((image, index) => <ConversationImage key={`${image.mediaType}:${index}`} image={image} alt={t("timeline.attachedImage", { number: index + 1 })} />)}
-        </div>
+        <ImageGallery className="user-message-images" images={item.images} alt={(index) => t("timeline.attachedImage", { number: index + 1 })} />
       ) : null}
       {attachments.length ? <UserAttachments attachments={attachments} /> : null}
       {item.contexts?.length ? <UserContexts contexts={item.contexts} /> : null}
@@ -321,7 +357,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
         </div>
       ) : item.text ? (
         <>
-          <div className="user-message">{item.text}</div>
+          <div className="user-message"><UserMessageText text={item.text} mentions={item.mentions} /></div>
           <div className="user-message-actions">
             <button type="button" aria-label={t("timeline.copyMessage")} title={t("common.copy")} onClick={() => controls.onCopy(item)}>
               {controls.copied ? <Check size={13} /> : <Copy size={13} />}
@@ -373,19 +409,33 @@ function ShimmerText({ text, active = true, className, title, role }: {
   );
 }
 
-function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
-  const label = display.working ? t("timeline.workingFor", { duration: activeTurnDuration(display, now) }) : t("timeline.thinking");
+function ActiveWork({ display }: { display: TurnDisplay }) {
   return (
     <section className="work-activity work-activity-active">
-      <div className={`work-summary work-summary-active${display.working ? "" : " work-summary-thinking"}`}>
-        <ShimmerText text={label} active={!display.working} />
-      </div>
+      <ActiveWorkSummary display={display} />
       {display.work.length > 0 ? (
         <div className="active-work-items">
           <WorkItems items={display.work} images={display.user?.images} activeRetryId={display.activeRetryId} />
         </div>
       ) : null}
     </section>
+  );
+}
+
+/** Only the elapsed time changes every second, so only this line re-renders. */
+function ActiveWorkSummary({ display }: { display: TurnDisplay }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!display.working) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [display.working]);
+  const label = display.working ? t("timeline.workingFor", { duration: activeTurnDuration(display, now) }) : t("timeline.thinking");
+  return (
+    <div className={`work-summary work-summary-active${display.working ? "" : " work-summary-thinking"}`}>
+      <ShimmerText text={label} active={!display.working} />
+    </div>
   );
 }
 
@@ -554,15 +604,8 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
             <span>{label}</span>
             <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
           </summary>}>
-          <div className="image-read-previews">
-            {images.map((image, index) => (
-              <ConversationImage
-                key={`${image.mediaType}:${index}`}
-                image={image}
-                alt={image.name ?? t("timeline.viewedImageName", { number: index + 1 })}
-              />
-            ))}
-          </div>
+          <ImageGallery className="image-read-previews" images={images}
+            alt={(index) => images[index]!.name ?? t("timeline.viewedImageName", { number: index + 1 })} />
         </LazyDetails>
       );
     }
@@ -631,26 +674,81 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
 }
 
 function AgentErrorActivity({ error, retry, active = false }: { error: ThreadItemError; retry?: Extract<ThreadItem, { type: "retry" }>; active?: boolean }) {
-  const failed = !retry || retry.status === "failed";
-  const shimmering = active && retry?.status === "inProgress";
-  const presentation = agentErrorPresentation(error);
-  const label = failed ? presentation.title : t("timeline.reconnecting", { attempt: retry.attempt, max: retry.maxAttempts });
-  const preview = failed && !error.code ? error.message.replace(/\s+/g, " ").trim() : "";
-  const summary = preview ? `${label} — ${preview}` : label;
-  const Icon = failed ? (["dns_error", "connection_refused", "connection_reset", "timeout", "tls_error", "stream_error", "network_error"].includes(error.code ?? "") ? WifiOff : X) : Wifi;
+  if (!retry || retry.status === "failed") return <AgentErrorCard error={error} />;
+  const shimmering = active && retry.status === "inProgress";
+  const label = t("timeline.reconnecting", { attempt: retry.attempt, max: retry.maxAttempts });
   return (
-    <LazyDetails className={`connection-activity-details${failed ? " connection-activity-failed" : ""}`} summary={
+    <LazyDetails className="connection-activity-details" summary={
       <summary className="tool-activity tool-row timeline-activity connection-activity">
-        <Icon size={13} aria-hidden="true" />
-        <ShimmerText text={summary} active={shimmering} className="tool-label" title={summary} role={failed ? "alert" : shimmering ? "status" : undefined} />
+        <Wifi size={13} aria-hidden="true" />
+        <ShimmerText text={label} active={shimmering} className="tool-label" title={label} role={shimmering ? "status" : undefined} />
         <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
       </summary>}>
-      <AgentErrorDetails error={error} guidance={failed ? presentation.message : undefined} />
+      <AgentErrorDetails error={error} />
     </LazyDetails>
   );
 }
 
-function AgentErrorDetails({ error, guidance }: { error: ThreadItemError; guidance?: string }) {
+const NETWORK_ERRORS = new Set(["dns_error", "connection_refused", "connection_reset", "timeout", "tls_error", "network_error"]);
+
+/** The settings page that fixes an error, where its guidance points there. */
+function errorSettings(code: ThreadItemError["code"]): SettingsSection | undefined {
+  if (code === "runtime_incompatible" || code === "runtime_probe_failed") return "agents";
+  if (code === "model_not_configured" || code === "authentication_failed") return "providers";
+  return code && NETWORK_ERRORS.has(code) ? "network" : undefined;
+}
+
+/**
+ * A turn that ended on an error: what happened and what to do, with the
+ * provider's own response behind Details, the same rows the copy button takes.
+ */
+function AgentErrorCard({ error }: { error: ThreadItemError }) {
+  const [open, setOpen] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const copied = copyStatus === "copied";
+  useEffect(() => { setCopyStatus("idle"); }, [error]);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopyStatus("idle"), 1_500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+  const presentation = agentErrorPresentation(error);
+  const preview = error.code ? "" : error.message.replace(/\s+/g, " ").trim();
+  const settings = errorSettings(error.code);
+  const limitResume = useContext(LimitResumeContext);
+  async function copyDiagnostics() {
+    try {
+      await navigator.clipboard.writeText(agentErrorDiagnosticText(error));
+      setCopyStatus("copied");
+    } catch { setCopyStatus("failed"); }
+  }
+  return (
+    <div className="agent-error-card" role="alert">
+      <div className="agent-error-head">
+        <DangerCircle size={15} aria-hidden="true" />
+        <strong>{presentation.title}</strong>
+      </div>
+      {preview ? <p className="agent-error-preview" title={preview}>{preview}</p> : null}
+      <p className="agent-error-text">{presentation.message}</p>
+      {open ? (
+        <dl className="agent-error-rows">{agentErrorDiagnosticRows(error).map(([label, value], index) => <div key={`${label}:${index}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+      ) : null}
+      {copyStatus === "failed" ? <p className="agent-error-text" role="status">{t("timeline.copyFailed")}</p> : null}
+      {limitResume && limitResume.state !== "skipped" ? <div className="agent-error-resume">
+        <span>{t(limitResume.state === "armed" ? "timeline.limitResume.armed" : "timeline.limitResume.off", { time: scheduleTime(limitResume.at) })}</span>
+        <Switch size="sm" label={t("timeline.limitResume.label")} checked={limitResume.state === "armed"} onChange={(on) => limitResume.onChange?.(on)} />
+      </div> : null}
+      <div className="agent-error-actions">
+        {settings ? <Button size="sm" onClick={() => { window.location.hash = settingsHash(settings); }}>{t("timeline.openSettings")}</Button> : null}
+        <span className="agent-error-spacer" />
+        {open ? <Button size="sm" variant="ghost" onClick={() => void copyDiagnostics()}>{copied ? t("timeline.diagnosticsCopied") : t("timeline.copyDiagnostics")}</Button> : null}
+        <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? t("timeline.hideDetails") : t("timeline.showDetails")}</Button>
+      </div>
+    </div>
+  );
+}
+
+function AgentErrorDetails({ error }: { error: ThreadItemError }) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const copied = copyStatus === "copied";
   useEffect(() => { setCopyStatus("idle"); }, [error]);
@@ -668,7 +766,6 @@ function AgentErrorDetails({ error, guidance }: { error: ThreadItemError; guidan
   }
   return (
     <div className="connection-activity-diagnostics">
-      {guidance ? <p className="connection-activity-guidance">{guidance}</p> : null}
       <dl className="connection-activity-error">{rows.map(([label, value], index) => <div key={`${label}:${index}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       {copyStatus === "failed" ? <p className="connection-activity-guidance" role="status">{t("timeline.copyFailed")}</p> : null}
       <button type="button" className="connection-activity-copy" aria-label={copied ? t("timeline.diagnosticsCopied") : t("timeline.copyDiagnostics")} title={copied ? t("common.copied") : t("timeline.copyDiagnostics")} onClick={() => void copyDiagnostics()}>
@@ -736,6 +833,7 @@ function ShellDetails({ item, command }: { item: ToolCallItem; command: string }
 
 function FileOperationDetails({ item, args }: { item: ToolCallItem; args: Record<string, unknown> | undefined }) {
   return <div className="tool-details">
+    {item.images?.length ? <ToolImagePreviews images={item.images} /> : null}
     {fileOperationContext(item.tool, args)}
     {item.output ? <ToolDetailBlock label={t("timeline.detail.result")}><pre>{item.output}</pre></ToolDetailBlock> : null}
     {item.truncated ? <p className="tool-details-truncated">{t("timeline.detail.resultTruncated")}</p> : null}
@@ -770,15 +868,8 @@ function StructuredToolDetails({ item }: { item: ToolCallItem }) {
 }
 
 function ToolImagePreviews({ images }: { images: PromptImage[] }) {
-  return <div className="tool-result-images">
-    {images.map((image, index) => (
-      <ConversationImage
-        key={`${image.mediaType}:${index}`}
-        image={image}
-        alt={image.name ?? (images.length === 1 ? t("timeline.detail.toolImage") : t("timeline.detail.toolImageNumber", { number: index + 1 }))}
-      />
-    ))}
-  </div>;
+  return <ImageGallery className="tool-result-images" images={images}
+    alt={(index) => images[index]!.name ?? (images.length === 1 ? t("timeline.detail.toolImage") : t("timeline.detail.toolImageNumber", { number: index + 1 }))} />;
 }
 
 function fileOperationContext(tool: string, args: Record<string, unknown> | undefined): ReactNode {
@@ -799,7 +890,7 @@ function hasToolDetails(item: ToolCallItem): boolean {
   if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
   if (item.tool === "bash") return Boolean(text(record(item.arguments)?.command) || item.output);
   if (["edit", "write"].includes(item.tool)) return Boolean(item.output || item.fileDiff);
-  if (["read", "grep", "find", "ls"].includes(item.tool)) return Boolean(item.output);
+  if (["read", "grep", "find", "ls"].includes(item.tool)) return Boolean(item.output || item.images?.length);
   return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
 }
 

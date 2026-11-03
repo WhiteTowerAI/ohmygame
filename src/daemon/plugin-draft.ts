@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { PluginDraft } from "../shared/plugin-setup.js";
-import { PERSONAL_MARKETPLACE, PLUGIN_SKILL_CONTENT_MAX_BYTES } from "../shared/plugins.js";
-import { inspectPluginBundle, readPluginManifest, validatePluginBundle } from "./local-plugins.js";
+import { isAppWidePlugin, PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
+import { PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, PLUGIN_SKILL_CONTENT_MAX_BYTES } from "../shared/plugins.js";
 import { readPluginIconAsset } from "./plugin-icons.js";
-import { parseSkillMetadata } from "./skill-metadata.js";
+import { indexPluginPackage, localizePluginString } from "./plugin-index.js";
+import { capabilityGrants } from "./project-plugins.js";
 
 export async function pluginDraftPath(workspace: string, requested: string): Promise<string> {
   const [root, target] = await Promise.all([realpath(workspace), realpath(path.resolve(workspace, requested))]);
@@ -18,17 +19,30 @@ export async function inspectPluginDraft(root: string, installedRevision?: strin
   const draft: PluginDraft = { files: [], errors: [], installedRevision };
   try {
     Object.assign(draft, await inspectPluginFiles(root));
-    const manifest = await readPluginManifest(root);
-    await readPluginIconAsset(root, manifest.interface?.icon);
-    const plugin = await inspectPluginBundle(root, {
-      idPrefix: "personal:", marketplace: PERSONAL_MARKETPLACE, source: { type: "directory" },
-    }, manifest);
-    for (const skill of plugin.skills) {
-      const metadata = parseSkillMetadata(await readFile(path.join(root, skill.id), "utf8"));
-      if (!metadata.name || !metadata.description)
-        throw new Error(`${skill.id}: name and description frontmatter are required`);
+    const result = await indexPluginPackage(root);
+    if (!result.ok) {
+      draft.errors.push(...result.issues.map((issue) => `${issue.path} ${issue.message}`));
+      return draft;
     }
-    draft.plugin = { ...plugin, installed: false };
+    const { entry } = result;
+    if (!entry.id.startsWith(`${PERSONAL_PUBLISHER}/`)) {
+      draft.errors.push(`The plugin's id must be ${PERSONAL_PUBLISHER}/<name>, not ${entry.id}`);
+      return draft;
+    }
+    const icon = entry.manifest.icon ? { type: "asset" as const, path: entry.manifest.icon } : undefined;
+    await readPluginIconAsset(root, icon);
+    draft.plugin = {
+      id: entry.id,
+      version: entry.version,
+      displayName: localizePluginString(entry, entry.manifest.displayName, "en"),
+      description: localizePluginString(entry, entry.manifest.description, "en"),
+      ...(icon ? { icon } : {}),
+      appWide: isAppWidePlugin(entry.manifest),
+      asks: capabilityGrants(entry.manifest),
+      skills: entry.skills.map((skill) => ({ id: skill.path.replace(/^\.\//, ""), name: skill.name, description: skill.description })),
+      mcpServers: (entry.manifest.contributes?.mcpServers ?? []).map((server) => ({ id: server.id, title: localizePluginString(entry, server.title, "en") })),
+      settings: Boolean(entry.manifest.configuration),
+    };
   } catch (cause) {
     draft.errors.push(cause instanceof Error ? cause.message : String(cause));
   }
@@ -66,4 +80,42 @@ export async function readPluginDraftFile(root: string, requested: string): Prom
   const bytes = await readFile(target);
   if (bytes.includes(0)) throw new Error("This file cannot be previewed as text");
   return { path: requested, content: bytes.toString("utf8") };
+}
+
+const MAX_PLUGIN_DEPTH = 64;
+
+async function validatePluginBundle(root: string): Promise<void> {
+  let entryCount = 0;
+  let size = 0;
+  async function visit(directory: string, depth: number): Promise<void> {
+    if (depth > MAX_PLUGIN_DEPTH) throw new Error("Plugin directory is nested too deeply");
+    let directoryEntries;
+    try {
+      directoryEntries = await readdir(directory, { withFileTypes: true });
+    } catch (cause) {
+      throw new Error(`Could not read plugin directory: ${errorMessage(cause)}`);
+    }
+    for (const entry of directoryEntries) {
+      entryCount += 1;
+      if (entryCount > PLUGIN_ARCHIVE_MAX_ENTRIES) throw new Error("Plugin contains too many files and directories");
+      const target = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) throw new Error("Plugin directories must not contain symbolic links");
+      if (entry.isDirectory()) {
+        await visit(target, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) throw new Error("Plugin directories may contain only files and directories");
+      size += (await lstat(target)).size;
+      if (size > PLUGIN_ARCHIVE_MAX_BYTES) throw new Error("Plugin is larger than 50 MB");
+    }
+  }
+  const stats = await lstat(root).catch((cause) => {
+    throw new Error(`Could not open plugin directory: ${errorMessage(cause)}`);
+  });
+  if (stats.isSymbolicLink() || !stats.isDirectory()) throw new Error("Plugin source must be a directory");
+  await visit(root, 0);
+}
+
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }

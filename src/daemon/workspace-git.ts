@@ -276,7 +276,7 @@ export async function readWorkspaceGitFile(
     ).toString();
     if (entry) {
       const [mode, type, oid, size] = entry.split("\t")[0].trim().split(/\s+/);
-      if (type !== "blob" || !/^100/.test(mode)) unsupported = true;
+      if (type !== "blob" || !mode.startsWith("100")) unsupported = true;
       else if (Number(size) > MAX_CHANGE_BYTES)
         before = { binary: false, truncated: true };
       else {

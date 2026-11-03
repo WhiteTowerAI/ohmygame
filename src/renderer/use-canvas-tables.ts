@@ -22,6 +22,15 @@ export function useCanvasTables(
   useEffect(() => {
     if (loaded && !closing) void storage.sync({ tables, tableIssues: issues });
   }, [storage, loaded, tables, issues, closing]);
+  // A poll that finds nothing new keeps the same workspace, so a table whose
+  // re-read failed is retried here, at the poll's pace, until a read succeeds.
+  useEffect(() => {
+    if (!storage.readFailed || !loaded || closing) return;
+    const timer = window.setTimeout(() => {
+      if (!isDesktopClosing()) void storage.sync({ tables, tableIssues: issues });
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [storage, version, loaded, tables, issues, closing]);
   const dirty = [...storage.sessions.values()].some(
     (session) =>
       !session.conflict &&

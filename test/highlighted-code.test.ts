@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { highlightWorkspaceCode } from "../src/renderer/highlighted-code.js";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { HighlightedCode, highlightWorkspaceCode } from "../src/renderer/highlighted-code.js";
 
 const initialization = vi.hoisted(() => ({ failOnce: true }));
 vi.mock("shiki/core", async (importOriginal) => {
@@ -43,5 +45,14 @@ describe("workspace code highlighting", () => {
         }
       }
     }
+  });
+
+  it("numbers plain text from one gutter, without the file's final newline", () => {
+    const html = renderToStaticMarkup(createElement(HighlightedCode, { path: "notes.unknown", content: "one\ntwo\n" }));
+    expect(html).toContain('<span class="workspace-code-gutter" aria-hidden="true">1\n2</span><code>one\ntwo</code>');
+    // A long file stays two text nodes rather than an element per line.
+    const long = renderToStaticMarkup(createElement(HighlightedCode, { path: "notes.unknown", content: "\n".repeat(50_000) }));
+    expect(long.match(/<span/g)).toHaveLength(1);
+    expect(long).toContain("\n49999\n50000</span>");
   });
 });

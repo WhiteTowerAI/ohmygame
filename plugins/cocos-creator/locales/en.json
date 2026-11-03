@@ -1,0 +1,7 @@
+{
+  "displayName": "Cocos Creator",
+  "description": "Develop Cocos games and build platform artifacts.",
+  "longDescription": "Edit TypeScript, scenes, and assets with a local Cocos Creator installation and build Web, WeChat, or Douyin output. Targets Creator 3.8 LTS and keeps each project's editor version. Enable a platform plugin for mini-game packaging and device checks.",
+  "example.1": "Inspect this Cocos Creator project's version and build setup.",
+  "example.2": "Implement a tap counter in this Cocos project and build a local preview."
+}

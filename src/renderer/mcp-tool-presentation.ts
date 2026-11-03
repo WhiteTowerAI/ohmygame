@@ -1,7 +1,8 @@
-import { GODOT_MCP_SERVER_ID, type McpToolIdentity } from "../shared/mcp.js";
+import { GODOT_MCP_SERVER_ID, GODOT_PLUGIN_MCP_SERVER_ID, type McpToolIdentity } from "../shared/mcp.js";
 
 const MCP_SERVERS: Record<string, { name: string; brand?: "godot" }> = {
   [GODOT_MCP_SERVER_ID]: { name: "Godot", brand: "godot" },
+  [GODOT_PLUGIN_MCP_SERVER_ID]: { name: "Godot", brand: "godot" },
 };
 const DISPLAY_WORDS: Record<string, string> = {
   godot: "Godot",

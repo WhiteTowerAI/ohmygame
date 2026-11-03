@@ -1,18 +1,26 @@
 {
-  "name": "web-game-studio",
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "ohmygame/web-game-studio",
   "version": "0.1.0",
-  "description": "Create, extend, debug, polish, and playtest browser games with focused 2D, 3D, UI, and asset workflows.",
-  "skills": "./skills/",
-  "interface": {
-    "icon": { "type": "asset", "path": "./assets/icon.svg" },
-    "displayName": "Web Game Studio",
-    "shortDescription": "Build and improve polished browser games.",
-    "longDescription": "A coordinated browser-game workflow covering architecture, Phaser, Three.js, React Three Fiber, UI, assets, and player-focused verification.",
-    "defaultPrompt": [
-      "Create a playable browser game from this idea.",
-      "Add a feature to the current game without regressing existing play.",
-      "Diagnose and fix a gameplay bug, then verify the affected flow."
-    ],
-    "projectTypes": ["web-game"]
+  "engines": {
+    "ohmygame-api": "^2.0.0"
+  },
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "longDescription": "%longDescription%",
+  "examples": [
+    "%example.1%",
+    "%example.2%",
+    "%example.3%"
+  ],
+  "icon": "./assets/icon.svg",
+  "categories": [
+    "workflow"
+  ],
+  "appliesTo": [
+    "web-game"
+  ],
+  "contributes": {
+    "skills": "./skills/"
   }
 }

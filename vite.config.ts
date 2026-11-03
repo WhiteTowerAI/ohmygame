@@ -41,6 +41,7 @@ export default defineConfig({
       input: {
         main: path.resolve(import.meta.dirname, "index.html"),
         webGameHost: path.resolve(import.meta.dirname, "web-game-host.html"),
+        gameRecorder: path.resolve(import.meta.dirname, "game-recorder.html"),
       },
     },
   },
@@ -53,6 +54,10 @@ export default defineConfig({
     testTimeout: 30_000,
     // Polls that wait for spawned processes need more than the 1s default under parallel load.
     expect: { poll: { timeout: 10_000 } },
+  },
+  optimizeDeps: {
+    // Only a lazy import reaches model-viewer, so the startup scan misses it and the mid-session re-optimize can leave the dev server answering 504.
+    include: ["@google/model-viewer"],
   },
   server: {
     strictPort: true,

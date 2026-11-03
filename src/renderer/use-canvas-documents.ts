@@ -36,7 +36,12 @@ export interface DocumentGenerationState {
 const documentContent = ({ id, title, markdown }: CanvasMarkdownDocument): CanvasMarkdownDocument => ({ id, title, markdown });
 const equal = (a: CanvasMarkdownDocument, b: CanvasMarkdownDocument) =>
   a.id === b.id && a.title === b.title && a.markdown === b.markdown;
-export function useCanvasDocuments(projectId: string) {
+/**
+ * A project's canvas documents, kept in sync with disk. Loading creates the
+ * project's canvas, so a workspace that shares one between its panels keeps it
+ * `enabled` only once one of them has opened.
+ */
+export function useCanvasDocuments(projectId: string, enabled = true) {
   const closing = useDesktopClosing();
   const [workspace, setWorkspace] = useState<CanvasWorkspaceDetail>();
   const current = useRef<CanvasWorkspaceDetail | undefined>(undefined);
@@ -83,8 +88,10 @@ export function useCanvasDocuments(projectId: string) {
   );
   const publish = useCallback(
     (value: CanvasWorkspaceDetail) => {
+      // Most polls find nothing new; keep the same state so the workspace does not re-render.
+      const unchanged = current.current !== undefined && JSON.stringify(current.current) === JSON.stringify(value);
       current.current = value;
-      if (mounted.current) setWorkspace(value);
+      if (mounted.current && !unchanged) setWorkspace(value);
       const drafts = value.documents.flatMap((document) => {
         const base = bases.current.get(document.id);
         const local = documentContent(document);
@@ -181,7 +188,7 @@ export function useCanvasDocuments(projectId: string) {
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => {
-    if (closing) return;
+    if (closing || !enabled) return;
     void refresh().catch(() => {});
     // A hidden window shows nobody the external changes, so it refreshes again on return instead.
     const run = () => {
@@ -193,7 +200,7 @@ export function useCanvasDocuments(projectId: string) {
       window.clearInterval(timer);
       window.document.removeEventListener("visibilitychange", run);
     };
-  }, [refresh, closing]);
+  }, [refresh, closing, enabled]);
   const update = useCallback(
     (
       id: string,
@@ -322,6 +329,25 @@ export function useCanvasDocuments(projectId: string) {
     }, 600);
     return () => window.clearTimeout(timer);
   }, [workspace, flush, conflict, closing]);
+  // A poll that finds nothing new keeps the same workspace, so a failed save
+  // is retried here, at the poll's pace, while the window is visible. Each
+  // retry waits for the last one, since a save can take longer than the pace.
+  useEffect(() => {
+    if (!error || !workspace || conflict || closing || !enabled) return;
+    let stopped = false;
+    let timer: number | undefined;
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        if (isDesktopClosing() || window.document.hidden) return schedule();
+        void flush().catch(() => {}).finally(() => { if (!stopped) schedule(); });
+      }, 3000);
+    };
+    schedule();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [error, workspace, flush, conflict, closing, enabled]);
   const create = useCallback(async () => {
     await flush();
     const detail = await createCanvasDocument(projectId, t("canvasDocs.untitled"), version);
@@ -459,6 +485,7 @@ export function useCanvasDocuments(projectId: string) {
     applyGeneration,
   };
 }
+export type CanvasDocumentsState = ReturnType<typeof useCanvasDocuments>;
 function message(cause: unknown) {
   return cause instanceof Error ? cause.message : String(cause);
 }

@@ -134,11 +134,11 @@ it("keeps the provider header compact and exposes advanced connection settings",
   const onViewChange = vi.fn();
   await render(onViewChange);
   expect(
-    host.querySelector(".settings-provider-detail-header small")?.textContent,
+    host.querySelector(".settings-detail-title p")?.textContent,
   ).toBe("Browser sign-in or API key");
-  expect(host.querySelector('.settings-provider-detail-header button[aria-label="Back"]')).toBeDefined();
+  expect(host.querySelector('.settings-detail-head button[aria-label="Back to Providers"]')).toBeDefined();
   expect(host.querySelector(".settings-provider-breadcrumb")).toBeNull();
-  expect(host.querySelector(".settings-provider-detail-header .settings-provider-delete")).toBeDefined();
+  expect(host.querySelector(".settings-detail-head .settings-provider-delete")).toBeDefined();
   expect(host.querySelectorAll(".settings-provider-status-dot")).toHaveLength(0);
   const connection = host.querySelector('[aria-label="Connection"]')!;
   expect(connection.textContent).toContain("Signed in with ChatGPT");
@@ -151,20 +151,20 @@ it("keeps the provider header compact and exposes advanced connection settings",
   expect(advanced.open).toBe(true);
   expect(advanced.textContent).toContain("Responses connection");
 
-  await act(async () => host.querySelector<HTMLButtonElement>('.settings-provider-detail-header button[aria-label="Back"]')!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>('.settings-detail-head button[aria-label="Back to Providers"]')!.click());
   expect(onViewChange).toHaveBeenCalledWith({ page: "providers" });
 });
 
 it("confirms before removing the provider", async () => {
   await render();
-  await act(async () => host.querySelector<HTMLButtonElement>(".settings-provider-detail-header .settings-provider-delete")!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>(".settings-detail-head .settings-provider-delete")!.click());
   await act(async () => button("Delete provider")!.click());
   expect(api.removeProvider).toHaveBeenCalledWith("openai");
 });
 
 it.each(audioProviders)("keeps $name settings and actions independent", async (provider) => {
   await render(vi.fn(), provider);
-  const header = host.querySelector(".settings-provider-detail-header")!;
+  const header = host.querySelector(".settings-detail-head")!;
   const toggle = header.querySelector<HTMLInputElement>('[role="switch"]')!;
   expect(toggle.getAttribute("aria-label")).toBe(`Enable ${provider.name}`);
   expect(host.querySelector(".settings-provider-filters")).toBeNull();
@@ -218,9 +218,9 @@ it("pauses background polling while the user saves model visibility", async () =
   let save!: (settings: ProviderModelSettings) => void;
   api.setProviderModelVisibility.mockImplementationOnce(() => new Promise((resolve) => { save = resolve; }));
   await render();
-  await act(async () => button("Edit")!.click());
-  const checkbox = host.querySelector<HTMLInputElement>('.provider-model-row input[type="checkbox"]')!;
-  await act(async () => checkbox.click());
+  // Each row's checkbox shows or hides its model without entering Edit.
+  const visibility = () => host.querySelector<HTMLInputElement>('.provider-model-row input[type="checkbox"][aria-label="Enable GPT-4"]')!;
+  await act(async () => visibility().click());
   expect(api.setProviderModelVisibility).toHaveBeenCalledWith("openai", ["gpt-4"], false);
   await act(async () => vi.advanceTimersByTimeAsync(1_000));
   expect(api.getProviderModels).toHaveBeenCalledOnce();
@@ -228,6 +228,8 @@ it("pauses background polling while the user saves model visibility", async () =
   api.getProviderModels.mockResolvedValueOnce(saved);
   await act(async () => save(saved));
   await act(async () => vi.advanceTimersByTimeAsync(1_000));
-  expect(checkbox.checked).toBe(false);
+  // A model hidden here stays in place, unchecked, until the page changes.
+  expect(visibility().checked).toBe(false);
+  expect(host.textContent).toContain("Hidden models (1)");
   expect(api.getProviderModels).toHaveBeenCalledTimes(2);
 });

@@ -215,10 +215,10 @@ it("keeps incoming controls and media inactive until outgoing async cleanup fini
         readyState: { value: 2 },
         paused: { get: () => paused },
       });
-      const pause = vi.spyOn(video, "pause").mockImplementation(() => {
+      vi.spyOn(video, "pause").mockImplementation(() => {
         paused = true;
       });
-      const play = vi.spyOn(video, "play").mockImplementation(async () => {
+      vi.spyOn(video, "play").mockImplementation(async () => {
         paused = false;
       });
       mediaControls.set((root.host as HTMLElement).dataset.playableSurface!, {

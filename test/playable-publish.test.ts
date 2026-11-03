@@ -89,7 +89,7 @@ describe("Web story output", () => {
     await writeNodeCodebase(workspace, { ...codebase, graph: { ...codebase.graph, nodes: codebase.graph.nodes.map((node) => ({ ...node, signals: [] })), assets: { background: { type: "image", source: { kind: "workspace", path: "assets/background.png" } } } } });
     const builder = new ArtifactBuilder();
     try {
-      const local = await unzip(await builder.buildInteractiveStory(project(workspace)));
+      const local = await unzip(await builder.build(project(workspace)));
       const published = await unzip(await builder.create(project(workspace)));
       const optimized = published.get("assets/background.png")!;
       expect(optimized.length).toBeLessThan(original.length / 10);
@@ -128,7 +128,7 @@ describe("Web story output", () => {
 
     const builder = new ArtifactBuilder();
     try {
-      const files = await unzip(await builder.buildInteractiveStory(project(workspace)));
+      const files = await unzip(await builder.build(project(workspace)));
       const names = [...files.keys()].sort();
       expect(names).toContain("index.html");
       expect(names).toContain("graph.json");
@@ -154,7 +154,7 @@ describe("Web story output", () => {
     });
     const builder = new ArtifactBuilder();
     try {
-      await expect(builder.buildInteractiveStory(project(workspace))).rejects.toThrow('Asset "opening" is in the Library');
+      await expect(builder.build(project(workspace))).rejects.toThrow('Asset "opening" is in the Library');
     } finally { await builder.close(); }
   });
 });
@@ -167,7 +167,7 @@ describe("Stories made before web stories", () => {
     await rm(path.join(workspace, "story"), { recursive: true });
     const builder = new ArtifactBuilder();
     try {
-      await expect(builder.buildInteractiveStory(project(workspace))).rejects.toThrow("Open it in the Story editor, which upgrades it");
+      await expect(builder.build(project(workspace))).rejects.toThrow("Open it in the Story editor, which upgrades it");
     } finally { await builder.close(); }
   });
 });

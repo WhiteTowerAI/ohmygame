@@ -1,7 +1,7 @@
 import { FileText, X } from "./icons.js";
 import { Fragment, useEffect, useMemo } from "react";
 import { formatBytes } from "./format-bytes.js";
-import type { PromptAttachment } from "../shared/contracts.js";
+import type { PromptAttachment, PromptImage } from "../shared/contracts.js";
 import { uploadProjectAttachment } from "./api.js";
 import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_FILES } from "../shared/file-transfer.js";
 import { t } from "./i18n.js";
@@ -44,6 +44,13 @@ export async function uploadAttachments(projectId: string, batchId: string, atta
   return uploaded;
 }
 
+/** An image a message carried, as a file to attach again. */
+export function imageAttachment(image: PromptImage): ComposerAttachment {
+  const bytes = Uint8Array.from(atob(image.data), (character) => character.charCodeAt(0));
+  const name = image.name || `image.${image.mediaType.split("/")[1] ?? "png"}`;
+  return { id: crypto.randomUUID(), file: new File([bytes], name, { type: image.mediaType }), relativePath: name };
+}
+
 export function attachmentFiles(files: AttachmentInput[]): ComposerAttachment[] {
   return files.flatMap((value) => {
     const file = value instanceof File ? value : value.file;
@@ -62,10 +69,14 @@ function availablePath(relativePath: string, taken: ReadonlySet<string>): string
   }
 }
 
-export function AttachmentStrip({ items, onRemove }: { items: ComposerAttachment[]; onRemove: (id: string) => void }) {
-  if (!items.length) return null;
+/** The files to send, those still to upload and those already in the project from a message that was not sent. */
+export function AttachmentStrip({ items, uploaded = [], onRemove }: { items: ComposerAttachment[]; uploaded?: PromptAttachment[]; onRemove: (id: string) => void }) {
+  if (!items.length && !uploaded.length) return null;
   const images = items.filter(isPreviewableImage);
-  const files = items.filter((attachment) => !isPreviewableImage(attachment));
+  const files = [
+    ...items.filter((attachment) => !isPreviewableImage(attachment)).map(({ id, relativePath, file }) => ({ id, relativePath, size: file.size })),
+    ...uploaded.map(({ id, relativePath, size }) => ({ id, relativePath, size })),
+  ];
   return (
     <Fragment>
       {images.length ? <div className="composer-images" aria-label={t("attachments.images")}>
@@ -73,7 +84,7 @@ export function AttachmentStrip({ items, onRemove }: { items: ComposerAttachment
       </div> : null}
       {files.length ? <div className="composer-attachments" aria-label={t("attachments.files")}>
         {files.map((attachment) => (
-          <div className="composer-attachment" key={attachment.id} title={`${attachment.relativePath} · ${formatBytes(attachment.file.size)}`}>
+          <div className="composer-attachment" key={attachment.id} title={`${attachment.relativePath} · ${formatBytes(attachment.size)}`}>
             <FileText size={14} />
             <span>{attachment.relativePath}</span>
             <button type="button" onClick={() => onRemove(attachment.id)} title={t("attachments.remove", { name: attachment.relativePath })} aria-label={t("attachments.remove", { name: attachment.relativePath })}>

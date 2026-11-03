@@ -14,6 +14,7 @@ const updateAgentRuntimeSchema = {
     properties: {
       enabled: { type: "boolean" },
       // Each agent's own modes; the service checks the mode belongs to the agent.
+      autoContinue: { type: "boolean" },
       permissionMode: { enum: [...new Set(Object.values(AGENT_PERMISSION_MODES).flat())] },
       binaryPath: { type: "string", maxLength: 4_096 },
       defaultProfileId: { type: "string", minLength: 1, maxLength: 80 },

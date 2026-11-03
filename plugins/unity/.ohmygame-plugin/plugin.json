@@ -1,22 +1,26 @@
 {
-  "name": "unity",
+  "$schema": "https://ohmygame.dev/schema/plugin-2.json",
+  "id": "ohmygame/unity",
   "version": "0.1.0",
-  "enabledByDefault": false,
-  "description": "Develop Unity projects with the official Unity CLI and local Editor pipeline.",
-  "skills": "./skills/",
-  "interface": {
-    "beta": true,
-    "displayName": "Unity",
-    "shortDescription": "Edit, test, and build Unity projects with official tools.",
-    "longDescription": "Use the official Unity CLI and Pipeline package for Editor control, scene changes, C# diagnostics, tests, and builds. Live Editor control requires Unity 6.0 LTS or later and a licensed Editor matching the project; the upstream CLI is experimental.",
-    "icon": {
-      "type": "asset",
-      "path": "./assets/icon.svg"
-    },
-    "defaultPrompt": [
-      "Check this Unity project's Editor version and official CLI readiness.",
-      "Add a rotating cube to a test scene, verify compilation, and run it in Unity."
-    ],
-    "projectTypes": ["general"]
+  "engines": {
+    "ohmygame-api": "^2.0.0"
+  },
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "longDescription": "%longDescription%",
+  "examples": [
+    "%example.1%",
+    "%example.2%"
+  ],
+  "beta": true,
+  "icon": "./assets/icon.svg",
+  "categories": [
+    "engine"
+  ],
+  "appliesTo": [
+    "general"
+  ],
+  "contributes": {
+    "skills": "./skills/"
   }
 }

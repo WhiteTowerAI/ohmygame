@@ -7,7 +7,7 @@ import type { Node } from "@xyflow/react";
 import type { CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 import type { AgentModelCatalogStatus } from "./model-selector.js";
 import type { LibraryAsset } from "./library-assets.js";
-import type { AudioAssetData, AudioCanvasSettings, AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
+import type { AudioCanvasSettings, AudioModel, AudioProviderCatalogStatus } from "../shared/audio.js";
 import { t } from "./i18n.js";
 import { Maximize } from "./icons.js";
 import { resolveModel3DConnection, resolveModel3D, DEFAULT_MODEL_3D_CONFIG, normalizeModel3DConfig } from "../shared/generation-config.js";
@@ -24,7 +24,6 @@ export const MEDIA_NODE_MAX_HEIGHT = 360;
 export const MEDIA_NODE_MIN_HEIGHT = 200;
 
 export type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> & {
-  audioAsset?: AudioAssetData;
   resizeRuntime?: CanvasNodeResizeRuntime;
   nodeDetails?: CanvasNodeDetails;
   panelOpen?: boolean;
@@ -140,7 +139,6 @@ export interface VideoNodeRuntime extends ReferenceMediaNodeRuntime {
 }
 
 export interface AudioNodeRuntime extends MediaNodeRuntime {
-  audio?: AudioAssetData;
   models: AudioModel[];
   providers: AudioProviderCatalogStatus[];
 }

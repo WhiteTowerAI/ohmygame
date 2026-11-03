@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { t } from "./i18n.js";
+import { TriangleAlert } from "./icons.js";
+import { Button, Disclosure } from "./ui/index.js";
 
 export function RuntimeNotice() {
   const state = useRuntimeConnection();
@@ -20,11 +22,21 @@ export function RuntimeNotice() {
       role={recovering ? "status" : "alert"}
       aria-live="polite"
     >
-      <div>
+      <div className="runtime-notice-body">
         <strong>
-          {recovering
-            ? t("runtimeNotice.reconnecting")
-            : t("runtimeNotice.stopped")}
+          {recovering ? (
+            <span className="activity-shimmer">
+              {t("runtimeNotice.reconnecting")}
+              <span className="activity-shimmer-highlight" aria-hidden="true">
+                {t("runtimeNotice.reconnecting")}
+              </span>
+            </span>
+          ) : (
+            <>
+              <TriangleAlert size={16} aria-hidden="true" />
+              {t("runtimeNotice.stopped")}
+            </>
+          )}
         </strong>
         <p>
           {recovering
@@ -32,15 +44,15 @@ export function RuntimeNotice() {
             : t("runtimeNotice.restartHint")}
         </p>
         {state.error || error ? (
-          <details>
-            <summary>{t("common.errorDetails")}</summary>
+          <Disclosure summary={t("common.errorDetails")}>
             <pre>{error ?? state.error}</pre>
-          </details>
+          </Disclosure>
         ) : null}
       </div>
       {!recovering ? (
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant="primary"
           onClick={() => {
             setPending(true);
             setError(undefined);
@@ -55,7 +67,7 @@ export function RuntimeNotice() {
           }}
         >
           {t("runtimeNotice.restart")}
-        </button>
+        </Button>
       ) : null}
     </aside>
   );

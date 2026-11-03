@@ -360,5 +360,11 @@ describe("desktop free cloud connection", () => {
 });
 async function allFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
-  return (await Promise.all(entries.map((entry) => entry.isDirectory() ? allFiles(path.join(directory, entry.name)) : readFile(path.join(directory, entry.name), "utf8").then((value) => [value])))).flat();
+  // Background saves, such as the plugin grants written at startup, rename their
+  // temporary file into place; one listed here may be gone by the time it is read.
+  const read = (file: string) => readFile(file, "utf8").then((value) => [value], (error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
+  return (await Promise.all(entries.map((entry) => entry.isDirectory() ? allFiles(path.join(directory, entry.name)) : read(path.join(directory, entry.name))))).flat();
 }

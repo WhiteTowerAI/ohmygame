@@ -1,8 +1,8 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { LibraryAssetOrigin, LibraryAssetProject, LibraryAssetPurpose, WorkspaceFile } from "../shared/contracts.js";
-import { Box, Code2, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, MoreHorizontal, Music2, Play, Search, X } from "./icons.js";
+import { Box, Code2, ExternalLink, Film, Image as ImageIcon, LoaderCircle, MoreHorizontal, Music2, Play, X } from "./icons.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
-import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
+import { AssetDialogShell, AssetMedia } from "./asset-gallery.js";
 import { ModelPreview } from "./model-preview.js";
 import { VideoTrimmer } from "./video-trimmer.js";
 import type { VideoTrim } from "./video-trim.js";
@@ -31,99 +31,6 @@ export interface BrowsableAsset extends Omit<WorkspaceFile, "mediaType"> {
 
 export function libraryAssetOriginLabel(origin: LibraryAssetOrigin | undefined): string {
   return t(`assets.origin.${origin ?? "unknown"}`);
-}
-
-const MEDIA_FILTERS: readonly { id: MediaFilter; label: string; icon: typeof Layers3 }[] = [
-  { id: "all", label: t("assets.filter.all"), icon: Layers3 },
-  { id: "image", label: t("assets.filter.image"), icon: ImageIcon },
-  { id: "video", label: t("assets.filter.video"), icon: Film },
-  { id: "audio", label: t("assets.filter.audio"), icon: Music2 },
-  { id: "model", label: t("assets.filter.model"), icon: Box },
-];
-
-export function AssetToolbar({ mediaFilter, query, onMediaFilterChange, onQueryChange, children }: {
-  mediaFilter: MediaFilter;
-  query: string;
-  onMediaFilterChange: (filter: MediaFilter) => void;
-  onQueryChange: (query: string) => void;
-  children?: ReactNode;
-}) {
-  const searchId = `asset-search-${useId()}`;
-  const filtersRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const filters = filtersRef.current;
-    if (!filters) return;
-    const scroll = (event: WheelEvent) => {
-      if (event.shiftKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
-      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? filters.clientWidth : 1);
-      const next = Math.max(0, Math.min(filters.scrollWidth - filters.clientWidth, filters.scrollLeft + delta));
-      const previous = filters.scrollLeft;
-      filters.scrollLeft = next;
-      if (filters.scrollLeft !== previous) event.preventDefault();
-    };
-    filters.addEventListener("wheel", scroll, { passive: false });
-    return () => filters.removeEventListener("wheel", scroll);
-  }, []);
-  return (
-    <div className="library-toolbar">
-      <nav ref={filtersRef} className="library-filters" aria-label={t("assets.mediaTypes")} onFocusCapture={(event) => event.target.scrollIntoView({ block: "nearest", inline: "nearest" })}>
-        {MEDIA_FILTERS.map(({ id, label, icon: Icon }) => (
-          <button className={mediaFilter === id ? "is-active" : undefined} type="button" key={id} aria-pressed={mediaFilter === id} onClick={() => onMediaFilterChange(id)}>
-            <Icon size={15} /><span>{label}</span>
-          </button>
-        ))}
-      </nav>
-      <div className="library-toolbar-end"><label className="library-search" htmlFor={searchId}>
-        <Search size={14} aria-hidden="true" />
-        <input id={searchId} value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={t("assets.search")} />
-      </label>{children}</div>
-    </div>
-  );
-}
-
-export function WorkspaceAssetCard({ asset, title, onOpen, onRename, onDelete, onSaveToLibrary }: {
-  asset: BrowsableAsset;
-  title?: string;
-  onOpen: () => void;
-  onRename?: () => void;
-  onDelete?: () => void;
-  onSaveToLibrary?: () => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [card, visible] = useNearViewport<HTMLElement>();
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (event: MouseEvent) => {
-      if (!card.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [menuOpen]);
-
-  return <AssetCardShell
-    title={title ?? asset.prompt ?? fileName(asset.path)}
-    subtitle={<>{mediaTypeLabel(asset.mediaType)}{asset.referenceOnly ? " · Reference" : ""}{asset.projectName ? ` · ${asset.projectName}` : asset.projects?.length === 1 ? ` · ${asset.projects[0]!.name}` : asset.projects?.length ? ` · ${asset.projects.length} projects` : ""}</>}
-    preview={<AssetThumbnail asset={asset} visible={visible} />}
-    badge={assetTypeBadge(asset.mediaType)}
-    actions={onRename || onDelete || onSaveToLibrary ? <div className="library-asset-actions">
-        <button className="library-asset-menu" type="button" aria-label={t("assets.actions", { name: fileName(asset.path) })} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
-        {menuOpen ? <div className="library-asset-actions-menu" role="menu">
-          {onSaveToLibrary ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSaveToLibrary(); }}>{t("workspace.saveToLibrary")}</button> : null}
-          {onRename ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>{t("common.rename")}</button> : null}
-          {onDelete ? <button className="library-action-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }}>{t("common.delete")}</button> : null}
-        </div> : null}
-      </div> : undefined}
-    articleRef={card}
-    onOpen={onOpen}
-  />;
 }
 
 /** An asset's thumbnail: an image, a video's first frame, or a still 3D model, loaded once `visible`. Thumbnails sit inside open buttons, so they carry no clip picker. */

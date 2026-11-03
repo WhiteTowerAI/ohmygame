@@ -116,9 +116,10 @@ export function LibraryAssetPicker({ title, assets, projectId, project, uploadin
 
   useEffect(() => {
     dialog.current?.focus();
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onCloseRef.current(); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    // Captured first, like ui/ overlays, so a dialog this opens over keeps its Escape.
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); onCloseRef.current(); } };
+    document.addEventListener("keydown", closeOnEscape, true);
+    return () => document.removeEventListener("keydown", closeOnEscape, true);
   }, []);
 
   const visibleAssets = useMemo(() => filterLibraryAssets(assets, "all", query, filters), [query, assets, filters]);

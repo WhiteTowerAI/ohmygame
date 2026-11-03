@@ -6,6 +6,9 @@ import { ApiError, getExploreGameCover, setCommunityLike } from "./api.js";
 import { useAuth } from "./auth.js";
 import { Eye, Gamepad2, Heart, LoaderCircle } from "./icons.js";
 import { communityProfileHash } from "./routes.js";
+import { Button } from "./ui/index.js";
+import { UserAvatar } from "./user-avatar.js";
+import "./community.css";
 
 export function GameGrid<T extends CommunityGame>({
   games,
@@ -19,7 +22,7 @@ export function GameGrid<T extends CommunityGame>({
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
 }) {
   return (
-    <div className="community-game-grid">
+    <div className="community-grid">
       {games.map((game) => (
         <GameTile
           key={game.id}
@@ -33,6 +36,8 @@ export function GameGrid<T extends CommunityGame>({
   );
 }
 
+/** A cover card: the cover is the card and the text sits under it. The title
+ * button covers the whole card; the creator and like stay clickable above it. */
 export function GameTile({
   game,
   onOpen,
@@ -65,24 +70,22 @@ export function GameTile({
   }, []);
   const coverUrl = useGameCover(visible ? game : undefined, accessToken);
   return (
-    <article ref={tile} className="explore-game-tile">
-      <div className="community-card-cover">
-        {coverUrl ? (
-          <img
-            className="explore-game-cover"
-            src={coverUrl}
-            alt=""
-            loading="lazy"
-          />
-        ) : (
-          <span className="explore-game-cover-placeholder" aria-hidden="true">
-            <Gamepad2 size={28} />
-          </span>
-        )}
-      </div>
+    <article ref={tile} className="community-card">
+      {coverUrl ? (
+        <img
+          className="community-card-cover"
+          src={coverUrl}
+          alt=""
+          loading="lazy"
+        />
+      ) : (
+        <span className="community-card-cover is-empty" aria-hidden="true">
+          <Gamepad2 size={28} />
+        </span>
+      )}
       <h2 className="community-card-title">
         <button
-          className="explore-game-open"
+          className="community-card-open"
           type="button"
           aria-label={t("community.play", { title: game.title })}
           title={game.description || game.title}
@@ -92,28 +95,7 @@ export function GameTile({
         </button>
       </h2>
       <div className="community-card-meta">
-        <a
-          className="explore-game-creator"
-          href={communityProfileHash(game.author.id)}
-          aria-label={t("community.viewProfile", {
-            name: game.author.displayName,
-          })}
-        >
-          <span className="explore-game-creator-avatar" aria-hidden="true">
-            <i>{game.author.displayName.slice(0, 1).toUpperCase()}</i>
-            {game.author.avatarUrl ? (
-              <img
-                src={game.author.avatarUrl}
-                alt=""
-                loading="lazy"
-                onError={(event) => {
-                  event.currentTarget.hidden = true;
-                }}
-              />
-            ) : null}
-          </span>
-          <small>{game.author.displayName}</small>
-        </a>
+        <CreatorLink author={game.author} />
         <GameStats
           game={game}
           onChange={
@@ -125,18 +107,48 @@ export function GameTile({
   );
 }
 
+export function CreatorLink({
+  author,
+  size = "sm",
+}: {
+  author: CommunityGame["author"];
+  size?: "sm" | "md";
+}) {
+  return (
+    <a
+      className={`community-creator community-creator-${size}`}
+      href={communityProfileHash(author.id)}
+      aria-label={t("community.viewProfile", { name: author.displayName })}
+    >
+      <UserAvatar
+        className="community-avatar"
+        name={author.displayName}
+        avatarUrl={author.avatarUrl}
+      />
+      <span>{author.displayName}</span>
+    </a>
+  );
+}
+
+/** Views and likes. Cards show both as small counts; the game page shows the
+ * like as a button beside Share. */
 export function GameStats({
   game,
   onChange,
+  variant = "card",
 }: {
   game: CommunityGame;
   onChange?: (stats: CommunityGameStats) => void;
+  variant?: "card" | "page";
 }) {
   const auth = useAuth();
   const userId =
     auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const currentIdentity = useRef({ gameId: game.id, userId });
-  if (currentIdentity.current.gameId !== game.id || currentIdentity.current.userId !== userId) {
+  if (
+    currentIdentity.current.gameId !== game.id ||
+    currentIdentity.current.userId !== userId
+  ) {
     currentIdentity.current = { gameId: game.id, userId };
   }
   const mounted = useRef(false);
@@ -150,8 +162,11 @@ export function GameStats({
   const currentStats = useRef(stats);
   currentStats.current = stats;
   const statsIdentity = useRef({ stats, userId });
-  if (statsIdentity.current.stats !== stats) statsIdentity.current = { stats, userId };
-  const liked = Boolean(statsIdentity.current.userId === userId && stats?.liked);
+  if (statsIdentity.current.stats !== stats)
+    statsIdentity.current = { stats, userId };
+  const liked = Boolean(
+    statsIdentity.current.userId === userId && stats?.liked,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -169,75 +184,97 @@ export function GameStats({
       const token = userId ? await auth.requestAccessToken() : undefined;
       if ((userId && !token) || !isCurrent()) return;
       const next = await setCommunityLike(game.id, token, !liked);
-      if (isCurrent()) onChange({ ...next, viewCount: Math.max(next.viewCount, currentStats.current?.viewCount ?? 0) });
+      if (isCurrent())
+        onChange({
+          ...next,
+          viewCount: Math.max(
+            next.viewCount,
+            currentStats.current?.viewCount ?? 0,
+          ),
+        });
     } catch (cause) {
       if (isCurrent())
-        setError(cause instanceof ApiError && cause.status === 429 ? t("community.likeRateLimited")
-          : cause instanceof ApiError && cause.status === 503 ? t("community.likeUnavailable")
-          : cause instanceof Error ? cause.message : String(cause));
+        setError(
+          cause instanceof ApiError && cause.status === 429
+            ? t("community.likeRateLimited")
+            : cause instanceof ApiError && cause.status === 503
+              ? t("community.likeUnavailable")
+              : cause instanceof Error
+                ? cause.message
+                : String(cause),
+        );
     } finally {
       if (mounted.current) setBusy(false);
     }
   }
 
   const viewCount = stats?.viewCount;
-  const views = viewCount !== undefined ? compactCount(viewCount) : "—";
+  const viewLabel =
+    viewCount !== undefined
+      ? t("community.views", { count: viewCount })
+      : t("community.viewCountUnavailable");
   const likes = stats ? compactCount(stats.likeCount) : "—";
-  const iconSize = "var(--community-stats-icon-size, 13px)";
+  const likeLabel = stats
+    ? t("community.likes", { count: stats.likeCount })
+    : t("community.likesUnavailable");
+  const likeIcon = busy ? (
+    <LoaderCircle className="spin" size={14} />
+  ) : (
+    <Heart size={14} />
+  );
+  const likeProps = {
+    onClick: () => void like(),
+    disabled: busy || !stats,
+    "aria-pressed": liked,
+    "aria-label": t(liked ? "community.unlikeGame" : "community.likeGame", {
+      title: game.title,
+    }),
+    title: likeLabel,
+  };
+  const canLike = onChange && game.listingStatus !== "unlisted";
   return (
-    <div className="community-game-stats">
+    <div className={`community-stats community-stats-${variant}`}>
       <span
-        aria-label={
-          viewCount !== undefined
-            ? t("community.views", { count: viewCount })
-            : t("community.viewCountUnavailable")
-        }
-        title={
-          viewCount !== undefined
-            ? t("community.views", { count: viewCount })
-            : t("community.viewCountUnavailable")
-        }
+        className="community-count"
+        aria-label={viewLabel}
+        title={viewLabel}
       >
-        <Eye size={iconSize} />
-        {views}
+        <Eye size={14} />
+        {variant === "page" && viewCount !== undefined
+          ? viewLabel
+          : viewCount !== undefined
+            ? compactCount(viewCount)
+            : "—"}
       </span>
-      {onChange && game.listingStatus !== "unlisted" ? (
+      {canLike && variant === "page" ? (
+        <Button
+          className={liked ? "is-liked" : undefined}
+          icon={likeIcon}
+          {...likeProps}
+        >
+          {likes}
+        </Button>
+      ) : canLike ? (
         <button
           type="button"
-          className={liked ? "is-liked" : undefined}
-          onClick={() => void like()}
-          disabled={busy || !stats}
-          aria-pressed={liked}
-          aria-label={t(liked ? "community.unlikeGame" : "community.likeGame", {
-            title: game.title,
-          })}
-          title={
-            stats
-              ? t("community.likes", { count: stats.likeCount })
-              : t("community.likesUnavailable")
-          }
+          className={`community-count community-like${liked ? " is-liked" : ""}`}
+          {...likeProps}
         >
-          {busy ? (
-            <LoaderCircle className="spin" size={iconSize} />
-          ) : (
-            <Heart size={iconSize} />
-          )}
+          {likeIcon}
           {likes}
         </button>
       ) : (
         <span
-          aria-label={
-            stats
-              ? t("community.likes", { count: stats.likeCount })
-              : t("community.likesUnavailable")
-          }
+          className="community-count"
+          aria-label={likeLabel}
+          title={likeLabel}
         >
-          <Heart size={iconSize} />
+          <Heart size={14} />
           {likes}
         </span>
       )}
       {error ? (
-        <span className="community-interaction-error" role="alert">
+        <span className="community-stats-error" role="alert">
           {error}
         </span>
       ) : null}
@@ -252,7 +289,8 @@ export function useGameCover(
   const [url, setUrl] = useState<string>();
   // Hosted covers live on the play domain's edge cache, like the games themselves;
   // only loopback covers from local debug publishing still go through the daemon.
-  const direct = game?.coverUrl && isHttpsUrl(game.coverUrl) ? game.coverUrl : undefined;
+  const direct =
+    game?.coverUrl && isHttpsUrl(game.coverUrl) ? game.coverUrl : undefined;
   useEffect(() => {
     let active = true;
     let objectUrl: string | undefined;
@@ -281,7 +319,7 @@ function isHttpsUrl(value: string): boolean {
   }
 }
 
-function compactCount(count: number): string {
+export function compactCount(count: number): string {
   return new Intl.NumberFormat(language, {
     notation: "compact",
     maximumFractionDigits: 1,
