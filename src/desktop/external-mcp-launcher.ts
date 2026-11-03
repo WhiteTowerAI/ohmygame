@@ -437,7 +437,13 @@ export class ExternalMcpLauncher {
         "content-type": "application/json",
         accept: "application/json, text/event-stream",
         ...(connection.session ? { "mcp-session-id": connection.session } : {}),
-        [EXTERNAL_MCP_ROOTS_HEADER]: JSON.stringify(this.#folders()),
+        // HTTP headers cannot carry arbitrary Unicode. JSON escapes preserve
+        // paths and URIs exactly when the daemon parses the header.
+        [EXTERNAL_MCP_ROOTS_HEADER]: JSON.stringify(this.#folders()).replace(
+          /[\u007f-\uffff]/g,
+          (character) =>
+            `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+        ),
       },
       body: JSON.stringify(message),
       ...(signal ? { signal } : {}),
