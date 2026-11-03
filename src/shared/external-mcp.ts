@@ -17,9 +17,8 @@ export const EXTERNAL_MCP_ROOTS_HEADER = "x-ohmygame-roots";
 /** Set for the coding agents OhMyGame runs, so the launcher they may inherit does not connect back. */
 export const EXTERNAL_MCP_DISABLED_ENV = "OHMYGAME_EXTERNAL_MCP_DISABLED";
 
-/** Clients OhMyGame can connect with their own CLI. Others are configured by hand. */
-export const EXTERNAL_AGENT_CLIENT_IDS = ["claude-code", "codex"] as const;
-export type ExternalAgentClientId = (typeof EXTERNAL_AGENT_CLIENT_IDS)[number];
+/** Clients Settings shows an `mcp add` command for. Others are configured with the launcher. */
+export type ExternalAgentClientId = "claude-code" | "codex";
 
 /** How a client starts the launcher; it is absent when the daemon runs without the desktop app. */
 export interface ExternalMcpLauncher {
@@ -28,18 +27,51 @@ export interface ExternalMcpLauncher {
   env: Record<string, string>;
 }
 
-export interface ExternalAgentClientState {
-  id: ExternalAgentClientId;
-  /** The CLI was found on this computer. */
-  available: boolean;
-  /** OhMyGame added itself to the CLI's user configuration. */
-  connected: boolean;
+/** A client that used the MCP server since OhMyGame started. */
+export interface ExternalMcpClientActivity {
+  /** The name the client gives itself, such as `claude-code`. */
+  name: string;
+  lastUsedAt: string;
+  /** Tool calls it made. */
+  calls: number;
+  /** It still has an open session. */
+  active: boolean;
 }
 
 export interface ExternalAgentSettings {
   enabled: boolean;
   launcher?: ExternalMcpLauncher;
-  clients: ExternalAgentClientState[];
+  /** The `ohmygame-studio` Skill folder, for copying into a client by hand. */
+  skillDirectory?: string;
+  recent?: ExternalMcpClientActivity[];
+}
+
+/** The `mcp add` arguments a client's CLI takes to start OhMyGame's launcher. */
+export function externalClientAddArguments(
+  id: ExternalAgentClientId,
+  launcher: ExternalMcpLauncher,
+): string[] {
+  const env = Object.entries(launcher.env).map(
+    ([name, value]) => `${name}=${value}`,
+  );
+  const command = ["--", launcher.command, ...launcher.args];
+  return id === "claude-code"
+    ? [
+        "mcp",
+        "add",
+        "--scope",
+        "user",
+        EXTERNAL_MCP_SERVER_NAME,
+        ...env.flatMap((item) => ["-e", item]),
+        ...command,
+      ]
+    : [
+        "mcp",
+        "add",
+        EXTERNAL_MCP_SERVER_NAME,
+        ...env.flatMap((item) => ["--env", item]),
+        ...command,
+      ];
 }
 
 export interface UpdateExternalAgentSettings {

@@ -10,6 +10,10 @@ const CUSTOM_COVER = "cover.webp";
 const AUTOMATIC_COVER = "cover-auto.webp";
 const FROZEN_COVER = "cover-frozen.webp";
 const COVER_STATE = "cover-state.json";
+const LOGO = "logo.webp";
+
+/** The largest logo a project accepts. */
+export const MAX_PROJECT_LOGO_BYTES = 1024 * 1024;
 
 /** Cover operations share a queue so a late automatic capture cannot overwrite a custom cover. */
 export class ProjectCovers {
@@ -50,9 +54,20 @@ export class ProjectCovers {
     });
   }
 
+  readLogo(directory: string): Promise<Buffer | undefined> {
+    return this.#serial(directory, () => readOptional(path.join(directory, LOGO)));
+  }
+
+  setLogo(directory: string, contents: Uint8Array | undefined): Promise<void> {
+    return this.#serial(directory, async () => {
+      if (contents) await replaceFile(path.join(directory, LOGO), contents);
+      else await rm(path.join(directory, LOGO), { force: true });
+    });
+  }
+
   copy(source: string, destination: string): Promise<void> {
     return this.#serial(source, async () => {
-      for (const file of [CUSTOM_COVER, AUTOMATIC_COVER, FROZEN_COVER, COVER_STATE]) {
+      for (const file of [CUSTOM_COVER, AUTOMATIC_COVER, FROZEN_COVER, COVER_STATE, LOGO]) {
         await copyFile(path.join(source, file), path.join(destination, file)).catch((error: NodeJS.ErrnoException) => {
           if (error.code !== "ENOENT") throw error;
         });

@@ -23,7 +23,6 @@ import { CheckpointStore } from "../src/daemon/checkpoints.js";
 import { CheckpointFileTooLargeError } from "../src/daemon/checkpoint-objects.js";
 import {
   turnRange,
-  CHECKPOINT_ENTRY,
   parseStoredCheckpoint,
 } from "../src/daemon/checkpoint-extension.js";
 import { ProjectWrites } from "../src/daemon/project-writes.js";
@@ -388,7 +387,6 @@ it("captures consumed follow-ups and steering at file boundaries, rather than en
   const {
     events,
     project,
-    session,
     sessionManager,
     store,
     manager,
@@ -497,7 +495,7 @@ it("captures consumed follow-ups and steering at file boundaries, rather than en
 });
 
 it("fails closed before inference/tools when the before checkpoint fails", async () => {
-  const { events, project, session, manager, conversation, runtime } =
+  const { project, manager, conversation, runtime } =
     await fixture(async () => {
       throw new Error("snapshot disk failure");
     });
@@ -530,7 +528,6 @@ it("records partial files on cancellation without rewinding the conversation", a
   const {
     events,
     project,
-    session,
     sessionManager,
     manager,
     conversation,
@@ -590,7 +587,7 @@ it("records partial files on cancellation without rewinding the conversation", a
 });
 
 it("bounds preview reads of highly compressed files and validates readable blobs", async () => {
-  const { events, project, store } = await fixture();
+  const { project, store } = await fixture();
   await writeFile(
     path.join(project.workspacePath, "huge.txt"),
     "a".repeat(2 * 1024 * 1024),
@@ -662,7 +659,7 @@ it("marks a missing after snapshot unavailable instead of presenting a complete 
 });
 
 it("adds the durable workspace notice to later model requests", async () => {
-  const { events, project, manager, conversation, runtime } = await fixture();
+  const { project, manager, conversation, runtime } = await fixture();
   const { writeWorkspaceNotice } =
     await import("../src/daemon/workspace-notice.js");
   await writeWorkspaceNotice(
@@ -927,7 +924,7 @@ it("reports checkpoint creation and completion as separate immutable events", as
 });
 
 it("blocks inference if the durable workspace notice cannot be read", async () => {
-  const { events, project, manager, conversation, runtime } = await fixture();
+  const { project, manager, conversation, runtime } = await fixture();
   await mkdir(path.join(project.storagePath!, "workspace-restore-notice.txt"));
   const inference = vi.fn(() =>
     stream(assistant([{ type: "text", text: "Done" }])),

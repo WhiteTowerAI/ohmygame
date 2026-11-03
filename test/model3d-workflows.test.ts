@@ -55,7 +55,7 @@ function tripoService(bytes = TEST_GLB, rigType = "biped") {
   });
 }
 function hyperService() {
-  return vi.fn<typeof fetch>(async (url, init) => {
+  return vi.fn<typeof fetch>(async (url) => {
     const target = String(url);
     if (target === artifact) return new Response(new Uint8Array(TEST_GLB));
     if (target.endsWith("rodin") || target.endsWith("rodin_texture_only")) return Response.json({ uuid: "rodin-task", jobs: { subscription_key: "private-subscription" }, error: [] });

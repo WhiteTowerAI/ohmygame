@@ -1,4 +1,5 @@
 import type { ProjectType } from "./contracts.js";
+import type { GameRecordingSaved } from "./game-recording.js";
 
 export interface PlaytestViewport {
   width: number;
@@ -8,7 +9,7 @@ export interface PlaytestViewport {
 export type GameRuntime = "web" | "godot" | "unity";
 export type GameProjectType = ProjectType;
 export type GameUseInputCapability = "pointer" | "keyboard" | "text" | "touch" | "resize";
-export type GameUseObservationCapability = "screenshot" | "dom" | "canvas" | "console" | "network";
+export type GameUseObservationCapability = "screenshot" | "video" | "dom" | "canvas" | "console" | "network";
 export type GameUseDeterminismCapability = "snapshot" | "reset" | "seed" | "step";
 
 export interface GameUseCapabilities {
@@ -24,7 +25,7 @@ export const WEB_GAME_USE_CAPABILITIES: GameUseCapabilities = {
   runtime: "web",
   projectTypes: ["web-game", "interactive-story", "general"],
   input: ["pointer", "keyboard", "text", "touch", "resize"],
-  observation: ["screenshot", "dom", "canvas", "console", "network"],
+  observation: ["screenshot", "video", "dom", "canvas", "console", "network"],
   deterministic: [],
   watch: true,
 };
@@ -129,6 +130,8 @@ export type PlaytestRequest =
   | { operation: "inspect"; sessionId: string }
   | { operation: "act"; sessionId: string; actions: PlaytestAction[] }
   | { operation: "capture"; sessionId: string }
+  | { operation: "recordStart"; sessionId: string }
+  | { operation: "recordStop"; sessionId: string }
   | { operation: "close"; sessionId: string }
   | { operation: "closeAll" };
 
@@ -137,6 +140,8 @@ export type PlaytestResult =
   | { operation: "inspect"; snapshot: GameUseSnapshot }
   | { operation: "act"; snapshot: GameUseSnapshot }
   | { operation: "capture"; capture: PlaytestCapture }
+  | { operation: "recordStart"; sessionId: string; maxSeconds: number }
+  | { operation: "recordStop"; sessionId: string; recording: GameRecordingSaved }
   | { operation: "close" | "closeAll" };
 
 export interface GameRuntimeAdapter {

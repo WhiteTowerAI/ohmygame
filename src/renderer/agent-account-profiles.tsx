@@ -9,8 +9,9 @@ import {
   listAccountProfiles,
 } from "./api.js";
 import { AgentUsageInline } from "./agent-usage.js";
-import { ChevronDown, RotateCcw, Plus, RefreshCw, Trash2, X } from "./icons.js";
+import { RotateCcw, Plus, RefreshCw, Trash2, X } from "./icons.js";
 import { t } from "./i18n.js";
+import { Disclosure } from "./ui/index.js";
 
 /** Named references to CLI-owned configuration directories, with the CLI's own sign-in flow. */
 export function AgentAccountProfiles({
@@ -278,11 +279,7 @@ export function AgentAccountProfiles({
               {t("common.add")}
             </button>
           </div>
-          <details className="settings-provider-advanced">
-            <summary>
-              <ChevronDown size={12} />
-              {t("codingAgents.profileImport")}
-            </summary>
+          <Disclosure summary={t("codingAgents.profileImport")}>
             <input
               className="settings-search-input"
               aria-label={t("codingAgents.profileDirectory")}
@@ -291,7 +288,7 @@ export function AgentAccountProfiles({
               disabled={busy}
               onChange={(event) => setDirectory(event.target.value)}
             />
-          </details>
+          </Disclosure>
         </form>
       ) : null}
       {error ? (

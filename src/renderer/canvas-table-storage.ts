@@ -48,6 +48,8 @@ export class CanvasTableStorage {
   generations: Record<string, TableGenerationState>;
   saving = false;
   error?: string;
+  /** The last sync could not re-read a changed table, so it shows stale data until one succeeds. */
+  readFailed = false;
   #chain = Promise.resolve();
   #listeners = new Set<() => void>();
   #syncRequest = 0;
@@ -226,6 +228,7 @@ export class CanvasTableStorage {
   // Workspace polling supplies resource revisions; drafts are reconciled by stable cell IDs.
   async sync(workspace: Pick<CanvasWorkspaceDetail, "tables" | "tableIssues">) {
     const request = ++this.#syncRequest;
+    let readFailed = false;
     for (const entry of workspace.tables ?? []) {
       const { revision, source: _source, ...table } = entry;
       let remote = { table, revision };
@@ -251,6 +254,7 @@ export class CanvasTableStorage {
           if (request !== this.#syncRequest) return;
           if (session.base !== started) continue;
           session.issue = message(cause);
+          readFailed = true;
           continue;
         }
         if (request !== this.#syncRequest) return;
@@ -288,6 +292,7 @@ export class CanvasTableStorage {
         session.issue =
           workspace.tableIssues?.find((issue) => issue.id === id)?.message ??
           t("canvasTable.removed");
+    this.readFailed = readFailed;
     this.#publish();
   }
   update(table: CanvasTable, history = true) {

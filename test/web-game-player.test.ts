@@ -35,6 +35,7 @@ const electron = vi.hoisted(() => {
       removeChildView: (view: View) => { this.children = this.children.filter(item => item !== view); },
     };
     constructor(readonly options: Record<string, any> = {}) { super(); windows.push(this); }
+    getBounds = () => ({ x: 0, y: 0, width: 1000, height: 800 });
     getContentSize = () => [this.options.width ?? 1000, this.options.height ?? 800];
     isDestroyed = () => this.destroyed;
     isMinimized = () => this.minimized;
@@ -42,6 +43,7 @@ const electron = vi.hoisted(() => {
     show = vi.fn(() => { this.visible = true; });
     focus = vi.fn();
     restore = vi.fn(() => { this.minimized = false; });
+    setTitle = vi.fn();
     close = vi.fn(() => { this.emit("close"); this.destroy(); });
     destroy = vi.fn(() => { this.destroyed = true; this.emit("closed"); });
   }
@@ -54,12 +56,16 @@ const electron = vi.hoisted(() => {
   }
   const windows: Window[] = [];
   const views: View[] = [];
-  return { Window, View, windows, views, openExternal: vi.fn() };
+  return { Window, View, windows, views, openExternal: vi.fn(), screen: { getDisplayMatching: vi.fn(), getDisplayNearestPoint: vi.fn(), getCursorScreenPoint: () => ({ x: 0, y: 0 }) } };
 });
-vi.mock("electron", () => ({ BrowserWindow: electron.Window, WebContentsView: electron.View, shell: { openExternal: electron.openExternal } }));
+vi.mock("electron", () => ({ BrowserWindow: electron.Window, WebContentsView: electron.View, screen: electron.screen, shell: { openExternal: electron.openExternal } }));
 import { WebGamePlayerWindows } from "../src/desktop/web-game-player.js";
 
-beforeEach(() => { electron.windows.length = 0; electron.views.length = 0; });
+beforeEach(() => {
+  electron.windows.length = 0; electron.views.length = 0;
+  electron.screen.getDisplayMatching.mockReturnValue({ workAreaSize: { width: 1920, height: 1080 } });
+  electron.screen.getDisplayNearestPoint.mockReturnValue({ workAreaSize: { width: 1920, height: 1080 } });
+});
 const request = { path: "/play?mode=story#start", viewport: { width: 375, height: 667 } };
 const target = { url: "http://127.0.0.1:43123", title: "My game" };
 const url = previewPageUrl(`${target.url}${request.path}`, "editor", "editor-client");
@@ -69,6 +75,25 @@ const loads = () => electron.views[0]!.webContents.executeJavaScript.mock.calls.
 const editor = () => new electron.Window() as unknown as Electron.BrowserWindow;
 
 describe("shared desktop game", () => {
+  it("fits a Play window to the editor's display and preserves the requested aspect ratio", async () => {
+    electron.screen.getDisplayMatching.mockReturnValue({ workAreaSize: { width: 1000, height: 700 } });
+    const games = create();
+    const owner = editor();
+    await games.attach("game", "mount", owner, url, layout, async () => target);
+    await games.open("game", { ...request, viewport: { width: 1280, height: 720 } }, async () => target);
+    expect(electron.screen.getDisplayMatching).toHaveBeenCalledWith(owner.getBounds());
+    expect(electron.windows[1]!.options).toMatchObject({ width: 850, height: 478 });
+    games.close();
+  });
+
+  it("uses the cursor's display when Play opens without an attached preview", async () => {
+    electron.screen.getDisplayNearestPoint.mockReturnValue({ workAreaSize: { width: 1000, height: 700 } });
+    const games = create();
+    await games.open("game", request, async () => target);
+    expect(electron.windows[0]!.options).toMatchObject({ width: 334, height: 595 });
+    games.close();
+  });
+
   it("moves the same view to Play and back without reloading, and reopens it at its current route", async () => {
     const states = vi.fn();
     const games = create(states);
@@ -98,6 +123,38 @@ describe("shared desktop game", () => {
     expect(loads()).toHaveLength(1);
     games.close();
     expect(view.webContents.destroyed).toBe(true);
+  });
+
+  it("gives a recording the running game, and says so in the Play window's title", async () => {
+    const games = new WebGamePlayerWindows(() => {}, "file:///web-game-host.html");
+    await expect(games.recordingTarget("game")).rejects.toThrow("unavailable");
+    const owner = new electron.Window() as never;
+    const resolve = vi.fn(async () => target);
+    await games.attach("game", "mount", owner, url, layout, resolve);
+    await expect(games.recordingTarget("game")).resolves.toEqual({ contents: electron.views[0]!.webContents, title: target.title });
+    await games.open("game", request, resolve);
+    const player = electron.windows.at(-1)!;
+    games.setRecording("game", true);
+    expect(player.setTitle).toHaveBeenLastCalledWith(`\u25CF ${target.title} - Play`);
+    games.setRecording("game", false);
+    expect(player.setTitle).toHaveBeenLastCalledWith(`${target.title} - Play`);
+    games.close();
+  });
+
+  it("recognises the recording shortcut in the game's window", async () => {
+    const onRecord = vi.fn();
+    const games = new WebGamePlayerWindows(() => {}, "file:///web-game-host.html", onRecord);
+    await games.attach("game", "mount", new electron.Window() as never, url, layout, vi.fn(async () => target));
+    const event = { preventDefault: vi.fn() };
+    const press = (input: Record<string, unknown>) => electron.views[0]!.webContents.emit("before-input-event", event, { type: "keyDown", key: "R", control: false, meta: false, shift: true, alt: false, isAutoRepeat: false, ...input });
+    press({ meta: true });
+    press({ control: true, key: "r" });
+    expect(onRecord).toHaveBeenCalledTimes(2);
+    expect(onRecord).toHaveBeenCalledWith("game");
+    expect(event.preventDefault).toHaveBeenCalledTimes(2);
+    for (const other of [{ control: true, shift: false }, { shift: true }, { meta: true, alt: true }, { meta: true, isAutoRepeat: true }, { meta: true, type: "keyUp" }, { meta: true, key: "t" }]) press(other);
+    expect(onRecord).toHaveBeenCalledTimes(2);
+    games.close();
   });
 
   it("ignores stale editor cleanup and retains a player after leaving its project", async () => {

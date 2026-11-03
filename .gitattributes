@@ -1,3 +1,7 @@
 # Preinstalled Plugin archives are checksummed byte for byte, so keep their
 # repository assets free of line-ending conversion on every platform.
 config/plugin-assets/** -text
+
+# The plugin JSON Schema is generated with LF endings and checked against its
+# source byte for byte, so it keeps them on every platform.
+schemas/*.json text eol=lf

@@ -73,7 +73,7 @@ it("offers an independent image switch and recheck without an API key form", asy
     ),
   ).toBe(false);
   expect(host.querySelector('input[type="password"]')).toBeNull();
-  const toggle = host.querySelector<HTMLInputElement>('input[role="switch"]')!;
+  const toggle = host.querySelector<HTMLButtonElement>('[role="switch"]')!;
   await act(async () => toggle.click());
   expect(api.setProviderEnabled).toHaveBeenCalledWith("codex-cli", false);
   const refresh = [...host.querySelectorAll("button")].find((button) =>
@@ -83,8 +83,8 @@ it("offers an independent image switch and recheck without an API key form", asy
   expect(api.recheckCodexImages).toHaveBeenCalledOnce();
   expect(host.textContent).toContain("Sign in to Codex CLI");
   expect(
-    host.querySelector<HTMLInputElement>('input[role="switch"]')!.checked,
-  ).toBe(false);
+    host.querySelector('[role="switch"]')!.getAttribute("aria-checked"),
+  ).toBe("false");
   expect(openAgents).not.toHaveBeenCalled();
 });
 
@@ -162,9 +162,9 @@ it("keeps the image switch available before a disabled provider has been checked
       />,
     ),
   );
-  const toggle = host.querySelector<HTMLInputElement>('input[role="switch"]')!;
-  expect(toggle.checked).toBe(false);
+  const toggle = host.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
   await act(async () => toggle.click());
   expect(api.setProviderEnabled).toHaveBeenLastCalledWith("codex-cli", true);
-  expect(toggle.checked).toBe(true);
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
 });

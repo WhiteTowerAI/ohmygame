@@ -21,6 +21,7 @@ import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
 import { CanvasError, canvasPath, parseCanvasJson, readCanvasFile, writeCanvasFile as writeAtomic, writeCanvasJson as writeJson } from "./canvas-files.js";
 import { canvasAssetCatalog, canvasLibraryAsset, ensureCanvasAssets, inspectCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
+import { sameJson } from "../shared/same-json.js";
 export { CanvasError } from "./canvas-files.js";
 
 const locks = new Map<string, Promise<unknown>>();
@@ -49,7 +50,7 @@ Canvas files are the source of truth in both Design and Asset Canvas. Use normal
 - Speech, sound-effect, music, and audio-scene nodes use the shared audio model contract. Audio references use stable AudioN/ImageN IDs with a node or Library source; mention audio as @AudioN. Use up to three short audio clips, one image, or a Speaker ID as separate modes. Subtitles and generation metadata are saved beside the audio. Keep provider-specific credentials out of canvas files; select models by provider/id and only use options advertised by that model's capabilities.
 - To add local media, register its workspace-relative path in assets.json and reference its ID from an asset node or an existing generation node.
 - A file node points at any other project file by its project-relative path (data.path), such as a source file, font, archive or editor project; with directory: true it points at a folder whose structure matters, such as an asset pack. Files and folders imported on the canvas live under assets/files/. Read or use the files themselves; update the path if you move them.
-- Do not trigger generation merely by editing a prompt or adding a reference. A game-creation request includes its needed media unless the user narrows the scope. Use generate_canvas_media with the saved boardId and nodeId for generation; it uses the node settings and shared generation history.
+- Do not trigger generation merely by editing a prompt or adding a reference. A game-creation request includes its needed media unless the user narrows the scope. Use generate_canvas_media with the saved boardId and nodeIds for generation; it uses the node settings and shared generation history.
 - Removing a node or board keeps its documents, tables, and assets. Remove references to a deleted node from the same board.
 - An editor-context block identifies the current board and selected nodes. Read the referenced files before editing, and preserve other user changes.
 `;
@@ -185,10 +186,14 @@ export async function inspectCanvasBoard(workspace: string, id: string): Promise
   if (board.id !== id) throw new CanvasError(`canvas/${name}: board ID does not match its file name`);
   return { detail: { board, revision: revision([text, layoutText ?? ""]) }, issues };
 }
+/** A board as its file stores it, without the editor's layout and view. */
+function canvasBoardContent({ editorLayout: _editorLayout, ...content }: CanvasBoard) {
+  return { ...content, nodes: content.nodes.map(canvasNodeContent) };
+}
 async function writeCanvasBoard(workspace: string, board: CanvasBoard): Promise<CanvasBoardDetail> {
   if (!isCanvasBoard(board)) throw new CanvasError("Invalid canvas board");
-  const { editorLayout, ...content } = board;
-  const persisted = { ...content, nodes: board.nodes.map(canvasNodeContent) };
+  const { editorLayout } = board;
+  const persisted = canvasBoardContent(board);
   const text = `${JSON.stringify(persisted, null, 2)}\n`;
   if (Buffer.byteLength(text) > 4 * 1024 * 1024) throw new CanvasError("Canvas board is too large");
   await writeAtomic(workspace, `boards/${validId(board.id)}.json`, text);
@@ -396,7 +401,8 @@ export class CanvasStore {
       if (board.nodes.some((node) => node.type === "document" && !existingDocuments.has(node.data.documentId) && !documents.some((document) => document.id === node.data.documentId))) throw new CanvasError("Document reference not found", 404);
       await ensureCanvasAssets(project, this.projects, this.library, canvasNodeAssetIds(board.nodes), canvasNodeAssetIds(current.board.nodes));
       const detail = await writeCanvasBoard(workspace, board);
-      await this.projects.touch(id);
+      // Moving the view is not editing the project.
+      if (!sameJson(canvasBoardContent(current.board), canvasBoardContent(board))) await this.projects.touch(id);
       return detail;
     });
   }
@@ -431,7 +437,7 @@ export class CanvasStore {
       if (asset.mediaType !== "image") throw new CanvasError("Choose an image asset");
       const detail = await readCanvasDocument(workspace, documentId);
       if (!detail) throw new CanvasError("Document not found", 404);
-      const label = asset.name.replace(/[\[\]\n]/g, "");
+      const label = asset.name.replace(/[[\]\n]/g, "");
       const link = asset.path.split("/").map(encodeURIComponent).join("/");
       const saved = await writeCanvasDocument(workspace, { ...detail.document, markdown: `${detail.document.markdown.trimEnd()}\n\n![${label}](../../${link})\n` }, project.type !== "asset-canvas", project.type === "asset-canvas");
       if (asset.libraryAssetId && this.library.get(asset.libraryAssetId)) await this.library.save(asset.libraryAssetId);

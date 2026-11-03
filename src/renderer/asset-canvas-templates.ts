@@ -9,7 +9,6 @@ import { preferredCharacterSheetOption } from "../shared/canvas-character-tools.
 import {
   createAssetCanvasDocument,
   createAssetGenerationNode,
-  EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT,
   preferredImageOption,
 } from "../shared/asset-canvas.js";
 import { createProject, deleteLibraryAsset, deleteProject, getProjectCover, listImageModels, setProjectCover, uploadLibraryAsset } from "./api.js";
@@ -376,8 +375,6 @@ Frame 11: scattered droplets drift outward along the former launch path.
 Frame 12: the final tiny droplets fade out completely.
 
 Transparent background. Crisp 2D fantasy game pixel art. Hard pixel edges. Clean rounded water shapes. No blur, no characters, no weapons, no scenery, no text, no borders, no grid lines, and no UI. Keep the effect centered before launch, then keep the leftward motion fully inside each cell. Keep every frame fully inside its own cell with at least 15% transparent padding on all four sides. Keep the effect within the central 70% of each cell. No orb, droplet, splash, or particle may touch, cross, or be clipped by a cell boundary. Keep identical scale and camera framing in every frame. The launch direction must remain consistently from right to left.`;
-
-const EFFECT_LIBRARY_CATEGORIES = ["fire", "water", "ice", "lightning", "general"] as const;
 
 async function uploadTemplateSample(sample: TemplateSample): Promise<string> {
   const response = await fetch(TEMPLATE_SAMPLE_IMAGES[sample]);

@@ -1,0 +1,54 @@
+.ui-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--color-hover);
+}
+
+.ui-segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast),
+    color var(--duration-fast);
+}
+
+.ui-segmented-md button {
+  height: 26px;
+  padding: 0 10px;
+}
+
+.ui-segmented-sm button {
+  height: 22px;
+  padding: 0 8px;
+  font-size: var(--text-sm);
+}
+
+.ui-segmented button:hover {
+  color: var(--color-text);
+}
+
+.ui-segmented button.is-selected {
+  background: var(--color-segment);
+  box-shadow: var(--shadow-segment);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.ui-segmented button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ui-segmented button:disabled:hover {
+  color: var(--color-text-secondary);
+}

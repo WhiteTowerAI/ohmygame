@@ -3,6 +3,7 @@ import { open, realpath } from "node:fs/promises";
 import path from "node:path";
 import { sniffImageType } from "../image-format.js";
 import type { DriverContext } from "./driver-context.js";
+import { systemConfigDirectory } from "./environment.js";
 import type { NativeToolResult } from "./native-session.js";
 import { inside } from "./paths.js";
 import type { GeneratedImage } from "../openai-image.js";
@@ -30,11 +31,11 @@ export async function readCodexImage(
   } else {
     // A file-only result may read exactly this thread's generated-images directory,
     // including its real path, never an arbitrary path supplied by the agent.
+    // System default runs without CODEX_HOME; Windows names the home folder in USERPROFILE, not HOME.
     const home =
       env.CODEX_HOME ||
-      (env.HOME && path.join(env.HOME, ".codex"));
+      systemConfigDirectory("codex-cli", env.HOME || env.USERPROFILE || undefined);
     if (
-      !home ||
       !/^[A-Za-z0-9_-]+$/.test(threadId) ||
       typeof item.savedPath !== "string"
     )

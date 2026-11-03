@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
-import { discoverPlugins } from "../src/daemon/plugin-discovery.js";
-import { inspectPluginBundle } from "../src/daemon/local-plugins.js";
+import { packageSkills, type SkillsSource } from "../src/daemon/plugin-conversion.js";
+import { isAppWidePlugin } from "../src/shared/plugin-manifest.js";
+import type { PluginCategory } from "../src/shared/plugin-manifest.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
-import type { ResolvedPluginManifest } from "../src/shared/plugins.js";
 import { git, replaceDirectory } from "./runtime-directory.js";
 
 interface LockedPlugin {
@@ -16,9 +16,13 @@ interface LockedPlugin {
   release?: string;
   version: string;
   artifactSha256: string;
-  candidate: string;
+  /** The plugin's name, after `ohmygame/`. */
+  name: string;
+  /** Where its Skills are in the repository. */
+  skills: string | string[];
   assets?: string;
-  interface?: NonNullable<ResolvedPluginManifest["interface"]>;
+  interface: NonNullable<SkillsSource["interface"]> & { shortDescription: string };
+  categories?: PluginCategory[];
 }
 
 interface LockFile {
@@ -60,20 +64,17 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
       await rm(path.join(source, ".git"), { recursive: true, force: true });
       if (entry.assets) await cp(path.resolve(repositoryRoot, entry.assets), path.join(source, "assets"), { recursive: true });
 
-      const candidates = await discoverPlugins(source);
-      const selected = candidates.find((candidate) => candidate.key === entry.candidate);
-      if (!selected) throw new Error(`Plugin candidate ${entry.candidate} was not found in ${entry.repository}`);
-      const manifest = {
-        ...selected.manifest,
-        version: entry.version,
-        interface: { ...selected.manifest.interface, ...entry.interface },
-      } satisfies ResolvedPluginManifest;
-      await inspectPluginBundle(source, {
-        idPrefix: "ohmygame:",
-        marketplace: { id: "ohmygame", displayName: "OhMyGame" },
-        source: { type: "preinstalled", pluginId: entry.pluginId, releaseId: entry.releaseId },
-      }, manifest);
-      const archive = await createPluginArchive(source);
+      // It ships as a package that only adds Skills, so it applies by itself.
+      const converted = path.join(temporary, `${entry.pluginId}-package`);
+      const conversion = await packageSkills({
+        root: source,
+        manifest: { name: entry.name, version: entry.version, description: entry.interface.shortDescription, skills: entry.skills, interface: entry.interface },
+      }, converted, {
+        id: `ohmygame/${entry.name}`,
+        ...(entry.categories ? { categories: entry.categories } : {}),
+      });
+      if (!isAppWidePlugin(conversion.entry.manifest)) throw new Error(`${entry.repository} doesn't package as a plugin that applies by itself`);
+      const archive = await createPluginArchive(converted);
       const artifactSha256 = createHash("sha256").update(archive).digest("hex");
       if (artifactSha256 !== entry.artifactSha256) {
         throw new Error(`Plugin archive checksum mismatch for ${entry.repository}: ${artifactSha256}`);
@@ -83,12 +84,11 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
       plugins.push({
         pluginId: entry.pluginId,
         releaseId: entry.releaseId,
-        name: manifest.name,
+        id: conversion.entry.id,
         version: entry.version,
         artifactFile,
         artifactSha256,
         artifactBytes: archive.length,
-        manifest,
         origin: { type: "github", repository: entry.repository, commit: entry.commit, ...(entry.release ? { release: entry.release } : {}) },
       });
     }

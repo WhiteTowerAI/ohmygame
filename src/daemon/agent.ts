@@ -7,6 +7,7 @@ import {
   parseSkillBlock,
   SessionManager,
   SettingsManager,
+  stripFrontmatter,
   type AgentSessionEvent,
   type SessionEntry,
   type ToolDefinition,
@@ -15,15 +16,16 @@ import path from "node:path";
 import { promptContextLabels, splitPromptContext, withProjectDesignContext } from "./prompt-context.js";
 import { gameDesignMetadata } from "./game-design-context.js";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createTrackedWriteTool, fileChangeMetadata } from "./file-line-changes.js";
 import { readWorkspaceNotice } from "./workspace-notice.js";
 import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "../shared/agent-runtimes.js";
-import type { StoredConversation } from "./conversations.js";
+import { NATIVE_REASONING_ENTRY, type StoredConversation } from "./conversations.js";
 import { replayNativeMessages } from "./agent-runtimes/replay.js";
+import { invokedSkills } from "./agent-runtimes/skills.js";
 import {
   ensureOhMyGamePiEnvironment,
   withoutOhMyGameManagedPiPackages,
@@ -38,6 +40,8 @@ import { projectProcessEnvironment } from "./project-process.js";
 import { createProviderImageReadTool, installDeepSeekImageFiles } from "./deepseek-image-files.js";
 import { SessionImages } from "./session-images.js";
 import { installSessionImageRequests } from "./session-image-requests.js";
+import { boundToolOutput, MAX_TOOL_OUTPUT } from "./tool-output.js";
+import { shutDownExtensionsOnDispose } from "./session-shutdown.js";
 import { AGENT_ERROR_ENTRY, assistantMessageError, normalizeAgentError, thrownAgentError } from "./agent-errors.js";
 import {
   CHECKPOINT_ENTRY, CHECKPOINT_RESTORED_ENTRY, CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, checkpointExtension, parseStoredCheckpoint, parseStoredCheckpointUndone, parseStoredTurnEnd, turnRange,
@@ -53,7 +57,7 @@ export interface CodingSession {
   readonly profileId?: string;
   /** Whether prompt() emits message_start for its initial user message. */
   readonly emitsInitialUserMessage?: boolean;
-  readonly sessionManager?: Pick<SessionManager, "appendCustomEntry" | "getBranch"> & Partial<Pick<SessionManager, "branch">>;
+  readonly sessionManager?: Pick<SessionManager, "appendCustomEntry" | "appendModelChange" | "appendThinkingLevelChange" | "buildSessionContext" | "getBranch"> & Partial<Pick<SessionManager, "branch">>;
   prompt(prompt: string, options?: { images?: PiPromptImage[] }): Promise<void>;
   followUp?(prompt: string, images?: PiPromptImage[]): Promise<unknown>;
   steer?(prompt: string, images?: PiPromptImage[]): Promise<unknown>;
@@ -394,6 +398,8 @@ interface AgentManagerOptions {
   activeToolNames?: (project: ProjectState, mode: PlanMode, session: CodingSession) => string[];
   onRunCompleted?: (project: ProjectState) => void;
   onRunFinished?: (project: ProjectState, conversationId: string) => Promise<void>;
+  /** Told of every change to a conversation, and whether it now stands at a usage limit it could carry on from. */
+  onLimitChange?: (projectId: string, conversationId: string, limitReached: boolean) => void;
   /** Takes the snapshot that closes a turn, and counts the files that differ between two snapshots. */
   checkpoints?: {
     snapshot(project: ProjectState): Promise<string>;
@@ -416,6 +422,7 @@ interface UndoneChanges {
 interface ManagedSession {
   session: CodingSession;
   unsubscribe: () => void;
+  lastUsed: number;
   designContext?: string;
   runtimeRevision?: number;
 }
@@ -492,7 +499,13 @@ export class AgentManager {
   readonly #steeringPrompts = new Map<string, QueuedPrompt[]>();
   readonly #queueMutations = new Map<string, Promise<void>>();
   readonly #revisions = new Set<string>();
+  /** Conversations whose session file is being archived. Nothing loads, prompts or changes them meanwhile. */
+  readonly #archiving = new Set<string>();
+  /** Changes in progress to an idle conversation's session (its model, plan or context), by conversation. */
+  readonly #sessionChanges = new Map<string, number>();
   readonly #sessionDisposals = new Map<CodingSession, Promise<void>>();
+  /** Sessions still shutting down, by conversation. A new one waits, so the old one's last writes come first. */
+  readonly #conversationDisposals = new Map<string, Promise<void>>();
   /** The projects whose files a restore, an undo or a put-back is changing. No turn starts in them meanwhile. */
   readonly #puttingBack = new Set<string>();
   readonly #turnEndsRecorded = new Map<string, number>();
@@ -501,6 +514,7 @@ export class AgentManager {
   readonly #approvals = new Map<string, Map<string, PendingApproval>>();
   readonly #invalidatedProjects = new Set<string>();
   readonly #runtimeRevisions = new Map<AgentRuntimeId, number>();
+  #idleSessionSweep?: ReturnType<typeof setInterval>;
   #closing = false;
 
   constructor(
@@ -530,7 +544,11 @@ export class AgentManager {
     return this.#planStates.get(conversationKey(conversation.summary.projectId, conversation.summary.id)) ?? { mode: "normal" };
   }
 
-  async cancelPlan(project: ProjectState, conversation: StoredConversation): Promise<void> {
+  cancelPlan(project: ProjectState, conversation: StoredConversation): Promise<void> {
+    return this.#changing(conversationKey(project.id, conversation.summary.id), () => this.#cancelPlan(project, conversation));
+  }
+
+  async #cancelPlan(project: ProjectState, conversation: StoredConversation): Promise<void> {
     const key = conversationKey(project.id, conversation.summary.id);
     // A conversation reads as idle from the end of its run, a little before its turn is closed. What is asked of it
     // in between waits for that instead of being refused; with no such turn nothing is awaited.
@@ -541,7 +559,11 @@ export class AgentManager {
     this.#setPlanState(project, conversation, { mode: "normal" });
   }
 
-  async refinePlan(project: ProjectState, conversation: StoredConversation): Promise<void> {
+  refinePlan(project: ProjectState, conversation: StoredConversation): Promise<void> {
+    return this.#changing(conversationKey(project.id, conversation.summary.id), () => this.#refinePlan(project, conversation));
+  }
+
+  async #refinePlan(project: ProjectState, conversation: StoredConversation): Promise<void> {
     const key = conversationKey(project.id, conversation.summary.id);
     if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
     if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before refining the plan");
@@ -552,7 +574,11 @@ export class AgentManager {
     this.#setPlanState(project, conversation, { mode: "planning", plan: state.plan });
   }
 
-  async approvePlan(project: ProjectState, conversation: StoredConversation): Promise<{ turnId: string; result: Promise<AgentRunResult> }> {
+  approvePlan(project: ProjectState, conversation: StoredConversation): Promise<{ turnId: string; result: Promise<AgentRunResult> }> {
+    return this.#changing(conversationKey(project.id, conversation.summary.id), () => this.#approvePlan(project, conversation));
+  }
+
+  async #approvePlan(project: ProjectState, conversation: StoredConversation): Promise<{ turnId: string; result: Promise<AgentRunResult> }> {
     const key = conversationKey(project.id, conversation.summary.id);
     if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
     if (this.#activeTurns.has(key)) throw new Error("Wait for the agent to finish before approving the plan");
@@ -570,7 +596,16 @@ export class AgentManager {
     };
   }
 
-  async setModel(
+  setModel(
+    projectId: string,
+    conversationId: string,
+    model: RuntimeModel,
+    persist: () => void,
+  ): Promise<void> {
+    return this.#changing(conversationKey(projectId, conversationId), () => this.#setModel(projectId, conversationId, model, persist));
+  }
+
+  async #setModel(
     projectId: string,
     conversationId: string,
     model: RuntimeModel,
@@ -581,6 +616,8 @@ export class AgentManager {
     if (this.#activeTurns.has(key) || this.#revisions.has(key)) throw new Error("Wait for the agent to finish before changing models");
     const managed = this.#sessions.get(key);
     if (!managed) {
+      // The last writes of a session let go come before the setting is stored.
+      await this.#conversationDisposals.get(key);
       persist();
       return;
     }
@@ -627,15 +664,51 @@ export class AgentManager {
    * the model `persist` stores, as when a conversation moves between
    * OhMyGame's own agent and a coding agent, or between coding agents.
    */
-  async replaceSession(projectId: string, conversationId: string, persist: () => void): Promise<void> {
+  replaceSession(projectId: string, conversationId: string, persist: () => void): Promise<void> {
+    return this.#changing(conversationKey(projectId, conversationId), () => this.#replaceSession(projectId, conversationId, persist));
+  }
+
+  async #replaceSession(projectId: string, conversationId: string, persist: () => void): Promise<void> {
     const key = conversationKey(projectId, conversationId);
     if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
     if (this.#activeTurns.has(key) || this.#revisions.has(key) || this.#sessionLoads.has(key)) throw new Error("Wait for the agent to finish before changing models");
-    this.#forgetConversation(key);
+    // The old session's last writes come before the model is stored.
+    await this.#forgetConversation(key);
     persist();
   }
 
-  async setReasoningLevel(
+  /**
+   * Lets go of an idle conversation's session and keeps it reserved while
+   * `move` archives its file, so no prompt or session load starts in between.
+   */
+  async release(projectId: string, conversationId: string, move: () => Promise<void>): Promise<void> {
+    const key = conversationKey(projectId, conversationId);
+    if (this.#archiving.has(key)) throw new Error(ARCHIVING);
+    if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
+    if (this.#archiving.has(key) || this.#activeTurns.has(key) || this.#revisions.has(key) || this.#sessionLoads.has(key) || this.#sessionChanges.has(key) || this.pendingPrompts(projectId, conversationId).length) {
+      throw new Error("Wait for the agent to finish before archiving this conversation");
+    }
+    this.#archiving.add(key);
+    try {
+      // An extension may still write to the file as it shuts down.
+      await this.#forgetConversation(key);
+      await this.#conversationDisposals.get(key);
+      await move();
+    } finally {
+      this.#archiving.delete(key);
+    }
+  }
+
+  setReasoningLevel(
+    projectId: string,
+    conversationId: string,
+    level: AgentReasoningLevel,
+    persist: () => void,
+  ): Promise<AgentReasoningLevel | undefined> {
+    return this.#changing(conversationKey(projectId, conversationId), () => this.#setReasoningLevel(projectId, conversationId, level, persist));
+  }
+
+  async #setReasoningLevel(
     projectId: string,
     conversationId: string,
     level: AgentReasoningLevel,
@@ -646,6 +719,8 @@ export class AgentManager {
     if (this.#activeTurns.has(key) || this.#revisions.has(key)) throw new Error("Wait for the agent to finish before changing reasoning");
     const managed = this.#sessions.get(key);
     if (!managed) {
+      // The last writes of a session let go come before the setting is stored.
+      await this.#conversationDisposals.get(key);
       persist();
       return undefined;
     }
@@ -656,7 +731,15 @@ export class AgentManager {
     return managed.session.thinkingLevel ?? level;
   }
 
-  async compact(
+  compact(
+    project: ProjectState,
+    conversation: StoredConversation,
+    customInstructions?: string,
+  ): Promise<{ turnId: string; result: Promise<AgentRunResult> }> {
+    return this.#changing(conversationKey(project.id, conversation.summary.id), () => this.#compact(project, conversation, customInstructions));
+  }
+
+  async #compact(
     project: ProjectState,
     conversation: StoredConversation,
     customInstructions?: string,
@@ -750,6 +833,7 @@ export class AgentManager {
     if (!prompt.trim() && images.length === 0 && !attachmentContext.trim()) throw new Error("Prompt must not be empty");
     if (this.#closing) throw new Error("Agent manager is closing");
     const key = conversationKey(project.id, conversation.summary.id);
+    if (this.#archiving.has(key)) throw new Error(ARCHIVING);
     const active = this.#activeTurns.get(key);
     if (active?.ended) {
       // The conversation reads as idle, so this is a message for a new run and not one to queue in the run
@@ -779,7 +863,7 @@ export class AgentManager {
         const metadata = await gameDesignMetadata(project, Boolean(managedDesign?.designContext));
         if (managedDesign) managedDesign.designContext = metadata;
         const privateContext = withProjectDesignContext(attachmentContext, metadata);
-        const wirePrompt = `${promptWithReferences(skillInvocationPrompt(serializePluginMentions(prompt, mentions)), references)}${privateContext}`;
+        const wirePrompt = `${promptWithReferences(serializePluginMentions(prompt, mentions), references)}${privateContext}`;
         const event = this.events.publish(
           project.id,
           "prompt.queued",
@@ -945,6 +1029,7 @@ export class AgentManager {
           throw cause;
         }
       });
+      this.options.onLimitChange?.(project.id, conversation.summary.id, false);
     } finally {
       this.#revisions.delete(key);
       this.#puttingBack.delete(project.id);
@@ -970,6 +1055,7 @@ export class AgentManager {
     if (this.#puttingBack.has(project.id)) throw new Error(PUTTING_BACK);
     // Any conversation of the project may be changing the same workspace.
     if (this.isProjectBusy(project.id)) throw new Error("Wait for the agent to finish before undoing");
+    this.options.onLimitChange?.(project.id, conversation.summary.id, false);
 
     this.#revisions.add(key);
     this.#puttingBack.add(project.id);
@@ -1107,8 +1193,7 @@ export class AgentManager {
     );
     active.startedEventId = started.id;
     active.startedAt = Date.parse(started.timestamp);
-    const mentionedPrompt = serializePluginMentions(prompt, mentions);
-    const invocation = mode === "normal" ? skillInvocationPrompt(mentionedPrompt) : mentionedPrompt;
+    const invocation = serializePluginMentions(prompt, mentions);
     const basePrompt = mode === "planning"
       ? planningPrompt(promptWithReferences(invocation, references))
       : mode === "executing"
@@ -1553,15 +1638,15 @@ export class AgentManager {
       }
     }
     this.#approvals.clear();
+    clearInterval(this.#idleSessionSweep);
     const sessions = [...this.#sessions.values()];
     for (const { session } of sessions) session.abortCompaction?.();
     await Promise.allSettled(sessions.map(({ session }) => session.abort()));
     await Promise.allSettled([...this.#runs]);
     await Promise.allSettled([...this.#queueMutations.values()]);
-    for (const managed of sessions) {
-      managed.unsubscribe();
-      managed.session.dispose();
-    }
+    for (const managed of sessions) managed.unsubscribe();
+    // Extensions finish shutting down before the daemon exits, including those of sessions let go earlier.
+    await Promise.allSettled([...sessions.map(({ session }) => session.dispose()), ...this.#sessionDisposals.values()]);
     this.#sessions.clear();
   }
 
@@ -1675,7 +1760,8 @@ export class AgentManager {
    * Stores the ends of a run's turns and tells the conversation. Nothing is
    * awaited, so a reader sees the turn gone and its end together. Ends that
    * come late may find the session let go, and are then written to the
-   * conversation's file if that is still there.
+   * conversation's file if that is still there and not being archived. The
+   * write is synchronous, so archiving cannot start moving the file during it.
    */
   #recordTurnEnds(projectId: string, active: ActiveTurn, ends: StoredTurnEnd[], late = false): void {
     if (ends.length === 0) return;
@@ -1683,7 +1769,7 @@ export class AgentManager {
     try {
       const { sessionPath } = active.conversation;
       const sessionManager = this.#sessions.get(key)?.session.sessionManager
-        ?? (late && !this.#sessionLoads.has(key) && existsSync(sessionPath) ? SessionManager.open(sessionPath, sessionDirectory(active.project), active.project.workspacePath) : undefined);
+        ?? (late && !this.#sessionLoads.has(key) && !this.#archiving.has(key) && existsSync(sessionPath) ? SessionManager.open(sessionPath, sessionDirectory(active.project), active.project.workspacePath) : undefined);
       if (!sessionManager) return;
       for (const end of ends) {
         sessionManager.appendCustomEntry(TURN_END_ENTRY, end);
@@ -1726,13 +1812,34 @@ export class AgentManager {
     this.events.publish(project.id, "plan.mode.changed", state, { conversationId: conversation.summary.id });
   }
 
+  /**
+   * Runs a change to a conversation's session outside a turn. It counts from
+   * its first step, before anything is awaited, so archiving either refuses
+   * while it runs or has begun and refuses it.
+   */
+  async #changing<T>(key: string, change: () => Promise<T>): Promise<T> {
+    if (this.#archiving.has(key)) throw new Error(ARCHIVING);
+    this.#sessionChanges.set(key, (this.#sessionChanges.get(key) ?? 0) + 1);
+    try {
+      return await change();
+    } finally {
+      const left = this.#sessionChanges.get(key)! - 1;
+      if (left) this.#sessionChanges.set(key, left);
+      else this.#sessionChanges.delete(key);
+    }
+  }
+
   async #getSession(project: ProjectState, conversation: StoredConversation): Promise<ManagedSession> {
     const key = conversationKey(project.id, conversation.summary.id);
     const existing = this.#sessions.get(key);
-    if (existing) return existing;
-    const loading = this.#sessionLoads.get(key);
+    if (existing) {
+      existing.lastUsed = Date.now();
+      return existing;
+    }
+    if (this.#archiving.has(key)) throw new Error(ARCHIVING);
+    const loading = this.#sessionLoads.get(key) ?? this.#conversationDisposals.get(key);
     if (loading) {
-      await loading;
+      await loading.catch(() => {});
       return this.#getSession(project, conversation);
     }
     const promise = this.#loadSession(project, conversation);
@@ -1758,12 +1865,15 @@ export class AgentManager {
       [],
     )))(project, conversation);
     if (this.#closing) {
-      session.dispose();
+      // `close` waits for this load's run, so the shutdown finishes before the daemon exits.
+      await Promise.resolve(session.dispose()).catch(() => {});
       throw new Error("Agent manager is closing");
     }
     const unsubscribe = session.subscribe((event) => this.#forwardEvent(project.id, conversation.summary.id, event));
-    const managed: ManagedSession = { session, unsubscribe, ...(session.runtime ? { runtimeRevision: runtimeRevisions.get(session.runtime) ?? 0 } : {}) };
+    const managed: ManagedSession = { session, unsubscribe, lastUsed: Date.now(), ...(session.runtime ? { runtimeRevision: runtimeRevisions.get(session.runtime) ?? 0 } : {}) };
     this.#sessions.set(key, managed);
+    this.#idleSessionSweep ??= setInterval(() => this.#releaseIdleSessions(), IDLE_SESSION_SWEEP_MS);
+    this.#idleSessionSweep.unref();
     const entry = session.sessionManager?.getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === "ohmygame-plan");
     if (!this.#planStates.has(key) && entry?.type === "custom" && entry.data && typeof entry.data === "object") {
       const state = entry.data as Partial<PlanSessionState>;
@@ -2221,12 +2331,15 @@ export class AgentManager {
     } catch {
       console.warn("Could not save agent failure diagnostics");
     }
-    this.#setState(projectId, active.conversationId, { status: "error", error: error.message });
+    // Carrying on outside the plan it was made for would drop a plan's limits, such as being read-only.
+    const inPlan = (this.#planStates.get(conversationKey(projectId, active.conversationId))?.mode ?? "normal") !== "normal";
+    this.#setState(projectId, active.conversationId, { status: "error", error: error.message }, error.code === "quota_exceeded" && !inPlan);
     this.events.publish(projectId, "agent.error", { error: error.message, ...(error.code ? { code: error.code } : {}), ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) }, eventScope(active));
   }
 
-  #setState(projectId: string, conversationId: string, state: ConversationAgentState): void {
+  #setState(projectId: string, conversationId: string, state: ConversationAgentState, limitReached = false): void {
     this.#agentStates.set(conversationKey(projectId, conversationId), state);
+    this.options.onLimitChange?.(projectId, conversationId, limitReached);
   }
 
   isProjectBusy(projectId: string): boolean {
@@ -2270,13 +2383,36 @@ export class AgentManager {
     return !!runtime && managed.runtimeRevision !== (this.#runtimeRevisions.get(runtime) ?? 0);
   }
 
+  /**
+   * Lets go of Pi sessions nothing has used for a while. Each holds its whole
+   * transcript in memory, images included, and the next message loads it again
+   * from its file, as after a restart. A coding agent keeps its own transcript,
+   * so its session stays: letting go of it would only stop its process.
+   */
+  #releaseIdleSessions(): void {
+    const now = Date.now();
+    for (const [key, managed] of this.#sessions) {
+      if (managed.session.runtime) continue;
+      const busy = this.#activeTurns.has(key) || this.#revisions.has(key) || this.#archiving.has(key)
+        || this.#sessionChanges.has(key) || this.#queueMutations.has(key)
+        || Boolean(this.#pendingPrompts.get(key)?.length) || Boolean(this.#steeringPrompts.get(key)?.length);
+      if (busy) managed.lastUsed = now;
+      else if (now - managed.lastUsed >= IDLE_SESSION_MS) void this.#forgetConversation(key);
+    }
+  }
+
   #forgetConversation(key: string): void | Promise<void> {
     const managed = this.#sessions.get(key);
-    if (!managed) return;
+    // One let go already may still be shutting down.
+    if (!managed) return this.#conversationDisposals.get(key);
     managed.unsubscribe();
     this.#sessions.delete(key);
-    const stopped = Promise.resolve(managed.session.dispose()).catch(() => {}).finally(() => this.#sessionDisposals.delete(managed.session));
+    const stopped = Promise.resolve(managed.session.dispose()).catch(() => {}).finally(() => {
+      this.#sessionDisposals.delete(managed.session);
+      if (this.#conversationDisposals.get(key) === stopped) this.#conversationDisposals.delete(key);
+    });
     this.#sessionDisposals.set(managed.session, stopped);
+    this.#conversationDisposals.set(key, stopped);
     return stopped;
   }
 }
@@ -2293,7 +2429,27 @@ export class AgentManager {
  * undo had not happened yet, so there the turn can be undone again. The note
  * that told the model of the undo is left behind either way.
  */
+/**
+ * The model and reasoning level belong to the conversation and not its
+ * history, and a session keeps running on them, so moving back past where they
+ * were chosen brings them along.
+ */
+export function carrySettings(sessionManager: NonNullable<CodingSession["sessionManager"]>, left: readonly SessionEntry[]): void {
+  const kept = new Set(sessionManager.getBranch().map((entry) => entry.id));
+  const gone = left.filter((entry) => !kept.has(entry.id));
+  const model = gone.findLast((entry) => entry.type === "model_change");
+  const selected = sessionManager.buildSessionContext().model;
+  if (model?.type === "model_change" && (selected?.provider !== model.provider || selected.modelId !== model.modelId)) {
+    sessionManager.appendModelChange(model.provider, model.modelId);
+  }
+  const thinking = gone.findLast((entry) => entry.type === "thinking_level_change");
+  if (thinking?.type === "thinking_level_change") sessionManager.appendThinkingLevelChange(thinking.thinkingLevel);
+  const native = gone.findLast((entry) => entry.type === "custom" && entry.customType === NATIVE_REASONING_ENTRY);
+  if (native?.type === "custom") sessionManager.appendCustomEntry(NATIVE_REASONING_ENTRY, native.data);
+}
+
 function carryTurnEnds(sessionManager: NonNullable<CodingSession["sessionManager"]>, left: readonly SessionEntry[], undone = false): void {
+  carrySettings(sessionManager, left);
   const kept = sessionManager.getBranch();
   const ids = new Set(kept.map((entry) => entry.id));
   // The turns that stay are the checkpoints whose message is still there; the last checkpoint may have lost its own.
@@ -2333,7 +2489,11 @@ const REFERENCE_MARKER = "<workspace-file-references>";
 const LOCAL_ATTACHMENTS_MARKER = "<local-attachments>";
 const USER_PROMPT_ENTRY = "ohmygame-user-prompt";
 /** What is answered to a message, an edit, a restore or an undo that comes while the project's files are being put back. */
+/** Longer than provider prompt caches and connections last, so letting go costs a reload and no more. */
+const IDLE_SESSION_MS = 15 * 60_000;
+const IDLE_SESSION_SWEEP_MS = 60_000;
 const PUTTING_BACK = "Wait until the project's files have been put back";
+const ARCHIVING = "This conversation is being archived";
 // How long the end of a run waits for its cleanup and for the snapshot that closes it. A snapshot reads only what
 // changed since the one before it, some 60 MB a second on a laptop disk, so this is time for a turn that wrote more
 // than a gigabyte. The turn is then closed without an end, and gets one later if the snapshot does come back.
@@ -2366,9 +2526,35 @@ function promptWithReferences(prompt: string, references: PromptReference[]): st
   return `${prompt}\n\n${REFERENCE_MARKER}\n${JSON.stringify(references.map(({ path }) => path))}\n</workspace-file-references>`;
 }
 
-export function skillInvocationPrompt(prompt: string): string {
-  const match = prompt.match(/^\$([a-zA-Z0-9][a-zA-Z0-9._-]*)(?=\s|$)/);
-  return match ? `/skill:${match[1]}${prompt.slice(match[0].length)}` : prompt;
+/** The Skills a message names, each as the block Pi itself writes for `/skill:`, before the message. */
+export function skillBlocksPrompt(prompt: string, skills: ReadonlyArray<{ name: string; filePath: string; baseDir: string }>): string {
+  const byName = new Map(skills.map((skill) => [skill.name, skill]));
+  const blocks = invokedSkills(prompt, byName.keys()).flatMap((name) => {
+    const skill = byName.get(name)!;
+    try {
+      const body = stripFrontmatter(readFileSync(skill.filePath, "utf8")).trim();
+      return [`<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`];
+    } catch {
+      return [];
+    }
+  });
+  return blocks.length ? `${blocks.join("\n\n")}\n\n${prompt}` : prompt;
+}
+
+/**
+ * The message under its Skill blocks. Pi's own expansion of `/skill:` dropped
+ * the name from the message, so a Skill the message does not name comes back as `$name`.
+ */
+function withoutSkillBlocks(value: string): string {
+  const names: string[] = [];
+  let rest = value;
+  for (let block = parseSkillBlock(rest); block; block = parseSkillBlock(rest)) {
+    names.push(block.name);
+    rest = block.userMessage ?? "";
+  }
+  if (!names.length) return value;
+  const unnamed = names.filter((name) => !invokedSkills(rest, [name]).length).map((name) => `$${name}`);
+  return [...unnamed, rest].filter(Boolean).join(" ");
 }
 
 function parseUserPrompt(value: string): { text: string; mentions: PluginMention[]; references: PromptReference[]; attachments: ConversationAttachment[]; attachmentContext: string } {
@@ -2379,9 +2565,7 @@ function parseUserPrompt(value: string): { text: string; mentions: PluginMention
   const marker = `\n\n${REFERENCE_MARKER}\n`;
   const index = source.lastIndexOf(marker);
   const visible = index < 0 ? source : source.slice(0, index);
-  const skill = parseSkillBlock(visible);
-  const restored = skill ? `$${skill.name}${skill.userMessage ? ` ${skill.userMessage}` : ""}` : visible;
-  const parsed = parsePluginMentions(restored);
+  const parsed = parsePluginMentions(withoutSkillBlocks(visible));
   const text = parsed.text;
   const attachments = localAttachments?.attachments ?? [];
   if (index < 0) return { text, mentions: parsed.mentions, references: [], attachments, attachmentContext };
@@ -2653,7 +2837,6 @@ function partialToolCall(message: unknown, contentIndex: number): { id: string; 
   };
 }
 
-const MAX_TOOL_OUTPUT = 12_000;
 const MAX_GENERIC_TOOL_ARGUMENTS = 2_000;
 
 function toolArguments(toolName: string, args: unknown): unknown {
@@ -2752,12 +2935,7 @@ function toolOutput(result: unknown): Pick<
     : stringify(result);
   if (!value) return media;
   if (value.length <= MAX_TOOL_OUTPUT) return { output: value, ...media };
-  const half = MAX_TOOL_OUTPUT / 2;
-  return {
-    output: `${value.slice(0, half)}\n\n... output truncated ...\n\n${value.slice(-half)}`,
-    truncated: true,
-    ...media,
-  };
+  return { output: boundToolOutput(value), truncated: true, ...media };
 }
 
 function toolWebSearch(result: unknown): Extract<ThreadItem, { type: "dynamicToolCall" }>["webSearch"] {
@@ -3013,14 +3191,22 @@ export async function createPiSession(
   installSessionImageRequests(session, images, agentDir, { transportMode: responsesTransport });
   mcp?.host.manage(session);
   try { await session.bindExtensions({ mode: "rpc" }); } catch (cause) { session.dispose(); throw cause; }
+  // The MCP host already does this for the sessions it manages.
+  if (!mcp) shutDownExtensionsOnDispose(session);
   const prompt = session.prompt.bind(session);
+  const followUp = session.followUp.bind(session);
+  const steer = session.steer.bind(session);
+  // Pi expands only one leading `/skill:`, so the session expands every Skill a message names.
+  const withSkills = (text: string) => skillBlocksPrompt(text, resourceLoader.getSkills().skills);
   return Object.assign(session, {
     emitsInitialUserMessage: true,
-    prompt: async (...args: Parameters<typeof prompt>) => {
+    prompt: async (text: string, options?: Parameters<typeof prompt>[1]) => {
       checkpointFailure = undefined;
-      await prompt(...args);
+      await prompt(withSkills(text), options);
       assertCheckpoint();
     },
+    followUp: (text: string, images?: Parameters<typeof followUp>[1], options?: Parameters<typeof followUp>[2]) => followUp(withSkills(text), images, options),
+    steer: (text: string, images?: Parameters<typeof steer>[1], options?: Parameters<typeof steer>[2]) => steer(withSkills(text), images, options),
     getSkills: () => skillCatalog(resourceLoader.getSkills().skills, pluginSkills),
   });
 }

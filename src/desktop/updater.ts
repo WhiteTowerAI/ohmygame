@@ -29,6 +29,7 @@ export class DesktopUpdater {
   #automaticChecking = false;
   #automaticCheckFailed = false;
   #operation: DesktopUpdatePhase = "check";
+  #automatic = false;
 
   constructor(currentVersion: string, private readonly onInstall: () => Promise<void> | void) {
     this.#state = { currentVersion, status: { type: "idle" } };
@@ -49,6 +50,7 @@ export class DesktopUpdater {
     autoUpdater.on("update-available", (info) => {
       this.#rememberRelease(info);
       this.#set({ type: "available", version: info.version });
+      if (this.#automatic) void this.download();
     });
     autoUpdater.on("download-progress", (progress) => {
       const current = this.#state.status;
@@ -78,6 +80,16 @@ export class DesktopUpdater {
   subscribe(listener: (state: DesktopUpdateState) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  /**
+   * Settings → General → Automatic updates: a found release downloads in the
+   * background and installs when the app quits. Off, each step waits for the person.
+   */
+  setAutomatic(enabled: boolean): void {
+    this.#automatic = enabled;
+    autoUpdater.autoInstallOnAppQuit = enabled;
+    if (enabled && this.#state.status.type === "available") void this.download();
   }
 
   async check(automatic = false): Promise<DesktopUpdateCheckOutcome> {

@@ -70,6 +70,7 @@ describe("desktop daemon process", () => {
         allowedOrigins: [],
         executable: process.execPath,
         environment: {},
+        gracefulShutdownTimeoutMs: 1_000,
       });
       const descendantPid = Number(await readFile(descendantFile, "utf8"));
       try {
@@ -162,6 +163,7 @@ describe("desktop daemon process", () => {
         response.end(JSON.stringify({ development: process.argv.includes("--dev"), tokenInEnvironment: Object.keys(process.env).some((name) => name.toUpperCase() === "OHMYGAME_DAEMON_TOKEN") }));
       });
       server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.on("message", (message) => { if (message?.channel === "ohmygame:shutdown") server.close(() => process.exit(0)); });
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
     `);
 
@@ -204,6 +206,7 @@ describe("desktop daemon process", () => {
       writeFileSync(${JSON.stringify(pathFile)}, process.env.Path ?? "");
       const server = createServer((_request, response) => response.end());
       server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.on("message", (message) => { if (message?.channel === "ohmygame:shutdown") server.close(() => process.exit(0)); });
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
     `);
 
@@ -233,6 +236,7 @@ describe("desktop daemon process", () => {
       writeFileSync(${JSON.stringify(piAgentFile)}, process.env.PI_CODING_AGENT_DIR ?? "");
       const server = createServer((_request, response) => response.end());
       server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.on("message", (message) => { if (message?.channel === "ohmygame:shutdown") server.close(() => process.exit(0)); });
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
     `);
 
@@ -262,6 +266,7 @@ describe("desktop daemon process", () => {
       writeFileSync(${JSON.stringify(logDirectoryFile)}, process.env.OHMYGAME_LOG_DIR ?? "");
       const server = createServer((_request, response) => response.end());
       server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.on("message", (message) => { if (message?.channel === "ohmygame:shutdown") server.close(() => process.exit(0)); });
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
     `);
 

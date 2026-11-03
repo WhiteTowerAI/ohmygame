@@ -1,6 +1,6 @@
 import { t } from "./i18n.js";
 import type { CommunityGame } from "../shared/contracts.js";
-import { Search, X } from "./icons.js";
+import { Button, FilterChips, SearchInput, Select } from "./ui/index.js";
 
 export interface CommunityFilters {
   search: string;
@@ -49,76 +49,80 @@ export function filterCommunityGames<T extends CommunityGame>(
     });
 }
 
+/** Sort chips, the reset and the period menu. The search box sits in the page's
+ * title row instead; `search` adds one at the end of this row. */
 export function CommunityToolbar({
   value,
   onChange,
+  search = false,
 }: {
   value: CommunityFilters;
   onChange: (filters: CommunityFilters) => void;
+  search?: boolean;
 }) {
-  const sorts = [
-    ["latest", "community.latestListed"],
-    ["views", "community.mostViewed"],
-    ["likes", "community.mostLiked"],
-  ] as const;
+  const filtered =
+    value.search || value.sort !== "latest" || value.period !== "all";
   return (
-    <div className="community-toolbar">
-      <div
-        className="community-sort"
-        role="group"
-        aria-label={t("community.sortBy")}
-      >
-        {sorts.map(([sort, label]) => (
-          <button
-            key={sort}
-            type="button"
-            aria-pressed={value.sort === sort}
-            onClick={() => onChange({ ...value, sort })}
-          >
-            {t(label)}
-          </button>
-        ))}
-      </div>
-      <div className="community-search-controls">
-        <select
-          className="community-period"
-          aria-label={t("community.firstListed")}
-          value={value.period}
-          onChange={(event) =>
-            onChange({
-              ...value,
-              period: event.target.value as CommunityFilters["period"],
-            })
-          }
+    <div className="community-filters">
+      <FilterChips<CommunityFilters["sort"]>
+        label={t("community.sortBy")}
+        value={[value.sort]}
+        onChange={(sorts) =>
+          onChange({
+            ...value,
+            sort: sorts.find((sort) => sort !== value.sort) ?? value.sort,
+          })
+        }
+        options={[
+          { value: "latest", label: t("community.latestListed") },
+          { value: "views", label: t("community.mostViewed") },
+          { value: "likes", label: t("community.mostLiked") },
+        ]}
+      />
+      <span className="community-spacer" />
+      {filtered ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onChange({ ...DEFAULT_COMMUNITY_FILTERS })}
         >
-          <option value="all">{t("community.anyTime")}</option>
-          <option value="week">{t("community.pastWeek")}</option>
-          <option value="month">{t("community.pastMonth")}</option>
-        </select>
-        <label className="community-search">
-          <Search size={15} aria-hidden="true" />
-          <input
-            type="search"
-            aria-label={t("community.search")}
-            value={value.search}
-            placeholder={t("community.searchPlaceholder")}
-            onChange={(event) =>
-              onChange({ ...value, search: event.target.value })
-            }
-          />
-        </label>
-        {value.search || value.sort !== "latest" || value.period !== "all" ? (
-          <button
-            className="community-filter-reset"
-            type="button"
-            aria-label={t("community.resetFilters")}
-            title={t("community.resetFilters")}
-            onClick={() => onChange({ ...DEFAULT_COMMUNITY_FILTERS })}
-          >
-            <X size={15} />
-          </button>
-        ) : null}
-      </div>
+          {t("community.resetFilters")}
+        </Button>
+      ) : null}
+      <Select<CommunityFilters["period"]>
+        size="sm"
+        label={t("community.firstListed")}
+        value={value.period}
+        onChange={(period) => onChange({ ...value, period })}
+        options={[
+          { value: "all", label: t("community.anyTime") },
+          { value: "week", label: t("community.pastWeek") },
+          { value: "month", label: t("community.pastMonth") },
+        ]}
+      />
+      {search ? (
+        <CommunitySearch size="sm" value={value} onChange={onChange} />
+      ) : null}
     </div>
+  );
+}
+
+export function CommunitySearch({
+  value,
+  onChange,
+  size,
+}: {
+  value: CommunityFilters;
+  onChange: (filters: CommunityFilters) => void;
+  size?: "sm" | "md";
+}) {
+  return (
+    <SearchInput
+      size={size}
+      value={value.search}
+      onChange={(search) => onChange({ ...value, search })}
+      label={t("community.search")}
+      placeholder={t("community.searchPlaceholder")}
+    />
   );
 }

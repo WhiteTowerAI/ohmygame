@@ -33,7 +33,6 @@ const explicitTestGroups = {
   "desktop-runtime-packaging.test.ts": "desktop",
   "playable-vite.test.ts": "renderer",
   "blender-export.test.ts": "daemon",
-  "taptap-maker-integration.test.ts": "daemon",
   "desktop-typebox.test.ts": "desktop",
   "readme-translations.test.ts": "shared",
   "desktop-release-notes.test.ts": "desktop",
@@ -42,6 +41,7 @@ const explicitTestGroups = {
   "desktop-installer-contract.test.ts": "desktop",
   "desktop-installer-process.test.ts": "desktop",
   "desktop-update-ranges.test.ts": "desktop",
+  "taptap-maker.test.ts": "daemon",
 };
 // These skip without a local Blender or a platform-specific process feature.
 // Cloud contract tests are not listed: skipping them means the cloud root is

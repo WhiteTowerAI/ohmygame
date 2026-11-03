@@ -11,7 +11,7 @@ import {
   preferredCharacterSheetOption,
   resolveContinuousActionPrompt,
 } from "../src/shared/canvas-character-tools.js";
-import { PIXEL_SPRITE_SEQUENCE_REQUIREMENTS, withCharacterPixelArtLevel, withGlobalPixelStyle } from "../src/shared/canvas-pixel-style.js";
+import { PIXEL_SPRITE_SEQUENCE_REQUIREMENTS, withCharacterPixelArtLevel } from "../src/shared/canvas-pixel-style.js";
 import type { ImageModel } from "../src/shared/contracts.js";
 import { toAssetCanvasNode } from "../src/renderer/asset-canvas-workspace.js";
 

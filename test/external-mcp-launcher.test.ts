@@ -254,7 +254,7 @@ it("explains how to turn the feature on instead of starting the app", async () =
   expect(await call(launcher, "canvas_check")).toEqual({
     isError: true,
     text: expect.stringContaining(
-      "Settings → MCP Server → Allow other agents to use OhMyGame",
+      "turn on the MCP Server switch in Settings → MCP Server",
     ),
   });
   expect(starts()).toBe(0);

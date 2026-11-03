@@ -1,3 +1,5 @@
+import type { GameRecordingBridge } from "./game-recording.js";
+
 export interface WebGamePlayerRequest {
   path: string;
   viewport: { width: number; height: number };
@@ -25,6 +27,8 @@ export interface DesktopWebGamePreviewBridge {
 
 export interface WebGamePlayerBridge {
   preview?: DesktopWebGamePreviewBridge;
+  /** Absent outside the desktop app, which is the only place a game can be recorded. */
+  recording?: GameRecordingBridge;
   open(projectId: string, request: WebGamePlayerRequest): Promise<void>;
   state(projectId: string): Promise<WebGamePlayerState>;
   close(projectId: string): Promise<void>;

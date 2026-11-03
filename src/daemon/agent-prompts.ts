@@ -2,7 +2,7 @@ import type { ProjectState } from "../shared/contracts.js";
 
 /** The parts of a project that change what the agent is told. */
 export type AgentPromptProject = Pick<ProjectState, "type"> &
-  Partial<Pick<ProjectState, "startupDirectory" | "startupScript" | "packageManager" | "workspaceLocation" | "webPreviewEnabled" | "integration">>;
+  Partial<Pick<ProjectState, "startupDirectory" | "startupScript" | "packageManager" | "workspaceLocation" | "webPreviewEnabled" | "pluginType">>;
 
 const COMMON_AGENT_INSTRUCTIONS = [
   "Do not create or change files for casual conversation or for questions that need no code.",
@@ -48,8 +48,8 @@ export function appendSystemPromptForProject(project: AgentPromptProject): strin
   if (project.type === "general") return [
     ...COMMON_AGENT_INSTRUCTIONS,
     ...GENERAL_GAME_INSTRUCTIONS,
-    ...(project.integration?.preview === "external" ? [
-      `This workspace uses ${project.integration.pluginId}. Preserve its engine and project binding. Follow its plugin Skill and workspace instructions. Use project_preview or View for native preview controls; the game opens in its own window. Web preview and OhMyGame Community publishing are unavailable for this project.`,
+    ...(project.pluginType?.preview === "native" ? [
+      `This project's type comes from the ${project.pluginType.plugin} plugin, and the game runs outside OhMyGame through it. Preserve its engine and project setup, follow its Skills, and use its tools to preview and build. Web preview, game_use, and OhMyGame Community publishing are unavailable for this project.`,
     ] : [
       "OhMyGame's built-in Preview, game_use, and cloud publishing currently support Web output in this workspace. For Web output, OhMyGame owns the dev server; do not start persistent background servers yourself. Use game_use only for a configured Web preview. For native engines, use available engine tools, connections, or existing project checks and state when visual gameplay was not verified. An editor connection alone does not establish a successful playtest.",
       project.webPreviewEnabled === true

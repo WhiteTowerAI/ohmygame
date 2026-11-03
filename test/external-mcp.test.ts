@@ -110,6 +110,21 @@ async function fixture() {
     projects: () => projects,
     tools: (current) => tools(current),
     catalog: () => tools(projects[1]!),
+    pluginTools: async (current) =>
+      current.id === "game"
+        ? [
+            defineTool({
+              name: "acme__tiles__where",
+              label: "Tiles: where",
+              description: "Say which project the plugin runs in",
+              parameters: Type.Object({ detail: Type.Optional(Type.String()) }),
+              execute: async () => ({
+                content: [{ type: "text", text: `tiles in ${current.id}` }],
+                details: {},
+              }),
+            }),
+          ]
+        : [],
     release: (projectId, sessionId) => {
       released.push(`${projectId}:${sessionId}`);
     },
@@ -321,6 +336,20 @@ it("refuses tools outside the public list and those the project does not have", 
   ).toMatchObject({ isError: true });
 });
 
+it("remembers which clients connected and how many tools they called", async () => {
+  const { game, rpc, call, service, authorization } = await fixture();
+  const answer = await rpc(undefined, "initialize", { protocolVersion: "2025-06-18", clientInfo: { name: "claude-code", version: "2.1.0" } }, [game]);
+  const session = answer.headers!["mcp-session-id"]!;
+  await call(session, "canvas_check");
+  await call(session, "canvas_check");
+  await rpc(undefined, "initialize", { protocolVersion: "2025-06-18" });
+  expect(service.recentClients()).toEqual([
+    { name: "claude-code", lastUsedAt: expect.any(String), calls: 2, active: true },
+  ]);
+  await service.end(authorization, session);
+  expect(service.recentClients()).toMatchObject([{ name: "claude-code", calls: 2, active: false }]);
+});
+
 it("turns slow generations into jobs that outlive the request", async () => {
   const { game, open, call, signals, finish } = await fixture();
   const session = await open([game]);
@@ -384,10 +413,7 @@ it("serves the public contract from the daemon without the app token", async () 
     headers: { authorization: "Bearer app-token" },
     payload: { enabled: true },
   });
-  expect(settings.json()).toMatchObject({
-    enabled: true,
-    clients: [{ id: "claude-code" }, { id: "codex" }],
-  });
+  expect(settings.json()).toMatchObject({ enabled: true });
   const endpoint = JSON.parse(
     await readFile(
       path.join(dataDirectory, "external-mcp", "endpoint.json"),
@@ -475,4 +501,36 @@ it("serves the public contract from the daemon without the app token", async () 
   await expect(
     stat(path.join(dataDirectory, "external-mcp", "endpoint.json")),
   ).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("lists and runs the plugin tools of the project a session uses", async () => {
+  const { game, story, open, rpc, call } = await fixture();
+  const names = async (session: string) =>
+    (
+      (await rpc(session, "tools/list")).body as {
+        result: { tools: Array<{ name: string }> };
+      }
+    ).result.tools.map((tool) => tool.name);
+  const unbound = await open();
+  expect(await names(unbound)).not.toContain("acme__tiles__where");
+  expect(await call(unbound, "acme__tiles__where")).toMatchObject({
+    isError: true,
+  });
+
+  const inGame = await open([game]);
+  expect(await names(inGame)).toContain("acme__tiles__where");
+  expect(await call(inGame, "acme__tiles__where")).toEqual({
+    text: "tiles in game",
+    isError: false,
+  });
+  // The plugin's schema is checked like any other tool's.
+  expect(await call(inGame, "acme__tiles__where", { detail: 1 })).toMatchObject(
+    { isError: true },
+  );
+
+  const inStory = await open([story]);
+  expect(await names(inStory)).not.toContain("acme__tiles__where");
+  expect((await call(inStory, "acme__tiles__where")).text).toContain(
+    "not available for project",
+  );
 });

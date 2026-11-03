@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { t } from "./i18n.js";
+import { Disclosure } from "./ui/index.js";
 
 /** A failed pane keeps navigation and the conversation input available. */
 export class ErrorBoundary extends Component<
@@ -29,10 +30,9 @@ export class ErrorBoundary extends Component<
       <div className="pane-error-boundary" role="alert">
         <strong>{t("errorBoundary.failed", { label: this.props.label })}</strong>
         <p>{t("errorBoundary.hint")}</p>
-        <details>
-          <summary>{t("common.errorDetails")}</summary>
+        <Disclosure summary={t("common.errorDetails")}>
           <pre>{this.state.error.message}</pre>
-        </details>
+        </Disclosure>
         <div>
           <button
             type="button"

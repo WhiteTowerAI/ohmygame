@@ -1,15 +1,16 @@
 import { SessionManager, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it, onTestFinished, vi } from "vitest";
-import { AgentManager, compatibleRuntimeModel, conversationItems, lastAssistantError, loadPiSkills, skillInvocationPrompt, type CodingSession, type RuntimeModel } from "../src/daemon/agent.js";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { AgentManager, compatibleRuntimeModel, conversationItems, lastAssistantError, loadPiSkills, skillBlocksPrompt, type CodingSession, type RuntimeModel } from "../src/daemon/agent.js";
 import * as gameDesignContext from "../src/daemon/game-design-context.js";
 import { promptContextBlock } from "../src/daemon/prompt-context.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
 import type { AgentReasoningLevel, ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
+import { EXTENSION_SHUTDOWN_MS, shutDownExtensionsOnDispose } from "../src/daemon/session-shutdown.js";
 import { createProviderFailureDiagnostic } from "@earendil-works/pi-ai/utils/provider-failure";
 import { AGENT_ERROR_ENTRY } from "../src/daemon/agent-errors.js";
 import { CHECKPOINT_ENTRY, CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, turnRange } from "../src/daemon/checkpoint-extension.js";
@@ -52,10 +53,24 @@ describe("lastAssistantError", () => {
   });
 });
 
-describe("skillInvocationPrompt", () => {
-  it("maps the Composer syntax to Pi's native skill command", () => {
-    expect(skillInvocationPrompt("$review check this change")).toBe("/skill:review check this change");
-    expect(skillInvocationPrompt("Use $review here")).toBe("Use $review here");
+describe("skillBlocksPrompt", () => {
+  it("puts every Skill a message names before it, as Pi writes one, and leaves the message as written", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ohmygame-skill-blocks-"));
+    try {
+      const skills = await Promise.all(["review", "map-design"].map(async (name) => {
+        const baseDir = path.join(root, name);
+        await mkdir(baseDir);
+        await writeFile(path.join(baseDir, "SKILL.md"), `---\nname: ${name}\ndescription: d\n---\n\nFollow ${name}.\n`);
+        return { name, filePath: path.join(baseDir, "SKILL.md"), baseDir };
+      }));
+      const block = (name: string) => `<skill name="${name}" location="${path.join(root, name, "SKILL.md")}">\nReferences are relative to ${path.join(root, name)}.\n\nFollow ${name}.\n</skill>`;
+
+      expect(skillBlocksPrompt("$review then use $map-design here, $review again", skills))
+        .toBe(`${block("review")}\n\n${block("map-design")}\n\n$review then use $map-design here, $review again`);
+      expect(skillBlocksPrompt("Costs $5, see $unknown", skills)).toBe("Costs $5, see $unknown");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -298,6 +313,14 @@ describe("conversationItems", () => {
       }),
     ] as never, false);
     expect(items[0]).toMatchObject({ type: "userMessage", text: "$review check this change" });
+  });
+
+  it("restores several Skill blocks to the message that names them", () => {
+    const block = (name: string) => `<skill name="${name}" location="/skills/${name}/SKILL.md">\nReferences are relative to /skills/${name}.\n\nFollow ${name}.\n</skill>`;
+    const items = conversationItems([
+      sessionMessage("user", { role: "user", content: `${block("review")}\n\n${block("map")}\n\nUse $review and $map here`, timestamp: 1 }),
+    ] as never, false);
+    expect(items[0]).toMatchObject({ type: "userMessage", text: "Use $review and $map here" });
   });
 
   it("restores a completed questionnaire as a user input request item", () => {
@@ -700,6 +723,50 @@ describe("conversationItems", () => {
   });
 });
 
+describe("shutDownExtensionsOnDispose", () => {
+  const session = () => {
+    const calls: string[] = [];
+    return {
+      calls,
+      abort: vi.fn(async () => { calls.push("abort"); }),
+      dispose: vi.fn(() => { calls.push("dispose"); }),
+      extensionRunner: { emit: vi.fn(async (event: { type: string }) => { calls.push(event.type); }) },
+    };
+  };
+
+  it("tells extensions a session is over before disposing of it, once", async () => {
+    const fake = session();
+    shutDownExtensionsOnDispose(fake as never);
+    await Promise.all([(fake as { dispose(): unknown }).dispose(), (fake as { dispose(): unknown }).dispose()]);
+    expect(fake.calls).toEqual(["abort", "session_shutdown", "dispose"]);
+  });
+
+  it("disposes of the session anyway when an extension never finishes shutting down", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const fake = session();
+      fake.extensionRunner.emit.mockImplementation(() => new Promise(() => {}));
+      shutDownExtensionsOnDispose(fake as never);
+      const disposed = (fake as { dispose(): unknown }).dispose();
+      await vi.advanceTimersByTimeAsync(EXTENSION_SHUTDOWN_MS);
+      await disposed;
+      expect(fake.calls).toEqual(["abort", "dispose"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still disposes of the session when an extension fails to shut down", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fake = session();
+    fake.extensionRunner.emit.mockRejectedValueOnce(new Error("Failed"));
+    shutDownExtensionsOnDispose(fake as never);
+    await (fake as { dispose(): unknown }).dispose();
+    expect(fake.calls).toEqual(["abort", "dispose"]);
+    warn.mockRestore();
+  });
+});
+
 describe("AgentManager", () => {
   it.each(["completed", "cancelled", "failed"] as const)("runs owned-resource cleanup after a %s prompt", async (outcome) => {
     const session = new FakeSession();
@@ -722,6 +789,153 @@ describe("AgentManager", () => {
     expect(cleanup).toHaveBeenCalledExactlyOnceWith(project, conversation.summary.id);
     await manager.close();
   });
+  describe("idle sessions", () => {
+    const MINUTE = 60_000;
+    beforeEach(() => { vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] }); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it("lets go of a session nothing has used for 15 minutes and loads it again for the next message", async () => {
+      const first = new FakeSession();
+      const second = new FakeSession();
+      const createSession = vi.fn<() => Promise<FakeSession>>().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: createSession as never });
+      const project = createProject();
+      const conversation = createConversation(project);
+      await manager.prompt(project, conversation, "Build").result;
+
+      vi.advanceTimersByTime(14 * MINUTE);
+      expect(first.dispose).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(2 * MINUTE);
+      expect(first.dispose).toHaveBeenCalledOnce();
+
+      await manager.prompt(project, conversation, "Continue").result;
+      expect(createSession).toHaveBeenCalledTimes(2);
+      expect(second.prompt).toHaveBeenCalledOnce();
+      await manager.close();
+    });
+
+    it("counts the 15 minutes from when the session was last used", async () => {
+      const session = new FakeSession();
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+      const project = createProject();
+      const conversation = createConversation(project);
+      await manager.prompt(project, conversation, "Build").result;
+
+      vi.advanceTimersByTime(10 * MINUTE);
+      await manager.prompt(project, conversation, "Continue").result;
+      vi.advanceTimersByTime(10 * MINUTE);
+      expect(session.dispose).not.toHaveBeenCalled();
+      await manager.close();
+    });
+
+    it("keeps a session through a long turn and for 15 minutes after it", async () => {
+      const session = new FakeSession();
+      const pending = deferred<void>();
+      session.prompt.mockImplementation(() => pending.promise);
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+      const project = createProject();
+      const conversation = createConversation(project);
+      const turn = manager.prompt(project, conversation, "Build");
+      await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
+
+      vi.advanceTimersByTime(60 * MINUTE);
+      expect(session.dispose).not.toHaveBeenCalled();
+      pending.resolve();
+      await turn.result;
+      vi.advanceTimersByTime(14 * MINUTE);
+      expect(session.dispose).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(2 * MINUTE);
+      expect(session.dispose).toHaveBeenCalledOnce();
+      await manager.close();
+    });
+
+    it("loads a session again only once the one let go has shut down, and waits for it on close", async () => {
+      const first = new FakeSession();
+      const shutdown = deferred<void>();
+      first.dispose.mockImplementation((() => shutdown.promise) as never);
+      const second = new FakeSession();
+      const secondShutdown = deferred<void>();
+      second.dispose.mockImplementation((() => secondShutdown.promise) as never);
+      const createSession = vi.fn<() => Promise<FakeSession>>().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: createSession as never });
+      const project = createProject();
+      const conversation = createConversation(project);
+      await manager.prompt(project, conversation, "Build").result;
+      vi.advanceTimersByTime(16 * MINUTE);
+      expect(first.dispose).toHaveBeenCalledOnce();
+
+      const next = manager.prompt(project, conversation, "Continue").result;
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(createSession).toHaveBeenCalledOnce();
+      shutdown.resolve();
+      await next;
+      expect(createSession).toHaveBeenCalledTimes(2);
+
+      let closed = false;
+      const closing = manager.close().then(() => { closed = true; });
+      await vi.waitFor(() => expect(second.dispose).toHaveBeenCalled());
+      expect(closed).toBe(false);
+      secondShutdown.resolve();
+      await closing;
+    });
+
+    it("stores a new model only once the old session has shut down", async () => {
+      const session = new FakeSession();
+      const shutdown = deferred<void>();
+      session.dispose.mockImplementation((() => shutdown.promise) as never);
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+      const project = createProject();
+      const conversation = createConversation(project);
+      await manager.prompt(project, conversation, "Build").result;
+      const persist = vi.fn();
+
+      const replacing = manager.replaceSession(project.id, conversation.summary.id, persist);
+      await vi.waitFor(() => expect(session.dispose).toHaveBeenCalled());
+      expect(persist).not.toHaveBeenCalled();
+      shutdown.resolve();
+      await replacing;
+      expect(persist).toHaveBeenCalledOnce();
+      await manager.close();
+    });
+
+    it("stores a setting only once a session already let go has shut down", async () => {
+      const session = new FakeSession();
+      const shutdown = deferred<void>();
+      session.dispose.mockImplementation((() => shutdown.promise) as never);
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+      const project = createProject();
+      const conversation = createConversation(project);
+      await manager.prompt(project, conversation, "Build").result;
+      vi.advanceTimersByTime(16 * MINUTE);
+      expect(session.dispose).toHaveBeenCalledOnce();
+      const persist = vi.fn();
+
+      const changes = [
+        manager.replaceSession(project.id, conversation.summary.id, persist),
+        manager.setReasoningLevel(project.id, conversation.summary.id, "high", persist),
+      ];
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(persist).not.toHaveBeenCalled();
+      shutdown.resolve();
+      await Promise.all(changes);
+      expect(persist).toHaveBeenCalledTimes(2);
+      await manager.close();
+    });
+
+    it("keeps a coding agent's session, whose process would only stop", async () => {
+      const session = Object.assign(new FakeSession(), { runtime: "codex" });
+      const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session as never });
+      const project = createProject();
+      await manager.prompt(project, createConversation(project), "Build").result;
+
+      vi.advanceTimersByTime(60 * MINUTE);
+      expect(session.dispose).not.toHaveBeenCalled();
+      await manager.close();
+    });
+  });
+
   it("aggregates activity across conversations until all project work ends", async () => {
     const completions = [deferred<void>(), deferred<void>(), deferred<void>()];
     const sessions = completions.map((completion) => {
@@ -758,6 +972,42 @@ describe("AgentManager", () => {
     completions[2].resolve();
     await expect(turns[2].result).resolves.toBe("completed");
     expect(manager.projectActivity()).toEqual([]);
+    await manager.close();
+  });
+
+  it("refuses a prompt while an idle conversation's file is archived, and accepts one after", async () => {
+    const session = new FakeSession();
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const moved = deferred<void>();
+    const archiving = manager.release(project.id, conversation.summary.id, () => moved.promise);
+    await Promise.resolve();
+    expect(() => manager.prompt(project, conversation, "Build")).toThrow("This conversation is being archived");
+    await expect(manager.release(project.id, conversation.summary.id, async () => {})).rejects.toThrow("This conversation is being archived");
+    moved.resolve();
+    await archiving;
+    await expect(manager.prompt(project, conversation, "Build").result).resolves.toBe("completed");
+    // A change to the idle session that has begun keeps archiving out until it is done, however long it waits.
+    const switched = deferred<void>();
+    session.setModel.mockImplementation(() => switched.promise);
+    const switching = manager.setModel(project.id, conversation.summary.id, { provider: "sandbox", id: "other" } as never, () => {});
+    await Promise.resolve();
+    await expect(manager.release(project.id, conversation.summary.id, async () => {})).rejects.toThrow("Wait for the agent to finish");
+    switched.resolve();
+    await switching;
+    const compacting = manager.compact(project, conversation);
+    await Promise.resolve();
+    await expect(manager.release(project.id, conversation.summary.id, async () => {})).rejects.toThrow("Wait for the agent to finish");
+    await (await compacting).result;
+    expect(session.compact).toHaveBeenCalledOnce();
+    // Once archiving has begun, a change is refused.
+    const moving = deferred<void>();
+    const archivingAgain = manager.release(project.id, conversation.summary.id, () => moving.promise);
+    await expect(manager.compact(project, conversation)).rejects.toThrow("This conversation is being archived");
+    await expect(manager.setReasoningLevel(project.id, conversation.summary.id, "high", () => {})).rejects.toThrow("This conversation is being archived");
+    moving.resolve();
+    await archivingAgain;
     await manager.close();
   });
 
@@ -1101,6 +1351,32 @@ describe("AgentManager", () => {
 
     expect(createSession).toHaveBeenCalledOnce();
     expect(session.prompt).toHaveBeenLastCalledWith("Continue");
+    await manager.close();
+  });
+
+  it("tells of a usage limit outside a plan, and of every change after it", async () => {
+    const onLimitChange = vi.fn();
+    const limit = "You've hit your 5-hour limit · resets 2:30am (Asia/Shanghai)";
+    let failure = limit;
+    const manager = new AgentManager(new RuntimeEventBus(), { onLimitChange, createSession: async () => { throw new Error(failure); } });
+    const project = createProject();
+    const conversation = createConversation(project);
+    await expect(manager.prompt(project, conversation, "Build").result).rejects.toThrow(limit);
+    expect(onLimitChange).toHaveBeenLastCalledWith(project.id, conversation.summary.id, true);
+    expect(manager.agentState(conversation)).toEqual({ status: "error", error: limit });
+
+    // The next turn takes it back as soon as it starts, and another failure doesn't bring it back.
+    failure = "Auth unavailable";
+    onLimitChange.mockClear();
+    await expect(manager.prompt(project, conversation, "Build").result).rejects.toThrow(failure);
+    expect(onLimitChange.mock.calls.map(([, , reached]) => reached).every((reached) => !reached)).toBe(true);
+    expect(onLimitChange).toHaveBeenCalled();
+
+    // Going on outside a plan would drop its limits.
+    failure = limit;
+    onLimitChange.mockClear();
+    await expect(manager.prompt(project, conversation, "Plan it", [], [], "planning").result).rejects.toThrow(limit);
+    expect(onLimitChange.mock.calls.map(([, , reached]) => reached).every((reached) => !reached)).toBe(true);
     await manager.close();
   });
 
@@ -1958,7 +2234,7 @@ describe("AgentManager", () => {
     await mkdir(workspacePath);
     const stored = SessionManager.create(workspacePath, path.join(root, "session"));
     const attachmentContext = "\n\n<local-attachments>\n{\"instruction\":\"untrusted\",\"files\":[{\"name\":\"notes.md\",\"relativePath\":\"notes.md\",\"size\":12,\"kind\":\"text\",\"path\":\".data/agent-attachments/batch/files/notes.md\"}]}\n</local-attachments>";
-    const originalPrompt = `Original\n\n<workspace-file-references>\n[\"index.html\"]\n</workspace-file-references>${attachmentContext}`;
+    const originalPrompt = `Original\n\n<workspace-file-references>\n["index.html"]\n</workspace-file-references>${attachmentContext}`;
     stored.appendCustomEntry("ohmygame-user-prompt", {
       version: 1,
       wirePromptHash: createHash("sha256").update(originalPrompt).digest("hex"),
@@ -2003,7 +2279,7 @@ describe("AgentManager", () => {
 
     expect(session.navigateTree).toHaveBeenCalledWith(userId, { summarize: false });
     expect(session.prompt).toHaveBeenCalledWith(
-      `Revised\n\n<workspace-file-references>\n[\"index.html\"]\n</workspace-file-references>${attachmentContext}`,
+      `Revised\n\n<workspace-file-references>\n["index.html"]\n</workspace-file-references>${attachmentContext}`,
       { images: [{ type: "image", mimeType: "image/png", data: "aW1hZ2U=" }] },
     );
     expect(session.appendCustomEntry).toHaveBeenCalledWith("ohmygame-user-prompt", expect.objectContaining({
@@ -2071,7 +2347,8 @@ describe("AgentManager", () => {
     session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
     const events = new RuntimeEventBus();
     const snapshot = deferred<string>();
-    const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => snapshot.promise, changed: async () => ({ files: 1 }) } });
+    const onLimitChange = vi.fn();
+    const manager = new AgentManager(events, { onLimitChange, createSession: async () => session, checkpoints: { snapshot: () => snapshot.promise, changed: async () => ({ files: 1 }) } });
     const project = createProject();
     const conversation = createConversation(project);
 
@@ -2082,10 +2359,12 @@ describe("AgentManager", () => {
     expect(manager.isProjectBusy(project.id)).toBe(true);
     const restoreFiles = vi.fn(async (_commit: string, rewind: (previous: string) => Promise<void>) => rewind("c".repeat(40)));
     const restoring = manager.restoreCheckpoint(project, conversation, "checkpoint-1", restoreFiles);
+    onLimitChange.mockClear();
     snapshot.resolve("b".repeat(40));
 
     await restoring;
     expect(restoreFiles).toHaveBeenCalledExactlyOnceWith("a".repeat(40), expect.any(Function));
+    expect(onLimitChange).toHaveBeenCalledWith(project.id, conversation.summary.id, false);
     await turn.result;
     await manager.close();
   });
@@ -2093,7 +2372,8 @@ describe("AgentManager", () => {
   it("marks a turn as undone after its files change, including partial Undo", async () => {
     const { session, entries, userMessage } = checkpointSession();
     session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
-    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session, checkpoints: { snapshot: async () => "b".repeat(40), changed: async () => ({ files: 24 }) } });
+    const onLimitChange = vi.fn();
+    const manager = new AgentManager(new RuntimeEventBus(), { onLimitChange, createSession: async () => session, checkpoints: { snapshot: async () => "b".repeat(40), changed: async () => ({ files: 24 }) } });
     const project = createProject();
     const conversation = createConversation(project);
     await manager.prompt(project, conversation, "Build").result;
@@ -2101,7 +2381,9 @@ describe("AgentManager", () => {
 
     // With nothing but files to leave alone, nothing was undone: the turn is not marked.
     const kept = { previous, changed: [], conflicts: ["src/game.ts"] };
+    onLimitChange.mockClear();
     await expect(manager.undoCheckpoint(project, conversation, "checkpoint-1", async () => kept)).resolves.toMatchObject(kept);
+    expect(onLimitChange).toHaveBeenCalledWith(project.id, conversation.summary.id, false);
     const refusal = new Error("These files cannot be put back");
     await expect(manager.undoCheckpoint(project, conversation, "checkpoint-1", async () => { throw refusal; })).rejects.toBe(refusal);
     await expect(manager.undoCheckpoint(project, conversation, "checkpoint-9", async () => kept)).rejects.toThrow("Checkpoint not found");
@@ -2478,6 +2760,24 @@ describe("AgentManager", () => {
       expect(entries).not.toContainEqual(expect.objectContaining({ customType: TURN_END_ENTRY }));
       expect(events.since(project.id).filter((event) => event.type === "checkpoint.completed").map((event) => event.data)).toEqual([{ checkpointId: "checkpoint-1", files: 2 }]);
       expect(manager.turnEndsRecorded(project.id, conversation.summary.id)).toBe(1);
+
+      // An end that comes back while the file is being archived is not written where the file was.
+      const again = deferred<string>();
+      const later = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => again.promise, changed: async () => ({ files: 1 }) } });
+      const next = later.prompt(project, conversation, "Build more");
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+      await vi.advanceTimersToNextTimerAsync();
+      await expect(next.result).resolves.toBe("completed");
+      const moved = deferred<void>();
+      const archiving = later.release(project.id, conversation.summary.id, () => moved.promise);
+      await vi.waitFor(() => expect(session.dispose).toHaveBeenCalledTimes(2));
+      again.resolve("c".repeat(40));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(written()).toHaveLength(1);
+      expect(later.turnEndsRecorded(project.id, conversation.summary.id)).toBe(0);
+      moved.resolve();
+      await archiving;
+      await later.close();
       await manager.close();
     } finally {
       warn.mockRestore();
@@ -2733,6 +3033,9 @@ class FakeSession implements CodingSession {
   });
   sessionManager = {
     branch: vi.fn(),
+    appendModelChange: vi.fn(() => ""),
+    appendThinkingLevelChange: vi.fn(() => ""),
+    buildSessionContext: vi.fn(() => ({ messages: [], thinkingLevel: "off", model: null })),
     appendCustomEntry: this.appendCustomEntry,
     getBranch: () => this.#entries as never,
   };
@@ -2759,6 +3062,9 @@ function checkpointSession() {
   const entries: object[] = [];
   session.sessionManager = {
     branch: vi.fn(),
+    appendModelChange: vi.fn(() => ""),
+    appendThinkingLevelChange: vi.fn(() => ""),
+    buildSessionContext: vi.fn(() => ({ messages: [], thinkingLevel: "off", model: null })),
     appendCustomEntry: vi.fn((customType: string, data: unknown) => {
       entries.push(sessionEntry(`entry-${entries.length + 1}`, customType, data as object));
       return `entry-${entries.length}`;

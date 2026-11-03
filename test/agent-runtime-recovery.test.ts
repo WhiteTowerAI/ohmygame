@@ -63,8 +63,10 @@ it("keeps runtimes opt-in and persists native defaults independently of Pi", asy
     expect(store.get(id)).not.toHaveProperty("isolateUserConfig");
   expect(store.get("codex-cli").enabled).toBe(false);
   expect(store.get("codex-cli").permissionMode).toBe(":danger-full-access");
+  expect(store.get("codex-cli").autoContinue).toBe(true);
   await store.update("codex-cli", {
     enabled: true,
+    autoContinue: false,
     permissionMode: ":workspace",
   });
   // A mode of another agent is not one of Codex's.
@@ -79,6 +81,8 @@ it("keeps runtimes opt-in and persists native defaults independently of Pi", asy
   await restarted.load();
   expect(restarted.defaultModel()?.nativeReasoningLevel).toBe("custom-effort");
   expect(restarted.get("codex-cli").enabled).toBe(true);
+  expect(restarted.get("codex-cli").autoContinue).toBe(false);
+  expect(restarted.get("claude-code-cli").autoContinue).toBe(true);
   // A choice saved after the move to asking nothing is kept.
   expect(restarted.get("codex-cli").permissionMode).toBe(":workspace");
   expect(restarted.get("opencode-cli").enabled).toBe(false);
