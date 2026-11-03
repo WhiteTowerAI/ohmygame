@@ -256,13 +256,15 @@ export class ConversationManager {
   }
 
   /**
-   * The branch's account per runtime; a deleted account reads as System default.
+   * The account last chosen per runtime; a deleted account reads as System default.
+   * It belongs to the conversation and not its history, so editing a message, which
+   * leaves what came after it on another branch, keeps the choice.
    * Native resume markers carry their account, so a context of another or a
    * deleted account is never resumed and this read changes nothing.
    */
   async accountProfiles(project: ProjectState, stored: StoredConversation): Promise<AccountProfileIds> {
     const profiles: AccountProfileIds = {};
-    for (const entry of (await this.view(project, stored)).getBranch()) {
+    for (const entry of (await this.view(project, stored)).getEntries()) {
       if (entry.type !== "custom" || entry.customType !== "ohmygame-account-profile") continue;
       const data = entry.data as { version?: unknown; runtime?: unknown; profileId?: unknown } | undefined;
       if (data?.version === 1 && isAccountRuntimeId(data.runtime) && typeof data.profileId === "string")

@@ -227,6 +227,21 @@ describe("ConversationManager", () => {
     expect(await conversations.accountProfiles(project, chat)).toEqual({"claude-code-cli":"personal","codex-cli":"work"});
   });
 
+  it("keeps the chosen account when editing a message leaves that choice on another branch", async () => {
+    const project = await createProject(), conversations = new ConversationManager();
+    const chat = await conversations.create(project);
+    const session = conversations.open(project, chat);
+    session.appendMessage({ role: "user", content: "Question", timestamp: Date.now() } as never);
+    const edited = session.getLeafId()!;
+    session.appendMessage({ role: "assistant", content: [{ type: "text", text: "You've hit your limit" }], stopReason: "stop", timestamp: Date.now() } as never);
+    conversations.setAccountProfile(project, chat, "claude-code-cli", "work");
+    conversations.setAccountProfile(project, chat, "claude-code-cli", "personal");
+    session.branch(edited);
+    session.appendCustomEntry("ohmygame-user-prompt", {});
+    const reread = (await new ConversationManager().get(project, chat.summary.id))!;
+    expect(await new ConversationManager().accountProfileId(project, reread, "claude-code-cli")).toBe("personal");
+  });
+
   it("falls back from deleted accounts after restart and when restoring an old branch", async () => {
     const project = await createProject();
     let removed = false;
