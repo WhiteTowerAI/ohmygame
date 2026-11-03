@@ -59,7 +59,8 @@ describe("pixel asset workflows", () => {
     expect(classic).toContain("64×64 pixels");
     expect(classic).not.toContain("Use no more than 8 colors");
     expect(detailed).toContain("PIXEL DENSITY: DETAILED PIXELS");
-    expect(detailed).toContain("192×192 pixels");
+    expect(detailed).toContain("Default logical size per frame: 192×192 pixels");
+    expect(detailed).not.toContain("256×256");
     expect(detailed).toContain("Use no more than 48 colors");
     expect(detailed).toContain("DETAILED EFFECT PIXEL RULES");
   });

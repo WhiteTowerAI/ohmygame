@@ -77,7 +77,7 @@ const EFFECT_DETAILS: Record<PixelArtLevel, string> = {
   classic:
     "Use compact clusters for the core, outer edge, and a few motion-defining particles. Keep trails, arcs, droplets, and fragments readable without adding fine texture.",
   detailed:
-    "Use a 256×256 logical canvas for every effect frame, with premium 32-bit pixel-art illustration fidelity. Build the core, glow edge, material transitions, secondary particles, and believable three-dimensional volume from dense small square-pixel clusters. Use 6–8 discrete hard-edged tones across the effect palette, reserving the brightest one for compact specular or emissive focal highlights. Render a deliberate light hierarchy: hot or bright core, lit plane, saturated midtone body, dark occlusion rim, thin rim light, then sparse reflected fragments. Ice should show planar facets, internal refraction bands, and cold reflective glints; water should show layered translucent bands, refracted depth, and sharp surface reflections; fire and magic should show nested emissive cores with stepped radiating falloff. Retain thin but readable arcs, tendrils, droplets, sparks, shards, and smoke wisps where they clarify motion. Add selective texture clusters only where they describe material, lighting, or volume, never as random speckling.",
+    "Use a 192×192 logical canvas for every effect frame, with premium 32-bit pixel-art illustration fidelity. Build the core, glow edge, material transitions, secondary particles, and believable three-dimensional volume from dense small square-pixel clusters. Use 6–8 discrete hard-edged tones across the effect palette, reserving the brightest one for compact specular or emissive focal highlights. Render a deliberate light hierarchy: hot or bright core, lit plane, saturated midtone body, dark occlusion rim, thin rim light, then sparse reflected fragments. Ice should show planar facets, internal refraction bands, and cold reflective glints; water should show layered translucent bands, refracted depth, and sharp surface reflections; fire and magic should show nested emissive cores with stepped radiating falloff. Retain thin but readable arcs, tendrils, droplets, sparks, shards, and smoke wisps where they clarify motion. Add selective texture clusters only where they describe material, lighting, or volume, never as random speckling.",
 };
 const ASSET_DETAILS: Record<
   Exclude<PixelArtAssetType, "subject" | "effect" | "animation">,
@@ -140,9 +140,7 @@ export function withPixelArtLevel(
     typeof options?.assetType === "string"
       ? [options.assetType]
       : (options?.assetType ?? []);
-  const size = kind === "sprite" && level === "detailed" && assetTypes.includes("effect")
-    ? 256
-    : settings[kind];
+  const size = settings[kind];
   const grid = options?.grid;
   const dimensions = options?.referenceSheet
     ? `Design the entire 16:9 reference sheet on a ${size * 4}×${(size * 9) / 4} logical pixel canvas. Full-body views each fit within a ${size}×${size} logical sprite budget; the main portrait can occupy more logical area, using the same pixel scale and detail budget.`
