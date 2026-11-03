@@ -102,13 +102,11 @@ import { ProviderVideos } from "./provider-videos.js";
 import { ProviderAudio, type AudioGenerator } from "./audio-generation.js";
 import { AUDIO_SETTINGS_PROPERTIES } from "../shared/audio-schema.js";
 import { DoubaoVoiceSettingsStore } from "./doubao-voice-settings.js";
-import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
-import { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
-import { DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, type AudioOperation } from "../shared/audio.js";
-import { SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
+import type { AudioOperation } from "../shared/audio.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
-import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
+import { MediaProviderRegistry } from "./providers/registry.js";
+import { builtInMediaProviders } from "./providers/built-in.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
 import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError, type AppWideProject } from "./plugin-services.js";
@@ -744,20 +742,12 @@ export function createApp(options: AppOptions = {}) {
     nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
     isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
   });
-  const volcengineTtsProvider = new VolcengineTtsProvider(
-    () => doubaoVoiceSettings.key("volcengine-tts"),
-    options.audioFetch,
-    undefined,
-    () => providerEnabled("volcengine-tts"),
-    () => doubaoVoiceSettings.defaultVoiceId(),
-  );
-  const volcengineSeedAudioProvider = new VolcengineSeedAudioProvider(
-    () => doubaoVoiceSettings.key("volcengine-seed-audio"),
-    options.audioFetch,
-    undefined,
-    () => providerEnabled("volcengine-seed-audio"),
-  );
-  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider]);
+  /** The built-in media providers, listed once; summaries, removal and the audio adapters read from this list. */
+  const mediaProviders = new MediaProviderRegistry(builtInMediaProviders({
+    native3D: native3DProviders, seedance: seedanceSettings, minimax: minimaxSettings, doubaoVoice: doubaoVoiceSettings,
+    audioFetch: options.audioFetch, enabled: providerEnabled,
+  }), providerEnabled);
+  const providerAudio = new ProviderAudio(mediaProviders.audioAdapters());
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -2805,60 +2795,7 @@ export function createApp(options: AppOptions = {}) {
         };
       })
       .sort((left, right) => left.name.localeCompare(right.name));
-    const directProviders = [...native3DProviders.map(([id, name, settings]) => ({
-      id, name, enabled: providerEnabled(id), custom: false, configured: settings.get().configured,
-      status: settings.get().configured ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: `${name} API key` }],
-      credentialType: "api_key" as const, capabilities: ["3d"] as const,
-    })), ...SEEDANCE_PROVIDER_IDS.map((providerId) => {
-      const definition = SEEDANCE_PROVIDERS[providerId];
-      const configured = seedanceSettings.get(providerId).configured;
-      return {
-        id: definition.id,
-        name: definition.name,
-        configured,
-        enabled: providerEnabled(providerId),
-        custom: false,
-        status: configured ? "connected" as const : "not_configured" as const,
-        methods: [{ type: "api_key" as const, label: `${definition.name} API key` }],
-        credentialType: "api_key" as const,
-        capabilities: providerId === "volcengine-ark" ? ["image", "video"] as const : ["video"] as const,
-      };
-    }), ...MINIMAX_PROVIDER_IDS.map((providerId) => {
-      const definition = MINIMAX_PROVIDERS[providerId];
-      const configured = minimaxSettings.get(providerId).configured;
-      return {
-        id: definition.id,
-        name: definition.name,
-        configured,
-        enabled: providerEnabled(providerId),
-        custom: false,
-        status: configured ? "connected" as const : "not_configured" as const,
-        methods: [{ type: "api_key" as const, label: `${definition.name} API key` }],
-        credentialType: "api_key" as const,
-        capabilities: ["video"] as const,
-      };
-    }), {
-      id: "volcengine-tts",
-      name: DOUBAO_SPEECH_PROVIDER_NAME,
-      configured: Boolean(doubaoVoiceSettings.key("volcengine-tts")),
-      enabled: providerEnabled("volcengine-tts"),
-      custom: false,
-      status: doubaoVoiceSettings.key("volcengine-tts") ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: `${DOUBAO_SPEECH_PROVIDER_NAME} API key` }],
-      credentialType: "api_key" as const,
-      capabilities: ["audio"] as const,
-    }, {
-      id: "volcengine-seed-audio",
-      name: DOUBAO_SEED_AUDIO_PROVIDER_NAME,
-      configured: Boolean(doubaoVoiceSettings.key("volcengine-seed-audio")),
-      enabled: providerEnabled("volcengine-seed-audio"),
-      custom: false,
-      status: doubaoVoiceSettings.key("volcengine-seed-audio") ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: `${DOUBAO_SEED_AUDIO_PROVIDER_NAME} API key` }],
-      credentialType: "api_key" as const,
-      capabilities: ["audio"] as const,
-    }];
+    const directProviders = mediaProviders.summaries();
     // Cloud quota/catalog verification can take tens of seconds. Refresh it in
     // the background and serve the last known snapshot so opening Settings does
     // not wait on the cloud service.
@@ -2949,6 +2886,7 @@ export function createApp(options: AppOptions = {}) {
     projects,
     agents,
     modelDiscoveryFetch: options.modelDiscoveryFetch,
+    providers: mediaProviders,
     native3DProviders,
     openAIEndpoint,
     seedanceSettings,
@@ -2956,8 +2894,6 @@ export function createApp(options: AppOptions = {}) {
     doubaoVoiceSettings,
     syncOpenAIEndpoint,
     openAIImages,
-    volcengineTtsProvider,
-    volcengineSeedAudioProvider,
     providerEnabled,
     cloudModels,
     modelAuth,
