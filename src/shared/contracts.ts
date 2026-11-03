@@ -1,6 +1,6 @@
 import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
-import type { MultiplayerManifestConfig } from "./multiplayer-protocol.js";
+import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
 import type { MediaContentType } from "./media-files.js";

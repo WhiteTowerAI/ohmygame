@@ -1,0 +1,36 @@
+{
+  "name": "@ohmygame/server",
+  "version": "0.0.0",
+  "description": "Multiplayer room service for OhMyGame games.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "ohmygame-server": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "exports": {
+    ".": {
+      "ohmygame-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./adapters": {
+      "ohmygame-source": "./src/adapters.ts",
+      "types": "./dist/adapters.d.ts",
+      "default": "./dist/adapters.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@colyseus/core": "^0.18.19",
+    "@colyseus/ws-transport": "^0.18.4",
+    "@ohmygame/sdk": "workspace:*",
+    "esbuild": "0.28.2",
+    "express": "^5.2.1"
+  }
+}

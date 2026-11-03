@@ -6,7 +6,7 @@ import {
   isTurnCommand,
   isTurnCommandResult,
   normalizeDisplayName,
-} from "../src/shared/multiplayer-protocol.js";
+} from "@ohmygame/sdk/protocol";
 
 const manifest = {
   enabled: true,
@@ -38,6 +38,19 @@ describe("multiplayer protocol", () => {
     expect(
       isMultiplayerManifestConfig({ ...manifest, protocolVersion: 2 }),
     ).toBe(false);
+    const { gameId: _gameId, ...missingGameId } = manifest;
+    for (const invalid of [
+      missingGameId,
+      { ...manifest, extra: true },
+      { ...manifest, gameId: "has space" },
+      { ...manifest, maxClients: 2.5 },
+      { ...manifest, maxClients: "4" },
+      { ...manifest, reconnectSeconds: 3601 },
+      { ...manifest, authPolicy: "everyone" },
+      [manifest],
+      null,
+    ])
+      expect(isMultiplayerManifestConfig(invalid)).toBe(false);
     expect(
       isPublishedMultiplayerManifest({
         version: 1,

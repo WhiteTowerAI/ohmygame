@@ -1,4 +1,3 @@
-import { Check } from "typebox/value";
 
 export type MultiplayerMode = "turn-based" | "realtime";
 export type MultiplayerAuthPolicy =
@@ -90,15 +89,42 @@ export const MULTIPLAYER_MANIFEST_SCHEMA = {
   },
 } as const;
 
+/** The keywords the manifest schema uses; the browser SDK carries no schema library. */
+interface ManifestFieldRule {
+  readonly const?: unknown;
+  readonly enum?: readonly unknown[];
+  readonly type?: "string" | "integer";
+  readonly pattern?: string;
+  readonly minimum?: number;
+  readonly maximum?: number;
+}
+
+function matchesManifestSchema(
+  schema: { readonly required: readonly string[]; readonly properties: Readonly<Record<string, ManifestFieldRule>> },
+  value: unknown,
+): boolean {
+  if (!isRecord(value)) return false;
+  if (!schema.required.every((key) => Object.hasOwn(value, key))) return false;
+  return Object.entries(value).every(([key, field]) => {
+    if (!Object.hasOwn(schema.properties, key)) return false;
+    const rule = schema.properties[key]!;
+    if ("const" in rule) return field === rule.const;
+    if (rule.enum) return rule.enum.includes(field);
+    if (rule.type === "string")
+      return typeof field === "string" && (!rule.pattern || new RegExp(rule.pattern).test(field));
+    return Number.isInteger(field) && (field as number) >= (rule.minimum ?? -Infinity) && (field as number) <= (rule.maximum ?? Infinity);
+  });
+}
+
 export function isMultiplayerManifestConfig(
   value: unknown,
   options: { allowLocalhost?: boolean } = {},
 ): value is MultiplayerManifestConfig {
   const schema = options.allowLocalhost ? {
     ...MULTIPLAYER_MANIFEST_SCHEMA,
-    properties: { ...MULTIPLAYER_MANIFEST_SCHEMA.properties, serverUrl: { type: "string" } },
+    properties: { ...MULTIPLAYER_MANIFEST_SCHEMA.properties, serverUrl: { type: "string" as const } },
   } : MULTIPLAYER_MANIFEST_SCHEMA;
-  if (!Check(schema, value)) return false;
+  if (!matchesManifestSchema(schema, value)) return false;
   // A round in progress has no seat to give a turn-based latecomer.
   if ((value as MultiplayerManifestConfig).roomPolicy === "drop-in" && (value as MultiplayerManifestConfig).mode !== "realtime") return false;
   try {
@@ -168,6 +194,8 @@ export interface MultiplayerGameState {
   ownerId: string;
   currentPlayerId: string;
   winnerPlayerId: string;
+  /** Every winner, when a team or several players win together; empty for a draw. */
+  winnerPlayerIds?: string[];
   remaining: number;
   turnDeadline: number;
   players: MultiplayerPlayer[];

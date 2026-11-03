@@ -73,7 +73,7 @@ describe("desktop runtime packaging", () => {
     }
   });
 
-  it.each(["dist/story-web/resources.json", "dist/multiplayer-sdk/resources.json", "dist/multiplayer-server/service.js"])("includes runtime resource %s and the template licenses in the application", async (relative) => {
+  it.each(["dist/story-web/resources.json", "dist/multiplayer-sdk/resources.json"])("includes runtime resource %s and the template licenses in the application", async (relative) => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-story-packaging-"));
     try {
       const config = parse(await readFile("electron-builder.yml", "utf8")) as Configuration;

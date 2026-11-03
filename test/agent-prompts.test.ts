@@ -31,6 +31,7 @@ describe("OhMyGame system prompt", () => {
     expect(text).toContain("Colyseus + WebSocket");
     expect(text).toContain("multiplayer_setup");
     expect(text).toContain("Do not silently substitute PeerJS");
+    expect(text).toContain("server/rules.ts with defineGame");
     expect(text).toContain("needs no cloud deployment");
     expect(text).toContain("the workspace root");
     expect(text).toContain('a "dev" script and a "build" script');

@@ -7,7 +7,7 @@ import {
   type MultiplayerMode,
   type RealtimeInput,
   type TurnCommand,
-} from "../shared/multiplayer-protocol.js";
+} from "@ohmygame/sdk/protocol";
 
 export const TURN_SECONDS = 60;
 export const TICK_MS = REALTIME_TICK_MS;

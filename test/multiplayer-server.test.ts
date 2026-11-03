@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createServer, type AddressInfo } from "node:net";
 import path from "node:path";
 import { Client, Room } from "@colyseus/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createMultiplayerServer } from "../src/multiplayer-server/service.js";
-import { createBuiltInAdapter, resolveGameAdapter, type GameAdapter } from "../src/multiplayer-server/adapters.js";
+import { compileGame, createMultiplayerServer, defineGame, startDevServer } from "@ohmygame/server";
+import { createBuiltInAdapter, gomokuRules, resolveGameAdapter, type GameAdapter } from "@ohmygame/server/adapters";
 import { MultiplayerClient } from "../src/renderer/multiplayer-client.js";
-import { isGomokuState } from "../src/shared/gomoku.js";
+import { isGomokuState } from "@ohmygame/sdk/games/gomoku";
 import { LocalMultiplayerRuntime } from "../src/daemon/local-multiplayer.js";
 import {
   multiplayerRoomType,
@@ -15,7 +16,7 @@ import {
   type MultiplayerSnapshot,
   type TurnCommand,
   type TurnCommandResult,
-} from "../src/shared/multiplayer-protocol.js";
+} from "@ohmygame/sdk/protocol";
 
 const config: MultiplayerManifestConfig = {
   enabled: true,
@@ -386,6 +387,149 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     return deployment;
   }
 
+  it("runs rules written with defineGame: hidden hands, the service's shuffle, typed moves and a team win", async () => {
+    const hiddenHands = defineGame({
+      players: { min: 3, max: 3 },
+      setup(ctx) {
+        const deck = ctx.shuffle([1, 2, 3, 4, 5, 6]);
+        return {
+          hands: Object.fromEntries(ctx.players.map((id, seat) => [id, deck.slice(seat * 2, seat * 2 + 2)])) as Record<string, number[] | number>,
+          played: [] as { playerId: string; card: number }[],
+          team: [ctx.players[1]!, ctx.players[2]!],
+        };
+      },
+      moves: {
+        play(G, ctx, { card }: { card: number }) {
+          const hand = G.hands[ctx.playerId] as number[];
+          if (!hand.includes(card)) throw new Error("That card is not in your hand.");
+          hand.splice(hand.indexOf(card), 1);
+          G.played.push({ playerId: ctx.playerId, card });
+        },
+      },
+      endIf: (G) => (G.played.length === 3 ? { winners: G.team } : undefined),
+      // Each player sees their own cards and only how many the others hold.
+      playerView: (G, _ctx, playerId) => ({
+        ...G,
+        hands: Object.fromEntries(Object.entries(G.hands).map(([id, hand]) => [id, id === playerId ? hand : (hand as number[]).length])),
+      }),
+    });
+    const deployment = await customService("hidden", compileGame(hiddenHands), { maxClients: 3 });
+    const results = new Map<string, TurnCommandResult>();
+    const seats = Array.from({ length: 3 }, () => {
+      const wrapper = new MultiplayerClient<typeof hiddenHands>(
+        { manifest: deployment, storage: memoryStorage(), identityStorage: memoryStorage(), transport: new Client(endpoint) },
+        { onCommandResult: (result) => results.set(result.commandId, result) },
+      );
+      wrappers.push(wrapper);
+      return wrapper;
+    });
+    const [owner, left, right] = seats as [typeof seats[0], typeof seats[0], typeof seats[0]];
+    const result = (commandId: string) => vi.waitFor(() => results.get(commandId) ?? Promise.reject(new Error("pending")), { timeout: 5000, interval: 10 });
+    await owner.createRoom();
+    await wait(() => expect(owner.roomCode).toMatch(/^[A-F0-9]{16}$/));
+    await left.joinRoom({ roomCode: owner.roomCode });
+    await right.joinRoom({ roomCode: owner.roomCode });
+    await wait(() => expect(owner.snapshot?.state.players).toHaveLength(3));
+    expect((await result(owner.sendCommand("start"))).accepted).toBe(true);
+    await wait(() => expect(seats.every((seat) => seat.snapshot?.state.phase === "playing")).toBe(true));
+
+    type Game = ReturnType<typeof hiddenHands.setup>;
+    const view = (seat: MultiplayerClient<typeof hiddenHands>) => seat.snapshot!.state.game as unknown as Game;
+    const own = seats.map((seat) => view(seat).hands[seat.playerId!] as number[]);
+    expect(own.flat().sort()).toEqual([1, 2, 3, 4, 5, 6]);
+    for (const seat of seats)
+      for (const other of seats.filter((candidate) => candidate !== seat))
+        expect(view(seat).hands[other.playerId!]).toBe(2);
+
+    // Wrong turn, a card the player lacks and a move the rules do not have are rejected.
+    expect((await result(left.moves.play({ card: own[1]![0]! }))).error?.code).toBe("not_your_turn");
+    const missing = [1, 2, 3, 4, 5, 6].find((card) => !own[0]!.includes(card))!;
+    expect((await result(owner.moves.play({ card: missing }))).error?.message).toBe("That card is not in your hand.");
+    expect((await result(owner.sendCommand("action", { action: "cheat" }))).error?.message).toBe("This game has no such move.");
+    if (Math.random() > 1) {
+      // @ts-expect-error play takes a card number.
+      owner.moves.play({ card: "ace" });
+      // @ts-expect-error the rules have no such move.
+      owner.moves.cheat();
+      const board = null as unknown as MultiplayerClient<typeof gomokuRules>;
+      board.moves.reset();
+      board.moves.move({ point: { r: 7, c: 7 } });
+      // @ts-expect-error a move needs its point.
+      board.moves.move();
+    }
+
+    for (const [index, seat] of seats.entries()) {
+      await wait(() => expect(seat.snapshot?.state.currentPlayerId).toBe(seat.playerId));
+      expect((await result(seat.moves.play({ card: own[index]![0]! }))).accepted).toBe(true);
+    }
+    await wait(() => expect(owner.snapshot?.state.phase).toBe("finished"));
+    expect(owner.snapshot!.state.winnerPlayerIds).toEqual([left.playerId, right.playerId]);
+    expect(owner.snapshot!.state.winnerPlayerId).toBe("");
+    expect((await result(owner.moves.play({ card: own[0]![1]! }))).error?.message).toBe("The match has ended.");
+  });
+
+  it("serves a game's own server/rules.ts locally and reloads it when the rules change", async () => {
+    await service.stop();
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-rules-workspace-"));
+    const holder = createServer();
+    await new Promise<void>((resolve) => holder.listen(0, "127.0.0.1", resolve));
+    const port = (holder.address() as AddressInfo).port;
+    await new Promise((resolve) => holder.close(resolve));
+    const deployment: MultiplayerManifestConfig = { ...config, gameId: "counter", adapterId: "counter", maxClients: 2, serverUrl: `http://127.0.0.1:${port}` };
+    await mkdir(path.join(workspace, "server"));
+    await mkdir(path.join(workspace, "src"));
+    await writeFile(path.join(workspace, "multiplayer.json"), JSON.stringify({ multiplayer: deployment }));
+    // Rules may import the game's own code, and need no OhMyGame package installed.
+    await writeFile(path.join(workspace, "src", "start.ts"), "export const START: number = 1;\n");
+    const rules = (start: string) => `import { defineGame } from "@ohmygame/server";
+import { START } from "../src/start.ts";
+export default defineGame({
+  players: { min: 1, max: 2 },
+  setup: () => ({ count: ${start} }),
+  moves: { add(G: { count: number }, _ctx, { by }: { by: number }) { G.count += by; } },
+});
+`;
+    await writeFile(path.join(workspace, "server", "rules.ts"), rules("START"));
+    const logs: string[] = [];
+    const dev = await startDevServer({ workspace, log: (message) => logs.push(message) });
+    const play = async () => {
+      const client = new MultiplayerClient({ manifest: deployment, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+      wrappers.push(client);
+      await client.createRoom();
+      await wait(() => expect(client.snapshot?.state.phase).toBe("lobby"));
+      client.sendCommand("start");
+      await wait(() => expect(client.snapshot?.state.phase).toBe("playing"));
+      return client;
+    };
+    try {
+      const first = await play();
+      expect(first.snapshot!.state.game).toEqual({ count: 1 });
+      first.moves.add({ by: 2 });
+      await wait(() => expect(first.snapshot!.state.game).toEqual({ count: 3 }));
+      first.dispose();
+
+      await writeFile(path.join(workspace, "server", "rules.ts"), rules("100"));
+      await wait(() => expect(logs.some((line) => line.startsWith("Rules reloaded"))).toBe(true));
+      expect((await play()).snapshot!.state.game).toEqual({ count: 100 });
+
+      await writeFile(path.join(workspace, "server", "rules.ts"), "export default {");
+      await wait(() => expect(logs.some((line) => line.startsWith("The rules did not load"))).toBe(true));
+      expect((await fetch(`${deployment.serverUrl}/healthz`)).ok).toBe(true);
+    } finally {
+      await dev.stop();
+    }
+
+    // A rules file needs its own adapter ID, and a custom ID needs a rules file.
+    await writeFile(path.join(workspace, "server", "rules.ts"), rules("1"));
+    await writeFile(path.join(workspace, "multiplayer.json"), JSON.stringify({ multiplayer: { ...deployment, adapterId: "gomoku" } }));
+    await expect(startDevServer({ workspace, watch: false })).rejects.toThrow("built-in rule set");
+    await rm(path.join(workspace, "server"), { recursive: true });
+    await writeFile(path.join(workspace, "multiplayer.json"), JSON.stringify({ multiplayer: deployment }));
+    await expect(startDevServer({ workspace, watch: false })).rejects.toThrow("Write server/rules.ts");
+    await rm(workspace, { recursive: true, force: true });
+    await start();
+  });
+
   it("starts a match only once the rules' minimum players are connected", async () => {
     const trio = await customService("trio", { ...createBuiltInAdapter("stones"), players: { min: 3, max: 3 } }, { maxClients: 3 });
     const owner = await peer(await transport(), trio);
@@ -544,7 +688,7 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     await player(deployment).quickPlay();
     await player(deployment).quickPlay();
     const started = Date.now();
-    await expect(player(deployment, { roomLimitRetryMs: [100, 100] }).quickPlay()).rejects.toThrow("room limit");
+    await expect(player(deployment, { roomLimitRetryMs: [100, 100] }).quickPlay()).rejects.toMatchObject({ code: "room_limit", message: expect.stringContaining("room limit") });
     expect(Date.now() - started).toBeGreaterThanOrEqual(200);
   });
 
@@ -765,6 +909,97 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     } finally {
       for (const client of clients) client.dispose();
       await runtime.close();
+    }
+  });
+
+  it("keeps a fixed local address and restores a game's deployment after a restart", async () => {
+    await service.stop();
+    const holder = createServer();
+    await new Promise<void>((resolve) => holder.listen(0, "127.0.0.1", resolve));
+    const busyPort = (holder.address() as AddressInfo).port;
+    const clients: MultiplayerClient[] = [];
+    try {
+      const before = new LocalMultiplayerRuntime(0);
+      const written = await before.configure("local-restore", "arena", { dropIn: true });
+      await before.close();
+
+      // The preferred port is taken, as by a second OhMyGame, so the service listens elsewhere.
+      const runtime = new LocalMultiplayerRuntime(busyPort);
+      try {
+        const restored = await runtime.restore("local-restore", written);
+        expect(restored).toEqual({ ...written, serverUrl: expect.not.stringContaining(`:${busyPort}`) });
+        const response = await fetch(new URL(`/v1/games/local-restore/deployments/${written.deploymentId}`, restored!.serverUrl));
+        expect(await response.json()).toEqual(restored);
+        const player = new MultiplayerClient({ manifest: restored!, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+        clients.push(player);
+        await player.quickPlay();
+        await wait(() => expect(player.snapshot?.state.players).toHaveLength(1));
+        // Another game's deployment, an edited one, or one this runtime did not write stays unregistered.
+        expect(await runtime.restore("other-game", written)).toBeUndefined();
+        expect(await runtime.restore("local-restore", { ...written, reconnectSeconds: 60 })).toBeUndefined();
+        expect(await runtime.restore("local-restore", { ...written, deploymentId: "public-v1" })).toBeUndefined();
+      } finally {
+        for (const client of clients) client.dispose();
+        await runtime.close();
+      }
+    } finally {
+      holder.close();
+    }
+  });
+
+  it("loads a game's own rules for local playtests and reloads them on restore", async () => {
+    await service.stop();
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-custom-rules-"));
+    const rulesFile = path.join(workspace, "server", "rules.ts");
+    const rules = (start: number, players = "{ min: 2, max: 3 }") => `import { defineGame } from "../src/ohmygame/define-game.js";
+export default defineGame({
+  players: ${players},
+  setup: (ctx) => ({ count: ${start}, seats: ctx.players.length }),
+  moves: { add(G: { count: number }, _ctx, { by }: { by: number }) { G.count += by; } },
+});
+`;
+    await mkdir(path.dirname(rulesFile));
+    const runtime = new LocalMultiplayerRuntime(0);
+    const clients: MultiplayerClient[] = [];
+    const play = async (manifest: MultiplayerManifestConfig) => {
+      const [owner, guest] = [0, 1].map(() => {
+        const client = new MultiplayerClient({ manifest, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+        clients.push(client);
+        return client;
+      }) as [MultiplayerClient, MultiplayerClient];
+      await owner.createRoom();
+      await wait(() => expect(owner.roomCode).toMatch(/^[A-F0-9]{16}$/));
+      await guest.joinRoom({ roomCode: owner.roomCode });
+      await wait(() => expect(owner.snapshot?.state.players).toHaveLength(2));
+      owner.sendCommand("start");
+      await wait(() => expect(guest.snapshot?.state.phase).toBe("playing"));
+      return [owner, guest] as const;
+    };
+    try {
+      await expect(runtime.configure("cards", "custom")).rejects.toThrow("Write server/rules.ts first");
+      // The rules may be written before setup copies the SDK into the game.
+      await writeFile(rulesFile, rules(1));
+      const config = await runtime.configure("cards", "custom", {}, rulesFile);
+      expect(config).toMatchObject({ mode: "turn-based", adapterId: "custom", maxClients: 3, deploymentId: "local-custom-3p-v1" });
+      await expect(runtime.configure("cards", "custom", { maxClients: 4 }, rulesFile)).rejects.toThrow("2 to 3 players");
+      const [owner, guest] = await play(config);
+      expect(guest.snapshot!.state.game).toEqual({ count: 1, seats: 2 });
+      owner.moves.add({ by: 4 });
+      await wait(() => expect(guest.snapshot!.state.game).toEqual({ count: 5, seats: 2 }));
+
+      // Edited rules reach rooms opened after the next restore; the open room keeps its rules.
+      await writeFile(rulesFile, rules(50));
+      expect(await runtime.restore("cards", config, rulesFile)).toEqual(config);
+      const [next] = await play(config);
+      expect(next.snapshot!.state.game).toEqual({ count: 50, seats: 2 });
+      await writeFile(rulesFile, "export default {");
+      await expect(runtime.restore("cards", config, rulesFile)).rejects.toThrow();
+      await writeFile(rulesFile, rules(1, "{ min: 9, max: 10 }"));
+      await expect(runtime.configure("cards", "custom", {}, rulesFile)).rejects.toThrow("need 9 to 10 players; local rooms hold 2 to 8");
+    } finally {
+      for (const client of clients) client.dispose();
+      await runtime.close();
+      await rm(workspace, { recursive: true, force: true });
     }
   });
 

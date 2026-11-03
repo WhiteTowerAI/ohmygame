@@ -16,7 +16,7 @@ import {
   type RealtimeInput,
   type TurnCommand,
   type TurnCommandResult,
-} from "../shared/multiplayer-protocol.js";
+} from "@ohmygame/sdk/protocol";
 import type { MultiplayerIdentity } from "./auth.js";
 import { nextTurn, TICK_MS } from "./game.js";
 import { describePlayerRange, type GameAdapter } from "./adapters.js";

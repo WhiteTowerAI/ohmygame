@@ -18,20 +18,26 @@ import {
   type TurnCommand,
   type TurnCommandResult,
 } from "./multiplayer-protocol.js";
+import { isOhMyGameError, OhMyGameError, type OhMyGameErrorCode } from "./errors.js";
+import { browserStorage, GuestIdentity, serviceRequest, type IdentityProvider } from "./identity.js";
+import type { ClientMoves } from "./define-game.js";
 
 export type MultiplayerConnectionStatus =
   "idle" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
 export interface MultiplayerClientOptions {
   manifest: MultiplayerManifestConfig;
-  /** Uses the same Supabase session as the editor, refreshed before each join. */
-  accessToken?: () => Promise<string | undefined>;
+  /**
+   * The signed-in player, asked again before each join. Without a token the client joins
+   * as a guest when the deployment allows guests.
+   */
+  identity?: IdentityProvider;
   /**
    * Both default to localStorage: one browser is one player, in every tab and after it
    * closes, and can come back to its seat. Tests inject separate storage per player.
    */
   storage?: Storage;
   identityStorage?: Storage;
-  /** Dependency injection for local integration tests. */
+  /** @internal Dependency injection for local integration tests; not in the published types. */
   transport?: ColyseusClient;
   /** Opt in only for loopback development, never for a published deployment. */
   allowLocalhost?: boolean;
@@ -50,7 +56,7 @@ export interface MultiplayerClientCallbacks {
   onReady?: (playerId: string, inviteCode?: string) => void;
   onCommandResult?: (result: TurnCommandResult) => void;
   onSnapshot?: (snapshot: MultiplayerSnapshot) => void;
-  onError?: (error: Error) => void;
+  onError?: (error: OhMyGameError) => void;
 }
 interface SavedRoom {
   roomId: string;
@@ -60,11 +66,24 @@ interface SavedRoom {
   pending: TurnCommand[];
 }
 
-/** Colyseus owns transient reconnects; this wrapper adds refresh and restart recovery. */
-export class MultiplayerClient {
+/**
+ * Colyseus owns transient reconnects; this wrapper adds refresh and restart recovery.
+ * Game is the type of the rules from defineGame, which types client.moves.
+ */
+export class MultiplayerClient<Game = unknown> {
+  /**
+   * Sends one move of the game's rules, for example client.moves.play({ cards }).
+   * Returns the command ID that onCommandResult reports. The key "action" is reserved.
+   */
+  readonly moves: ClientMoves<Game> = new Proxy({} as ClientMoves<Game>, {
+    get: (_target, name) =>
+      typeof name === "string"
+        ? (args?: Record<string, unknown>) => this.sendCommand("action", { ...args, action: name })
+        : undefined,
+  });
   private readonly client: ColyseusClient;
   private readonly storage?: Storage;
-  private readonly identityStorage?: Storage;
+  private readonly guest: GuestIdentity;
   private readonly storageKey: string;
   private room?: Room;
   private saved?: SavedRoom;
@@ -91,7 +110,8 @@ export class MultiplayerClient {
         allowLocalhost: options.allowLocalhost,
       })
     )
-      throw new Error(
+      throw new OhMyGameError(
+        "not_configured",
         "The multiplayer service is not configured. Supply a valid Colyseus deployment manifest.",
       );
     if (
@@ -99,12 +119,15 @@ export class MultiplayerClient {
       (!Number.isFinite(options.connectionTimeoutMs) ||
         options.connectionTimeoutMs <= 0)
     )
-      throw new Error("connectionTimeoutMs must be positive.");
+      throw new OhMyGameError("invalid_option", "connectionTimeoutMs must be positive.");
     this.client =
       options.transport ?? new ColyseusClient(options.manifest.serverUrl);
-    this.storage = options.storage ?? browserStorage("localStorage");
-    this.identityStorage =
-      options.identityStorage ?? browserStorage("localStorage");
+    this.storage = options.storage ?? browserStorage();
+    this.guest = new GuestIdentity({
+      serverUrl: options.manifest.serverUrl,
+      storage: options.identityStorage,
+      endpoint: this.endpoint(),
+    });
     this.storageKey = `ohmygame:multiplayer:${options.manifest.serverUrl}:${options.manifest.gameId}:${options.manifest.deploymentId}`;
     try {
       const value: unknown = JSON.parse(
@@ -161,7 +184,7 @@ export class MultiplayerClient {
    */
   async quickPlay(options: { displayName?: string } = {}): Promise<void> {
     if (this.options.manifest.roomPolicy !== "drop-in")
-      throw new Error("Quick play needs a drop-in deployment. Create or join a room instead.");
+      throw new OhMyGameError("unsupported", "Quick play needs a drop-in deployment. Create or join a room instead.");
     this.displayName = options.displayName;
     await this.connect(async () => {
       const join = this.joinOptions(options);
@@ -169,11 +192,14 @@ export class MultiplayerClient {
         try {
           return await this.client.joinOrCreate(multiplayerRoomType(this.options.manifest), join);
         } catch (cause) {
-          if (delay === undefined || !isRecord(cause) || cause.code !== MULTIPLAYER_ROOM_LIMIT_CODE) throw cause;
+          const full = isRecord(cause) && cause.code === MULTIPLAYER_ROOM_LIMIT_CODE;
+          if (full && delay === undefined)
+            throw new OhMyGameError("room_limit", cause instanceof Error ? cause.message : "The multiplayer service is full.", { cause });
+          if (!full) throw cause;
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
-      throw new Error("Quick play could not find a room.");
+      throw new OhMyGameError("room_limit", "Quick play could not find a room.");
     });
   }
   async joinRoom(
@@ -223,9 +249,9 @@ export class MultiplayerClient {
       !this.current ||
       !this.saved
     )
-      throw new Error("The multiplayer room is not connected.");
+      throw new OhMyGameError("not_connected", "The multiplayer room is not connected.");
     if (this.saved.pending.length >= 32)
-      throw new Error("Wait for pending commands to finish.");
+      throw new OhMyGameError("busy", "Wait for pending commands to finish.");
     const value: TurnCommand = {
       commandId: crypto.randomUUID(),
       expectedSequence: this.current.sequence,
@@ -329,7 +355,7 @@ export class MultiplayerClient {
       `/v1/games/${encodeURIComponent(gameId)}/rooms?deploymentId=${encodeURIComponent(deploymentId)}`,
     );
     const value: unknown = await response.json();
-    if (!Array.isArray(value)) throw new Error("Invalid public room list.");
+    if (!Array.isArray(value)) throw new OhMyGameError("invalid_response", "Invalid public room list.");
     return value.filter(
       (room): room is PublicMultiplayerRoom =>
         isRecord(room) &&
@@ -376,7 +402,7 @@ export class MultiplayerClient {
     restoring = false,
   ): Promise<void> {
     if (this.busy || this.room || this.disposed)
-      throw new Error("A room connection is already active.");
+      throw new OhMyGameError("busy", "A room connection is already active.");
     this.busy = true;
     const generation = ++this.generation;
     this.setStatus(restoring ? "reconnecting" : "connecting");
@@ -385,13 +411,13 @@ export class MultiplayerClient {
       const opening = (async () => {
         const token = await this.token();
         if (generation !== this.generation)
-          throw new Error("Room connection cancelled.");
+          throw new OhMyGameError("cancelled", "Room connection cancelled.");
         this.client.auth.token = token;
         const room = await open();
         if (generation !== this.generation) {
           room.reconnection.enabled = false;
           await room.leave(true);
-          throw new Error("Room connection cancelled.");
+          throw new OhMyGameError("cancelled", "Room connection cancelled.");
         }
         return room;
       })();
@@ -401,7 +427,8 @@ export class MultiplayerClient {
           timer = setTimeout(
             () =>
               reject(
-                new Error(
+                new OhMyGameError(
+                  "timeout",
                   "The multiplayer connection timed out. Check that the Colyseus service is running and try again.",
                 ),
               ),
@@ -427,12 +454,13 @@ export class MultiplayerClient {
       room.send("sync");
       this.scheduleMerge();
     } catch (cause) {
+      const error = toOhMyGameError(cause, "request_failed");
       if (generation === this.generation) {
         this.generation++;
-        this.error(cause);
+        this.error(error);
         this.setStatus("error");
       }
-      throw cause;
+      throw error;
     } finally {
       clearTimeout(timer);
       this.busy = false;
@@ -472,7 +500,7 @@ export class MultiplayerClient {
     });
     room.onMessage("input.error", (value: unknown) => {
       if (isRecord(value) && typeof value.message === "string")
-        this.error(new Error(value.message));
+        this.error(new OhMyGameError("request_failed", value.message));
     });
     room.onDrop(() => {
       this.stopInput();
@@ -494,7 +522,7 @@ export class MultiplayerClient {
     });
     room.onError((_code, message) =>
       this.error(
-        new Error(message ?? "The multiplayer room reported an error."),
+        new OhMyGameError("request_failed", message ?? "The multiplayer room reported an error."),
       ),
     );
     room.onLeave((code, reason) => {
@@ -508,9 +536,9 @@ export class MultiplayerClient {
         this.persist();
       }
       this.setStatus("closed");
-      if (reason) this.error(new Error(reason));
+      if (reason) this.error(new OhMyGameError("connection_closed", reason));
       else if (code === 4002)
-        this.error(new Error("The multiplayer service closed the connection. Join again to keep playing."));
+        this.error(new OhMyGameError("connection_closed", "The multiplayer service closed the connection. Join again to keep playing."));
     });
   }
   private receiveSnapshot(value: unknown): void {
@@ -541,39 +569,11 @@ export class MultiplayerClient {
   private async token(): Promise<string> {
     const policy = this.options.manifest.authPolicy;
     const account =
-      policy === "anonymous" ? undefined : await this.options.accessToken?.();
+      policy === "anonymous" ? undefined : await this.options.identity?.getToken();
     if (account) return account;
     if (policy === "account-required")
-      throw new Error("Sign in with your OhMyGame account before joining.");
-    const key = `ohmygame:multiplayer:guest:${this.options.manifest.serverUrl}`;
-    try {
-      const value: unknown = JSON.parse(
-        this.identityStorage?.getItem(key) ?? "null",
-      );
-      if (
-        isRecord(value) &&
-        typeof value.token === "string" &&
-        typeof value.expiresAt === "number" &&
-        value.expiresAt > Date.now() + 60_000
-      )
-        return value.token;
-    } catch {
-      /* Request a fresh guest identity. */
-    }
-    const response = await this.request("/v1/guests", { method: "POST" });
-    const value: unknown = await response.json();
-    if (
-      !isRecord(value) ||
-      typeof value.token !== "string" ||
-      typeof value.expiresAt !== "number"
-    )
-      throw new Error("Invalid guest session.");
-    try {
-      this.identityStorage?.setItem(key, JSON.stringify(value));
-    } catch {
-      /* Guests can play without storage. */
-    }
-    return value.token;
+      throw new OhMyGameError("sign_in_required", "Sign in with your OhMyGame account before joining.");
+    return this.guest.getToken();
   }
   private async resolveRoom(roomCode: string): Promise<string> {
     const response = await this.request("/v1/rooms/resolve", {
@@ -589,28 +589,16 @@ export class MultiplayerClient {
     });
     const value: unknown = await response.json();
     if (!isRecord(value) || typeof value.roomId !== "string")
-      throw new Error("Invalid room invitation.");
+      throw new OhMyGameError("invalid_response", "Invalid room invitation.");
     return value.roomId;
   }
-  private async request(
-    path: string,
-    options?: RequestInit,
-  ): Promise<Response> {
+  private request(path: string, options?: RequestInit): Promise<Response> {
+    return serviceRequest(this.endpoint(), path, options);
+  }
+  // HTTP calls go where the room connection goes, so they reach the same service.
+  private endpoint(): string {
     const { secure, hostname, port } = this.client.settings;
-    const endpoint = `${secure ? "https" : "http"}://${hostname}${port ? `:${port}` : ""}`;
-    const response = await fetch(new URL(path, endpoint), {
-      ...options,
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) {
-      const value: unknown = await response.json().catch(() => undefined);
-      throw new Error(
-        isRecord(value) && typeof value.error === "string"
-          ? value.error.slice(0, 300)
-          : `The multiplayer request failed (${response.status}).`,
-      );
-    }
-    return response;
+    return `${secure ? "https" : "http"}://${hostname}${port ? `:${port}` : ""}`;
   }
   private persist(): void {
     try {
@@ -627,17 +615,13 @@ export class MultiplayerClient {
       this.callbacks.onStatus?.(status);
     }
   }
-  private error(cause: unknown): void {
-    if (!this.disposed)
-      this.callbacks.onError?.(
-        cause instanceof Error ? cause : new Error(String(cause)),
-      );
+  private error(error: OhMyGameError): void {
+    if (!this.disposed) this.callbacks.onError?.(error);
   }
 }
-function browserStorage(key: "localStorage"): Storage | undefined {
-  try {
-    return typeof window === "undefined" ? undefined : window[key];
-  } catch {
-    return undefined;
-  }
+
+/** Errors from Colyseus or the browser keep their message under a stable code. */
+function toOhMyGameError(cause: unknown, code: OhMyGameErrorCode): OhMyGameError {
+  if (isOhMyGameError(cause)) return cause;
+  return new OhMyGameError(code, cause instanceof Error ? cause.message : String(cause), { cause });
 }

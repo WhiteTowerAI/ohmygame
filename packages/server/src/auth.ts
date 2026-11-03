@@ -1,5 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import type { MultiplayerAuthPolicy } from "../shared/multiplayer-protocol.js";
+import type { MultiplayerAuthPolicy } from "@ohmygame/sdk/protocol";
 
 export interface MultiplayerIdentity {
   userId: string;

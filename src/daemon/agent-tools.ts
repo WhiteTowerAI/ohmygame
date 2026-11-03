@@ -22,7 +22,7 @@ import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, audioExtension, audi
 import { inspectPluginDraft } from "./plugin-draft.js";
 import { installMultiplayerWorkspace } from "./multiplayer-workspace.js";
 import { LOCAL_MULTIPLAYER_MAX_CLIENTS, LOCAL_MULTIPLAYER_MIN_CLIENTS, type LocalGameAdapterId, type LocalMultiplayerOptions } from "./local-multiplayer.js";
-import type { MultiplayerManifestConfig } from "../shared/multiplayer-protocol.js";
+import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -141,10 +141,10 @@ export function createAgentTools(
   return [...(configureMultiplayer && (project.type === "web-game" || project.type === "general") ? [defineTool({
     name: "multiplayer_setup",
     label: "Set up multiplayer",
-    description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this Web Game. Choose the matching server rules; unsupported game rules need a server adapter, never a PeerJS/WebRTC fallback. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game.",
+    description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this Web Game. Choose the matching built-in server rules, or custom for turn-based rules the game defines itself in server/rules.ts; never fall back to PeerJS/WebRTC or browser-authoritative state. Realtime games other than racing and free movement are not supported yet. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game; a game with custom rules needs its own deployed server to be played publicly.",
     parameters: Type.Object({
-      adapterId: Type.Union([Type.Literal("gomoku"), Type.Literal("stones"), Type.Literal("arena"), Type.Literal("roam")], {
-        description: "gomoku: two-player board game. stones: turn-based take-away race. arena: realtime race to the centre, rounds end and restart. roam: realtime free movement with no goal or end, for shared towns, lobbies and exploration.",
+      adapterId: Type.Union([Type.Literal("gomoku"), Type.Literal("stones"), Type.Literal("arena"), Type.Literal("roam"), Type.Literal("custom")], {
+        description: "gomoku: two-player board game. stones: turn-based take-away race. arena: realtime race to the centre, rounds end and restart. roam: realtime free movement with no goal or end, for shared towns, lobbies and exploration. custom: this game's own turn-based rules, for any other turn-based game such as cards, chess or a board game with hidden information. Write server/rules.ts first, as described in src/ohmygame/README.md, then call this tool; call it again after changing the rules to check that they load.",
       }),
       maxClients: Type.Optional(Type.Integer({
         minimum: LOCAL_MULTIPLAYER_MIN_CLIENTS,

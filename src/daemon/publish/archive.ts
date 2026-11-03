@@ -13,7 +13,7 @@ import { ensureProjectDependencies } from "../project-dependencies.js";
 import { projectProcessEnvironment } from "../project-process.js";
 import { resolveStartupDirectory } from "../projects.js";
 import { buildPlayableProject } from "../playable-project.js";
-import { isMultiplayerManifestConfig, isRecord, sameMultiplayerConfig, type MultiplayerManifestConfig } from "../../shared/multiplayer-protocol.js";
+import { isMultiplayerManifestConfig, isRecord, sameMultiplayerConfig, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 import { isWebStory, publishableWebStoryFiles } from "../story-web-project.js";
 import { compressArchiveFile } from "../archive-compression.js";
 import { PublishMediaOptimizer } from "./media.js";

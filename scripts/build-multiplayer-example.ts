@@ -1,6 +1,6 @@
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { isMultiplayerManifestConfig } from "../src/shared/multiplayer-protocol.js";
+import { isMultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 const [, , configPath, outputPath] = process.argv;
 if (!configPath || !outputPath) {

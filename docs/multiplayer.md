@@ -7,14 +7,25 @@ PeerJS and WebRTC are not part of this integration.
 ## Local playtests
 
 The game agent calls `multiplayer_setup` with `adapterId: "gomoku"`, `"stones"`,
-`"arena"`, or `"roam"`, and optionally `maxClients` for the room size. Local rooms
-hold 2 to 8 players, narrowed to the seats the rules support: gomoku is always 2,
-and the others default to 4. The realtime rules also accept `dropIn`, which roam
+`"arena"`, `"roam"`, or `"custom"`, and optionally `maxClients` for the room size.
+`custom` loads the game's own turn-based rules from `server/rules.ts` beside
+`multiplayer.json` (see [Writing rules with `defineGame`](#writing-rules-with-definegame));
+the agent writes that file first, and calls setup again after changing it to
+check that it loads. Local rooms hold 2 to 8 players, narrowed to the seats the
+rules support: gomoku is always 2, and the others default to 4. The realtime rules also accept `dropIn`, which roam
 turns on by default; see [Drop-in rooms](#drop-in-rooms). Each room size and
 policy is its own deployment, such as `local-arena-8p-v1` or
-`local-roam-4p-dropin-v1`. The daemon starts one shared Colyseus service on a free loopback
-port and registers the project's local deployment. This needs no cloud account,
-public backend, signaling server, STUN, or TURN.
+`local-roam-4p-dropin-v1`. The daemon starts one shared Colyseus service on
+loopback port 43139, or on a free port when another process holds it, and
+registers the project's local deployment. This needs no cloud account, public
+backend, signaling server, STUN, or TURN.
+
+The service and its registrations end when OhMyGame quits. Before a game that
+declares a local deployment previews, playtests, or publishes locally, the
+daemon starts the service again and registers the same deployment. If the
+service now listens on another port, it rewrites `serverUrl` in
+`multiplayer.json` and `public/manifest.json` wherever they still declare the
+old deployment. Rooms do not survive the restart.
 
 Setup writes these files under the configured startup directory:
 
@@ -25,10 +36,13 @@ Setup writes these files under the configured startup directory:
 | `public/manifest.json`                    | Runtime deployment configuration copied by Vite into the build                 |
 | `multiplayer.json`                        | Source declaration used to detect a build that dropped or changed the manifest |
 
-The game must integrate the SDK; setup does not rewrite gameplay. Load
-`./manifest.json` relative to the page directory and construct `MultiplayerClient`
-with its `multiplayer` configuration. Explicitly enable `allowLocalhost` for local
-testing. The guest identity and room recovery both live in `localStorage`, so a
+The game must integrate the SDK; setup does not rewrite gameplay. Start with
+`await init({ allowLocalhost: true })`: it loads `./manifest.json` relative to
+the page directory and validates its `multiplayer` configuration. Enable
+`allowLocalhost` only for local testing. `createMultiplayerClient(callbacks)`
+returns the player's `MultiplayerClient`. An account-required game passes an
+`identity` with `getToken()` to `init`; without a token, a deployment that allows
+guests joins as one. The guest identity and room recovery both live in `localStorage`, so a
 browser is one player in every tab, and can return to its seat after the tab
 closes. A second tab is the same player and cannot take a second seat in a room.
 Games must keep this default rather than pass per-tab storage to mint extra
@@ -39,25 +53,40 @@ contain 16 hexadecimal characters. Render `onSnapshot` data and handle
 `onReady`, `onStatus`, `onCommandResult`, and `onError`. Commands submit intent,
 not a client-computed board or winner. Stalled connections fail after 15 seconds;
 HTTP requests have their own 10-second timeout. The game must display the error
-and allow retry instead of keeping an indefinite connection spinner.
+and allow retry instead of keeping an indefinite connection spinner. Every SDK
+error is an `OhMyGameError` whose `code` (such as `timeout`, `room_limit`,
+`sign_in_required`, or `not_connected`) stays stable while messages may change.
 
 Test two independent players creating and joining a room, an accepted command,
 an illegal command, a refresh/reconnect, and an unavailable service. The local
 backend listens only on loopback: another device cannot access it through
-`127.0.0.1`. Rooms are temporary and end when the daemon stops. Run setup again
-after a daemon restart to update the service URL.
+`127.0.0.1`. Rooms are temporary and end when the daemon stops; the deployment
+comes back on the next preview, playtest, or local publish, which also reloads a
+game's `server/rules.ts` for rooms opened afterwards. Rooms already open keep
+the rules they started with. Custom rules run only on this computer: playing
+such a game publicly needs a separately deployed server with those rules.
 
-For a game that already has the generated files, a repository developer can
-also run a separate backend with a fixed local URL in both manifests:
+For a game that already has the generated files, a separate backend can run with
+a fixed local URL in both manifests:
 
 ```sh
+npx @ohmygame/server dev /absolute/path/to/game-workspace
+# in this repository:
 bun run multiplayer:local /absolute/path/to/game-workspace
 ```
 
 This command reads `multiplayer.json`, listens on its loopback HTTP port, and
-keeps rooms in memory until stopped. Serve the game's normal preview or static
-build separately. Its guest identities also expire when the process stops;
-clear that game's session storage before a new standalone test session.
+keeps rooms in memory until stopped. A game with its own turn-based rules keeps
+them in `server/rules.ts` (or `.js`/`.mjs`), written with
+[`defineGame`](#writing-rules-with-definegame) and exported as default, under an
+`adapterId` that is not a built-in one. The command bundles that file with what
+it imports, so the rules can share code with the page and need no OhMyGame package
+installed: `@ohmygame/server` and `@ohmygame/sdk` imports resolve to `defineGame`.
+When the rules or their imports change, it reloads them and restarts the rooms;
+an edit that does not load leaves the previous rules running. Serve the game's
+normal preview or static build separately. Its guest identities also expire when
+the process stops; clear that game's session storage before a new standalone
+test session.
 
 ## Game rules
 
@@ -110,6 +139,43 @@ The service operator registers this code; browsers never upload executable
 rules. Realtime adapters must supply a simulation `step` and currently receive
 bounded two-axis inputs; other input formats need a protocol extension. Merely
 declaring an adapter name or a multiplayer manifest is insufficient.
+
+### Writing rules with `defineGame`
+
+Turn-based rules can be plain functions instead of an adapter.
+`defineGame` (from `@ohmygame/server`, or `@ohmygame/sdk/game` for types in the
+page) takes `players`, `setup(ctx)` for the game at `start`, `moves`, and the
+optional `endIf(G, ctx)`, `playerView(G, ctx, playerId)`, and `turnSeconds`
+(default 60). `compileGame(rules)` returns the adapter to register:
+
+```ts
+const rules = defineGame({
+  players: { min: 3, max: 3 },
+  setup: (ctx) => ({ hands: deal(ctx.shuffle(deck), ctx.players), played: [] }),
+  moves: {
+    play(G, ctx, { cards }: { cards: string[] }) {
+      if (!holds(G.hands[ctx.playerId], cards)) throw new Error("You do not hold those cards.");
+      // Change G in place or return a new one.
+    },
+  },
+  endIf: (G) => (G.hands[G.lastPlayer]?.length === 0 ? { winners: [G.lastPlayer] } : undefined),
+  playerView: (G, _ctx, playerId) => ({ ...G, hands: onlyOwnHand(G.hands, playerId) }),
+});
+createMultiplayerServer({ adapters: { cards: compileGame(rules) }, ... });
+```
+
+A move runs only on the service, once per accepted command; throwing rejects it
+with the error message. By default only the current player may make a move, and
+the turn then passes to the next seat; `ctx.setCurrentPlayer(id)` chooses
+otherwise. `{ run, by: "owner" | "any", afterEnd: true }` permits a move from the
+owner or any seat at any time, and after the match ends, which resumes play. Use
+`ctx.random()`, `ctx.shuffle()`, and `ctx.now()` rather than `Math.random` or
+`Date.now`. `G` must stay plain data. `endIf` returns `{ winners }`; several
+winners, such as a team, appear in `state.winnerPlayerIds`, and `winnerPlayerId`
+holds a single winner or is empty. In the page,
+`createMultiplayerClient<typeof rules>()` types `client.moves.play({ cards })`,
+which sends `{ action: "play", cards }`. The built-in gomoku rules are written this
+way. `legalMoves` is reserved for bots and is not called yet.
 
 ## Drop-in rooms
 

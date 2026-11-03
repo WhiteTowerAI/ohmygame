@@ -1,1 +1,1 @@
-export * from "../shared/multiplayer-client.js";
+export * from "@ohmygame/sdk/multiplayer";

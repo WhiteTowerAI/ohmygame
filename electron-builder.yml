@@ -23,7 +23,6 @@ files:
   - dist/daemon/assets/scene-templates/LICENSE.txt
   - dist/shared/**/*.js
   - dist/story-web/resources.json
-  - dist/multiplayer-server/**/*.js
   - dist/multiplayer-sdk/resources.json
   - dist/renderer/**/*
   # Renderer source maps go to Sentry, not into the package, even if their upload failed.

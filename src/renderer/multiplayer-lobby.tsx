@@ -4,7 +4,7 @@ import type {
   MultiplayerSnapshot,
   PublicMultiplayerRoom,
   TurnCommand,
-} from "../shared/multiplayer-protocol.js";
+} from "@ohmygame/sdk/protocol";
 import {
   MultiplayerClient,
   type MultiplayerConnectionStatus,
@@ -41,8 +41,10 @@ export function MultiplayerLobby({
     const instance = new MultiplayerClient(
       {
         manifest,
-        accessToken: async () =>
-          (await supabase?.auth.getSession())?.data.session?.access_token,
+        identity: {
+          getToken: async () =>
+            (await supabase?.auth.getSession())?.data.session?.access_token,
+        },
       },
       {
         onStatus: (value) => {

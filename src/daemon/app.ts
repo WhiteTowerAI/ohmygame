@@ -35,7 +35,7 @@ import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
-import { MULTIPLAYER_MANIFEST_SCHEMA } from "../shared/multiplayer-protocol.js";
+import { MULTIPLAYER_MANIFEST_SCHEMA } from "@ohmygame/sdk/protocol";
 import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
@@ -45,6 +45,7 @@ import { AgentRuntimeService } from "./agent-runtimes/service.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
 import { LocalMultiplayerRuntime } from "./local-multiplayer.js";
+import { moveWorkspaceMultiplayer, readWorkspaceMultiplayer } from "./multiplayer-workspace.js";
 import { ACCOUNT_RUNTIME_IDS, isAccountRuntimeId, isAccountProfileIds, isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest } from "../shared/agent-runtimes.js";
 import { ConversationManager, sessionDirectory, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
@@ -71,7 +72,7 @@ import { registerCommunityRoutes } from "./publish/community-routes.js";
 import { LocalPublisher } from "./publish/local.js";
 import { LOCAL_DEBUG_ACCESS_TOKEN } from "../shared/local-debug.js";
 import { PreviewManager, PreviewCancelledError } from "./preview.js";
-import { ProjectAssetError, ProjectManager, ProjectWorkspaceError } from "./projects.js";
+import { ProjectAssetError, ProjectManager, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
 import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelCatalogRefresh } from "./model-catalog-refresh.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
@@ -568,6 +569,27 @@ export function createApp(options: AppOptions = {}) {
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder();
   const localMultiplayer = new LocalMultiplayerRuntime();
+  /**
+   * The local service and its registrations end with OhMyGame, so a game set
+   * up earlier gets its deployment back before it plays or publishes. Best
+   * effort: the game's own connection and the publish check report what is left.
+   */
+  /** A game's own multiplayer rules, server/rules.ts in its startup directory. */
+  const gameRulesFile = async (project: ProjectState) => {
+    const [{ findGameRules }, { absolutePath }] = await Promise.all([
+      import("@ohmygame/server"),
+      resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? "."),
+    ]);
+    return findGameRules(absolutePath);
+  };
+  const restoreLocalMultiplayer = async (project: ProjectState) => {
+    if (project.type !== "web-game" && project.type !== "general") return;
+    try {
+      const config = await readWorkspaceMultiplayer(project);
+      const restored = config && await localMultiplayer.restore(project.id, config, await gameRulesFile(project));
+      if (config && restored && restored.serverUrl !== config.serverUrl) await moveWorkspaceMultiplayer(project, config, restored);
+    } catch {}
+  };
   const examples = new ExampleStore(options.examplesDirectory);
   const localPublisher = options.localDebug ? new LocalPublisher() : undefined;
   const cloudModels = new CloudModelsClient(options.cloudApiUrl ?? options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130", options.cloudFetch);
@@ -826,13 +848,19 @@ export function createApp(options: AppOptions = {}) {
       playtest ? { driver: playtest, resolveOpenTarget: () => playtestTarget(project) } : undefined,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
-      (adapterId, options) => localMultiplayer.configure(project.id, adapterId, options),
+      async (adapterId, options) => localMultiplayer.configure(
+        project.id,
+        adapterId,
+        options,
+        adapterId === "custom" ? await gameRulesFile(project) : undefined,
+      ),
     ), ...(project.integration?.preview === "external" ? [projectPreviewTool(project, plugins, pluginIntegrations)] : [])];
   };
   const playtestTarget = async (project: ProjectState): Promise<GameUseOpenTarget> => {
     // A story plays its own page, which one made before web stories has once the editor upgrades it.
     if (project.type === "interactive-story" && !await isWebStory(project.workspacePath))
       throw new Error(NEEDS_UPGRADE);
+    await restoreLocalMultiplayer(project);
     return { runtime: "web", url: previewPageUrl(await previews.ensureStarted(project, false), "playtest") };
   };
   /** OhMyGame's tools for agents outside the app; playtest windows belong to their MCP session. */
@@ -2724,6 +2752,7 @@ export function createApp(options: AppOptions = {}) {
     // A web story plays its own page through the preview.
     if (reuse && !isWebRuntimeProjectType(project.type) && project.type !== "interactive-story") return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
     try {
+      await restoreLocalMultiplayer(project);
       const url = await (reuse ? previews.ensureStarted(project) : previews.start(project, request.query.reinstall === "1"));
       return { url, title: project.name };
     } catch (cause) {
@@ -3156,9 +3185,11 @@ export function createApp(options: AppOptions = {}) {
       publishing.add(project.id);
       events.publish(project.id, "publish.started", {});
       try {
+        const localDebug = localPublisher && request.body.accessToken === LOCAL_DEBUG_ACCESS_TOKEN;
+        if (localDebug) await restoreLocalMultiplayer(project);
         const result = await publisher.publish(
           project,
-          await (localPublisher && request.body.accessToken === LOCAL_DEBUG_ACCESS_TOKEN
+          await (localDebug
             ? artifacts.createLocal(project, await projectCover(project.id), request.body.multiplayer)
             : artifacts.create(project, await projectCover(project.id), request.body.multiplayer)),
           request.body.accessToken,

@@ -1,0 +1,45 @@
+{
+  "name": "@ohmygame/sdk",
+  "version": "0.0.0",
+  "description": "Browser SDK for OhMyGame games.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "ohmygame-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./multiplayer": {
+      "ohmygame-source": "./src/multiplayer-client.ts",
+      "types": "./dist/multiplayer-client.d.ts",
+      "default": "./dist/multiplayer-client.js"
+    },
+    "./protocol": {
+      "ohmygame-source": "./src/multiplayer-protocol.ts",
+      "types": "./dist/multiplayer-protocol.d.ts",
+      "default": "./dist/multiplayer-protocol.js"
+    },
+    "./games/gomoku": {
+      "ohmygame-source": "./src/gomoku.ts",
+      "types": "./dist/gomoku.d.ts",
+      "default": "./dist/gomoku.js"
+    },
+    "./game": {
+      "ohmygame-source": "./src/define-game.ts",
+      "types": "./dist/define-game.d.ts",
+      "default": "./dist/define-game.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@colyseus/sdk": "^0.18.5"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "^5.9.2"
+  }
+}

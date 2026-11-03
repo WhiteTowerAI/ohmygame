@@ -3,9 +3,10 @@ import type {
   MultiplayerGameState,
   MultiplayerManifestConfig,
   TurnCommand,
-} from "../shared/multiplayer-protocol.js";
+} from "@ohmygame/sdk/protocol";
 import { createGameAdapter, spawnArenaPlayers, spawnRoamPlayer, stepArena, stepRoam } from "./game.js";
 import { createGomokuAdapter } from "./gomoku.js";
+export { gomokuRules } from "./gomoku.js";
 
 export type GameAdapter = MultiplayerGameAdapter<
   MultiplayerGameState,

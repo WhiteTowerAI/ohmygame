@@ -4,7 +4,8 @@
     "outDir": "dist",
     "rootDir": "src",
     "declaration": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "customConditions": []
   },
-  "include": ["src/daemon/**/*.ts", "src/desktop/**/*.ts", "src/desktop/**/*.cts", "src/multiplayer-server/**/*.ts", "src/shared/**/*.ts", "src/story-web/**/*.ts"]
+  "include": ["src/daemon/**/*.ts", "src/desktop/**/*.ts", "src/desktop/**/*.cts", "src/shared/**/*.ts", "src/story-web/**/*.ts"]
 }

@@ -8,7 +8,7 @@ import {
   multiplayerRoomType,
   sameMultiplayerConfig,
   type MultiplayerManifestConfig,
-} from "../shared/multiplayer-protocol.js";
+} from "@ohmygame/sdk/protocol";
 import { MultiplayerAuth, type MultiplayerAuthOptions } from "./auth.js";
 import { RoomStore, type StoredRoom } from "./store.js";
 import { GameRoom, ROOM_IDLE_MS, ROUND_RESTART_MS } from "./turn-room.js";
@@ -276,13 +276,16 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
       });
     },
   });
+  /** Rules a local playtest registered with its deployment, by room type. */
+  const localAdapters = new Map<string, GameAdapter>();
   function defineDeployment(config: MultiplayerManifestConfig) {
     class DeploymentRoom extends GameRoom {
       protected services = {
         config,
         store,
         restoring,
-        adapter: resolveGameAdapter(config, options.adapters),
+        // Read when each room opens, so a local playtest's reloaded rules reach new rooms.
+        adapter: localAdapters.get(multiplayerRoomType(config)) ?? resolveGameAdapter(config, options.adapters),
         reserve: (roomId: string) => {
           if (activeRooms.size >= maxRooms) return false;
           activeRooms.add(roomId);
@@ -316,16 +319,20 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
   return {
     server,
     host,
-    registerLocalDeployment(config: MultiplayerManifestConfig) {
+    /**
+     * Local testing only. adapter is the game's own rules for config.adapterId; registering
+     * the same deployment again with new rules applies them to rooms opened afterwards.
+     */
+    registerLocalDeployment(config: MultiplayerManifestConfig, adapter?: GameAdapter) {
       if (!options.allowLocalhost || !isMultiplayerManifestConfig(config, { allowLocalhost: true }))
         throw new Error("Dynamic registration is only available for local testing.");
       const key = multiplayerRoomType(config);
       const previous = deployments.get(key);
-      if (previous) {
-        if (!sameMultiplayerConfig(previous, config)) throw new Error("A deployment is immutable. Use a new deployment ID.");
-        return;
-      }
-      resolveGameAdapter(config, options.adapters);
+      if (previous && !sameMultiplayerConfig(previous, config)) throw new Error("A deployment is immutable. Use a new deployment ID.");
+      // Checks the seats and mode the same way as a deployment registered at startup.
+      resolveGameAdapter(config, adapter ? { ...options.adapters, [config.adapterId ?? ""]: adapter } : options.adapters);
+      if (adapter) localAdapters.set(key, adapter);
+      if (previous) return;
       deployments.set(key, config);
       defineDeployment(config);
     },

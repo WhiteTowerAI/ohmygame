@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defaultClientConditions, defaultServerConditions, defineConfig } from "vite";
 import { parseChangelog } from "./src/shared/changelog.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as {
@@ -19,6 +19,9 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(packageJson.version),
     __APP_CHANGELOG__: JSON.stringify(parseChangelog(readFileSync(new URL("./CHANGELOG.md", import.meta.url), "utf8"))),
   },
+  // Workspace packages resolve to their TypeScript sources in development and tests.
+  resolve: { conditions: ["ohmygame-source", ...defaultClientConditions] },
+  ssr: { resolve: { conditions: ["ohmygame-source", ...defaultServerConditions] } },
   plugins: [
     react(),
     sentryAuthToken
