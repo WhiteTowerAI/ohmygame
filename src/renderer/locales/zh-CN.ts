@@ -225,7 +225,6 @@ const zhCN: typeof en = {
     configure: "配置",
     noProviders: "没有匹配的服务商。",
     preparing: "正在准备 OhMyGame",
-    gettingReady: "正在准备…",
   },
   notifications: {
     approval: "等待你批准",
