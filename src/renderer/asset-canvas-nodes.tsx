@@ -32,8 +32,7 @@ import { createPortal } from "react-dom";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import type { LibraryAsset } from "./library-assets.js";
 import { settingsHash } from "./routes.js";
-import { AssetCanvasTemplateGuide, PixelAssetTemplateGuide } from "./asset-canvas-template-guide.js";
-import { templateGuideInfo } from "./asset-canvas-templates.js";
+import { PixelAssetTemplateGuide } from "./asset-canvas-template-guide.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE, pixelAssetTemplateGuideCategory } from "./asset-canvas-pixel-workflows.js";
 import { pixelExampleImageUrl } from "./asset-canvas-pixel-examples.js";
 import { preferredCharacterSheetOption, resolveContinuousActionPrompt } from "../shared/canvas-character-tools.js";
@@ -56,13 +55,6 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
     <div data-alignment-frame className="story-text-output">
       <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} />
       <div className="asset-template-guide-content nodrag nowheel"><p className="asset-template-guide-instruction">{localizedTemplateText(data.text)}</p></div>
-    </div>
-  </div>;
-  const guide = templateGuideInfo(data.instruction);
-  if (guide) return <div className="story-node story-text-node asset-template-guide-node">
-    <div data-alignment-frame className="story-text-output">
-      <CanvasNodeLabel icon={FileText} label={t(`assetCanvasTemplates.${guide.template}.title`)} details={data.nodeDetails} />
-      <AssetCanvasTemplateGuide template={guide.template} />
     </div>
   </div>;
   return (
@@ -101,7 +93,7 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
 }
 export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.imageRuntime;
-  const sequence = runtime?.template === "free-sequence";
+  const sequence = data.presetId === "continuous-sequence" || data.presetId === "consistent-sequence";
   const sequenceMode = data.presetId === "consistent-sequence" ? "consistent-sequence" : "continuous-sequence";
   const sourceInput = useRef<HTMLInputElement>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);

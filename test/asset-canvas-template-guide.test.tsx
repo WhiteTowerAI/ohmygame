@@ -2,12 +2,9 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AssetCanvasTemplateGuide, PixelAssetTemplateGuide } from "../src/renderer/asset-canvas-template-guide.js";
+import { PixelAssetTemplateGuide } from "../src/renderer/asset-canvas-template-guide.js";
 import i18next from "i18next";
 import { PIXEL_ASSET_TEMPLATE_CATEGORIES, pixelAssetTemplatePresetIds } from "../src/renderer/asset-canvas-pixel-workflows.js";
-import { TEMPLATE_COVER_IMAGES } from "../src/renderer/asset-canvas-template-samples.js";
-import { templateImagePresets } from "../src/renderer/asset-canvas-templates.js";
-import { t } from "../src/renderer/i18n.js";
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -38,95 +35,4 @@ it.each(["en", "zh-CN"])("explains every output in all six template canvases in 
     }
     if (category === "skins") expect(container.textContent).toContain(language === "en" ? "does not generate a full animation set" : "不直接生成整套动作动画");
   }
-});
-
-it("shows the pixel overview and keeps guidance for every pixel asset type", async () => {
-  await act(async () =>
-    root.render(<AssetCanvasTemplateGuide template="pixel-art" />),
-  );
-  const choices = container.querySelectorAll(".asset-template-guide-option");
-  expect(choices).toHaveLength(templateImagePresets("pixel-art").length);
-  expect([...choices].every((choice) => choice.querySelector("p")?.textContent)).toBe(true);
-  expect(container.querySelectorAll("img")).toHaveLength(1);
-  expect(
-    container
-      .querySelector(".asset-template-guide-preview img")
-      ?.getAttribute("src"),
-  ).toBe(TEMPLATE_COVER_IMAGES["pixel-art"]);
-  expect(
-    [...choices].every((choice) => choice.querySelector("img") === null),
-  ).toBe(true);
-  expect(container.textContent).toContain(
-    "A complete side-view game character",
-  );
-  expect(container.textContent).toContain("One continuous terrain area");
-  expect(container.textContent).toContain("A square terrain tile atlas");
-  expect(container.querySelector("button")).toBeNull();
-});
-
-it("shows the matching example and output guidance for both sequence modes", async () => {
-  await act(async () =>
-    root.render(<AssetCanvasTemplateGuide template="free-sequence" />),
-  );
-  const choices = container.querySelectorAll(".asset-template-guide-option");
-  expect(choices).toHaveLength(2);
-  expect(container.querySelectorAll("img")).toHaveLength(1);
-  expect(
-    container
-      .querySelector(".asset-template-guide-preview img")
-      ?.getAttribute("src"),
-  ).toBe(TEMPLATE_COVER_IMAGES["free-sequence"]);
-  expect(container.textContent).toContain("12 continuous frames");
-  expect(container.textContent).toContain("9 pixel art game scenes");
-  expect(container.querySelector("button")).toBeNull();
-});
-
-it("shows the supplied action overview with its output guidance", async () => {
-  await act(async () =>
-    root.render(<AssetCanvasTemplateGuide template="action-set" />),
-  );
-  expect(container.querySelectorAll("img")).toHaveLength(1);
-  const image = container.querySelector(".asset-template-guide-preview img");
-  expect(image?.getAttribute("src")).toBe(TEMPLATE_COVER_IMAGES["action-set"]);
-  expect(image?.getAttribute("draggable")).toBe("false");
-  expect(container.textContent).toContain(
-    "All six actions share the same character reference",
-  );
-  expect(container.querySelector("button")).toBeNull();
-});
-
-it.each(["character-sheet"] as const)(
-  "keeps %s tutorial guidance without a sample image or empty preview",
-  async (template) => {
-    await act(async () =>
-      root.render(<AssetCanvasTemplateGuide template={template} />),
-    );
-    expect(container.querySelector("img")).toBeNull();
-    expect(container.querySelector(".asset-template-guide-preview")).toBeNull();
-    expect(container.textContent).toContain(
-      t(`assetCanvasTemplates.${template}.guide`),
-    );
-    expect(container.textContent).toContain(
-      t(`assetCanvasTemplates.${template}.output`),
-    );
-    expect(container.querySelector("svg")).toBeNull();
-  },
-);
-
-it("shows the outfit cover in its introduction and preserves the instructions", async () => {
-  await act(async () =>
-    root.render(<AssetCanvasTemplateGuide template="quick-reskin" />),
-  );
-  expect(container.querySelectorAll("img")).toHaveLength(1);
-  expect(
-    container
-      .querySelector(".asset-template-guide-preview img")
-      ?.getAttribute("src"),
-  ).toBe(TEMPLATE_COVER_IMAGES["quick-reskin"]);
-  expect(container.textContent).toContain(
-    t("assetCanvasTemplates.quick-reskin.guide"),
-  );
-  expect(container.textContent).toContain(
-    t("assetCanvasTemplates.quick-reskin.output"),
-  );
 });

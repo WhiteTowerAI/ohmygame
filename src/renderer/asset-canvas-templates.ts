@@ -1,10 +1,5 @@
-import type {
-  AssetCanvasNode,
-  ImageModel,
-} from "../shared/contracts.js";
+import type { AssetCanvasNode } from "../shared/contracts.js";
 import { withPixelArtLevel, type PixelArtLevel } from "../shared/canvas-pixel-style.js";
-import { CANVAS_IMAGE_PRESETS, type CanvasImagePreset } from "../shared/canvas-image-presets.js";
-import { preferredCharacterSheetOption } from "../shared/canvas-character-tools.js";
 import {
   createAssetCanvasDocument,
   createAssetGenerationNode,
@@ -22,62 +17,6 @@ import {
   saveCanvasBoard,
 } from "./canvas-api.js";
 import { t } from "./i18n.js";
-
-export const ASSET_CANVAS_TEMPLATES = [
-  "pixel-art",
-  "character-sheet",
-  "quick-reskin",
-  "free-sequence",
-  "action-set",
-] as const;
-export type AssetCanvasTemplate = (typeof ASSET_CANVAS_TEMPLATES)[number];
-
-export function templateGuideInfo(instruction?: string): { template: AssetCanvasTemplate } | undefined {
-  const legacy = instruction === "asset-canvas-template:free-image" || instruction === "asset-canvas-template:free-image:pixel"
-    ? "pixel-art"
-    : instruction === "asset-canvas-template:free-image:general" ? "character-sheet" : undefined;
-  const template = legacy ?? ASSET_CANVAS_TEMPLATES.find((candidate) => instruction === `asset-canvas-template:${candidate}`);
-  return template ? { template } : undefined;
-}
-
-const SEQUENCE_PRESETS = ["continuous-sequence", "consistent-sequence"] as const;
-const PIXEL_IMAGE_PRESETS = CANVAS_IMAGE_PRESETS.filter((preset) => !["free", "continuous-sequence", "consistent-sequence", "character-sheet", "quick-reskin"].includes(preset));
-export function templateImagePresets(template?: AssetCanvasTemplate): readonly CanvasImagePreset[] {
-  if (template === "free-sequence") return SEQUENCE_PRESETS;
-  if (template === "pixel-art") return PIXEL_IMAGE_PRESETS;
-  if (template === "character-sheet") return ["character-sheet"];
-  if (template === "quick-reskin") return ["quick-reskin"];
-  if (template === "action-set") return [];
-  return CANVAS_IMAGE_PRESETS;
-}
-
-export function createTemplatePresetNode(
-  template: Exclude<AssetCanvasTemplate, "action-set">,
-  preset: CanvasImagePreset,
-  imageModels: readonly ImageModel[],
-  position: { x: number; y: number },
-  sourceNodeId?: string,
-): Extract<AssetCanvasNode, { type: "image" }> {
-  const model = template === "pixel-art" || template === "free-sequence" || template === "quick-reskin"
-    ? imageModels.find((candidate) => candidate.supportsReferenceImage && (candidate.maxReferenceImages ?? 16) >= (template === "quick-reskin" || template === "pixel-art" ? 2 : 1))
-    : imageModels[0];
-  const option = preset === "character-sheet"
-    ? preferredCharacterSheetOption(model)
-    : preferredImageOption(model, template === "free-sequence" ? "4:3" : "1:1");
-  const node = createAssetGenerationNode("image", position, {
-    ...(model ? { imageModel: { provider: model.provider, id: model.id } } : {}),
-    ...(option ? { imageResolution: option.resolution, imageAspectRatio: option.aspectRatio } : {}),
-  }) as Extract<AssetCanvasNode, { type: "image" }>;
-  node.title = t(`assetCanvas.imagePresets.${preset}`);
-  node.data.presetId = preset;
-  if (sourceNodeId) node.data.images = [{ type: "node", nodeId: sourceNodeId }];
-  return node;
-}
-
-export interface AssetCanvasTemplateInput {
-  prompt?: string;
-  sourceAssetId?: string;
-}
 
 /** The Effect Library creates one image node: its output is a complete sprite sheet, not a GIF. */
 export interface EffectSpriteSheetInput {

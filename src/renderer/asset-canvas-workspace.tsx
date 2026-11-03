@@ -61,7 +61,6 @@ import { clampCanvasGroupResize, canvasAbsolutePosition, canvasDescendantIds, ca
 import { RESIZABLE_CANVAS_NODE_SIZES, canvasNodeLayout, isResizableCanvasNodeType } from "../shared/canvas-node-layout.js";
 import { MAX_ASSET_CANVAS_NODES, MAX_TEXT_NODE_REFERENCES } from "../shared/asset-canvas-schema.js";
 import { createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, lastCanvasClipboard, parseCanvasClipboard, rememberCanvasClipboard, type CanvasClipboard } from "./asset-canvas-clipboard.js";
-import { templateGuideInfo } from "./asset-canvas-templates.js";
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
 import { CanvasContextMenu, EditorCanvas, isTextEntry, ownsCanvasKeys, undoShortcut, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
 import {
@@ -1948,13 +1947,12 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const expandedNode = nodes.find((node) => node.id === expandedDocument?.nodeId && node.type === "document");
 
   const tableContents = [...tables.storage.sessions.values()].map((session) => session.local);
-  const templateBoard = nodes.flatMap((node) => node.type === "text" ? [templateGuideInfo(node.data.instruction)?.template] : []).find((value) => value !== undefined);
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const pixelStyleGroupIds = new Set(nodes.filter((node) => node.type === "group" && node.data.pixelStyle).map((node) => node.id));
   const linkedSources = new Set(referenceTargetId ? assetEdges.filter((edge) => edge.target === referenceTargetId).map((edge) => edge.source) : []);
   const renderedNodes = orderedCanvasNodes(nodes).map((original) => {
     const size = isResizableCanvasNodeType(original.type) ? RESIZABLE_CANVAS_NODE_SIZES[original.type] : undefined;
-    const isTemplateGuide = original.type === "text" && Boolean(templateGuideInfo(original.data.instruction) || pixelAssetTemplateGuideCategory(original.data.instruction) || original.data.instruction === PIXEL_ASSET_TEMPLATE_NOTE);
+    const isTemplateGuide = original.type === "text" && Boolean(pixelAssetTemplateGuideCategory(original.data.instruction) || original.data.instruction === PIXEL_ASSET_TEMPLATE_NOTE);
     const parent = original.parentId ? nodesById.get(original.parentId) : undefined;
     const isPixelWorkflow = Boolean(parent?.parentId && pixelStyleGroupIds.has(parent.parentId));
     // A render can arrive before React Flow publishes its first dimensions.
@@ -2179,10 +2177,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       ...node,
       data: node.type === "image"
         ? { ...node.data, imageRuntime: { ...referenceRuntime,
-          template: templateBoard,
           models: node.data.quickReskinMode === "person-clothing"
             ? imageModels.filter((model) => model.supportsReferenceImage && (model.maxReferenceImages ?? IMAGE_MAX_REFERENCE_IMAGES) >= 2)
-            : node.data.presetId === "quick-reskin" || isPixelWorkflow || (templateBoard && (node.data.sourceInput || templateBoard === "pixel-art" || templateBoard === "action-set" || node.data.presetId === "continuous-sequence" || node.data.presetId === "consistent-sequence")) ? imageModels.filter((model) => model.supportsReferenceImage && model.maxReferenceImages !== 0) : imageModels,
+            : node.data.presetId === "quick-reskin" || isPixelWorkflow || node.data.sourceInput || node.data.presetId === "continuous-sequence" || node.data.presetId === "consistent-sequence" ? imageModels.filter((model) => model.supportsReferenceImage && model.maxReferenceImages !== 0) : imageModels,
           ...(node.data.quickReskinMode === "person-clothing" ? { slotLabels: [t("assetCanvasTemplates.quickReskinPerson"), t("assetCanvasTemplates.quickReskinClothing")] } : {}),
           providers: imageProviders, onUploadSourceImage: (file) => void uploadSourceImage(node, file), onSetSourceAsset: (asset) => setSourceAsset(node, asset) } satisfies ImageNodeRuntime }
         : { ...node.data, videoRuntime: { ...referenceRuntime, models: videoModels, providers: videoProviders } satisfies VideoNodeRuntime },

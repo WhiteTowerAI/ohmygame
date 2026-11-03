@@ -6,7 +6,6 @@ import type { AssetCanvasTextReference, AgentModelRef, AgentReasoningLevel, Imag
 import type { Node } from "@xyflow/react";
 import type { CanvasImagePreset, CanvasMaterialStyle } from "../shared/canvas-image-presets.js";
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
-import type { AssetCanvasTemplate } from "./asset-canvas-templates.js";
 import type { CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 import type { AgentModelCatalogStatus } from "./model-selector.js";
 import type { LibraryAsset } from "./library-assets.js";
@@ -148,7 +147,6 @@ export interface ReferenceMediaNodeRuntime extends MediaNodeRuntime {
 export type ReferenceStripRuntime = Omit<ReferenceMediaNodeRuntime, "generating" | "error" | "onChange" | "onGenerate" | "onCancel">;
 
 export interface ImageNodeRuntime extends ReferenceMediaNodeRuntime {
-  template?: AssetCanvasTemplate;
   models: ImageModel[];
   providers: MediaProviderStatus[];
   onUploadSourceImage: (file: File) => void;
