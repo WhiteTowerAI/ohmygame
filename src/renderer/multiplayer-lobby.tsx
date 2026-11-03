@@ -139,10 +139,10 @@ export function MultiplayerLobby({
     const reset = () => {
       keys.clear();
       direction.current = { x: 0, y: 0 };
-      client.current?.sendInput(0, 0);
+      client.current?.sendInput({ x: 0, y: 0 });
     };
     const timer = setInterval(
-      () => client.current?.sendInput(direction.current.x, direction.current.y),
+      () => client.current?.sendInput({ ...direction.current }),
       50,
     );
     window.addEventListener("keydown", keyDown);

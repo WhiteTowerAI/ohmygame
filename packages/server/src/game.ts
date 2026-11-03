@@ -1,7 +1,8 @@
 import {
-  REALTIME_TICK_MS,
+  DEFAULT_TICK_MS,
   MULTIPLAYER_MAX_CLIENTS,
   MULTIPLAYER_MIN_CLIENTS,
+  TICK_MS_RANGE,
   type MultiplayerGameAdapter,
   type MultiplayerGameState,
   type MultiplayerMode,
@@ -9,7 +10,16 @@ import {
 } from "@ohmygame/sdk/protocol";
 
 export const TURN_SECONDS = 60;
-export const TICK_MS = REALTIME_TICK_MS;
+
+/** A realtime adapter's tick in milliseconds: its own, or the default. */
+export function tickMsOf(adapter: { tickMs?: number }): number {
+  return adapter.tickMs ?? DEFAULT_TICK_MS;
+}
+/** Throws unless the tick is a whole number of milliseconds the service can run. */
+export function checkTickMs(tickMs: number): void {
+  if (!Number.isInteger(tickMs) || tickMs < TICK_MS_RANGE.min || tickMs > TICK_MS_RANGE.max)
+    throw new Error(`tickMs must be a whole number from ${TICK_MS_RANGE.min} to ${TICK_MS_RANGE.max}.`);
+}
 
 export function nextTurn(state: MultiplayerGameState, now = Date.now()): void {
   const index = state.players.findIndex(

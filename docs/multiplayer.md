@@ -135,13 +135,20 @@ leave. It suits shared towns, lobbies, and exploration. The service knows nothin
 of a game's map, so buildings and obstacles cannot block movement, and
 interactions with them are not shared between players.
 
-Realtime games call `sendInput(x, y)` every frame while input is held, with each
-axis from -1 to 1, and `sendInput(0, 0)` on release. The SDK sends the latest
-input at most once per 50 ms service tick and keeps resending it while the game
-keeps calling, because the service discards an input older than 250 ms. A
-connection that sends more than 40 messages a second is closed with code 4002;
-the room releases its seat immediately rather than holding it for reconnection,
-so the client reports the closed connection instead of a frozen game.
+Realtime games call `sendInput(input)` every frame while input is held. The input
+is a plain object in the shape the rules read: `arena` and `roam` take
+`{ x, y }`, each axis from -1 to 1, and `{ x: 0, y: 0 }` on release. Any input is
+plain JSON of at most 512 characters (`REALTIME_INPUT_MAX_LENGTH`), nested no more
+than four levels, and never uses the key `inputId`, which the SDK adds; otherwise
+`sendInput` throws `invalid_option`. The SDK sends the latest input at most once per
+service tick, which the service reports when the player joins, and keeps resending
+it while the game keeps calling. The room passes the rules only inputs from the
+last five ticks (at least 250 ms), so a player who stops sending stops steering.
+A realtime connection may send twice the tick rate in messages a second, and at
+least 40; beyond that it is closed with code 4002. The room releases that seat
+immediately rather than holding it for reconnection, so the client reports the
+closed connection instead of a frozen game. Turn-based connections may send ten
+messages a second.
 
 `gomoku` requires turn-based mode and declares exactly two seats. Black is
 `state.players[0]`; the service selects `currentPlayerId`. Its `state.game` holds
@@ -153,7 +160,13 @@ five-in-a-row and draws, and preserves scores across the owner's
 `{ action: "reset" }`. A turn timeout skips the player without placing a stone.
 
 `createMultiplayerServer({ adapters })` can accept additional trusted rules
-adapters keyed by ID. Adapters use the common room state envelope, keep custom
+adapters keyed by ID. `MultiplayerGameAdapter` is experimental: turn-based rules
+should use `defineGame`, and the adapter form may change before realtime rules
+have one. A realtime adapter supplies `step(state, inputs, now, dt)`, which the
+room calls on every tick of a round, with or without input, where `dt` is the
+tick in seconds. It may set `tickMs` (a whole number from 20 to 1000, default 50)
+and `validateInput(input)`, which throws to reject an input with that message;
+`arena` and `roam` move at a fixed number of map units per second times `dt`. Adapters use the common room state envelope, keep custom
 serializable state in `state.game`, and validate action payloads on the service.
 Rules with hidden information, such as a hand of cards, implement
 `viewFor(state, playerId)` to return what that seat may see; `playerId` is

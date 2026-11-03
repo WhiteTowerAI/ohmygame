@@ -4,7 +4,8 @@ import { createGomokuAdapter } from "./gomoku.js";
 import { createRoamAdapter } from "./roam.js";
 import { createStonesAdapter } from "./stones.js";
 
-export { createArenaAdapter, spawnArenaPlayers, stepArena } from "./arena.js";
+export { ARENA_UNITS_PER_SECOND, createArenaAdapter, spawnArenaPlayers, stepArena } from "./arena.js";
+export { moveToward, validateDirection, type DirectionInput } from "./direction.js";
 export { createGomokuAdapter, gomokuRules } from "./gomoku.js";
 export { createRoamAdapter, ROAM_UNITS_PER_SECOND, spawnRoamPlayer, stepRoam } from "./roam.js";
 export { createStonesAdapter } from "./stones.js";

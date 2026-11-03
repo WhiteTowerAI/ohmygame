@@ -178,7 +178,7 @@ export type ClientMoves<Game> = Game extends {
 export {};
 
 // multiplayer-client.d.ts
-import { type MultiplayerEvent, type MultiplayerManifestConfig, type MultiplayerSnapshot, type PublicMultiplayerRoom, type TurnCommand, type TurnCommandResult } from "./multiplayer-protocol.js";
+import { type MultiplayerEvent, type MultiplayerManifestConfig, type MultiplayerSnapshot, type PublicMultiplayerRoom, type RealtimeInput, type TurnCommand, type TurnCommandResult } from "./multiplayer-protocol.js";
 import { OhMyGameError } from "./errors.js";
 import { type IdentityProvider } from "./identity.js";
 import type { ClientMoves } from "./define-game.js";
@@ -240,6 +240,8 @@ export declare class MultiplayerClient<Game = unknown> {
     private disposed;
     private inputId;
     private latestInput?;
+    /** The room's tick, from the service; input goes out no faster. */
+    private tickMs;
     private inputTimer?;
     private displayName?;
     private mergeTimer?;
@@ -271,11 +273,14 @@ export declare class MultiplayerClient<Game = unknown> {
     reconnect(): Promise<boolean>;
     sendCommand(type: TurnCommand["type"], payload?: TurnCommand["payload"]): string;
     /**
-     * Safe to call every frame. The latest direction goes out at most once per service
-     * tick, and keeps going out while the game keeps calling, so a held key stays fresh;
-     * sending faster would only be discarded, and a flood closes the connection.
+     * Sends what the player is doing now in a realtime game, in the shape the rules read,
+     * such as { x, y } for a direction. Safe to call every frame: the latest input goes out
+     * at most once per service tick, and keeps going out while the game keeps calling, so
+     * a held key stays fresh. Sending faster would only be discarded, and a flood closes the
+     * connection. Throws invalid_option for an input that is not plain JSON of at most
+     * REALTIME_INPUT_MAX_LENGTH characters, or that uses the reserved key inputId.
      */
-    sendInput(x: number, y: number): void;
+    sendInput(input: RealtimeInput): void;
     private flushInput;
     /**
      * Quick play only places a player when they arrive, so two players can end up alone
@@ -336,10 +341,15 @@ export interface PublishedMultiplayerManifest {
     multiplayer: MultiplayerManifestConfig;
 }
 export declare function isPublishedMultiplayerManifest(value: unknown): value is PublishedMultiplayerManifest;
-/** The service simulates realtime rooms at this interval; the SDK sends input no faster. */
-export declare const REALTIME_TICK_MS = 50;
-/** A realtime connection that sends more messages than this in a second is closed. */
-export declare const REALTIME_MAX_MESSAGES_PER_SECOND = 40;
+/** The tick of realtime rules that choose none. The service reports each room's own tick when a player joins. */
+export declare const DEFAULT_TICK_MS = 50;
+/** The fastest and slowest tick realtime rules may choose, in milliseconds. */
+export declare const TICK_MS_RANGE: {
+    readonly min: 20;
+    readonly max: 1000;
+};
+/** The largest realtime input, in characters of its JSON. */
+export declare const REALTIME_INPUT_MAX_LENGTH = 512;
 /**
  * Sent with a matchmaking error when the service cannot open another room; quick play
  * retries it. Colyseus uses the code as the HTTP status, so it stays in that range.
@@ -419,11 +429,12 @@ export interface TurnCommand {
         [key: string]: unknown;
     };
 }
-export interface RealtimeInput {
-    inputId: number;
-    x: number;
-    y: number;
-}
+/**
+ * What a player sends each tick in a realtime game, such as { x, y } for a direction or
+ * { x, y, jump: true }. The rules decide its shape: plain JSON, at most
+ * REALTIME_INPUT_MAX_LENGTH characters, without the key inputId, which the SDK adds.
+ */
+export type RealtimeInput = Record<string, unknown>;
 export interface MultiplayerPlayer {
     playerId: string;
     displayName: string;
@@ -443,7 +454,12 @@ export interface MultiplayerGameState {
     /** Serializable data owned and validated by the deployment's rules adapter. */
     game?: Record<string, unknown>;
 }
-/** Adapters run only on the service; clients submit intent, never final state. */
+/**
+ * Adapters run only on the service; clients submit intent, never final state.
+ *
+ * @experimental The low-level form of server rules, for the operator's own service. Turn-based
+ * rules should use defineGame; this interface may change before realtime rules have one.
+ */
 export interface MultiplayerGameAdapter<State, Command> {
     /** The game mode these rules play; a deployment must declare the same mode. */
     mode: MultiplayerMode;
@@ -457,10 +473,18 @@ export interface MultiplayerGameAdapter<State, Command> {
     applyCommand(state: State, playerId: string, command: Command): State;
     onDisconnect?(state: State, playerId: string): void;
     onTurnTimeout?(state: State, now: number): State;
+    /**
+     * Realtime only: advances the world by one tick of dt seconds. inputs holds each seat's
+     * latest input that is still fresh; a player who stops sending drops out of it.
+     */
     step?(state: State, inputs: ReadonlyMap<string, {
         input: RealtimeInput;
         at: number;
-    }>, now: number): State;
+    }>, now: number, dt: number): State;
+    /** Realtime only: the tick in milliseconds, 20 to 1000. Defaults to 50. */
+    tickMs?: number;
+    /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
+    validateInput?(input: RealtimeInput): void;
     /**
      * The state one player may see, such as their own hand but not others'. playerId is
      * undefined for a connection that holds no seat. Without it every player sees the whole state.
@@ -505,7 +529,12 @@ export interface PublicMultiplayerRoom {
     maxClients: number;
 }
 export declare function isTurnCommand(value: unknown): value is TurnCommand;
+/** An input as the game passes it to sendInput, before the SDK numbers it. */
 export declare function isRealtimeInput(value: unknown): value is RealtimeInput;
+/** An input message as it travels to the service: the game's input with the SDK's increasing inputId. */
+export declare function isRealtimeInputMessage(value: unknown): value is RealtimeInput & {
+    inputId: number;
+};
 export declare function isMultiplayerEvent(value: unknown): value is MultiplayerEvent;
 export declare function isTurnCommandResult(value: unknown): value is TurnCommandResult;
 export declare function isMultiplayerSnapshot(value: unknown): value is MultiplayerSnapshot;

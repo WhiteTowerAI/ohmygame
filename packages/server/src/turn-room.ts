@@ -1,12 +1,11 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { CloseCode, Room, type Client } from "@colyseus/core";
 import {
-  isRealtimeInput,
+  isRealtimeInputMessage,
   isRecord,
   isTurnCommand,
   MULTIPLAYER_ROOM_LIMIT_CODE,
   normalizeDisplayName,
-  REALTIME_MAX_MESSAGES_PER_SECOND,
   type JoinRoomOptions,
   type MultiplayerErrorCode,
   type MultiplayerEventType,
@@ -18,7 +17,7 @@ import {
   type TurnCommandResult,
 } from "@ohmygame/sdk/protocol";
 import type { MultiplayerIdentity } from "./auth.js";
-import { nextTurn, TICK_MS } from "./game.js";
+import { nextTurn, tickMsOf } from "./game.js";
 import { describePlayerRange, type GameAdapter } from "./adapters.js";
 import type { RoomStore, StoredRoom } from "./store.js";
 
@@ -33,6 +32,19 @@ export interface RoomServices {
 }
 export const ROOM_IDLE_MS = 30 * 60 * 1000;
 export const ROUND_RESTART_MS = 3000;
+/** Messages a turn-based connection may send in a second before it is closed. */
+const TURN_MAX_MESSAGES_PER_SECOND = 10;
+/**
+ * A realtime connection sends an input at most once a tick, plus a few commands. It may
+ * send twice that, and never less than 40 a second, before it is closed.
+ */
+function realtimeMessageLimit(tickMs: number): number {
+  return Math.max(40, Math.ceil((2 * 1000) / tickMs));
+}
+/** An input counts until the player has missed five ticks, and at least 250 ms. */
+function inputLifetimeMs(tickMs: number): number {
+  return Math.max(250, 5 * tickMs);
+}
 
 /**
  * Transport, membership and persistence surround pure game rules. Snapshots go to each
@@ -104,7 +116,8 @@ export class GameRoom extends Room {
         { code: MULTIPLAYER_ROOM_LIMIT_CODE },
       );
     this.maxClients = config.maxClients;
-    this.maxMessagesPerSecond = config.mode === "realtime" ? REALTIME_MAX_MESSAGES_PER_SECOND : 10;
+    this.maxMessagesPerSecond =
+      config.mode === "realtime" ? realtimeMessageLimit(this.tickMs) : TURN_MAX_MESSAGES_PER_SECOND;
     this.autoDispose = false;
     await this.setPrivate(
       config.roomPolicy === "invite-only" ||
@@ -120,6 +133,7 @@ export class GameRoom extends Room {
       const playerId = this.controls.get(client.sessionId);
       client.send("ready", {
         playerId,
+        ...this.tickInfo(),
         inviteCode:
           playerId && (this.dropIn || playerId === this.record.snapshot.state.ownerId)
             ? this.inviteCode || undefined
@@ -135,7 +149,7 @@ export class GameRoom extends Room {
     );
     this.clock.setInterval(() => this.maintenance(), 1000);
     if (config.mode === "realtime")
-      this.setTimestep(() => this.tick(), TICK_MS);
+      this.setTimestep(() => this.tick(), this.tickMs);
   }
 
   onJoin(client: Client, options: JoinRoomOptions): void {
@@ -207,6 +221,7 @@ export class GameRoom extends Room {
     );
     client.send("ready", {
       playerId,
+      ...this.tickInfo(),
       // Anyone in a drop-in room can invite a friend to it.
       inviteCode: ownerCreating || this.dropIn ? this.inviteCode : undefined,
     });
@@ -235,7 +250,7 @@ export class GameRoom extends Room {
     this.validateIdentity(client);
     this.lastInputId.delete(this.controls.get(client.sessionId)!);
     this.connected(client, true);
-    client.send("ready", { playerId: this.controls.get(client.sessionId) });
+    client.send("ready", { playerId: this.controls.get(client.sessionId), ...this.tickInfo() });
     client.send("snapshot", this.snapshotFor(this.controls.get(client.sessionId)));
   }
   onLeave(client: Client): void {
@@ -419,32 +434,48 @@ export class GameRoom extends Room {
       );
     }
   }
+  /** The room's tick, from its rules. */
+  private get tickMs(): number {
+    return tickMsOf(this.services.adapter);
+  }
+  /** Realtime clients pace their input by the room's tick. */
+  private tickInfo(): { tickMs?: number } {
+    return this.services.config.mode === "realtime" ? { tickMs: this.tickMs } : {};
+  }
   private input(client: Client, value: unknown): void {
     const id = this.controls.get(client.sessionId);
+    const reject = (message: string) =>
+      client.send("input.error", { code: "invalid_command", message });
     if (
       !id ||
-      !isRealtimeInput(value) ||
+      !isRealtimeInputMessage(value) ||
       this.services.config.mode !== "realtime" ||
       this.record.snapshot.state.phase !== "playing"
-    ) {
-      client.send("input.error", {
-        code: "invalid_command",
-        message: "The movement input is invalid.",
-      });
-      return;
-    }
-    if (value.inputId <= (this.lastInputId.get(id) ?? -1)) return;
-    this.lastInputId.set(id, value.inputId);
-    this.playerInputs.set(id, { input: value, at: Date.now() });
-  }
-  private tick(): void {
-    if (
-      this.record.snapshot.state.phase !== "playing" ||
-      !this.playerInputs.size
     )
-      return;
+      return reject("The input is invalid.");
+    const { inputId, ...input } = value;
+    if (inputId <= (this.lastInputId.get(id) ?? -1)) return;
+    try {
+      this.services.adapter.validateInput?.(input);
+    } catch (cause) {
+      return reject(cause instanceof Error ? cause.message : "The input is invalid.");
+    }
+    this.lastInputId.set(id, inputId);
+    this.playerInputs.set(id, { input, at: Date.now() });
+  }
+  /** Runs every tick of a round, so rules can move things nobody is steering. */
+  private tick(): void {
+    if (this.record.snapshot.state.phase !== "playing") return;
     const now = Date.now();
-    const state = this.services.adapter.step!(this.record.snapshot.state, this.playerInputs, now);
+    const lifetime = inputLifetimeMs(this.tickMs);
+    for (const [id, entry] of this.playerInputs)
+      if (now - entry.at > lifetime) this.playerInputs.delete(id);
+    const state = this.services.adapter.step!(
+      this.record.snapshot.state,
+      this.playerInputs,
+      now,
+      this.tickMs / 1000,
+    );
     if (JSON.stringify(state) === JSON.stringify(this.record.snapshot.state))
       return;
     // Realtime games close on service restart, so only the terminal state needs a disk write.

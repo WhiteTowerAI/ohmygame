@@ -4,7 +4,8 @@ import type {
   MultiplayerManifestConfig,
   TurnCommand,
 } from "@ohmygame/sdk/protocol";
-export { createRoomAdapter, finishMatch, nextTurn, TICK_MS, TURN_SECONDS } from "./game.js";
+import { checkTickMs, tickMsOf } from "./game.js";
+export { createRoomAdapter, finishMatch, nextTurn, TURN_SECONDS } from "./game.js";
 
 export type GameAdapter = MultiplayerGameAdapter<
   MultiplayerGameState,
@@ -30,6 +31,7 @@ export function resolveGameAdapter(
   if (adapter.mode !== config.mode) throw new Error("The rules adapter does not match the game mode.");
   if (adapter.mode === "realtime" && !adapter.step)
     throw new Error("Realtime adapters must supply a simulation step.");
+  if (adapter.mode === "realtime") checkTickMs(tickMsOf(adapter));
   // A room the rules cannot fill would let players join a match that never starts.
   if (config.maxClients < adapter.players.min || config.maxClients > adapter.players.max)
     throw new Error(`The ${id} rules need ${describePlayerRange(adapter.players)} players.`);

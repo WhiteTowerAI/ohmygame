@@ -53,6 +53,21 @@ describe("multiplayer connection failures", () => {
     client.dispose();
   });
 
+  it("accepts a realtime input only as a small plain object without inputId", () => {
+    const client = new MultiplayerClient({ manifest: { ...manifest, mode: "realtime", adapterId: "arena" } });
+    // Before a room is joined, a valid input is ignored rather than queued.
+    expect(() => client.sendInput({ x: 1, y: 0, boost: true, aim: [0.5, -1] })).not.toThrow();
+    for (const input of [
+      { inputId: 3, x: 1 },
+      { at: new Date() },
+      { x: Number.NaN },
+      { fire: () => {} },
+      { text: "x".repeat(600) },
+    ])
+      expect(() => client.sendInput(input)).toThrow(expect.objectContaining({ code: "invalid_option" }));
+    client.dispose();
+  });
+
   it("requires explicit local configuration and rejects unsupported endpoints", () => {
     expect(
       () =>

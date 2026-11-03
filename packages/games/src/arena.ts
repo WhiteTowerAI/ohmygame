@@ -1,23 +1,25 @@
 import type { MultiplayerGameState, RealtimeInput } from "@ohmygame/sdk/protocol";
 import { createRoomAdapter, finishMatch, type GameAdapter } from "@ohmygame/server/adapters";
+import { moveToward, validateDirection } from "./direction.js";
 
 const ARENA_SPAWN_RADIUS = 35;
 /** Successive seats turn by the golden angle, so any number of players spreads around the ring. */
 export const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+/** Map units a racer covers per second; the ring is 35 units from the goal. */
+export const ARENA_UNITS_PER_SECOND = 20;
 
-/** Inputs expire after 250ms. Speed, arena bounds and victory are server rules. */
+/** Speed, arena bounds and victory are server rules. */
 export function stepArena(
   state: MultiplayerGameState,
   inputs: ReadonlyMap<string, { input: RealtimeInput; at: number }>,
-  now: number,
+  _now: number,
+  dt: number,
 ): MultiplayerGameState {
   const next = structuredClone(state);
   for (const player of next.players) {
     const entry = inputs.get(player.playerId);
-    if (!player.connected || !entry || now - entry.at > 250) continue;
-    const length = Math.max(1, Math.hypot(entry.input.x, entry.input.y));
-    player.x = Math.max(0, Math.min(100, player.x + entry.input.x / length));
-    player.y = Math.max(0, Math.min(100, player.y + entry.input.y / length));
+    if (!player.connected || !entry) continue;
+    moveToward(player, entry.input, ARENA_UNITS_PER_SECOND, dt);
     if (Math.hypot(player.x - 50, player.y - 50) < 4) {
       finishMatch(next, [player.playerId]);
       break;
@@ -42,6 +44,7 @@ export function createArenaAdapter(): GameAdapter {
   return {
     ...createRoomAdapter("realtime"),
     step: stepArena,
+    validateInput: validateDirection,
     onPlayerJoin: (state, playerId) => spawnArenaPlayers(state, playerId),
     onRoundStart: (state) => spawnArenaPlayers(state),
   };

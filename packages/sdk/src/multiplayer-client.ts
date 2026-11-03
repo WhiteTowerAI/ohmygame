@@ -1,6 +1,8 @@
 import { Client as ColyseusClient, type Room } from "@colyseus/sdk";
 import {
+  DEFAULT_TICK_MS,
   isMultiplayerEvent,
+  isRealtimeInput,
   isMultiplayerManifestConfig,
   isMultiplayerSnapshot,
   isTurnCommand,
@@ -8,7 +10,7 @@ import {
   isTurnCommandResult,
   MULTIPLAYER_ROOM_LIMIT_CODE,
   multiplayerRoomType,
-  REALTIME_TICK_MS,
+  TICK_MS_RANGE,
   type JoinRoomOptions,
   type MultiplayerEvent,
   type MultiplayerManifestConfig,
@@ -38,7 +40,7 @@ export interface MultiplayerClientOptions {
   storage?: Storage;
   identityStorage?: Storage;
   /** @internal Dependency injection for local integration tests; not in the published types. */
-  transport?: ColyseusClient;
+  transport?: RoomTransport;
   /** Opt in only for loopback development, never for a published deployment. */
   allowLocalhost?: boolean;
   connectionTimeoutMs?: number;
@@ -57,6 +59,20 @@ export interface MultiplayerClientCallbacks {
   onCommandResult?: (result: TurnCommandResult) => void;
   onSnapshot?: (snapshot: MultiplayerSnapshot) => void;
   onError?: (error: OhMyGameError) => void;
+}
+/**
+ * @internal What the client needs from a room service connection. Colyseus provides it
+ * today; another transport only has to offer the same calls.
+ */
+export interface RoomTransport {
+  auth: { token: string | undefined };
+  /** Where the service is, for its HTTP routes. */
+  settings: { secure?: boolean; hostname?: string; port?: number | string };
+  create(roomName: string, options: JoinRoomOptions): Promise<Room>;
+  join(roomName: string, options: JoinRoomOptions): Promise<Room>;
+  joinOrCreate(roomName: string, options: JoinRoomOptions): Promise<Room>;
+  joinById(roomId: string, options: JoinRoomOptions): Promise<Room>;
+  reconnect(reconnectionToken: string): Promise<Room>;
 }
 interface SavedRoom {
   roomId: string;
@@ -81,7 +97,7 @@ export class MultiplayerClient<Game = unknown> {
         ? (args?: Record<string, unknown>) => this.sendCommand("action", { ...args, action: name })
         : undefined,
   });
-  private readonly client: ColyseusClient;
+  private readonly client: RoomTransport;
   private readonly storage?: Storage;
   private readonly guest: GuestIdentity;
   private readonly storageKey: string;
@@ -93,7 +109,9 @@ export class MultiplayerClient<Game = unknown> {
   private busy = false;
   private disposed = false;
   private inputId = 0;
-  private latestInput?: { x: number; y: number };
+  private latestInput?: RealtimeInput;
+  /** The room's tick, from the service; input goes out no faster. */
+  private tickMs = DEFAULT_TICK_MS;
   private inputTimer?: ReturnType<typeof setInterval>;
   private displayName?: string;
   private mergeTimer?: ReturnType<typeof setTimeout>;
@@ -264,25 +282,33 @@ export class MultiplayerClient<Game = unknown> {
     return value.commandId;
   }
   /**
-   * Safe to call every frame. The latest direction goes out at most once per service
-   * tick, and keeps going out while the game keeps calling, so a held key stays fresh;
-   * sending faster would only be discarded, and a flood closes the connection.
+   * Sends what the player is doing now in a realtime game, in the shape the rules read,
+   * such as { x, y } for a direction. Safe to call every frame: the latest input goes out
+   * at most once per service tick, and keeps going out while the game keeps calling, so
+   * a held key stays fresh. Sending faster would only be discarded, and a flood closes the
+   * connection. Throws invalid_option for an input that is not plain JSON of at most
+   * REALTIME_INPUT_MAX_LENGTH characters, or that uses the reserved key inputId.
    */
-  sendInput(x: number, y: number): void {
+  sendInput(input: RealtimeInput): void {
+    if (!isRealtimeInput(input))
+      throw new OhMyGameError(
+        "invalid_option",
+        "An input must be a small plain object of JSON data, without the key inputId.",
+      );
     if (!this.room || this.status !== "connected") return;
-    this.latestInput = { x, y };
+    this.latestInput = input;
     if (this.inputTimer) return;
     this.flushInput();
     this.inputTimer = setInterval(() => {
       if (this.latestInput) this.flushInput();
       else this.stopInput();
-    }, REALTIME_TICK_MS);
+    }, this.tickMs);
   }
   private flushInput(): void {
     const input = this.latestInput;
     this.latestInput = undefined;
     if (!input || !this.room || this.status !== "connected") return;
-    this.room.send("input", { inputId: this.inputId++, ...input } satisfies RealtimeInput);
+    this.room.send("input", { ...input, inputId: this.inputId++ });
   }
   /**
    * Quick play only places a player when they arrive, so two players can end up alone
@@ -474,6 +500,13 @@ export class MultiplayerClient<Game = unknown> {
       if (!isRecord(value) || typeof value.playerId !== "string" || !this.saved)
         return;
       this.saved.playerId = value.playerId;
+      if (
+        typeof value.tickMs === "number" &&
+        Number.isInteger(value.tickMs) &&
+        value.tickMs >= TICK_MS_RANGE.min &&
+        value.tickMs <= TICK_MS_RANGE.max
+      )
+        this.tickMs = value.tickMs;
       if (typeof value.inviteCode === "string")
         this.saved.roomCode = value.inviteCode;
       this.persist();

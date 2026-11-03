@@ -1,6 +1,7 @@
 import { MULTIPLAYER_MAX_CLIENTS, type MultiplayerGameState, type RealtimeInput } from "@ohmygame/sdk/protocol";
-import { createRoomAdapter, TICK_MS, type GameAdapter } from "@ohmygame/server/adapters";
+import { createRoomAdapter, type GameAdapter } from "@ohmygame/server/adapters";
 import { GOLDEN_ANGLE } from "./arena.js";
+import { moveToward, validateDirection } from "./direction.js";
 
 /** Map units a roaming player crosses per second; the 100-unit world takes about eight seconds. */
 export const ROAM_UNITS_PER_SECOND = 12;
@@ -10,19 +11,13 @@ const ROAM_SPAWN_RADIUS = 6;
 export function stepRoam(
   state: MultiplayerGameState,
   inputs: ReadonlyMap<string, { input: RealtimeInput; at: number }>,
-  now: number,
+  _now: number,
+  dt: number,
 ): MultiplayerGameState {
   const next = structuredClone(state);
-  const step = (ROAM_UNITS_PER_SECOND * TICK_MS) / 1000;
   for (const player of next.players) {
     const entry = inputs.get(player.playerId);
-    if (!player.connected || !entry || now - entry.at > 250) continue;
-    const length = Math.hypot(entry.input.x, entry.input.y);
-    if (!length) continue;
-    // Analogue input below full tilt walks slower; diagonals are no faster than straight lines.
-    const scale = (step * Math.min(1, length)) / length;
-    player.x = Math.max(0, Math.min(100, player.x + entry.input.x * scale));
-    player.y = Math.max(0, Math.min(100, player.y + entry.input.y * scale));
+    if (player.connected && entry) moveToward(player, entry.input, ROAM_UNITS_PER_SECOND, dt);
   }
   return next;
 }
@@ -44,6 +39,7 @@ export function createRoamAdapter(): GameAdapter {
   return {
     ...createRoomAdapter("realtime", { min: 1, max: MULTIPLAYER_MAX_CLIENTS }),
     step: stepRoam,
+    validateInput: validateDirection,
     onPlayerJoin: (state, playerId) => spawnRoamPlayer(state, playerId),
   };
 }

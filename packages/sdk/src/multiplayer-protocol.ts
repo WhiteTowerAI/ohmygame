@@ -46,10 +46,12 @@ const identifier = {
   type: "string",
   pattern: "^[A-Za-z0-9_-]{1,100}$",
 } as const;
-/** The service simulates realtime rooms at this interval; the SDK sends input no faster. */
-export const REALTIME_TICK_MS = 50;
-/** A realtime connection that sends more messages than this in a second is closed. */
-export const REALTIME_MAX_MESSAGES_PER_SECOND = 40;
+/** The tick of realtime rules that choose none. The service reports each room's own tick when a player joins. */
+export const DEFAULT_TICK_MS = 50;
+/** The fastest and slowest tick realtime rules may choose, in milliseconds. */
+export const TICK_MS_RANGE = { min: 20, max: 1000 } as const;
+/** The largest realtime input, in characters of its JSON. */
+export const REALTIME_INPUT_MAX_LENGTH = 512;
 
 /**
  * Sent with a matchmaking error when the service cannot open another room; quick play
@@ -179,11 +181,12 @@ export interface TurnCommand {
   type: "start" | "close" | "kick" | "action";
   payload?: { playerId?: string; [key: string]: unknown };
 }
-export interface RealtimeInput {
-  inputId: number;
-  x: number;
-  y: number;
-}
+/**
+ * What a player sends each tick in a realtime game, such as { x, y } for a direction or
+ * { x, y, jump: true }. The rules decide its shape: plain JSON, at most
+ * REALTIME_INPUT_MAX_LENGTH characters, without the key inputId, which the SDK adds.
+ */
+export type RealtimeInput = Record<string, unknown>;
 export interface MultiplayerPlayer {
   playerId: string;
   displayName: string;
@@ -203,7 +206,12 @@ export interface MultiplayerGameState {
   /** Serializable data owned and validated by the deployment's rules adapter. */
   game?: Record<string, unknown>;
 }
-/** Adapters run only on the service; clients submit intent, never final state. */
+/**
+ * Adapters run only on the service; clients submit intent, never final state.
+ *
+ * @experimental The low-level form of server rules, for the operator's own service. Turn-based
+ * rules should use defineGame; this interface may change before realtime rules have one.
+ */
 export interface MultiplayerGameAdapter<State, Command> {
   /** The game mode these rules play; a deployment must declare the same mode. */
   mode: MultiplayerMode;
@@ -214,7 +222,15 @@ export interface MultiplayerGameAdapter<State, Command> {
   applyCommand(state: State, playerId: string, command: Command): State;
   onDisconnect?(state: State, playerId: string): void;
   onTurnTimeout?(state: State, now: number): State;
-  step?(state: State, inputs: ReadonlyMap<string, { input: RealtimeInput; at: number }>, now: number): State;
+  /**
+   * Realtime only: advances the world by one tick of dt seconds. inputs holds each seat's
+   * latest input that is still fresh; a player who stops sending drops out of it.
+   */
+  step?(state: State, inputs: ReadonlyMap<string, { input: RealtimeInput; at: number }>, now: number, dt: number): State;
+  /** Realtime only: the tick in milliseconds, 20 to 1000. Defaults to 50. */
+  tickMs?: number;
+  /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
+  validateInput?(input: RealtimeInput): void;
   /**
    * The state one player may see, such as their own hand but not others'. playerId is
    * undefined for a connection that holds no seat. Without it every player sees the whole state.
@@ -300,18 +316,31 @@ export function isTurnCommand(value: unknown): value is TurnCommand {
     );
   return value.payload === undefined;
 }
+/** Plain JSON data: no functions, binary data, non-finite numbers or deep nesting. */
+function isPlainJson(value: unknown, depth = 0): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (depth >= 4) return false;
+  if (Array.isArray(value)) return value.every((item) => isPlainJson(item, depth + 1));
+  if (!isRecord(value)) return false;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return (prototype === Object.prototype || prototype === null) &&
+    Object.values(value).every((item) => isPlainJson(item, depth + 1));
+}
+/** An input as the game passes it to sendInput, before the SDK numbers it. */
 export function isRealtimeInput(value: unknown): value is RealtimeInput {
   return (
     isRecord(value) &&
-    Object.keys(value).length === 3 &&
-    isSequence(value.inputId) &&
-    typeof value.x === "number" &&
-    Number.isFinite(value.x) &&
-    Math.abs(value.x) <= 1 &&
-    typeof value.y === "number" &&
-    Number.isFinite(value.y) &&
-    Math.abs(value.y) <= 1
+    !Object.hasOwn(value, "inputId") &&
+    isPlainJson(value) &&
+    JSON.stringify(value).length <= REALTIME_INPUT_MAX_LENGTH
   );
+}
+/** An input message as it travels to the service: the game's input with the SDK's increasing inputId. */
+export function isRealtimeInputMessage(value: unknown): value is RealtimeInput & { inputId: number } {
+  if (!isRecord(value) || !isSequence(value.inputId)) return false;
+  const { inputId: _inputId, ...input } = value;
+  return isRealtimeInput(input);
 }
 export function isMultiplayerEvent(value: unknown): value is MultiplayerEvent {
   return (

@@ -730,7 +730,7 @@ export default defineGame({
     await first.quickPlay();
     await second.quickPlay();
     await wait(() => expect(first.snapshot?.state.phase).toBe("playing"));
-    first.sendInput(1, 0);
+    first.sendInput({ x: 1, y: 0 });
     await wait(() => expect(second.snapshot?.state.phase).toBe("finished"));
     expect(second.snapshot!.state.winnerPlayerId).toBe(first.playerId);
     await wait(() => expect(second.snapshot?.state.phase).toBe("playing"));
@@ -793,7 +793,7 @@ export default defineGame({
     const send = vi.spyOn(Room.prototype, "send");
     try {
       // 60 calls a second, as a game loop makes while a key is held.
-      const frames = setInterval(() => walker.sendInput(1, 0), 1000 / 60);
+      const frames = setInterval(() => walker.sendInput({ x: 1, y: 0 }), 1000 / 60);
       await new Promise((resolve) => setTimeout(resolve, 2000));
       clearInterval(frames);
       const inputs = send.mock.calls.filter(([type]) => type === "input").length;
@@ -832,10 +832,10 @@ export default defineGame({
     await wait(() => expect(explorer.snapshot?.state.phase).toBe("playing"));
     const me = () => explorer.snapshot!.state.players[0]!;
     expect(Math.hypot(me().x - 50, me().y - 50)).toBeLessThanOrEqual(6.01);
-    const frames = setInterval(() => explorer.sendInput(-1, 0), 1000 / 60);
+    const frames = setInterval(() => explorer.sendInput({ x: -1, y: 0 }), 1000 / 60);
     await wait(() => expect(me().x).toBe(0));
     clearInterval(frames);
-    explorer.sendInput(0, 0);
+    explorer.sendInput({ x: 0, y: 0 });
     // Walking through the centre or into the edge finishes nothing.
     expect(explorer.snapshot!.state.phase).toBe("playing");
     const friend = player(deployment);
@@ -902,6 +902,41 @@ export default defineGame({
     expect(restored.playerId).toBe(playerId);
     restored.sendCommand("action", { action: "take", count: 2 });
     await wait(() => expect((restored.snapshot?.state.game as { remaining: number } | undefined)?.remaining).toBe(19));
+  });
+
+  it("runs realtime rules at their own tick with the input shape they declare", async () => {
+    const arena = createBuiltInAdapter("arena");
+    const dts: number[] = [];
+    // A jump counter that also counts ticks, to show the room steps a round nobody steers.
+    const jumper: GameAdapter = {
+      ...arena,
+      tickMs: 100,
+      validateInput(input) {
+        if (Object.keys(input).length !== 1 || typeof input.jump !== "boolean") throw new Error("Send { jump }.");
+      },
+      step(state, inputs, _now, dt) {
+        dts.push(dt);
+        const game = (state.game ?? { ticks: 0, jumps: 0 }) as { ticks: number; jumps: number };
+        const jumps = [...inputs.values()].filter(({ input }) => input.jump === true).length;
+        return { ...state, game: { ticks: game.ticks + 1, jumps: game.jumps + jumps } };
+      },
+    };
+    const deployment = await customService("jumper", jumper, { mode: "realtime", maxClients: 2 });
+    const [first] = await match(deployment);
+    expect(first.ready).toMatchObject({ tickMs: 100 });
+    const errors: unknown[] = [];
+    first.room.onMessage("input.error", (value) => errors.push(value));
+    first.room.send("input", { inputId: 0, x: 1, y: 0 });
+    await wait(() => expect(errors).toEqual([{ code: "invalid_command", message: "Send { jump }." }]));
+    first.room.send("input", { inputId: 1, inputs: { nested: { too: { deep: { here: 1 } } } } });
+    await wait(() => expect(errors).toHaveLength(2));
+    first.room.send("input", { inputId: 2, jump: true });
+    await wait(() => expect((first.snapshot!.state.game as { jumps: number }).jumps).toBeGreaterThan(0));
+    // Without fresh input the rules still step, at 100 ms ticks of 0.1 seconds.
+    const { ticks } = first.snapshot!.state.game as { ticks: number };
+    await wait(() => expect((first.snapshot!.state.game as { ticks: number }).ticks).toBeGreaterThan(ticks + 2));
+    expect(new Set(dts)).toEqual(new Set([0.1]));
+    expect(() => resolveGameAdapter({ ...deployment, adapterId: "fast" }, { fast: { ...jumper, tickMs: 10 } })).toThrow("tickMs must be a whole number from 20 to 1000.");
   });
 
   it("uses bounded inputs at a fixed realtime tick and closes realtime rooms on restart", async () => {
