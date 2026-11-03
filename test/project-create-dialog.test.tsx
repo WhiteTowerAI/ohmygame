@@ -44,13 +44,14 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
 const { ProjectCreateDialog } =
   await import("../src/renderer/project-create-dialog.js");
 
-const godot = { name: "godot", displayName: "Godot", marketplaceId: "bundled" };
+const godot = { name: "godot", displayName: "Godot", marketplaceId: "ohmygame" };
 const godotPlugin = {
-  id: "godot@bundled",
+  id: "ohmygame/godot",
   ...godot,
   description: "",
-  marketplaceDisplayName: "Bundled",
-  projectTypes: ["godot-game", "general"] as const,
+  marketplaceDisplayName: "OhMyGame",
+  projectTypes: ["general", "godot-game"] as const,
+  appliesTo: ["general", "ohmygame/godot:godot-game"],
 };
 const godotMessage = {
   prompt: "@Godot Make a maze",
@@ -122,18 +123,7 @@ describe("new project dialog", () => {
   });
 
   it("starts the project with the prompt as its first message, in a type its plugin supports", async () => {
-    capabilities = {
-      plugins: [
-        {
-          id: "godot@bundled",
-          ...godot,
-          description: "",
-          marketplaceDisplayName: "Bundled",
-          projectTypes: ["godot-game", "general"],
-        },
-      ],
-      skills: [],
-    };
+    capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] };
     const onCreated = vi.fn();
     await act(async () =>
       root.render(
@@ -159,8 +149,8 @@ describe("new project dialog", () => {
         .placeholder,
     ).toBe("Named from the first message");
     expect(typeSelect().textContent).toBe("Godot");
-    // A plugin that works only in some of the app's types leaves plugins' own types out.
-    expect(await typeOptions()).toEqual(["Godot", "General Game", "More types…"]);
+    // Only the types it works in; a plugin's type is a General project, so it works there too.
+    expect(await typeOptions()).toEqual(["Godot", "General Game", "Tile Map", "More types…"]);
 
     await act(async () => button("Create and start").click());
     expect(createProject).toHaveBeenCalledWith({ type: "godot-game" });
@@ -179,10 +169,12 @@ describe("new project dialog", () => {
     const plugin = (name: string, more: object) => ({ id: `acme/${name}`, name, displayName: name, marketplaceId: "acme", marketplaceDisplayName: "Acme", description: "", off: true as const, ...more });
     const tools = plugin("tools", { asks: ["network:tools.example.com"] });
     const notes = plugin("notes", {});
-    // One for Web games only stays off in a Tile Map.
-    const web = plugin("web", { appliesTo: ["web-game"] });
+    // One for General projects also works in a plugin's type, which is a General project.
+    const general = plugin("general", { appliesTo: ["general"] });
+    capabilities = { plugins: [tools, notes, general], skills: [] };
+    const mentions = [tools, notes, general].map(({ name, displayName, marketplaceId }) => ({ name, displayName, marketplaceId }));
     await act(async () => root.render(
-      <ProjectCreateDialog firstMessage={{ prompt: "Make a map", mentions: [], attachments: [], mode: "normal", type: "acme/tiles:map", turnOn: [tools, notes, web] }}
+      <ProjectCreateDialog firstMessage={{ prompt: "@tools @notes @general Make a map", mentions, attachments: [], mode: "normal", type: "acme/tiles:map", turnOn: [tools] }}
         onClose={() => {}} onCreated={onCreated} />,
     ));
     expect(typeSelect().textContent).toBe("Tile Map");
@@ -190,8 +182,45 @@ describe("new project dialog", () => {
     expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
     // What the person allowed on Home is granted now; the type's own plugin is on already.
     expect(consentToPlugin.mock.calls).toEqual([["acme/tools", ["network:tools.example.com"]]]);
-    expect(setProjectPlugin.mock.calls).toEqual([["maze", "acme/tools", true], ["maze", "acme/notes", true]]);
+    expect(setProjectPlugin.mock.calls).toEqual([["maze", "acme/tools", true], ["maze", "acme/notes", true], ["maze", "acme/general", true]]);
     expect(onCreated).toHaveBeenCalled();
+  });
+
+  it("turns on what the prompt and type are when creating, asking here for what Home didn't", async () => {
+    // A prompt from history mentions a Web game plugin while Home is on General.
+    const web = { id: "acme/web", name: "web", displayName: "Web Tools", marketplaceId: "acme", marketplaceDisplayName: "Acme", description: "", appliesTo: ["web-game"], off: true as const, asks: ["network:web.example.com"] };
+    capabilities = { plugins: [web], skills: [] };
+    const mention = { name: "web", displayName: "Web Tools", marketplaceId: "acme" };
+    await act(async () => root.render(
+      <ProjectCreateDialog direct firstMessage={{ prompt: "@Web Tools Make a maze", mentions: [mention], attachments: [], mode: "normal", type: "general" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    // The type follows the plugin, so the dialog shows what creating allows.
+    expect(typeSelect().textContent).toBe("Web Game");
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("network:web.example.com");
+    expect(createProject).not.toHaveBeenCalled();
+    await act(async () => button("Create and start").click());
+    expect(consentToPlugin).toHaveBeenCalledWith("acme/web", ["network:web.example.com"]);
+    expect(setProjectPlugin).toHaveBeenCalledWith("maze", "acme/web", true);
+
+    // Taking the mention out of the prompt leaves the plugin off.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    consentToPlugin.mockClear();
+    setProjectPlugin.mockClear();
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "@Web Tools Make a maze", mentions: [mention], attachments: [], mode: "normal", type: "web-game", turnOn: [web] }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    const textarea = document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "Make a maze");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalled();
+    expect(setProjectPlugin).not.toHaveBeenCalled();
+    expect(consentToPlugin).not.toHaveBeenCalled();
   });
 
   it("allows what a type's plugin asks for when creating the type, once its types have loaded", async () => {
@@ -305,10 +334,9 @@ describe("new project dialog", () => {
   });
 
   it("turns on the Godot plugin chosen on Home in the app's Godot type, which does not turn it on", async () => {
-    capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes] }], skills: [] };
-    const godotV2 = { id: "ohmygame/godot", name: "godot", displayName: "Godot", marketplaceId: "ohmygame", marketplaceDisplayName: "OhMyGame", description: "", appliesTo: ["general", "ohmygame/godot:godot-game"], off: true as const };
+    capabilities = { plugins: [{ ...godotPlugin, projectTypes: [...godotPlugin.projectTypes], off: true }], skills: [] };
     await act(async () => root.render(
-      <ProjectCreateDialog firstMessage={{ prompt: "Make a maze", mentions: [], attachments: [], mode: "normal", type: "godot-game", turnOn: [godotV2] }}
+      <ProjectCreateDialog firstMessage={{ prompt: "@Godot Make a maze", mentions: [godot], attachments: [], mode: "normal", type: "godot-game" }}
         onClose={() => {}} onCreated={() => {}} />,
     ));
     await act(async () => button("Create and start").click());

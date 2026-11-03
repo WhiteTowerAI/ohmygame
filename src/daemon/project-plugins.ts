@@ -541,7 +541,7 @@ export async function setProjectPlugin({
   folder: string;
   id: string;
   on: boolean;
-  /** An installed version to move the project to; the newest when absent. */
+  /** An installed version to move the project to; when absent, the newest that works in the project. */
   version?: string;
   /** The type to write when the folder has no `ohmygame.json` yet. */
   initialType?: string;
@@ -562,17 +562,19 @@ export async function setProjectPlugin({
     return file;
   }
   const newest = scope.index.get(id);
-  const entry = version ? scope.index.get(id, version) : newest;
-  if (!entry) throw new Error(`${id}${version ? `@${version}` : ""} is not installed`);
   const read = await readProjectFile(key);
   const kind = await kindOf(scope, key, read?.ok ? read.file : undefined);
   const owner = read?.ok ? projectTypePlugin(read.file.type) : undefined;
+  // An older version can be the newest that works here, when a later one dropped the project's kind.
+  const entry = version ? scope.index.get(id, version)
+    : scope.index.versions(id).find((item) => !pluginApiIssue(item.manifest) && suits(item, kind, owner)) ?? newest;
+  if (!entry) throw new Error(`${id}${version ? `@${version}` : ""} is not installed`);
   if (!suits(entry, kind, owner))
     throw new Error(`${id} doesn't work in ${kind.pluginType?.id ?? kind.type} projects`);
   // On everywhere at its newest: the project follows that and names nothing.
   const follows = everywhere && entry === newest && owner !== id;
   if (follows && !exists) return undefined;
-  const value = follows ? undefined : !version && isAppWidePlugin(entry.manifest) ? true : entry.version;
+  const value = follows ? undefined : entry === newest && !version && isAppWidePlugin(entry.manifest) ? true : entry.version;
   const file = await writeProjectFileAt(key, (current) => {
     const { [id]: _previous, ...rest } = current.plugins ?? {};
     return { ...current, plugins: value === undefined ? rest : { ...rest, [id]: value } };

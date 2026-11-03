@@ -1241,7 +1241,11 @@ describe("plugin releases", () => {
       expect(services.onInEveryProject("ohmygame/taptap-maker")).toBe(false);
       await services.consent("ohmygame/taptap-maker", ["native"]);
       await services.addBundled(BUNDLED);
-      expect(services.grants.plugin("ohmygame/taptap-maker")).toMatchObject({ enabled: true, allowed: expect.arrayContaining(["native"]) });
+      expect(services.grants.plugin("ohmygame/taptap-maker")).toMatchObject({ enabled: true, allowed: ["native"] });
+      // Turning one on in every project, without allowing it, allows nothing at the next start either.
+      await services.setEveryProject("ohmygame/unreal-engine", true);
+      await services.addBundled(BUNDLED);
+      expect(services.grants.plugin("ohmygame/unreal-engine")).toEqual({ enabled: true, allowed: [], everyProject: true });
       // A plugin the person stopped everywhere stays stopped.
       await services.setEnabled("ohmygame/godot", false);
       await services.addBundled(BUNDLED);

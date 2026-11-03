@@ -397,6 +397,32 @@ describe("project plugins", () => {
     }
   });
 
+  it("turns on the newest version that works in the project, when a later one doesn't", async () => {
+    const kinds = new Map<string, { type: string }>();
+    const services = new PluginServices({ directory: await temporary(), projectKind: (folder) => kinds.get(folder) });
+    const tool = async (version: string, appliesTo?: string[]) => {
+      const dir = path.join(await temporary(), `tool-${version}`);
+      await mkdir(path.join(dir, ".ohmygame-plugin"), { recursive: true });
+      await writeFile(path.join(dir, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+        id: "acme/tool", version, engines: { "ohmygame-api": "^2.0.0" }, displayName: "Tool", description: "Tool.",
+        capabilities: { network: ["tool.example.com"] }, ...(appliesTo ? { appliesTo } : {}),
+      }));
+      return dir;
+    };
+    try {
+      await services.ready();
+      for (const root of [await tool("1.0.0"), await tool("2.0.0", ["web-game"])]) expect((await services.index.add(root)).ok).toBe(true);
+      await services.consent("acme/tool", ["network:tool.example.com"]);
+      const general = await temporary();
+      kinds.set(await projectFolderKey(general), { type: "general" });
+      await services.setProjectPlugin(general, "acme/tool", true, { initialType: "general" });
+      expect(JSON.parse(await readFile(path.join(general, "ohmygame.json"), "utf8")).plugins).toEqual({ "acme/tool": "1.0.0" });
+      expect(await stateOf(general, services)).toEqual([["acme/tool", "active"]]);
+    } finally {
+      await services.close();
+    }
+  });
+
   it("runs a plugin only in the project types its appliesTo names", async () => {
     const services = new PluginServices({ directory: await temporary(), bundled: BUNDLED });
     try {

@@ -109,6 +109,21 @@ it("asks for what isn't allowed yet, turns it on in every project with a warning
   expect(onRemoved).not.toHaveBeenCalled();
 });
 
+it("warns before a plugin already allowed goes on in every project, allowing nothing more", async () => {
+  const onChanged = vi.fn(async () => {});
+  const [group] = groupStorePlugins([row("1.0.0", { bundled: true, grants: { enabled: true, allowed: ["native", "network:api.example.com"] } })]);
+  await act(async () => root.render(<StorePluginDetail group={group!} onChanged={onChanged} onRemoved={() => {}} />));
+  const everyProject = () => document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Turn Maker on in every project"]')!;
+  await act(async () => everyProject().click());
+  expect(document.querySelector("[role=dialog]")!.textContent).toContain("It will run in every project it works in");
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((item) => item.textContent === "Cancel")!.click());
+  expect(api.setStorePluginEveryProject).not.toHaveBeenCalled();
+  await act(async () => everyProject().click());
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((item) => item.textContent === "Allow and turn on")!.click());
+  expect(api.consentToPlugin).not.toHaveBeenCalled();
+  expect(api.setStorePluginEveryProject).toHaveBeenCalledWith("acme/maker", true);
+});
+
 it("offers Uninstall only for the versions that didn't ship with the app", async () => {
   const [group] = groupStorePlugins([row("2.0.0", { bundled: true }), row("1.0.0")]);
   await act(async () => root.render(<StorePluginDetail group={group!} onChanged={async () => {}} onRemoved={() => {}} />));

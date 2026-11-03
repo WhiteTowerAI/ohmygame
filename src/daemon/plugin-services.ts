@@ -584,10 +584,10 @@ export class PluginServices {
       // goes; a version installed apart stays.
       for (const other of this.index.versions(result.entry.id))
         if (other.version !== result.entry.version) await this.index.verify(other.id, other.version);
-      const decided = this.grants.plugin(result.entry.id);
-      if (decided?.enabled === false) continue;
-      // One that starts off asks for consent when the person first turns it on.
-      if (!decided && this.#bundledOff.has(result.entry.id)) continue;
+      if (this.grants.plugin(result.entry.id)?.enabled === false) continue;
+      // One that starts off asks for consent when the person turns it on, and
+      // only that consent counts: a record of where it is on allows nothing.
+      if (this.#bundledOff.has(result.entry.id)) continue;
       await this.grants.consent(
         result.entry.id,
         capabilityGrants(result.entry.manifest),

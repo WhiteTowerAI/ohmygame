@@ -1042,6 +1042,7 @@ const en = {
     firstMessage: "First message",
     namedFromPrompt: "Named from the first message",
     typePluginConsent: "Creating this project allows {{name}}, which adds this type, to use:",
+    pluginConsent: "Creating this project turns on {{name}}, which the prompt mentions, and allows it to use:",
     newFolder: "A new folder named after the project is made here.",
     usesFolder: "The project uses this folder as it is.",
     createAndStart: "Create and start",

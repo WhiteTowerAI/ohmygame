@@ -334,7 +334,7 @@ export interface ProjectPluginItem {
   id: string;
   displayName: string;
   description: string;
-  /** The newest installed version, offered when turning it on. */
+  /** The newest installed version that works in the project, which turning it on gives. */
   version: string;
   /** The version this project uses; absent while it is off here. */
   used?: string;

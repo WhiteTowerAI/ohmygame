@@ -71,8 +71,8 @@ function newProjectType(plugin: StorePlugin): ProjectType | undefined {
 
 /**
  * The switch that turns a plugin on or off in every project it suits. Turning
- * on one that asks for more than was allowed asks first, since it then runs in
- * each of those projects.
+ * on one that asks for anything says so first, since it then runs in each of
+ * those projects, and allows what wasn't allowed yet.
  */
 export function useEveryProjectSwitch(onChanged: () => Promise<void>): {
   toggle: (plugin: StorePlugin, on: boolean) => void;
@@ -99,12 +99,12 @@ export function useEveryProjectSwitch(onChanged: () => Promise<void>): {
   return {
     toggle: (plugin, on) => {
       if (busy) return;
-      if (on && storePluginMissing(plugin).length) setAsking(plugin);
+      if (on && plugin.capabilities.length) setAsking(plugin);
       else void set(plugin, on);
     },
     ...(busy ? { busy } : {}),
     ...(error ? { error } : {}),
-    dialog: asking ? <PluginConsentDialog name={asking.displayName} capabilities={storePluginMissing(asking)} everyProject
+    dialog: asking ? <PluginConsentDialog name={asking.displayName} capabilities={asking.capabilities} everyProject
       onCancel={() => setAsking(undefined)}
       onAllow={() => {
         const plugin = asking;

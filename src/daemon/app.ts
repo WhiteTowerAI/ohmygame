@@ -1494,7 +1494,8 @@ export function createApp(options: AppOptions = {}) {
         id,
         displayName: entry ? localizePluginString(entry, entry.manifest.displayName, locale) : id,
         description: entry ? localizePluginString(entry, entry.manifest.description, locale) : "",
-        version: entry?.version ?? state?.version ?? "",
+        // The version turning it on gives, which a version the project pins differs from.
+        version: offered.get(id)?.version ?? entry?.version ?? state?.version ?? "",
         ...(state ? { used: state.version, status: state.status } : {}),
         providesType: state?.providesType ?? false,
         everyProject: pluginServices.onInEveryProject(id),

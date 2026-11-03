@@ -283,6 +283,13 @@ describe("composer mentions", () => {
     expect(container.textContent).toContain("Plugins change after the agent finishes.");
     expect(promptChips(container)).toEqual([]);
 
+    // Text typed while it turns on is kept, without the mention.
+    await pick();
+    await typePrompt("Something else", container);
+    await act(async () => answer(true));
+    expect(promptText(container)).toBe("Something else");
+    expect(promptChips(container)).toEqual([]);
+
     await pick();
     await act(async () => answer(true));
     expect(promptChips(container)).toEqual(["Tiles"]);

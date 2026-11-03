@@ -1026,6 +1026,7 @@ const zhCN: typeof en = {
     firstMessage: "第一条消息",
     namedFromPrompt: "根据第一条消息命名",
     typePluginConsent: "创建这个项目即允许添加此类型的 {{name}} 使用：",
+    pluginConsent: "创建这个项目会开启提示词中提到的 {{name}}，并允许它使用：",
     newFolder: "会在这里新建一个以项目命名的文件夹。",
     usesFolder: "项目直接使用这个文件夹。",
     createAndStart: "创建并开始",

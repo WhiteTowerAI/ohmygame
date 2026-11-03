@@ -206,8 +206,10 @@ shows it in the call's progress.
   uses (none when off), its status, whether it is on in every project, what
   it asks for, and whether the person allowed that.
   `PUT /projects/:id/plugins/:publisher/:name` with `{ on, version? }` turns
-  one on or off there; a version moves the project to another installed
-  one, which is both an update and a rollback. It writes only what differs
+  one on or off there. Without a version it gives the newest installed
+  version that works in the project, the `version` the list shows; a
+  version moves the project to another installed one, which is both an
+  update and a rollback. It writes only what differs
   from the every-project choice, and turning one on allows it for the
   folder. A project without `ohmygame.json` gets one the first time it
   needs one, typed `general`, or its own core type. Turning on one never
@@ -239,8 +241,10 @@ shows it in the call's progress.
   is no plugin menu: the type's plugin and those on in every project are on
   in the new project. `@` offers the plugins that suit the chosen type,
   except those that add types, which are picked as the type. Mentioning one
-  that is off asks for its consent, if needed, and creating the project
-  turns it on there.
+  that is off asks for its consent, if needed. The new-project dialog then
+  turns on the mentioned plugins that are off and work in the type it
+  creates, going by the prompt and type it ends with, and lists there what
+  creating allows for any whose consent Home didn't ask for.
 
 ## Plugins for every project
 
@@ -255,8 +259,10 @@ plugin itself in `ohmygame.json`.
 `resolveProjectPlugins` (`src/daemon/project-plugins.ts`) lists a project's
 plugins from the plugins its `ohmygame.json` names, then those on in every
 project that it suits and doesn't turn off, at their newest version. Turning
-one on in every project needs the person's consent to what it asks for, once,
-since it then runs in each of those projects; it needs no approval per folder.
+one that asks for anything on in every project shows what it asks for and that
+it will run in each of those projects; the person's consent, once, is all it
+needs, with no approval per folder. A bundled plugin that starts off is never
+allowed at startup, only by that consent.
 A plugin a project's file names needs that approval too, unless it only adds
 Skills, since the file may come from someone else. `PluginServices.everyProject`
 and `everyProjectSkills` give the plugins on in every project, and their Skills,
