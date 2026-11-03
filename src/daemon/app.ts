@@ -600,7 +600,19 @@ export function createApp(options: AppOptions = {}) {
   const conversationImages = new ConversationImageStore(path.join(dataDirectory, "cache", "conversation-images"));
   const events = new RuntimeEventBus(1_000, (event) => conversationImages.event(event));
   const library = new AssetLibrary(dataDirectory);
-  const projects = new ProjectManager(dataDirectory, library);
+  const activityStreams = new Set<(snapshot: string) => void>();
+  let activityPending = false;
+  const notifyProjectActivity = () => {
+    if (activityPending || !activityStreams.size) return;
+    activityPending = true;
+    setImmediate(() => {
+      activityPending = false;
+      if (!activityStreams.size) return;
+      const snapshot = JSON.stringify(projectActivity());
+      for (const send of activityStreams) send(snapshot);
+    });
+  };
+  const projects = new ProjectManager(dataDirectory, library, notifyProjectActivity);
   const notices = new AgentNoticeLog((projectId) => projects.get(projectId)?.name ?? null);
   events.subscribeAll((event) => notices.event(event));
   const attachments = new AgentAttachmentStore();
@@ -1033,6 +1045,7 @@ export function createApp(options: AppOptions = {}) {
     };
   }, (projectId, conversationId, messages) => events.publish(projectId, "scheduled.changed", { messages }, { conversationId }));
   agents = new AgentManager(events, {
+    onActivityChange: notifyProjectActivity,
     errorDiagnostics: () => {
       const route = networkSettings.get().active;
       return { network: { source: route.source, ...(route.httpsProxy ? { proxyUrl: route.httpsProxy } : {}) } };
@@ -2001,27 +2014,17 @@ export function createApp(options: AppOptions = {}) {
   });
 
 
-  // Project lists follow activity here instead of polling for it. The snapshot is sent when it changes: runtime events
-  // prompt a check, and a short in-memory check also catches changes that publish no event, such as a cancel starting.
   app.get("/projects/activity/events", async (request, reply) => {
     const keepOpen = openEventStream(request, reply);
     let sent = "";
-    let scheduled: NodeJS.Timeout | undefined;
-    const send = () => {
-      scheduled = undefined;
-      const snapshot = JSON.stringify(projectActivity());
+    const send = (snapshot: string) => {
       if (snapshot === sent) return;
       sent = snapshot;
       reply.raw.write(`event: activity\ndata: ${snapshot}\n\n`);
     };
-    send();
-    const unsubscribe = events.subscribeAll(() => { scheduled ??= setTimeout(send, 50); });
-    const check = setInterval(send, 1_000);
-    keepOpen(() => {
-      unsubscribe();
-      clearTimeout(scheduled);
-      clearInterval(check);
-    });
+    activityStreams.add(send);
+    send(JSON.stringify(projectActivity()));
+    keepOpen(() => activityStreams.delete(send));
   });
 
   app.get("/examples", async () => examples.list());

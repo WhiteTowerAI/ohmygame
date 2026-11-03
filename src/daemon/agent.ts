@@ -395,6 +395,7 @@ function messageTime(entry: Extract<SessionEntry, { type: "message" }>): number 
 }
 
 interface AgentManagerOptions {
+  onActivityChange?: () => void;
   createSession?: SessionFactory;
   loadSkills?: (project: ProjectState) => Promise<Array<{ name: string; description: string }>>;
   activeToolNames?: (project: ProjectState, mode: PlanMode, session: CodingSession) => string[];
@@ -1659,6 +1660,7 @@ export class AgentManager {
     // Set together with queueing the mutation that closes the turn, so whatever then waits in this queue comes after it.
     // Since the event that ended the run nothing from outside has had a turn: only promise callbacks ran in between.
     active.ended = true;
+    this.options.onActivityChange?.();
     await this.#withQueueMutation(key, async () => {
       if (this.#activeTurns.get(key) !== active) return;
       // An edit can fail before its replacement message starts. Preserve the
@@ -2341,6 +2343,7 @@ export class AgentManager {
 
   #setState(projectId: string, conversationId: string, state: ConversationAgentState, limitReached = false): void {
     this.#agentStates.set(conversationKey(projectId, conversationId), state);
+    this.options.onActivityChange?.();
     this.options.onLimitChange?.(projectId, conversationId, limitReached);
   }
 

@@ -494,7 +494,9 @@ Project lists receive names from the project activity stream, even after a
 short turn finishes. `/projects/activity` returns `{ activity, names }`, and
 `/projects/activity/events` streams the same snapshot as an `activity` SSE event
 whenever it changes; `names` contains only each project's `id`, `name` and
-optional `nameSource`. Stopping the daemon ends this and the other SSE streams
+optional `nameSource`. New connections receive the current snapshot. Changes to
+agent activity or the project list prompt one shared snapshot for all listening
+windows, including when a turn starts cancelling. Stopping the daemon ends this and the other SSE streams
 first, so an open Projects page does not hold shutdown open.
 
 ## Project navigation
