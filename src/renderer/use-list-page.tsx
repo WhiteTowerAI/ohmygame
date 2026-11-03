@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { t } from "./i18n.js";
 import { Button } from "./ui/index.js";
 
@@ -7,11 +7,9 @@ const PAGE_SIZE = 48;
 /** Keep filters and selection over the full list. Mount another page when its end comes into view. */
 export function useListPage(total: number) {
   const [limit, setLimit] = useState(PAGE_SIZE);
-  const end = useRef<HTMLDivElement>(null);
   const more = limit < total;
-  useEffect(() => {
-    const node = end.current;
-    if (!more || !node || typeof IntersectionObserver === "undefined") return;
+  const end = useCallback((node: HTMLDivElement | null) => {
+    if (!node || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry?.isIntersecting) {
@@ -23,7 +21,7 @@ export function useListPage(total: number) {
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [more, limit]);
+  }, [limit]);
   return {
     limit,
     next: more ? (

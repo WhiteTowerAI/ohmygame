@@ -1,3 +1,4 @@
+import { mapConcurrent } from "./map-concurrent.js";
 import { isAccountRuntimeId, type AccountRuntimeId, type AccountProfileIds } from "../shared/agent-runtimes.js";
 import path from "node:path";
 import { mkdir, readdir, rename, rm } from "node:fs/promises";
@@ -313,12 +314,8 @@ export class ConversationManager {
 
   async #sessions(project: ProjectState, directory = sessionDirectory(project), knownFiles?: string[]): Promise<ConversationInfo[]> {
     const files = knownFiles ?? await this.#sessionFiles(directory);
-    const sessions: ConversationInfo[] = [];
-    for (let start = 0; start < files.length; start += 4) {
-      const batch = await Promise.all(files.slice(start, start + 4).map((file) => this.#cache.info(project, file)));
-      for (const info of batch) if (info) sessions.push(info);
-    }
-    return sessions;
+    const sessions = await mapConcurrent(files, 4, (file) => this.#cache.info(project, file));
+    return sessions.filter((session) => session !== undefined);
   }
 }
 

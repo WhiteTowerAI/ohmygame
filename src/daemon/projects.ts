@@ -1,3 +1,4 @@
+import { mapConcurrent } from "./map-concurrent.js";
 import { PREVIEW_SETTING_KEYS, previewSettings, validPreviewSettings, validatePreviewSettings, type ProjectPreviewSettings } from "../shared/preview-settings.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -1404,23 +1405,6 @@ function isProjectId(value: string): boolean {
 function validAssetName(value: string): boolean {
   return value.length > 0 && value.length <= 200 && value !== "." && value !== ".." &&
     !value.includes("/") && !value.includes("\\") && !/[\u0000-\u001f]/.test(value);
-}
-
-async function mapConcurrent<T, R>(
-  values: readonly T[],
-  concurrency: number,
-  transform: (value: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(values.length);
-  let nextIndex = 0;
-  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
-    while (nextIndex < values.length) {
-      const index = nextIndex++;
-      results[index] = await transform(values[index]!);
-    }
-  });
-  await Promise.all(workers);
-  return results;
 }
 
 function validPublication(value: unknown): value is PublicationState {

@@ -1,3 +1,4 @@
+import { mapConcurrent } from "./map-concurrent.js";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
@@ -92,17 +93,15 @@ async function visit(root: string, relativeDirectory: string, files: WorkspaceFi
   const directory = path.join(root, ...relativeDirectory.split("/").filter(Boolean));
   const entries = await readdir(directory, { withFileTypes: true });
   const regular = entries.filter((entry) => entry.isFile());
-  for (let start = 0; start < regular.length; start += 8) {
-    const batch = await Promise.all(regular.slice(start, start + 8).map(async (entry) => {
-      const media = workspaceMediaInfo(entry.name);
-      return {
-        path: relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name,
-        size: (await stat(path.join(directory, entry.name))).size,
-        ...(media ? { mediaType: media.mediaType } : {}),
-      };
-    }));
-    files.push(...batch);
-  }
+  const details = await mapConcurrent(regular, 8, async (entry) => {
+    const media = workspaceMediaInfo(entry.name);
+    return {
+      path: relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name,
+      size: (await stat(path.join(directory, entry.name))).size,
+      ...(media ? { mediaType: media.mediaType } : {}),
+    };
+  });
+  for (const detail of details) files.push(detail);
   const directories = entries.filter((entry) => entry.isDirectory() && !IGNORED_DIRECTORIES.has(entry.name));
   for (const entry of directories) {
     const child = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
