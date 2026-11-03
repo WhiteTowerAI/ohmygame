@@ -23,7 +23,7 @@ import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentSt
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "../shared/agent-runtimes.js";
-import type { StoredConversation } from "./conversations.js";
+import { NATIVE_REASONING_ENTRY, type StoredConversation } from "./conversations.js";
 import { replayNativeMessages } from "./agent-runtimes/replay.js";
 import { invokedSkills } from "./agent-runtimes/skills.js";
 import {
@@ -57,7 +57,7 @@ export interface CodingSession {
   readonly profileId?: string;
   /** Whether prompt() emits message_start for its initial user message. */
   readonly emitsInitialUserMessage?: boolean;
-  readonly sessionManager?: Pick<SessionManager, "appendCustomEntry" | "getBranch"> & Partial<Pick<SessionManager, "branch">>;
+  readonly sessionManager?: Pick<SessionManager, "appendCustomEntry" | "appendModelChange" | "appendThinkingLevelChange" | "buildSessionContext" | "getBranch"> & Partial<Pick<SessionManager, "branch">>;
   prompt(prompt: string, options?: { images?: PiPromptImage[] }): Promise<void>;
   followUp?(prompt: string, images?: PiPromptImage[]): Promise<unknown>;
   steer?(prompt: string, images?: PiPromptImage[]): Promise<unknown>;
@@ -2429,7 +2429,27 @@ export class AgentManager {
  * undo had not happened yet, so there the turn can be undone again. The note
  * that told the model of the undo is left behind either way.
  */
+/**
+ * The model and reasoning level belong to the conversation and not its
+ * history, and a session keeps running on them, so moving back past where they
+ * were chosen brings them along.
+ */
+export function carrySettings(sessionManager: NonNullable<CodingSession["sessionManager"]>, left: readonly SessionEntry[]): void {
+  const kept = new Set(sessionManager.getBranch().map((entry) => entry.id));
+  const gone = left.filter((entry) => !kept.has(entry.id));
+  const model = gone.findLast((entry) => entry.type === "model_change");
+  const selected = sessionManager.buildSessionContext().model;
+  if (model?.type === "model_change" && (selected?.provider !== model.provider || selected.modelId !== model.modelId)) {
+    sessionManager.appendModelChange(model.provider, model.modelId);
+  }
+  const thinking = gone.findLast((entry) => entry.type === "thinking_level_change");
+  if (thinking?.type === "thinking_level_change") sessionManager.appendThinkingLevelChange(thinking.thinkingLevel);
+  const native = gone.findLast((entry) => entry.type === "custom" && entry.customType === NATIVE_REASONING_ENTRY);
+  if (native?.type === "custom") sessionManager.appendCustomEntry(NATIVE_REASONING_ENTRY, native.data);
+}
+
 function carryTurnEnds(sessionManager: NonNullable<CodingSession["sessionManager"]>, left: readonly SessionEntry[], undone = false): void {
+  carrySettings(sessionManager, left);
   const kept = sessionManager.getBranch();
   const ids = new Set(kept.map((entry) => entry.id));
   // The turns that stay are the checkpoints whose message is still there; the last checkpoint may have lost its own.

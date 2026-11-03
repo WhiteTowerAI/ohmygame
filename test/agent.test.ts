@@ -3033,6 +3033,9 @@ class FakeSession implements CodingSession {
   });
   sessionManager = {
     branch: vi.fn(),
+    appendModelChange: vi.fn(() => ""),
+    appendThinkingLevelChange: vi.fn(() => ""),
+    buildSessionContext: vi.fn(() => ({ messages: [], thinkingLevel: "off", model: null })),
     appendCustomEntry: this.appendCustomEntry,
     getBranch: () => this.#entries as never,
   };
@@ -3059,6 +3062,9 @@ function checkpointSession() {
   const entries: object[] = [];
   session.sessionManager = {
     branch: vi.fn(),
+    appendModelChange: vi.fn(() => ""),
+    appendThinkingLevelChange: vi.fn(() => ""),
+    buildSessionContext: vi.fn(() => ({ messages: [], thinkingLevel: "off", model: null })),
     appendCustomEntry: vi.fn((customType: string, data: unknown) => {
       entries.push(sessionEntry(`entry-${entries.length + 1}`, customType, data as object));
       return `entry-${entries.length}`;
