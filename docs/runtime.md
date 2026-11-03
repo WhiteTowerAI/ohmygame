@@ -623,6 +623,9 @@ Game and opens on Code; a story opens on its Story map; panels new to the saved 
 default's order and front tab. A chat moved to the middle reads in one centered
 column.
 
+Long conversations open at the most recent 40 turns. Scroll toward the top
+or choose **Show earlier messages** to read the preceding turns.
+
 Chat's controls beside its tab name the open conversation; it opens the
 conversation list, to search, switch and rename, and **+** starts a new one.
 

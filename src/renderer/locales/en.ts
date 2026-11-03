@@ -2106,6 +2106,7 @@ const en = {
     saveFailed: "Could not save the image",
   },
   timeline: {
+    earlierMessages: "Show earlier messages",
     waitingToSteer: "Waiting to steer",
     branchChat: "Branch in new chat",
     branchConfirm: "Create a new chat with all messages through this response?",

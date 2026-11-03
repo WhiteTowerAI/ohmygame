@@ -89,7 +89,14 @@ export class ConversationManager {
   }
 
   async get(project: ProjectState, conversationId: string): Promise<StoredConversation | undefined> {
-    const session = (await this.#sessions(project)).find((candidate) => candidate.id === conversationId);
+    const directory = sessionDirectory(project);
+    const files = await this.#sessionFiles(directory);
+    // Pi puts the id in the filename. Verify the header and retain discovery for renamed/imported sessions.
+    const matches = files.filter((file) => file.endsWith(`_${conversationId}.jsonl`));
+    let session = matches.length === 1 ? await this.#cache.info(project, matches[0]!) : undefined;
+    if (session?.id !== conversationId) {
+      session = (await this.#sessions(project, directory, files)).find((item) => item.id === conversationId);
+    }
     if (session) {
       this.#pending.delete(key(project.id, conversationId));
       return { summary: summary(project.id, session), sessionPath: session.path };
@@ -296,17 +303,20 @@ export class ConversationManager {
     return { mode: state.mode, ...(state.plan ? { plan: state.plan } : {}) };
   }
 
-  async #sessions(project: ProjectState, directory = sessionDirectory(project)): Promise<ConversationInfo[]> {
-    const files = await readdir(directory).catch((cause: NodeJS.ErrnoException) => {
+  async #sessionFiles(directory: string): Promise<string[]> {
+    const names = await readdir(directory).catch((cause: NodeJS.ErrnoException) => {
       if (cause.code === "ENOENT") return [];
       throw cause;
     });
+    return names.filter((name) => name.endsWith(".jsonl")).map((name) => path.join(directory, name));
+  }
+
+  async #sessions(project: ProjectState, directory = sessionDirectory(project), knownFiles?: string[]): Promise<ConversationInfo[]> {
+    const files = knownFiles ?? await this.#sessionFiles(directory);
     const sessions: ConversationInfo[] = [];
-    for (const name of files) {
-      if (!name.endsWith(".jsonl")) continue;
-      const file = path.join(directory, name);
-      const info = await this.#cache.info(project, file);
-      if (info) sessions.push(info);
+    for (let start = 0; start < files.length; start += 4) {
+      const batch = await Promise.all(files.slice(start, start + 4).map((file) => this.#cache.info(project, file)));
+      for (const info of batch) if (info) sessions.push(info);
     }
     return sessions;
   }

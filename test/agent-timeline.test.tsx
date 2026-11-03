@@ -38,6 +38,26 @@ function AgentTimeline({ items, activeTurnId, failedTurnId, cancelledTurnId, ...
 }
 
 describe("AgentTimeline", () => {
+  it("opens long histories at their latest turns and reveals older messages", async () => {
+    const turns = Array.from({ length: 81 }, (_, i): Turn => ({
+      id: String(i), conversationId: "history", status: "completed",
+      items: [{ ...user(), id: "user-" + i, turnId: String(i), text: `Message [${i}]` }],
+    }));
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<ThreadTimeline turns={turns} />));
+      expect(container.textContent).toContain("Message [80]");
+      expect(container.textContent).not.toContain("Message [40]");
+      const previous = () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Show earlier messages");
+      await act(async () => previous()!.click());
+      expect(container.textContent).toContain("Message [40]");
+      await act(async () => previous()!.click());
+      expect(container.textContent).toContain("Message [0]");
+      expect(previous()).toBeUndefined();
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it("places Branch in new chat immediately after Copy for every persisted completed response", () => {
     const response: ThreadItem = { id: "response", turnId: "turn-1", type: "agentMessage", text: "Done", status: "completed", phase: "final_answer", branchEntryId: "stored-response" };
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), response]} onBranch={() => {}} />);
