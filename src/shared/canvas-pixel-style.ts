@@ -3,7 +3,9 @@ export const GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS = `**GLOBAL PIXEL ART STYLE REQ
 Create authentic low-resolution 2D game pixel art, designed natively on the selected logical pixel grid rather than as a high-resolution illustration with a pixelation filter.
 
 Use uniformly sized square pixels, deliberate pixel clusters, stepped contours, readable silhouettes, and crisp hard-edged shading. The selected density controls logical dimensions, palette, shading depth, and retained detail. Do not apply a different density's rules.
+**DENSITY PRIORITY**
 
+When the selected density is DETAILED PIXELS, target premium 32-bit pixel-art illustration fidelity, not coarse or classic pixel art enlarged to a larger canvas. Use dense, visibly small square-pixel clusters and retain controlled micro-structure, material transitions, secondary motion detail, directional key light, rim light, contact shadows, and compact specular highlights at the requested logical size. Build believable material volume through hard-edged pixel clusters: reflective facet highlights and occlusion seams for metal or ice, layered translucent bands and surface reflections for water, and a bright emissive core with nested stepped falloff bands for magic or fire. Add selective texture clusters only where they describe a material, light direction, or form change; do not use empty random noise. Never reuse coarse or classic block sizes for detailed output; do not reduce a detailed effect to a single broad silhouette with a few oversized particles.
 **REFERENCE DESIGN, NOT REFERENCE RENDERING**
 
 Use references to identify the requested subject, silhouette, proportions, major structures, primary colors, and identity-defining features. Preserve pose, camera angle, or composition only where the task explicitly requires them. With no reference, follow the user's subject description.
@@ -22,6 +24,7 @@ type PixelArtAssetType =
   | "environment"
   | "terrain"
   | "object"
+  | "effect"
   | "animation"
   | "subject";
 type PixelArtGrid = {
@@ -68,9 +71,16 @@ const SUBJECT_DETAILS: Record<PixelArtLevel, string> = {
   detailed:
     "Retain selected secondary structures, markings, seams, or highlights as readable clusters; omit only detail too small for this grid. For faces, if present, retain selected hair or fur locks and compact eye highlights.",
 };
-
+const EFFECT_DETAILS: Record<PixelArtLevel, string> = {
+  coarse:
+    "Keep the effect to bold, readable energy masses with only essential sparks or fragments. Prioritize the motion silhouette over interior texture.",
+  classic:
+    "Use compact clusters for the core, outer edge, and a few motion-defining particles. Keep trails, arcs, droplets, and fragments readable without adding fine texture.",
+  detailed:
+    "Use a 256×256 logical canvas for every effect frame, with premium 32-bit pixel-art illustration fidelity. Build the core, glow edge, material transitions, secondary particles, and believable three-dimensional volume from dense small square-pixel clusters. Use 6–8 discrete hard-edged tones across the effect palette, reserving the brightest one for compact specular or emissive focal highlights. Render a deliberate light hierarchy: hot or bright core, lit plane, saturated midtone body, dark occlusion rim, thin rim light, then sparse reflected fragments. Ice should show planar facets, internal refraction bands, and cold reflective glints; water should show layered translucent bands, refracted depth, and sharp surface reflections; fire and magic should show nested emissive cores with stepped radiating falloff. Retain thin but readable arcs, tendrils, droplets, sparks, shards, and smoke wisps where they clarify motion. Add selective texture clusters only where they describe material, lighting, or volume, never as random speckling.",
+};
 const ASSET_DETAILS: Record<
-  Exclude<PixelArtAssetType, "subject" | "animation">,
+  Exclude<PixelArtAssetType, "subject" | "effect" | "animation">,
   Record<PixelArtLevel, string>
 > = {
   character: {
@@ -126,7 +136,13 @@ export function withPixelArtLevel(
   },
 ): string {
   const settings = PIXEL_ART_LEVEL_SETTINGS[level];
-  const size = settings[kind];
+  const assetTypes =
+    typeof options?.assetType === "string"
+      ? [options.assetType]
+      : (options?.assetType ?? []);
+  const size = kind === "sprite" && level === "detailed" && assetTypes.includes("effect")
+    ? 256
+    : settings[kind];
   const grid = options?.grid;
   const dimensions = options?.referenceSheet
     ? `Design the entire 16:9 reference sheet on a ${size * 4}×${(size * 9) / 4} logical pixel canvas. Full-body views each fit within a ${size}×${size} logical sprite budget; the main portrait can occupy more logical area, using the same pixel scale and detail budget.`
@@ -137,15 +153,13 @@ export function withPixelArtLevel(
     kind === "tile"
       ? "An explicit user tile size or atlas layout overrides these defaults. Recalculate the complete logical atlas from that tile size and layout; do not enforce the default dimensions at the same time."
       : "";
-  const assetTypes =
-    typeof options?.assetType === "string"
-      ? [options.assetType]
-      : (options?.assetType ?? []);
   const assetDetail = assetTypes
     .map((type) => {
       const detail =
         type === "subject"
           ? SUBJECT_DETAILS[level]
+          : type === "effect"
+            ? EFFECT_DETAILS[level]
           : type === "animation"
             ? `${SUBJECT_DETAILS[level]} Apply the same detail choices to the supplied subject in every frame, whether it is a person, creature, or object. Spend the budget on readable motion, not changing texture or ornament.`
             : ASSET_DETAILS[type][level];
@@ -158,8 +172,10 @@ export function withPixelArtLevel(
       : level === "detailed"
         ? "DETAILED PIXELS"
         : "CLASSIC PIXELS";
-  const instruction = `**PIXEL DENSITY: ${title}**\n\n${dimensions}${sizeOverride ? ` ${sizeOverride}` : ""}\n\n${settings.style} Pixel construction takes priority over detail reduction: keep visible square-pixel clusters and stair-step contours on outer silhouettes, diagonals, curves, and internal color boundaries at this density. Simplified shapes must still be built from pixels; do not turn them into smooth flat vector shapes. Fine detail must also remain visibly pixel-built. Use no more than ${settings.colors} colors across all artwork in the full output, plus one plain background color or transparency. Reuse the palette across every view and frame.\n\nLogical dimensions are design targets, not provider output dimensions. Enlarge the complete composition using one uniform nearest-neighbor scale. Derive visible block size from the complete logical canvas and actual output size, never from a fixed output-width example. Preserve square pixels; if the output aspect ratio differs, leave plain margins rather than stretching pixels or adding detail.${assetDetail ? `\n\n${assetDetail}` : ""}`;
-  const firstSection = prompt.indexOf("\n\n");
+  const globalStyle = prompt.includes(GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS)
+    ? ""
+    : `${GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS}\n\n`;
+  const instruction = `${globalStyle}**PIXEL DENSITY: ${title}**\n\n${dimensions}${sizeOverride ? ` ${sizeOverride}` : ""}\n\n${settings.style} Pixel construction takes priority over detail reduction: keep visible square-pixel clusters and stair-step contours on outer silhouettes, diagonals, curves, and internal color boundaries at this density. Simplified shapes must still be built from pixels; do not turn them into smooth flat vector shapes. Fine detail must also remain visibly pixel-built. Use no more than ${settings.colors} colors across all artwork in the full output, plus one plain background color or transparency. Reuse the palette across every view and frame.\n\nLogical dimensions are design targets, not provider output dimensions. Enlarge the complete composition using one uniform nearest-neighbor scale. Derive visible block size from the complete logical canvas and actual output size, never from a fixed output-width example. Preserve square pixels; if the output aspect ratio differs, leave plain margins rather than stretching pixels or adding detail.${assetDetail ? `\n\n${assetDetail}` : ""}`;  const firstSection = prompt.indexOf("\n\n");
   return firstSection < 0
     ? `${instruction}\n\n${prompt}`
     : `${prompt.slice(0, firstSection)}\n\n${instruction}\n\n${prompt.slice(firstSection + 2)}`;

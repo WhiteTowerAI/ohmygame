@@ -177,33 +177,34 @@ describe("pixel asset template projects", () => {
 });
 
 describe("effect library projects", () => {
-  let uploads = 0;
-  beforeEach(() => {
-    uploads = 0;
-    api.uploadLibraryAsset.mockImplementation(async () => ({ id: `asset-${++uploads}` }));
-  });
-
-  it("titles its examples in the interface language", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["pixels"]))));
+  it("stores CDN example ids and does not download or upload them while creating the project", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(new Blob(["cover"])));
+    vi.stubGlobal("fetch", fetchMock);
     await createEffectLibraryProject("classic");
     const [, saved] = canvas.saveCanvasBoard.mock.calls[0] as [string, { board: ReturnType<typeof createCanvasBoard> }];
     const nodes = saved.board.nodes as Array<(typeof saved.board.nodes)[number] & { title?: string; description?: string }>;
-    const names = api.uploadLibraryAsset.mock.calls.map(([file]) => (file as File).name);
+    const exampleGroupId = nodes.find((node) => node.type === "group" && node.data.pixelStyle)?.id;
+    const examples = nodes.filter((node): node is Extract<typeof node, { type: "image" }> => node.type === "image" && node.parentId === exampleGroupId);
+    const sheets = examples.filter((node) => !node.data.exampleImage?.endsWith(".gif"));
+    const previews = examples.filter((node) => node.data.exampleImage?.endsWith(".gif"));
 
-    expect(names).toContain("Lightning Strike-sprite-sheet.webp");
+    expect(sheets).toHaveLength(12);
+    expect(previews).toHaveLength(12);
+    expect(sheets.every((node) => pixelExampleImageUrl(node.data.exampleImage))).toBe(true);
+    expect(previews.every((node) => pixelExampleImageUrl(node.data.exampleImage)?.endsWith(".gif"))).toBe(true);
     expect(nodes.find((node) => node.title?.endsWith("· Lightning Strike") && node.type === "image")?.description).toBe("5 × 2 · 10 frames");
-    expect([...names, ...nodes.flatMap((node) => [node.title ?? "", node.description ?? ""])].join("\n")).not.toMatch(/\p{Script=Han}/u);
+    expect(nodes.flatMap((node) => [node.title ?? "", node.description ?? ""]).join("\n")).not.toMatch(/\p{Script=Han}/u);
+    expect(api.uploadLibraryAsset).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.map(([input]) => String(input)).every((url) => !url.includes("template-examples/"))).toBe(true);
     vi.unstubAllGlobals();
   });
 
-  it("removes the examples it uploaded when one cannot be loaded", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(new Blob(["pixels"]), { status: url.includes("smoke-dispersal-preview") ? 404 : 200 })));
-    await expect(createEffectLibraryProject("classic")).rejects.toThrow("Could not load the example image");
+  it("deletes the new project when saving its template fails", async () => {
+    canvas.saveCanvasBoard.mockRejectedValueOnce(new Error("board unavailable"));
+    await expect(createEffectLibraryProject("classic")).rejects.toThrow("board unavailable");
 
     expect(api.deleteProject).toHaveBeenCalledWith("project-1");
-    expect(uploads).toBe(23);
-    expect(api.deleteLibraryAsset.mock.calls.map(([id]) => id).sort()).toEqual(Array.from({ length: 23 }, (_, index) => `asset-${index + 1}`).sort());
-    vi.unstubAllGlobals();
+    expect(api.uploadLibraryAsset).not.toHaveBeenCalled();
   });
 });
 

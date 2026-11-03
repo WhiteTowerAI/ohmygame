@@ -10,10 +10,10 @@ import {
   createAssetGenerationNode,
   preferredImageOption,
 } from "../shared/asset-canvas.js";
-import { createProject, deleteLibraryAsset, deleteProject, listImageModels, setProjectCover, uploadLibraryAsset } from "./api.js";
+import { createProject, deleteProject, listImageModels, setProjectCover } from "./api.js";
 import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
-import { effectPresetExampleUrl, effectPresetPreviewUrl } from "./asset-canvas-effect-examples.js";
-import { effectPresetFrames, effectPresetLabel } from "./asset-canvas-effect-presets.js";
+import { effectPresetExampleId, effectPresetPreviewExampleId } from "./asset-canvas-effect-examples.js";
+import { effectPresetFrames, effectPresetLabel, type EffectPresetId } from "./asset-canvas-effect-presets.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE } from "./asset-canvas-pixel-workflows.js";
 import {
   changeCanvasBoard,
@@ -22,7 +22,6 @@ import {
   saveCanvasBoard,
 } from "./canvas-api.js";
 import { t } from "./i18n.js";
-import { fetchTemplateExample } from "./template-example-cache.js";
 
 export const ASSET_CANVAS_TEMPLATES = [
   "pixel-art",
@@ -95,6 +94,8 @@ const EFFECT_LIBRARY_EXAMPLE_PROMPT = `Requested action: pixel-art fire impact a
 Main color: original orange, yellow, red, and dark-brown fire palette
 
 Motion rhythm: balanced buildup, brightest peak, then a clean fade-out
+
+Fine-detail direction: use a compact white-hot core, separately articulated narrow yellow and gold inner flame tongues, orange mid-flames, a deep crimson outer rim, small charcoal ember pockets, and tiny square cinders. Preserve dense internal flame striations and stepped pixel contours; never use a smoky, muddy, broad flat red mass.
 
 Additional direction:
 Create exactly one square sheet with exactly 12 equal-sized cells, read left to right and top to bottom. Every cell must have the same transparent background, identical camera framing, identical scale, and one fixed ground-impact point at the bottom center. Do not add borders, grid lines, labels, text, UI, characters, weapons, scenery, or extra effects. Do not leave any cell empty.
@@ -207,6 +208,7 @@ const EFFECT_LIBRARY_LIGHTNING_STRIKE_EXAMPLE_PROMPT = `Requested action: a ligh
 Main color: electric blue, violet, cyan, and white-hot highlights
 
 Motion rhythm: extremely fast buildup, explosive impact, then rapid dissipation
+Fine-detail direction: use a hairline white-cyan lightning core, independently articulated thin blue-violet branches, dark navy gaps, stepped micro-pixel bends, cyan rim highlights, segmented afterimage trails, and tiny square charged dust. Keep the energy as precise filaments, never a chunky blob or a broad flat blue slab.
 
 Additional direction:
 Frame 1: a tiny blue electrical spark appears above the fixed ground point.
@@ -275,6 +277,8 @@ const EFFECT_LIBRARY_BLUE_WHITE_CRESCENT_EXAMPLE_PROMPT = `Requested action: a b
 Main color: bright cyan, electric blue, deep navy, and white-hot highlights
 
 Motion rhythm: fast initiation, smooth curved downward sweep, strong mid-swing peak, then rapid dissipation
+
+Fine-detail direction: build one elegant thin crescent with a razor-sharp white-blue core line, separately articulated cyan and royal-blue energy ribbons, dark navy occlusion gaps, segmented edge highlights, tapered fragments, and tiny square sparks. Keep dense internal striations and finely stepped pixel contours; never use a chunky broad blue swoosh or a flat slab.
 
 Important motion rule: this is one single crescent-shaped slash, not a straight projectile and not a stationary effect. The crescent starts near the upper-right area, travels downward along the right side in a curved arc, and ends near the lower-right area. The motion path must stay inside the same cell and must never cross a cell boundary.
 
@@ -360,23 +364,6 @@ Frame 12: the final tiny droplets fade out completely.
 
 Transparent background. Crisp 2D fantasy game pixel art. Hard pixel edges. Clean rounded water shapes. No blur, no characters, no weapons, no scenery, no text, no borders, no grid lines, and no UI. Keep the effect centered before launch, then keep the leftward motion fully inside each cell. Keep every frame fully inside its own cell with at least 15% transparent padding on all four sides. Keep the effect within the central 70% of each cell. No orb, droplet, splash, or particle may touch, cross, or be clipped by a cell boundary. Keep identical scale and camera framing in every frame. The launch direction must remain consistently from right to left.`;
 
-async function uploadEffectExample(source: string, name: string, contentType: "image/webp" | "image/gif"): Promise<string> {
-  const image = await fetchTemplateExample(source);
-  return (await uploadLibraryAsset(new File([image], name, { type: contentType }), contentType, undefined, "reference")).id;
-}
-
-/**
- * Waits for every example upload and records the ones that finished in
- * `uploaded`, so a failed template can remove them from the Library.
- */
-async function uploadEffectExamples(uploaded: string[], uploads: ReadonlyArray<Promise<string>>): Promise<string[]> {
-  const results = await Promise.allSettled(uploads);
-  for (const result of results) if (result.status === "fulfilled") uploaded.push(result.value);
-  const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-  if (failed) throw failed.reason;
-  return results.map((result) => (result as PromiseFulfilledResult<string>).value);
-}
-
 async function applyEffectLibraryCover(projectId: string, level: PixelArtLevel = "classic"): Promise<void> {
   const response = await fetch(effectLibraryCoverForLevel(level));
   if (!response.ok) throw new Error("Could not load the Effect Library cover");
@@ -385,9 +372,10 @@ async function applyEffectLibraryCover(projectId: string, level: PixelArtLevel =
 
 /** Creates the Effect Library as a normal Asset Canvas template, matching the pixel-art template layout. */
 export async function createEffectLibraryProject(level: PixelArtLevel = "classic"): Promise<{ projectId: string; boardId: string; nodeId: string }> {
-  const imageModels = await listImageModels().catch(() => []);
-  const project = await createProject({ type: "asset-canvas", name: `${t("effectLibrary.title")} · ${t(`assetCanvas.pixelPresets.levels.${level}`)}` });
-  const uploadedAssetIds: string[] = [];
+  const [imageModels, project] = await Promise.all([
+    listImageModels().catch(() => []),
+    createProject({ type: "asset-canvas", name: `${t("effectLibrary.title")} · ${t(`assetCanvas.pixelPresets.levels.${level}`)}` }),
+  ]);
   try {
     const document = createAssetCanvasDocument();
     document.editorLayout.viewport = { x: 24, y: 100, zoom: 0.72 };
@@ -407,103 +395,63 @@ export async function createEffectLibraryProject(level: PixelArtLevel = "classic
     const splitStep = tutorialStep(2, 3470);
     const gifStep = tutorialStep(3, 3790);
     const checkStep = tutorialStep(4, 4110);
-    const fireHitSheet = effectPresetExampleUrl("fire-hit", level);
-    const fireHitPreview = effectPresetPreviewUrl("fire-hit", level);
-    const iceImpactSheet = effectPresetExampleUrl("ice-impact", level);
-    const iceImpactPreview = effectPresetPreviewUrl("ice-impact", level);
-    const iceClawSlashSheet = effectPresetExampleUrl("ice-claw-slash", level);
-    const iceClawSlashPreview = effectPresetPreviewUrl("ice-claw-slash", level);
-    const waveImpactSheet = effectPresetExampleUrl("wave-impact", level);
-    const waveImpactPreview = effectPresetPreviewUrl("wave-impact", level);
-    const waterSplashSheetSource = effectPresetExampleUrl("water-splash", level);
-    const waterSplashPreviewSource = effectPresetPreviewUrl("water-splash", level);
-    const electricOrbBurstSheetSource = effectPresetExampleUrl("electric-orb-burst", level);
-    const electricOrbBurstPreviewSource = effectPresetPreviewUrl("electric-orb-burst", level);
-    const lightningStrikeSheetSource = effectPresetExampleUrl("lightning-strike", level);
-    const lightningStrikePreviewSource = effectPresetPreviewUrl("lightning-strike", level);
-    const electricTrailSheetSource = effectPresetExampleUrl("electric-trail", level);
-    const electricTrailPreviewSource = effectPresetPreviewUrl("electric-trail", level);
-    const blueWhiteCrescentSheetSource = effectPresetExampleUrl("blue-white-crescent-slash", level);
-    const blueWhiteCrescentPreviewSource = effectPresetPreviewUrl("blue-white-crescent-slash", level);
-    const smokeSheetSource = effectPresetExampleUrl("smoke-dispersal", level);
-    const smokePreviewSource = effectPresetPreviewUrl("smoke-dispersal", level);
-    const waterOrbMagicSheetSource = effectPresetExampleUrl("water-orb-magic", level);
-    const waterOrbMagicPreviewSource = effectPresetPreviewUrl("water-orb-magic", level);
-    const greenEnergyWaveSheetSource = effectPresetExampleUrl("green-energy-wave", level);
-    const greenEnergyWavePreviewSource = effectPresetPreviewUrl("green-energy-wave", level);
-    const [sheetAssetId, gifAssetId, iceSheetAssetId, iceGifAssetId, waveSheetAssetId, waveGifAssetId, waterSplashSheetAssetId, waterSplashGifAssetId, electricOrbSheetAssetId, electricOrbGifAssetId, lightningStrikeSheetAssetId, lightningStrikeGifAssetId, iceClawSheetAssetId, iceClawGifAssetId, electricTrailSheetAssetId, electricTrailGifAssetId, blueWhiteCrescentSheetAssetId, blueWhiteCrescentGifAssetId, smokeSheetAssetId, smokeGifAssetId, greenEnergyWaveSheetAssetId, greenEnergyWaveGifAssetId, waterOrbMagicSheetAssetId, waterOrbMagicGifAssetId] = await uploadEffectExamples(uploadedAssetIds, [
-      uploadEffectExample(fireHitSheet, `${effectPresetLabel("fire-hit")}-sprite-sheet.webp`, "image/webp"),
-      uploadEffectExample(fireHitPreview, `${effectPresetLabel("fire-hit")}-preview.gif`, "image/gif"),
-      uploadEffectExample(iceImpactSheet, `${effectPresetLabel("ice-impact")}-sprite-sheet.webp`, "image/webp"),
-      uploadEffectExample(iceImpactPreview, `${effectPresetLabel("ice-impact")}-preview.gif`, "image/gif"),
-      uploadEffectExample(waveImpactSheet, `${effectPresetLabel("wave-impact")}-sprite-sheet.webp`, "image/webp"),
-      uploadEffectExample(waveImpactPreview, `${effectPresetLabel("wave-impact")}-preview.gif`, "image/gif"),
-      uploadEffectExample(waterSplashSheetSource, `${effectPresetLabel("water-splash")}-sprite-sheet.webp`, "image/webp"),
-      uploadEffectExample(waterSplashPreviewSource, `${effectPresetLabel("water-splash")}-preview.gif`, "image/gif"),
-      uploadEffectExample(electricOrbBurstSheetSource, `${effectPresetLabel("electric-orb-burst")}-sprite-sheet.webp`, "image/webp"),
-      uploadEffectExample(electricOrbBurstPreviewSource, `${effectPresetLabel("electric-orb-burst")}-preview.gif`, "image/gif"),
-      uploadEffectExample(lightningStrikeSheetSource, `${effectPresetLabel("lightning-strike")}-sprite-sheet.webp`, "image/webp"),
-      uploadEffectExample(lightningStrikePreviewSource, `${effectPresetLabel("lightning-strike")}-preview.gif`, "image/gif"),
-      uploadEffectExample(iceClawSlashSheet, `${effectPresetLabel("ice-claw-slash")}-sprite-sheet.webp`, "image/webp"),
-      uploadEffectExample(iceClawSlashPreview, `${effectPresetLabel("ice-claw-slash")}-preview.gif`, "image/gif"),
-      uploadEffectExample(electricTrailSheetSource, `${effectPresetLabel("electric-trail")}-sprite-sheet.webp`, "image/webp"),
-      uploadEffectExample(electricTrailPreviewSource, `${effectPresetLabel("electric-trail")}-preview.gif`, "image/gif"),
-      uploadEffectExample(blueWhiteCrescentSheetSource, `${effectPresetLabel("blue-white-crescent-slash")}-sprite-sheet.webp`, "image/webp"),
-      uploadEffectExample(blueWhiteCrescentPreviewSource, `${effectPresetLabel("blue-white-crescent-slash")}-preview.gif`, "image/gif"),
-      uploadEffectExample(smokeSheetSource, `${effectPresetLabel("smoke-dispersal")}-sprite-sheet.webp`, "image/webp"),
-      uploadEffectExample(smokePreviewSource, `${effectPresetLabel("smoke-dispersal")}-preview.gif`, "image/gif"),
-      uploadEffectExample(greenEnergyWaveSheetSource, `${effectPresetLabel("green-energy-wave")}-sprite-sheet.webp`, "image/webp"),
-      uploadEffectExample(greenEnergyWavePreviewSource, `${effectPresetLabel("green-energy-wave")}-preview.gif`, "image/gif"),
-      uploadEffectExample(waterOrbMagicSheetSource, `${effectPresetLabel("water-orb-magic")}-sprite-sheet.webp`, "image/webp"),
-      uploadEffectExample(waterOrbMagicPreviewSource, `${effectPresetLabel("water-orb-magic")}-preview.gif`, "image/gif"),
-    ]);
     const exampleGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 40, y: 700 }, width: 2080, height: 2680, data: { name: t("effectLibrary.templateExample"), pixelStyle: level } };
-    const sheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 54 }, title: t("effectLibrary.spriteSheetExample"), description: effectPresetFrames("fire-hit"), data: { assetId: sheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_EXAMPLE_PROMPT } };
-    const preview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 54 }, title: t("effectLibrary.gifPreview"), description: t("effectLibrary.gifPreviewHint"), data: { assetId: gifAssetId, mediaType: "image" } };
-    const iceSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 54 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("ice-impact")}`, description: effectPresetFrames("ice-impact"), data: { assetId: iceSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ICE_EXAMPLE_PROMPT } };
-    const icePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 54 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("ice-impact")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: iceGifAssetId, mediaType: "image" } };
-    const iceClawSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 490 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("ice-claw-slash")}`, description: effectPresetFrames("ice-claw-slash"), data: { assetId: iceClawSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ICE_CLAW_EXAMPLE_PROMPT } };
-    const iceClawPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 490 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("ice-claw-slash")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: iceClawGifAssetId, mediaType: "image" } };
-    const waveSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 490 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("wave-impact")}`, description: effectPresetFrames("wave-impact"), data: { assetId: waveSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_WAVE_EXAMPLE_PROMPT } };
-    const wavePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 490 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("wave-impact")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: waveGifAssetId, mediaType: "image" } };
-    const waterSplashSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 926 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("water-splash")}`, description: effectPresetFrames("water-splash"), data: { assetId: waterSplashSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_WATER_SPLASH_EXAMPLE_PROMPT } };
-    const waterSplashPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 926 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("water-splash")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: waterSplashGifAssetId, mediaType: "image" } };
-    const electricOrbSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 926 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("electric-orb-burst")}`, description: effectPresetFrames("electric-orb-burst"), data: { assetId: electricOrbSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ELECTRIC_ORB_EXAMPLE_PROMPT } };
-    const electricOrbPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 926 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("electric-orb-burst")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: electricOrbGifAssetId, mediaType: "image" } };
-    const lightningStrikeSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 1362 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("lightning-strike")}`, description: effectPresetFrames("lightning-strike"), data: { assetId: lightningStrikeSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_LIGHTNING_STRIKE_EXAMPLE_PROMPT } };
-    const lightningStrikePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 1362 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("lightning-strike")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: lightningStrikeGifAssetId, mediaType: "image" } };
-    const electricTrailSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 1362 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("electric-trail")}`, description: effectPresetFrames("electric-trail"), data: { assetId: electricTrailSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ELECTRIC_TRAIL_EXAMPLE_PROMPT } };
-    const electricTrailPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 1362 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("electric-trail")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: electricTrailGifAssetId, mediaType: "image" } };
-    const blueWhiteCrescentSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 1798 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("blue-white-crescent-slash")}`, description: effectPresetFrames("blue-white-crescent-slash"), data: { assetId: blueWhiteCrescentSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_BLUE_WHITE_CRESCENT_EXAMPLE_PROMPT } };
-    const blueWhiteCrescentPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 1798 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("blue-white-crescent-slash")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: blueWhiteCrescentGifAssetId, mediaType: "image" } };
-    const smokeSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 1798 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("smoke-dispersal")}`, description: effectPresetFrames("smoke-dispersal"), data: { assetId: smokeSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_SMOKE_EXAMPLE_PROMPT } };
-    const smokePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 1798 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("smoke-dispersal")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: smokeGifAssetId, mediaType: "image" } };
-    const greenEnergyWaveSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 2234 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("green-energy-wave")}`, description: effectPresetFrames("green-energy-wave"), data: { assetId: greenEnergyWaveSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_GREEN_ENERGY_WAVE_EXAMPLE_PROMPT } };
-    const greenEnergyWavePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 2234 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("green-energy-wave")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: greenEnergyWaveGifAssetId, mediaType: "image" } };
-    const waterOrbMagicSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 2234 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("water-orb-magic")}`, description: effectPresetFrames("water-orb-magic"), data: { assetId: waterOrbMagicSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_WATER_ORB_MAGIC_EXAMPLE_PROMPT } };
-    const waterOrbMagicPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 2234 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("water-orb-magic")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: waterOrbMagicGifAssetId, mediaType: "image" } };
+    const effectExamples: ReadonlyArray<{ id: EffectPresetId; prompt: string; x: number; y: number }> = [
+      { id: "fire-hit", prompt: EFFECT_LIBRARY_EXAMPLE_PROMPT, x: 28, y: 54 },
+      { id: "ice-impact", prompt: EFFECT_LIBRARY_ICE_EXAMPLE_PROMPT, x: 1050, y: 54 },
+      { id: "ice-claw-slash", prompt: EFFECT_LIBRARY_ICE_CLAW_EXAMPLE_PROMPT, x: 28, y: 490 },
+      { id: "wave-impact", prompt: EFFECT_LIBRARY_WAVE_EXAMPLE_PROMPT, x: 1050, y: 490 },
+      { id: "water-splash", prompt: EFFECT_LIBRARY_WATER_SPLASH_EXAMPLE_PROMPT, x: 28, y: 926 },
+      { id: "electric-orb-burst", prompt: EFFECT_LIBRARY_ELECTRIC_ORB_EXAMPLE_PROMPT, x: 1050, y: 926 },
+      { id: "lightning-strike", prompt: EFFECT_LIBRARY_LIGHTNING_STRIKE_EXAMPLE_PROMPT, x: 28, y: 1362 },
+      { id: "electric-trail", prompt: EFFECT_LIBRARY_ELECTRIC_TRAIL_EXAMPLE_PROMPT, x: 1050, y: 1362 },
+      { id: "blue-white-crescent-slash", prompt: EFFECT_LIBRARY_BLUE_WHITE_CRESCENT_EXAMPLE_PROMPT, x: 28, y: 1798 },
+      { id: "smoke-dispersal", prompt: EFFECT_LIBRARY_SMOKE_EXAMPLE_PROMPT, x: 1050, y: 1798 },
+      { id: "water-orb-magic", prompt: EFFECT_LIBRARY_WATER_ORB_MAGIC_EXAMPLE_PROMPT, x: 28, y: 2234 },
+      { id: "green-energy-wave", prompt: EFFECT_LIBRARY_GREEN_ENERGY_WAVE_EXAMPLE_PROMPT, x: 1050, y: 2234 },
+    ];
     const effectExamplePrompt = (prompt: string): string => {
       const gridMatch = prompt.match(/(\d+)-column by (\d+)-row Sprite Sheet/i);
       const columns = Number(gridMatch?.[1] ?? 4);
       const rows = Number(gridMatch?.[2] ?? 3);
-      return withPixelArtLevel(prompt, level, "sprite", { assetType: "animation", grid: { columns, rows, unit: "frame" } });
+      return withPixelArtLevel(prompt, level, "sprite", { assetType: "effect", grid: { columns, rows, unit: "frame" } });
     };
-    const exampleImageNode = (node: AssetCanvasNode, prompt: string): AssetCanvasNode => {
-      const assetId = "assetId" in node.data ? node.data.assetId : undefined;
-      return {
-        ...node,
-        type: "image",
-        data: {
-          prompt,
-          promptExpanded: true,
-          images: [],
-          resolution: "1K",
-          aspectRatio: "1:1",
-          pixelStyle: level,
-          ...(assetId ? { assetId } : {}),
-        },
-      };
-    };
+    const effectExampleImageNode = (exampleImage: string, title: string, description: string, position: { x: number; y: number }, prompt = ""): AssetCanvasNode => ({
+      id: crypto.randomUUID(),
+      type: "image",
+      parentId: exampleGroup.id,
+      title,
+      description,
+      position,
+      data: {
+        prompt,
+        ...(prompt ? { promptExpanded: true } : {}),
+        images: [],
+        resolution: "1K",
+        aspectRatio: "1:1",
+        pixelStyle: level,
+        exampleImage,
+      },
+    });
+    const exampleNodes = effectExamples.flatMap(({ id, prompt, x, y }) => {
+      const label = effectPresetLabel(id);
+      const isFirstExample = id === "fire-hit";
+      return [
+        effectExampleImageNode(
+          effectPresetExampleId(id, level),
+          isFirstExample ? t("effectLibrary.spriteSheetExample") : `${t("effectLibrary.spriteSheetExample")} · ${label}`,
+          effectPresetFrames(id),
+          { x, y },
+          effectExamplePrompt(prompt),
+        ),
+        effectExampleImageNode(
+          effectPresetPreviewExampleId(id, level),
+          isFirstExample ? t("effectLibrary.gifPreview") : `${t("effectLibrary.gifPreview")} · ${label}`,
+          t("effectLibrary.gifPreviewHint"),
+          { x: x + 502, y },
+        ),
+      ];
+    });
     const workGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 40, y: 4380 }, width: 2080, height: 460, data: { name: t("effectLibrary.myEffects") } };
     const imageOption = preferredImageOption(imageModels[0], "1:1");
     const image = createAssetGenerationNode("image", { x: 28, y: 52 }, {
@@ -519,31 +467,17 @@ export async function createEffectLibraryProject(level: PixelArtLevel = "classic
     image.data.prompt = "";
     image.data.pixelStyle = level;
     image.data.promptExpanded = true;
-    const nodes: AssetCanvasNode[] = [guide, introductionStep, exampleGroup, splitStep, gifStep, checkStep,
-      exampleImageNode(sheet, effectExamplePrompt(EFFECT_LIBRARY_EXAMPLE_PROMPT)), preview,
-      exampleImageNode(iceSheet, effectExamplePrompt(EFFECT_LIBRARY_ICE_EXAMPLE_PROMPT)), icePreview,
-      exampleImageNode(waveSheet, effectExamplePrompt(EFFECT_LIBRARY_WAVE_EXAMPLE_PROMPT)), wavePreview,
-      exampleImageNode(waterSplashSheet, effectExamplePrompt(EFFECT_LIBRARY_WATER_SPLASH_EXAMPLE_PROMPT)), waterSplashPreview,
-      exampleImageNode(electricOrbSheet, effectExamplePrompt(EFFECT_LIBRARY_ELECTRIC_ORB_EXAMPLE_PROMPT)), electricOrbPreview,
-      exampleImageNode(lightningStrikeSheet, effectExamplePrompt(EFFECT_LIBRARY_LIGHTNING_STRIKE_EXAMPLE_PROMPT)), lightningStrikePreview,
-      exampleImageNode(iceClawSheet, effectExamplePrompt(EFFECT_LIBRARY_ICE_CLAW_EXAMPLE_PROMPT)), iceClawPreview,
-      exampleImageNode(electricTrailSheet, effectExamplePrompt(EFFECT_LIBRARY_ELECTRIC_TRAIL_EXAMPLE_PROMPT)), electricTrailPreview,
-      exampleImageNode(blueWhiteCrescentSheet, effectExamplePrompt(EFFECT_LIBRARY_BLUE_WHITE_CRESCENT_EXAMPLE_PROMPT)), blueWhiteCrescentPreview,
-      exampleImageNode(smokeSheet, effectExamplePrompt(EFFECT_LIBRARY_SMOKE_EXAMPLE_PROMPT)), smokePreview,
-      exampleImageNode(waterOrbMagicSheet, effectExamplePrompt(EFFECT_LIBRARY_WATER_ORB_MAGIC_EXAMPLE_PROMPT)), waterOrbMagicPreview,
-      exampleImageNode(greenEnergyWaveSheet, effectExamplePrompt(EFFECT_LIBRARY_GREEN_ENERGY_WAVE_EXAMPLE_PROMPT)), greenEnergyWavePreview,
-      workGroup, image];
+    const nodes: AssetCanvasNode[] = [guide, introductionStep, exampleGroup, splitStep, gifStep, checkStep, ...exampleNodes, workGroup, image];
     document.nodes = nodes;
     document.editorLayout.nodes = Object.fromEntries(nodes.map((node) => [node.id, { ...node.position, ...(node.width ? { width: node.width } : {}), ...(node.height ? { height: node.height } : {}) }]));
     const workspace = await getCanvasWorkspace(project.id);
     const current = await getCanvasBoard(project.id, workspace.boards[0]!.id);
     await saveCanvasBoard(project.id, { board: { ...document, id: current.board.id }, revision: current.revision });
     await changeCanvasBoard(project.id, current.board.id, { name: `${t("effectLibrary.title")} · ${t(`assetCanvas.pixelPresets.levels.${level}`)}` });
-    await applyEffectLibraryCover(project.id, level);
+    void applyEffectLibraryCover(project.id, level).catch(() => undefined);
     return { projectId: project.id, boardId: current.board.id, nodeId: image.id };
   } catch (cause) {
     await deleteProject(project.id).catch(() => undefined);
-    for (const assetId of uploadedAssetIds) await deleteLibraryAsset(assetId).catch(() => undefined);
     throw cause;
   }
 }

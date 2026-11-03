@@ -87,7 +87,7 @@ import {
   type VideoModel,
   type VideoGenerationReference,
 } from "../shared/contracts.js";
-import { createAssetGenerationNode, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
+import { effectLibraryPrompt, createAssetGenerationNode, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { allActionsPrompt, continuousActionsPrompt } from "../shared/canvas-character-tools.js";
 import { canvasImagePresetPrompt, canvasMaterialStyle } from "../shared/canvas-image-presets.js";
 import { audioCanvasSettings, audioNodeHasSettings, audioSettings, type AudioCanvasSettings, type AudioModel, type AudioProviderCatalogStatus } from "../shared/audio.js";
@@ -101,7 +101,7 @@ import { canvasNodeTitle } from "../shared/canvas-assets.js";
 import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
-import { withPixelArtLevel, type PixelArtLevel } from "../shared/canvas-pixel-style.js";
+import { type PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, placePixelPresetOutsideDensityGroups, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import { AssetCanvasPixelPresetDialog } from "./asset-canvas-pixel-preset-dialog.js";
 import { localizedTemplateText } from "./template-text.js";
@@ -1130,7 +1130,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         ...configured.data,
         ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
         ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}),
-        prompt: withPixelArtLevel(preset.prompt, pixelStyle, "sprite", { assetType: "animation", grid: { ...preset.grid, unit: "frame" } }),
+        prompt: effectLibraryPrompt(preset.prompt, "original", "sample", "", pixelStyle),
         promptExpanded: true,
         pixelStyle,
         exampleImage: effectPresetStaticExampleId(preset.id, pixelStyle),
