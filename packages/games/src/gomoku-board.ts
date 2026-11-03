@@ -1,4 +1,4 @@
-import { isRecord } from "./multiplayer-protocol.js";
+import { isRecord } from "@ohmygame/sdk/protocol";
 
 export const GOMOKU_SIZE = 15;
 export type GomokuCell = 0 | 1 | 2;

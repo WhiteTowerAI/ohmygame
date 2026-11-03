@@ -20,8 +20,8 @@ export interface MultiplayerManifestConfig {
   roomPolicy: MultiplayerRoomPolicy;
   maxClients: number;
   reconnectSeconds: number;
-  /** Immutable server-side rules registered for this deployment. */
-  adapterId?: string;
+  /** The rules the service registered for this deployment, by name. */
+  adapterId: string;
 }
 
 /** Explicit reference runtime; authored Web Games render their own adapter. */
@@ -73,6 +73,7 @@ export const MULTIPLAYER_MANIFEST_SCHEMA = {
     "roomPolicy",
     "maxClients",
     "reconnectSeconds",
+    "adapterId",
   ],
   properties: {
     enabled: { const: true },
@@ -204,6 +205,8 @@ export interface MultiplayerGameState {
 }
 /** Adapters run only on the service; clients submit intent, never final state. */
 export interface MultiplayerGameAdapter<State, Command> {
+  /** The game mode these rules play; a deployment must declare the same mode. */
+  mode: MultiplayerMode;
   /** Seats the rules support. A deployment's maxClients must fit, and a match starts with at least min connected players. */
   players: { min: number; max: number };
   initialState(): State;

@@ -7,7 +7,7 @@ import {
   type TurnCommand,
 } from "@ohmygame/sdk/protocol";
 import type { GameAdapter } from "./adapters.js";
-import { createGameAdapter, TURN_SECONDS } from "./game.js";
+import { createRoomAdapter, TURN_SECONDS } from "./game.js";
 
 const ROOM_COMMANDS = new Set<TurnCommand["type"]>(["start", "close", "kick"]);
 
@@ -61,7 +61,7 @@ export function compileGame<G extends object, Moves extends Record<string, MoveD
     throw new Error(`players must be whole numbers from 1 to ${MULTIPLAYER_MAX_CLIENTS}, with min no more than max.`);
   const turnMs = (definition.turnSeconds ?? TURN_SECONDS) * 1000;
   if (!Number.isFinite(turnMs) || turnMs <= 0) throw new Error("turnSeconds must be positive.");
-  const room = createGameAdapter("turn-based");
+  const room = createRoomAdapter("turn-based");
   // The room validates and then applies the same command; a move runs once, so its random draws hold.
   const validated = new WeakMap<TurnCommand, MultiplayerGameState>();
 
@@ -106,8 +106,9 @@ export function compileGame<G extends object, Moves extends Record<string, MoveD
   }
 
   return {
+    mode: "turn-based",
     players: { min, max },
-    initialState: () => ({ ...room.initialState(), remaining: 0 }),
+    initialState: room.initialState,
     validateCommand(state, playerId, command) {
       if (ROOM_COMMANDS.has(command.type)) return room.validateCommand(state, playerId, command);
       if (command.type !== "action") throw new Error("This game only accepts its moves.");

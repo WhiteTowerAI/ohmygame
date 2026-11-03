@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
-import { createMultiplayerServer } from "./service.js";
+import { createMultiplayerServer } from "@ohmygame/server";
+import { createBuiltInAdapters } from "./index.js";
 
+// OhMyGame's hosted service: the operator's deployment registry, played with the built-in rules.
 const deploymentsFile = process.env.MULTIPLAYER_DEPLOYMENTS_FILE;
 if (!deploymentsFile)
   throw new Error(
@@ -11,6 +13,7 @@ if (!Array.isArray(deployments))
   throw new Error("The deployment registry must be an array.");
 const service = createMultiplayerServer({
   deployments,
+  adapters: createBuiltInAdapters(),
   auth: {
     guestSecret: process.env.MULTIPLAYER_GUEST_SECRET ?? "",
     supabaseUrl: process.env.SUPABASE_URL,

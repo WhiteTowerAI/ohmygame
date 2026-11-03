@@ -6,9 +6,10 @@ import path from "node:path";
 import { Client, Room } from "@colyseus/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compileGame, createMultiplayerServer, defineGame, startDevServer } from "@ohmygame/server";
-import { createBuiltInAdapter, gomokuRules, resolveGameAdapter, type GameAdapter } from "@ohmygame/server/adapters";
+import { resolveGameAdapter, type GameAdapter } from "@ohmygame/server/adapters";
+import { createBuiltInAdapter, createBuiltInAdapters, gomokuRules } from "@ohmygame/games";
 import { MultiplayerClient } from "../src/renderer/multiplayer-client.js";
-import { isGomokuState } from "@ohmygame/sdk/games/gomoku";
+import { isGomokuState } from "@ohmygame/games/gomoku";
 import { LocalMultiplayerRuntime } from "../src/daemon/local-multiplayer.js";
 import {
   multiplayerRoomType,
@@ -29,6 +30,7 @@ const config: MultiplayerManifestConfig = {
   roomPolicy: "invite-or-public",
   maxClients: 3,
   reconnectSeconds: 2,
+  adapterId: "stones",
 };
 type Peer = {
   room: Room;
@@ -66,12 +68,13 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     config,
     { ...config, deploymentId: "v2" },
     { ...config, gameId: "private", roomPolicy: "invite-only" as const },
-    { ...config, gameId: "arena", mode: "realtime" as const },
+    { ...config, gameId: "arena", mode: "realtime" as const, adapterId: "arena" },
     { ...config, gameId: "gomoku", adapterId: "gomoku", maxClients: 2 },
   ];
   async function start() {
     service = createMultiplayerServer({
       deployments,
+      adapters: createBuiltInAdapters(),
       auth: { guestSecret: "a".repeat(32) },
       databasePath: path.join(directory, "rooms.sqlite"),
       host: "127.0.0.1",
@@ -355,9 +358,12 @@ describe("multiplayer service over HTTP and WebSocket", () => {
 
   it("checks a deployment's room size against the seats its rules declare", () => {
     const gomoku = deployments[4]!;
-    expect(resolveGameAdapter(gomoku).players).toEqual({ min: 2, max: 2 });
-    expect(() => resolveGameAdapter({ ...gomoku, maxClients: 3 })).toThrow("The gomoku rules need exactly 2 players.");
-    expect(() => resolveGameAdapter({ ...gomoku, mode: "realtime" })).toThrow("does not match the game mode");
+    const builtIn = createBuiltInAdapters();
+    expect(resolveGameAdapter(gomoku, builtIn).players).toEqual({ min: 2, max: 2 });
+    expect(() => resolveGameAdapter({ ...gomoku, maxClients: 3 }, builtIn)).toThrow("The gomoku rules need exactly 2 players.");
+    expect(() => resolveGameAdapter({ ...gomoku, mode: "realtime" }, builtIn)).toThrow("does not match the game mode");
+    // The service plays only the rules it is given.
+    expect(() => resolveGameAdapter(gomoku)).toThrow("No server rules adapter registered for gomoku.");
     const trio: GameAdapter = { ...createBuiltInAdapter("stones"), players: { min: 3, max: 3 } };
     expect(resolveGameAdapter({ ...config, adapterId: "trio", maxClients: 3 }, { trio })).toBe(trio);
     expect(() => resolveGameAdapter({ ...config, adapterId: "trio", maxClients: 4 }, { trio })).toThrow("The trio rules need exactly 3 players.");
@@ -519,10 +525,10 @@ export default defineGame({
       await dev.stop();
     }
 
-    // A rules file needs its own adapter ID, and a custom ID needs a rules file.
+    // A rules file needs an adapter ID no registered rules use, and an unregistered ID needs a rules file.
     await writeFile(path.join(workspace, "server", "rules.ts"), rules("1"));
     await writeFile(path.join(workspace, "multiplayer.json"), JSON.stringify({ multiplayer: { ...deployment, adapterId: "gomoku" } }));
-    await expect(startDevServer({ workspace, watch: false })).rejects.toThrow("built-in rule set");
+    await expect(startDevServer({ workspace, watch: false, adapters: createBuiltInAdapters() })).rejects.toThrow("needs its own adapterId");
     await rm(path.join(workspace, "server"), { recursive: true });
     await writeFile(path.join(workspace, "multiplayer.json"), JSON.stringify({ multiplayer: deployment }));
     await expect(startDevServer({ workspace, watch: false })).rejects.toThrow("Write server/rules.ts");
@@ -701,7 +707,8 @@ export default defineGame({
     expect(second.roomId).not.toBe(first.roomId);
     await wait(() => expect(first.roomId).toBe(second.roomId));
     await wait(() => expect(first.snapshot?.state.players.filter((p) => p.connected)).toHaveLength(2));
-    expect(second.snapshot!.state.players.map((p) => p.displayName).sort()).toEqual(["First", "Second"]);
+    // Whoever moved receives the new room's snapshot a moment after the other player sees them arrive.
+    await wait(() => expect(second.snapshot?.state.players.map((p) => p.displayName).sort()).toEqual(["First", "Second"]));
     expect(first.status).toBe("connected");
     expect(second.status).toBe("connected");
   });

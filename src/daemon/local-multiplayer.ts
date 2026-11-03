@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import type { createMultiplayerServer, GameAdapter } from "@ohmygame/server";
 import { sameMultiplayerConfig, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
-import { createBuiltInAdapter, describePlayerRange, type BuiltInAdapterId } from "@ohmygame/server/adapters";
+import { describePlayerRange } from "@ohmygame/server/adapters";
+import { BUILT_IN_ADAPTER_IDS, createBuiltInAdapters, type BuiltInAdapterId } from "@ohmygame/games";
 
 /** custom: the game's own turn-based rules in server/rules.ts, written with defineGame. */
 export type LocalGameAdapterId = BuiltInAdapterId | "custom";
@@ -18,7 +19,9 @@ export const LOCAL_MULTIPLAYER_MAX_CLIENTS = 8;
 const LOCAL_MULTIPLAYER_DEFAULT_CLIENTS = 4;
 /** A fixed address keeps the URL written into a game valid after OhMyGame restarts. */
 export const LOCAL_MULTIPLAYER_PORT = 43139;
-const LOCAL_ADAPTER_IDS: readonly string[] = ["gomoku", "stones", "arena", "roam", "custom"] satisfies LocalGameAdapterId[];
+const LOCAL_ADAPTER_IDS: readonly string[] = [...BUILT_IN_ADAPTER_IDS, "custom"] satisfies LocalGameAdapterId[];
+/** The built-in rules the local service registers; custom rules come with each deployment. */
+const BUILT_IN_ADAPTERS = createBuiltInAdapters();
 
 /** The preferred port when it is free, otherwise any port, such as when a second OhMyGame holds it. */
 async function availablePort(preferred: number): Promise<number> {
@@ -52,7 +55,6 @@ export class LocalMultiplayerRuntime {
     options: LocalMultiplayerOptions = {},
     rulesFile?: string,
   ): Promise<MultiplayerManifestConfig> {
-    const mode = adapterId === "arena" || adapterId === "roam" ? "realtime" : "turn-based";
     let rules: GameAdapter | undefined;
     if (adapterId === "custom") {
       if (!rulesFile)
@@ -60,13 +62,16 @@ export class LocalMultiplayerRuntime {
       const { loadGameRules } = await import("@ohmygame/server");
       rules = await loadGameRules(rulesFile);
     }
+    const adapter = rules ?? BUILT_IN_ADAPTERS[adapterId as BuiltInAdapterId];
+    if (!adapter) throw new Error(`Unknown rules: ${adapterId}.`);
+    const { mode } = adapter;
     // Roaming is a shared place to wander, so players drop in unless the game asks for private rooms.
     const dropIn = options.dropIn ?? adapterId === "roam";
     if (dropIn && mode !== "realtime")
       throw new Error("Drop-in rooms need realtime rules. Use arena or roam, or rooms with invitations for turn-based games.");
-    const range = localPlayerRange(rules ?? createBuiltInAdapter(adapterId as BuiltInAdapterId));
+    const range = localPlayerRange(adapter);
     if (range.min > range.max)
-      throw new Error(`These rules need ${describePlayerRange(rules!.players)} players; local rooms hold ${LOCAL_MULTIPLAYER_MIN_CLIENTS} to ${LOCAL_MULTIPLAYER_MAX_CLIENTS}.`);
+      throw new Error(`These rules need ${describePlayerRange(adapter.players)} players; local rooms hold ${LOCAL_MULTIPLAYER_MIN_CLIENTS} to ${LOCAL_MULTIPLAYER_MAX_CLIENTS}.`);
     const maxClients = options.maxClients ?? Math.min(Math.max(LOCAL_MULTIPLAYER_DEFAULT_CLIENTS, range.min), range.max);
     if (!Number.isInteger(maxClients) || maxClients < range.min || maxClients > range.max)
       throw new Error(`Local ${adapterId} rooms hold ${describePlayerRange(range)} players.`);
@@ -76,6 +81,7 @@ export class LocalMultiplayerRuntime {
           await import("@ohmygame/server");
         this.service = createMultiplayerServer({
           deployments: [],
+          adapters: BUILT_IN_ADAPTERS,
           auth: { guestSecret: randomBytes(32).toString("hex") },
           databasePath: ":memory:",
           host: "127.0.0.1",

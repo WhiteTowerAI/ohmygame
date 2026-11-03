@@ -2,4 +2,3 @@
 export * from "./index.js";
 export * from "./multiplayer-client.js";
 export * from "./multiplayer-protocol.js";
-export * from "./gomoku.js";

@@ -6,13 +6,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { BuildContext, Plugin } from "esbuild";
 import type { GameDefinition, MoveDefinition } from "@ohmygame/sdk/game";
 import { isMultiplayerManifestConfig, isRecord, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
-import type { BuiltInAdapterId, GameAdapter } from "./adapters.js";
+import type { GameAdapter } from "./adapters.js";
 import { compileGame } from "./define-game.js";
 import { createMultiplayerServer } from "./service.js";
 
 /** Where a game keeps rules it writes itself, relative to its workspace. */
 export const GAME_RULES_FILES = ["server/rules.ts", "server/rules.js", "server/rules.mjs"];
-const BUILT_IN_IDS: readonly string[] = ["gomoku", "stones", "arena", "roam"] satisfies BuiltInAdapterId[];
 
 export async function findGameRules(workspace: string): Promise<string | undefined> {
   for (const relative of GAME_RULES_FILES) {
@@ -108,6 +107,8 @@ export interface DevServerOptions {
   /** Rebuild and restart when the rules or anything they import changes. Defaults to true. */
   watch?: boolean;
   log?: (message: string) => void;
+  /** Rules registered by adapterId, for games without their own rules file. */
+  adapters?: Record<string, GameAdapter>;
 }
 
 /**
@@ -118,13 +119,14 @@ export async function startDevServer(options: DevServerOptions) {
   const log = options.log ?? ((message: string) => console.log(message));
   const config = await readLocalDeployment(options.workspace);
   const rulesFile = await findGameRules(options.workspace);
-  const adapterId = config.adapterId ?? (config.mode === "turn-based" ? "stones" : "arena");
+  const registered = options.adapters ?? {};
+  const { adapterId } = config;
   if (rulesFile) {
-    if (BUILT_IN_IDS.includes(adapterId))
-      throw new Error(`${path.basename(rulesFile)} needs its own adapterId in multiplayer.json; "${adapterId}" is a built-in rule set.`);
+    if (Object.hasOwn(registered, adapterId))
+      throw new Error(`${path.basename(rulesFile)} needs its own adapterId in multiplayer.json; "${adapterId}" is already registered.`);
     if (config.mode !== "turn-based") throw new Error("Rules written with defineGame are turn-based. Set mode to turn-based.");
-  } else if (!BUILT_IN_IDS.includes(adapterId))
-    throw new Error(`No rules for "${adapterId}". Write ${GAME_RULES_FILES[0]} with defineGame, or choose a built-in adapterId.`);
+  } else if (!Object.hasOwn(registered, adapterId))
+    throw new Error(`No rules for "${adapterId}". Write ${GAME_RULES_FILES[0]} with defineGame.`);
 
   const endpoint = new URL(config.serverUrl);
   const guestSecret = randomBytes(32).toString("hex");
@@ -135,7 +137,7 @@ export async function startDevServer(options: DevServerOptions) {
       await service?.stop();
       service = createMultiplayerServer({
         deployments: [config],
-        ...(adapter ? { adapters: { [adapterId]: adapter } } : {}),
+        adapters: adapter ? { ...registered, [adapterId]: adapter } : registered,
         auth: { guestSecret },
         databasePath: ":memory:",
         host: endpoint.hostname === "[::1]" ? "::1" : "127.0.0.1",

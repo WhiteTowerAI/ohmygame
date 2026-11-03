@@ -63,6 +63,7 @@ describe("publish archives", () => {
       roomPolicy: "invite-or-public" as const,
       maxClients: 4,
       reconnectSeconds: 120,
+      adapterId: "stones",
     };
     const project = {
       id: "multiplayer-test", name: "Stones", type: "web-game" as const,

@@ -1,4 +1,4 @@
-import { defineGame } from "@ohmygame/sdk/game";
+import { compileGame, defineGame, type GameAdapter } from "@ohmygame/server";
 import {
   GOMOKU_SIZE,
   gomokuWinningLine,
@@ -6,9 +6,7 @@ import {
   isGomokuPoint,
   type GomokuPoint,
   type GomokuState,
-} from "@ohmygame/sdk/games/gomoku";
-import type { GameAdapter } from "./adapters.js";
-import { compileGame } from "./define-game.js";
+} from "./gomoku-board.js";
 
 /** Players send a coordinate; only the service places stones and decides victory. */
 export const gomokuRules = defineGame({

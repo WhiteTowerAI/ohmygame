@@ -2,7 +2,6 @@
 export * from "./index.js";
 export * from "./multiplayer-client.js";
 export * from "./multiplayer-protocol.js";
-export * from "./gomoku.js";
 
 // index.d.ts
 import { type IdentityProvider } from "./identity.js";
@@ -327,8 +326,8 @@ export interface MultiplayerManifestConfig {
     roomPolicy: MultiplayerRoomPolicy;
     maxClients: number;
     reconnectSeconds: number;
-    /** Immutable server-side rules registered for this deployment. */
-    adapterId?: string;
+    /** The rules the service registered for this deployment, by name. */
+    adapterId: string;
 }
 /** Explicit reference runtime; authored Web Games render their own adapter. */
 export interface PublishedMultiplayerManifest {
@@ -351,7 +350,7 @@ export declare const MULTIPLAYER_MAX_CLIENTS = 32;
 export declare const MULTIPLAYER_MANIFEST_SCHEMA: {
     readonly type: "object";
     readonly additionalProperties: false;
-    readonly required: readonly ["enabled", "mode", "gameId", "deploymentId", "protocolVersion", "serverUrl", "authPolicy", "roomPolicy", "maxClients", "reconnectSeconds"];
+    readonly required: readonly ["enabled", "mode", "gameId", "deploymentId", "protocolVersion", "serverUrl", "authPolicy", "roomPolicy", "maxClients", "reconnectSeconds", "adapterId"];
     readonly properties: {
         readonly enabled: {
             readonly const: true;
@@ -447,6 +446,8 @@ export interface MultiplayerGameState {
 }
 /** Adapters run only on the service; clients submit intent, never final state. */
 export interface MultiplayerGameAdapter<State, Command> {
+    /** The game mode these rules play; a deployment must declare the same mode. */
+    mode: MultiplayerMode;
     /** Seats the rules support. A deployment's maxClients must fit, and a match starts with at least min connected players. */
     players: {
         min: number;
@@ -511,23 +512,3 @@ export declare function isTurnCommandResult(value: unknown): value is TurnComman
 export declare function isMultiplayerSnapshot(value: unknown): value is MultiplayerSnapshot;
 export declare function normalizeDisplayName(value: unknown): string;
 export declare function isRecord(value: unknown): value is Record<string, unknown>;
-
-// gomoku.d.ts
-export declare const GOMOKU_SIZE = 15;
-export type GomokuCell = 0 | 1 | 2;
-export interface GomokuPoint {
-    r: number;
-    c: number;
-}
-export interface GomokuState {
-    board: GomokuCell[];
-    history: GomokuPoint[];
-    winningLine: GomokuPoint[];
-    blackWins: number;
-    whiteWins: number;
-    [key: string]: unknown;
-}
-export declare function initialGomokuState(): GomokuState;
-export declare function isGomokuPoint(value: unknown): value is GomokuPoint;
-export declare function isGomokuState(value: unknown): value is GomokuState;
-export declare function gomokuWinningLine(board: GomokuCell[], point: GomokuPoint): GomokuPoint[];

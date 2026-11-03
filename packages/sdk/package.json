@@ -21,11 +21,6 @@
       "types": "./dist/multiplayer-protocol.d.ts",
       "default": "./dist/multiplayer-protocol.js"
     },
-    "./games/gomoku": {
-      "ohmygame-source": "./src/gomoku.ts",
-      "types": "./dist/gomoku.d.ts",
-      "default": "./dist/gomoku.js"
-    },
     "./game": {
       "ohmygame-source": "./src/define-game.ts",
       "types": "./dist/define-game.d.ts",

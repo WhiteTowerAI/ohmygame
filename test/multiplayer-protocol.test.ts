@@ -19,6 +19,7 @@ const manifest = {
   roomPolicy: "invite-or-public",
   maxClients: 4,
   reconnectSeconds: 120,
+  adapterId: "stones",
 } as const;
 
 describe("multiplayer protocol", () => {

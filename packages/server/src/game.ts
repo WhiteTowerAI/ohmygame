@@ -5,7 +5,6 @@ import {
   type MultiplayerGameAdapter,
   type MultiplayerGameState,
   type MultiplayerMode,
-  type RealtimeInput,
   type TurnCommand,
 } from "@ohmygame/sdk/protocol";
 
@@ -21,17 +20,22 @@ export function nextTurn(state: MultiplayerGameState, now = Date.now()): void {
   state.turnDeadline = now + TURN_SECONDS * 1000;
 }
 
-export function createGameAdapter(
+/**
+ * The room's own commands: the owner starts, closes and removes players. Rules build on it
+ * and handle their game's commands themselves; any other command is rejected.
+ */
+export function createRoomAdapter(
   mode: MultiplayerMode,
 ): MultiplayerGameAdapter<MultiplayerGameState, TurnCommand> {
   return {
+    mode,
     players: { min: MULTIPLAYER_MIN_CLIENTS, max: MULTIPLAYER_MAX_CLIENTS },
     initialState: () => ({
       phase: "lobby",
       ownerId: "",
       currentPlayerId: "",
       winnerPlayerId: "",
-      remaining: 21,
+      remaining: 0,
       turnDeadline: 0,
       players: [],
     }),
@@ -52,21 +56,9 @@ export function createGameAdapter(
         // The room checks the player count against the adapter's seats.
         if (state.ownerId !== playerId || state.phase !== "lobby")
           throw new Error("Only the room owner can start the match.");
-      } else {
-        if (command.type !== "take" && command.type !== "pass")
-          throw new Error("This game does not support that action.");
-        if (mode !== "turn-based" || state.phase !== "playing")
-          throw new Error("The room is not playing a turn-based game.");
-        if (state.currentPlayerId !== playerId)
-          throw new Error("It is another player's turn.");
-        if (
-          command.type === "take" &&
-          (command.payload?.count ?? 0) > state.remaining
-        )
-          throw new Error("There are not enough stones remaining.");
-      }
+      } else throw new Error("This game does not support that action.");
     },
-    applyCommand(state, playerId, command) {
+    applyCommand(state, _playerId, command) {
       const next = structuredClone(state);
       if (command.type === "close") next.phase = "closed";
       else if (command.type === "kick") {
@@ -81,89 +73,8 @@ export function createGameAdapter(
         next.phase = "playing";
         next.currentPlayerId = next.players[0]!.playerId;
         next.turnDeadline = Date.now() + TURN_SECONDS * 1000;
-      } else {
-        if (command.type === "take") next.remaining -= command.payload!.count!;
-        if (next.remaining === 0) {
-          next.phase = "finished";
-          next.winnerPlayerId = playerId;
-        } else nextTurn(next);
       }
       return next;
     },
   };
 }
-
-/** Inputs expire after 250ms. Speed, arena bounds and victory are server rules. */
-export function stepArena(
-  state: MultiplayerGameState,
-  inputs: ReadonlyMap<string, { input: RealtimeInput; at: number }>,
-  now: number,
-): MultiplayerGameState {
-  const next = structuredClone(state);
-  for (const player of next.players) {
-    const entry = inputs.get(player.playerId);
-    if (!player.connected || !entry || now - entry.at > 250) continue;
-    const length = Math.max(1, Math.hypot(entry.input.x, entry.input.y));
-    player.x = Math.max(0, Math.min(100, player.x + entry.input.x / length));
-    player.y = Math.max(0, Math.min(100, player.y + entry.input.y / length));
-    if (Math.hypot(player.x - 50, player.y - 50) < 4) {
-      next.phase = "finished";
-      next.winnerPlayerId = player.playerId;
-      break;
-    }
-  }
-  return next;
-}
-
-const ARENA_SPAWN_RADIUS = 35;
-/** Successive seats turn by the golden angle, so any number of players spreads around the ring. */
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
-
-/** Every seat starts the same distance from the centre goal, including a drop-in latecomer. */
-export function spawnArenaPlayers(state: MultiplayerGameState, only?: string): MultiplayerGameState {
-  const next = structuredClone(state);
-  next.players.forEach((player, index) => {
-    if (only !== undefined && player.playerId !== only) return;
-    player.x = 50 + ARENA_SPAWN_RADIUS * Math.cos(index * GOLDEN_ANGLE);
-    player.y = 50 + ARENA_SPAWN_RADIUS * Math.sin(index * GOLDEN_ANGLE);
-  });
-  return next;
-}
-
-/** Map units a roaming player crosses per second; the 100-unit world takes about eight seconds. */
-export const ROAM_UNITS_PER_SECOND = 12;
-const ROAM_SPAWN_RADIUS = 6;
-
-/** Free movement with no goal: rounds never finish, so players explore for as long as they stay. */
-export function stepRoam(
-  state: MultiplayerGameState,
-  inputs: ReadonlyMap<string, { input: RealtimeInput; at: number }>,
-  now: number,
-): MultiplayerGameState {
-  const next = structuredClone(state);
-  const step = (ROAM_UNITS_PER_SECOND * TICK_MS) / 1000;
-  for (const player of next.players) {
-    const entry = inputs.get(player.playerId);
-    if (!player.connected || !entry || now - entry.at > 250) continue;
-    const length = Math.hypot(entry.input.x, entry.input.y);
-    if (!length) continue;
-    // Analogue input below full tilt walks slower; diagonals are no faster than straight lines.
-    const scale = (step * Math.min(1, length)) / length;
-    player.x = Math.max(0, Math.min(100, player.x + entry.input.x * scale));
-    player.y = Math.max(0, Math.min(100, player.y + entry.input.y * scale));
-  }
-  return next;
-}
-
-/** A newcomer appears near the centre, a little apart from whoever arrived before. */
-export function spawnRoamPlayer(state: MultiplayerGameState, playerId: string): MultiplayerGameState {
-  const next = structuredClone(state);
-  const index = next.players.findIndex((player) => player.playerId === playerId);
-  const player = next.players[index];
-  if (player) {
-    player.x = 50 + ROAM_SPAWN_RADIUS * Math.cos(index * GOLDEN_ANGLE);
-    player.y = 50 + ROAM_SPAWN_RADIUS * Math.sin(index * GOLDEN_ANGLE);
-  }
-  return next;
-}
-

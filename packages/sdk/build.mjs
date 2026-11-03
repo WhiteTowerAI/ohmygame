@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const root = new URL("./", import.meta.url);
-const MODULES = ["index", "errors", "identity", "define-game", "multiplayer-client", "multiplayer-protocol", "gomoku"];
+const MODULES = ["index", "errors", "identity", "define-game", "multiplayer-client", "multiplayer-protocol"];
 
 /**
  * Bundles the browser SDK with its dependencies from the package sources. Test-only

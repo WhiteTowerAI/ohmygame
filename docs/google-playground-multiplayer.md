@@ -196,7 +196,7 @@ WS     /v1/rooms/{roomId}/connect    实时连接
 1. `packages/sdk/src/multiplayer-protocol.ts`：manifest、Colyseus 消息、事件和错误码的类型及运行时校验。
 2. `src/renderer/multiplayer-client.ts`：封装 Colyseus Client/Room，处理创建/加入房间、重连、状态快照、命令幂等和连接状态。
 3. `src/renderer/published-player.tsx`：检测 manifest 的 multiplayer 配置；单人路径保持现状，多人路径加载客户端并把状态交给游戏适配器。
-4. 独立的服务包 `packages/server/`：从第一版开始安装并运行 Colyseus，包含 rooms、认证、匹配和持久化。不要把公网房间服务塞进本地 daemon。
+4. 独立的服务包 `packages/server/`：从第一版开始安装并运行 Colyseus，包含 rooms、认证、匹配和持久化，不内置任何游戏规则。OhMyGame 的内置规则和托管服务入口在 `packages/games/`。不要把公网房间服务塞进本地 daemon。
 5. 发布服务：验证游戏配置，生成 manifest 的多人字段，拒绝未知协议版本和不合法的 server URL。
 6. 测试：协议校验、重复命令、并发加入、重连、房间关闭、部署版本隔离和浏览器刷新。
 
@@ -319,7 +319,7 @@ bun run build:player
 bun scripts/build-multiplayer-example.ts /data/turn-deployment.json ./multiplayer-example
 ```
 
-`turn-deployment.json` 是注册数组中的一项；将生成目录以 HTTPS 静态托管后即可创建房间和邀请玩家。把 `mode` 改为 `realtime`、使用另一个不可变部署 ID，可生成中心竞速示例。示例 manifest 的运行时是 `multiplayer-example`，不会替换已发布的交互故事。
+`turn-deployment.json` 是注册数组中的一项，`adapterId` 为 `stones`；将生成目录以 HTTPS 静态托管后即可创建房间和邀请玩家。把 `mode` 改为 `realtime`、`adapterId` 改为 `arena`，并使用另一个不可变部署 ID，可生成中心竞速示例。部署必须写明 `adapterId`，服务端不再按玩法模式选默认规则。示例 manifest 的运行时是 `multiplayer-example`，不会替换已发布的交互故事。
 
 普通 Web Game 在构建产物的 `manifest.json` 中放入同一份 `multiplayer` 配置，自行使用 `@colyseus/sdk` 或 `src/renderer/multiplayer-client.ts` 所示的封装与服务通信，并提供与服务端对应的游戏适配器。上传前本地 daemon 会读取配置并检查服务端注册内容是否完全一致；必须把 `MULTIPLAYER_PUBLISH_SERVER_URL` 设为同一个 HTTPS 源地址。配置不能从浏览器指定任意服务器，也不能把交互故事声明为多人。Web Game 的游戏规则不会由发布器自动转换或上传到 Colyseus；新游戏规则需要部署服务端适配器。
 

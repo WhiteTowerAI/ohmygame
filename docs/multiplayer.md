@@ -32,6 +32,7 @@ Setup writes these files under the configured startup directory:
 | File                                      | Purpose                                                                        |
 | ----------------------------------------- | ------------------------------------------------------------------------------ |
 | `src/ohmygame/client.js` and declarations | Bundled browser SDK; no game package dependency is required                    |
+| `src/ohmygame/gomoku.js` and declarations | Gomoku board helpers, written only for `gomoku` games                          |
 | `src/ohmygame/README.md`                  | API, identity, room, command, and adapter instructions                         |
 | `public/manifest.json`                    | Runtime deployment configuration copied by Vite into the build                 |
 | `multiplayer.json`                        | Source declaration used to detect a build that dropped or changed the manifest |
@@ -71,15 +72,17 @@ a fixed local URL in both manifests:
 
 ```sh
 npx @ohmygame/server dev /absolute/path/to/game-workspace
-# in this repository:
+# in this repository, which also serves the built-in rules:
 bun run multiplayer:local /absolute/path/to/game-workspace
 ```
 
-This command reads `multiplayer.json`, listens on its loopback HTTP port, and
+`ohmygame-server dev` serves only a game's own rules. `bun run multiplayer:local`
+also registers OhMyGame's built-in rules, so it runs games set up with `gomoku`,
+`stones`, `arena`, or `roam` too. This command reads `multiplayer.json`, listens on its loopback HTTP port, and
 keeps rooms in memory until stopped. A game with its own turn-based rules keeps
 them in `server/rules.ts` (or `.js`/`.mjs`), written with
 [`defineGame`](#writing-rules-with-definegame) and exported as default, under an
-`adapterId` that is not a built-in one. The command bundles that file with what
+`adapterId` of its own. The command bundles that file with what
 it imports, so the rules can share code with the page and need no OhMyGame package
 installed: `@ohmygame/server` and `@ohmygame/sdk` imports resolve to `defineGame`.
 When the rules or their imports change, it reloads them and restarts the rooms;
@@ -90,10 +93,19 @@ test session.
 
 ## Game rules
 
-The registered `adapterId` is immutable for a deployment. Omitting it preserves
-the existing reference defaults: `stones` for turn-based games and `arena` for
-realtime games. Unknown adapters fail service startup, rather than falling back
-to a different game.
+Every deployment names its rules with a required `adapterId`, which is immutable
+for that deployment. The service plays only the adapters it is given in
+`createMultiplayerServer({ adapters })`: `@ohmygame/server` ships none, and an
+unknown `adapterId` fails service startup rather than falling back to another
+game. Each adapter declares the `mode` it plays, and a deployment of another mode
+is rejected.
+
+OhMyGame's built-in rules, `gomoku`, `stones`, `arena`, and `roam`, live in the
+private `@ohmygame/games` package (`packages/games/`). `createBuiltInAdapters()`
+returns them by ID; the desktop's local service, `bun run multiplayer:local`, and
+OhMyGame's hosted service (`bun run start:multiplayer`,
+`packages/games/src/server.ts`) register them the same way any operator registers
+custom rules.
 
 Each adapter declares the seats its rules support as `players: { min, max }`.
 The service rejects a deployment whose `maxClients` falls outside that range, and
@@ -120,7 +132,7 @@ so the client reports the closed connection instead of a frozen game.
 `gomoku` requires turn-based mode and declares exactly two seats. Black is
 `state.players[0]`; the service selects `currentPlayerId`. Its `state.game` holds
 a flat 15 × 15 board, move history, winning line, and black/white scores. Use
-`isGomokuState` to validate it. The owner sends `start` after both players join;
+`isGomokuState` from `src/ohmygame/gomoku.js` to validate it. The owner sends `start` after both players join;
 players send `action` with `{ action: "move", point: { r, c } }`. The service
 rejects out-of-turn, out-of-bounds, occupied, and extra-field moves, calculates
 five-in-a-row and draws, and preserves scores across the owner's

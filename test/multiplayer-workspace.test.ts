@@ -58,7 +58,7 @@ describe("multiplayer workspace integration", () => {
       );
       expect(declaration).not.toContain("@colyseus/sdk");
       // The public API report: a change to what games can call shows up in review.
-      const names = ["client", "index", "errors", "identity", "define-game", "multiplayer-client", "multiplayer-protocol", "gomoku"];
+      const names = ["client", "index", "errors", "identity", "define-game", "multiplayer-client", "multiplayer-protocol"];
       const report = await Promise.all(names.map(async (name) =>
         `// ${name}.d.ts\n${await readFile(path.join(directory, `src/ohmygame/${name}.d.ts`), "utf8")}`));
       await expect(report.join("\n")).toMatchFileSnapshot("../packages/sdk/api/ohmygame-sdk.api.d.ts");
@@ -68,6 +68,11 @@ describe("multiplayer workspace integration", () => {
       expect(defineGame(rules)).toBe(rules);
       // Test-only injection points stay out of the copied declarations, and the bundle names its version.
       expect(declaration).not.toContain("transport");
+      // The built-in rules' helpers are not SDK API: setup writes them beside it for the games that play those rules.
+      const gomoku = await import(pathToFileURL(path.join(directory, "src/ohmygame/gomoku.js")).href);
+      expect(gomoku.isGomokuState(gomoku.initialGomokuState())).toBe(true);
+      expect(await readFile(path.join(directory, "src/ohmygame/gomoku.d.ts"), "utf8")).toContain("isGomokuState");
+      expect(await readFile(path.join(directory, "src/ohmygame/client.d.ts"), "utf8")).not.toContain("gomoku");
       expect(
         await readFile(path.join(directory, "src/ohmygame/client.js"), "utf8"),
       ).toMatch(/^\/\* @ohmygame\/sdk \d+\.\d+\.\d+ \*\//);
