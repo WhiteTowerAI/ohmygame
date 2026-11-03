@@ -6,9 +6,12 @@ export * from "./multiplayer-protocol.js";
 export * from "./multiplayer-client.js";
 
 // index.d.ts
+import { type GameAuth } from "./account.js";
 import { type IdentityProvider } from "./identity.js";
 import { type MultiplayerManifestConfig } from "./multiplayer-protocol.js";
 export { isOhMyGameError, OhMyGameError, type OhMyGameErrorCode } from "./errors.js";
+export type { GameAuth } from "./account.js";
+export { gameTokenAudience, isGameAccountConfig, type GameAccountConfig, type OhMyGamePlayer, } from "./account-protocol.js";
 export { GuestIdentity, type GuestIdentityOptions, type IdentityProvider } from "./identity.js";
 export { defineGame, type ClientMoves, type GameContext, type GameDefinition, type GameResult, type MoveContext, type MoveDefinition, type MoveFunction, type MoveOptions, } from "./define-game.js";
 export interface InitOptions {
@@ -18,8 +21,12 @@ export interface InitOptions {
      */
     manifest?: {
         multiplayer?: unknown;
+        account?: unknown;
     } | string | URL;
-    /** The signed-in player. Without one, deployments that allow guests use a guest. */
+    /**
+     * Who the player is for game services, in place of the OhMyGame account in game.auth.
+     * Without either, deployments that allow guests use a guest.
+     */
     identity?: IdentityProvider;
     /** Opt in only for loopback development, never for a published deployment. */
     allowLocalhost?: boolean;
@@ -31,6 +38,8 @@ export interface InitOptions {
 export interface OhMyGame {
     /** The game's multiplayer deployment, or undefined for a single-player game. */
     readonly multiplayer?: MultiplayerManifestConfig;
+    /** The player's OhMyGame account. Sign-in is available in games published to OhMyGame. */
+    readonly auth: GameAuth;
 }
 /** Reads the game's configuration once; every SDK feature starts from what it returns. */
 export declare function init(options?: InitOptions): Promise<OhMyGame>;
@@ -98,6 +107,50 @@ export declare class GuestIdentity implements IdentityProvider {
     constructor(options: GuestIdentityOptions);
     getToken(): Promise<string>;
 }
+
+// account.d.ts
+import { type OhMyGamePlayer } from "./account-protocol.js";
+import type { IdentityProvider } from "./identity.js";
+/** The player's OhMyGame account in this game: game.auth from init. */
+export interface GameAuth extends IdentityProvider {
+    /** Whether players can sign in: true in games published to OhMyGame, false in local builds. */
+    readonly available: boolean;
+    /** The signed-in player, or undefined while they play as a guest. */
+    readonly player: OhMyGamePlayer | undefined;
+    /**
+     * Signs the player in and resolves with them. Inside an OhMyGame page that already has the
+     * player, this needs no window. Otherwise it opens OhMyGame sign-in in a popup; where the
+     * popup is blocked, as on many phones, the page goes to sign-in and comes back, and init()
+     * finishes signing in. Throws unsupported in a local build and cancelled when the player
+     * closes the window.
+     */
+    signIn(): Promise<OhMyGamePlayer>;
+    /** A current game token for game services, renewed when it is about to expire; undefined for a guest. */
+    getToken(): Promise<string | undefined>;
+}
+
+// account-protocol.d.ts
+/** Where a published game signs players in, written to manifest.json as "account" by OhMyGame publishing. */
+export interface GameAccountConfig {
+    /** The OhMyGame account service, such as https://api.ohmygame.ai. */
+    issuer: string;
+    /**
+     * Pages that may embed the game and hand it the signed-in player, such as OhMyGame's game
+     * page. Defaults to the issuer's origin.
+     */
+    hostOrigins?: string[];
+}
+/** The player a game token names: the OhMyGame account ID and the name to show. */
+export interface OhMyGamePlayer {
+    id: string;
+    name: string;
+}
+/** The audience of a game token: the one game it signs a player in to. */
+export declare function gameTokenAudience(gameId: string): string;
+export declare function isGameAccountConfig(value: unknown, options?: {
+    allowLocalhost?: boolean;
+}): value is GameAccountConfig;
+export declare function isOhMyGamePlayer(value: unknown): value is OhMyGamePlayer;
 
 // define-game.d.ts
 /**

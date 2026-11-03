@@ -66,6 +66,7 @@ import { registerProviderSettingsRoutes } from "./provider-settings-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
+import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/sdk/account-protocol";
 import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { registerCommunityRoutes } from "./publish/community-routes.js";
@@ -567,7 +568,9 @@ export function createApp(options: AppOptions = {}) {
   const conversations = new ConversationManager(conversationImages, (runtime, id) => agentRuntimes.settings.resolveProfileId(runtime, id));
   const agentPlaytests = new Map<string, OwnedPlaytestDriver>();
   const publishing = new Set<string>();
-  const artifacts = new ArtifactBuilder();
+  const artifacts = new ArtifactBuilder({
+    account: publishedGameAccount(process.env.OHMYGAME_ACCOUNT_ISSUER ?? options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL),
+  });
   const localMultiplayer = new LocalMultiplayerRuntime();
   /**
    * The local service and its registrations end with OhMyGame, so a game set
@@ -3314,6 +3317,15 @@ export function createApp(options: AppOptions = {}) {
     await localPublisher?.close();
   });
   return app;
+}
+
+/**
+ * Published games sign players in through the OhMyGame cloud, which also hosts their pages.
+ * A development cloud on plain HTTP offers no sign-in.
+ */
+function publishedGameAccount(issuer: string | undefined): GameAccountConfig | undefined {
+  const account = issuer ? { issuer: issuer.replace(/\/+$/, "") } : undefined;
+  return isGameAccountConfig(account) ? account : undefined;
 }
 
 function isExternalAgentClientId(value: string): value is ExternalAgentClientId {

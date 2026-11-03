@@ -14,6 +14,7 @@ import { projectProcessEnvironment } from "../project-process.js";
 import { resolveStartupDirectory } from "../projects.js";
 import { buildPlayableProject } from "../playable-project.js";
 import { isMultiplayerManifestConfig, isRecord, sameMultiplayerConfig, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
+import { isGameAccountConfig, type GameAccountConfig } from "@ohmygame/sdk/account-protocol";
 import { isWebStory, publishableWebStoryFiles } from "../story-web-project.js";
 import { compressArchiveFile } from "../archive-compression.js";
 import { PublishMediaOptimizer } from "./media.js";
@@ -33,8 +34,22 @@ export class PublishError extends Error {
   }
 }
 
+export interface ArtifactBuilderOptions {
+  /**
+   * Where published games sign players in with their OhMyGame account; publishing writes
+   * it to manifest.json as "account". Local publishing never does: local builds play as guests.
+   */
+  account?: GameAccountConfig;
+}
+
 export class ArtifactBuilder {
   readonly #running = new Map<string, ChildProcess>();
+  readonly #account?: GameAccountConfig;
+
+  constructor(options: ArtifactBuilderOptions = {}) {
+    if (options.account && !isGameAccountConfig(options.account)) throw new Error("The account issuer must be an HTTPS URL.");
+    this.#account = options.account;
+  }
 
   async create(project: ProjectState, cover?: Buffer, multiplayer?: MultiplayerManifestConfig): Promise<Buffer> {
     return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES, multiplayer);
@@ -77,15 +92,19 @@ export class ArtifactBuilder {
       if (project.type !== "interactive-story") {
         await assertSupportedNetworking(source);
         const configured = await readMultiplayerConfig(source, multiplayer, declared, localTesting);
+        const updates: Record<string, unknown> = {};
         if (configured) {
           await checkMultiplayerDeployment(configured, localTesting);
-          if (multiplayer) {
-            temporary = await mkdtemp(path.join(tmpdir(), "ohmygame-multiplayer-build-"));
-            await cp(source, temporary, { recursive: true });
-            const manifest = await readOptionalManifest(source);
-            await writeFile(path.join(temporary, "manifest.json"), `${JSON.stringify({ ...manifest, multiplayer: configured }, null, 2)}\n`);
-            source = temporary;
-          }
+          if (multiplayer) updates.multiplayer = configured;
+        }
+        // Games that load the SDK have a manifest; sign-in comes with publishing, never local builds.
+        if (this.#account && !localTesting && await hasManifest(source)) updates.account = this.#account;
+        if (Object.keys(updates).length) {
+          temporary = await mkdtemp(path.join(tmpdir(), "ohmygame-publish-build-"));
+          await cp(source, temporary, { recursive: true });
+          const manifest = await readOptionalManifest(source);
+          await writeFile(path.join(temporary, "manifest.json"), `${JSON.stringify({ ...manifest, ...updates }, null, 2)}\n`);
+          source = temporary;
         }
       }
       return await createZip(source, false, cover, maxBytes, false, media);
@@ -100,6 +119,10 @@ export class ArtifactBuilder {
     await Promise.all([...this.#running.values()].map(terminate));
     this.#running.clear();
   }
+}
+
+async function hasManifest(source: string): Promise<boolean> {
+  return access(path.join(source, "manifest.json")).then(() => true, () => false);
 }
 
 async function readOptionalManifest(source: string, filename = "manifest.json"): Promise<Record<string, unknown>> {

@@ -2,10 +2,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const root = new URL("./", import.meta.url);
-const MODULES = ["index", "errors", "identity", "define-game", "multiplayer-client", "multiplayer-protocol"];
+const MODULES = ["index", "errors", "identity", "account", "account-protocol", "define-game", "multiplayer-client", "multiplayer-protocol"];
 
 /** The modules client.js carries; multiplayer.js imports them from it instead of bundling a copy. */
-const SHARED = new Set(["index", "errors", "identity", "define-game", "multiplayer-protocol"]);
+const SHARED = new Set(["index", "errors", "identity", "account", "account-protocol", "define-game", "multiplayer-protocol"]);
 
 /**
  * Bundles the browser SDK with its dependencies from the package sources. Test-only

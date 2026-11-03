@@ -220,10 +220,7 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
           return;
         }
         try {
-          await auth.authenticate(
-            bearer(request.headers.authorization),
-            config.authPolicy,
-          );
+          await auth.authenticate(bearer(request.headers.authorization), config);
           if (!rate.take(`resolve:${request.socket.remoteAddress}`, 30)) {
             response
               .status(429)
@@ -259,10 +256,7 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
             response.status(404).json({ error: "Room not found." });
             return;
           }
-          const identity = await auth.authenticate(
-            bearer(request.headers.authorization),
-            config.authPolicy,
-          );
+          const identity = await auth.authenticate(bearer(request.headers.authorization), config);
           response.json(
             await matchMaker.remoteRoomCall(
               room!.roomId,
@@ -301,7 +295,7 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
           value.protocolVersion !== 1
         )
           throw new Error("The game deployment or protocol does not match.");
-        const identity = await auth.authenticate(token, config.authPolicy);
+        const identity = await auth.authenticate(token, config);
         if (!rate.take(`player:${identity.userId}`, 60))
           throw new Error("Too many room requests.");
         return identity;

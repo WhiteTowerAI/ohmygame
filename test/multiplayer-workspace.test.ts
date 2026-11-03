@@ -67,7 +67,7 @@ describe("multiplayer workspace integration", () => {
       );
       expect(declaration).not.toContain("@colyseus/sdk");
       // The public API report: a change to what games can call shows up in review.
-      const names = ["client", "multiplayer", "index", "errors", "identity", "define-game", "multiplayer-client", "multiplayer-protocol"];
+      const names = ["client", "multiplayer", "index", "errors", "identity", "account", "account-protocol", "define-game", "multiplayer-client", "multiplayer-protocol"];
       const report = await Promise.all(names.map(async (name) =>
         `// ${name}.d.ts\n${await readFile(path.join(directory, `src/ohmygame/${name}.d.ts`), "utf8")}`));
       await expect(report.join("\n")).toMatchFileSnapshot("../packages/sdk/api/ohmygame-sdk.api.d.ts");

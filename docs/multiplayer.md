@@ -46,9 +46,12 @@ from `./multiplayer.js` (`@ohmygame/sdk/multiplayer` in a package build) returns
 player's `MultiplayerClient`. The room client lives only in that entry: a game that
 imports nothing but `client.js` or `@ohmygame/sdk`, such as a single-player game,
 carries no Colyseus code in its build. `multiplayer.js` takes the shared modules from
-`client.js` rather than a copy, so `instanceof OhMyGameError` holds for either file. An account-required game passes an
-`identity` with `getToken()` to `init`; without a token, a deployment that allows
-guests joins as one. The guest identity and room recovery both live in `localStorage`, so a
+`client.js` rather than a copy, so `instanceof OhMyGameError` holds for either file. In a game published to OhMyGame,
+`game.auth.signIn()` signs the player in with their OhMyGame account and rooms use that
+account; see [Game sign-in](game-sign-in.md). Local builds have no sign-in
+(`game.auth.available` is false). Without a signed-in player, a deployment that allows
+guests joins as one. The service accepts accounts only when it is started with
+`OHMYGAME_ACCOUNT_ISSUER`. The guest identity and room recovery both live in `localStorage`, so a
 browser is one player in every tab, and can return to its seat after the tab
 closes. A second tab is the same player and cannot take a second seat in a room.
 Games must keep this default rather than pass per-tab storage to mint extra

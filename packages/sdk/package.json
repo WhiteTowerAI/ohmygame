@@ -25,6 +25,11 @@
       "ohmygame-source": "./src/define-game.ts",
       "types": "./dist/define-game.d.ts",
       "default": "./dist/define-game.js"
+    },
+    "./account-protocol": {
+      "ohmygame-source": "./src/account-protocol.ts",
+      "types": "./dist/account-protocol.d.ts",
+      "default": "./dist/account-protocol.js"
     }
   },
   "files": [

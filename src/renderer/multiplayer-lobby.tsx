@@ -9,14 +9,17 @@ import {
   MultiplayerClient,
   type MultiplayerConnectionStatus,
 } from "./multiplayer-client.js";
-import { createSupabaseClient } from "./auth-client.js";
+import { init, type GameAccountConfig, type GameAuth } from "@ohmygame/sdk";
 import { t } from "./i18n.js";
 
 /** The reference game adapter renders only server snapshots. */
 export function MultiplayerLobby({
   manifest,
+  account: accountConfig,
 }: {
   manifest: MultiplayerManifestConfig;
+  /** OhMyGame sign-in, which publishing adds to the manifest. */
+  account?: GameAccountConfig;
 }) {
   const client = useRef<MultiplayerClient | undefined>(undefined);
   const [status, setStatus] = useState<MultiplayerConnectionStatus>("idle");
@@ -33,70 +36,53 @@ export function MultiplayerLobby({
   const [pending, setPending] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [account, setAccount] = useState(false);
-  const auth = useRef<ReturnType<typeof createSupabaseClient>>(undefined);
+  const auth = useRef<GameAuth>(undefined);
   const direction = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
-    const supabase = (auth.current = createSupabaseClient());
-    const instance = new MultiplayerClient(
-      {
-        manifest,
-        identity: {
-          getToken: async () =>
-            (await supabase?.auth.getSession())?.data.session?.access_token,
-        },
-      },
-      {
-        onStatus: (value) => {
-          setStatus(value);
-          if (value !== "connected" && value !== "reconnecting")
-            setSnapshot(undefined);
-        },
-        onSnapshot: setSnapshot,
-        onReady: (id, code) => {
-          setPlayerId(id);
-          if (code) setInviteCode(code);
-        },
-        onCommandResult: (result) => {
-          setPending(false);
-          if (!result.accepted)
-            setError(result.error?.message ?? t("multiplayer.commandRejected"));
-        },
-        onError: (cause) => {
-          setError(cause.message);
-          setPending(false);
-        },
-      },
-    );
-    client.current = instance;
-    void instance.reconnect();
     let active = true;
-    if (supabase) {
-      void (async () => {
-        const url = new URL(window.location.href);
-        const code = url.searchParams.get("code");
-        if (code) {
-          const result = await supabase.auth.exchangeCodeForSession(code);
-          if (result.error) throw result.error;
-          url.searchParams.delete("code");
-          window.history.replaceState(null, "", url);
-        }
-        const result = await supabase.auth.getSession();
-        if (active) setAccount(!!result.data.session);
-      })().catch((cause: unknown) => {
-        if (active) setError(errorMessage(cause));
-      });
-    }
-    const subscription = supabase?.auth.onAuthStateChange((_event, session) => {
-      if (active) setAccount(!!session);
-    }).data.subscription;
+    let instance: MultiplayerClient | undefined;
+    void (async () => {
+      // init finishes a sign-in that returned to this page, and signs players in through game.auth.
+      const game = await init({ manifest: { multiplayer: manifest, account: accountConfig } });
+      if (!active) return;
+      auth.current = game.auth;
+      setAccount(!!game.auth.player);
+      instance = new MultiplayerClient(
+        { manifest, identity: game.auth.available ? game.auth : undefined },
+        {
+          onStatus: (value) => {
+            setStatus(value);
+            if (value !== "connected" && value !== "reconnecting")
+              setSnapshot(undefined);
+          },
+          onSnapshot: setSnapshot,
+          onReady: (id, code) => {
+            setPlayerId(id);
+            if (code) setInviteCode(code);
+          },
+          onCommandResult: (result) => {
+            setPending(false);
+            if (!result.accepted)
+              setError(result.error?.message ?? t("multiplayer.commandRejected"));
+          },
+          onError: (cause) => {
+            setError(cause.message);
+            setPending(false);
+          },
+        },
+      );
+      client.current = instance;
+      await instance.reconnect();
+    })().catch((cause: unknown) => {
+      if (active) setError(errorMessage(cause));
+    });
     return () => {
       active = false;
-      subscription?.unsubscribe();
-      instance.dispose();
+      instance?.dispose();
       client.current = undefined;
     };
-  }, [manifest]);
+  }, [manifest, accountConfig]);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -177,16 +163,13 @@ export function MultiplayerLobby({
       setError(errorMessage(cause));
     }
   }
-  async function signIn(provider: "google" | "github") {
-    if (!auth.current) {
+  async function signIn() {
+    if (!auth.current?.available) {
       setError(t("multiplayer.authUnavailable"));
       return;
     }
-    const result = await auth.current.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: window.location.href },
-    });
-    if (result.error) throw result.error;
+    await auth.current.signIn();
+    setAccount(true);
   }
   const canJoin =
     !busy &&
@@ -219,17 +202,8 @@ export function MultiplayerLobby({
           <>
             {manifest.authPolicy !== "anonymous" && !account ? (
               <div className="multiplayer-lobby-row">
-                <button
-                  type="button"
-                  onClick={() => void run(() => signIn("google"))}
-                >
-                  {t("multiplayer.signInGoogle")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void run(() => signIn("github"))}
-                >
-                  {t("multiplayer.signInGithub")}
+                <button type="button" onClick={() => void run(signIn)}>
+                  {t("multiplayer.signIn")}
                 </button>
               </div>
             ) : null}

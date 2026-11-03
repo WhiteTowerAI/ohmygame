@@ -84,6 +84,19 @@ describe("publish archives", () => {
     );
   });
 
+  it("adds OhMyGame sign-in to published games that have a manifest, never to local builds", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-account-publish-"));
+    await writeFile(path.join(directory, "index.html"), "game");
+    const account = { issuer: "https://api.ohmygame.example" };
+    expect(() => new ArtifactBuilder({ account: { issuer: "http://api.ohmygame.example" } })).toThrow("HTTPS");
+    const builder = new ArtifactBuilder({ account });
+    // A game without a manifest does not load the SDK, so it gets none.
+    expect((await zipEntries(await builder.create(projectAt(directory)))).map((entry) => entry.fileName)).not.toContain("manifest.json");
+    await writeFile(path.join(directory, "manifest.json"), JSON.stringify({ title: "Board" }));
+    expect(JSON.parse(await zipFile(await builder.create(projectAt(directory)), "manifest.json"))).toEqual({ title: "Board", account });
+    expect(JSON.parse(await zipFile(await builder.createLocal(projectAt(directory)), "manifest.json"))).toEqual({ title: "Board" });
+  });
+
   it("builds with project binaries instead of the app's esbuild override", async () => {
     vi.stubEnv("ESBUILD_BINARY_PATH", "/app/esbuild");
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-env-"));
@@ -215,6 +228,37 @@ async function archiveWithMode(source: string, mode: number): Promise<Buffer> {
   } finally {
     mocked.mockRestore();
   }
+}
+
+/** The text of one file in a ZIP. */
+function zipFile(archive: Buffer, name: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    yauzl.fromBuffer(archive, { lazyEntries: true }, (error, zip) => {
+      if (error || !zip) {
+        reject(error ?? new Error("ZIP could not be opened."));
+        return;
+      }
+      zip.once("error", reject);
+      zip.once("end", () => reject(new Error(`${name} is not in the ZIP.`)));
+      zip.on("entry", (entry: Entry) => {
+        if (entry.fileName !== name) {
+          zip.readEntry();
+          return;
+        }
+        zip.openReadStream(entry, (streamError, stream) => {
+          if (streamError || !stream) {
+            reject(streamError ?? new Error(`${name} could not be read.`));
+            return;
+          }
+          const chunks: Buffer[] = [];
+          stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+          stream.once("error", reject);
+          stream.once("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+        });
+      });
+      zip.readEntry();
+    });
+  });
 }
 
 function zipEntries(archive: Buffer): Promise<Entry[]> {

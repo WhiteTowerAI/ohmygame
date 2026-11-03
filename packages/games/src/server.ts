@@ -16,8 +16,8 @@ const service = createMultiplayerServer({
   adapters: createBuiltInAdapters(),
   auth: {
     guestSecret: process.env.MULTIPLAYER_GUEST_SECRET ?? "",
-    supabaseUrl: process.env.SUPABASE_URL,
-    supabaseKey: process.env.SUPABASE_PUBLISHABLE_KEY,
+    // The OhMyGame account service whose game tokens sign players in; guests only without it.
+    accountIssuer: process.env.OHMYGAME_ACCOUNT_ISSUER || undefined,
   },
   databasePath: process.env.MULTIPLAYER_DATABASE_PATH ?? "multiplayer.sqlite",
   host: process.env.MULTIPLAYER_HOST,
