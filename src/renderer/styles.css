@@ -236,7 +236,8 @@ body {
    window, stopping short of the controls. Project views drag by their top bar. */
 .desktop-window-frame .page-sheet .window-drag-region,
 .desktop-window-frame .onboarding .window-drag-region,
-.desktop-window-frame .onboarding-arrival .window-drag-region {
+.desktop-window-frame .onboarding-arrival .window-drag-region,
+.desktop-window-frame .route-loading .window-drag-region {
   position: fixed;
   z-index: 2;
   top: 0;
@@ -251,7 +252,8 @@ body {
 }
 
 .desktop-window-frame .onboarding .window-drag-region,
-.desktop-window-frame .onboarding-arrival .window-drag-region {
+.desktop-window-frame .onboarding-arrival .window-drag-region,
+.desktop-window-frame .route-loading .window-drag-region {
   left: 0;
 }
 
