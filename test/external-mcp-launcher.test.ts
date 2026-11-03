@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Type } from "typebox";
 import { afterEach, expect, it } from "vitest";
@@ -37,9 +38,9 @@ async function temporaryDirectory() {
 }
 
 /** A daemon's MCP service, reached through `fetch` as the launcher reaches the real one. */
-async function fixture() {
+async function fixture(gameName = "game") {
   const root = await temporaryDirectory();
-  const game = path.join(root, "game");
+  const game = path.join(root, gameName);
   await mkdir(game);
   const other = path.join(root, "other");
   await mkdir(other);
@@ -138,7 +139,13 @@ async function fixture() {
   let starts = 0;
   let failures = 0;
   let lostResponse: { tool: string; truncated: boolean } | undefined;
-  const create = (overrides: { startApp?: () => void } = {}) =>
+  const create = (
+    overrides: {
+      startApp?: () => void;
+      environment?: NodeJS.ProcessEnv;
+      cwd?: string;
+    } = {},
+  ) =>
     new ExternalMcpLauncher({
       dataDirectory: root,
       write: (message) => written.push(message),
@@ -161,8 +168,8 @@ async function fixture() {
         }
         return response;
       },
-      environment: {},
-      cwd: game,
+      environment: overrides.environment ?? {},
+      cwd: overrides.cwd ?? game,
       isAlive: () => true,
       startTimeoutMs: 3_000,
       startApp:
@@ -397,6 +404,55 @@ it("uses the client's MCP roots when it offers them", async () => {
   });
   expect(JSON.parse(requests.at(-1)!.roots!)).toEqual([`file://${game}`]);
 });
+
+it.each(["cwd", "environment", "roots", "encoded roots"] as const)(
+  "binds a non-ASCII project folder through %s without invalid HTTP headers",
+  async (source) => {
+    const { service, game, other, written, requests, create, ask, call } =
+      await fixture("游戏 한글 日本語 café 🚀 #%");
+    await service.listening("http://127.0.0.1:1/external-mcp");
+    await service.setEnabled(true);
+    const roots = source === "roots" || source === "encoded roots";
+    const launcher = create({
+      cwd: source === "cwd" ? game : other,
+      environment: source === "environment" ? { CLAUDE_PROJECT_DIR: game } : {},
+    });
+    await ask(launcher, "initialize", {
+      capabilities: roots ? { roots: {} } : {},
+    });
+    const encodedUri = pathToFileURL(game).href;
+    // Some clients send Unicode literally, but reserved URI characters stay escaped.
+    const uri =
+      source === "encoded roots"
+        ? encodedUri
+        : encodedUri
+            .replaceAll(encodeURIComponent("游戏"), "游戏")
+            .replaceAll(encodeURIComponent("🚀"), "🚀");
+    if (roots) {
+      await launcher.receive({ method: "notifications/initialized" });
+      const request = written.find(
+        (message) => message.method === "roots/list",
+      )!;
+      await launcher.receive({
+        id: request.id,
+        result: { roots: [{ uri, name: "Game" }] },
+      });
+    }
+    expect(await call(launcher, "canvas_check")).toEqual({
+      isError: false,
+      text: "canvas of game",
+    });
+    const folders = roots
+      ? [uri]
+      : source === "environment"
+        ? [game, other]
+        : [game];
+    for (const request of requests) {
+      expect(request.roots).toMatch(/^[\x20-\x7e]*$/);
+      expect(JSON.parse(request.roots!)).toEqual(folders);
+    }
+  },
+);
 
 it("writes a launcher script that keeps arguments with spaces and quotes intact", async () => {
   if (process.platform === "win32") return;
