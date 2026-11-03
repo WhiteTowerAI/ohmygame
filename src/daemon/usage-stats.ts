@@ -63,6 +63,7 @@ interface FileUsage {
   turn?: OpenTurn;
 }
 
+const FILES_PER_BATCH = 4;
 const TAIL_BYTES = 64;
 const CHUNK_BYTES = 4 * 1024 * 1024;
 const HEAD_BYTES = 400;
@@ -98,13 +99,13 @@ export class UsageIndex {
     >();
     for (const project of projects) {
       const directory = sessionDirectory(project);
-      const files = [
-        ...(await sessionFiles(directory)),
-        ...(await sessionFiles(path.join(directory, "archived"))),
-      ];
-      for (const file of files) {
-        live.add(file);
-        const usage = await this.#read(file);
+      const [active, archived] = await Promise.all([
+        sessionFiles(directory),
+        sessionFiles(path.join(directory, "archived")),
+      ]);
+      const files = [...active, ...archived];
+      for (const file of files) live.add(file);
+      for await (const usage of this.#readFiles(files)) {
         if (!usage) continue;
         const open = usage.turn && closedTurn(usage.turn);
         for (const record of open ? [...usage.records, open] : usage.records) {
@@ -155,6 +156,18 @@ export class UsageIndex {
       rows: [...rows.values()].sort((a, b) => a.date.localeCompare(b.date)),
       projects: projects.map(({ id, name }) => ({ id, name })),
     };
+  }
+
+  async *#readFiles(files: string[]) {
+    // Bound the number of open files and chunk buffers. Consume results in directory order.
+    for (let start = 0; start < files.length; start += FILES_PER_BATCH) {
+      const batch = files.slice(start, start + FILES_PER_BATCH);
+      const results = await Promise.allSettled(batch.map((file) => this.#read(file)));
+      for (const result of results) {
+        if (result.status === "rejected") throw result.reason;
+        yield result.value;
+      }
+    }
   }
 
   async #read(file: string): Promise<FileUsage | undefined> {
@@ -209,7 +222,7 @@ export class UsageIndex {
       const chunk = Buffer.allocUnsafe(
         Math.min(CHUNK_BYTES, Math.max(1, stats.size - usage.offset)),
       );
-      let line = new LineReader();
+      let partial: LineReader | undefined;
       let position = usage.offset;
       let consumed = usage.offset;
       while (position < stats.size) {
@@ -223,12 +236,24 @@ export class UsageIndex {
         const bytes = chunk.subarray(0, bytesRead);
         for (let start = 0; start < bytesRead;) {
           const newline = bytes.indexOf(0x0a, start);
-          line.take(bytes.subarray(start, newline < 0 ? bytesRead : newline));
-          if (newline < 0) break;
-          const { head, whole } = line.finish();
-          readLine(usage, head, whole);
+          if (newline < 0) {
+            (partial ??= new LineReader()).take(bytes.subarray(start));
+            break;
+          }
+          if (partial) {
+            partial.take(bytes.subarray(start, newline));
+            const { head, whole } = partial.finish();
+            readLine(usage, head, whole);
+            partial = undefined;
+          } else {
+            const headEnd = Math.min(start + HEAD_BYTES, newline);
+            const head = bytes.toString("utf8", start, headEnd);
+            const whole = mayHoldUsage(head)
+              ? headEnd === newline ? head : bytes.toString("utf8", start, newline)
+              : undefined;
+            readLine(usage, head, whole);
+          }
           consumed = position + newline + 1;
-          line = new LineReader();
           start = newline + 1;
         }
         position += bytesRead;

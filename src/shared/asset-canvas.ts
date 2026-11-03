@@ -11,9 +11,8 @@ import {
   DEFAULT_MODEL_3D_CONFIG,
   DEFAULT_VIDEO_NODE_CONFIG,
 } from "./generation-config.js";
-import { Check } from "typebox/value";
+import { boardContentValidator, layoutValidator, positionValidator } from "./canvas-validators.js";
 import { canvasNodeContent, canvasNodeLayout, contentNodeSizeIssue, isResizableCanvasNodeType, withoutContentNodeSize } from "./canvas-node-layout.js";
-import { ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA, ASSET_CANVAS_SCHEMA } from "./asset-canvas-schema.js";
 
 export type AssetCanvasStarter = "image" | "video" | "model-3d" | "music" | "audio-scene";
 
@@ -164,8 +163,8 @@ export function isAssetCanvasDocument(value: unknown): value is AssetCanvasDocum
   try {
     const { editorLayout, ...rest } = document;
     const persisted = { ...rest, nodes: rest.nodes.map(canvasNodeContent) };
-    if (!Check(ASSET_CANVAS_SCHEMA, persisted) || !Check(ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA, editorLayout)) return false;
-    if (!document.nodes.every((node) => Check(ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA.properties.nodes.additionalProperties, canvasNodeLayout(node)))) return false;
+    if (!boardContentValidator.Check(persisted) || !layoutValidator.Check(editorLayout)) return false;
+    if (!document.nodes.every((node) => positionValidator.Check(canvasNodeLayout(node)))) return false;
     validateAssetCanvasDocument(document);
     return true;
   } catch {
