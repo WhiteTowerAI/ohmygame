@@ -536,8 +536,11 @@ project** (also **⌘N** or **Ctrl+N**, which focuses Home's prompt), every
 project, most recently edited first, the Settings sections, and switching
 between dark and light. Leaving an open project from the menu or a shortcut
 saves its design first, as the rail does. While a dialog is open, the menu and
-these shortcuts wait for it to close. A pending desktop update shows above the account until
-it needs a restart. The sidebar collapses to icons, each naming itself in a
+these shortcuts wait for it to close. A desktop update that needs you is a
+blue pill at the account's end: a dot that opens to **Update** or **Restart** on
+hover, filling with the download's progress in between, and a warning that
+leads to About when the update failed. Collapsed, it sits above the account.
+The sidebar collapses to icons, each naming itself in a
 tooltip on hover or focus. As everywhere in the app, the first tooltip waits a
 moment and the next ones show at once while the pointer moves along the icons.
 Its edge drags between
