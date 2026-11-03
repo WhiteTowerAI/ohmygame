@@ -36,6 +36,13 @@ describe("workspace code highlighting", () => {
     }
   });
 
+  it("preserves nonbreaking spaces when copying highlighted source", () => {
+    const content = 'const label = "A\u00a0<B>&C"; // two\u00a0words';
+    const preview = document.createElement("code");
+    preview.innerHTML = Prism.highlight(content, Prism.languages.javascript!, "javascript");
+    expect(preview.textContent).toBe(content);
+  });
+
   it("keeps text readable on worker failure and retries on the next file", async () => {
     vi.stubGlobal("Worker", class {});
     const container = document.createElement("div");
