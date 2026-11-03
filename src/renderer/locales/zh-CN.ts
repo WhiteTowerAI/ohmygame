@@ -88,6 +88,7 @@ const zhCN: typeof en = {
     noCompatibleNodes: "没有兼容的节点类型",
   },
   common: {
+    showMore: "显示更多",
     openName: "打开 {{name}}",
     tryAgain: "重试",
     copied: "已复制",

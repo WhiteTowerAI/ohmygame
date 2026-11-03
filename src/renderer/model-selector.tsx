@@ -41,7 +41,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const menuId = useId();
   const currentKey = value ? modelKey(value) : "";
   const current = models.find((model) => modelKey(model) === currentKey) ?? (value && "name" in value ? value : undefined);
-  const visibleModels = status === "ready" ? filterModels(models, query) : [];
+  const visibleModels = open && status === "ready" ? filterModels(models, query) : [];
   const providerGroups = groupModelsByProvider(visibleModels);
   const effectiveReasoning = clampReasoningLevel(reasoningLevel ?? "medium", current?.reasoningLevels ?? []);
   const native = isAgentRuntimeId(current?.provider) && variant !== "canvas";

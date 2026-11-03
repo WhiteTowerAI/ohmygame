@@ -87,6 +87,7 @@ const en = {
     noCompatibleNodes: "No compatible node types",
   },
   common: {
+    showMore: "Show more",
     openName: "Open {{name}}",
     tryAgain: "Try again",
     copied: "Copied",

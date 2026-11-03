@@ -1,3 +1,4 @@
+import { useListPage } from "./use-list-page.js";
 import { language, t } from "./i18n.js";
 import { useEffect, useRef, useState } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
@@ -21,9 +22,10 @@ export function GameGrid<T extends CommunityGame>({
   accessToken?: string;
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
 }) {
+  const page = useListPage(games.length);
   return (
-    <div className="community-grid">
-      {games.map((game) => (
+    <><div className="community-grid">
+      {games.slice(0, page.limit).map((game) => (
         <GameTile
           key={game.id}
           game={game}
@@ -32,7 +34,7 @@ export function GameGrid<T extends CommunityGame>({
           onStatsChange={onStatsChange}
         />
       ))}
-    </div>
+    </div>{page.next}</>
   );
 }
 

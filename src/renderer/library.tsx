@@ -1,3 +1,4 @@
+import { useListPage } from "./use-list-page.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { fileExtension, fileName, fileSize, fileStem, libraryAssetOriginLabel, mediaTypeLabel, type MediaFilter } from "./asset-browser.js";
@@ -132,6 +133,7 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
   const narrowed = useMemo(() => filterLibraryAssets(assets, "all", query, filters), [assets, query, filters]);
   const visibleAssets = useMemo(() => mediaFilter === "all" ? narrowed : narrowed.filter((asset) => asset.mediaType === mediaFilter), [narrowed, mediaFilter]);
   const filtered = Boolean(query.trim()) || libraryFiltersActive(filters);
+  const page = useListPage(visibleAssets.length);
   const selected = assets.find((asset) => asset.id === selectedId);
   const trimmedFrom = selected?.derivedFrom ? assets.find((candidate) => candidate.id === selected.derivedFrom!.assetId)?.name ?? selected.derivedFrom.assetId : undefined;
   const resetFilters = () => { setQuery(""); setFilters({}); };
@@ -153,10 +155,11 @@ export function LibraryPage({ onNavigate, onOpenProject }: LibraryPageProps) {
       {phase === "error" ? <Empty title={t("library.loadFailed")} description={error} action={<Button size="sm" onClick={() => void load()}>{t("common.retry")}</Button>} />
         : phase === "loading" && assets.length === 0 ? <div className="library-tiles" aria-busy="true" aria-label={t("library.loading")}>{Array.from({ length: 12 }, (_, index) => <span className="library-skeleton" key={index}><Skeleton height="auto" radius={12} /><Skeleton width="60%" /></span>)}</div>
         : visibleAssets.length === 0 ? <Empty title={assets.length ? t("library.noMatch") : t("library.none")} action={filtered ? <Button size="sm" onClick={resetFilters}>{t("libraryFilters.reset")}</Button> : undefined} />
-        : <div className="library-tiles">{visibleAssets.map((asset) => <ContextMenu key={asset.id} items={assetMenu(asset)}>
+        : <div className="library-tiles">{visibleAssets.slice(0, page.limit).map((asset) => <ContextMenu key={asset.id} items={assetMenu(asset)}>
             <LibraryTile asset={asset} selected={selectedId === asset.id} onOpen={() => setSelectedId(asset.id)} />
           </ContextMenu>)}</div>}
 
+      {phase === "ready" ? page.next : null}
       <Sheet open={Boolean(selected) && !dialog} onClose={() => setSelectedId(undefined)} title={selected ? fileName(selected.path) : ""}
         footer={selected ? <>
           <IconButton label={t("common.delete")} onClick={() => void beginDelete(selected)}><Trash2 size={16} /></IconButton>
