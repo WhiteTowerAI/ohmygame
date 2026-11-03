@@ -71,6 +71,10 @@ its provider is the agent's ID (`claude-code-cli`, `codex-cli`, `opencode-cli`),
 its ID is the agent's own model name, such as `sonnet` or
 `anthropic/claude-sonnet-5`. The `-cli` suffix keeps these apart from Pi
 providers of the same name; Pi has its own `opencode` provider.
+When a project starts from Home's prompt, its first conversation uses the model
+shown there, including an available CLI model when no default has been saved.
+A conversation with no saved model uses the choice shown in its picker when
+the next message is sent.
 
 ![Agent brand icons in the model picker and composer (sample data)](assets/model-selector-agent-icons.png)
 

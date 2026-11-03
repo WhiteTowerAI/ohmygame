@@ -131,6 +131,38 @@ async function start(source = FAKE_CLAUDE) {
 }
 
 describe("coding agent routes", () => {
+  it("persists the displayed Codex model in a new Web Game and routes its first turn to Codex", async () => {
+    const model = { provider: "codex-cli" as const, providerName: "Codex", id: "gpt-test", name: "Codex test", reasoningLevels: [], nativeReasoningLevels: ["low"] };
+    vi.spyOn(AgentRuntimeService.prototype, "model").mockResolvedValue(model);
+    const prompt = vi.fn(async () => {});
+    const createNative = vi.spyOn(AgentRuntimeService.prototype, "createSession").mockImplementation(async () => ({
+      messages: [], prompt, abort: async () => {}, dispose: () => {}, subscribe: () => () => {},
+    }) as unknown as Awaited<ReturnType<AgentRuntimeService["createSession"]>>);
+    const { call } = await start();
+    expect((await call("PATCH", "/agent-runtimes/codex-cli", { enabled: true })).status).toBe(200);
+    const project = (await call<ProjectState>("POST", "/projects", { type: "web-game" })).body;
+    const created = await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, { model: { provider: model.provider, id: model.id } });
+    expect(created.status).toBe(201);
+    const base = `/projects/${project.id}/conversations/${created.body.id}`;
+    expect((await call<ConversationDetail>("GET", base)).body.settings.model).toEqual({ provider: "codex-cli", id: "gpt-test" });
+    const turn = await call("POST", `${base}/turns`, { prompt: "Make a game" });
+    expect(turn.status, JSON.stringify(turn.body)).toBe(202);
+    await vi.waitFor(() => expect(createNative).toHaveBeenCalled());
+    expect(createNative.mock.calls[0]![0]).toMatchObject({ runtime: "codex-cli", model: "gpt-test" });
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalled());
+    await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"), { timeout: 10_000 });
+
+    // A previously created conversation without a model can recover without losing its history.
+    const earlier = await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, {});
+    const earlierBase = `/projects/${project.id}/conversations/${earlier.body.id}`;
+    expect((await call<ConversationDetail>("GET", earlierBase)).body.settings.model).toBeUndefined();
+    expect((await call("POST", `${earlierBase}/turns`, { prompt: "Try a game" })).status).toBe(202);
+    await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", earlierBase)).body.agent.status).toBe("error"), { timeout: 10_000 });
+    expect((await call("PUT", `${earlierBase}/model`, { provider: "codex-cli", id: "gpt-test" })).status).toBe(200);
+    expect((await call("POST", `${earlierBase}/turns`, { prompt: "Try again" })).status).toBe(202);
+    await vi.waitFor(() => expect(createNative).toHaveBeenCalledTimes(2), { timeout: 10_000 });
+  });
+
   it("accepts only the agent's own permission modes", async () => {
     const { call } = await start();
     expect(

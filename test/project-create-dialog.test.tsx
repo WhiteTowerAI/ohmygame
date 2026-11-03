@@ -101,6 +101,16 @@ function button(text: string): HTMLButtonElement {
 }
 
 describe("new project dialog", () => {
+  it("uses Home's displayed Codex model for the first Web Game conversation", async () => {
+    const model = { provider: "codex-cli", id: "gpt-6.1-sol" };
+    await act(async () => root.render(
+      <ProjectCreateDialog direct firstMessage={{ prompt: "Make a game", mentions: [], attachments: [], mode: "normal", type: "web-game", model }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    expect(createProject).toHaveBeenCalledWith({ type: "web-game" });
+    expect(createConversation).toHaveBeenCalledWith("maze", model);
+  });
+
   it("offers every project type, Asset Canvas included, and asks only for name, type and folder", async () => {
     await act(async () =>
       root.render(
@@ -168,7 +178,7 @@ describe("new project dialog", () => {
 
     await act(async () => button("Create and start").click());
     expect(createProject).toHaveBeenCalledWith({ type: "godot-game" });
-    expect(createConversation).toHaveBeenCalledWith("maze");
+    expect(createConversation).toHaveBeenCalledWith("maze", undefined);
     expect(onCreated).toHaveBeenCalledWith(created, {
       conversationId: "first",
       prompt: "@Godot Make a maze",
