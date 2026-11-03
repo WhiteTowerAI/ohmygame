@@ -13,8 +13,8 @@ const host = vi.hoisted(() => ({
   install: undefined as (() => Promise<void>) | undefined,
   options: undefined as Record<string, unknown> | undefined,
   daemonOptions: undefined as Record<string, unknown> | undefined,
-  applicationMenu: undefined as { template: Array<{ id?: string; label?: string }> } | undefined,
-  menuBeforeLabels: undefined as { template: Array<{ id?: string; label?: string }> } | undefined,
+  applicationMenu: undefined as { template: Array<{ role?: string; label?: string }> } | undefined,
+  menuBeforeLabels: undefined as { template: Array<{ role?: string; label?: string }> } | undefined,
 }));
 vi.mock("electron", () => ({
   app: {
@@ -31,7 +31,7 @@ vi.mock("electron", () => ({
   nativeImage: { createFromBitmap: () => ({}) }, nativeTheme: {}, session: { fromPartition: () => ({ setProxy: async () => {} }), defaultSession: { setProxy: async () => {} } },
   BrowserWindow: { getAllWindows: () => [] }, clipboard: {}, dialog: { showErrorBox: vi.fn() }, shell: {},
   Menu: {
-    buildFromTemplate: (template: Array<{ id?: string; label?: string }>) => ({ template }),
+    buildFromTemplate: (template: Array<{ role?: string; label?: string }>) => ({ template }),
     setApplicationMenu: (menu: typeof host.applicationMenu) => { host.applicationMenu = menu; },
   },
 }));
@@ -112,14 +112,14 @@ function acknowledge(error?: string, sender: { id: number; send: unknown } = hos
 }
 function quit() { const event = { preventDefault: vi.fn() }; host.appEvents.get("before-quit")!(event); expect(event.preventDefault).toHaveBeenCalledOnce(); }
 
-const fileMenuLabel = () => host.applicationMenu!.template.find((item) => item.id === "File")!.label;
+const fileMenuLabel = () => host.applicationMenu!.template.find((item) => item.role === "fileMenu")!.label;
 
 it("lets the built renderer frame plugin pages, which CSP knows as file: and CORS as null", () => {
   expect(host.daemonOptions).toMatchObject({ allowedOrigins: ["null"], pluginFrameAncestors: ["file:"] });
 });
 it("has an English application menu before the main window loads", () => {
   expect(host.menuBeforeLabels!.template.map((item) => item.label)).not.toContain("Sent while loading");
-  expect(host.menuBeforeLabels!.template.find((item) => item.id === "File")).toEqual(expect.objectContaining({ label: undefined }));
+  expect(host.menuBeforeLabels!.template.find((item) => item.role === "fileMenu")).toEqual(expect.objectContaining({ label: undefined }));
 });
 it("lets only the main window relabel the application menu", async () => {
   const setLabels = host.handlers.get("ohmygame:set-application-menu-labels")!;
@@ -134,7 +134,7 @@ it("lets only the main window relabel the application menu", async () => {
   expect(fileMenuLabel()).toBe("文件");
 });
 it("accepts the labels the main window sends while it loads", () => {
-  expect(host.applicationMenu!.template.find((item) => item.id === "Window")!.label).toBe("Sent while loading");
+  expect(host.applicationMenu!.template.find((item) => item.role === "windowMenu")!.label).toBe("Sent while loading");
 });
 it("keeps services running until Quit receives a save acknowledgement", async () => {
   quit(); quit();

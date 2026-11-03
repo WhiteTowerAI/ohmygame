@@ -1000,7 +1000,6 @@ const zhCN: typeof en = {
     expand: "展开侧栏",
     back: "后退",
     forward: "前进",
-    history: "后退和前进",
     loadingAccount: "正在加载账户",
     signInEllipsis: "登录…",
     account: "账户",

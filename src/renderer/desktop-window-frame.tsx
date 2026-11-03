@@ -1,8 +1,9 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { createContext, type ReactNode, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { t } from "./i18n.js";
 
 /** Windows draws no title bar of its own here: the app lays the window's controls over its content. */
-function hasWindowsWindowControls(): boolean {
+export function hasWindowsWindowControls(): boolean {
   return window.ohMyGameDesktop?.platform === "win32" && !!window.ohMyGameDesktop.windowControls;
 }
 
@@ -11,18 +12,24 @@ export function sendApplicationMenuLabels(): void {
   void window.ohMyGameDesktop?.windowMenu?.setLabels(t("windowMenu", { returnObjects: true })).catch(() => undefined);
 }
 
+// A native modal makes everything outside it inert, including the window buttons.
+export const WindowControlsModal = createContext<((dialog: HTMLDialogElement | null) => void) | undefined>(undefined);
+
 export function DesktopWindowFrame({ children }: { children: ReactNode }) {
+  const [modal, setModal] = useState<HTMLDialogElement | null>(null);
   if (!hasWindowsWindowControls()) return children;
 
   return <div className="desktop-window-frame">
-    <div className="desktop-window-content">{children}</div>
-    <DesktopWindowControls />
+    <WindowControlsModal.Provider value={setModal}>
+      <div className="desktop-window-content">{children}</div>
+    </WindowControlsModal.Provider>
+    <DesktopWindowControls modal={modal} />
   </div>;
 }
 
 // The window's controls, over the content's top right corner. The page's own
 // rows stay in place and start at the window's top; the controls take no space.
-function DesktopWindowControls() {
+function DesktopWindowControls({ modal }: { modal: HTMLDialogElement | null }) {
   const controls = window.ohMyGameDesktop!.windowControls!;
   const [maximized, setMaximized] = useState(false);
 
@@ -38,7 +45,7 @@ function DesktopWindowControls() {
     };
   }, [controls]);
 
-  return <div className="desktop-window-controls">
+  const buttons = <div className="desktop-window-controls">
     <button type="button" aria-label={t("windowControls.minimize")} title={t("windowControls.minimize")}
       onClick={() => void controls.minimize().catch(() => undefined)}>
       <svg className="desktop-window-glyph" viewBox="0 0 10 10" aria-hidden="true"><path d="M.5 5.5h9" /></svg>
@@ -55,4 +62,5 @@ function DesktopWindowControls() {
       <svg className="desktop-window-glyph" viewBox="0 0 10 10" aria-hidden="true"><path d="m1 1 8 8m0-8-8 8" /></svg>
     </button>
   </div>;
+  return modal ? createPortal(buttons, modal) : buttons;
 }

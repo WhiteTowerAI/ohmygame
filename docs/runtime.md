@@ -507,7 +507,9 @@ conversation**. The rail's Back and Forward lead the top bar: beside the
 window controls on macOS, at the window's edge on Linux and in a browser. On
 Windows the app draws the window's controls itself (`desktop-window-frame.tsx`):
 Minimize, Maximize or Restore, and Close in the app's colours over the page's
-top right corner, while Back and Forward lead the sidebar and the project rail.
+top right corner. The controls remain available when Community asks to unpublish
+a game or the application shows its error page. Back and Forward lead the
+sidebar and the project rail.
 The top bar holds the project's name as its menu (**Rename
 project…**, **Open in folder** in the desktop app, **Export project**,
 **Plugins…**, and a return to the entry page), **Play** while the Game panel

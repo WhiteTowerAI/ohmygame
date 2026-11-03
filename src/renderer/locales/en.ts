@@ -1015,7 +1015,6 @@ const en = {
     expand: "Expand sidebar",
     back: "Back",
     forward: "Forward",
-    history: "Back and forward",
     loadingAccount: "Loading account",
     signInEllipsis: "Sign in…",
     account: "Account",

@@ -38,13 +38,11 @@ export function applicationMenuTemplate(
         } satisfies MenuItemConstructorOptions]
       : []),
     {
-      id: "File",
       role: "fileMenu",
       label: labels.file,
       submenu: [mac ? item("close", "closeMac") : item("quit")],
     },
     {
-      id: "Edit",
       role: "editMenu",
       label: labels.edit,
       submenu: [
@@ -79,7 +77,6 @@ export function applicationMenuTemplate(
       ],
     },
     {
-      id: "View",
       role: "viewMenu",
       label: labels.view,
       submenu: [
@@ -95,7 +92,6 @@ export function applicationMenuTemplate(
       ],
     },
     {
-      id: "Window",
       role: "windowMenu",
       label: labels.window,
       submenu: [
