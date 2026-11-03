@@ -272,6 +272,16 @@ body {
   padding-right: 146px;
 }
 
+/* Match the project toolbar's height so its actions and window controls align. */
+.desktop-window-frame:has(.project-frame) .desktop-window-controls button {
+  height: 48px;
+}
+
+/* Keep the builder actions 12px clear of the three 46px window buttons. */
+.desktop-window-frame .plugin-builder-shell .viewer-header {
+  padding-right: 150px;
+}
+
 .desktop-macos,
 .desktop-macos body,
 .desktop-macos #root {
