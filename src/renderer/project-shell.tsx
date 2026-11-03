@@ -73,6 +73,8 @@ import {
   listConversations,
   publishProject,
   removePendingPrompt,
+  removeScheduledMessage,
+  scheduleMessage,
   renameConversation,
   archiveConversation,
   listArchivedConversations,
@@ -871,10 +873,10 @@ export function ProjectShell({
     }
   }
 
-  async function removeFollowUp(turnId: string): Promise<boolean> {
+  async function conversationAction(action: (projectId: string, conversationId: string) => Promise<void>): Promise<boolean> {
     if (!project || !conversation) return false;
     try {
-      await removePendingPrompt(project.id, conversation.id, turnId);
+      await action(project.id, conversation.id);
       return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
@@ -882,15 +884,12 @@ export function ProjectShell({
     }
   }
 
-  async function steerFollowUp(turnId: string): Promise<boolean> {
-    if (!project || !conversation) return false;
-    try {
-      await steerPendingPrompt(project.id, conversation.id, turnId);
-      return true;
-    } catch (error) {
-      dispatch({ type: "notice", message: errorMessage(error) });
-      return false;
-    }
+  function removeFollowUp(turnId: string): Promise<boolean> {
+    return conversationAction((projectId, conversationId) => removePendingPrompt(projectId, conversationId, turnId));
+  }
+
+  function steerFollowUp(turnId: string): Promise<boolean> {
+    return conversationAction((projectId, conversationId) => steerPendingPrompt(projectId, conversationId, turnId));
   }
 
   async function editFollowUp(item: PendingPrompt): Promise<boolean> {
@@ -1351,6 +1350,7 @@ export function ProjectShell({
       running={currentConversationBusy}
       stopping={state.agent.status === "cancelling" || sendingInitialPrompt}
       pendingPrompts={state.pendingPrompts}
+      scheduledMessages={state.scheduledMessages}
       plan={activePlan}
       planMode={state.plan.mode}
       notice={state.connection === "reconnecting" ? t("projectShell.reconnecting") : state.notice}
@@ -1393,6 +1393,8 @@ export function ProjectShell({
       onRemovePending={removeFollowUp}
       onSteerPending={steerFollowUp}
       onEditPending={editFollowUp}
+      onScheduleMessage={(prompt, at) => conversationAction((projectId, conversationId) => scheduleMessage(projectId, conversationId, { prompt, at }))}
+      onRemoveScheduled={(id) => conversationAction((projectId, conversationId) => removeScheduledMessage(projectId, conversationId, id))}
       canPublish={Boolean(project && (isWebRuntimeProjectType(project.type) || project.type === "interactive-story") && !publishing && !agentBusy)}
       onPublish={project ? () => setPublishDialog({ projectId: project.id, status: "open" }) : undefined}
       pluginCommands={{ slash: slashCommands(plugins.commands, plugins.when), add: commandsForSlot(plugins.commands, "composer.add", plugins.when) }}

@@ -762,6 +762,14 @@ export interface PendingPrompt {
   steering?: boolean;
 }
 
+/** A message the person asked to send later. `missed` holds it for them to decide on, because it couldn't go at its time. */
+export interface ScheduledMessage {
+  id: string;
+  prompt: string;
+  at: number;
+  missed?: boolean;
+}
+
 export type CommunityGame = PublishCommunityGame;
 
 export interface PublishResult {
@@ -907,6 +915,7 @@ export interface ConversationDetail {
   turns: Turn[];
   cursor: number;
   pendingPrompts: PendingPrompt[];
+  scheduledMessages: ScheduledMessage[];
 }
 
 export type PlanMode = "normal" | "planning" | "awaiting_approval" | "executing";
@@ -994,6 +1003,7 @@ export interface PromptRequest {
 }
 
 export interface ReviseLastPromptRequest { prompt: string }
+export interface ScheduleMessageRequest { prompt: string; at: number }
 
 export interface PromptResponse {
   turnId: string;
@@ -1333,6 +1343,7 @@ export interface RuntimeEventData {
   "prompt.queued": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.steered": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.removed": Record<string, never>;
+  "scheduled.changed": { messages: ScheduledMessage[] };
   "publish.started": Record<string, never>;
   "publish.completed": { game: PublishResult["game"] };
   "publish.error": { error: string };
@@ -1368,6 +1379,7 @@ export const RUNTIME_EVENT_TYPES = [
   "prompt.queued",
   "prompt.steered",
   "prompt.removed",
+  "scheduled.changed",
   "publish.started",
   "publish.completed",
   "publish.error",

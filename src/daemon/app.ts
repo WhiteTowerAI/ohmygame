@@ -30,11 +30,12 @@ import { ActivityLog } from "./activity-log.js";
 import { AgentNoticeLog } from "./agent-notices.js";
 import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { registerUsageRoutes, UsageIndex } from "./usage-stats.js";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, PREVIEW_VIEWPORTS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentContextUsage, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateProjectRequest, type MediaModelDefaults, type ProjectAppearance, type ProjectRunSettings, type ProjectState, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, ScheduleMessageRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { appWidePluginSuits, buildsWebPreview, isWebRuntimeProjectType, PLUGIN_PROJECT_KINDS, pluginAppliesTo, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
+import { ScheduledMessages } from "./scheduled-messages.js";
 import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
@@ -1009,6 +1010,27 @@ export function createApp(options: AppOptions = {}) {
     };
   });
   agentRuntimes.onLimitsReported = () => limitContinuations.limitsReported();
+  const scheduledMessages = new ScheduledMessages(dataDirectory, async (projectId, conversationId, prompt) => {
+    const project = projects.get(projectId);
+    const conversation = project && await conversations.get(project, conversationId);
+    if (!project || !conversation) return undefined;
+    const model = await conversations.model(project, conversation);
+    if (project.pluginType && !(await pluginServices.projectReady(project.workspacePath, project.pluginType.id, "en")).ready) return () => false;
+    // A conversation not opened since OhMyGame started has its plan only in its session file.
+    agents.restorePlanState(conversation, await conversations.planState(project, conversation));
+    return () => {
+      if ((model && !modelProviderEnabled(model.provider)) || agents.isProjectBusy(projectId) || agents.planState(conversation).mode !== "normal") return false;
+      agents.prompt(project, conversation, prompt);
+      // The message has gone, so nothing after this may read as a failure to send it.
+      void (async () => {
+        const titled = conversations.setInitialTitle(project, conversationId, prompt);
+        if (titled) publishConversationRenamed(titled);
+        projectNaming.start(project, prompt, model);
+        await projects.touch(project.id);
+      })().catch((cause: unknown) => app.log.warn({ err: cause }, "failed to record a scheduled message"));
+      return true;
+    };
+  }, (projectId, conversationId, messages) => events.publish(projectId, "scheduled.changed", { messages }, { conversationId }));
   agents = new AgentManager(events, {
     errorDiagnostics: () => {
       const route = networkSettings.get().active;
@@ -1149,6 +1171,8 @@ export function createApp(options: AppOptions = {}) {
     for (const error of await preinstalledPlugins.seed(pluginServices)) app.log.warn(error);
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
+    // After the projects, so a saved message's conversation can be found. A damaged file must not stop OhMyGame opening.
+    await scheduledMessages.load().catch((err) => app.log.warn({ err }, "Could not load scheduled messages"));
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -3122,6 +3146,7 @@ export function createApp(options: AppOptions = {}) {
         pendingPrompts: agents.pendingPrompts(project.id, conversation.summary.id).map((prompt) => ({
           ...prompt, images: prompt.images.map((image) => conversationImages.project(project.id, image)),
         })),
+        scheduledMessages: scheduledMessages.list(project.id, conversation.summary.id),
       } satisfies ConversationDetail;
     },
   );
@@ -3555,6 +3580,27 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.post<{ Params: { projectId: string; conversationId: string }; Body: ScheduleMessageRequest }>(
+    "/projects/:projectId/conversations/:conversationId/scheduled-messages",
+    { schema: { body: { type: "object", additionalProperties: false, required: ["prompt", "at"], properties: { prompt: { type: "string", pattern: "\\S" }, at: { type: "integer", minimum: 0, maximum: 8_640_000_000_000_000 } } } } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      if (!await conversations.get(project, request.params.conversationId)) return reply.code(404).send({ error: "Conversation not found" });
+      scheduledMessages.add(project.id, request.params.conversationId, request.body.prompt, request.body.at);
+      return reply.code(204).send();
+    },
+  );
+
+  app.delete<{ Params: { projectId: string; conversationId: string; messageId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/scheduled-messages/:messageId",
+    async (request, reply) => {
+      const { projectId, conversationId, messageId } = request.params;
+      if (!scheduledMessages.remove(projectId, conversationId, messageId)) return reply.code(404).send({ error: "Scheduled message not found" });
+      return reply.code(204).send();
+    },
+  );
+
   app.post<{ Params: { projectId: string; conversationId: string } }>(
     "/projects/:projectId/conversations/:conversationId/limit-resume/skip",
     async (request, reply) => {
@@ -3940,6 +3986,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.addHook("onClose", async () => {
     limitContinuations.close();
+    await scheduledMessages.close();
     notices.close();
     // Indexing writes to the plugin store and restarts sessions; it finishes before they close.
     await pluginServicesReady;

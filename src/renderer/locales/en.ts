@@ -1691,6 +1691,16 @@ const en = {
     dismissLabel: "Dismiss notice",
     dismiss: "Dismiss",
   },
+  later: {
+    label: "Scheduled messages",
+    command: "Send later: 30m, 2h, 1d or 02:30",
+    invalid: "Add a time after /later, such as 30m, 2h, 1d or 02:30. A plain number is hours.",
+    textOnly: "/later sends text only. Remove attachments, references and plugins first.",
+    planning: "/later isn't available in plan mode.",
+    missed: "Missed {{time}}",
+    edit: "Edit scheduled message",
+    remove: "Remove scheduled message",
+  },
   queue: {
     prioritize: "Next",
     prioritizeTitle: "Run next after the current turn finishes",

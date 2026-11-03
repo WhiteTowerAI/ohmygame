@@ -42,6 +42,7 @@ import { MarkdownContent } from "./markdown-content.js";
 import { LazyDetails } from "./lazy-details.js";
 import { agentErrorDiagnosticRows, agentErrorDiagnosticText, agentErrorPresentation } from "./agent-error-presentation.js";
 import { language, t } from "./i18n.js";
+import { scheduleTime } from "./later-command.js";
 import { settingsHash, type SettingsSection } from "./routes.js";
 import { Button, Switch } from "./ui/index.js";
 import { TurnChangesFooter, TurnChangesViews, type TurnChangesControls } from "./turn-changes.js";
@@ -734,7 +735,7 @@ function AgentErrorCard({ error }: { error: ThreadItemError }) {
       ) : null}
       {copyStatus === "failed" ? <p className="agent-error-text" role="status">{t("timeline.copyFailed")}</p> : null}
       {limitResume && limitResume.state !== "skipped" ? <div className="agent-error-resume">
-        <span>{t(limitResume.state === "armed" ? "timeline.limitResume.armed" : "timeline.limitResume.off", { time: new Date(limitResume.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) })}</span>
+        <span>{t(limitResume.state === "armed" ? "timeline.limitResume.armed" : "timeline.limitResume.off", { time: scheduleTime(limitResume.at) })}</span>
         <Switch size="sm" label={t("timeline.limitResume.label")} checked={limitResume.state === "armed"} onChange={(on) => limitResume.onChange?.(on)} />
       </div> : null}
       <div className="agent-error-actions">

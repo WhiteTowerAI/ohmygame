@@ -1,9 +1,10 @@
 import { DangerCircle, FileText, InfoCircle, X } from "./icons.js";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ScheduledMessage } from "../shared/contracts.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import type { AgentModelCatalogStatus } from "./model-selector.js";
-import { MessageQueue } from "./message-queue.js";
+import { MessageQueue, ScheduledMessages } from "./message-queue.js";
+import { isLaterCommand, laterCommand, parseLaterCommand } from "./later-command.js";
 import { PromptBox, type DroppedFile, type PromptInput, type PromptSelection } from "./prompt-box.js";
 import { ComposerActions } from "./composer-actions.js";
 import { PlanStatus } from "./plan-status.js";
@@ -31,6 +32,7 @@ interface ComposerProps {
   running: boolean;
   stopping: boolean;
   pendingPrompts: PendingPrompt[];
+  scheduledMessages: ScheduledMessage[];
   plan?: PlanState;
   planMode: PlanMode;
   notice?: string;
@@ -63,6 +65,8 @@ interface ComposerProps {
   onRemovePending: (turnId: string) => Promise<boolean>;
   onSteerPending: (turnId: string) => Promise<boolean>;
   onEditPending: (item: PendingPrompt) => Promise<boolean>;
+  onScheduleMessage: (prompt: string, at: number) => Promise<boolean>;
+  onRemoveScheduled: (id: string) => Promise<boolean>;
   /** Editor context the next message carries, such as the open Node. */
   contexts?: ChatContextChip[];
   onRemoveContext?: (key: string) => void;
@@ -81,6 +85,7 @@ export function Composer({
   running,
   stopping,
   pendingPrompts,
+  scheduledMessages,
   plan,
   planMode,
   notice,
@@ -109,6 +114,8 @@ export function Composer({
   onRemovePending,
   onSteerPending,
   onEditPending,
+  onScheduleMessage,
+  onRemoveScheduled,
   contexts = [],
   onRemoveContext,
   canPublish,
@@ -289,6 +296,7 @@ export function Composer({
     onDesignReference: supportsDesign ? () => { void referenceDesign(); } : undefined,
     onTogglePlanning: () => { void togglePlanning(false); },
     onCompact: conversationReady && !running && !stopping ? () => { void runCompact(compactInstructions(prompt) ?? undefined); } : undefined,
+    onLater: later,
     onPublish,
     onMention: selectMention,
     onChange: changePrompt,
@@ -346,6 +354,10 @@ export function Composer({
   }
 
   function submitOrRunCommand() {
+    if (isLaterCommand(prompt)) {
+      later();
+      return;
+    }
     if (publishAvailable && !inputDisabled && prompt.trim().toLowerCase() === "/publish") {
       changePrompt("");
       setMentionCursor(0);
@@ -362,6 +374,43 @@ export function Composer({
       return;
     }
     void submit();
+  }
+
+  /** Offers the time first, ahead of anything already written, then schedules once there is one to read. */
+  function later(): void {
+    if (/^\s*\/later\s/i.test(prompt)) {
+      void scheduleLater();
+      return;
+    }
+    changePrompt(`/later ${prompt.replace(/^\s*\/\S*\s*/, "")}`);
+    focusAt("/later ".length);
+  }
+
+  async function scheduleLater(): Promise<void> {
+    if (!conversationReady || draftSession.getSnapshot().submitting) return;
+    const scheduled = parseLaterCommand(prompt);
+    const textOnly = !attachments.length && !carried.length && !reference && !designReference && !activePluginMentions(prompt, pluginMentions).length;
+    const problem = planning ? t("later.planning") : !textOnly ? t("later.textOnly") : scheduled ? undefined : t("later.invalid");
+    setAttachmentError(problem);
+    if (problem || !scheduled) return;
+    updateDraft({ submitting: true });
+    try {
+      if (!await onScheduleMessage(scheduled.prompt, scheduled.at)) return;
+      setHistory((current) => recordPrompt(current, prompt.trim()));
+      if (draftSession.clearSubmitted(draft)) setMentionCursor(0);
+      input.current?.focus();
+    } finally {
+      updateDraft({ submitting: false });
+    }
+  }
+
+  async function editScheduled(item: ScheduledMessage): Promise<void> {
+    if (inputDisabled || !(await onRemoveScheduled(item.id))) return;
+    // A missed message comes back to send as it is, or to put a new time on.
+    const command = item.missed ? item.prompt : laterCommand(item);
+    updateDraft({ prompt: command, mentions: [], attachments: [], uploaded: undefined, reference: undefined, designReference: undefined });
+    setAttachmentError(undefined);
+    focusAt(command.length);
   }
 
   async function runCompact(instructions?: string) {
@@ -405,6 +454,13 @@ export function Composer({
         onRemove={(turnId) => { void onRemovePending(turnId); }}
         onSteer={(turnId) => { void onSteerPending(turnId); }}
         onEdit={(item) => { void editPending(item); }}
+      />
+      <ScheduledMessages
+        items={scheduledMessages}
+        disabled={!conversationReady}
+        editDisabled={inputDisabled}
+        onEdit={(item) => { void editScheduled(item); }}
+        onRemove={(id) => { void onRemoveScheduled(id); }}
       />
       {status ? <div className="composer-notice composer-info" role="status">
         <InfoCircle size={14} aria-hidden="true" />

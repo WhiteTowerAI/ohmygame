@@ -79,7 +79,7 @@ function installProjectRuntime(type: ProjectState["type"] = "general") {
     return Response.json(route === `/projects/${projectId}` ? project
       : route.endsWith("/conversations") ? [conversation]
       : route.endsWith("/conversations/conversation") ? {
-        conversation, cursor: 0, agent: { status: "idle" }, settings: {}, plan: { mode: "normal" }, turns: [], pendingPrompts: [],
+        conversation, cursor: 0, agent: { status: "idle" }, settings: {}, plan: { mode: "normal" }, turns: [], pendingPrompts: [], scheduledMessages: [],
       }
       : /\/models(\?|$)/.test(route) || route.endsWith("/catalog") ? { models: [], providers: [] }
       : route.includes("capabilities") ? { plugins: [], skills: [] } : []);

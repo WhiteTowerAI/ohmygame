@@ -30,7 +30,7 @@ async function render(
     conversationReady: true,
     running: false,
     stopping: false,
-    pendingPrompts: [],
+    pendingPrompts: [], scheduledMessages: [],
     planMode: "normal",
     models: [],
     modelStatus: "ready",
@@ -48,6 +48,8 @@ async function render(
     onRemovePending: vi.fn(async () => true),
     onSteerPending: vi.fn(async () => true),
     onEditPending: vi.fn(async () => true),
+    onScheduleMessage: vi.fn(async () => true),
+    onRemoveScheduled: vi.fn(async () => true),
     canPublish: true,
     onPublish: vi.fn(),
     ...overrides,
@@ -133,6 +135,97 @@ describe("composer status line", () => {
     expect(status.textContent).toBe("81 tok/sCache hit 86%9%");
     await act(async () => status.querySelector<HTMLButtonElement>(".composer-status-context")!.click());
     expect(document.querySelector(".composer-status-popover")?.textContent).toContain("~11.2K / 128K");
+  });
+});
+
+describe("composer later command", () => {
+  const send = () => act(async () => container.querySelector<HTMLButtonElement>(".send-button")!.click());
+  const alertText = () => container.querySelector(".composer-error")?.textContent;
+  const later = (prompt: string) => ({ initialDraft: { prompt, mentions: [] } });
+
+  it("schedules what follows the time and empties the box, sending nothing now", async () => {
+    const props = await render(later("/later 2h Fix the tests"));
+    await send();
+    expect(props.onScheduleMessage).toHaveBeenCalledExactlyOnceWith("Fix the tests", expect.any(Number));
+    const [, at] = vi.mocked(props.onScheduleMessage).mock.calls[0];
+    expect(Math.abs(at - Date.now() - 2 * 3_600_000)).toBeLessThan(5_000);
+    expect(props.onSubmit).not.toHaveBeenCalled();
+    expect(promptText(container)).toBe("");
+  });
+
+  it("schedules with Enter while the command list is open", async () => {
+    const props = await render(later("/later 30m Fix the tests"));
+    expect(container.querySelector('[role="option"]')?.textContent).toContain("/later");
+    await pressKey("Enter", {}, container);
+    expect(props.onScheduleMessage).toHaveBeenCalledExactlyOnceWith("Fix the tests", expect.any(Number));
+    expect(props.onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps the message and says why when there is no time to read", async () => {
+    const props = await render(later("/later Fix the tests"));
+    await send();
+    expect(props.onScheduleMessage).not.toHaveBeenCalled();
+    expect(props.onSubmit).not.toHaveBeenCalled();
+    expect(alertText()).toContain("Add a time after /later");
+    expect(promptText(container)).toBe("/later Fix the tests");
+  });
+
+  it("keeps the message when the schedule is refused", async () => {
+    await render({ ...later("/later 2h Fix the tests"), onScheduleMessage: vi.fn(async () => false) });
+    await send();
+    expect(promptText(container)).toBe("/later 2h Fix the tests");
+  });
+
+  it("refuses what a later message couldn't carry", async () => {
+    composerDrafts.get({ projectId: "publish-test", conversationId: "chat" }).update({ prompt: "/later 2h Look", reference: { text: "Quoted" } as never });
+    const props = await render({ initialDraft: undefined });
+    await send();
+    expect(props.onScheduleMessage).not.toHaveBeenCalled();
+    expect(alertText()).toContain("text only");
+  });
+
+  it("refuses in plan mode, where the message would lose the plan's limits", async () => {
+    const props = await render({ ...later("/later 2h Look"), planMode: "planning" });
+    await send();
+    expect(props.onScheduleMessage).not.toHaveBeenCalled();
+    expect(props.onSubmit).not.toHaveBeenCalled();
+    expect(alertText()).toContain("plan mode");
+  });
+
+  it("completes the command from the list, keeping the time to write", async () => {
+    const props = await render(later("/lat"));
+    await act(async () => container.querySelector<HTMLButtonElement>('[role="option"]')!.click());
+    expect(props.onScheduleMessage).not.toHaveBeenCalled();
+    expect(promptText(container)).toBe("/later ");
+  });
+
+  it("isn't offered where it can't run", async () => {
+    await render({ ...later("/later"), planMode: "planning" });
+    expect([...container.querySelectorAll('[role="option"]')].map((option) => option.textContent)).not.toContainEqual(expect.stringContaining("/later"));
+  });
+
+  it("shows a scheduled message's time, and removes it", async () => {
+    const at = Date.UTC(2026, 9, 26, 12, 0, 0);
+    const props = await render({ initialDraft: undefined, scheduledMessages: [{ id: "one", prompt: "Run the tests", at }, { id: "two", prompt: "Missed one", at, missed: true }] });
+    const rows = [...container.querySelectorAll(".message-queue-row")];
+    expect(rows[0].textContent).toContain("Run the tests");
+    expect(rows[0].querySelector(".message-queue-time")?.textContent).toBe(new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }));
+    expect(rows[1].querySelector(".message-queue-time.is-missed")?.textContent).toContain("Missed");
+    await act(async () => rows[0].querySelector<HTMLButtonElement>('button[title="Remove scheduled message"]')!.click());
+    expect(props.onRemoveScheduled).toHaveBeenCalledExactlyOnceWith("one");
+  });
+
+  it("puts a message back as a command with the time it has left", async () => {
+    const props = await render({ initialDraft: undefined, scheduledMessages: [{ id: "one", prompt: "Run the tests", at: Date.now() + 90 * 60_000 }] });
+    await act(async () => container.querySelector<HTMLButtonElement>('button[title="Edit scheduled message"]')!.click());
+    expect(props.onRemoveScheduled).toHaveBeenCalledExactlyOnceWith("one");
+    expect(promptText(container)).toMatch(/^\/later (90|91)m Run the tests$/);
+  });
+
+  it("puts a missed message back as plain text, to send or put a new time on", async () => {
+    await render({ initialDraft: undefined, scheduledMessages: [{ id: "one", prompt: "Run the tests", at: 1, missed: true }] });
+    await act(async () => container.querySelector<HTMLButtonElement>('button[title="Edit scheduled message"]')!.click());
+    expect(promptText(container)).toBe("Run the tests");
   });
 });
 

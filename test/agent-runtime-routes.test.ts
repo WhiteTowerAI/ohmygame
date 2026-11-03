@@ -668,6 +668,93 @@ describe("coding agent routes", () => {
     await expect(usage(armed)).resolves.toBeUndefined();
   });
 
+  it.skipIf(process.platform === "win32")("sends a scheduled message when it is due and the conversation is free, with nobody reading it", async () => {
+    const { app, call, claude, dataDirectory } = await start(FAKE_CLAUDE.replace(
+      'if (message.type !== "control_request") return;',
+      `if (message.type === "user") {
+    const fs = require("node:fs"), log = process.argv[1] + ".log", content = JSON.stringify(message.message.content);
+    fs.appendFileSync(log, content + "\\n");
+    const finish = () => {
+      fs.appendFileSync(log, "finished\\n");
+      process.stdout.write(JSON.stringify({ type: "result", subtype: "success" }) + "\\n");
+    };
+    if (content.includes("Take a while")) setTimeout(finish, 1_500);
+    else finish();
+    return;
+  }
+  if (message.type !== "control_request") return;`,
+    ));
+    // Only the wait between its looks is cut short: other timers of this length, like the agent's handshake, stay.
+    const realTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delay?: number) => realTimeout(run, delay === 30_000 && new Error().stack?.includes("scheduled-messages") ? 50 : delay)) as typeof setTimeout);
+    const pause = (ms: number) => new Promise((resolve) => realTimeout(resolve, ms));
+
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    const project = (await call<ProjectState>("POST", "/projects", { name: "Later", preset: "blank" })).body;
+    const id = (await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, { model: { provider: "claude-code-cli", id: "sonnet" } })).body.id;
+    const base = `/projects/${project.id}/conversations/${id}`;
+    const scheduled = async () => (await call<ConversationDetail>("GET", base)).body.scheduledMessages;
+    const schedule = async (prompt: string, at = Date.now() + 100) => expect((await call("POST", `${base}/scheduled-messages`, { prompt, at })).status).toBe(204);
+    const log = () => readFile(`${claude}.log`, "utf8").catch(() => "");
+    const idle = () => vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"), { timeout: 5_000 });
+
+    expect((await call("POST", `${base}/scheduled-messages`, { prompt: "   ", at: Date.now() })).status).toBe(400);
+    expect((await call("POST", `/projects/${project.id}/conversations/missing/scheduled-messages`, { prompt: "Hello", at: Date.now() })).status).toBe(404);
+
+    await schedule("Removed before its time", Date.now() + 60_000);
+    const [removed] = await scheduled();
+    expect((await call("DELETE", `${base}/scheduled-messages/${removed.id}`)).status).toBe(204);
+    expect((await call("DELETE", `${base}/scheduled-messages/${removed.id}`)).status).toBe(404);
+
+    // It waits for a running turn to end, and doesn't join it as a follow-up.
+    expect(await call("POST", `${base}/turns`, { prompt: "Take a while" })).toMatchObject({ status: 202 });
+    await vi.waitFor(async () => expect(await log()).toContain("Take a while"), { timeout: 5_000 });
+    await schedule("Sent at its time");
+    await pause(300);
+    expect((await call<ConversationDetail>("GET", base)).body).toMatchObject({ pendingPrompts: [], scheduledMessages: [{ prompt: "Sent at its time" }] });
+    await vi.waitFor(async () => expect(await log()).toContain("Sent at its time"), { timeout: 5_000 });
+    expect((await log()).indexOf("finished")).toBeLessThan((await log()).indexOf("Sent at its time"));
+    await vi.waitFor(async () => expect(await scheduled()).toEqual([]));
+    await idle();
+    expect(await log()).not.toContain("Removed before its time");
+
+    // With the agent turned off it waits, and goes once the agent is back.
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: false });
+    await schedule("Held while off");
+    await pause(300);
+    expect(await log()).not.toContain("Held while off");
+    await expect(scheduled()).resolves.toMatchObject([{ prompt: "Held while off" }]);
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: true });
+    await vi.waitFor(async () => expect(await log()).toContain("Held while off"), { timeout: 5_000 });
+    await idle();
+
+    // Archived past its time, it is dropped and doesn't come back with the conversation.
+    await schedule("Dropped when archived", Date.now() + 300);
+    expect((await call("POST", `${base}/archive`)).status).toBe(204);
+    await pause(600);
+    expect((await call("POST", `${base}/unarchive`)).status).toBe(200);
+    await expect(scheduled()).resolves.toEqual([]);
+    expect(await log()).not.toContain("Dropped when archived");
+    await idle();
+
+    // Due while OhMyGame was closed, it comes back as missed and isn't sent on startup.
+    await schedule("Due while closed", Date.now() + 200);
+    // One due after the restart, in a conversation not opened since, waits for the plan saved in its session.
+    await schedule("Waits for the plan", Date.now() + 1_000);
+    await app.close();
+    await pause(300);
+    const stored = new ConversationManager();
+    stored.open(project, (await stored.get(project, id))!).appendCustomEntry("ohmygame-plan", { mode: "awaiting_approval", plan: { title: "Plan", steps: [] } });
+    const reopened = createApp({ dataDirectory, piAgentDirectory: path.join(dataDirectory, "pi-agent"), accessToken: "app-token" });
+    cleanup.push(() => reopened.close());
+    await reopened.ready();
+    await pause(1_500);
+    expect(await log()).not.toContain("Due while closed");
+    expect(await log()).not.toContain("Waits for the plan");
+    const detail = await reopened.inject({ method: "GET", url: base, headers: { authorization: "Bearer app-token" } });
+    expect((JSON.parse(detail.body) as ConversationDetail).scheduledMessages).toMatchObject([{ prompt: "Due while closed", missed: true }, { prompt: "Waits for the plan" }]);
+  });
+
   it.skipIf(process.platform === "win32")("accepts models returned by Claude initialize without requesting list_models", async () => {
     const { call, claude } = await start(
       FAKE_CLAUDE.replace('=== "list_models"', '=== "initialize"'),

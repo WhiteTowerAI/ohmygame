@@ -80,6 +80,7 @@ import {
   type MediaModelCatalog,
   type Model3DModel,
   type Model3DAnimationAction,
+  ScheduleMessageRequest,
 } from "../shared/contracts.js";
 import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import type { AudioModelCatalog } from "../shared/audio.js";
@@ -372,6 +373,14 @@ export async function listAgentRuntimes(recheck = false): Promise<AgentRuntimeSt
 
 export async function skipLimitResume(projectId: string, conversationId: string): Promise<void> {
   await request(`/projects/${projectId}/conversations/${conversationId}/limit-resume/skip`, { method: "POST" });
+}
+
+export async function scheduleMessage(projectId: string, conversationId: string, change: ScheduleMessageRequest): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/scheduled-messages`, { method: "POST", body: JSON.stringify(change) });
+}
+
+export async function removeScheduledMessage(projectId: string, conversationId: string, messageId: string): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/scheduled-messages/${messageId}`, { method: "DELETE" });
 }
 
 export async function updateAgentRuntime(id: AgentRuntimeId, change: UpdateAgentRuntimeRequest): Promise<AgentRuntimeStatus> {
