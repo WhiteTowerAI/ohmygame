@@ -82,6 +82,7 @@
     "@sentry/vite-plugin": "^11.8.0",
     "@solar-icons/react": "^2.1.0",
     "@supabase/supabase-js": "2.57.4",
+    "@tanstack/react-virtual": "3.14.25",
     "@types/node": "^24.3.0",
     "@types/prismjs": "1.26.6",
     "@types/react": "19.3.0",
