@@ -3,7 +3,10 @@ export { compileGame } from "./define-game.js";
 export type { GameAdapter } from "./adapters.js";
 export {
   defineGame,
+  defineRealtimeGame,
   type GameContext,
+  type RealtimeGameContext,
+  type RealtimeGameDefinition,
   type GameDefinition,
   type GameResult,
   type MoveContext,

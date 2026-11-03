@@ -21,7 +21,11 @@ export {
 export { GuestIdentity, type GuestIdentityOptions, type IdentityProvider } from "./identity.js";
 export {
   defineGame,
+  defineRealtimeGame,
+  type ClientInput,
   type ClientMoves,
+  type RealtimeGameContext,
+  type RealtimeGameDefinition,
   type GameContext,
   type GameDefinition,
   type GameResult,

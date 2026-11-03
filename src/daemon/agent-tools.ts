@@ -141,10 +141,10 @@ export function createAgentTools(
   return [...(configureMultiplayer && (project.type === "web-game" || project.type === "general") ? [defineTool({
     name: "multiplayer_setup",
     label: "Set up multiplayer",
-    description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this Web Game. Choose the matching built-in server rules, or custom for turn-based rules the game defines itself in server/rules.ts; never fall back to PeerJS/WebRTC or browser-authoritative state. Realtime games other than racing and free movement are not supported yet. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game; a game with custom rules needs its own deployed server to be played publicly.",
+    description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this Web Game. Choose the matching built-in server rules, or custom for turn-based or realtime rules the game defines itself in server/rules.ts; never fall back to PeerJS/WebRTC or browser-authoritative state. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game; a game with custom rules needs its own deployed server to be played publicly.",
     parameters: Type.Object({
       adapterId: Type.Union([Type.Literal("gomoku"), Type.Literal("stones"), Type.Literal("arena"), Type.Literal("roam"), Type.Literal("custom")], {
-        description: "gomoku: two-player board game. stones: turn-based take-away race. arena: realtime race to the centre, rounds end and restart. roam: realtime free movement with no goal or end, for shared towns, lobbies and exploration. custom: this game's own turn-based rules, for any other turn-based game such as cards, chess or a board game with hidden information. Write server/rules.ts first, as described in src/ohmygame/README.md, then call this tool; call it again after changing the rules to check that they load.",
+        description: "gomoku: two-player board game. stones: turn-based take-away race. arena: realtime race to the centre, rounds end and restart. roam: realtime free movement with no goal or end, for shared towns, lobbies and exploration. custom: this game's own rules, for any other game: defineGame for turn-based games such as cards, chess or a board game with hidden information, defineRealtimeGame for realtime games such as multiplayer snake. The rules decide the mode. Write server/rules.ts first, as described in src/ohmygame/README.md, then call this tool; call it again after changing the rules to check that they load.",
       }),
       maxClients: Type.Optional(Type.Integer({
         minimum: LOCAL_MULTIPLAYER_MIN_CLIENTS,
@@ -152,7 +152,7 @@ export function createAgentTools(
         description: `Players per room, ${LOCAL_MULTIPLAYER_MIN_CLIENTS} to ${LOCAL_MULTIPLAYER_MAX_CLIENTS}. Gomoku is always 2; the others default to 4.`,
       })),
       dropIn: Type.Optional(Type.Boolean({
-        description: "Realtime rules only. Players press play and join a running round in the fullest room with a free seat, or a new room, with no room to create, owner or start button. Roam defaults to true and arena to false. Prefer it for realtime games unless the user wants private matches; invite links still work.",
+        description: "Realtime rules only, including custom realtime rules. Players press play and join a running round in the fullest room with a free seat, or a new room, with no room to create, owner or start button. Roam defaults to true and arena to false. Prefer it for realtime games unless the user wants private matches; invite links still work.",
       })),
     }),
     execute: async (_toolCallId, input, signal) => {

@@ -5,7 +5,7 @@ import { createServer, type AddressInfo } from "node:net";
 import path from "node:path";
 import { Client, Room } from "@colyseus/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { compileGame, createMultiplayerServer, defineGame, startDevServer } from "@ohmygame/server";
+import { compileGame, createMultiplayerServer, defineGame, defineRealtimeGame, startDevServer } from "@ohmygame/server";
 import { resolveGameAdapter, type GameAdapter } from "@ohmygame/server/adapters";
 import { createBuiltInAdapter, createBuiltInAdapters, gomokuRules } from "@ohmygame/games";
 import { MultiplayerClient } from "../src/renderer/multiplayer-client.js";
@@ -1091,6 +1091,94 @@ export default defineGame({
       await runtime.close();
       await rm(workspace, { recursive: true, force: true });
     }
+  });
+
+  it("runs a realtime game written with defineRealtimeGame from a game's rules file", async () => {
+    await service.stop();
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-realtime-rules-"));
+    const rulesFile = path.join(workspace, "server", "rules.ts");
+    await mkdir(path.dirname(rulesFile));
+    // A one-row snake: it keeps its heading in G, and reaching the wall wins the round.
+    await writeFile(rulesFile, `import { defineRealtimeGame } from "@ohmygame/sdk";
+type Snake = { x: number; dir: "none" | "left" | "right" };
+export default defineRealtimeGame({
+  players: { min: 1, max: 4 },
+  setup: (ctx) => ({ snakes: Object.fromEntries(ctx.players.map((id) => [id, { x: 2, dir: "none" }])) as Record<string, Snake> }),
+  input(value) {
+    if (value.dir !== "left" && value.dir !== "right") throw new Error("Send { dir }.");
+    return { dir: value.dir as "left" | "right" };
+  },
+  tick(G, _ctx, inputs) {
+    for (const [id, snake] of Object.entries(G.snakes)) {
+      if (inputs[id]) snake.dir = inputs[id].dir;
+      if (snake.dir !== "none") snake.x += snake.dir === "right" ? 1 : -1;
+    }
+  },
+  join: (G, _ctx, playerId) => { G.snakes[playerId] = { x: 2, dir: "none" }; },
+  leave: (G, _ctx, playerId) => { delete G.snakes[playerId]; },
+  endIf: (G) => {
+    const winners = Object.keys(G.snakes).filter((id) => G.snakes[id]!.x >= 19);
+    return winners.length ? { winners } : undefined;
+  },
+});
+`);
+    const runtime = new LocalMultiplayerRuntime(0);
+    const clients: MultiplayerClient[] = [];
+    try {
+      const config = await runtime.configure("snake", "custom", { dropIn: true }, rulesFile);
+      expect(config).toMatchObject({ mode: "realtime", roomPolicy: "drop-in", deploymentId: "local-custom-realtime-4p-dropin-v1" });
+      const errors: string[] = [];
+      const join = () => {
+        const client = new MultiplayerClient(
+          { manifest: config, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() },
+          { onError: (error) => errors.push(error.message) },
+        );
+        clients.push(client);
+        return client;
+      };
+      const snakes = (client: MultiplayerClient) => (client.snapshot?.state.game as { snakes: Record<string, { x: number }> } | undefined)?.snakes ?? {};
+      const [first, second] = [join(), join()];
+      await first.quickPlay();
+      // One player is enough to start, and a latecomer joins the running round.
+      await wait(() => expect(Object.keys(snakes(first))).toEqual([first.playerId]));
+      await second.quickPlay();
+      expect(second.roomId).toBe(first.roomId);
+      await wait(() => expect(Object.keys(snakes(first)).sort()).toEqual([first.playerId, second.playerId].sort()));
+      first.sendInput({ dir: "diagonal" });
+      await wait(() => expect(errors).toContain("Send { dir }."));
+      await second.leave();
+      await wait(() => expect(Object.keys(snakes(first))).toEqual([first.playerId]));
+      // One input sets the heading; the snake keeps moving long after the input itself expires.
+      first.sendInput({ dir: "right" });
+      await wait(() => expect(first.snapshot?.state.phase).toBe("finished"));
+      expect(first.snapshot!.state.winnerPlayerIds).toEqual([first.playerId]);
+      expect(snakes(first)[first.playerId!]!.x).toBe(19);
+      // The drop-in room starts the next round from setup.
+      await wait(() => expect(first.snapshot?.state.phase).toBe("playing"));
+      expect(snakes(first)[first.playerId!]).toEqual({ x: 2, dir: "none" });
+    } finally {
+      for (const client of clients) client.dispose();
+      await runtime.close();
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it("types a realtime game's input in the page", () => {
+    const rules = defineRealtimeGame({
+      players: { min: 1, max: 2 },
+      setup: () => ({}),
+      input: (value) => ({ dir: value.dir as "left" | "right" }),
+      tick: () => {},
+    });
+    const typed = null as unknown as MultiplayerClient<typeof rules>;
+    const send = () => {
+      typed.sendInput({ dir: "left" });
+      // @ts-expect-error The rules read a direction, not a speed.
+      typed.sendInput({ speed: 3 });
+    };
+    expect(typeof send).toBe("function");
+    expect(compileGame(rules)).toMatchObject({ mode: "realtime", tickMs: undefined });
+    expect(() => compileGame({ ...rules, tickMs: 5 })).toThrow("tickMs must be a whole number from 20 to 1000.");
   });
 
   it("sizes local rooms from two to eight players and keeps gomoku at two", async () => {

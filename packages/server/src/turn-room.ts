@@ -264,16 +264,20 @@ export class GameRoom extends Room {
     this.playerInputs.delete(id);
     // During a match seats persist for asynchronous turns; timeout skips them.
     // A drop-in seat frees once its reconnection window ends, so a newcomer can take it.
+    let next = state;
     if (state.phase === "lobby" || this.dropIn) {
       state.players = state.players.filter((p) => p.playerId !== id);
       if (state.ownerId === id)
         state.ownerId = state.players[0]?.playerId ?? "";
       if (!state.players.length) state.phase = "closed";
-      else if (this.dropIn && state.phase === "playing" && !this.enoughPlayers(state))
-        state.phase = "lobby";
+      else {
+        if (this.services.adapter.onPlayerLeave) next = this.services.adapter.onPlayerLeave(state, id, Date.now());
+        if (this.dropIn && next.phase === "playing" && !this.enoughPlayers(next))
+          next = { ...next, phase: "lobby" };
+      }
     }
-    this.commit(state, "member.left", { playerId: id });
-    if (state.phase === "closed") void this.disconnect();
+    this.commit(next, "member.left", { playerId: id });
+    if (next.phase === "closed") void this.disconnect();
   }
   onBeforeShutdown(): void {
     this.shuttingDown = true;
@@ -456,7 +460,7 @@ export class GameRoom extends Room {
     const { inputId, ...input } = value;
     if (inputId <= (this.lastInputId.get(id) ?? -1)) return;
     try {
-      this.services.adapter.validateInput?.(input);
+      this.services.adapter.validateInput?.(input, id);
     } catch (cause) {
       return reject(cause instanceof Error ? cause.message : "The input is invalid.");
     }

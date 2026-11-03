@@ -1,7 +1,8 @@
 /**
- * Turn-based rules as plain functions. The service runs them; clients only send a move's
- * name and arguments. Everything here is free of dependencies so a game's rules file can
- * import it on the service and its page can import the types.
+ * Game rules as plain functions: turn-based rules with defineGame, realtime rules with
+ * defineRealtimeGame. The service runs them; clients only send a move or their input.
+ * Everything here is free of dependencies so a game's rules file can import it on the
+ * service and its page can import the types.
  */
 
 export interface GameContext {
@@ -73,6 +74,66 @@ export function defineGame<G extends object, Moves extends Record<string, MoveDe
 ): GameDefinition<G, Moves> {
   return definition;
 }
+
+/** What realtime rules see each tick: the players, and the service's randomness and clock. */
+export interface RealtimeGameContext {
+  /** Seated players in join order, connected or not. */
+  readonly players: readonly string[];
+  /** Seated players with an open connection. */
+  readonly connected: readonly string[];
+  /** The room owner; empty in a drop-in room. */
+  readonly ownerId: string;
+  random(): number;
+  shuffle<T>(items: readonly T[]): T[];
+  now(): number;
+}
+
+/**
+ * Realtime rules: the service calls tick at a fixed rate with each player's latest input,
+ * whether or not anyone is pressing anything. A player who stops sending drops out of
+ * inputs after five ticks, so keep anything that should persist, such as a snake's
+ * heading, in G.
+ */
+export interface RealtimeGameDefinition<G extends object, Input extends object> {
+  /** Seats the rules support. A round starts once at least min players are connected. */
+  players: { min: number; max: number };
+  /** Milliseconds between ticks, 20 to 1000. Defaults to 50. */
+  tickMs?: number;
+  /** The game when a round starts: when the owner starts it, or when a drop-in room starts or restarts one. */
+  setup(ctx: RealtimeGameContext): G;
+  /**
+   * Reads one input as the player sent it, such as { dir: "up" }, and returns it in the
+   * shape tick reads. Throw an Error to reject it; its message reaches the player.
+   */
+  input(value: Record<string, unknown>, playerId: string): Input;
+  /** Advances the game by dt seconds. Change G in place or return a new one. */
+  tick(G: G, ctx: RealtimeGameContext, inputs: Readonly<Record<string, Input>>, dt: number): G | void;
+  /** A player takes a seat while a round is running, as in a drop-in room. */
+  join?(G: G, ctx: RealtimeGameContext, playerId: string): G | void;
+  /** A player gives up their seat while a round is running: they left a drop-in room or were removed. */
+  leave?(G: G, ctx: RealtimeGameContext, playerId: string): G | void;
+  /** Checked after every tick. A result ends the round; a drop-in room then starts another. */
+  endIf?(G: G, ctx: RealtimeGameContext): GameResult | undefined;
+  /** What one player may see. playerId is undefined for a spectator. */
+  playerView?(G: G, ctx: RealtimeGameContext, playerId: string | undefined): object;
+}
+
+/** Checks the shape of realtime rules and returns them unchanged, with their types inferred. */
+export function defineRealtimeGame<G extends object, Input extends object>(
+  definition: RealtimeGameDefinition<G, Input>,
+): RealtimeGameDefinition<G, Input> {
+  return definition;
+}
+
+/** Whether rules are realtime rules from defineRealtimeGame. */
+export function isRealtimeGameDefinition(value: unknown): value is RealtimeGameDefinition<object, object> {
+  return typeof value === "object" && value !== null && typeof (value as { tick?: unknown }).tick === "function";
+}
+
+/** The input client.sendInput takes for a game: what its rules' input function returns. */
+export type ClientInput<Game> = Game extends { input(value: never, playerId: never): infer Input extends object }
+  ? Input
+  : Record<string, unknown>;
 
 // A move is a function or { run }; its third parameter is the move's arguments.
 type MoveArgs<M> = M extends { run: (G: never, ctx: never, args: infer A) => unknown }

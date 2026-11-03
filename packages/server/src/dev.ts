@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { BuildContext, Plugin } from "esbuild";
-import type { GameDefinition, MoveDefinition } from "@ohmygame/sdk/game";
+import type { GameDefinition, MoveDefinition, RealtimeGameDefinition } from "@ohmygame/sdk/game";
 import { isMultiplayerManifestConfig, isRecord, type MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 import type { GameAdapter } from "./adapters.js";
 import { compileGame } from "./define-game.js";
@@ -45,8 +45,12 @@ function defineGameAlias(): Plugin {
   };
 }
 
-function isGameDefinition(value: unknown): value is GameDefinition<object, Record<string, MoveDefinition<object>>> {
-  return isRecord(value) && isRecord(value.players) && typeof value.setup === "function" && isRecord(value.moves);
+type AnyRules = GameDefinition<object, Record<string, MoveDefinition<object>>> | RealtimeGameDefinition<object, object>;
+
+/** Turn-based rules have moves; realtime rules have tick and input. */
+function isRules(value: unknown): value is AnyRules {
+  return isRecord(value) && isRecord(value.players) && typeof value.setup === "function" &&
+    (isRecord(value.moves) || (typeof value.tick === "function" && typeof value.input === "function"));
 }
 
 /** Imports one build of the rules; a fresh file each time, since Node caches modules by URL. */
@@ -57,8 +61,10 @@ async function importRules(code: string): Promise<GameAdapter> {
     await writeFile(file, code);
     const module: Record<string, unknown> = await import(pathToFileURL(file).href);
     const rules = module.default ?? module.rules;
-    if (!isGameDefinition(rules))
-      throw new Error("The rules file must export default defineGame({ players, setup, moves }).");
+    if (!isRules(rules))
+      throw new Error(
+        "The rules file must export default defineGame({ players, setup, moves }) for a turn-based game, or defineRealtimeGame({ players, setup, input, tick }) for a realtime one.",
+      );
     return compileGame(rules);
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -124,7 +130,6 @@ export async function startDevServer(options: DevServerOptions) {
   if (rulesFile) {
     if (Object.hasOwn(registered, adapterId))
       throw new Error(`${path.basename(rulesFile)} needs its own adapterId in multiplayer.json; "${adapterId}" is already registered.`);
-    if (config.mode !== "turn-based") throw new Error("Rules written with defineGame are turn-based. Set mode to turn-based.");
   } else if (!Object.hasOwn(registered, adapterId))
     throw new Error(`No rules for "${adapterId}". Write ${GAME_RULES_FILES[0]} with defineGame.`);
 

@@ -13,7 +13,7 @@ export { isOhMyGameError, OhMyGameError, type OhMyGameErrorCode } from "./errors
 export type { GameAuth } from "./account.js";
 export { gameTokenAudience, isGameAccountConfig, type GameAccountConfig, type OhMyGamePlayer, } from "./account-protocol.js";
 export { GuestIdentity, type GuestIdentityOptions, type IdentityProvider } from "./identity.js";
-export { defineGame, type ClientMoves, type GameContext, type GameDefinition, type GameResult, type MoveContext, type MoveDefinition, type MoveFunction, type MoveOptions, } from "./define-game.js";
+export { defineGame, defineRealtimeGame, type ClientInput, type ClientMoves, type RealtimeGameContext, type RealtimeGameDefinition, type GameContext, type GameDefinition, type GameResult, type MoveContext, type MoveDefinition, type MoveFunction, type MoveOptions, } from "./define-game.js";
 export interface InitOptions {
     /**
      * The game's manifest, or where to load it. Defaults to manifest.json beside the
@@ -154,9 +154,10 @@ export declare function isOhMyGamePlayer(value: unknown): value is OhMyGamePlaye
 
 // define-game.d.ts
 /**
- * Turn-based rules as plain functions. The service runs them; clients only send a move's
- * name and arguments. Everything here is free of dependencies so a game's rules file can
- * import it on the service and its page can import the types.
+ * Game rules as plain functions: turn-based rules with defineGame, realtime rules with
+ * defineRealtimeGame. The service runs them; clients only send a move or their input.
+ * Everything here is free of dependencies so a game's rules file can import it on the
+ * service and its page can import the types.
  */
 export interface GameContext {
     /** Seated players in join order. */
@@ -221,6 +222,58 @@ export interface GameDefinition<G extends object, Moves extends Record<string, M
 }
 /** Checks the shape of the rules and returns them unchanged, with their types inferred. */
 export declare function defineGame<G extends object, Moves extends Record<string, MoveDefinition<G>>>(definition: GameDefinition<G, Moves>): GameDefinition<G, Moves>;
+/** What realtime rules see each tick: the players, and the service's randomness and clock. */
+export interface RealtimeGameContext {
+    /** Seated players in join order, connected or not. */
+    readonly players: readonly string[];
+    /** Seated players with an open connection. */
+    readonly connected: readonly string[];
+    /** The room owner; empty in a drop-in room. */
+    readonly ownerId: string;
+    random(): number;
+    shuffle<T>(items: readonly T[]): T[];
+    now(): number;
+}
+/**
+ * Realtime rules: the service calls tick at a fixed rate with each player's latest input,
+ * whether or not anyone is pressing anything. A player who stops sending drops out of
+ * inputs after five ticks, so keep anything that should persist, such as a snake's
+ * heading, in G.
+ */
+export interface RealtimeGameDefinition<G extends object, Input extends object> {
+    /** Seats the rules support. A round starts once at least min players are connected. */
+    players: {
+        min: number;
+        max: number;
+    };
+    /** Milliseconds between ticks, 20 to 1000. Defaults to 50. */
+    tickMs?: number;
+    /** The game when a round starts: when the owner starts it, or when a drop-in room starts or restarts one. */
+    setup(ctx: RealtimeGameContext): G;
+    /**
+     * Reads one input as the player sent it, such as { dir: "up" }, and returns it in the
+     * shape tick reads. Throw an Error to reject it; its message reaches the player.
+     */
+    input(value: Record<string, unknown>, playerId: string): Input;
+    /** Advances the game by dt seconds. Change G in place or return a new one. */
+    tick(G: G, ctx: RealtimeGameContext, inputs: Readonly<Record<string, Input>>, dt: number): G | void;
+    /** A player takes a seat while a round is running, as in a drop-in room. */
+    join?(G: G, ctx: RealtimeGameContext, playerId: string): G | void;
+    /** A player gives up their seat while a round is running: they left a drop-in room or were removed. */
+    leave?(G: G, ctx: RealtimeGameContext, playerId: string): G | void;
+    /** Checked after every tick. A result ends the round; a drop-in room then starts another. */
+    endIf?(G: G, ctx: RealtimeGameContext): GameResult | undefined;
+    /** What one player may see. playerId is undefined for a spectator. */
+    playerView?(G: G, ctx: RealtimeGameContext, playerId: string | undefined): object;
+}
+/** Checks the shape of realtime rules and returns them unchanged, with their types inferred. */
+export declare function defineRealtimeGame<G extends object, Input extends object>(definition: RealtimeGameDefinition<G, Input>): RealtimeGameDefinition<G, Input>;
+/** Whether rules are realtime rules from defineRealtimeGame. */
+export declare function isRealtimeGameDefinition(value: unknown): value is RealtimeGameDefinition<object, object>;
+/** The input client.sendInput takes for a game: what its rules' input function returns. */
+export type ClientInput<Game> = Game extends {
+    input(value: never, playerId: never): infer Input extends object;
+} ? Input : Record<string, unknown>;
 type MoveArgs<M> = M extends {
     run: (G: never, ctx: never, args: infer A) => unknown;
 } ? A : M extends (G: never, ctx: never, args: infer A) => unknown ? A : never;
@@ -233,10 +286,10 @@ export type ClientMoves<Game> = Game extends {
 export {};
 
 // multiplayer-client.d.ts
-import { type MultiplayerEvent, type MultiplayerManifestConfig, type MultiplayerSnapshot, type PublicMultiplayerRoom, type RealtimeInput, type TurnCommand, type TurnCommandResult } from "./multiplayer-protocol.js";
+import { type MultiplayerEvent, type MultiplayerManifestConfig, type MultiplayerSnapshot, type PublicMultiplayerRoom, type TurnCommand, type TurnCommandResult } from "./multiplayer-protocol.js";
 import { OhMyGameError } from "./errors.js";
 import { type IdentityProvider } from "./identity.js";
-import type { ClientMoves } from "./define-game.js";
+import type { ClientInput, ClientMoves } from "./define-game.js";
 import type { OhMyGame } from "./index.js";
 export type MultiplayerConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
 export interface MultiplayerClientOptions {
@@ -336,7 +389,7 @@ export declare class MultiplayerClient<Game = unknown> {
      * connection. Throws invalid_option for an input that is not plain JSON of at most
      * REALTIME_INPUT_MAX_LENGTH characters, or that uses the reserved key inputId.
      */
-    sendInput(input: RealtimeInput): void;
+    sendInput(input: ClientInput<Game>): void;
     private flushInput;
     /**
      * Quick play only places a player when they arrive, so two players can end up alone
@@ -547,7 +600,7 @@ export interface MultiplayerGameAdapter<State, Command> {
     /** Realtime only: the tick in milliseconds, 20 to 1000. Defaults to 50. */
     tickMs?: number;
     /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
-    validateInput?(input: RealtimeInput): void;
+    validateInput?(input: RealtimeInput, playerId: string): void;
     /**
      * The state one player may see, such as their own hand but not others'. playerId is
      * undefined for a connection that holds no seat. Without it every player sees the whole state.
@@ -557,6 +610,8 @@ export interface MultiplayerGameAdapter<State, Command> {
     onPlayerJoin?(state: State, playerId: string, now: number): State;
     /** Resets the round when a drop-in room starts or restarts it, for example respawning every seat. */
     onRoundStart?(state: State, now: number): State;
+    /** A seat was given up, after the room removed it from players: a drop-in player left, or a lobby seat emptied. */
+    onPlayerLeave?(state: State, playerId: string, now: number): State;
 }
 export type MultiplayerEventType = "room.ready" | "member.joined" | "member.left" | "state.updated" | "turn.changed" | "room.finished" | "room.closed" | "protocol.error";
 export type MultiplayerErrorCode = "invalid_command" | "not_your_turn" | "sequence_conflict" | "room_full" | "deployment_mismatch" | "protocol_mismatch" | "not_authorized" | "room_closed" | "rate_limited";

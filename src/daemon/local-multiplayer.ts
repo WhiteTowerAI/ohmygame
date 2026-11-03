@@ -58,7 +58,7 @@ export class LocalMultiplayerRuntime {
     let rules: GameAdapter | undefined;
     if (adapterId === "custom") {
       if (!rulesFile)
-        throw new Error("Write server/rules.ts first: turn-based rules from defineGame, exported as default.");
+        throw new Error("Write server/rules.ts first: defineGame for turn-based rules or defineRealtimeGame for realtime rules, exported as default.");
       const { loadGameRules } = await import("@ohmygame/server");
       rules = await loadGameRules(rulesFile);
     }
@@ -68,7 +68,7 @@ export class LocalMultiplayerRuntime {
     // Roaming is a shared place to wander, so players drop in unless the game asks for private rooms.
     const dropIn = options.dropIn ?? adapterId === "roam";
     if (dropIn && mode !== "realtime")
-      throw new Error("Drop-in rooms need realtime rules. Use arena or roam, or rooms with invitations for turn-based games.");
+      throw new Error("Drop-in rooms need realtime rules: arena, roam or custom rules from defineRealtimeGame. Turn-based games use rooms with invitations.");
     const range = localPlayerRange(adapter);
     if (range.min > range.max)
       throw new Error(`These rules need ${describePlayerRange(adapter.players)} players; local rooms hold ${LOCAL_MULTIPLAYER_MIN_CLIENTS} to ${LOCAL_MULTIPLAYER_MAX_CLIENTS}.`);
@@ -103,7 +103,8 @@ export class LocalMultiplayerRuntime {
       mode,
       gameId,
       // Deployments are immutable, so each room size and policy is its own deployment.
-      deploymentId: `local-${adapterId}-${maxClients}p${dropIn ? "-dropin" : ""}-v1`,
+      // Custom rules may switch between turn-based and realtime, which needs another deployment.
+      deploymentId: `local-${adapterId}${adapterId === "custom" && mode === "realtime" ? "-realtime" : ""}-${maxClients}p${dropIn ? "-dropin" : ""}-v1`,
       protocolVersion: 1,
       serverUrl: `http://127.0.0.1:${this.service!.port}`,
       authPolicy: "anonymous",

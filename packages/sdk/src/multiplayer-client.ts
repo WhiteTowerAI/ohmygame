@@ -22,7 +22,7 @@ import {
 } from "./multiplayer-protocol.js";
 import { isOhMyGameError, OhMyGameError, type OhMyGameErrorCode } from "./errors.js";
 import { browserStorage, GuestIdentity, serviceRequest, type IdentityProvider } from "./identity.js";
-import type { ClientMoves } from "./define-game.js";
+import type { ClientInput, ClientMoves } from "./define-game.js";
 import type { OhMyGame } from "./index.js";
 
 export type MultiplayerConnectionStatus =
@@ -290,7 +290,7 @@ export class MultiplayerClient<Game = unknown> {
    * connection. Throws invalid_option for an input that is not plain JSON of at most
    * REALTIME_INPUT_MAX_LENGTH characters, or that uses the reserved key inputId.
    */
-  sendInput(input: RealtimeInput): void {
+  sendInput(input: ClientInput<Game>): void {
     if (!isRealtimeInput(input))
       throw new OhMyGameError(
         "invalid_option",

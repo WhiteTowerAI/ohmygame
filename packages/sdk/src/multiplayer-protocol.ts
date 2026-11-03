@@ -230,7 +230,7 @@ export interface MultiplayerGameAdapter<State, Command> {
   /** Realtime only: the tick in milliseconds, 20 to 1000. Defaults to 50. */
   tickMs?: number;
   /** Realtime only: throws when an input does not have the shape the rules read. Without it any input passes. */
-  validateInput?(input: RealtimeInput): void;
+  validateInput?(input: RealtimeInput, playerId: string): void;
   /**
    * The state one player may see, such as their own hand but not others'. playerId is
    * undefined for a connection that holds no seat. Without it every player sees the whole state.
@@ -240,6 +240,8 @@ export interface MultiplayerGameAdapter<State, Command> {
   onPlayerJoin?(state: State, playerId: string, now: number): State;
   /** Resets the round when a drop-in room starts or restarts it, for example respawning every seat. */
   onRoundStart?(state: State, now: number): State;
+  /** A seat was given up, after the room removed it from players: a drop-in player left, or a lobby seat emptied. */
+  onPlayerLeave?(state: State, playerId: string, now: number): State;
 }
 export type MultiplayerEventType =
   | "room.ready"

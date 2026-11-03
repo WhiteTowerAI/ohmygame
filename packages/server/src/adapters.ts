@@ -28,7 +28,8 @@ export function resolveGameAdapter(
   const id = config.adapterId;
   if (!Object.hasOwn(adapters, id)) throw new Error(`No server rules adapter registered for ${id}.`);
   const adapter = adapters[id]!;
-  if (adapter.mode !== config.mode) throw new Error("The rules adapter does not match the game mode.");
+  if (adapter.mode !== config.mode)
+    throw new Error(`The rules adapter does not match the game mode: the ${id} rules are ${adapter.mode}, so set mode to ${adapter.mode}.`);
   if (adapter.mode === "realtime" && !adapter.step)
     throw new Error("Realtime adapters must supply a simulation step.");
   if (adapter.mode === "realtime") checkTickMs(tickMsOf(adapter));

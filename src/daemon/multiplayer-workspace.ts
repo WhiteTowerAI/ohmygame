@@ -126,7 +126,7 @@ manifest.maxClients is the room size chosen at setup: 2 to 8 players, always 2 f
 
 ## Custom rules (adapterId custom)
 
-A turn-based game that none of the built-in rules fits, such as a card game, chess or a board game with hidden hands, defines its own rules in server/rules.ts, beside multiplayer.json. Write the file before calling multiplayer_setup with adapterId custom, and call multiplayer_setup again after changing it: it loads the rules and reports any error. OhMyGame also reloads the file before each preview, playtest and local publish.
+A game that none of the built-in rules fits defines its own rules in server/rules.ts, beside multiplayer.json: defineGame for a turn-based game such as a card game, chess or a board game with hidden hands, defineRealtimeGame (below) for a realtime game such as multiplayer snake. Write the file before calling multiplayer_setup with adapterId custom, and call multiplayer_setup again after changing it: it loads the rules and reports any error. OhMyGame also reloads the file before each preview, playtest and local publish.
 
     import { defineGame } from "../src/ohmygame/define-game.js";
     export default defineGame({
@@ -151,7 +151,41 @@ A turn-based game that none of the built-in rules fits, such as a card game, che
 - A turn not taken within turnSeconds (default 60) passes to the next seat.
 - server/rules.ts may import the game's own modules for shared logic such as card comparison, but nothing that touches the DOM.
 
-In the page, type the moves from the rules: import type rules from "../server/rules"; const client = createMultiplayerClient<typeof rules>(game, callbacks); then client.moves.play({ cards }) sends the move and returns its command ID for onCommandResult. Render snapshot.state.game, which is playerView's result for this player. Custom rules are turn-based only; a realtime game other than racing or free movement is not supported yet.
+In the page, type the moves from the rules: import type rules from "../server/rules"; const client = createMultiplayerClient<typeof rules>(game, callbacks); then client.moves.play({ cards }) sends the move and returns its command ID for onCommandResult. Render snapshot.state.game, which is playerView's result for this player.
+
+### Realtime rules (defineRealtimeGame)
+
+A realtime game, such as multiplayer snake, runs on the service's tick: every tickMs the service calls tick with each player's latest input and sends every player the new state. multiplayer_setup picks realtime mode from the rules; pass dropIn: true for a game players join while it runs.
+
+    import { defineRealtimeGame } from "../src/ohmygame/define-game.js";
+    type Dir = "up" | "down" | "left" | "right";
+    export default defineRealtimeGame({
+      players: { min: 1, max: 8 },
+      tickMs: 120,
+      setup: (ctx) => ({ food: placeFood(ctx), snakes: Object.fromEntries(ctx.players.map((id, i) => [id, spawn(i)])) }),
+      input(value) {
+        if (!["up", "down", "left", "right"].includes(value.dir as string)) throw new Error("Send { dir }.");
+        return { dir: value.dir as Dir };
+      },
+      tick(G, ctx, inputs) {
+        for (const [id, snake] of Object.entries(G.snakes)) {
+          if (inputs[id]) snake.dir = turn(snake.dir, inputs[id].dir); // the heading lives in G
+          // Move, grow on food, kill on collision; use ctx.random() for new food.
+        }
+      },
+      join: (G, ctx, playerId) => { G.snakes[playerId] = spawn(ctx.players.length - 1); },
+      leave: (G, _ctx, playerId) => { delete G.snakes[playerId]; },
+      endIf: (G) => (alive(G).length <= 1 && Object.keys(G.snakes).length > 1 ? { winners: alive(G) } : undefined),
+    });
+
+- setup(ctx) runs when a round starts: when the owner sends start, or when a drop-in room starts or restarts a round. ctx.players lists the seats and ctx.connected those with an open connection.
+- input(value, playerId) reads one input as the page sent it and returns it typed; throw an Error to reject it. The page calls client.sendInput({ dir }) whenever the player acts, as often as every frame; the SDK sends the latest input once per tick.
+- tick(G, ctx, inputs, dt) gets each player's latest input in inputs, keyed by playerId. An input counts for five ticks and then drops out, so keep anything that must persist, such as a heading, in G, and treat a one-off action in the input, such as a jump, so that repeating it for a few ticks does no harm. dt is the tick in seconds.
+- join and leave run when a seat is taken or given up while a round is running, as in drop-in rooms; endIf runs after every tick, and a drop-in room starts the next round a few seconds after one ends.
+- tickMs is 20 to 1000 (default 50). Grid games like snake usually use 80 to 150. The whole state goes to every player each tick, so keep G small: positions and scores, not rendering data. Interpolate between snapshots in the page for smooth motion.
+- Use ctx.random(), ctx.shuffle(items) and ctx.now() as in turn-based rules.
+
+In the page, const client = createMultiplayerClient<typeof rules>(game, callbacks) types client.sendInput to the rules' input.
 
 Local setup starts a loopback Colyseus backend owned by the running OhMyGame daemon. No cloud deployment is needed. Rooms are temporary and end when the daemon stops; the deployment comes back on the next preview, playtest or local publish. Public publishing requires a separately hosted backend, an immutable registered deployment and its matching server rules. Missing service/rules must produce an explicit setup error; do not silently choose another networking stack.
 `;
