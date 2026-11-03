@@ -294,10 +294,11 @@ body {
   app-region: no-drag;
 }
 
-/* The window's controls float above a sheet, so the sheet starts below them
-   instead of putting its close button underneath. Sheets render in a portal. */
-:root:has(.desktop-window-frame) .ui-backdrop-sheet {
-  padding-top: calc(var(--space-2) + 32px);
+/* The window's controls share a sheet's top corner: keep the sheet's own
+   surface behind them and start its header below, rather than lifting the
+   whole sheet off the window edge. Sheets render in a portal. */
+:root:has(.desktop-window-frame) .ui-sheet {
+  padding-top: 32px;
 }
 
 .desktop-macos,
