@@ -223,6 +223,31 @@ describe("new project dialog", () => {
     expect(consentToPlugin).not.toHaveBeenCalled();
   });
 
+  it("asks again for what a plugin wants beyond what Home allowed", async () => {
+    // Home allowed one thing; the plugin, updated since, asks for more.
+    const tools = { id: "acme/tools", name: "tools", displayName: "Tools", marketplaceId: "acme", marketplaceDisplayName: "Acme", description: "", off: true as const, asks: ["native", "processes:python"] };
+    capabilities = { plugins: [tools], skills: [] };
+    const mention = { name: "tools", displayName: "Tools", marketplaceId: "acme" };
+    await act(async () => root.render(
+      <ProjectCreateDialog direct firstMessage={{ prompt: "@Tools Make a maze", mentions: [mention], attachments: [], mode: "normal", type: "web-game", turnOn: [{ ...tools, asks: ["native"] }] }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    expect(document.querySelector(".new-project-consent")!.textContent).toContain("processes:python");
+    expect(createProject).not.toHaveBeenCalled();
+  });
+
+  it("creates a plugin's type that the only plugins mentioned work in", async () => {
+    const helper = { id: "acme/maps", name: "maps", displayName: "Maps", marketplaceId: "acme", marketplaceDisplayName: "Acme", description: "", appliesTo: ["acme/tiles:map"] };
+    capabilities = { plugins: [helper], skills: [] };
+    await act(async () => root.render(
+      <ProjectCreateDialog firstMessage={{ prompt: "@Maps Make a map", mentions: [{ name: "maps", displayName: "Maps", marketplaceId: "acme" }], attachments: [], mode: "normal", type: "acme/tiles:map" }}
+        onClose={() => {}} onCreated={() => {}} />,
+    ));
+    expect(typeSelect().textContent).toBe("Tile Map");
+    await act(async () => button("Create and start").click());
+    expect(createProject).toHaveBeenCalledWith({ projectType: "acme/tiles:map" });
+  });
+
   it("allows what a type's plugin asks for when creating the type, once its types have loaded", async () => {
     let types!: (value: Awaited<ReturnType<typeof listProjectTypes>>) => void;
     listProjectTypes.mockImplementationOnce(() => new Promise((resolve) => { types = resolve; }));

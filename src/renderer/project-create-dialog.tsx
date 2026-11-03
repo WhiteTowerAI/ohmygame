@@ -122,9 +122,9 @@ export function ProjectCreateDialog({
   // The mentioned plugins that are off and work in the type: creating the project turns them on.
   // What the prompt and type are now decides, not what Home sent.
   const turnOn = referenced.filter((plugin) => plugin.off && appWidePluginSuits(plugin.appliesTo, newProjectKind(type)));
-  // Those Home didn't ask about say here what creating allows.
-  const allowedOnHome = new Set((firstMessage?.turnOn ?? []).map((plugin) => plugin.id));
-  const turnOnConsent = turnOn.filter((plugin) => plugin.asks?.length && !allowedOnHome.has(plugin.id));
+  // Those asking for more than the person allowed on Home say here what creating allows.
+  const allowedOnHome = new Map((firstMessage?.turnOn ?? []).map((plugin) => [plugin.id, plugin.asks ?? []]));
+  const turnOnConsent = turnOn.filter((plugin) => plugin.asks?.some((capability) => !allowedOnHome.get(plugin.id)?.includes(capability)));
   // Home's plugin type loads apart from the plugins.
   const ready = pluginsPhase === "ready"
     && (isAppProjectType(wanted) || installedPluginTypes.types !== undefined);
@@ -191,7 +191,7 @@ export function ProjectCreateDialog({
     setCreating(true);
     setError(undefined);
     try {
-      if (!types.length) throw new Error(t("createDialog.incompatiblePlugins"));
+      if (!offered(type)) throw new Error(t("createDialog.incompatiblePlugins"));
       const input = {
         ...(name.trim() ? { name: name.trim() } : {}),
         ...(isAppProjectType(type) ? { type } : { projectType: type }),
