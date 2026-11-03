@@ -184,6 +184,8 @@ Main color: original orange, yellow, red, and dark-brown fire palette
 
 Motion rhythm: balanced buildup, brightest peak, then a clean fade-out
 
+Fine-detail direction: use a compact white-hot core, separately articulated narrow yellow and gold inner flame tongues, orange mid-flames, a deep crimson outer rim, small charcoal ember pockets, and tiny square cinders. Preserve dense internal flame striations and stepped pixel contours; never use a smoky, muddy, broad flat red mass.
+
 Additional direction:
 Create exactly one square sheet with exactly 12 equal-sized cells, read left to right and top to bottom. Every cell must have the same transparent background, identical camera framing, identical scale, and one fixed ground-impact point at the bottom center. Do not add borders, grid lines, labels, text, UI, characters, weapons, scenery, or extra effects. Do not leave any cell empty.
 
@@ -340,6 +342,8 @@ Main color: electric blue, cyan, violet, and white-hot highlights
 
 Motion rhythm: extremely fast acceleration, sharp forward dash, stretched trail, then rapid dissipation
 
+Fine-detail direction: use a hairline white-cyan lightning core, independently articulated thin blue-violet branches, dark navy gaps, stepped micro-pixel bends, cyan rim highlights, segmented afterimage trails, and tiny square charged dust. Keep the energy as precise filaments, never a chunky blob or a broad flat blue slab.
+
 Important composition rule: the left-to-right direction describes the orientation of the dash and its trail, not movement across the entire cell. The complete effect must remain centered inside every individual cell. Do not move the effect from the left edge to the right edge of a cell. Do not let the bolt or trail cross any cell boundary.
 
 Additional direction:
@@ -363,6 +367,8 @@ const EFFECT_LIBRARY_BLUE_WHITE_CRESCENT_EXAMPLE_PROMPT = `Requested action: a b
 Main color: bright cyan, electric blue, deep navy, and white-hot highlights
 
 Motion rhythm: fast initiation, smooth curved downward sweep, strong mid-swing peak, then rapid dissipation
+
+Fine-detail direction: build one elegant thin crescent with a razor-sharp white-blue core line, separately articulated cyan and royal-blue energy ribbons, dark navy occlusion gaps, segmented edge highlights, tapered fragments, and tiny square sparks. Keep dense internal striations and finely stepped pixel contours; never use a chunky broad blue swoosh or a flat slab.
 
 Important motion rule: this is one single crescent-shaped slash, not a straight projectile and not a stationary effect. The crescent starts near the upper-right area, travels downward along the right side in a curved arc, and ends near the lower-right area. The motion path must stay inside the same cell and must never cross a cell boundary.
 
@@ -853,7 +859,7 @@ export async function createEffectLibraryProject(level: PixelArtLevel = "classic
       const gridMatch = prompt.match(/(\d+)-column by (\d+)-row Sprite Sheet/i);
       const columns = Number(gridMatch?.[1] ?? 4);
       const rows = Number(gridMatch?.[2] ?? 3);
-      return withPixelArtLevel(prompt, level, "sprite", { assetType: "animation", grid: { columns, rows, unit: "frame" } });
+      return withPixelArtLevel(prompt, level, "sprite", { assetType: "effect", grid: { columns, rows, unit: "frame" } });
     };
     const exampleImageNode = (node: AssetCanvasNode, prompt: string): AssetCanvasNode => {
       const assetId = "assetId" in node.data ? node.data.assetId : undefined;

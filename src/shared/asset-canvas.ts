@@ -214,7 +214,7 @@ export const EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT = "The final output must be 
 /** Default editor template for image nodes created inside the Effect Library. */
 export const EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE = "Requested action: {USER_ACTION}\n\nMain color: {EFFECT_COLOR}\n\nMotion rhythm: {MOTION_RHYTHM}\n\nAdditional direction:\n{ADDITIONAL_PROMPT}";
 
-const EFFECT_DETAILED_PIXEL_RULES = "DETAILED EFFECT PIXEL RULES: Preserve more of the effect's secondary contour breaks, layered highlights, small particles, and material transitions than classic pixels. Use 4–6 hard-edged tones per material, but keep every highlight and particle as an intentional square-pixel cluster on the same logical grid. Retain thin readable arcs, tendrils, droplets, sparks, and smoke fragments where they clarify motion; do not replace them with smooth glows, anti-aliased edges, noise, or random speckles. Keep the silhouette and frame-to-frame motion coherent while using the full detailed pixel budget.";
+const EFFECT_DETAILED_PIXEL_RULES = "DETAILED EFFECT PIXEL RULES: Render at premium 32-bit pixel-art illustration fidelity using the full 256×256 per-frame budget, never enlarged classic-pixel shapes. Preserve secondary contour breaks, layered highlights, compact particle clusters, internal material structure, and controlled texture in every phase. Make the bright core, lit plane, saturated midtone body, dark occlusion rim, thin rim light, and transient fragments visibly distinct with 6–8 hard-edged palette steps. Build believable material volume with directional lighting and compact specular highlights: faceted internal refraction and cold glints for ice, layered translucent depth and sharp reflections for water, and nested hot emissive cores with stepped radiating falloff for fire or magic. Retain thin readable arcs, tendrils, droplets, sparks, shards, and smoke fragments where they clarify motion; do not replace them with smooth glows, anti-aliased edges, noise, or random speckles. Keep the silhouette, palette, scale, light direction, and frame-to-frame motion coherent.";
 
 /** Builds the complete, portable prompt behind an Effect Library image node. */
 export function effectLibraryPrompt(
@@ -241,7 +241,7 @@ export function effectLibraryPrompt(
   const columns = Number(gridMatch?.[1] ?? 4);
   const rows = Number(gridMatch?.[2] ?? 3);
   const densityPrompt = withPixelArtLevel("EFFECT PIXEL DENSITY RULES:", pixelStyle, "sprite", {
-    assetType: "animation",
+    assetType: "effect",
     grid: { columns, rows, unit: "frame" },
   });
   return [colorDirection, rhythmDirection, densityPrompt, pixelStyle === "detailed" ? EFFECT_DETAILED_PIXEL_RULES : "", EFFECT_SPRITE_SHEET_SAFE_MARGIN_PROMPT, basePrompt, additionalPrompt]

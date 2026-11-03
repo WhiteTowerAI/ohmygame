@@ -59,9 +59,26 @@ describe("pixel asset workflows", () => {
     expect(classic).toContain("64×64 pixels");
     expect(classic).not.toContain("Use no more than 8 colors");
     expect(detailed).toContain("PIXEL DENSITY: DETAILED PIXELS");
-    expect(detailed).toContain("192×192 pixels");
+    expect(detailed).toContain("256×256 pixels");
     expect(detailed).toContain("Use no more than 48 colors");
+    expect(detailed).toContain("Never reuse coarse or classic block sizes for detailed output");
     expect(detailed).toContain("DETAILED EFFECT PIXEL RULES");
+    expect(detailed).toContain("6–8 discrete hard-edged tones");
+    expect(detailed).toContain("believable material volume");
+    expect(detailed).toContain("premium 32-bit pixel-art illustration fidelity");
+  });
+
+  it("uses the same detailed visual direction for the effect cards and generated nodes", () => {
+    const fire = effectLibraryPrompt(effectPresetById("fire-hit").prompt, "original", "sample", "", "detailed");
+    const trail = effectLibraryPrompt(effectPresetById("electric-trail").prompt, "original", "sample", "", "detailed");
+    const crescent = effectLibraryPrompt(effectPresetById("blue-white-crescent-slash").prompt, "original", "sample", "", "detailed");
+    for (const prompt of [fire, trail, crescent]) {
+      expect(prompt).toContain("DETAILED EFFECT PIXEL RULES");
+      expect(prompt).toContain("full 15% transparent margin");
+    }
+    expect(fire).toContain("separately articulated narrow yellow and gold inner flame tongues");
+    expect(trail).toContain("hairline white-cyan lightning core");
+    expect(crescent).toContain("razor-sharp white-blue core line");
   });
 
   it("keeps legacy guide markers readable without creating new template boards", () => {

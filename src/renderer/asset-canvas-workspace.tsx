@@ -90,7 +90,7 @@ import {
   type VideoModel,
   type VideoGenerationReference,
 } from "../shared/contracts.js";
-import { combineAssetCanvasPrompt, createAssetGenerationNode, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
+import { combineAssetCanvasPrompt, createAssetGenerationNode, EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE, effectLibraryPrompt, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { allActionsPrompt, continuousActionsPrompt, resolveContinuousActionPrompt, preferredCharacterSheetOption } from "../shared/canvas-character-tools.js";
 import { canvasImagePresetPrompt, canvasMaterialStyle, type CanvasImagePreset, type CanvasMaterialStyle } from "../shared/canvas-image-presets.js";
 import { VOLCENGINE_TTS_VOICES, audioCanvasSettings, audioNodeHasSettings, audioSettings, isAudioNodeType, type AudioCanvasSettings, type AudioModel, type AudioOperation, type AudioProviderCatalogStatus } from "../shared/audio.js";
@@ -107,7 +107,7 @@ import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
 import { ModelPreview } from "./model-preview.js";
-import { withPixelArtLevel, type PixelArtLevel } from "../shared/canvas-pixel-style.js";
+import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, placePixelPresetOutsideDensityGroups, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import { AssetCanvasPixelPresetDialog } from "./asset-canvas-pixel-preset-dialog.js";
 import { effectPresetAspectRatio, effectPresetById, effectPresetLabel, effectPresetStaticExampleId, type EffectPresetId } from "./asset-canvas-effect-presets.js";
@@ -1052,7 +1052,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         ...configured.data,
         ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
         ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}),
-        prompt: withPixelArtLevel(preset.prompt, pixelStyle, "sprite", { assetType: "animation", grid: { ...preset.grid, unit: "frame" } }),
+        prompt: effectLibraryPrompt(preset.prompt, "original", "sample", "", pixelStyle),
         promptExpanded: true,
         pixelStyle,
         exampleImage: effectPresetStaticExampleId(preset.id, pixelStyle),
