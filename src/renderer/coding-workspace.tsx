@@ -1019,12 +1019,13 @@ export function WorkspaceFileBrowser({
   const [busy, setBusy] = useState(false);
   const codeElement = useRef<HTMLDivElement>(null);
   const [explorerWidth, setExplorerWidth] = useState(240);
-  const explorerResize = useRef<{ clientX: number; width: number }>(null);
-  const treeSize = useElementSize(treeElement);
+  const explorerResize = useRef<{ clientX: number; width: number; maximum: number; current: number }>(null);
+  const treeHeight = useElementHeight(treeElement);
   const fileTree = useRef<TreeApi<WorkspaceFileNode>>(null);
   const revealed = useRef<{ tree: TreeApi<WorkspaceFileNode>; path: string; request?: number }>(null);
 
   function finishExplorerResize(): void {
+    if (explorerResize.current) setExplorerWidth(explorerResize.current.current);
     explorerResize.current = null;
   }
 
@@ -1039,7 +1040,7 @@ export function WorkspaceFileBrowser({
     const reveal = { tree, path: selectedPath, request: openFileRequestId };
     revealed.current = reveal;
     void tree.scrollTo(selectedPath)?.then(() => { if (revealed.current === reveal) tree.select(selectedPath, { focus: false }); });
-  }, [files, selectedPath, openFileRequestId, treeSize.height, showChanges]);
+  }, [files, selectedPath, openFileRequestId, treeHeight, showChanges]);
 
   async function mutate(operation: () => Promise<WorkspaceFileChange>): Promise<void> {
     if (busy) return;
@@ -1118,12 +1119,12 @@ export function WorkspaceFileBrowser({
           event.preventDefault();
           if (projectId && !busy) setContextMenu({ path: "", directory: true, x: event.clientX, y: event.clientY });
         }}>
-          {treeSize.height > 0 ? (
+          {treeHeight > 0 ? (
             <Tree
               ref={fileTree}
               data={tree}
-              width={treeSize.width}
-              height={treeSize.height}
+              width="100%"
+              height={treeHeight}
               rowHeight={24}
               indent={12}
               openByDefault={false}
@@ -1166,14 +1167,16 @@ export function WorkspaceFileBrowser({
           if (!event.isPrimary || event.button !== 0) return;
           event.preventDefault();
           event.currentTarget.setPointerCapture(event.pointerId);
-          explorerResize.current = { clientX: event.clientX, width: event.currentTarget.previousElementSibling!.getBoundingClientRect().width };
+          const width = event.currentTarget.previousElementSibling!.getBoundingClientRect().width;
+          const maximum = Math.min(480, codeElement.current!.clientWidth - 241);
+          explorerResize.current = { clientX: event.clientX, width, maximum, current: width };
           setContextMenu(undefined);
         }}
         onPointerMove={(event) => {
           const resize = explorerResize.current;
-          const bounds = codeElement.current?.getBoundingClientRect();
-          if (!resize || !bounds || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-          setExplorerWidth(Math.round(Math.max(140, Math.min(480, bounds.width - 241, resize.width + event.clientX - resize.clientX))));
+          if (!resize || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+          resize.current = Math.round(Math.max(140, Math.min(resize.maximum, resize.width + event.clientX - resize.clientX)));
+          codeElement.current?.style.setProperty("--file-explorer-width", `${resize.current}px`);
         }}
         onPointerUp={(event) => {
           if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
@@ -1614,22 +1617,21 @@ function WorkspaceTreeNode({ node, style, onContextMenu }: NodeRendererProps<Wor
   );
 }
 
-function useElementSize(element: HTMLElement | null): { width: number; height: number } {
-  const [size, setSize] = useState({ width: 0, height: 0 });
+function useElementHeight(element: HTMLElement | null): number {
+  const [height, setHeight] = useState(0);
   useEffect(() => {
     if (!element) return;
     // Hidden, it measures 0. Keeping the last size keeps what it holds mounted,
     // such as the file tree's open folders.
     const update = () => {
-      if (!element.clientWidth && !element.clientHeight) return;
-      setSize({ width: element.clientWidth, height: element.clientHeight });
+      if (element.clientHeight) setHeight(element.clientHeight);
     };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(element);
     return () => observer.disconnect();
   }, [element]);
-  return size;
+  return height;
 }
 
 /** The Assets view for a workspace that does not load its file list already, such as an Interactive Story. */

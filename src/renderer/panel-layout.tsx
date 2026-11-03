@@ -1,4 +1,4 @@
-import { createContext, useContext, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type HTMLAttributes, type ReactNode, type RefObject } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type HTMLAttributes, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Plus, X } from "./icons.js";
 import { ContextMenu, DropdownMenu, IconButton, type MenuEntry } from "./ui/index.js";
@@ -187,6 +187,10 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
   empty: ReactNode;
 }) {
   const root = useRef<HTMLDivElement>(null);
+  const resizeDrag = useRef<{ area: (typeof SIDES)[number]; bounds: DOMRect; size: number }>(null);
+  useEffect(() => () => {
+    if (resizeDrag.current) document.documentElement.classList.remove("is-resizing-dock");
+  }, []);
   const [dragging, setDragging] = useState<string>();
   const [target, setTarget] = useState<{ area: AreaId; before?: string }>();
   const [slots, setSlots] = useState<Record<string, HTMLElement | null>>({});
@@ -212,7 +216,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
   const sides = (has("left") ? 1 : 0) + (has("right") ? 1 : 0);
   // A width of 0 means it isn't laid out yet.
   const stacked = !!width && width < CENTER_MIN + sides * (SIDE_MIN + GAP);
-  const left = has("left") ? `minmax(${SIDE_MIN}px, ${layout.left.size}px)` : "", right = has("right") ? `minmax(${SIDE_MIN}px, ${layout.right.size}px)` : "";
+  const left = has("left") ? `minmax(${SIDE_MIN}px, var(--drag-left, ${layout.left.size}px))` : "", right = has("right") ? `minmax(${SIDE_MIN}px, var(--drag-right, ${layout.right.size}px))` : "";
   const row = (middle: string) => [has("left") ? "left" : "", middle, has("right") ? "right" : ""].filter(Boolean).join(" ");
   const order = (["left", "center", "right", "bottom"] as const).filter(has);
   const style: CSSProperties = stacked ? {
@@ -221,7 +225,7 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
     gridTemplateAreas: order.map((area) => `"${area}"`).join(" "),
   } : {
     gridTemplateColumns: [left, `minmax(${CENTER_MIN}px, 1fr)`, right].filter(Boolean).join(" "),
-    gridTemplateRows: has("bottom") ? `minmax(160px, 1fr) minmax(120px, ${layout.bottom.size}px)` : "minmax(0, 1fr)",
+    gridTemplateRows: has("bottom") ? `minmax(160px, 1fr) minmax(120px, var(--drag-bottom, ${layout.bottom.size}px))` : "minmax(0, 1fr)",
     gridTemplateAreas: has("bottom") ? `"${row("center")}" "${row("bottom")}"` : `"${row("center")}"`,
   };
 
@@ -259,11 +263,21 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
   };
 
   function resize(area: (typeof SIDES)[number], event: React.PointerEvent) {
-    const bounds = root.current?.getBoundingClientRect();
-    if (!bounds) return;
+    const drag = resizeDrag.current;
+    if (!drag || drag.area !== area) return;
+    const { bounds } = drag;
     const raw = area === "left" ? event.clientX - bounds.left : area === "right" ? bounds.right - event.clientX : bounds.bottom - event.clientY;
     const limit = (area === "bottom" ? bounds.height : bounds.width) * 0.6;
-    onChange({ ...layout, [area]: { ...layout[area], size: Math.round(Math.min(limit, Math.max(MIN_SIZE, raw))) } });
+    drag.size = Math.round(Math.min(limit, Math.max(MIN_SIZE, raw)));
+    root.current?.style.setProperty(`--drag-${area}`, `${drag.size}px`);
+  }
+  function finishResize() {
+    const drag = resizeDrag.current;
+    if (!drag) return;
+    resizeDrag.current = null;
+    root.current?.style.removeProperty(`--drag-${drag.area}`);
+    document.documentElement.classList.remove("is-resizing-dock");
+    if (layout[drag.area].size !== drag.size) onChange({ ...layout, [drag.area]: { ...layout[drag.area], size: drag.size } });
   }
 
   return (
@@ -336,11 +350,13 @@ export function PanelLayout({ layout, panels, onChange, onActivate, overlay, emp
                 aria-orientation={area === "bottom" ? "horizontal" : "vertical"} aria-label={t("panels.resize", { area: areaLabel(area) })}
                 aria-valuenow={layout[area].size}
                 onPointerDown={(event) => {
+                  if (!root.current || event.button !== 0) return;
+                  resizeDrag.current = { area, bounds: root.current.getBoundingClientRect(), size: layout[area].size };
                   event.currentTarget.setPointerCapture(event.pointerId);
                   document.documentElement.classList.add("is-resizing-dock");
                 }}
                 onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) resize(area, event); }}
-                onLostPointerCapture={() => document.documentElement.classList.remove("is-resizing-dock")}
+                onPointerUp={finishResize} onPointerCancel={finishResize} onLostPointerCapture={finishResize}
                 onKeyDown={(event) => {
                   const grow = area === "left" ? "ArrowRight" : area === "right" ? "ArrowLeft" : "ArrowUp";
                   const shrink = area === "left" ? "ArrowLeft" : area === "right" ? "ArrowRight" : "ArrowDown";
