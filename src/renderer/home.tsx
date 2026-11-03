@@ -20,23 +20,17 @@ import { useProjectActivity } from "./use-project-activity.js";
 import "./studios.css";
 import { t } from "./i18n.js";
 import { pixelAssetTemplateCategories, type PixelAssetTemplateCategory } from "./asset-canvas-pixel-workflows.js";
-import characterTemplateCover from "./assets/templates/examples/characters-cover.webp";
-import creatureTemplateCover from "./assets/templates/examples/creatures-cover.webp";
-import animationTemplateCover from "./assets/templates/examples/animation-cover.webp";
-import sceneTemplateCover from "./assets/templates/examples/scenes-cover.webp";
-import terrainTemplateCover from "./assets/templates/examples/terrain-cover.webp";
-import objectTemplateCover from "./assets/templates/examples/objects-cover.webp";
-import skinTemplateCover from "./assets/templates/examples/skins-cover.webp";
+import { templateAssetUrl } from "./template-assets.js";
 import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
 
 const PIXEL_TEMPLATE_COVERS: Record<PixelAssetTemplateCategory, string> = {
-  characters: characterTemplateCover,
-  creatures: creatureTemplateCover,
-  animation: animationTemplateCover,
-  scenes: sceneTemplateCover,
-  terrain: terrainTemplateCover,
-  objects: objectTemplateCover,
-  skins: skinTemplateCover,
+  characters: templateAssetUrl("examples/characters-cover.webp"),
+  creatures: templateAssetUrl("examples/creatures-cover.webp"),
+  animation: templateAssetUrl("examples/animation-cover.webp"),
+  scenes: templateAssetUrl("examples/scenes-cover.webp"),
+  terrain: templateAssetUrl("examples/terrain-cover.webp"),
+  objects: templateAssetUrl("examples/objects-cover.webp"),
+  skins: templateAssetUrl("examples/skins-cover.webp"),
 };
 
 interface HomeProps {

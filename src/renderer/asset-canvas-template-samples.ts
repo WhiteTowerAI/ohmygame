@@ -1,51 +1,46 @@
 import type { AssetCanvasTemplate } from "./asset-canvas-templates.js";
-import characterSheet from "./assets/templates/examples/role-reference-cover.webp";
-import pixelGameMaterials from "./assets/templates/examples/pixel-game-materials-cover.webp";
-import costumeChange from "./assets/templates/examples/costume-change.webp";
-import continuousFootage from "./assets/templates/examples/continuous-footage-cover.webp";
-import roleActions from "./assets/templates/examples/role-action-cover.webp";
-// Legacy boards still refer to these sample keys. Keep the imports pointed at
-// the canonical examples introduced with the density-based template layout.
-import animal from "./assets/templates/examples/classic/animal.webp";
-import attack from "./assets/templates/examples/classic/attack.webp";
-import building from "./assets/templates/examples/classic/building.webp";
-import characterSheetSample from "./assets/templates/examples/classic/character-sheet.webp";
-import clothing from "./assets/templates/examples/reference/clothing.webp";
-import consistentSequence from "./assets/templates/examples/classic/consistent-sequence.webp";
-import continuousSequence from "./assets/templates/examples/classic/continuous-sequence.webp";
-import down from "./assets/templates/examples/classic/down.webp";
-import hurt from "./assets/templates/examples/classic/hurt.webp";
-import icon from "./assets/templates/examples/classic/icon.webp";
-import idle from "./assets/templates/examples/classic/idle.webp";
-import monster from "./assets/templates/examples/classic/monster.webp";
-import portrait from "./assets/templates/examples/classic/portrait.webp";
-import prop from "./assets/templates/examples/classic/prop.webp";
-import quickReskin from "./assets/templates/examples/classic/quick-reskin.webp";
-import rpgCharacter from "./assets/templates/examples/classic/rpg-character.webp";
-import run from "./assets/templates/examples/classic/run.webp";
-import scene from "./assets/templates/examples/classic/scene.webp";
-import sideViewCharacter from "./assets/templates/examples/reference/character.webp";
-import terrain from "./assets/templates/examples/classic/terrain.webp";
-import walk from "./assets/templates/examples/classic/walk.webp";
+import { templateAssetUrl, templateExampleUrl } from "./template-assets.js";
 
 export type TemplateSample =
   | "animal" | "attack" | "building" | "character-sheet" | "clothing" | "consistent-sequence"
   | "continuous-sequence" | "down" | "hurt" | "icon" | "idle" | "monster" | "portrait" | "prop"
   | "quick-reskin" | "rpg-character" | "run" | "scene" | "side-view-character" | "terrain" | "walk";
 
-/** Reference images used to seed new template boards. */
+const classicExample = (name: string) => templateExampleUrl(`pixel/classic/${name}.webp`);
+
+/**
+ * Reference images used to seed new template boards. Legacy boards still refer
+ * to these sample keys, so they point at the canonical classic examples.
+ */
 export const TEMPLATE_SAMPLE_IMAGES: Record<TemplateSample, string> = {
-  animal, attack, building, "character-sheet": characterSheetSample, clothing,
-  "consistent-sequence": consistentSequence, "continuous-sequence": continuousSequence,
-  down, hurt, icon, idle, monster, portrait, prop, "quick-reskin": quickReskin,
-  "rpg-character": rpgCharacter, run, scene, "side-view-character": sideViewCharacter, terrain, walk,
+  animal: classicExample("animal"),
+  attack: classicExample("attack"),
+  building: classicExample("building"),
+  "character-sheet": classicExample("character-sheet"),
+  clothing: templateExampleUrl("pixel/reference/clothing.webp"),
+  "consistent-sequence": classicExample("consistent-sequence"),
+  "continuous-sequence": classicExample("continuous-sequence"),
+  down: classicExample("down"),
+  hurt: classicExample("hurt"),
+  icon: classicExample("icon"),
+  idle: classicExample("idle"),
+  monster: classicExample("monster"),
+  portrait: classicExample("portrait"),
+  prop: classicExample("prop"),
+  "quick-reskin": classicExample("quick-reskin"),
+  "rpg-character": classicExample("rpg-character"),
+  run: classicExample("run"),
+  scene: classicExample("scene"),
+  "side-view-character": templateExampleUrl("pixel/reference/character.webp"),
+  terrain: classicExample("terrain"),
+  walk: classicExample("walk"),
 };
 
 /** Cover art kept for introduction nodes saved on older boards. */
 export const TEMPLATE_COVER_IMAGES: Record<AssetCanvasTemplate, string> = {
-  "pixel-art": pixelGameMaterials,
-  "character-sheet": characterSheet,
-  "quick-reskin": costumeChange,
-  "free-sequence": continuousFootage,
-  "action-set": roleActions,
+  "pixel-art": templateAssetUrl("examples/pixel-game-materials-cover.webp"),
+  "character-sheet": templateAssetUrl("examples/role-reference-cover.webp"),
+  "quick-reskin": templateAssetUrl("examples/costume-change.webp"),
+  "free-sequence": templateAssetUrl("examples/continuous-footage-cover.webp"),
+  "action-set": templateAssetUrl("examples/role-action-cover.webp"),
 };
