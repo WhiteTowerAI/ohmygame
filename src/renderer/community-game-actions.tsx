@@ -1,5 +1,6 @@
 import { t } from "./i18n.js";
-import { useEffect, useId, useRef, useState } from "react";
+import { WindowControlsModal } from "./desktop-window-frame.js";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 import type { CommunityGame, ProjectState } from "../shared/contracts.js";
 import {
   listProjects,
@@ -252,14 +253,17 @@ function UnpublishConfirmation({
 }) {
   const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
+  const setWindowControlsModal = useContext(WindowControlsModal);
   useEffect(() => {
     const element = dialog.current!;
     element.showModal();
+    setWindowControlsModal?.(element);
     return () => {
+      setWindowControlsModal?.(null);
       element.close();
       returnFocus?.focus();
     };
-  }, []);
+  }, [returnFocus, setWindowControlsModal]);
   return (
     <dialog
       ref={dialog}

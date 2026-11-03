@@ -19,10 +19,6 @@
   --onboarding-backdrop: var(--color-surface);
 }
 
-:root[data-appearance="light"] .desktop-window-frame:has(.onboarding) {
-  --window-chrome-background: var(--onboarding-backdrop);
-}
-
 .desktop-window-content > .onboarding {
   height: 100%;
 }

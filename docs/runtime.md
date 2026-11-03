@@ -505,16 +505,19 @@ account. The open project is marked; hovering a project lists its
 conversations, newest first, and the open project's list ends with **New
 conversation**. The rail's Back and Forward lead the top bar: beside the
 window controls on macOS, at the window's edge on Linux and in a browser. On
-Windows the app draws the title bar itself (`desktop-window-frame.tsx`): the
-window's menus in the UI language, then Back and Forward, with the system's
-window controls at its right end, in the app's colours. The top bar holds the project's name as its menu (**Rename
+Windows the app draws the window's controls itself (`desktop-window-frame.tsx`):
+Minimize, Maximize or Restore, and Close in the app's colours over the page's
+top right corner. The controls remain available when Community asks to unpublish
+a game or the application shows its error page. Back and Forward lead the
+sidebar and the project rail.
+The top bar holds the project's name as its menu (**Rename
 project…**, **Open in folder** in the desktop app, **Export project**,
 **Plugins…**, and a return to the entry page), **Play** while the Game panel
 isn't on screen, which shows it, and the **Publish** menu, which an asset canvas does
 not have and Godot and plugin projects show disabled. It publishes to the
 OhMyGame community or exports the web build: the publish artifact as a ZIP
-without the upload size limit, to host elsewhere. Leaving through the rail, the
-menu or the title bar, and either export, saves the open design first.
+without the upload size limit, to host elsewhere. Leaving through the rail or
+the project's menu, and either export, saves the open design first.
 
 The return item goes back to the page the project was opened from. The
 destination survives conversation/view changes and refreshes in the same tab; a
