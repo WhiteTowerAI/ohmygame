@@ -1000,7 +1000,6 @@ const zhCN: typeof en = {
     expand: "展开侧栏",
     back: "后退",
     forward: "前进",
-    applicationMenu: "应用菜单",
     history: "后退和前进",
     loadingAccount: "正在加载账户",
     signInEllipsis: "登录…",
@@ -3439,6 +3438,12 @@ const zhCN: typeof en = {
     recheckDetail: "重新检查 {{name}}：{{error}}",
     recheck: "重新检查 {{name}}",
     detailsFor: "节点详情：{{label}}",
+  },
+  windowControls: {
+    minimize: "最小化",
+    maximize: "最大化",
+    restore: "还原",
+    close: "关闭",
   },
   windowMenu: {
     file: "文件",

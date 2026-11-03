@@ -147,9 +147,6 @@ body {
 }
 
 .desktop-window-frame {
-  --window-chrome-background: #1f1f1f;
-  --window-chrome-text: #ffffff;
-  --window-chrome-hover: rgb(255 255 255 / 10%);
   display: flex;
   height: 100dvh;
   min-height: 0;
@@ -157,67 +154,49 @@ body {
   background: var(--canvas);
 }
 
-:root[data-appearance="light"] .desktop-window-frame {
-  --window-chrome-background: #f7f7f7;
-  --window-chrome-text: #202020;
-  --window-chrome-hover: rgb(0 0 0 / 7%);
-}
-
-.desktop-window-menu-bar {
-  position: relative;
-  z-index: 100;
+/* The window's controls, over the content's top right corner: they take no
+   space, so each page's own top row reaches the window's edge. */
+.desktop-window-controls {
+  position: fixed;
+  z-index: 2000;
+  top: 0;
+  right: 0;
   display: flex;
-  height: 32px;
-  flex: 0 0 32px;
-  align-items: center;
-  padding: 0 138px 0 8px;
-  background: var(--window-chrome-background);
-  color: var(--window-chrome-text);
-  font-family: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 13px;
-  app-region: drag;
-  user-select: none;
+  color: var(--color-text-secondary);
+  app-region: no-drag;
 }
 
-.desktop-window-menu-bar button {
-  height: 26px;
-  padding: 0 8px;
+.desktop-window-controls button {
+  display: grid;
+  width: 46px;
+  height: 32px;
+  padding: 0;
   border: 0;
-  border-radius: 3px;
+  border-radius: 0;
   background: transparent;
   color: inherit;
-  font: inherit;
-  app-region: no-drag;
+  place-items: center;
   cursor: default;
 }
 
-.desktop-window-menu-bar button:hover:not(:disabled),
-.desktop-window-menu-bar button:focus-visible {
-  background: var(--window-chrome-hover);
+.desktop-window-controls button:hover:not(:disabled),
+.desktop-window-controls button:focus-visible {
+  background: var(--color-hover);
   outline: 0;
 }
 
-.desktop-window-menu-bar > [role="menubar"],
-.desktop-window-history {
-  display: flex;
-  align-items: center;
+.desktop-window-glyph {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
 }
 
-/* back and forward, after the menus */
-.desktop-window-history {
-  gap: 2px;
-  margin-left: 6px;
-}
-
-.desktop-window-history button {
-  display: grid;
-  width: 26px;
-  padding: 0;
-  place-items: center;
-}
-
-.desktop-window-history button:disabled {
-  opacity: 0.4;
+.desktop-window-controls .desktop-window-close:hover:not(:disabled),
+.desktop-window-controls .desktop-window-close:focus-visible {
+  background: #c42b1c;
+  color: #ffffff;
 }
 
 .desktop-window-content {
@@ -229,6 +208,68 @@ body {
 .desktop-window-content > * {
   height: 100% !important;
   min-height: 0 !important;
+}
+
+/* Windows: the page sheet's own top inset holds the window's controls, so the
+   page and its scrollbar begin below them instead of under them. */
+.desktop-window-frame .page-sheet {
+  padding-top: 32px;
+}
+
+/* Back and forward sit at the top of the page beside the rail, inside the
+   inset the page sheet leaves for the window's controls. */
+.desktop-window-frame .sidebar-history {
+  position: fixed;
+  z-index: 3;
+  top: 0;
+  left: calc(var(--sidebar-width, 232px) + 6px);
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 2px;
+  app-region: no-drag;
+}
+
+/* Windows: each page reaches the window's top, so its top row drags the
+   window, stopping short of the controls. Project views drag by their top bar. */
+.desktop-window-frame .page-sheet .window-drag-region,
+.desktop-window-frame .onboarding .window-drag-region,
+.desktop-window-frame .onboarding-arrival .window-drag-region {
+  position: fixed;
+  z-index: 2;
+  top: 0;
+  right: 138px;
+  height: 32px;
+  app-region: drag;
+  user-select: none;
+}
+
+.desktop-window-frame .page-sheet .window-drag-region {
+  left: var(--sidebar-width, 232px);
+}
+
+.desktop-window-frame .onboarding .window-drag-region,
+.desktop-window-frame .onboarding-arrival .window-drag-region {
+  left: 0;
+}
+
+.desktop-window-frame .sidebar-head,
+.desktop-window-frame .project-top {
+  app-region: drag;
+}
+
+/* The brand shares the row with back and forward, which leaves little room. */
+.desktop-window-frame .sidebar-head {
+  gap: var(--space-1);
+}
+
+.desktop-window-frame .sidebar-head :is(a, button, input, label, select, textarea),
+.desktop-window-frame .project-top :is(a, button, input, label, select, textarea) {
+  app-region: no-drag;
+}
+
+.desktop-window-frame .project-top {
+  padding-right: 146px;
 }
 
 .desktop-macos,

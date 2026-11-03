@@ -148,9 +148,16 @@ declare global {
       onPrepareClose?: (listener: () => Promise<void>) => () => void;
       onCancelClose?: (listener: (error: string) => void) => () => void;
       windowMenu?: {
-        popup: (id: string, x: number, y: number) => Promise<void>;
         /** Names the application menu's items, in the app's language. */
         setLabels: (labels: Record<string, string>) => Promise<void>;
+      };
+      /** The window's controls, drawn in the renderer on Windows. */
+      windowControls?: {
+        minimize: () => Promise<void>;
+        toggleMaximize: () => Promise<void>;
+        close: () => Promise<void>;
+        state: () => Promise<{ maximized: boolean }>;
+        onState: (listener: (state: { maximized: boolean }) => void) => () => void;
       };
       openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;

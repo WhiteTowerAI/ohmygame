@@ -10,7 +10,7 @@ export function isApplicationMenuLabels(value: unknown): value is Record<string,
 /**
  * Electron's default application menu with labels in the app's language. Roles
  * keep each item's action and shortcut, and a role with no label given keeps
- * Electron's English one. The ids name the menus the Windows title bar opens.
+ * Electron's English one.
  */
 export function applicationMenuTemplate(
   labels: Record<string, string>,

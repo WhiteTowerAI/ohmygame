@@ -55,7 +55,7 @@ describe("application menu", () => {
     expect(labelsOf("darwin")).toEqual(["退出 OhMyGame", "关闭窗口"]);
   });
 
-  it("gives the title bar's menus ids that hold in every language", () => {
+  it("gives the application menu's items ids that hold in every language", () => {
     const ids = (labels: Record<string, string>) => applicationMenuTemplate(labels, "win32").map((item) => item.id);
     expect(ids(zhCN.windowMenu)).toEqual(["File", "Edit", "View", "Window"]);
     expect(ids({})).toEqual(["File", "Edit", "View", "Window"]);

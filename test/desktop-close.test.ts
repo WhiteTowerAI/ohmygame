@@ -15,7 +15,6 @@ const host = vi.hoisted(() => ({
   daemonOptions: undefined as Record<string, unknown> | undefined,
   applicationMenu: undefined as { template: Array<{ id?: string; label?: string }> } | undefined,
   menuBeforeLabels: undefined as { template: Array<{ id?: string; label?: string }> } | undefined,
-  popup: vi.fn(),
 }));
 vi.mock("electron", () => ({
   app: {
@@ -34,11 +33,6 @@ vi.mock("electron", () => ({
   Menu: {
     buildFromTemplate: (template: Array<{ id?: string; label?: string }>) => ({ template }),
     setApplicationMenu: (menu: typeof host.applicationMenu) => { host.applicationMenu = menu; },
-    getApplicationMenu: () => host.applicationMenu && {
-      getMenuItemById: (id: string) => host.applicationMenu!.template.some((item) => item.id === id)
-        ? { submenu: { popup: host.popup } }
-        : null,
-    },
   },
 }));
 vi.mock("undici/index.js", () => ({ setGlobalDispatcher: vi.fn() }));
@@ -95,7 +89,7 @@ vi.doMock(path.resolve("src/desktop/window.ts"), () => ({
     host.handlers.get("ohmygame:set-application-menu-labels")!({ sender: host.sender }, { window: "Sent while loading" });
     return window;
   },
-  waitForRenderer: async () => {}, fitPlaytestContentSize: vi.fn(), isValidPlaytestViewport: () => true, windowsTitleBarOverlay: vi.fn(),
+  waitForRenderer: async () => {}, fitPlaytestContentSize: vi.fn(), isValidPlaytestViewport: () => true,
 }));
 
 beforeEach(async () => {
@@ -141,19 +135,6 @@ it("lets only the main window relabel the application menu", async () => {
 });
 it("accepts the labels the main window sends while it loads", () => {
   expect(host.applicationMenu!.template.find((item) => item.id === "Window")!.label).toBe("Sent while loading");
-});
-it("opens the application menu's own submenu by id, whatever its label", async () => {
-  const popup = host.handlers.get("ohmygame:popup-window-menu")!;
-  await host.handlers.get("ohmygame:set-application-menu-labels")!({ sender: host.sender }, { edit: "编辑" });
-
-  await popup({ sender: host.sender }, "Edit", 10.4, -3);
-  expect(host.popup).toHaveBeenCalledWith(expect.objectContaining({ x: 10, y: 0 }));
-
-  host.popup.mockClear();
-  await expect((async () => popup({ sender: { id: 99 } }, "Edit", 1, 2))()).rejects.toThrow("Invalid window menu request");
-  await expect((async () => popup({ sender: host.sender }, "Edit", Number.NaN, 2))()).rejects.toThrow("Invalid window menu request");
-  await expect((async () => popup({ sender: host.sender }, "Help", 1, 2))()).rejects.toThrow("Window menu is not available: Help");
-  expect(host.popup).not.toHaveBeenCalled();
 });
 it("keeps services running until Quit receives a save acknowledgement", async () => {
   quit(); quit();
