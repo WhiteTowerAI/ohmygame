@@ -283,6 +283,17 @@ body {
   padding-right: calc(var(--window-controls-width) + 12px);
 }
 
+/* The Plugin Builder is a full-window workspace with no project bar or sidebar,
+   so its pane headers are the only place to drag the window. */
+.desktop-window-frame .plugin-builder-shell .window-drag-handle {
+  app-region: drag;
+  user-select: none;
+}
+
+.desktop-window-frame .plugin-builder-shell .window-drag-handle :is(a, button, input, label, select, textarea) {
+  app-region: no-drag;
+}
+
 .desktop-macos,
 .desktop-macos body,
 .desktop-macos #root {
