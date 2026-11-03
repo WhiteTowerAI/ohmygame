@@ -8,6 +8,8 @@ colors using Prism, and line numbers stay visible when scrolling sideways. In th
 file's path and its open actions sit in the panel's toolbar; the file tree
 stays beside the file, and files in it carry an icon for their kind.
 
+![TypeScript and JSX in the dark workspace code viewer](assets/workspace-code-highlight.png)
+
 ![Markdown file preview and the publish slash command](assets/workspace-markdown-publish-command.png)
 
 When the project directory is a Git repository, Code offers **Files** and
