@@ -1,11 +1,12 @@
 // client.d.ts
 export * from "./index.js";
-export * from "./multiplayer-client.js";
 export * from "./multiplayer-protocol.js";
+
+// multiplayer.d.ts
+export * from "./multiplayer-client.js";
 
 // index.d.ts
 import { type IdentityProvider } from "./identity.js";
-import { MultiplayerClient, type MultiplayerClientCallbacks, type MultiplayerClientOptions } from "./multiplayer-client.js";
 import { type MultiplayerManifestConfig } from "./multiplayer-protocol.js";
 export { isOhMyGameError, OhMyGameError, type OhMyGameErrorCode } from "./errors.js";
 export { GuestIdentity, type GuestIdentityOptions, type IdentityProvider } from "./identity.js";
@@ -23,12 +24,13 @@ export interface InitOptions {
     /** Opt in only for loopback development, never for a published deployment. */
     allowLocalhost?: boolean;
 }
-export type MultiplayerOptions = Omit<MultiplayerClientOptions, "manifest" | "identity" | "allowLocalhost">;
+/**
+ * The game's configuration, which every SDK feature starts from. For rooms, pass it to
+ * createMultiplayerClient from @ohmygame/sdk/multiplayer.
+ */
 export interface OhMyGame {
     /** The game's multiplayer deployment, or undefined for a single-player game. */
     readonly multiplayer?: MultiplayerManifestConfig;
-    /** A client for one player's room connection. Throws not_configured without a deployment. */
-    createMultiplayerClient<Game = unknown>(callbacks?: MultiplayerClientCallbacks, options?: MultiplayerOptions): MultiplayerClient<Game>;
 }
 /** Reads the game's configuration once; every SDK feature starts from what it returns. */
 export declare function init(options?: InitOptions): Promise<OhMyGame>;
@@ -182,6 +184,7 @@ import { type MultiplayerEvent, type MultiplayerManifestConfig, type Multiplayer
 import { OhMyGameError } from "./errors.js";
 import { type IdentityProvider } from "./identity.js";
 import type { ClientMoves } from "./define-game.js";
+import type { OhMyGame } from "./index.js";
 export type MultiplayerConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
 export interface MultiplayerClientOptions {
     manifest: MultiplayerManifestConfig;
@@ -311,6 +314,13 @@ export declare class MultiplayerClient<Game = unknown> {
     private setStatus;
     private error;
 }
+export type MultiplayerOptions = Omit<MultiplayerClientOptions, "manifest" | "identity" | "allowLocalhost">;
+/**
+ * A client for one player's room connection, from the game that init returned. Game is the
+ * type of the rules from defineGame, which types client.moves. Throws not_configured when
+ * the game has no multiplayer deployment.
+ */
+export declare function createMultiplayerClient<Game = unknown>(game: OhMyGame, callbacks?: MultiplayerClientCallbacks, options?: MultiplayerOptions): MultiplayerClient<Game>;
 
 // multiplayer-protocol.d.ts
 export type MultiplayerMode = "turn-based" | "realtime";

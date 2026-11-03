@@ -23,6 +23,7 @@ import {
 import { isOhMyGameError, OhMyGameError, type OhMyGameErrorCode } from "./errors.js";
 import { browserStorage, GuestIdentity, serviceRequest, type IdentityProvider } from "./identity.js";
 import type { ClientMoves } from "./define-game.js";
+import type { OhMyGame } from "./index.js";
 
 export type MultiplayerConnectionStatus =
   "idle" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
@@ -657,4 +658,24 @@ export class MultiplayerClient<Game = unknown> {
 function toOhMyGameError(cause: unknown, code: OhMyGameErrorCode): OhMyGameError {
   if (isOhMyGameError(cause)) return cause;
   return new OhMyGameError(code, cause instanceof Error ? cause.message : String(cause), { cause });
+}
+
+export type MultiplayerOptions = Omit<MultiplayerClientOptions, "manifest" | "identity" | "allowLocalhost">;
+
+/**
+ * A client for one player's room connection, from the game that init returned. Game is the
+ * type of the rules from defineGame, which types client.moves. Throws not_configured when
+ * the game has no multiplayer deployment.
+ */
+export function createMultiplayerClient<Game = unknown>(
+  game: OhMyGame,
+  callbacks?: MultiplayerClientCallbacks,
+  options: MultiplayerOptions = {},
+): MultiplayerClient<Game> {
+  if (!game.multiplayer)
+    throw new OhMyGameError("not_configured", "This game has no multiplayer deployment in manifest.json.");
+  return new MultiplayerClient<Game>(
+    { ...options, manifest: game.multiplayer, identity: game.identity, allowLocalhost: game.allowLocalhost },
+    callbacks,
+  );
 }

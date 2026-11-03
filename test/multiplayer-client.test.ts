@@ -1,7 +1,7 @@
 import { Client, type Room } from "@colyseus/sdk";
 import { describe, expect, it, vi } from "vitest";
 import { init, isOhMyGameError, OhMyGameError } from "@ohmygame/sdk";
-import { MultiplayerClient } from "@ohmygame/sdk/multiplayer";
+import { createMultiplayerClient, MultiplayerClient } from "@ohmygame/sdk/multiplayer";
 import type { MultiplayerManifestConfig } from "@ohmygame/sdk/protocol";
 
 const manifest: MultiplayerManifestConfig = {
@@ -17,6 +17,31 @@ const manifest: MultiplayerManifestConfig = {
   maxClients: 2,
   reconnectSeconds: 2,
 };
+
+describe("SDK entries", () => {
+  it("keeps the room client out of a game that imports only @ohmygame/sdk", async () => {
+    const { build } = await import("esbuild");
+    const bundle = async (contents: string) => {
+      const result = await build({
+        stdin: { contents, resolveDir: process.cwd(), loader: "ts" },
+        bundle: true,
+        write: false,
+        platform: "browser",
+        format: "esm",
+        conditions: ["ohmygame-source"],
+      });
+      return result.outputFiles[0]!.text;
+    };
+    const solo = await bundle(`import { init } from "@ohmygame/sdk"; init().then(console.log);`);
+    const rooms = await bundle(
+      `import { init } from "@ohmygame/sdk"; import { createMultiplayerClient } from "@ohmygame/sdk/multiplayer";
+      init().then((game) => createMultiplayerClient(game));`,
+    );
+    expect(solo).not.toContain("@colyseus");
+    expect(solo).not.toContain("joinOrCreate");
+    expect(rooms).toContain("joinOrCreate");
+  });
+});
 
 describe("multiplayer connection failures", () => {
   it("times out stalled joins and closes a room that arrives after cancellation", async () => {
@@ -90,13 +115,13 @@ describe("multiplayer connection failures", () => {
       const game = await init({ manifest: "https://games.example.test/play/manifest.json" });
       expect(fetch.mock.calls[0]![0]).toEqual(new URL("https://games.example.test/play/manifest.json"));
       expect(game.multiplayer).toEqual(manifest);
-      expect(game.createMultiplayerClient()).toBeInstanceOf(MultiplayerClient);
+      expect(createMultiplayerClient(game)).toBeInstanceOf(MultiplayerClient);
     } finally {
       fetch.mockRestore();
     }
     const single = await init({ manifest: { title: "Solo" } as { multiplayer?: unknown } });
     expect(single.multiplayer).toBeUndefined();
-    expect(() => single.createMultiplayerClient()).toThrow(expect.objectContaining({ code: "not_configured" }));
+    expect(() => createMultiplayerClient(single)).toThrow(expect.objectContaining({ code: "not_configured" }));
     const local = { multiplayer: { ...manifest, serverUrl: "http://127.0.0.1:43139" } };
     await expect(init({ manifest: local })).rejects.toMatchObject({ code: "not_configured", message: expect.stringMatching(/allowLocalhost/) });
     expect((await init({ manifest: local, allowLocalhost: true })).multiplayer?.serverUrl).toBe("http://127.0.0.1:43139");
@@ -105,7 +130,7 @@ describe("multiplayer connection failures", () => {
     const accounts = await init({ manifest: { multiplayer: { ...manifest, authPolicy: "account-required" } } });
     const transport = new Client(manifest.serverUrl);
     const create = vi.spyOn(transport, "create");
-    const client = accounts.createMultiplayerClient({}, { transport });
+    const client = createMultiplayerClient(accounts, {}, { transport });
     await expect(client.createRoom()).rejects.toMatchObject({ code: "sign_in_required" });
     expect(create).not.toHaveBeenCalled();
     client.dispose();

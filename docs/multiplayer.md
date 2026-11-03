@@ -31,7 +31,8 @@ Setup writes these files under the configured startup directory:
 
 | File                                      | Purpose                                                                        |
 | ----------------------------------------- | ------------------------------------------------------------------------------ |
-| `src/ohmygame/client.js` and declarations | Bundled browser SDK; no game package dependency is required                    |
+| `src/ohmygame/client.js` and declarations | Bundled browser SDK core: `init`, errors, identity, protocol types             |
+| `src/ohmygame/multiplayer.js`             | Room client; imports `./client.js`, so the two stay side by side               |
 | `src/ohmygame/gomoku.js` and declarations | Gomoku board helpers, written only for `gomoku` games                          |
 | `src/ohmygame/README.md`                  | API, identity, room, command, and adapter instructions                         |
 | `public/manifest.json`                    | Runtime deployment configuration copied by Vite into the build                 |
@@ -40,8 +41,12 @@ Setup writes these files under the configured startup directory:
 The game must integrate the SDK; setup does not rewrite gameplay. Start with
 `await init({ allowLocalhost: true })`: it loads `./manifest.json` relative to
 the page directory and validates its `multiplayer` configuration. Enable
-`allowLocalhost` only for local testing. `createMultiplayerClient(callbacks)`
-returns the player's `MultiplayerClient`. An account-required game passes an
+`allowLocalhost` only for local testing. `createMultiplayerClient(game, callbacks)`
+from `./multiplayer.js` (`@ohmygame/sdk/multiplayer` in a package build) returns the
+player's `MultiplayerClient`. The room client lives only in that entry: a game that
+imports nothing but `client.js` or `@ohmygame/sdk`, such as a single-player game,
+carries no Colyseus code in its build. `multiplayer.js` takes the shared modules from
+`client.js` rather than a copy, so `instanceof OhMyGameError` holds for either file. An account-required game passes an
 `identity` with `getToken()` to `init`; without a token, a deployment that allows
 guests joins as one. The guest identity and room recovery both live in `localStorage`, so a
 browser is one player in every tab, and can return to its seat after the tab
@@ -212,7 +217,7 @@ owner or any seat at any time, and after the match ends, which resumes play. Use
 `Date.now`. `G` must stay plain data. `endIf` returns `{ winners }`; several
 winners, such as a team, appear in `state.winnerPlayerIds`, and `winnerPlayerId`
 holds a single winner or is empty. In the page,
-`createMultiplayerClient<typeof rules>()` types `client.moves.play({ cards })`,
+`createMultiplayerClient<typeof rules>(game)` types `client.moves.play({ cards })`,
 which sends `{ action: "play", cards }`. The built-in gomoku and stones rules are
 written this way. `legalMoves` is reserved for bots and is not called yet.
 

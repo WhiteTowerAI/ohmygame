@@ -43,22 +43,31 @@ describe("multiplayer workspace integration", () => {
           await readFile(path.join(directory, "multiplayer.json"), "utf8"),
         ).multiplayer,
       ).toEqual(config);
-      // A game with no package dependencies can bundle the SDK.
-      await expect(
-        build({
-          entryPoints: [path.join(directory, "src/ohmygame/client.js")],
-          bundle: true,
-          write: false,
-          platform: "browser",
-        }),
-      ).resolves.toHaveProperty("outputFiles");
+      // A game with no package dependencies can bundle the SDK, and only a game that imports
+      // multiplayer.js carries the room client.
+      const bundle = async (code: string) => {
+        const entry = path.join(directory, "src", `entry-${Math.random().toString(36).slice(2)}.js`);
+        await writeFile(entry, code);
+        const result = await build({ entryPoints: [entry], bundle: true, write: false, platform: "browser", format: "esm" });
+        return result.outputFiles[0]!.text;
+      };
+      const solo = await bundle(`import { init } from "./ohmygame/client.js"; init().then(console.log);`);
+      const rooms = await bundle(
+        `import { init } from "./ohmygame/client.js"; import { createMultiplayerClient } from "./ohmygame/multiplayer.js";
+        init().then((game) => createMultiplayerClient(game));`,
+      );
+      expect(solo).not.toContain("joinOrCreate");
+      expect(rooms).toContain("joinOrCreate");
+      expect(solo.length * 5).toBeLessThan(rooms.length);
+      // Both files share one OhMyGameError, so instanceof holds for errors from either.
+      expect(rooms.match(/OhMyGameError = class/g)).toHaveLength(1);
       const declaration = await readFile(
         path.join(directory, "src/ohmygame/multiplayer-client.d.ts"),
         "utf8",
       );
       expect(declaration).not.toContain("@colyseus/sdk");
       // The public API report: a change to what games can call shows up in review.
-      const names = ["client", "index", "errors", "identity", "define-game", "multiplayer-client", "multiplayer-protocol"];
+      const names = ["client", "multiplayer", "index", "errors", "identity", "define-game", "multiplayer-client", "multiplayer-protocol"];
       const report = await Promise.all(names.map(async (name) =>
         `// ${name}.d.ts\n${await readFile(path.join(directory, `src/ohmygame/${name}.d.ts`), "utf8")}`));
       await expect(report.join("\n")).toMatchFileSnapshot("../packages/sdk/api/ohmygame-sdk.api.d.ts");
@@ -73,9 +82,10 @@ describe("multiplayer workspace integration", () => {
       expect(gomoku.isGomokuState(gomoku.initialGomokuState())).toBe(true);
       expect(await readFile(path.join(directory, "src/ohmygame/gomoku.d.ts"), "utf8")).toContain("isGomokuState");
       expect(await readFile(path.join(directory, "src/ohmygame/client.d.ts"), "utf8")).not.toContain("gomoku");
-      expect(
-        await readFile(path.join(directory, "src/ohmygame/client.js"), "utf8"),
-      ).toMatch(/^\/\* @ohmygame\/sdk \d+\.\d+\.\d+ \*\//);
+      for (const name of ["client.js", "multiplayer.js"])
+        expect(
+          await readFile(path.join(directory, "src/ohmygame", name), "utf8"),
+        ).toMatch(/^\/\* @ohmygame\/sdk \d+\.\d+\.\d+ \*\//);
       expect(
         await readFile(path.join(directory, "src/ohmygame/README.md"), "utf8"),
       ).toContain("16 hexadecimal");

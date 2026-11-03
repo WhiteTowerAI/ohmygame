@@ -1,10 +1,7 @@
+// Multiplayer lives in its own entry, @ohmygame/sdk/multiplayer, so a game that does not
+// import it carries no room client: nothing here may import multiplayer-client.
 import { OhMyGameError } from "./errors.js";
 import { type IdentityProvider } from "./identity.js";
-import {
-  MultiplayerClient,
-  type MultiplayerClientCallbacks,
-  type MultiplayerClientOptions,
-} from "./multiplayer-client.js";
 import {
   isMultiplayerManifestConfig,
   isRecord,
@@ -37,13 +34,17 @@ export interface InitOptions {
   allowLocalhost?: boolean;
 }
 
-export type MultiplayerOptions = Omit<MultiplayerClientOptions, "manifest" | "identity" | "allowLocalhost">;
-
+/**
+ * The game's configuration, which every SDK feature starts from. For rooms, pass it to
+ * createMultiplayerClient from @ohmygame/sdk/multiplayer.
+ */
 export interface OhMyGame {
   /** The game's multiplayer deployment, or undefined for a single-player game. */
   readonly multiplayer?: MultiplayerManifestConfig;
-  /** A client for one player's room connection. Throws not_configured without a deployment. */
-  createMultiplayerClient<Game = unknown>(callbacks?: MultiplayerClientCallbacks, options?: MultiplayerOptions): MultiplayerClient<Game>;
+  /** @internal The player identity from init, for the SDK's own modules. */
+  readonly identity?: IdentityProvider;
+  /** @internal Whether init allowed a loopback deployment. */
+  readonly allowLocalhost?: boolean;
 }
 
 /** Reads the game's configuration once; every SDK feature starts from what it returns. */
@@ -59,17 +60,10 @@ export async function init(options: InitOptions = {}): Promise<OhMyGame> {
         ? "The multiplayer deployment in manifest.json is invalid."
         : "This multiplayer deployment runs on this computer only. Pass allowLocalhost: true for local playtests.",
     );
-  const multiplayer = declared as MultiplayerManifestConfig | undefined;
   return {
-    multiplayer,
-    createMultiplayerClient<Game>(callbacks?: MultiplayerClientCallbacks, clientOptions: MultiplayerOptions = {}) {
-      if (!multiplayer)
-        throw new OhMyGameError("not_configured", "This game has no multiplayer deployment in manifest.json.");
-      return new MultiplayerClient<Game>(
-        { ...clientOptions, manifest: multiplayer, identity: options.identity, allowLocalhost: options.allowLocalhost },
-        callbacks,
-      );
-    },
+    multiplayer: declared as MultiplayerManifestConfig | undefined,
+    identity: options.identity,
+    allowLocalhost: options.allowLocalhost,
   };
 }
 
