@@ -75,9 +75,11 @@ try {
       .filter(Boolean),
     // Browser development reaches the daemon through the renderer's proxy,
     // so no origin is allowed, but the renderer still frames plugin pages.
-    ...(development && !process.env.OHMYGAME_ALLOWED_ORIGINS
-      ? { pluginFrameAncestors: ["http://127.0.0.1:43120", "http://localhost:43120"] }
-      : {}),
+    ...(process.env.OHMYGAME_PLUGIN_FRAME_ANCESTORS
+      ? { pluginFrameAncestors: process.env.OHMYGAME_PLUGIN_FRAME_ANCESTORS.split(",") }
+      : development && !process.env.OHMYGAME_ALLOWED_ORIGINS
+        ? { pluginFrameAncestors: ["http://127.0.0.1:43120", "http://localhost:43120"] }
+        : {}),
     logger: true,
     logDirectory: process.env.OHMYGAME_LOG_DIR,
     publishApiUrl: process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL,

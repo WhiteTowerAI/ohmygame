@@ -21,6 +21,8 @@ export interface StartDaemonOptions {
   dataDirectory: string;
   token: string;
   allowedOrigins: string[];
+  /** Pages that may frame plugin pages, as CSP sources. */
+  pluginFrameAncestors?: string[];
   runtimeBin?: string;
   piAgentDirectory?: string;
   bundledPluginsDirectory?: string;
@@ -68,6 +70,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       OHMYGAME_DATA_DIR: path.resolve(options.dataDirectory),
       OHMYGAME_DAEMON_TOKEN_STDIN: "1",
       OHMYGAME_ALLOWED_ORIGINS: options.allowedOrigins.join(","),
+      ...(options.pluginFrameAncestors ? { OHMYGAME_PLUGIN_FRAME_ANCESTORS: options.pluginFrameAncestors.join(",") } : {}),
       OHMYGAME_PROJECT_PROCESS_IPC: "1",
       ...(options.piAgentDirectory ? { PI_CODING_AGENT_DIR: path.resolve(options.piAgentDirectory) } : {}),
       ...(options.bundledPluginsDirectory ? { OHMYGAME_BUNDLED_PLUGINS_DIR: path.resolve(options.bundledPluginsDirectory) } : {}),
