@@ -233,6 +233,15 @@ async function studio(steps: Step[], type = "web-game") {
           reasoning: false,
           supportsImages: false,
         },
+        {
+          id: "fixture-thinking",
+          name: "Fixture thinking",
+          api: "openai-completions",
+          contextWindow: 32_000,
+          maxTokens: 4_000,
+          reasoning: true,
+          supportsImages: false,
+        },
       ],
     },
   });
@@ -409,6 +418,32 @@ async function studio(steps: Step[], type = "web-game") {
 }
 
 describe("Agent checkpoints", () => {
+  it("keeps a model and level chosen after the message that is edited or restored past", async () => {
+    const { app, base, send, ended, restore, detail, userMessages } = await studio([
+      { say: "First answer." },
+      { say: "Edited answer.", delayMs: 500 },
+    ]);
+    await send("First");
+    await ended("First");
+    const provider = (await detail()).settings.model!.provider;
+    const level = async (value: string) => expect((await app.inject({ method: "PUT", url: `${base}/reasoning`, payload: { level: value } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "PUT", url: `${base}/model`, payload: { provider, id: "fixture-thinking" } })).statusCode).toBe(200);
+    await level("high");
+    const expected = { model: { provider, id: "fixture-thinking" }, reasoningLevel: "high" };
+    expect((await detail()).settings).toMatchObject(expected);
+
+    expect((await app.inject({ method: "POST", url: `${base}/revise-last`, payload: { prompt: "Edited" } })).statusCode).toBe(202);
+    // A reply writes its model again, so this looks before it comes.
+    await vi.waitFor(async () => expect((await userMessages()).map((message) => message.text)).toEqual(["Edited"]), { timeout: 10_000 });
+    expect((await detail()).settings).toMatchObject(expected);
+    const edited = await ended("Edited");
+    expect((await detail()).settings).toMatchObject(expected);
+
+    await level("low");
+    expect((await restore(edited.checkpointId!)).statusCode).toBe(204);
+    expect((await detail()).settings).toMatchObject({ ...expected, reasoningLevel: "low" });
+  });
+
   it("keeps a turn marked as undone while an edited message runs", async () => {
     const { app, base, userMessages, send, ended, undo } = await studio([
       { write: { "notes.txt": "first" } },

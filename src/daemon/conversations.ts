@@ -16,6 +16,8 @@ export interface StoredConversation {
   sessionPath: string;
 }
 
+export const NATIVE_REASONING_ENTRY = "ohmygame-native-reasoning";
+
 export class ConversationManager {
   readonly #pending = new Map<string, { stored: StoredConversation; manager: SessionManager; titled: boolean }>();
   /** The file operations on each conversation, one after another, so a rename never writes to a file being moved. */
@@ -245,14 +247,14 @@ export class ConversationManager {
   }
 
   async nativeReasoningLevel(project: ProjectState, stored: StoredConversation, model: AgentModelRef): Promise<string | undefined> {
-    const entry = (await this.view(project, stored)).getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === "ohmygame-native-reasoning");
+    const entry = (await this.view(project, stored)).getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === NATIVE_REASONING_ENTRY);
     if (entry?.type !== "custom") return undefined;
     const data = entry.data as { version?: number; provider?: string; model?: string; level?: unknown } | undefined;
     return data?.version === 1 && data.provider === model.provider && data.model === model.id && typeof data.level === "string" ? data.level : undefined;
   }
 
   setNativeReasoningLevel(project: ProjectState, stored: StoredConversation, model: AgentModelRef, level: string): void {
-    this.open(project, stored).appendCustomEntry("ohmygame-native-reasoning", { version: 1, provider: model.provider, model: model.id, level });
+    this.open(project, stored).appendCustomEntry(NATIVE_REASONING_ENTRY, { version: 1, provider: model.provider, model: model.id, level });
   }
 
   /**

@@ -5,6 +5,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { latestNativeSession } from "../src/daemon/agent-runtimes/native-session.js";
 import { ConversationImageStore } from "../src/daemon/conversation-images.js";
+import { carrySettings } from "../src/daemon/agent.js";
 import { ConversationManager, defaultConversationTitle } from "../src/daemon/conversations.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 
@@ -240,6 +241,50 @@ describe("ConversationManager", () => {
     session.appendCustomEntry("ohmygame-user-prompt", {});
     const reread = (await new ConversationManager().get(project, chat.summary.id))!;
     expect(await new ConversationManager().accountProfileId(project, reread, "claude-code-cli")).toBe("personal");
+  });
+
+  it("brings the last native reasoning level along when moving back past it", async () => {
+    const project = await createProject(), conversations = new ConversationManager();
+    const chat = await conversations.create(project);
+    const session = conversations.open(project, chat);
+    const model = { provider: "codex-cli", id: "gpt-test" };
+    session.appendMessage({ role: "user", content: "Question", timestamp: Date.now() } as never);
+    const edited = session.getLeafId()!;
+    conversations.setNativeReasoningLevel(project, chat, model, "low");
+    conversations.setNativeReasoningLevel(project, chat, model, "xhigh");
+    const left = session.getBranch();
+    session.branch(edited);
+    carrySettings(session, left);
+    const carried = session.getBranch().filter((entry) => entry.type === "custom");
+    expect(carried.map((entry) => entry.type === "custom" && entry.data)).toEqual([{ version: 1, ...{ provider: model.provider, model: model.id }, level: "xhigh" }]);
+  });
+
+  it("doesn't write the model again when moving back to where it was already chosen", async () => {
+    const project = await createProject(), conversations = new ConversationManager();
+    const chat = await conversations.create(project);
+    const session = conversations.open(project, chat);
+    session.appendModelChange("fixture", "b");
+    const kept = session.getLeafId()!;
+    session.appendModelChange("fixture", "c");
+    session.appendModelChange("fixture", "b");
+    const left = session.getBranch();
+    session.branch(kept);
+    carrySettings(session, left);
+    expect(session.getLeafId()).toBe(kept);
+  });
+
+  it("writes the model again when a later response ran on another", async () => {
+    const project = await createProject(), conversations = new ConversationManager();
+    const chat = await conversations.create(project);
+    const session = conversations.open(project, chat);
+    session.appendModelChange("fixture", "a");
+    session.appendMessage({ role: "assistant", provider: "fixture", model: "b", content: [], stopReason: "stop", timestamp: Date.now() } as never);
+    const kept = session.getLeafId()!;
+    session.appendModelChange("fixture", "a");
+    const left = session.getBranch();
+    session.branch(kept);
+    carrySettings(session, left);
+    expect(session.buildSessionContext().model).toEqual({ provider: "fixture", modelId: "a" });
   });
 
   it("falls back from deleted accounts after restart and when restoring an old branch", async () => {
