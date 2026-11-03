@@ -1,17 +1,22 @@
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createCanvasBoard, isCanvasBoard } from "../src/shared/canvas-workspace.js";
+import i18next from "i18next";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createCanvasBoard, createPixelLevelGroup, isCanvasBoard } from "../src/shared/canvas-workspace.js";
 import { pixelExampleImageUrl } from "../src/renderer/asset-canvas-pixel-examples.js";
 
 const api = vi.hoisted(() => ({
   createProject: vi.fn().mockResolvedValue({ id: "project-1" }),
   deleteProject: vi.fn().mockResolvedValue(undefined),
   listImageModels: vi.fn().mockResolvedValue([]),
+  uploadLibraryAsset: vi.fn(),
+  deleteLibraryAsset: vi.fn().mockResolvedValue(undefined),
+  setProjectCover: vi.fn().mockResolvedValue(undefined),
 }));
 const canvas = vi.hoisted(() => ({
   getCanvasWorkspace: vi.fn().mockResolvedValue({ version: 1, boards: [{ id: "board-1", name: "Untitled" }], documents: [], assets: [] }),
   getCanvasBoard: vi.fn(),
   saveCanvasBoard: vi.fn().mockResolvedValue(undefined),
+  changeCanvasBoard: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
@@ -23,10 +28,13 @@ vi.doMock(path.resolve("src/renderer/canvas-api.ts"), async (original) => ({
   ...canvas,
 }));
 const { createPixelAssetTemplateProject } = await import("../src/renderer/asset-canvas-template-project.js");
+const { createEffectLibraryProject } = await import("../src/renderer/asset-canvas-templates.js");
+const { PIXEL_ASSET_TEMPLATE_CATEGORIES } = await import("../src/renderer/asset-canvas-pixel-workflows.js");
+const { localizedTemplateText } = await import("../src/renderer/template-text.js");
 
 beforeEach(() => {
   vi.clearAllMocks();
-  const board = createCanvasBoard(undefined, true);
+  const board = createCanvasBoard();
   canvas.getCanvasWorkspace.mockResolvedValue({ version: 1, boards: [{ id: board.id, name: "Untitled" }], documents: [], assets: [] });
   canvas.getCanvasBoard.mockResolvedValue({ board, revision: "revision-1" });
 });
@@ -150,9 +158,96 @@ describe("pixel asset template projects", () => {
     expect(output && saved.board.editorLayout.nodes[output.id]).toEqual(output?.position);
   });
 
+  it("keeps only the chosen density's group, even when the new board already has others", async () => {
+    const board = createCanvasBoard();
+    board.nodes = (["coarse", "classic", "detailed"] as const).map(createPixelLevelGroup);
+    canvas.getCanvasBoard.mockResolvedValue({ board, revision: "revision-1" });
+    await createPixelAssetTemplateProject("creatures", "detailed");
+    const [, saved] = canvas.saveCanvasBoard.mock.calls[0] as [string, { board: ReturnType<typeof createCanvasBoard> }, string];
+    const densities = saved.board.nodes.flatMap((node) => node.type === "group" && node.data.pixelStyle ? [node.data.pixelStyle] : []);
+    expect(densities).toEqual(["detailed"]);
+    expect(saved.board.nodes.some((node) => board.nodes.some((stale) => stale.id === node.id))).toBe(false);
+  });
+
   it("deletes the new canvas when initializing its template fails", async () => {
     canvas.getCanvasBoard.mockRejectedValueOnce(new Error("board unavailable"));
     await expect(createPixelAssetTemplateProject("characters", "classic")).rejects.toThrow("board unavailable");
     expect(api.deleteProject).toHaveBeenCalledWith("project-1");
+  });
+});
+
+describe("effect library projects", () => {
+  let uploads = 0;
+  beforeEach(() => {
+    uploads = 0;
+    api.uploadLibraryAsset.mockImplementation(async () => ({ id: `asset-${++uploads}` }));
+  });
+
+  it("titles its examples in the interface language", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["pixels"]))));
+    await createEffectLibraryProject("classic");
+    const [, saved] = canvas.saveCanvasBoard.mock.calls[0] as [string, { board: ReturnType<typeof createCanvasBoard> }];
+    const nodes = saved.board.nodes as Array<(typeof saved.board.nodes)[number] & { title?: string; description?: string }>;
+    const names = api.uploadLibraryAsset.mock.calls.map(([file]) => (file as File).name);
+
+    expect(names).toContain("Lightning Strike-sprite-sheet.webp");
+    expect(nodes.find((node) => node.title?.endsWith("· Lightning Strike") && node.type === "image")?.description).toBe("5 × 2 · 10 frames");
+    expect([...names, ...nodes.flatMap((node) => [node.title ?? "", node.description ?? ""])].join("\n")).not.toMatch(/\p{Script=Han}/u);
+    vi.unstubAllGlobals();
+  });
+
+  it("removes the examples it uploaded when one cannot be loaded", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(new Blob(["pixels"]), { status: url.includes("smoke-dispersal-preview") ? 404 : 200 })));
+    await expect(createEffectLibraryProject("classic")).rejects.toThrow("Could not load the example image");
+
+    expect(api.deleteProject).toHaveBeenCalledWith("project-1");
+    expect(uploads).toBe(23);
+    expect(api.deleteLibraryAsset.mock.calls.map(([id]) => id).sort()).toEqual(Array.from({ length: 23 }, (_, index) => `asset-${index + 1}`).sort());
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("template text after a language change", () => {
+  afterEach(async () => { await i18next.changeLanguage("en"); });
+
+  // Every name, label, description and guide a template saves, as stored.
+  async function savedText(language: string): Promise<string[]> {
+    await i18next.changeLanguage(language);
+    api.uploadLibraryAsset.mockImplementation(async () => ({ id: crypto.randomUUID() }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["pixels"]))));
+    const text: string[] = [];
+    for (const category of [...PIXEL_ASSET_TEMPLATE_CATEGORIES, "effects"] as const) {
+      canvas.saveCanvasBoard.mockClear();
+      if (category === "effects") await createEffectLibraryProject("classic");
+      else await createPixelAssetTemplateProject(category, "classic");
+      const [, saved] = canvas.saveCanvasBoard.mock.calls[0] as [string, { board: ReturnType<typeof createCanvasBoard> }];
+      for (const node of saved.board.nodes as Array<(typeof saved.board.nodes)[number] & { title?: string; description?: string }>) {
+        const data = node.data as { name?: string; pixelStyle?: string; sourceInputLabel?: string; text?: string; instruction?: string };
+        text.push(...[node.title, node.description, node.type === "group" && !data.pixelStyle ? data.name : undefined, data.sourceInputLabel]
+          .filter((value): value is string => !!value));
+        // Category guides render from their instruction; the other guide text is saved.
+        if (node.type === "text" && !data.instruction?.startsWith("pixel-asset-template:") && data.text) text.push(data.text);
+      }
+    }
+    vi.unstubAllGlobals();
+    return text;
+  }
+
+  it("shows text saved in Chinese in English", async () => {
+    const saved = await savedText("zh-CN");
+    await i18next.changeLanguage("en");
+    expect(saved.filter((text) => /\p{Script=Han}/u.test(localizedTemplateText(text)))).toEqual([]);
+  });
+
+  it("shows text saved in English in Chinese", async () => {
+    const saved = await savedText("en");
+    await i18next.changeLanguage("zh-CN");
+    expect(saved.filter((text) => !/\p{Script=Han}/u.test(localizedTemplateText(text)))).toEqual([]);
+  });
+
+  it("leaves text a person wrote as it is", async () => {
+    await i18next.changeLanguage("en");
+    expect(localizedTemplateText("我的角色")).toBe("我的角色");
+    expect(localizedTemplateText("Boss · 第二关")).toBe("Boss · 第二关");
   });
 });

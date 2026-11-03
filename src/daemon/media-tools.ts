@@ -10,6 +10,9 @@ import { MAX_MEDIA_FRAMES, MAX_MEDIA_OUTPUT_BYTES, MAX_MEDIA_TOTAL_PIXELS } from
 import { readMediaDimensions } from "./media-dimensions.js";
 
 const execFileAsync = promisify(execFile);
+// libvips keeps recently read files open, and Windows cannot delete or move an
+// open file. Media tools read workspace assets the person may remove next.
+sharp.cache({ files: 0 });
 const MAX_PIXELS = 100_000_000;
 const MAX_FRAMES = MAX_MEDIA_FRAMES;
 const IMAGE_FORMATS = new Set(["png", "jpeg", "webp"] as const);

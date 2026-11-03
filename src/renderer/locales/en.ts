@@ -1289,8 +1289,6 @@ const en = {
     none: "No game projects yet",
   },
   assetCanvasTemplates: {
-    heading: "Asset canvas templates",
-    openCanvas: "Open canvas",
     reference: "Character reference",
     examplesGroup: "Examples",
     styleReference: "Style reference",
@@ -1377,6 +1375,7 @@ const en = {
     framePlan: "Frame plan",
     howToTitle: "How to use the Effects template",
     templateExample: "Example",
+    frameGrid: "{{columns}} × {{rows}} · {{count}} frames",
     spriteSheetExample: "Sprite sheet example",
     gifPreview: "Preview",
     gifPreviewHint: "Reference preview",

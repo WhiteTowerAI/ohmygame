@@ -1271,8 +1271,6 @@ const zhCN: typeof en = {
     none: "还没有游戏项目",
   },
   assetCanvasTemplates: {
-    heading: "素材画布模板",
-    openCanvas: "打开画布",
     reference: "角色参考图",
     examplesGroup: "示例",
     styleReference: "风格参考",
@@ -1359,6 +1357,7 @@ const zhCN: typeof en = {
     framePlan: "帧规划",
     howToTitle: "特效模板使用说明",
     templateExample: "示例",
+    frameGrid: "{{columns}} × {{rows}} · {{count}} 帧",
     spriteSheetExample: "序列图示例",
     gifPreview: "预览",
     gifPreviewHint: "参考预览",

@@ -1,30 +1,28 @@
 import type {
-  AssetCanvasDocument,
   AssetCanvasNode,
   ImageModel,
 } from "../shared/contracts.js";
 import { withPixelArtLevel, type PixelArtLevel } from "../shared/canvas-pixel-style.js";
-import { CANVAS_IMAGE_PRESETS, QUICK_RESKIN_DEFAULT_PROMPT, canvasImagePresetPrompt, type CanvasImagePreset } from "../shared/canvas-image-presets.js";
+import { CANVAS_IMAGE_PRESETS, type CanvasImagePreset } from "../shared/canvas-image-presets.js";
 import { preferredCharacterSheetOption } from "../shared/canvas-character-tools.js";
 import {
   createAssetCanvasDocument,
   createAssetGenerationNode,
   preferredImageOption,
 } from "../shared/asset-canvas.js";
-import { createProject, deleteLibraryAsset, deleteProject, getProjectCover, listImageModels, setProjectCover, uploadLibraryAsset } from "./api.js";
+import { createProject, deleteLibraryAsset, deleteProject, listImageModels, setProjectCover, uploadLibraryAsset } from "./api.js";
 import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
 import { effectPresetExampleUrl, effectPresetPreviewUrl } from "./asset-canvas-effect-examples.js";
-import { TEMPLATE_SAMPLE_IMAGES, type TemplateSample } from "./asset-canvas-template-samples.js";
+import { effectPresetFrames, effectPresetLabel } from "./asset-canvas-effect-presets.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE } from "./asset-canvas-pixel-workflows.js";
 import {
   changeCanvasBoard,
-  createCanvasBoard,
-  deleteCanvasBoard,
   getCanvasBoard,
   getCanvasWorkspace,
   saveCanvasBoard,
 } from "./canvas-api.js";
 import { t } from "./i18n.js";
+import { fetchTemplateExample } from "./template-example-cache.js";
 
 export const ASSET_CANVAS_TEMPLATES = [
   "pixel-art",
@@ -45,13 +43,6 @@ export function templateGuideInfo(instruction?: string): { template: AssetCanvas
 
 const SEQUENCE_PRESETS = ["continuous-sequence", "consistent-sequence"] as const;
 const PIXEL_IMAGE_PRESETS = CANVAS_IMAGE_PRESETS.filter((preset) => !["free", "continuous-sequence", "consistent-sequence", "character-sheet", "quick-reskin"].includes(preset));
-const PIXEL_CATEGORIES = [
-  { key: "characters", presets: ["side-view-character", "rpg-character", "portrait"] },
-  { key: "creatures", presets: ["monster", "animal"] },
-  { key: "environments", presets: ["scene", "terrain", "building"] },
-  { key: "items", presets: ["prop", "icon"] },
-] as const;
-
 export function templateImagePresets(template?: AssetCanvasTemplate): readonly CanvasImagePreset[] {
   if (template === "free-sequence") return SEQUENCE_PRESETS;
   if (template === "pixel-art") return PIXEL_IMAGE_PRESETS;
@@ -96,15 +87,8 @@ export interface EffectSpriteSheetInput {
   framePlan: string;
 }
 
-const EFFECT_LIBRARY_PRESETS = [
-  { category: "fire", name: "火焰命中", frames: "4 × 3 · 12 帧", prompt: "Create one complete 4-column by 3-row sprite sheet for a compact pixel-art fire impact. Read cells left to right, top to bottom: ignition, expanding flame burst, scattered sparks, fading embers. Transparent background, no labels, no borders, fixed center." },
-  { category: "fire", name: "火球凝聚发射 V7", frames: "4 × 4 · 16 帧", prompt: "Create one complete 4-column by 4-row sprite sheet for a pixel-art fireball charge and launch. Read cells left to right, top to bottom: sparks gather, fireball forms, projectile flies with a tapered trail, embers dissipate. Transparent background, no labels, no borders, fixed center." },
-  { category: "water", name: "双层水纹", frames: "4 × 3 · 12 帧", prompt: "Create one complete 4-column by 3-row sprite sheet for two expanding pixel-art water ripples. Read cells left to right, top to bottom: two rings appear, expand independently, soften, and fade. Transparent background, no labels, no borders, fixed center." },
-  { category: "ice", name: "冰块掉落砸击", frames: "4 × 4 · 16 帧", prompt: "Create one complete 4-column by 4-row sprite sheet for a pixel-art ice block falling and shattering. Read cells left to right, top to bottom: ice block enters, falls, impacts, fractures, shards scatter, and frost fades. Transparent background, no labels, no borders, fixed ground point." },
-  { category: "ice", name: "冰墙", frames: "4 × 3 · 12 帧", prompt: "Create one complete 4-column by 3-row sprite sheet for a pixel-art ice wall rising from the ground. Read cells left to right, top to bottom: frost gathers, ice spikes rise, wall locks into place, particles settle. Transparent background, no labels, no borders, fixed ground baseline." },
-  { category: "lightning", name: "雷电落击", frames: "4 × 3 · 12 帧", prompt: "Create one complete 4-column by 3-row sprite sheet for a pixel-art lightning strike. Read cells left to right, top to bottom: charge glow, bolt descends, impact branches, residual sparks fade. Transparent background, no labels, no borders, fixed impact point." },
-  { category: "general", name: "烟团消散", frames: "4 × 3 · 12 帧", prompt: "Create one complete 4-column by 3-row sprite sheet for a pixel-art smoke puff dispersing. Read cells left to right, top to bottom: smoke appears, expands, separates into wisps, then fades away. Transparent background, no labels, no borders, fixed center." },
-] as const;
+/** The starting prompt of the Effects template's own generator. */
+const EFFECT_LIBRARY_STARTER_PROMPT = "Create one complete 4-column by 3-row sprite sheet for a compact pixel-art fire impact. Read cells left to right, top to bottom: ignition, expanding flame burst, scattered sparks, fading embers. Transparent background, no labels, no borders, fixed center.";
 
 const EFFECT_LIBRARY_EXAMPLE_PROMPT = `Requested action: pixel-art fire impact animation in a 4-column by 3-row Sprite Sheet (12 frames)
 
@@ -376,17 +360,21 @@ Frame 12: the final tiny droplets fade out completely.
 
 Transparent background. Crisp 2D fantasy game pixel art. Hard pixel edges. Clean rounded water shapes. No blur, no characters, no weapons, no scenery, no text, no borders, no grid lines, and no UI. Keep the effect centered before launch, then keep the leftward motion fully inside each cell. Keep every frame fully inside its own cell with at least 15% transparent padding on all four sides. Keep the effect within the central 70% of each cell. No orb, droplet, splash, or particle may touch, cross, or be clipped by a cell boundary. Keep identical scale and camera framing in every frame. The launch direction must remain consistently from right to left.`;
 
-async function uploadTemplateSample(sample: TemplateSample): Promise<string> {
-  const response = await fetch(TEMPLATE_SAMPLE_IMAGES[sample]);
-  if (!response.ok) throw new Error(`Could not load the template example: ${sample}`);
-  const file = new File([await response.blob()], `${sample}.webp`, { type: "image/webp" });
-  return (await uploadLibraryAsset(file, "image/webp", undefined, "reference")).id;
+async function uploadEffectExample(source: string, name: string, contentType: "image/webp" | "image/gif"): Promise<string> {
+  const image = await fetchTemplateExample(source);
+  return (await uploadLibraryAsset(new File([image], name, { type: contentType }), contentType, undefined, "reference")).id;
 }
 
-async function uploadEffectExample(source: string, name: string, contentType: "image/webp" | "image/gif"): Promise<string> {
-  const response = await fetch(source);
-  if (!response.ok) throw new Error(`Could not load the Effect Library example: ${name}`);
-  return (await uploadLibraryAsset(new File([await response.blob()], name, { type: contentType }), contentType, undefined, "reference")).id;
+/**
+ * Waits for every example upload and records the ones that finished in
+ * `uploaded`, so a failed template can remove them from the Library.
+ */
+async function uploadEffectExamples(uploaded: string[], uploads: ReadonlyArray<Promise<string>>): Promise<string[]> {
+  const results = await Promise.allSettled(uploads);
+  for (const result of results) if (result.status === "fulfilled") uploaded.push(result.value);
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failed) throw failed.reason;
+  return results.map((result) => (result as PromiseFulfilledResult<string>).value);
 }
 
 async function applyEffectLibraryCover(projectId: string, level: PixelArtLevel = "classic"): Promise<void> {
@@ -395,292 +383,11 @@ async function applyEffectLibraryCover(projectId: string, level: PixelArtLevel =
   await setProjectCover(projectId, await response.blob());
 }
 
-/** Adds the template cover to Effect Library projects created before covers were introduced. */
-export async function backfillEffectLibraryCover(projectId: string): Promise<void> {
-  if (await getProjectCover(projectId)) return;
-  await applyEffectLibraryCover(projectId);
-}
-
-const ACTIONS = [
-  { key: "idle", label: "idle", loop: true },
-  { key: "walk", label: "walking", loop: true },
-  { key: "run", label: "running", loop: true },
-  { key: "attack", label: "attacking", loop: false },
-  { key: "hurt", label: "taking damage", loop: false },
-  { key: "down", label: "falling down", loop: false },
-] as const;
-
-export function createAssetCanvasTemplateDocument(
-  template: AssetCanvasTemplate,
-  imageModels: readonly ImageModel[],
-  input: AssetCanvasTemplateInput = {},
-): { document: AssetCanvasDocument; focusNodeId: string; outputNodeIds: string[]; sampleImages: Map<string, TemplateSample> } {
-  const document = createAssetCanvasDocument();
-  const sampleImages = new Map<string, TemplateSample>();
-  document.editorLayout.viewport = { x: 24, y: 100, zoom: 0.75 };
-  const guide: AssetCanvasNode = {
-    id: crypto.randomUUID(),
-    type: "text",
-    title: t(`assetCanvasTemplates.${template}.title`),
-    position: { x: 40, y: 80 },
-    width: template === "action-set" ? 400 : 480,
-    data: {
-      text: t(`assetCanvasTemplates.${template}.guide`),
-      instruction: `asset-canvas-template:${template}`,
-    },
-  };
-  const nodes: AssetCanvasNode[] = [guide];
-  const outputNodeIds: string[] = [];
-  const prompt = input.prompt?.trim() ?? "";
-  const imageModel =
-    (template === "character-sheet" && !input.sourceAssetId
-      ? imageModels[0]
-      : imageModels.find(
-          (model) =>
-            model.supportsReferenceImage && model.maxReferenceImages !== 0,
-        ));
-  const imageOption = template === "character-sheet"
-    ? preferredCharacterSheetOption(imageModel)
-    : preferredImageOption(imageModel, template === "pixel-art" || template === "quick-reskin" ? "1:1" : "4:3");
-
-  function imageNode(
-    x: number,
-    y: number,
-  ): Extract<AssetCanvasNode, { type: "image" }> {
-    return createAssetGenerationNode(
-      "image",
-      { x, y },
-      {
-        ...(imageModel
-          ? { imageModel: { provider: imageModel.provider, id: imageModel.id } }
-          : {}),
-        ...(imageOption
-          ? {
-              imageResolution: imageOption.resolution,
-              imageAspectRatio: imageOption.aspectRatio,
-            }
-          : {}),
-      },
-    ) as Extract<AssetCanvasNode, { type: "image" }>;
-  }
-
-  function finish(focusNodeId: string) {
-    const examples = nodes.filter((node) => node.id !== guide.id);
-    const roots = examples.filter((node) => !node.parentId);
-    const left = Math.min(...roots.map((node) => node.position.x)) - 28;
-    const top = Math.min(...roots.map((node) => node.position.y)) - 54;
-    // Leave room for the largest media preview and its label; cards size to content.
-    const right = Math.max(...roots.map((node) => node.position.x + (node.width ?? 440))) + 28;
-    const bottom = Math.max(...roots.map((node) => node.position.y + (node.height ?? 400))) + 28;
-    const group: AssetCanvasNode = {
-      id: crypto.randomUUID(),
-      type: "group",
-      position: { x: left, y: top },
-      width: Math.max(500, right - left),
-      height: Math.max(400, bottom - top),
-      data: { name: t("assetCanvasTemplates.examplesGroup") },
-    };
-    document.nodes = [guide, group, ...examples.map((node) => ({
-      ...node,
-      parentId: node.parentId ?? group.id,
-      position: node.parentId ? node.position : { x: node.position.x - left, y: node.position.y - top },
-    }))];
-    document.editorLayout.nodes = Object.fromEntries(document.nodes.map((node) => [
-      node.id,
-      { ...node.position, ...(node.width ? { width: node.width } : {}), ...(node.height ? { height: node.height } : {}) },
-    ]));
-    return { document, focusNodeId, outputNodeIds, sampleImages };
-  }
-
-  function referenceNode(): AssetCanvasNode {
-    const title = t(template === "quick-reskin" ? "assetCanvasTemplates.quickReskinSource" : "assetCanvasTemplates.reference");
-    if (input.sourceAssetId) return {
-      id: crypto.randomUUID(),
-      type: "asset",
-      title,
-      position: { x: 560, y: 80 },
-      data: { assetId: input.sourceAssetId, mediaType: "image" },
-    };
-    const node = imageNode(560, 80);
-    node.title = title;
-    node.data.sourceInput = true;
-    if (template === "quick-reskin") node.data.sourceInputLabel = t("assetCanvasTemplates.quickReskinPerson");
-    sampleImages.set(node.id, "character-sheet");
-    return node;
-  }
-
-  if (template === "pixel-art") {
-    const source = referenceNode();
-    const style = imageNode(1080, 80);
-    style.title = t("assetCanvasTemplates.styleReference");
-    style.data.sourceInput = true;
-    style.data.sourceInputLabel = style.title;
-    sampleImages.set(style.id, "rpg-character");
-    nodes.push(source, style);
-    for (const [row, category] of PIXEL_CATEGORIES.entries()) {
-      const group: AssetCanvasNode = {
-        id: crypto.randomUUID(), type: "group",
-        position: { x: 560, y: 700 + row * 700 },
-        width: 1536, height: 640,
-        data: { name: t(`assetCanvasTemplates.pixel-art.categories.${category.key}`) },
-      };
-      nodes.push(group);
-      for (const [column, preset] of category.presets.entries()) {
-        const image = createTemplatePresetNode(template, preset, imageModels, { x: 28 + column * 520, y: 54 }, source.id);
-        image.parentId = group.id;
-        image.data.images = [{ type: "node", nodeId: source.id }, { type: "node", nodeId: style.id }];
-        image.data.prompt = `${canvasImagePresetPrompt(preset, prompt, "pixel", 2)}\n\nUse the first reference for character identity or subject details where relevant. Use the second reference only for palette, pixel scale, shading, and visual style; do not copy its subject into unrelated assets.`;
-        image.data.promptExpanded = true;
-        sampleImages.set(image.id, preset);
-        nodes.push(image);
-        outputNodeIds.push(image.id);
-      }
-    }
-    return finish(outputNodeIds[0]!);
-  }
-
-  if (template === "character-sheet") {
-    const image = createTemplatePresetNode(template, "character-sheet", imageModels, { x: 560, y: 80 });
-    image.data.prompt = canvasImagePresetPrompt("character-sheet", prompt, undefined, 0);
-    image.data.promptExpanded = true;
-    sampleImages.set(image.id, "character-sheet");
-    nodes.push(image);
-    outputNodeIds.push(image.id);
-    return finish(outputNodeIds[0]!);
-  }
-
-  const source = referenceNode();
-  nodes.push(source);
-
-  if (template === "quick-reskin") {
-    const image = createTemplatePresetNode(template, "quick-reskin", imageModels, { x: 1100, y: 80 }, source.id);
-    image.data.quickReskinMode = "person-clothing";
-    image.data.prompt = prompt || QUICK_RESKIN_DEFAULT_PROMPT;
-    const clothingSource = imageNode(560, 700);
-    clothingSource.title = t("assetCanvasTemplates.quickReskinClothing");
-    clothingSource.data.sourceInput = true;
-    clothingSource.data.sourceInputLabel = t("assetCanvasTemplates.quickReskinClothing");
-    sampleImages.set(clothingSource.id, "clothing");
-    sampleImages.set(image.id, "quick-reskin");
-    nodes.push(clothingSource);
-    image.data.images = [
-      { type: "node", nodeId: source.id },
-      { type: "node", nodeId: clothingSource.id },
-    ];
-    nodes.push(image);
-    outputNodeIds.push(image.id);
-  } else if (template === "free-sequence") {
-    for (const [index, preset] of SEQUENCE_PRESETS.entries()) {
-      const sequence = createTemplatePresetNode("free-sequence", preset, imageModels, { x: 1100 + (index % 2) * 520, y: 80 + Math.floor(index / 2) * 640 }, source.id);
-      sequence.data.prompt = canvasImagePresetPrompt(preset, prompt, undefined, 1);
-      sequence.data.promptExpanded = true;
-      sampleImages.set(sequence.id, preset);
-      nodes.push(sequence);
-      outputNodeIds.push(sequence.id);
-    }
-  } else {
-    for (const [index, action] of ACTIONS.entries()) {
-      const image = imageNode(
-        1100 + (index % 3) * 520,
-        80 + Math.floor(index / 3) * 640,
-      );
-      image.title = t(`assetCanvasTemplates.actions.${action.key}`);
-      sampleImages.set(image.id, action.key);
-      image.data.images = [{ type: "node", nodeId: source.id }];
-      image.data.prompt = `Use the supplied image as the exact character reference. Create one sprite sheet showing 12 successive frames of the character ${action.label}, arranged in a 3-row by 4-column grid, read left to right. Keep the same face, outfit, colors, proportions, scale, and camera angle in every frame. Use equal-sized cells, consistent baselines, a plain background, and no labels or extra characters. ${action.loop ? "Make the last frame transition smoothly to the first." : "Show a complete action progression from start to finish; do not loop the last frame to the first."}${prompt ? ` Additional direction: ${prompt}` : ""}`;
-      nodes.push(image);
-      outputNodeIds.push(image.id);
-    }
-  }
-
-  return finish(source.id);
-}
-
-export async function createAssetCanvasTemplateProject(
-  template: AssetCanvasTemplate,
-  input: AssetCanvasTemplateInput = {},
-): Promise<{ projectId: string; boardId: string; nodeId: string; outputNodeIds: string[] }> {
-  const imageModels = await listImageModels().catch(() => []);
-  const project = await createProject({
-    type: "asset-canvas",
-    name: t(`assetCanvasTemplates.${template}.title`),
-  });
-  const sampleAssetIds = new Map<TemplateSample, string>();
-  try {
-    const { document, focusNodeId, outputNodeIds, sampleImages } = createAssetCanvasTemplateDocument(
-      template,
-      imageModels,
-      input,
-    );
-    const workspace = await getCanvasWorkspace(project.id);
-    const current = await getCanvasBoard(project.id, workspace.boards[0]!.id);
-    if (!input.sourceAssetId && !input.prompt?.trim()) {
-      for (const node of document.nodes) {
-        const sample = sampleImages.get(node.id);
-        if (node.type !== "image" || !sample) continue;
-        let assetId = sampleAssetIds.get(sample);
-        if (!assetId) {
-          assetId = await uploadTemplateSample(sample);
-          sampleAssetIds.set(sample, assetId);
-        }
-        node.data.assetId = assetId;
-      }
-    }
-    await saveCanvasBoard(project.id, {
-      board: { ...document, id: current.board.id },
-      revision: current.revision,
-    });
-    await changeCanvasBoard(project.id, current.board.id, { name: t(`assetCanvasTemplates.${template}.title`) });
-    return { projectId: project.id, boardId: current.board.id, nodeId: focusNodeId, outputNodeIds };
-  } catch (cause) {
-    await deleteProject(project.id).catch(() => undefined);
-    for (const assetId of sampleAssetIds.values()) await deleteLibraryAsset(assetId).catch(() => undefined);
-    throw cause;
-  }
-}
-
-export async function createEffectSpriteSheetProject(
-  input: EffectSpriteSheetInput,
-): Promise<{ projectId: string; boardId: string; nodeId: string }> {
-  const imageModels = await listImageModels().catch(() => []);
-  const project = await createProject({ type: "asset-canvas", name: input.name });
-  try {
-    const document = createAssetCanvasDocument();
-    document.editorLayout.viewport = { x: 24, y: 100, zoom: 0.85 };
-    const imageModel = imageModels[0];
-    const imageOption = preferredImageOption(imageModel, "1:1");
-    const guide: AssetCanvasNode = {
-      id: crypto.randomUUID(),
-      type: "text",
-      title: t("effectLibrary.framePlan"),
-      position: { x: 48, y: 92 },
-      width: 440,
-      data: { text: input.framePlan, instruction: "effect-library:frame-plan" },
-    };
-    const spriteSheet = createAssetGenerationNode("image", { x: 560, y: 80 }, {
-      ...(imageModel ? { imageModel: { provider: imageModel.provider, id: imageModel.id } } : {}),
-      ...(imageOption ? { imageResolution: imageOption.resolution, imageAspectRatio: imageOption.aspectRatio } : {}),
-    }) as Extract<AssetCanvasNode, { type: "image" }>;
-    spriteSheet.title = input.name;
-    spriteSheet.data.prompt = input.prompt;
-    spriteSheet.data.promptExpanded = true;
-    document.nodes = [guide, spriteSheet];
-    document.editorLayout.nodes = Object.fromEntries(document.nodes.map((node) => [node.id, { ...node.position, ...(node.width ? { width: node.width } : {}) }]));
-    const workspace = await getCanvasWorkspace(project.id);
-    const current = await getCanvasBoard(project.id, workspace.boards[0]!.id);
-    await saveCanvasBoard(project.id, { board: { ...document, id: current.board.id }, revision: current.revision });
-    await changeCanvasBoard(project.id, current.board.id, { name: input.name });
-    return { projectId: project.id, boardId: current.board.id, nodeId: spriteSheet.id };
-  } catch (cause) {
-    await deleteProject(project.id).catch(() => undefined);
-    throw cause;
-  }
-}
-
 /** Creates the Effect Library as a normal Asset Canvas template, matching the pixel-art template layout. */
 export async function createEffectLibraryProject(level: PixelArtLevel = "classic"): Promise<{ projectId: string; boardId: string; nodeId: string }> {
   const imageModels = await listImageModels().catch(() => []);
   const project = await createProject({ type: "asset-canvas", name: `${t("effectLibrary.title")} · ${t(`assetCanvas.pixelPresets.levels.${level}`)}` });
+  const uploadedAssetIds: string[] = [];
   try {
     const document = createAssetCanvasDocument();
     document.editorLayout.viewport = { x: 24, y: 100, zoom: 0.72 };
@@ -724,57 +431,57 @@ export async function createEffectLibraryProject(level: PixelArtLevel = "classic
     const waterOrbMagicPreviewSource = effectPresetPreviewUrl("water-orb-magic", level);
     const greenEnergyWaveSheetSource = effectPresetExampleUrl("green-energy-wave", level);
     const greenEnergyWavePreviewSource = effectPresetPreviewUrl("green-energy-wave", level);
-    const [sheetAssetId, gifAssetId, iceSheetAssetId, iceGifAssetId, waveSheetAssetId, waveGifAssetId, waterSplashSheetAssetId, waterSplashGifAssetId, electricOrbSheetAssetId, electricOrbGifAssetId, lightningStrikeSheetAssetId, lightningStrikeGifAssetId, iceClawSheetAssetId, iceClawGifAssetId, electricTrailSheetAssetId, electricTrailGifAssetId, blueWhiteCrescentSheetAssetId, blueWhiteCrescentGifAssetId, smokeSheetAssetId, smokeGifAssetId, greenEnergyWaveSheetAssetId, greenEnergyWaveGifAssetId, waterOrbMagicSheetAssetId, waterOrbMagicGifAssetId] = await Promise.all([
-      uploadEffectExample(fireHitSheet, "火焰命中-sprite-sheet.webp", "image/webp"),
-      uploadEffectExample(fireHitPreview, "火焰命中-preview.gif", "image/gif"),
-      uploadEffectExample(iceImpactSheet, "冰霜冲击-sprite-sheet.webp", "image/webp"),
-      uploadEffectExample(iceImpactPreview, "冰霜冲击-preview.gif", "image/gif"),
-      uploadEffectExample(waveImpactSheet, "海浪冲击-sprite-sheet.webp", "image/webp"),
-      uploadEffectExample(waveImpactPreview, "海浪冲击-preview.gif", "image/gif"),
-      uploadEffectExample(waterSplashSheetSource, "水花命中-sprite-sheet.webp", "image/webp"),
-      uploadEffectExample(waterSplashPreviewSource, "水花命中-preview.gif", "image/gif"),
-      uploadEffectExample(electricOrbBurstSheetSource, "雷球爆裂-sprite-sheet.webp", "image/webp"),
-      uploadEffectExample(electricOrbBurstPreviewSource, "雷球爆裂-preview.gif", "image/gif"),
-      uploadEffectExample(lightningStrikeSheetSource, "雷点落击-sprite-sheet.webp", "image/webp"),
-      uploadEffectExample(lightningStrikePreviewSource, "雷点落击-preview.gif", "image/gif"),
-      uploadEffectExample(iceClawSlashSheet, "三道寒冰爪痕-sprite-sheet.webp", "image/webp"),
-      uploadEffectExample(iceClawSlashPreview, "三道寒冰爪痕-preview.gif", "image/gif"),
-      uploadEffectExample(electricTrailSheetSource, "电光拖尾-sprite-sheet.webp", "image/webp"),
-      uploadEffectExample(electricTrailPreviewSource, "电光拖尾-preview.gif", "image/gif"),
-      uploadEffectExample(blueWhiteCrescentSheetSource, "蓝白弧形斩击-sprite-sheet.webp", "image/webp"),
-      uploadEffectExample(blueWhiteCrescentPreviewSource, "蓝白弧形斩击-preview.gif", "image/gif"),
-      uploadEffectExample(smokeSheetSource, "烟团消散-sprite-sheet.webp", "image/webp"),
-      uploadEffectExample(smokePreviewSource, "烟团消散-preview.gif", "image/gif"),
-      uploadEffectExample(greenEnergyWaveSheetSource, "绿色聚能波-sprite-sheet.webp", "image/webp"),
-      uploadEffectExample(greenEnergyWavePreviewSource, "绿色聚能波-preview.gif", "image/gif"),
-      uploadEffectExample(waterOrbMagicSheetSource, "水球魔法-sprite-sheet.webp", "image/webp"),
-      uploadEffectExample(waterOrbMagicPreviewSource, "水球魔法-preview.gif", "image/gif"),
+    const [sheetAssetId, gifAssetId, iceSheetAssetId, iceGifAssetId, waveSheetAssetId, waveGifAssetId, waterSplashSheetAssetId, waterSplashGifAssetId, electricOrbSheetAssetId, electricOrbGifAssetId, lightningStrikeSheetAssetId, lightningStrikeGifAssetId, iceClawSheetAssetId, iceClawGifAssetId, electricTrailSheetAssetId, electricTrailGifAssetId, blueWhiteCrescentSheetAssetId, blueWhiteCrescentGifAssetId, smokeSheetAssetId, smokeGifAssetId, greenEnergyWaveSheetAssetId, greenEnergyWaveGifAssetId, waterOrbMagicSheetAssetId, waterOrbMagicGifAssetId] = await uploadEffectExamples(uploadedAssetIds, [
+      uploadEffectExample(fireHitSheet, `${effectPresetLabel("fire-hit")}-sprite-sheet.webp`, "image/webp"),
+      uploadEffectExample(fireHitPreview, `${effectPresetLabel("fire-hit")}-preview.gif`, "image/gif"),
+      uploadEffectExample(iceImpactSheet, `${effectPresetLabel("ice-impact")}-sprite-sheet.webp`, "image/webp"),
+      uploadEffectExample(iceImpactPreview, `${effectPresetLabel("ice-impact")}-preview.gif`, "image/gif"),
+      uploadEffectExample(waveImpactSheet, `${effectPresetLabel("wave-impact")}-sprite-sheet.webp`, "image/webp"),
+      uploadEffectExample(waveImpactPreview, `${effectPresetLabel("wave-impact")}-preview.gif`, "image/gif"),
+      uploadEffectExample(waterSplashSheetSource, `${effectPresetLabel("water-splash")}-sprite-sheet.webp`, "image/webp"),
+      uploadEffectExample(waterSplashPreviewSource, `${effectPresetLabel("water-splash")}-preview.gif`, "image/gif"),
+      uploadEffectExample(electricOrbBurstSheetSource, `${effectPresetLabel("electric-orb-burst")}-sprite-sheet.webp`, "image/webp"),
+      uploadEffectExample(electricOrbBurstPreviewSource, `${effectPresetLabel("electric-orb-burst")}-preview.gif`, "image/gif"),
+      uploadEffectExample(lightningStrikeSheetSource, `${effectPresetLabel("lightning-strike")}-sprite-sheet.webp`, "image/webp"),
+      uploadEffectExample(lightningStrikePreviewSource, `${effectPresetLabel("lightning-strike")}-preview.gif`, "image/gif"),
+      uploadEffectExample(iceClawSlashSheet, `${effectPresetLabel("ice-claw-slash")}-sprite-sheet.webp`, "image/webp"),
+      uploadEffectExample(iceClawSlashPreview, `${effectPresetLabel("ice-claw-slash")}-preview.gif`, "image/gif"),
+      uploadEffectExample(electricTrailSheetSource, `${effectPresetLabel("electric-trail")}-sprite-sheet.webp`, "image/webp"),
+      uploadEffectExample(electricTrailPreviewSource, `${effectPresetLabel("electric-trail")}-preview.gif`, "image/gif"),
+      uploadEffectExample(blueWhiteCrescentSheetSource, `${effectPresetLabel("blue-white-crescent-slash")}-sprite-sheet.webp`, "image/webp"),
+      uploadEffectExample(blueWhiteCrescentPreviewSource, `${effectPresetLabel("blue-white-crescent-slash")}-preview.gif`, "image/gif"),
+      uploadEffectExample(smokeSheetSource, `${effectPresetLabel("smoke-dispersal")}-sprite-sheet.webp`, "image/webp"),
+      uploadEffectExample(smokePreviewSource, `${effectPresetLabel("smoke-dispersal")}-preview.gif`, "image/gif"),
+      uploadEffectExample(greenEnergyWaveSheetSource, `${effectPresetLabel("green-energy-wave")}-sprite-sheet.webp`, "image/webp"),
+      uploadEffectExample(greenEnergyWavePreviewSource, `${effectPresetLabel("green-energy-wave")}-preview.gif`, "image/gif"),
+      uploadEffectExample(waterOrbMagicSheetSource, `${effectPresetLabel("water-orb-magic")}-sprite-sheet.webp`, "image/webp"),
+      uploadEffectExample(waterOrbMagicPreviewSource, `${effectPresetLabel("water-orb-magic")}-preview.gif`, "image/gif"),
     ]);
     const exampleGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 40, y: 700 }, width: 2080, height: 2680, data: { name: t("effectLibrary.templateExample"), pixelStyle: level } };
-    const sheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 54 }, title: t("effectLibrary.spriteSheetExample"), description: "4 × 3 · 12 帧", data: { assetId: sheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_EXAMPLE_PROMPT } };
+    const sheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 54 }, title: t("effectLibrary.spriteSheetExample"), description: effectPresetFrames("fire-hit"), data: { assetId: sheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_EXAMPLE_PROMPT } };
     const preview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 54 }, title: t("effectLibrary.gifPreview"), description: t("effectLibrary.gifPreviewHint"), data: { assetId: gifAssetId, mediaType: "image" } };
-    const iceSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 54 }, title: `${t("effectLibrary.spriteSheetExample")} · 冰霜`, description: "4 × 3 · 12 帧", data: { assetId: iceSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ICE_EXAMPLE_PROMPT } };
-    const icePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 54 }, title: `${t("effectLibrary.gifPreview")} · 冰霜`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: iceGifAssetId, mediaType: "image" } };
-    const iceClawSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 490 }, title: `${t("effectLibrary.spriteSheetExample")} · 寒冰爪痕`, description: "4 × 3 · 12 帧", data: { assetId: iceClawSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ICE_CLAW_EXAMPLE_PROMPT } };
-    const iceClawPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 490 }, title: `${t("effectLibrary.gifPreview")} · 寒冰爪痕`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: iceClawGifAssetId, mediaType: "image" } };
-    const waveSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 490 }, title: `${t("effectLibrary.spriteSheetExample")} · 海浪`, description: "4 × 3 · 12 帧", data: { assetId: waveSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_WAVE_EXAMPLE_PROMPT } };
-    const wavePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 490 }, title: `${t("effectLibrary.gifPreview")} · 海浪`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: waveGifAssetId, mediaType: "image" } };
-    const waterSplashSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 926 }, title: `${t("effectLibrary.spriteSheetExample")} · 水花`, description: "4 × 3 · 12 帧", data: { assetId: waterSplashSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_WATER_SPLASH_EXAMPLE_PROMPT } };
-    const waterSplashPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 926 }, title: `${t("effectLibrary.gifPreview")} · 水花`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: waterSplashGifAssetId, mediaType: "image" } };
-    const electricOrbSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 926 }, title: `${t("effectLibrary.spriteSheetExample")} · 雷球`, description: "3 × 4 · 12 帧", data: { assetId: electricOrbSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ELECTRIC_ORB_EXAMPLE_PROMPT } };
-    const electricOrbPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 926 }, title: `${t("effectLibrary.gifPreview")} · 雷球`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: electricOrbGifAssetId, mediaType: "image" } };
-    const lightningStrikeSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 1362 }, title: `${t("effectLibrary.spriteSheetExample")} · 雷点`, description: "5 × 2 · 10 帧", data: { assetId: lightningStrikeSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_LIGHTNING_STRIKE_EXAMPLE_PROMPT } };
-    const lightningStrikePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 1362 }, title: `${t("effectLibrary.gifPreview")} · 雷点`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: lightningStrikeGifAssetId, mediaType: "image" } };
-    const electricTrailSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 1362 }, title: `${t("effectLibrary.spriteSheetExample")} · 电光拖尾`, description: "4 × 3 · 12 帧", data: { assetId: electricTrailSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ELECTRIC_TRAIL_EXAMPLE_PROMPT } };
-    const electricTrailPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 1362 }, title: `${t("effectLibrary.gifPreview")} · 电光拖尾`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: electricTrailGifAssetId, mediaType: "image" } };
-    const blueWhiteCrescentSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 1798 }, title: `${t("effectLibrary.spriteSheetExample")} · 蓝白弧斩`, description: "4 × 3 · 12 帧", data: { assetId: blueWhiteCrescentSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_BLUE_WHITE_CRESCENT_EXAMPLE_PROMPT } };
-    const blueWhiteCrescentPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 1798 }, title: `${t("effectLibrary.gifPreview")} · 蓝白弧斩`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: blueWhiteCrescentGifAssetId, mediaType: "image" } };
-    const smokeSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 1798 }, title: `${t("effectLibrary.spriteSheetExample")} · 烟团`, description: "4 × 3 · 12 帧", data: { assetId: smokeSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_SMOKE_EXAMPLE_PROMPT } };
-    const smokePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 1798 }, title: `${t("effectLibrary.gifPreview")} · 烟团`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: smokeGifAssetId, mediaType: "image" } };
-    const greenEnergyWaveSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 2234 }, title: `${t("effectLibrary.spriteSheetExample")} · 绿色聚能波`, description: "4 × 3 · 12 帧", data: { assetId: greenEnergyWaveSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_GREEN_ENERGY_WAVE_EXAMPLE_PROMPT } };
-    const greenEnergyWavePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 2234 }, title: `${t("effectLibrary.gifPreview")} · 绿色聚能波`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: greenEnergyWaveGifAssetId, mediaType: "image" } };
-    const waterOrbMagicSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 2234 }, title: `${t("effectLibrary.spriteSheetExample")} · 水球魔法`, description: "4 × 3 · 12 帧", data: { assetId: waterOrbMagicSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_WATER_ORB_MAGIC_EXAMPLE_PROMPT } };
-    const waterOrbMagicPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 2234 }, title: `${t("effectLibrary.gifPreview")} · 水球魔法`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: waterOrbMagicGifAssetId, mediaType: "image" } };
+    const iceSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 54 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("ice-impact")}`, description: effectPresetFrames("ice-impact"), data: { assetId: iceSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ICE_EXAMPLE_PROMPT } };
+    const icePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 54 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("ice-impact")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: iceGifAssetId, mediaType: "image" } };
+    const iceClawSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 490 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("ice-claw-slash")}`, description: effectPresetFrames("ice-claw-slash"), data: { assetId: iceClawSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ICE_CLAW_EXAMPLE_PROMPT } };
+    const iceClawPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 490 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("ice-claw-slash")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: iceClawGifAssetId, mediaType: "image" } };
+    const waveSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 490 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("wave-impact")}`, description: effectPresetFrames("wave-impact"), data: { assetId: waveSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_WAVE_EXAMPLE_PROMPT } };
+    const wavePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 490 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("wave-impact")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: waveGifAssetId, mediaType: "image" } };
+    const waterSplashSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 926 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("water-splash")}`, description: effectPresetFrames("water-splash"), data: { assetId: waterSplashSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_WATER_SPLASH_EXAMPLE_PROMPT } };
+    const waterSplashPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 926 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("water-splash")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: waterSplashGifAssetId, mediaType: "image" } };
+    const electricOrbSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 926 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("electric-orb-burst")}`, description: effectPresetFrames("electric-orb-burst"), data: { assetId: electricOrbSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ELECTRIC_ORB_EXAMPLE_PROMPT } };
+    const electricOrbPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 926 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("electric-orb-burst")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: electricOrbGifAssetId, mediaType: "image" } };
+    const lightningStrikeSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 1362 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("lightning-strike")}`, description: effectPresetFrames("lightning-strike"), data: { assetId: lightningStrikeSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_LIGHTNING_STRIKE_EXAMPLE_PROMPT } };
+    const lightningStrikePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 1362 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("lightning-strike")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: lightningStrikeGifAssetId, mediaType: "image" } };
+    const electricTrailSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 1362 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("electric-trail")}`, description: effectPresetFrames("electric-trail"), data: { assetId: electricTrailSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_ELECTRIC_TRAIL_EXAMPLE_PROMPT } };
+    const electricTrailPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 1362 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("electric-trail")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: electricTrailGifAssetId, mediaType: "image" } };
+    const blueWhiteCrescentSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 1798 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("blue-white-crescent-slash")}`, description: effectPresetFrames("blue-white-crescent-slash"), data: { assetId: blueWhiteCrescentSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_BLUE_WHITE_CRESCENT_EXAMPLE_PROMPT } };
+    const blueWhiteCrescentPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 1798 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("blue-white-crescent-slash")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: blueWhiteCrescentGifAssetId, mediaType: "image" } };
+    const smokeSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 1798 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("smoke-dispersal")}`, description: effectPresetFrames("smoke-dispersal"), data: { assetId: smokeSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_SMOKE_EXAMPLE_PROMPT } };
+    const smokePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 1798 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("smoke-dispersal")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: smokeGifAssetId, mediaType: "image" } };
+    const greenEnergyWaveSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1050, y: 2234 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("green-energy-wave")}`, description: effectPresetFrames("green-energy-wave"), data: { assetId: greenEnergyWaveSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_GREEN_ENERGY_WAVE_EXAMPLE_PROMPT } };
+    const greenEnergyWavePreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 1552, y: 2234 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("green-energy-wave")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: greenEnergyWaveGifAssetId, mediaType: "image" } };
+    const waterOrbMagicSheet: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 28, y: 2234 }, title: `${t("effectLibrary.spriteSheetExample")} · ${effectPresetLabel("water-orb-magic")}`, description: effectPresetFrames("water-orb-magic"), data: { assetId: waterOrbMagicSheetAssetId, mediaType: "image", examplePrompt: EFFECT_LIBRARY_WATER_ORB_MAGIC_EXAMPLE_PROMPT } };
+    const waterOrbMagicPreview: AssetCanvasNode = { id: crypto.randomUUID(), type: "asset", parentId: exampleGroup.id, position: { x: 530, y: 2234 }, title: `${t("effectLibrary.gifPreview")} · ${effectPresetLabel("water-orb-magic")}`, description: t("effectLibrary.gifPreviewHint"), data: { assetId: waterOrbMagicGifAssetId, mediaType: "image" } };
     const effectExamplePrompt = (prompt: string): string => {
       const gridMatch = prompt.match(/(\d+)-column by (\d+)-row Sprite Sheet/i);
       const columns = Number(gridMatch?.[1] ?? 4);
@@ -804,9 +511,9 @@ export async function createEffectLibraryProject(level: PixelArtLevel = "classic
       ...(imageOption ? { imageResolution: imageOption.resolution, imageAspectRatio: imageOption.aspectRatio } : {}),
     }) as Extract<AssetCanvasNode, { type: "image" }>;
     image.parentId = workGroup.id;
-    image.title = EFFECT_LIBRARY_PRESETS[0].name;
-    image.description = EFFECT_LIBRARY_PRESETS[0].frames;
-    image.data.effectBasePrompt = EFFECT_LIBRARY_PRESETS[0].prompt;
+    image.title = effectPresetLabel("fire-hit");
+    image.description = effectPresetFrames("fire-hit");
+    image.data.effectBasePrompt = EFFECT_LIBRARY_STARTER_PROMPT;
     image.data.effectColor = "original";
     image.data.effectRhythm = "sample";
     image.data.prompt = "";
@@ -836,35 +543,7 @@ export async function createEffectLibraryProject(level: PixelArtLevel = "classic
     return { projectId: project.id, boardId: current.board.id, nodeId: image.id };
   } catch (cause) {
     await deleteProject(project.id).catch(() => undefined);
-    throw cause;
-  }
-}
-
-export async function createAssetCanvasTemplateBoard(
-  projectId: string,
-  template: AssetCanvasTemplate,
-  sourceAssetId: string,
-): Promise<{ boardId: string; nodeId: string }> {
-  const imageModels = await listImageModels().catch(() => []);
-  const { document, focusNodeId } = createAssetCanvasTemplateDocument(
-    template,
-    imageModels,
-    { sourceAssetId },
-  );
-  const workspace = await createCanvasBoard(
-    projectId,
-    t(`assetCanvasTemplates.${template}.title`),
-  );
-  const boardId = workspace.boards.at(-1)!.id;
-  try {
-    const current = await getCanvasBoard(projectId, boardId);
-    await saveCanvasBoard(projectId, {
-      board: { ...document, id: boardId },
-      revision: current.revision,
-    });
-    return { boardId, nodeId: focusNodeId };
-  } catch (cause) {
-    await deleteCanvasBoard(projectId, boardId).catch(() => undefined);
+    for (const assetId of uploadedAssetIds) await deleteLibraryAsset(assetId).catch(() => undefined);
     throw cause;
   }
 }

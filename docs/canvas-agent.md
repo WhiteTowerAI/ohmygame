@@ -7,19 +7,26 @@ requiring the user to open Design first.
 The agent shows final media deliverables on the relevant board, reusing existing
 nodes and asset IDs. Local media can reference existing project-relative paths.
 
-New Asset Canvas boards have three pixel-density groups. Home's Creative
-templates picker groups character, creature, animation, scene, terrain, object,
-and skin presets. Choosing a template first asks for one pixel density (the last
-choice is remembered), then creates a new canvas that keeps only that density's
-group, filled with the category's generators or workflow. Character outfits &
+New Asset Canvas boards start empty. Home's Creative templates picker groups
+character, creature, animation, scene, terrain, object, and skin presets.
+Choosing a template first asks for one pixel density (the last choice is
+remembered), then creates a new canvas with one group for that density, filled
+with the category's generators or workflow. Character outfits &
 skins adds two image inputs and a linked output directly to the group, without a
 nested frame. Each new category template also adds an introduction above the group.
 It explains the intended game use of every output, including the distinction
 between static animation sheets that need frame splitting and storyboard panels.
 These text nodes use `pixel-asset-template:<category>` to render localized guidance;
 their saved text also preserves the introduction for file-based readers.
-The bottom-toolbar picker adds one generator outside those groups, with the
-density in its title; outfits & skins adds one standalone workflow frame.
+The bottom-toolbar picker adds one generator outside any density group, with
+the density in its title; outfits & skins adds one standalone workflow frame.
+
+Template example images are served from
+`https://assets.ohmygame.ai/template-examples/pixel/` rather than bundled; covers
+stay in the app. The editor keeps a copy of each example it shows or uses on the
+device, so templates still open and generate from examples they have used before
+without a connection. An example never loaded before reports that it could not
+be loaded.
 
 Pixel density sets the prompt's logical design size and palette budget, then
 requires uniform nearest-neighbor enlargement. Coarse pixels use oversized

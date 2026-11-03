@@ -1,8 +1,42 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
+import { access, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Stands in for FFmpeg in-process, so tests that check what it is given run
+// on every platform. Any other command, including the installed FFmpeg, runs.
+const FAKE_FFMPEG = "fake-ffmpeg";
+const fakeFfmpeg = vi.hoisted(() => ({ run: undefined as undefined | ((args: string[]) => Promise<void>) }));
+vi.mock("node:child_process", async (original) => {
+  const actual = await original<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    spawn: ((command: string, args: string[], options: object) => {
+      if (command !== FAKE_FFMPEG || !fakeFfmpeg.run) return actual.spawn(command, args, options);
+      const child = Object.assign(new EventEmitter(), { stderr: new EventEmitter(), kill: () => true });
+      void fakeFfmpeg.run(args).then(
+        () => child.emit("close", 0),
+        (error: unknown) => { child.stderr.emit("data", Buffer.from(String(error))); child.emit("close", 1); },
+      );
+      return child;
+    }) as typeof actual.spawn,
+  };
+});
+
+async function withFakeFfmpeg<T>(run: (args: string[]) => Promise<void>, operation: () => Promise<T>): Promise<T> {
+  const original = process.env.OHMYGAME_FFMPEG_PATH;
+  process.env.OHMYGAME_FFMPEG_PATH = FAKE_FFMPEG;
+  fakeFfmpeg.run = run;
+  try {
+    return await operation();
+  } finally {
+    fakeFfmpeg.run = undefined;
+    if (original === undefined) delete process.env.OHMYGAME_FFMPEG_PATH;
+    else process.env.OHMYGAME_FFMPEG_PATH = original;
+  }
+}
 import {
   cropImage,
   extractGifFrames,
@@ -113,6 +147,8 @@ describe("media tools", () => {
     await sharp(Buffer.from([255, 0, 0, 255, 0, 0, 255, 255]), { raw: { width: 1, height: 2, channels: 4, pageHeight: 1 } }).gif({ delay: [100, 100], loop: 0 }).toFile(inputPath);
     const frames = await extractGifFrames({ inputPath });
     expect(frames).toHaveLength(2);
+    // The GIF is not held open afterwards, so Windows can delete or move it.
+    expect(sharp.cache().files.current).toBe(0);
     expect([...(await sharp(frames[1]!.bytes).raw().toBuffer()).subarray(0, 4)]).toEqual([0, 0, 255, 255]);
     const png = await fixturePath("not-a-gif.png");
     await sharp(frames[0]!.bytes).toFile(png);
@@ -268,10 +304,6 @@ describe("media tools", () => {
   });
 
   it("normalizes mismatched frame dimensions without cropping them", async () => {
-    const directory = await mkdtemp(
-      path.join(tmpdir(), "ohmygame-ffmpeg-normalize-"),
-    );
-    const ffmpeg = path.join(directory, "ffmpeg");
     const firstPath = await fixturePath("compose-a.png");
     const secondPath = await fixturePath("compose-b.png");
     await sharp({
@@ -284,40 +316,22 @@ describe("media tools", () => {
     })
       .png()
       .toFile(secondPath);
-    await writeFile(
-      ffmpeg,
-      `#!/usr/bin/env node
-import { readdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
-const args = process.argv.slice(2);
-const input = args[args.indexOf("-i") + 1];
-const directory = path.dirname(input);
-const names = (await readdir(directory)).filter((name) => /^frame-\\d{6}\\.png$/.test(name)).sort();
-const dimensions = [];
-for (const name of names) {
-  const bytes = await readFile(path.join(directory, name));
-  dimensions.push([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]);
-}
-await writeFile(args.at(-1), JSON.stringify(dimensions));
-`,
-    );
-    await chmod(ffmpeg, 0o755);
-    const originalFfmpeg = process.env.OHMYGAME_FFMPEG_PATH;
-    process.env.OHMYGAME_FFMPEG_PATH = ffmpeg;
-    try {
-      const output = await composeVideo({
-        framePaths: [firstPath, secondPath],
-        format: "mp4",
-      });
-      expect(JSON.parse(output.bytes.toString())).toEqual([
-        [6, 4],
-        [6, 4],
-      ]);
-    } finally {
-      if (originalFfmpeg === undefined) delete process.env.OHMYGAME_FFMPEG_PATH;
-      else process.env.OHMYGAME_FFMPEG_PATH = originalFfmpeg;
-      await rm(directory, { recursive: true, force: true });
-    }
+    // Reports the size of every frame FFmpeg would read.
+    const output = await withFakeFfmpeg(async (args) => {
+      const input = args[args.indexOf("-i") + 1]!;
+      const directory = path.dirname(input);
+      const names = (await readdir(directory)).filter((name) => /^frame-\d{6}\.png$/.test(name)).sort();
+      const dimensions = [];
+      for (const name of names) {
+        const bytes = await readFile(path.join(directory, name));
+        dimensions.push([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]);
+      }
+      await writeFile(args.at(-1)!, JSON.stringify(dimensions));
+    }, () => composeVideo({ framePaths: [firstPath, secondPath], format: "mp4" }));
+    expect(JSON.parse(output.bytes.toString())).toEqual([
+      [6, 4],
+      [6, 4],
+    ]);
   });
 
   it("encodes MP4 and GIF with the installed FFmpeg binary", async () => {
@@ -451,7 +465,6 @@ await writeFile(args.at(-1), JSON.stringify(dimensions));
     const directory = await mkdtemp(
       path.join(tmpdir(), "ohmygame-ffmpeg-fixture-"),
     );
-    const ffmpeg = path.join(directory, "ffmpeg");
     const firstPath = path.join(directory, "first.png");
     const secondPath = path.join(directory, "second.png");
     await sharp({
@@ -464,29 +477,18 @@ await writeFile(args.at(-1), JSON.stringify(dimensions));
     })
       .png()
       .toFile(secondPath);
-    await writeFile(
-      ffmpeg,
-      `#!/usr/bin/env node
-import { access, writeFile } from "node:fs/promises";
-const args = process.argv.slice(2);
-const input = args[args.indexOf("-i") + 1];
-if (args.includes("-start_number")) process.exit(2);
-await access(input.replace("%06d", "000001"));
-await access(input.replace("%06d", "000002"));
-await writeFile(args.at(-1), Buffer.from("fixture"));
-`,
-    );
-    await chmod(ffmpeg, 0o755);
-    const originalFfmpeg = process.env.OHMYGAME_FFMPEG_PATH;
-    process.env.OHMYGAME_FFMPEG_PATH = ffmpeg;
     try {
-      const output = format === "gif"
-        ? await composeGif([firstPath, secondPath])
-        : await composeVideo({ framePaths: [firstPath, secondPath], format });
+      const output = await withFakeFfmpeg(async (args) => {
+        const input = args[args.indexOf("-i") + 1]!;
+        if (args.includes("-start_number")) throw new Error("unexpected -start_number");
+        await access(input.replace("%06d", "000001"));
+        await access(input.replace("%06d", "000002"));
+        await writeFile(args.at(-1)!, Buffer.from("fixture"));
+      }, () => format === "gif"
+        ? composeGif([firstPath, secondPath])
+        : composeVideo({ framePaths: [firstPath, secondPath], format }));
       expect(output.bytes.toString()).toBe("fixture");
     } finally {
-      if (originalFfmpeg === undefined) delete process.env.OHMYGAME_FFMPEG_PATH;
-      else process.env.OHMYGAME_FFMPEG_PATH = originalFfmpeg;
       await rm(directory, { recursive: true, force: true });
     }
   });

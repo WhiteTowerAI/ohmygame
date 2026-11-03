@@ -6,6 +6,8 @@ import { CanvasNodeResizer, CanvasNodeSizeActions } from "./canvas-node-resizer.
 import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js";
 import { FileText, Film, Music2, Box, Image as ImageIcon, Folder, Package, WandSparkles, X, Search, LoaderCircle, Check, Plus, Pause, Play, VolumeX, Volume2, Square, ArrowUp, Upload } from "./icons.js";
 import { t, tNodes } from "./i18n.js";
+import { localizedTemplateText } from "./template-text.js";
+import { TemplateExampleImage } from "./template-example-cache.js";
 import { CanvasTextarea, CanvasTextComposer } from "./canvas-text-composer.js";
 import { CanvasComposer, CanvasPort } from "./canvas-node-interactions.js";
 import { CanvasNodeReferenceStrip, CanvasReferenceThumbnail } from "./canvas-node-references.js";
@@ -53,7 +55,7 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
   if (data.instruction === PIXEL_ASSET_TEMPLATE_NOTE) return <div className="story-node story-text-node asset-template-guide-node">
     <div data-alignment-frame className="story-text-output">
       <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} />
-      <div className="asset-template-guide-content nodrag nowheel"><p className="asset-template-guide-instruction">{data.text}</p></div>
+      <div className="asset-template-guide-content nodrag nowheel"><p className="asset-template-guide-instruction">{localizedTemplateText(data.text)}</p></div>
     </div>
   </div>;
   const guide = templateGuideInfo(data.instruction);
@@ -72,7 +74,8 @@ export function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>
           className={selected ? "nodrag nowheel" : "nodrag"}
           aria-label={t("assetCanvas.textOutput")}
           rows={5}
-          value={data.text ?? ""}
+          // The Effects template's guide shows in the current language until it is edited.
+          value={(data.instruction?.startsWith("effect-library") ? localizedTemplateText(data.text) : data.text) ?? ""}
           disabled={runtime?.busy}
           readOnly={!selected}
           placeholder={t("assetCanvas.textPlaceholder")}
@@ -133,7 +136,7 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
     runtime.onChange({ ...data, imageRuntime: undefined, resolution: option.resolution, aspectRatio: option.aspectRatio });
   }
 
-  if (data.sourceInput) return <MediaNodeShell kind="image" label={data.sourceInputLabel} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails} emptyHint={data.sourceInputLabel ?? t("assetCanvasTemplates.reference")} previewUrl={pixelExampleImageUrl(data.exampleImage)}>
+  if (data.sourceInput) return <MediaNodeShell kind="image" label={localizedTemplateText(data.sourceInputLabel)} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails} emptyHint={localizedTemplateText(data.sourceInputLabel) ?? t("assetCanvasTemplates.reference")} previewUrl={pixelExampleImageUrl(data.exampleImage)}>
     <div className="asset-template-source-actions nodrag">
       <input ref={sourceInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => {
         const file = event.target.files?.[0];
@@ -841,7 +844,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
         {preview.url && audio ? <CanvasAudio src={preview.url} /> : null}
         {preview.url && threeD ? <ModelPreview source={preview.url} label={kind === "animation" ? t("assetCanvas.animated3d") : t("timeline.generated3d")} minHeight={220} interactive={false} /> : null}
         {exampleUrl && !runtime?.generating ? (
-          <img src={exampleUrl} alt="" className="story-media-preview-example" onLoad={mediaLayout.onImageLoad} />
+          <TemplateExampleImage src={exampleUrl} alt="" className="story-media-preview-example" onLoad={mediaLayout.onImageLoad} />
         ) : null}
         {!preview.url && !exampleUrl && !runtime?.generating ? (
           <div className="story-media-empty">

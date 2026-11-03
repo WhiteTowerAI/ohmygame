@@ -1,6 +1,7 @@
 import { Box, FileText, Film, Image as ImageIcon, Music2, X } from "./icons.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { t } from "./i18n.js";
+import { TemplateExampleImage } from "./template-example-cache.js";
 
 export interface CanvasNodeReferenceView {
   nodeId: string;
@@ -33,7 +34,7 @@ export function CanvasReferenceThumbnail({ reference, caption, disabled, onRemov
   const preview = !reference.assetId && reference.exampleUrl ? { ...assetPreview, url: reference.exampleUrl } : assetPreview;
   const title = preview.error ?? reference.text ?? `${reference.label}: ${reference.name}`;
   return <div className={`story-media-reference${textual ? " story-text-reference" : ""}${preview.error ? " is-unavailable" : ""}`} title={title}>
-    {preview.url && reference.type === "image" ? <img src={preview.url} alt={reference.name} /> : null}
+    {preview.url && reference.type === "image" ? <TemplateExampleImage src={preview.url} alt={reference.name} /> : null}
     {preview.url && reference.type === "video" ? <video src={preview.url} muted playsInline preload="metadata" /> : null}
     {textual ? <FileText size={19} /> : reference.type === "audio" ? <Music2 size={18} /> : reference.type === "model" ? <Box size={18} /> : !preview.url ? reference.type === "video" ? <Film size={18} /> : <ImageIcon size={18} /> : null}
     {caption ? <small>{caption}</small> : null}

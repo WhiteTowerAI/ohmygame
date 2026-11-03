@@ -84,6 +84,7 @@ vi.doMock(path.resolve("src/renderer/library-assets.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/library-assets.js")>()),
   loadLibraryAssets: loadAssets,
 }));
+const { setTemplateExampleStore } = await import("../src/renderer/template-example-cache.js");
 const { CanvasBoardEditor } =
   await import("../src/renderer/asset-canvas-workspace.js");
 const { CanvasTableStorage } =
@@ -381,6 +382,32 @@ it("generates from a template reference slot by uploading its example", async ()
   expect(saved.nodes.find((node) => node.id === "reference")?.data.assetId).toBe("materialized");
   expect(generate).toHaveBeenCalledWith("generator");
   expect(save.mock.invocationCallOrder.at(-1)).toBeLessThan(generate.mock.invocationCallOrder.at(-1)!);
+});
+
+it("keeps each example it fetches and generates from that copy while offline", async () => {
+  const saved = new Map<string, Blob>();
+  setTemplateExampleStore({ get: async (url) => saved.get(url), put: async (url, image) => { saved.set(url, image); } });
+  const exampleUrl = "https://assets.ohmygame.ai/template-examples/pixel/reference/creature.webp";
+  const addSlot = (suffix: string) => act(async () => captured.props!.onNodesChange!([
+    { type: "add", item: { id: `reference-${suffix}`, type: "image", position: { x: 0, y: 600 }, data: { prompt: "", images: [], sourceInput: true, exampleImage: "reference/creature" } } },
+    { type: "add", item: { id: `generator-${suffix}`, type: "image", position: { x: 600, y: 600 }, data: { prompt: "a slime", model: { provider: "google", id: "image-ref" }, resolution: "1K", aspectRatio: "1:1", images: [{ type: "node", nodeId: `reference-${suffix}` }] } } },
+  ]));
+  try {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["pixels"], { type: "image/webp" }))));
+    await addSlot("online");
+    await act(async () => imageRuntime("generator-online").onGenerate());
+    expect(saved.has(exampleUrl)).toBe(true);
+
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    upload.mockClear();
+    generate.mockClear();
+    await addSlot("offline");
+    await act(async () => imageRuntime("generator-offline").onGenerate());
+    expect(upload).toHaveBeenCalledWith(expect.objectContaining({ name: "creature.webp" }), "image/webp", undefined, "reference");
+    expect(generate).toHaveBeenCalledWith("generator-offline");
+  } finally {
+    setTemplateExampleStore({ get: async () => undefined, put: async () => undefined });
+  }
 });
 
 it("reports an unavailable template example instead of generating", async () => {

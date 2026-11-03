@@ -39,7 +39,11 @@ vi.doMock(path.resolve("src/renderer/project-prompt-creator.tsx"), () => ({
   </>),
 }));
 
+const createPixelAssetTemplateProject = vi.fn(async (_category: string, _level: string) => ({ projectId: "pixel", nodeId: "start" }));
+vi.doMock(path.resolve("src/renderer/asset-canvas-template-project.ts"), () => ({ createPixelAssetTemplateProject }));
+
 const { Home } = await import("../src/renderer/home.js");
+const { pixelAssetTemplateCategories } = await import("../src/renderer/asset-canvas-pixel-workflows.js");
 let root: ReturnType<typeof createRoot> | undefined;
 let container: HTMLDivElement | undefined;
 
@@ -102,4 +106,28 @@ it("creates the project from the prompt at once, and opens the new-project dialo
   expect(button("Create")).toBeDefined();
   // Import folder needs the desktop folder picker.
   expect(button("Import folder")).toBeUndefined();
+});
+
+it("starts a creation template at the chosen pixel density and opens its canvas on the first node", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const onOpenAssetCanvas = vi.fn();
+  await act(async () => root!.render(<Home onNavigate={() => {}} onCreate={async () => {}} onOpen={() => {}} onOpenAssetCanvas={onOpenAssetCanvas} />));
+
+  // Every pixel category, then the effect library.
+  const cards = [...container.querySelectorAll<HTMLButtonElement>(".home-templates .home-template-card")];
+  expect(cards).toHaveLength(pixelAssetTemplateCategories().length + 1);
+  await act(async () => cards[0]!.click());
+  const dialog = document.querySelector<HTMLElement>(".pixel-template-density-dialog")!;
+  expect(dialog.querySelectorAll('input[type="radio"]')).toHaveLength(3);
+
+  await act(async () => {
+    dialog.querySelector<HTMLInputElement>('input[value="detailed"]')!.click();
+    dialog.querySelector<HTMLButtonElement>(".project-create-submit")!.click();
+  });
+  expect(createPixelAssetTemplateProject).toHaveBeenCalledWith(pixelAssetTemplateCategories()[0]!.id, "detailed");
+  expect(onOpenAssetCanvas).toHaveBeenCalledWith("pixel", "start");
+  expect(document.querySelector(".pixel-template-density-dialog")).toBeNull();
 });

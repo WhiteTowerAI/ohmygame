@@ -104,7 +104,9 @@ import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shar
 import { withPixelArtLevel, type PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, placePixelPresetOutsideDensityGroups, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import { AssetCanvasPixelPresetDialog } from "./asset-canvas-pixel-preset-dialog.js";
-import { effectPresetAspectRatio, effectPresetById, effectPresetLabel, effectPresetStaticExampleId, type EffectPresetId } from "./asset-canvas-effect-presets.js";
+import { localizedTemplateText } from "./template-text.js";
+import { fetchTemplateExample } from "./template-example-cache.js";
+import { effectPresetAspectRatio, effectPresetById, effectPresetFrames, effectPresetLabel, effectPresetStaticExampleId, type EffectPresetId } from "./asset-canvas-effect-presets.js";
 import { pixelExampleCoverUrl, pixelExampleImageUrl } from "./asset-canvas-pixel-examples.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
@@ -208,7 +210,7 @@ const STORY_NODE_TYPES: NodeTypes = {
 function CanvasGroupNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   return <div className={`canvas-group-node${selected ? " is-selected" : ""}`}>
     <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
-    <div className="canvas-group-heading"><Layers3 size={14} /><strong>{data.pixelStyle ? pixelArtLevelLabel(data.pixelStyle) : data.name}</strong></div>
+    <div className="canvas-group-heading"><Layers3 size={14} /><strong>{data.pixelStyle ? pixelArtLevelLabel(data.pixelStyle) : localizedTemplateText(data.name)}</strong></div>
   </div>;
 }
 
@@ -543,7 +545,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       if (await getProjectCover(projectId)) return;
       const cover = source
         ? await projectCoverBlob(source, libraryAssets, assetBlob)
-        : await mediaBlobToWebP(await (await fetch(exampleUrl!)).blob(), "image");
+        : await mediaBlobToWebP(await fetchTemplateExample(exampleUrl!), "image");
       if (!disposed && cover && !(await getProjectCover(projectId))) await setProjectCover(projectId, cover, "auto");
     })().catch(() => {});
     return () => { disposed = true; };
@@ -1122,7 +1124,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const node = {
       ...configured,
       title: `${effectPresetLabel(preset.id)} · ${pixelArtLevelLabel(pixelStyle)}`,
-      description: preset.frames,
+      description: effectPresetFrames(preset.id),
       selected: true,
       data: {
         ...configured.data,
@@ -1565,9 +1567,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     for (const node of targets) {
       const url = node.data.assetId ? undefined : pixelExampleImageUrl(node.data.exampleImage);
       if (!url) continue;
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(t("assetCanvas.exampleUnavailable"));
-      const blob = await response.blob();
+      const blob = await fetchTemplateExample(url);
       const contentType = (blob.type || "image/webp") as LibraryUploadMediaType;
       const name = `${node.data.exampleImage!.split("/").pop()!.replace(/\.[^.]+$/, "")}.${contentType.split("/")[1]}`;
       const asset = await uploadLibraryAsset(new File([blob], name, { type: contentType }), contentType, undefined, purpose);
@@ -1975,7 +1975,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         ...(original.type === "text" ? { open: () => setExpandedTextId(original.id) } : {}),
     } } : {}), assetAspectRatio: mediaAspectRatio(libraryAssets.find((asset) => asset.id === original.data.assetId)), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails: {
       title: original.title?.trim(), label: nodeLabel, description: original.description,
-      edit: () => setNodeDetails({ id: original.id, title: original.type === "group" ? original.data.name ?? "" : original.title ?? "", description: original.description ?? "" }),
+      edit: () => setNodeDetails({ id: original.id, title: localizedTemplateText(original.type === "group" ? original.data.name ?? "" : original.title ?? ""), description: localizedTemplateText(original.description ?? "") }),
     } } };
     if (node.type === "group") return { ...node, dragHandle: ".canvas-group-heading" };
     if (node.type === "table") {

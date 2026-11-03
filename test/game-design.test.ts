@@ -253,14 +253,15 @@ describe("Markdown design workspace", () => {
     await writeFile(file, "# Updated production brief");
     expect((await store.read(project.id, doc.document.id))!.document.markdown).toBe("# Updated production brief");
     await expect(store.save(project.id, inserted.document, inserted.revision, doc.document.id)).rejects.toMatchObject({ statusCode: 409 });
-    const second = await store.changeBoards(project.id, { type: "create", name: "Second" });
-    expect(second.boards).toHaveLength(2);
-    await store.changeBoards(project.id, { type: "delete", boardId: second.boards[1]!.id });
+    // Its one board can be renamed, as templates do, but not added to, removed or moved.
+    expect((await store.changeBoards(project.id, { type: "rename", boardId, name: "Effects" })).boards).toEqual([expect.objectContaining({ id: boardId, name: "Effects" })]);
+    await expect(store.changeBoards(project.id, { type: "create", name: "Second" })).rejects.toMatchObject({ statusCode: 409 });
     await expect(store.changeBoards(project.id, { type: "delete", boardId })).rejects.toMatchObject({ statusCode: 409 });
+    await expect(store.changeBoards(project.id, { type: "move", boardId, direction: 1 })).rejects.toMatchObject({ statusCode: 409 });
     await expect(store.setMainDocument(project.id, doc.document.id)).rejects.toMatchObject({ statusCode: 409 });
     expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
   });
-  it("expands image presets and resolves character references across boards", async () => {
+  it("expands image presets and sends a linked character reference", async () => {
     const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
     const { store, project, boardId, library } = await runtime({ generate }, "asset-canvas");
     const original = await store.board(project.id, boardId);
@@ -275,18 +276,16 @@ describe("Markdown design workspace", () => {
     expect(generate.mock.calls[0]?.[0].prompt).toContain("forest guardian");
 
     const reference = await library.add("character.png", Buffer.from("image"));
-    const next = await store.changeBoards(project.id, { type: "create", name: "Action set" });
-    const actionBoardId = next.boards.at(-1)!.id;
-    const actionBoard = await store.board(project.id, actionBoardId);
+    const actionBoard = await store.board(project.id, boardId);
     const source: AssetCanvasNode = { id: "character-source", type: "asset", position: { x: 0, y: 0 }, data: { assetId: reference.id, mediaType: "image" } };
     const action = createAssetGenerationNode("image", { x: 500, y: 0 });
     if (action.type !== "image") throw new Error("Expected image node");
     action.data.prompt = "Walking sprite sheet";
     action.data.images = [{ type: "node", nodeId: source.id }];
-    actionBoard.board.nodes = [source, action];
-    actionBoard.board.editorLayout.nodes = { [source.id]: source.position, [action.id]: action.position };
+    actionBoard.board.nodes = [...actionBoard.board.nodes, source, action];
+    actionBoard.board.editorLayout.nodes = { ...actionBoard.board.editorLayout.nodes, [source.id]: source.position, [action.id]: action.position };
     await store.saveBoard(project.id, actionBoard.board, actionBoard.revision);
-    await store.generateNode(project.id, actionBoardId, action.id);
+    await store.generateNode(project.id, boardId, action.id);
     await waitForJob(store, project.id);
     expect(generate.mock.calls[1]?.[0].images).toEqual([{ mediaType: "image/png", data: Buffer.from("image").toString("base64") }]);
     expect((await readCanvasAssets(project.workspacePath)).assets[reference.id]).toBeDefined();

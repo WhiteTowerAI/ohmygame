@@ -6,6 +6,7 @@ import { AssetCanvasTemplateGuide, PixelAssetTemplateGuide } from "../src/render
 import i18next from "i18next";
 import { PIXEL_ASSET_TEMPLATE_CATEGORIES, pixelAssetTemplatePresetIds } from "../src/renderer/asset-canvas-pixel-workflows.js";
 import { TEMPLATE_COVER_IMAGES } from "../src/renderer/asset-canvas-template-samples.js";
+import { templateImagePresets } from "../src/renderer/asset-canvas-templates.js";
 import { t } from "../src/renderer/i18n.js";
 
 let container: HTMLDivElement;
@@ -39,12 +40,13 @@ it.each(["en", "zh-CN"])("explains every output in all six template canvases in 
   }
 });
 
-it("shows the new pixel overview and keeps guidance for all thirteen asset types", async () => {
+it("shows the pixel overview and keeps guidance for every pixel asset type", async () => {
   await act(async () =>
     root.render(<AssetCanvasTemplateGuide template="pixel-art" />),
   );
   const choices = container.querySelectorAll(".asset-template-guide-option");
-  expect(choices).toHaveLength(13);
+  expect(choices).toHaveLength(templateImagePresets("pixel-art").length);
+  expect([...choices].every((choice) => choice.querySelector("p")?.textContent)).toBe(true);
   expect(container.querySelectorAll("img")).toHaveLength(1);
   expect(
     container
