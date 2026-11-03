@@ -8,8 +8,8 @@ import { GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS, withCharacterPixelArtLevel, withGl
 import { consistentScenesPrompt } from "../src/shared/canvas-pixel-prompts.js";
 import { ASSET_CANVAS_TEMPLATES, templateGuideInfo, templateImagePresets } from "../src/renderer/asset-canvas-templates.js";
 import { createPixelAssetPresetContents, createPixelAssetWorkflowNodes, pixelAssetPresetCatalog, pixelAssetTemplateCategories, pixelAssetWorkflowLabel, placePixelPresetOutsideDensityGroups } from "../src/renderer/asset-canvas-pixel-workflows.js";
-import { EFFECT_PRESETS, effectPresetById, effectPresetDescription, effectPresetLabel } from "../src/renderer/asset-canvas-effect-presets.js";
-import { effectPresetExampleId } from "../src/renderer/asset-canvas-effect-examples.js";
+import { EFFECT_PRESETS, effectPresetAspectRatio, effectPresetById, effectPresetDescription, effectPresetLabel } from "../src/renderer/asset-canvas-effect-presets.js";
+import { effectPresetExampleId, effectPresetPreviewUrl } from "../src/renderer/asset-canvas-effect-examples.js";
 import { pixelExampleImageUrl } from "../src/renderer/asset-canvas-pixel-examples.js";
 
 const textOnly: ImageModel = {
@@ -30,12 +30,17 @@ describe("pixel asset workflows", () => {
   it("offers every bundled effect as an individual, localized pixel preset", () => {
     expect(EFFECT_PRESETS).toHaveLength(12);
     expect(new Set(EFFECT_PRESETS.map((preset) => preset.id)).size).toBe(EFFECT_PRESETS.length);
+    expect(effectPresetAspectRatio("electric-orb-burst")).toBe("3:4");
+    expect(effectPresetAspectRatio("lightning-strike")).toBe("21:9");
     for (const preset of EFFECT_PRESETS) {
       expect(effectPresetById(preset.id)).toBe(preset);
       expect(effectPresetLabel(preset.id)).not.toContain("assetCanvas.");
       expect(effectPresetDescription(preset.id)).not.toContain("assetCanvas.");
-      expect(preset.preview).toBeTruthy();
+      expect(effectPresetAspectRatio(preset.id)).toMatch(/^(4:3|3:4|21:9)$/);
       expect(preset.prompt).toContain("sprite sheet");
+      const previews = ["coarse", "classic", "detailed"] as const;
+      expect(new Set(previews.map((level) => effectPresetPreviewUrl(preset.id, level))).size).toBe(3);
+      expect(new Set(previews.map((level) => pixelExampleImageUrl(effectPresetExampleId(preset.id, level)))).size).toBe(3);
       expect(pixelExampleImageUrl(effectPresetExampleId(preset.id, "coarse"))).toBeTruthy();
       expect(pixelExampleImageUrl(effectPresetExampleId(preset.id, "classic"))).toBeTruthy();
       expect(pixelExampleImageUrl(effectPresetExampleId(preset.id, "detailed"))).toBeTruthy();

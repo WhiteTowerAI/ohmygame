@@ -110,7 +110,7 @@ import { ModelPreview } from "./model-preview.js";
 import { withPixelArtLevel, type PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, placePixelPresetOutsideDensityGroups, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import { AssetCanvasPixelPresetDialog } from "./asset-canvas-pixel-preset-dialog.js";
-import { effectPresetById, effectPresetLabel, effectPresetStaticExampleId, type EffectPresetId } from "./asset-canvas-effect-presets.js";
+import { effectPresetAspectRatio, effectPresetById, effectPresetLabel, effectPresetStaticExampleId, type EffectPresetId } from "./asset-canvas-effect-presets.js";
 import { pixelExampleCoverUrl, pixelExampleImageUrl } from "./asset-canvas-pixel-examples.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
@@ -1041,6 +1041,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const preset = effectPresetById(presetId);
     const created = createFlowNode("image", position, imageModels, videoModels, defaultTextModel);
     const configured = applyRememberedSettings(created, rememberedSettings.current.image, { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, model3DModels, defaultModel3D, textModels: textModelCatalog.models });
+    const model = imageModels.find((candidate) => candidate.supportsReferenceImage && candidate.maxReferenceImages !== 0) ?? imageModels[0];
+    const option = preferredImageOption(model, effectPresetAspectRatio(preset.id));
     const node = {
       ...configured,
       title: `${effectPresetLabel(preset.id)} · ${pixelArtLevelLabel(pixelStyle)}`,
@@ -1048,6 +1050,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       selected: true,
       data: {
         ...configured.data,
+        ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
+        ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}),
         prompt: withPixelArtLevel(preset.prompt, pixelStyle, "sprite", { assetType: "animation", grid: { ...preset.grid, unit: "frame" } }),
         promptExpanded: true,
         pixelStyle,

@@ -14,77 +14,77 @@ import {
 } from "../shared/asset-canvas.js";
 import { createProject, deleteLibraryAsset, deleteProject, getProjectCover, listImageModels, setProjectCover, uploadLibraryAsset } from "./api.js";
 import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
-import effectFireHitSheet from "./assets/templates/examples/effect-fire-hit-sheet.png";
+import effectFireHitSheet from "./assets/templates/examples/effect-fire-hit-sheet.webp";
 import effectFireHitPreview from "./assets/templates/examples/effect-fire-hit-preview.gif";
-import coarseEffectFireHitSheet from "./assets/templates/examples/effects/coarse/fire-hit-sheet.png";
+import coarseEffectFireHitSheet from "./assets/templates/examples/effects/coarse/fire-hit-sheet.webp";
 import coarseEffectFireHitPreview from "./assets/templates/examples/effects/coarse/fire-hit-preview.gif";
-import detailedEffectFireHitSheet from "./assets/templates/examples/effects/detailed/fire-hit-sheet.png";
+import detailedEffectFireHitSheet from "./assets/templates/examples/effects/detailed/fire-hit-sheet.webp";
 import detailedEffectFireHitPreview from "./assets/templates/examples/effects/detailed/fire-hit-preview.gif";
-import effectIceImpactSheet from "./assets/templates/examples/effect-ice-impact-sheet.png";
+import effectIceImpactSheet from "./assets/templates/examples/effect-ice-impact-sheet.webp";
 import effectIceImpactPreview from "./assets/templates/examples/effect-ice-impact-preview.gif";
-import coarseEffectIceImpactSheet from "./assets/templates/examples/effects/coarse/ice-impact-sheet.png";
+import coarseEffectIceImpactSheet from "./assets/templates/examples/effects/coarse/ice-impact-sheet.webp";
 import coarseEffectIceImpactPreview from "./assets/templates/examples/effects/coarse/ice-impact-preview.gif";
-import detailedEffectIceImpactSheet from "./assets/templates/examples/effects/detailed/ice-impact-sheet.png";
+import detailedEffectIceImpactSheet from "./assets/templates/examples/effects/detailed/ice-impact-sheet.webp";
 import detailedEffectIceImpactPreview from "./assets/templates/examples/effects/detailed/ice-impact-preview.gif";
-import effectWaveImpactSheet from "./assets/templates/examples/effect-wave-impact-sheet.png";
+import effectWaveImpactSheet from "./assets/templates/examples/effect-wave-impact-sheet.webp";
 import effectWaveImpactPreview from "./assets/templates/examples/effect-wave-impact-preview.gif";
-import coarseEffectWaveImpactSheet from "./assets/templates/examples/effects/coarse/wave-impact-sheet.png";
+import coarseEffectWaveImpactSheet from "./assets/templates/examples/effects/coarse/wave-impact-sheet.webp";
 import coarseEffectWaveImpactPreview from "./assets/templates/examples/effects/coarse/wave-impact-preview.gif";
-import detailedEffectWaveImpactSheet from "./assets/templates/examples/effects/detailed/wave-impact-sheet.png";
+import detailedEffectWaveImpactSheet from "./assets/templates/examples/effects/detailed/wave-impact-sheet.webp";
 import detailedEffectWaveImpactPreview from "./assets/templates/examples/effects/detailed/wave-impact-preview.gif";
-import effectWaterSplashSheet from "./assets/templates/examples/effect-water-splash-sheet.png";
+import effectWaterSplashSheet from "./assets/templates/examples/effect-water-splash-sheet.webp";
 import effectWaterSplashPreview from "./assets/templates/examples/effect-water-splash-preview.gif";
-import coarseEffectWaterSplashSheet from "./assets/templates/examples/effects/coarse/water-splash-sheet.png";
+import coarseEffectWaterSplashSheet from "./assets/templates/examples/effects/coarse/water-splash-sheet.webp";
 import coarseEffectWaterSplashPreview from "./assets/templates/examples/effects/coarse/water-splash-preview.gif";
-import detailedEffectWaterSplashSheet from "./assets/templates/examples/effects/detailed/water-splash-sheet.png";
+import detailedEffectWaterSplashSheet from "./assets/templates/examples/effects/detailed/water-splash-sheet.webp";
 import detailedEffectWaterSplashPreview from "./assets/templates/examples/effects/detailed/water-splash-preview.gif";
-import effectElectricOrbBurstSheet from "./assets/templates/examples/effect-electric-orb-burst-sheet.png";
+import effectElectricOrbBurstSheet from "./assets/templates/examples/effect-electric-orb-burst-sheet.webp";
 import effectElectricOrbBurstPreview from "./assets/templates/examples/effect-electric-orb-burst-preview.gif";
-import coarseEffectElectricOrbBurstSheet from "./assets/templates/examples/effects/coarse/electric-orb-burst-sheet.png";
+import coarseEffectElectricOrbBurstSheet from "./assets/templates/examples/effects/coarse/electric-orb-burst-sheet.webp";
 import coarseEffectElectricOrbBurstPreview from "./assets/templates/examples/effects/coarse/electric-orb-burst-preview.gif";
-import detailedEffectElectricOrbBurstSheet from "./assets/templates/examples/effects/detailed/electric-orb-burst-sheet.png";
+import detailedEffectElectricOrbBurstSheet from "./assets/templates/examples/effects/detailed/electric-orb-burst-sheet.webp";
 import detailedEffectElectricOrbBurstPreview from "./assets/templates/examples/effects/detailed/electric-orb-burst-preview.gif";
-import effectLightningStrikeSheet from "./assets/templates/examples/effect-lightning-strike-sheet.png";
+import effectLightningStrikeSheet from "./assets/templates/examples/effect-lightning-strike-sheet.webp";
 import effectLightningStrikePreview from "./assets/templates/examples/effect-lightning-strike-preview.gif";
-import coarseEffectLightningStrikeSheet from "./assets/templates/examples/effects/coarse/lightning-strike-sheet.png";
+import coarseEffectLightningStrikeSheet from "./assets/templates/examples/effects/coarse/lightning-strike-sheet.webp";
 import coarseEffectLightningStrikePreview from "./assets/templates/examples/effects/coarse/lightning-strike-preview.gif";
-import detailedEffectLightningStrikeSheet from "./assets/templates/examples/effects/detailed/lightning-strike-sheet.png";
+import detailedEffectLightningStrikeSheet from "./assets/templates/examples/effects/detailed/lightning-strike-sheet.webp";
 import detailedEffectLightningStrikePreview from "./assets/templates/examples/effects/detailed/lightning-strike-preview.gif";
-import effectIceClawSlashSheet from "./assets/templates/examples/effect-ice-claw-slash-sheet.png";
+import effectIceClawSlashSheet from "./assets/templates/examples/effect-ice-claw-slash-sheet.webp";
 import effectIceClawSlashPreview from "./assets/templates/examples/effect-ice-claw-slash-preview.gif";
-import coarseEffectIceClawSlashSheet from "./assets/templates/examples/effects/coarse/ice-claw-slash-sheet.png";
+import coarseEffectIceClawSlashSheet from "./assets/templates/examples/effects/coarse/ice-claw-slash-sheet.webp";
 import coarseEffectIceClawSlashPreview from "./assets/templates/examples/effects/coarse/ice-claw-slash-preview.gif";
-import detailedEffectIceClawSlashSheet from "./assets/templates/examples/effects/detailed/ice-claw-slash-sheet.png";
+import detailedEffectIceClawSlashSheet from "./assets/templates/examples/effects/detailed/ice-claw-slash-sheet.webp";
 import detailedEffectIceClawSlashPreview from "./assets/templates/examples/effects/detailed/ice-claw-slash-preview.gif";
-import effectElectricTrailSheet from "./assets/templates/examples/effect-electric-trail-sheet.png";
+import effectElectricTrailSheet from "./assets/templates/examples/effect-electric-trail-sheet.webp";
 import effectElectricTrailPreview from "./assets/templates/examples/effect-electric-trail-preview.gif";
-import coarseEffectElectricTrailSheet from "./assets/templates/examples/effects/coarse/electric-trail-sheet.png";
+import coarseEffectElectricTrailSheet from "./assets/templates/examples/effects/coarse/electric-trail-sheet.webp";
 import coarseEffectElectricTrailPreview from "./assets/templates/examples/effects/coarse/electric-trail-preview.gif";
-import detailedEffectElectricTrailSheet from "./assets/templates/examples/effects/detailed/electric-trail-sheet.png";
+import detailedEffectElectricTrailSheet from "./assets/templates/examples/effects/detailed/electric-trail-sheet.webp";
 import detailedEffectElectricTrailPreview from "./assets/templates/examples/effects/detailed/electric-trail-preview.gif";
-import effectBlueWhiteCrescentSlashSheet from "./assets/templates/examples/effect-blue-white-crescent-slash-sheet.png";
+import effectBlueWhiteCrescentSlashSheet from "./assets/templates/examples/effect-blue-white-crescent-slash-sheet.webp";
 import effectBlueWhiteCrescentSlashPreview from "./assets/templates/examples/effect-blue-white-crescent-slash-preview.gif";
-import coarseEffectBlueWhiteCrescentSlashSheet from "./assets/templates/examples/effects/coarse/blue-white-crescent-slash-sheet.png";
+import coarseEffectBlueWhiteCrescentSlashSheet from "./assets/templates/examples/effects/coarse/blue-white-crescent-slash-sheet.webp";
 import coarseEffectBlueWhiteCrescentSlashPreview from "./assets/templates/examples/effects/coarse/blue-white-crescent-slash-preview.gif";
-import detailedEffectBlueWhiteCrescentSlashSheet from "./assets/templates/examples/effects/detailed/blue-white-crescent-slash-sheet.png";
+import detailedEffectBlueWhiteCrescentSlashSheet from "./assets/templates/examples/effects/detailed/blue-white-crescent-slash-sheet.webp";
 import detailedEffectBlueWhiteCrescentSlashPreview from "./assets/templates/examples/effects/detailed/blue-white-crescent-slash-preview.gif";
-import effectSmokeDispersalSheet from "./assets/templates/examples/effect-smoke-dispersal-sheet.png";
+import effectSmokeDispersalSheet from "./assets/templates/examples/effect-smoke-dispersal-sheet.webp";
 import effectSmokeDispersalPreview from "./assets/templates/examples/effect-smoke-dispersal-preview.gif";
-import coarseEffectSmokeDispersalSheet from "./assets/templates/examples/effects/coarse/smoke-dispersal-sheet.png";
+import coarseEffectSmokeDispersalSheet from "./assets/templates/examples/effects/coarse/smoke-dispersal-sheet.webp";
 import coarseEffectSmokeDispersalPreview from "./assets/templates/examples/effects/coarse/smoke-dispersal-preview.gif";
-import detailedEffectSmokeDispersalSheet from "./assets/templates/examples/effects/detailed/smoke-dispersal-sheet.png";
+import detailedEffectSmokeDispersalSheet from "./assets/templates/examples/effects/detailed/smoke-dispersal-sheet.webp";
 import detailedEffectSmokeDispersalPreview from "./assets/templates/examples/effects/detailed/smoke-dispersal-preview.gif";
-import effectGreenEnergyWaveSheet from "./assets/templates/examples/effect-green-energy-wave-sheet.png";
+import effectGreenEnergyWaveSheet from "./assets/templates/examples/effect-green-energy-wave-sheet.webp";
 import effectGreenEnergyWavePreview from "./assets/templates/examples/effect-green-energy-wave-preview.gif";
-import coarseEffectGreenEnergyWaveSheet from "./assets/templates/examples/effects/coarse/green-energy-wave-sheet.png";
+import coarseEffectGreenEnergyWaveSheet from "./assets/templates/examples/effects/coarse/green-energy-wave-sheet.webp";
 import coarseEffectGreenEnergyWavePreview from "./assets/templates/examples/effects/coarse/green-energy-wave-preview.gif";
-import detailedEffectGreenEnergyWaveSheet from "./assets/templates/examples/effects/detailed/green-energy-wave-sheet.png";
+import detailedEffectGreenEnergyWaveSheet from "./assets/templates/examples/effects/detailed/green-energy-wave-sheet.webp";
 import detailedEffectGreenEnergyWavePreview from "./assets/templates/examples/effects/detailed/green-energy-wave-preview.gif";
-import effectWaterOrbMagicSheet from "./assets/templates/examples/effect-water-orb-magic-sheet.png";
+import effectWaterOrbMagicSheet from "./assets/templates/examples/effect-water-orb-magic-sheet.webp";
 import effectWaterOrbMagicPreview from "./assets/templates/examples/effect-water-orb-magic-preview.gif";
-import coarseEffectWaterOrbMagicSheet from "./assets/templates/examples/effects/coarse/water-orb-magic-sheet.png";
+import coarseEffectWaterOrbMagicSheet from "./assets/templates/examples/effects/coarse/water-orb-magic-sheet.webp";
 import coarseEffectWaterOrbMagicPreview from "./assets/templates/examples/effects/coarse/water-orb-magic-preview.gif";
-import detailedEffectWaterOrbMagicSheet from "./assets/templates/examples/effects/detailed/water-orb-magic-sheet.png";
+import detailedEffectWaterOrbMagicSheet from "./assets/templates/examples/effects/detailed/water-orb-magic-sheet.webp";
 import detailedEffectWaterOrbMagicPreview from "./assets/templates/examples/effects/detailed/water-orb-magic-preview.gif";
 import { TEMPLATE_SAMPLE_IMAGES, type TemplateSample } from "./asset-canvas-template-samples.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE } from "./asset-canvas-pixel-workflows.js";
@@ -457,7 +457,7 @@ async function uploadTemplateSample(sample: TemplateSample): Promise<string> {
   return (await uploadLibraryAsset(file, "image/webp", undefined, "reference")).id;
 }
 
-async function uploadEffectExample(source: string, name: string, contentType: "image/png" | "image/gif"): Promise<string> {
+async function uploadEffectExample(source: string, name: string, contentType: "image/webp" | "image/gif"): Promise<string> {
   const response = await fetch(source);
   if (!response.ok) throw new Error(`Could not load the Effect Library example: ${name}`);
   return (await uploadLibraryAsset(new File([await response.blob()], name, { type: contentType }), contentType, undefined, "reference")).id;
@@ -799,29 +799,29 @@ export async function createEffectLibraryProject(level: PixelArtLevel = "classic
     const greenEnergyWaveSheetSource = level === "coarse" ? coarseEffectGreenEnergyWaveSheet : level === "detailed" ? detailedEffectGreenEnergyWaveSheet : effectGreenEnergyWaveSheet;
     const greenEnergyWavePreviewSource = level === "coarse" ? coarseEffectGreenEnergyWavePreview : level === "detailed" ? detailedEffectGreenEnergyWavePreview : effectGreenEnergyWavePreview;
     const [sheetAssetId, gifAssetId, iceSheetAssetId, iceGifAssetId, waveSheetAssetId, waveGifAssetId, waterSplashSheetAssetId, waterSplashGifAssetId, electricOrbSheetAssetId, electricOrbGifAssetId, lightningStrikeSheetAssetId, lightningStrikeGifAssetId, iceClawSheetAssetId, iceClawGifAssetId, electricTrailSheetAssetId, electricTrailGifAssetId, blueWhiteCrescentSheetAssetId, blueWhiteCrescentGifAssetId, smokeSheetAssetId, smokeGifAssetId, greenEnergyWaveSheetAssetId, greenEnergyWaveGifAssetId, waterOrbMagicSheetAssetId, waterOrbMagicGifAssetId] = await Promise.all([
-      uploadEffectExample(fireHitSheet, "火焰命中-sprite-sheet.png", "image/png"),
+      uploadEffectExample(fireHitSheet, "火焰命中-sprite-sheet.webp", "image/webp"),
       uploadEffectExample(fireHitPreview, "火焰命中-preview.gif", "image/gif"),
-      uploadEffectExample(iceImpactSheet, "冰霜冲击-sprite-sheet.png", "image/png"),
+      uploadEffectExample(iceImpactSheet, "冰霜冲击-sprite-sheet.webp", "image/webp"),
       uploadEffectExample(iceImpactPreview, "冰霜冲击-preview.gif", "image/gif"),
-      uploadEffectExample(waveImpactSheet, "海浪冲击-sprite-sheet.png", "image/png"),
+      uploadEffectExample(waveImpactSheet, "海浪冲击-sprite-sheet.webp", "image/webp"),
       uploadEffectExample(waveImpactPreview, "海浪冲击-preview.gif", "image/gif"),
-      uploadEffectExample(waterSplashSheetSource, "水花命中-sprite-sheet.png", "image/png"),
+      uploadEffectExample(waterSplashSheetSource, "水花命中-sprite-sheet.webp", "image/webp"),
       uploadEffectExample(waterSplashPreviewSource, "水花命中-preview.gif", "image/gif"),
-      uploadEffectExample(electricOrbBurstSheetSource, "雷球爆裂-sprite-sheet.png", "image/png"),
+      uploadEffectExample(electricOrbBurstSheetSource, "雷球爆裂-sprite-sheet.webp", "image/webp"),
       uploadEffectExample(electricOrbBurstPreviewSource, "雷球爆裂-preview.gif", "image/gif"),
-      uploadEffectExample(lightningStrikeSheetSource, "雷点落击-sprite-sheet.png", "image/png"),
+      uploadEffectExample(lightningStrikeSheetSource, "雷点落击-sprite-sheet.webp", "image/webp"),
       uploadEffectExample(lightningStrikePreviewSource, "雷点落击-preview.gif", "image/gif"),
-      uploadEffectExample(iceClawSlashSheet, "三道寒冰爪痕-sprite-sheet.png", "image/png"),
+      uploadEffectExample(iceClawSlashSheet, "三道寒冰爪痕-sprite-sheet.webp", "image/webp"),
       uploadEffectExample(iceClawSlashPreview, "三道寒冰爪痕-preview.gif", "image/gif"),
-      uploadEffectExample(electricTrailSheetSource, "电光拖尾-sprite-sheet.png", "image/png"),
+      uploadEffectExample(electricTrailSheetSource, "电光拖尾-sprite-sheet.webp", "image/webp"),
       uploadEffectExample(electricTrailPreviewSource, "电光拖尾-preview.gif", "image/gif"),
-      uploadEffectExample(blueWhiteCrescentSheetSource, "蓝白弧形斩击-sprite-sheet.png", "image/png"),
+      uploadEffectExample(blueWhiteCrescentSheetSource, "蓝白弧形斩击-sprite-sheet.webp", "image/webp"),
       uploadEffectExample(blueWhiteCrescentPreviewSource, "蓝白弧形斩击-preview.gif", "image/gif"),
-      uploadEffectExample(smokeSheetSource, "烟团消散-sprite-sheet.png", "image/png"),
+      uploadEffectExample(smokeSheetSource, "烟团消散-sprite-sheet.webp", "image/webp"),
       uploadEffectExample(smokePreviewSource, "烟团消散-preview.gif", "image/gif"),
-      uploadEffectExample(greenEnergyWaveSheetSource, "绿色聚能波-sprite-sheet.png", "image/png"),
+      uploadEffectExample(greenEnergyWaveSheetSource, "绿色聚能波-sprite-sheet.webp", "image/webp"),
       uploadEffectExample(greenEnergyWavePreviewSource, "绿色聚能波-preview.gif", "image/gif"),
-      uploadEffectExample(waterOrbMagicSheetSource, "水球魔法-sprite-sheet.png", "image/png"),
+      uploadEffectExample(waterOrbMagicSheetSource, "水球魔法-sprite-sheet.webp", "image/webp"),
       uploadEffectExample(waterOrbMagicPreviewSource, "水球魔法-preview.gif", "image/gif"),
     ]);
     const exampleGroup: AssetCanvasNode = { id: crypto.randomUUID(), type: "group", position: { x: 40, y: 700 }, width: 2080, height: 2680, data: { name: t("effectLibrary.templateExample"), pixelStyle: level } };

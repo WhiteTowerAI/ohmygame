@@ -5,6 +5,7 @@ import { pixelArtLevelOptions, pixelAssetPresetCatalog, pixelAssetPresetNeedsWor
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { pixelExampleImageUrl, pixelPresetGifExampleId, pixelPresetPreviewUrl } from "./asset-canvas-pixel-examples.js";
 import { EFFECT_PRESETS, effectPresetDescription, effectPresetLabel, type EffectPresetId } from "./asset-canvas-effect-presets.js";
+import { effectPresetPreviewUrl } from "./asset-canvas-effect-examples.js";
 import { t } from "./i18n.js";
 
 type AssetCanvasPixelPresetDialogProps = {
@@ -117,10 +118,10 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
               <div className="pixel-preset-grid">
                 {section.presets.map((preset) => {
                   const effect = EFFECT_PRESETS.find((candidate) => candidate.id === preset.id);
-                  const previewUrl = effect?.preview ?? pixelExampleImageUrl(pixelPresetGifExampleId(preset.id as PixelAssetPresetId, level)) ?? pixelPresetPreviewUrl(preset.id as PixelAssetPresetId, level);
+                  const previewUrl = effect ? effectPresetPreviewUrl(effect.id, level) : pixelExampleImageUrl(pixelPresetGifExampleId(preset.id as PixelAssetPresetId, level)) ?? pixelPresetPreviewUrl(preset.id as PixelAssetPresetId, level);
                   const nodeCount = !effect && pixelAssetPresetNeedsWorkflowGroup(preset.id as PixelAssetPresetId) ? 3 : 1;
                   return <button key={preset.id} type="button" onClick={() => selectPreset(preset.id)}>
-                    <span className={`pixel-preset-card-thumbnail${preset.category === "animation" ? " is-square" : ""}`}>
+                    <span className={`pixel-preset-card-thumbnail${preset.category === "animation" || effect ? " is-square" : ""}`}>
                       {previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : <ImageIcon size={22} aria-hidden="true" />}
                     </span>
                     <span className="pixel-preset-card-body">
