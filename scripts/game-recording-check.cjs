@@ -65,6 +65,7 @@ app.whenReady().then(async () => {
       assert.ok(Math.abs(info.video.width / info.video.height - aspect) < 0.02, `${name}: video is ${info.video.width}x${info.video.height}, expected a shape of ${aspect}`);
       assert.ok(info.audio, `${name}: has audio`);
       assert.ok(Math.abs(info.duration - seconds) < 1.5, `${name}: lasted ${info.duration} s, expected about ${seconds}`);
+      assert.ok(Math.abs(saved.duration - info.duration) < 1.5, `${name}: Library duration ${saved.duration} s, media duration ${info.duration} s`);
       assert.ok(file.bytes > 10_000, `${name}: holds real video`);
     };
 
