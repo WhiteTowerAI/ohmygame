@@ -12,6 +12,7 @@ const host = vi.hoisted(() => ({
   quit: vi.fn(), relaunch: vi.fn(), close: vi.fn(),
   install: undefined as (() => Promise<void>) | undefined,
   options: undefined as Record<string, unknown> | undefined,
+  daemonOptions: undefined as Record<string, unknown> | undefined,
   applicationMenu: undefined as { template: Array<{ id?: string; label?: string }> } | undefined,
   menuBeforeLabels: undefined as { template: Array<{ id?: string; label?: string }> } | undefined,
   popup: vi.fn(),
@@ -47,7 +48,10 @@ vi.doMock(path.resolve("src/desktop/network.ts"), () => ({
   prepareDesktopNetwork: async () => ({ active: {}, environment: {} }), electronProxyConfig: () => ({}), proxyCredentials: vi.fn(),
 }));
 vi.doMock(path.resolve("src/desktop/daemon-process.ts"), () => ({
-  startDaemon: async () => ({ runtime: { url: "http://127.0.0.1:12345", token: "test" }, stop: host.stopped }),
+  startDaemon: async (options: Record<string, unknown>) => {
+    host.daemonOptions = options;
+    return { runtime: { url: "http://127.0.0.1:12345", token: "test" }, stop: host.stopped };
+  },
 }));
 vi.doMock(path.resolve("src/desktop/log-file.ts"), () => ({
   RotatingLogFile: class { line() {} write() {} flush() {} close() {} stream() { return { write() {}, flush() {} }; } },
@@ -116,6 +120,9 @@ function quit() { const event = { preventDefault: vi.fn() }; host.appEvents.get(
 
 const fileMenuLabel = () => host.applicationMenu!.template.find((item) => item.id === "File")!.label;
 
+it("lets the built renderer frame plugin pages, which CSP knows as file: and CORS as null", () => {
+  expect(host.daemonOptions).toMatchObject({ allowedOrigins: ["null"], pluginFrameAncestors: ["file:"] });
+});
 it("has an English application menu before the main window loads", () => {
   expect(host.menuBeforeLabels!.template.map((item) => item.label)).not.toContain("Sent while loading");
   expect(host.menuBeforeLabels!.template.find((item) => item.id === "File")).toEqual(expect.objectContaining({ label: undefined }));
