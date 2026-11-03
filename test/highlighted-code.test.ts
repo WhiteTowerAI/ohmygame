@@ -1,49 +1,56 @@
+// @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
-import { createElement } from "react";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { HighlightedCode, highlightWorkspaceCode } from "../src/renderer/highlighted-code.js";
+import Prism from "prismjs";
+import "../src/renderer/code-highlight.worker.js";
+import { HighlightedCode, workspaceLanguage } from "../src/renderer/highlighted-code.js";
 
-const initialization = vi.hoisted(() => ({ failOnce: true }));
-vi.mock("shiki/core", async (importOriginal) => {
-  const core = await importOriginal<typeof import("shiki/core")>();
-  return {
-    ...core,
-    createHighlighterCore: async (...args: Parameters<typeof core.createHighlighterCore>) => {
-      if (initialization.failOnce) {
-        initialization.failOnce = false;
-        return Promise.reject(new Error("Temporary highlighter initialization failure"));
-      }
-      const highlighter = await core.createHighlighterCore(...args);
-      const codeToHtml = highlighter.codeToHtml.bind(highlighter);
-      // Fixed short fixtures must finish tokenizing even on a busy CI runner.
-      // Shiki's production 500ms budget can return a partly colored line.
-      highlighter.codeToHtml = (code, options) => codeToHtml(code, { ...options, tokenizeTimeLimit: 0 });
-      return highlighter;
-    },
-  };
-});
+const workers = vi.hoisted(() => ({ attempts: 0, terminated: 0 }));
+vi.mock("../src/renderer/code-highlight.worker.ts?worker&inline", () => ({
+  default: class {
+    constructor() {
+      if (++workers.attempts === 1) throw new Error("Temporary worker failure");
+    }
+    onmessage?: (event: { data: string }) => void;
+    postMessage(request: string) {
+      const { language, code } = JSON.parse(request);
+      this.onmessage?.({ data: Prism.highlight(code, Prism.languages[language]!, language) });
+    }
+    terminate() { workers.terminated++; }
+  },
+}));
 
 describe("workspace code highlighting", () => {
-  it("retries after failed initialization and renders colored, escaped code in both themes", async () => {
-    await expect(highlightWorkspaceCode("const value = 1;", "javascript", "github-dark"))
-      .rejects.toThrow("Temporary highlighter initialization failure");
+  it("loads every supported grammar and escapes markup in JSX and TSX", () => {
+    for (const extension of ["css", "html", "js", "jsx", "json", "md", "mjs", "py", "ts", "tsx", "yaml", "yml"]) {
+      const language = workspaceLanguage("scene." + extension)!;
+      expect(Prism.languages[language]).toBeDefined();
+    }
+    for (const language of ["jsx", "tsx"]) {
+      const html = Prism.highlight('export const Scene = () => <div title="Forest" />;', Prism.languages[language]!, language);
+      expect(html).toContain("token keyword");
+      expect(html).toContain("&lt;");
+      expect(html).not.toContain("<div");
+    }
+  });
 
-    for (const theme of ["github-dark", "github-light"] as const) {
-      for (const [language, content] of [
-        ["typescript", 'export const scene: string = "Forest";'],
-        ["javascript", 'export const scene = "Forest";'],
-        ["json", '{ "name": "Forest", "count": 3 }'],
-        ["tsx", 'export const Scene = () => <div title="Forest" />;'],
-      ]) {
-        const html = await highlightWorkspaceCode(content, language, theme);
-        expect(html).toContain(`shiki ${theme}`);
-        expect(new Set([...html.matchAll(/style="color:(#[A-Fa-f0-9]+)/g)].map((match) => match[1])).size, `${theme}/${language}: ${html}`)
-          .toBeGreaterThan(1);
-        if (language === "tsx") {
-          expect(html).toMatch(/&(?:lt|#x0*3c|#0*60);/i);
-          expect(html).not.toContain("<div");
-        }
-      }
+  it("keeps text readable on worker failure and retries on the next file", async () => {
+    vi.stubGlobal("Worker", class {});
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(createElement(HighlightedCode, { path: "one.ts", content: "const one = 1;" })));
+      await vi.waitFor(() => expect(workers.attempts).toBe(1));
+      expect(container.querySelector("code")?.textContent).toBe("const one = 1;");
+      await act(async () => root.render(createElement(HighlightedCode, { path: "two.ts", content: "const two = 2;" })));
+      await vi.waitFor(() => expect(container.querySelector(".token.keyword")?.textContent).toBe("const"));
+      expect(container.querySelector("code")?.textContent).toBe("const two = 2;");
+      expect(workers.terminated).toBeGreaterThan(0);
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
     }
   });
 
