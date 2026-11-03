@@ -85,6 +85,9 @@ missing dev script; Start and Play always report it. Generated dependencies, hid
 runtime log/PID/temp files do not trigger retries.
 
 **Stop preview** cancels installation/startup or stops the running service.
+On Windows the daemon asks the process tree to exit. If Windows refuses the
+entire request, the daemon immediately retries with forced termination. A tree
+that accepts any part of the request still gets time to shut down.
 That manual pause survives reopening the project during the current application
 session; file changes and agent completion respect it. **Start preview** or Play
 resumes it. Service recovery also pauses automatic startup until the user resumes.
