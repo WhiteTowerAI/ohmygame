@@ -177,7 +177,7 @@ export interface AppOptions {
   logDirectory?: string;
   accessToken?: string;
   allowedOrigins?: string[];
-  /** Pages that may frame plugin pages; the allowed origins when unset. */
+  /** Pages that may frame plugin pages, as CSP sources; the allowed origins when unset. */
   pluginFrameAncestors?: string[];
   publishApiUrl?: string;
   publishFetch?: typeof fetch;

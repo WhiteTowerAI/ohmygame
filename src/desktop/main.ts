@@ -772,6 +772,8 @@ try {
     dataDirectory,
     token: randomBytes(32).toString("base64url"),
     allowedOrigins: [rendererOrigin],
+    // A `file://` page sends the origin `null`, but CSP only matches it as `file:`.
+    pluginFrameAncestors: [useBuiltRenderer ? "file:" : rendererOrigin],
     piAgentDirectory: process.env.PI_CODING_AGENT_DIR ?? path.join(app.getPath("userData"), "pi-agent"),
     bundledPluginsDirectory: app.isPackaged ? path.join(process.resourcesPath, "plugins") : undefined,
     pluginUiDirectory: app.isPackaged ? path.join(process.resourcesPath, "plugin-ui") : undefined,
