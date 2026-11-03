@@ -72,6 +72,10 @@ describe("project package manager", () => {
     const workspacePath = await mkdtemp(
       path.join(tmpdir(), "ohmygame-package-manager-"),
     );
+    await writeFile(path.join(workspacePath, "pnpm-workspace.yaml"), "packages: [game]");
+    await expect(resolvePackageManager(workspacePath)).resolves.toEqual({
+      manager: "pnpm", source: "pnpm-workspace.yaml",
+    });
     await writeFile(
       path.join(workspacePath, "pnpm-lock.yaml"),
       "lockfileVersion: '9.0'\n",

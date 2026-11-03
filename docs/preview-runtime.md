@@ -46,7 +46,8 @@ the same placeholders. Leaving arguments empty selects framework defaults;
 own supported flags; unknown scripts receive the environment variables only.
 
 Package-manager selection uses the explicit setting, `package.json.packageManager`,
-lockfile, then npm. Settings display the detected manager and its source, and
+lockfile, then npm. A pnpm workspace manifest also selects pnpm when there is
+no lockfile. Settings display the detected manager and its source, and
 check availability without running project code or installing dependencies.
 Missing Bun/pnpm/Yarn remains an actionable configuration error rather than
 silently changing managers. The packaged app includes Node/npm; other managers

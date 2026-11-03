@@ -848,6 +848,9 @@ produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Only that static output is uploaded; hidden files, dependencies,
 and symbolic links are skipped. Binary assets retain their original bytes except
 for the Interactive Story publish-copy optimizations described above.
+For a nested package, preview and publishing both select the package manager and
+install dependencies at the owning workspace root. The build script runs in the
+configured startup directory.
 The workspace, Pi sessions, conversations, and credentials are never sent.
 `POST /projects/:projectId/build` returns the same static output as a ZIP for
 web games, General projects, and Interactive Stories, without the upload size
