@@ -4,6 +4,14 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.5.2] - 2026-11-03
+
+### Fixed
+
+- Show plugin panels, such as TapTap Maker, in the installed app, where they
+  were blank in 0.0.0-beta.5.1.
+  ([#663](https://github.com/WhiteTowerAI/ohmygame/pull/663) by @dogxii)
+
 ## [0.0.0-beta.5.1] - 2026-11-03
 
 ### Added
