@@ -8,10 +8,18 @@ import { t } from "./i18n.js";
 
 const base = (projectId: string) => `/projects/${encodeURIComponent(projectId)}/canvas`;
 const query = (documentId?: string) => documentId ? `?documentId=${encodeURIComponent(documentId)}` : "";
-export const getCanvasWorkspace = (id: string): Promise<CanvasWorkspaceDetail> => canvasRequest(`${base(id)}/workspace`);
+export function getCanvasWorkspace(id: string): Promise<CanvasWorkspaceDetail>;
+export function getCanvasWorkspace(id: string, knownRevision: string): Promise<CanvasWorkspaceDetail | undefined>;
+export function getCanvasWorkspace(id: string, knownRevision?: string): Promise<CanvasWorkspaceDetail | undefined> {
+  return canvasRequest(`${base(id)}/workspace` + (knownRevision ? `?knownRevision=${encodeURIComponent(knownRevision)}` : ""));
+}
 export const exportCanvasAsset = (id: string, assetId: string): Promise<{ assetId: string }> => canvasRequest(`${base(id)}/assets/${encodeURIComponent(assetId)}/library`, { method: "POST" });
 export const setMainCanvasDocument = (id: string, documentId: string, version?: string): Promise<void> => canvasRequest(`${base(id)}/main-document`, { method: "PUT", body: JSON.stringify({ documentId }), workspaceVersion: version });
-export const getCanvasBoard = (id: string, boardId: string): Promise<CanvasBoardDetail> => canvasRequest(`${base(id)}/boards/${encodeURIComponent(boardId)}`);
+export function getCanvasBoard(id: string, boardId: string): Promise<CanvasBoardDetail>;
+export function getCanvasBoard(id: string, boardId: string, knownRevision: string): Promise<CanvasBoardDetail | undefined>;
+export function getCanvasBoard(id: string, boardId: string, knownRevision?: string): Promise<CanvasBoardDetail | undefined> {
+  return canvasRequest(`${base(id)}/boards/${encodeURIComponent(boardId)}` + (knownRevision ? `?knownRevision=${encodeURIComponent(knownRevision)}` : ""));
+}
 export const saveCanvasBoard = (id: string, detail: CanvasBoardDetail, version?: string): Promise<CanvasBoardDetail> => canvasRequest(`${base(id)}/boards/${encodeURIComponent(detail.board.id)}`, { method: "PUT", body: JSON.stringify(detail), workspaceVersion: version });
 export const createCanvasBoard = (id: string, name: string, version?: string): Promise<CanvasWorkspaceIndex> => canvasRequest(`${base(id)}/boards`, { method: "POST", body: JSON.stringify({ name }), workspaceVersion: version });
 export const changeCanvasBoard = (id: string, boardId: string, patch: { name?: string; direction?: number }, version?: string): Promise<CanvasWorkspaceIndex> => canvasRequest(`${base(id)}/boards/${encodeURIComponent(boardId)}`, { method: "PATCH", body: JSON.stringify(patch), workspaceVersion: version });

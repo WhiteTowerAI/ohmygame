@@ -2,6 +2,10 @@
 
 Design and Asset Canvas share a project directory the agent edits with its ordinary file tools.
 The canvas renders those files and autosaves user edits into the same sources.
+A workspace or board GET accepts an optional `knownRevision` from its previous
+response. When disk contents match, the daemon returns HTTP 204. A changed
+resource returns its current contents and revision, including external edits.
+
 The agent can initialize a canvas when design or asset work needs it, without
 requiring the user to open Design first.
 The agent shows final media deliverables on the relevant board, reusing existing

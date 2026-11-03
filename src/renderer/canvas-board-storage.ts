@@ -116,8 +116,8 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
     refresh: (local) => enqueue(async () => {
       await ready();
       assertWritable(local);
-      const remote = await getCanvasBoard(projectId, boardId);
-      if (remote.revision === base!.revision) return;
+      const remote = await getCanvasBoard(projectId, boardId, base!.revision);
+      if (!remote || remote.revision === base!.revision) return;
       const merged = mergeCanvasDocument(canvasOnly(base!.board), local, canvasOnly(remote.board));
       if (!merged) { conflict(local, remote); throw new Error(conflictMessage); }
       base = remote;

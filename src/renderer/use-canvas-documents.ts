@@ -107,17 +107,21 @@ export function useCanvasDocuments(projectId: string, enabled = true) {
     },
     [recoveryKey],
   );
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (poll = false) => {
     const requestId = ++refreshCounter.current;
     const started = new Map(bases.current);
-    let next: CanvasWorkspaceDetail;
-    try { next = await getCanvasWorkspace(projectId); }
+    let next: CanvasWorkspaceDetail | undefined;
+    try {
+      const revision = poll && current.current?.revision;
+      next = revision ? await getCanvasWorkspace(projectId, revision) : await getCanvasWorkspace(projectId);
+    }
     catch (cause) {
       if (mounted.current && requestId === refreshCounter.current && !isDesktopClosing()) setLoadError(message(cause));
       throw cause;
     }
     if (!mounted.current || requestId !== refreshCounter.current) return;
     setLoadError(undefined);
+    if (!next) return;
     let recovered: Array<{
       base: CanvasDocumentDetail;
       local: CanvasMarkdownDocument;
@@ -143,7 +147,11 @@ export function useCanvasDocuments(projectId: string, enabled = true) {
       };
       const old = bases.current.get(remote.id),
         local = current.current?.documents.find((doc) => doc.id === remote.id);
-      if (old && old !== started.get(remote.id)) return local ?? remote;
+      if (old && old !== started.get(remote.id)) {
+        // A save raced this poll. Reconcile the skipped entry on the next read.
+        delete next.revision;
+        return local ?? remote;
+      }
       const recovery = recovered.find((draft) => draft.local?.id === remote.id);
       const before = old ?? recovery?.base;
       const ours = local ? documentContent(local) : recovery?.local;
@@ -192,7 +200,7 @@ export function useCanvasDocuments(projectId: string, enabled = true) {
     void refresh().catch(() => {});
     // A hidden window shows nobody the external changes, so it refreshes again on return instead.
     const run = () => {
-      if (!isDesktopClosing() && !window.document.hidden) void refresh().catch(() => {});
+      if (!isDesktopClosing() && !window.document.hidden) void refresh(true).catch(() => {});
     };
     const timer = window.setInterval(run, 3000);
     window.document.addEventListener("visibilitychange", run);

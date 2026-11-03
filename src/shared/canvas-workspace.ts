@@ -18,6 +18,7 @@ export interface CanvasWorkspaceIndex {
   tables?: Array<{ id: string; title: string }>;
 }
 export interface CanvasWorkspaceDetail extends Omit<CanvasWorkspaceIndex, "documents" | "tables"> {
+  revision?: string;
   documents: Array<CanvasMarkdownDocument & { revision: string; source: string; main: boolean }>;
   tables?: Array<CanvasTable & { revision: string; source: string }>;
   tableIssues?: Array<{ id: string; title: string; source: string; message: string }>;

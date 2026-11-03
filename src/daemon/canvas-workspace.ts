@@ -334,7 +334,11 @@ export class CanvasStore {
       }))).filter((document) => document !== undefined);
       await ensureCanvasContract(workspace);
       const assets = await inspectCanvasAssets(workspace, await readCanvasAssets(workspace));
-      return { ...index, ...assets, tables, tableIssues, documentIssues, documents: documents.map((detail) => ({ ...detail.document, revision: detail.revision, source: canvasDocumentPath(detail.document.id), main: detail.document.id === index.mainDocumentId })) };
+      // File revisions cover the large table cells and Markdown bodies. Include index titles,
+      // ordering, asset availability and read errors so an external edit is always visible.
+      const workspaceRevision = revision([index, assets, tables.map((table) => table.revision),
+        documents.map((doc) => doc.revision), tableIssues, documentIssues]);
+      return { ...index, ...assets, revision: workspaceRevision, tables, tableIssues, documentIssues, documents: documents.map((detail) => ({ ...detail.document, revision: detail.revision, source: canvasDocumentPath(detail.document.id), main: detail.document.id === index.mainDocumentId })) };
     });
   }
   async createDocument(id: string, title: string) {

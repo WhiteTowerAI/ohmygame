@@ -108,6 +108,8 @@ describe("Markdown design workspace", () => {
     const app = createApp({ dataDirectory: await temp() }); apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json(), base = `/projects/${project.id}/canvas`;
     const workspace = (await app.inject(`${base}/workspace`)).json();
+    const poll = `${base}/workspace?knownRevision=${workspace.revision}`;
+    expect((await app.inject(poll)).statusCode).toBe(204);
     const created = await app.inject({ method: "POST", url: `${base}/tables`, payload: { title: "Balance" } });
     expect(created.statusCode).toBe(201);
     const detail = created.json(), url = `${base}/tables/${detail.table.id}`;
@@ -117,7 +119,14 @@ describe("Markdown design workspace", () => {
     expect((await app.inject({ method: "PUT", url, payload: detail })).statusCode).toBe(200);
     expect((await app.inject({ method: "PUT", url, payload: detail })).statusCode).toBe(409);
     expect((await app.inject({ method: "PUT", url: `${base}/tables/other`, payload: detail })).statusCode).toBe(400);
+    const changed = await app.inject(poll);
+    expect(changed.statusCode).toBe(200);
+    const afterTable = changed.json().revision;
+    const tablePath = path.join(project.workspacePath, "canvas", "tables", detail.table.id + ".json");
+    await writeFile(tablePath, JSON.stringify({ ...detail.table, title: "External edit" }));
+    expect((await app.inject(`${base}/workspace?knownRevision=${afterTable}`)).json().tables[0].title).toBe("External edit");
     const board = (await app.inject(`${base}/boards/${workspace.boards[0].id}`)).json();
+    expect((await app.inject(`${base}/boards/${board.board.id}?knownRevision=${board.revision}`)).statusCode).toBe(204);
     board.board.nodes.push({ id: "missing", type: "table", position: { x: 0, y: 0 }, data: { tableId: "unknown" } }); board.board.editorLayout.nodes.missing = { x: 0, y: 0 };
     expect((await app.inject({ method: "PUT", url: `${base}/boards/${board.board.id}`, payload: board })).statusCode).toBe(404);
   });

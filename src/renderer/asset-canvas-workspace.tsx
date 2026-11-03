@@ -407,6 +407,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     let stopped = false;
     let timer: number | undefined;
     const poll = async () => {
+      if (window.document.hidden) {
+        timer = window.setTimeout(poll, 1_500);
+        return;
+      }
       try {
         const jobs = await storageRef.current.jobs();
         if (stopped) return;
@@ -557,6 +561,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   useEffect(() => {
     if (phase !== "ready" || !document) return;
+    if (historyGestureBase.current) return;
     const serialized = canvasHistoryKey(document);
     if (!historyObserved.current || historyObservedJson.current === undefined) {
       observeHistoryDocument(document);
@@ -564,10 +569,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       return;
     }
     if (serialized === historyObservedJson.current) return;
-    if (historyGestureBase.current) {
-      observeHistoryDocument(document);
-      return;
-    }
     if (!historyPendingBase.current) historyPendingBase.current = structuredClone(historyObserved.current);
     editorRedoHistory.current = [];
     observeHistoryDocument(document);
