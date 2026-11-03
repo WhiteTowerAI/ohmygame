@@ -1498,16 +1498,18 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       .finally(() => setMaterializingExamples(false));
   }
 
-  // Example previews are bundled files, but media tools need a library asset: the first tool use makes the example the node's output.
-  async function materializeExampleOutputs(targets: readonly AssetCanvasFlowNode[]): Promise<AssetCanvasFlowNode[]> {
+  // Example previews are hosted images, but media tools and generation need a library asset: the first use makes the example the node's output.
+  async function materializeExampleOutputs(targets: readonly AssetCanvasFlowNode[], purpose: "asset" | "reference" = "asset"): Promise<AssetCanvasFlowNode[]> {
     const assigned = new Map<string, string>();
     for (const node of targets) {
       const url = node.data.assetId ? undefined : pixelExampleImageUrl(node.data.exampleImage);
       if (!url) continue;
-      const blob = await (await fetch(url)).blob();
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(t("assetCanvas.exampleUnavailable"));
+      const blob = await response.blob();
       const contentType = (blob.type || "image/webp") as LibraryUploadMediaType;
       const name = `${node.data.exampleImage!.split("/").pop()!.replace(/\.[^.]+$/, "")}.${contentType.split("/")[1]}`;
-      const asset = await uploadLibraryAsset(new File([blob], name, { type: contentType }), contentType, undefined, "asset");
+      const asset = await uploadLibraryAsset(new File([blob], name, { type: contentType }), contentType, undefined, purpose);
       assigned.set(node.id, asset.id);
     }
     if (assigned.size) {
@@ -1517,6 +1519,16 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       setLibraryAssets(await loadLibraryAssets());
     }
     return targets.map((node) => assigned.has(node.id) ? { ...node, data: { ...node.data, assetId: assigned.get(node.id) } } : node);
+  }
+
+  // A template's reference slot shows an example until the user supplies one; generating from it uses the example.
+  async function materializeExampleReferences(node: AssetCanvasFlowNode): Promise<void> {
+    const sources = (node.data.images ?? []).flatMap((reference) => {
+      if (reference.type !== "node") return [];
+      const source = nodesRef.current.find((candidate) => candidate.id === reference.nodeId);
+      return source && !source.data.assetId && pixelExampleImageUrl(source.data.exampleImage) ? [source] : [];
+    });
+    if (sources.length) await materializeExampleOutputs(sources, "reference");
   }
 
   function runMediaTool(operation: CanvasMediaToolbarAction, grid: MediaGridSize | undefined, targets: readonly AssetCanvasFlowNode[]): void {
@@ -1807,6 +1819,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setGenerationError(undefined);
     try {
       const targetStorage = storageRef.current;
+      await materializeExampleReferences(node);
+      signal?.throwIfAborted();
       await flush();
       signal?.throwIfAborted();
       const job = await targetStorage.generate(node.id);
@@ -3410,8 +3424,10 @@ function imageReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNo
     const source = nodes.find((candidate) => candidate.id === reference.nodeId && isImageFlowSource(candidate));
     const assetId = source?.data.assetId;
     const asset = libraryAssets.find((candidate) => candidate.id === assetId);
+    const exampleUrl = source && !assetId ? pixelExampleImageUrl(source.data.exampleImage) : undefined;
     return {
       ...(assetId ? { assetId } : {}),
+      ...(exampleUrl ? { exampleUrl } : {}),
       key: `node:${reference.nodeId}`,
       type: "image",
       label,

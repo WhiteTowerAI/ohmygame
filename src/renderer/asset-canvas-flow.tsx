@@ -178,6 +178,8 @@ export interface Animate3DNodeRuntime extends ReferenceMediaNodeRuntime {
 
 export interface MediaReferenceView {
   assetId?: string;
+  /** Example image a connected template slot shows until it has an asset; generating uploads it. */
+  exampleUrl?: string;
   key: string;
   name: string;
   label: string;

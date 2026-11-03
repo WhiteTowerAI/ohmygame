@@ -2928,6 +2928,7 @@ const zhCN: typeof en = {
     copyNode: "复制节点",
     viewNumber: "视图 {{number}}",
     missingImage: "图片缺失",
+    exampleUnavailable: "示例图加载失败，请检查网络后重试。",
     connectedImage: "已连接的图片",
     missingImageNode: "图片节点缺失",
     missingModel: "模型缺失",

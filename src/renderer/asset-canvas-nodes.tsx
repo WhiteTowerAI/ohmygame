@@ -107,7 +107,7 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
   const referenceUnavailable = Boolean(data.images?.length && (
     !selectedModel?.supportsReferenceImage || selectedModel.maxReferenceImages === 0 ||
     (data.quickReskinMode === "person-clothing" && (selectedModel.maxReferenceImages ?? IMAGE_MAX_REFERENCE_IMAGES) < 2) ||
-    runtime?.references.some((reference) => !reference.assetId)
+    runtime?.references.some((reference) => !reference.assetId && !reference.exampleUrl)
   ));
   const modelOptions = selectedModel?.generationOptions ?? [];
   const resolutions = [...new Set(modelOptions.map((option) => option.resolution))];

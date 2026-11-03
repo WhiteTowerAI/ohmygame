@@ -2999,6 +2999,7 @@ const en = {
     copyNode: "Copy node",
     viewNumber: "View {{number}}",
     missingImage: "Missing image",
+    exampleUnavailable: "Could not load the example image. Check your network connection and try again.",
     connectedImage: "Connected image",
     missingImageNode: "Missing image node",
     missingModel: "Missing model",

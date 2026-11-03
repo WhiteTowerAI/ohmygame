@@ -23,13 +23,14 @@ export function CanvasNodeReferenceStrip({ references, onRemoveReference, busy =
 
 /** Shared by media generation nodes and the Text/Document reference strip. */
 export function CanvasReferenceThumbnail({ reference, caption, disabled, onRemove }: {
-  reference: { assetId?: string; name: string; label: string; type: "text" | "document" | "image" | "video" | "audio" | "model"; text?: string };
+  reference: { assetId?: string; exampleUrl?: string; name: string; label: string; type: "text" | "document" | "image" | "video" | "audio" | "model"; text?: string };
   caption?: string;
   disabled?: boolean;
   onRemove(): void;
 }) {
   const textual = reference.type === "text" || reference.type === "document";
-  const preview = useWorkspaceAssetUrl(undefined, "", 0, reference.type === "image" || reference.type === "video" ? reference.assetId : undefined);
+  const assetPreview = useWorkspaceAssetUrl(undefined, "", 0, reference.type === "image" || reference.type === "video" ? reference.assetId : undefined);
+  const preview = !reference.assetId && reference.exampleUrl ? { ...assetPreview, url: reference.exampleUrl } : assetPreview;
   const title = preview.error ?? reference.text ?? `${reference.label}: ${reference.name}`;
   return <div className={`story-media-reference${textual ? " story-text-reference" : ""}${preview.error ? " is-unavailable" : ""}`} title={title}>
     {preview.url && reference.type === "image" ? <img src={preview.url} alt={reference.name} /> : null}
