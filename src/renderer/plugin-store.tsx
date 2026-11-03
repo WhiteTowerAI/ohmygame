@@ -1,23 +1,25 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
 import { isNewerPluginVersion, PLUGIN_CONTRIBUTIONS, type MarketBlock, type MarketPlugin, type PluginContribution, type PluginMarketListing, type StorePlugin, type StorePluginConfiguration } from "../shared/plugins.js";
-import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo, projectFileTypeFor } from "../shared/project-runtime.js";
+import { appWidePluginSuits, PLUGIN_PROJECT_KINDS, pluginAppliesTo } from "../shared/project-runtime.js";
 import { PERSONAL_PUBLISHER } from "../shared/plugin-manifest.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
-import { consentToPlugin, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, uninstallStorePlugin } from "./api.js";
+import { consentToPlugin, readStorePluginConfiguration, saveStorePluginConfiguration, setStorePluginEnabled, setStorePluginEveryProject, uninstallStorePlugin } from "./api.js";
 import { language, t } from "./i18n.js";
 import { BadgeCheck, ExternalLink, FolderOpen, Package, Play, RefreshCw, WandSparkles } from "./icons.js";
 import { PluginGlyph } from "./plugin-icons.js";
 import { SkillSection } from "./plugin-skills.js";
+import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { usePluginTry, type TryPlugin } from "./plugin-try.js";
 import { projectTypeLabel } from "./project-types.js";
 import { Alert, Badge, Button, Dialog, Switch, Tabs } from "./ui/index.js";
 
-// Plugins on the Plugins page. They are installed for the app and
-// turned on in each project, from its Plugins sheet or when it is created;
-// here they switch off everywhere, get the person's consent, take their
-// settings and uninstall. Several versions can be installed side by side,
-// since each project pins its own.
+// Plugins on the Plugins page. They are installed for the app; here each
+// one is turned on or off for every project it suits, and a project's
+// Plugins sheet can still switch it there. A plugin's page also gets the
+// person's consent, takes its settings, stops it everywhere and uninstalls.
+// Several versions can be installed side by side, since a project can pin
+// its own.
 
 /** An installed plugin: its newest version, and every version installed. */
 export interface StorePluginGroup {
@@ -36,6 +38,7 @@ export function groupStorePlugins(rows: readonly StorePlugin[]): StorePluginGrou
   return [...groups.values()];
 }
 
+/** Not stopped everywhere from its page. */
 export const storePluginEnabled = (plugin: StorePlugin) => plugin.grants?.enabled !== false;
 
 /** What it asks for that the person hasn't allowed yet. */
@@ -54,17 +57,61 @@ export function storePluginContributions({ adds }: StorePlugin): PluginContribut
     kind === "projectType" ? adds.projectTypes.length > 0 : kind === "skills" ? adds.skills > 0 : kind === "mcp" ? adds.mcpServers.length > 0 : false);
 }
 
-/** The app's project types a plugin that applies by itself names. */
-function appWideProjectTypes(plugin: StorePlugin): ProjectType[] {
+/** The app's project types a plugin's `appliesTo` names. */
+function suitedProjectTypes(plugin: StorePlugin): ProjectType[] {
   return plugin.appliesTo ? PROJECT_TYPE_IDS.filter((type) => pluginAppliesTo(plugin.appliesTo, type)) : [];
 }
 
 /** The app's project type a new project to try it in gets: the plugin's own if it has one, else the first that suits it. */
 function newProjectType(plugin: StorePlugin): ProjectType | undefined {
-  if (plugin.appWide) return plugin.appliesTo ? appWideProjectTypes(plugin)[0] : "web-game";
   const kinds: Record<string, string> = PLUGIN_PROJECT_KINDS;
   return PROJECT_TYPE_IDS.find((type) => kinds[type]?.startsWith(`${plugin.id}:`))
-    ?? PROJECT_TYPE_IDS.find((type) => pluginAppliesTo(plugin.appliesTo, projectFileTypeFor(type)));
+    ?? (plugin.appliesTo ? suitedProjectTypes(plugin)[0] : "web-game");
+}
+
+/**
+ * The switch that turns a plugin on or off in every project it suits. Turning
+ * on one that asks for more than was allowed asks first, since it then runs in
+ * each of those projects.
+ */
+export function useEveryProjectSwitch(onChanged: () => Promise<void>): {
+  toggle: (plugin: StorePlugin, on: boolean) => void;
+  busy?: string;
+  error?: string;
+  dialog: ReactNode;
+} {
+  const [busy, setBusy] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [asking, setAsking] = useState<StorePlugin>();
+  async function set(plugin: StorePlugin, on: boolean, missing: readonly string[] = []): Promise<void> {
+    setBusy(plugin.id);
+    setError(undefined);
+    try {
+      if (missing.length) await consentToPlugin(plugin.id, [...missing]);
+      await setStorePluginEveryProject(plugin.id, on);
+      await onChanged();
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      setBusy(undefined);
+    }
+  }
+  return {
+    toggle: (plugin, on) => {
+      if (busy) return;
+      if (on && storePluginMissing(plugin).length) setAsking(plugin);
+      else void set(plugin, on);
+    },
+    ...(busy ? { busy } : {}),
+    ...(error ? { error } : {}),
+    dialog: asking ? <PluginConsentDialog name={asking.displayName} capabilities={storePluginMissing(asking)} everyProject
+      onCancel={() => setAsking(undefined)}
+      onAllow={() => {
+        const plugin = asking;
+        setAsking(undefined);
+        void set(plugin, true, storePluginMissing(plugin));
+      }} /> : null,
+  };
 }
 
 function StoreTile({ plugin, large = false }: { plugin: StorePlugin; large?: boolean }): ReactNode {
@@ -121,7 +168,7 @@ export function MarketPluginCard({ plugin, onOpen }: { plugin: MarketPlugin; onO
 function StoreTags({ plugin }: { plugin: StorePlugin }): ReactNode {
   const { adds } = plugin;
   return <>
-    {plugin.appWide ? appWideProjectTypes(plugin).map((type) => <span key={type} className="plugins-tag">{projectTypeLabel(type)}</span>) : null}
+    {suitedProjectTypes(plugin).map((type) => <span key={type} className="plugins-tag">{projectTypeLabel(type)}</span>)}
     {adds.projectTypes.map((type) => <span key={`type:${type}`} className="plugins-tag">{type}</span>)}
     {adds.skills ? <span className="plugins-tag">{t("plugins.skillCount", { count: adds.skills })}</span> : null}
     {adds.tools ? <span className="plugins-tag">{t("pluginStore.toolCount", { count: adds.tools })}</span> : null}
@@ -134,7 +181,8 @@ export function StorePluginCard({ group, market, disabled, onToggle, onOpen }: {
   group: StorePluginGroup;
   market?: PluginMarketListing | undefined;
   disabled: boolean;
-  onToggle: (enabled: boolean) => void;
+  /** Turns it on or off in every project. */
+  onToggle: (on: boolean) => void;
   onOpen: () => void;
 }): ReactNode {
   const { plugin } = group;
@@ -147,20 +195,19 @@ export function StorePluginCard({ group, market, disabled, onToggle, onOpen }: {
           <span className="plugin-card-name">{plugin.displayName}</span>
           {plugin.beta ? <Badge tone="outline">{t("plugins.beta")}</Badge> : null}
           {enabled && storePluginMissing(plugin).length ? <Badge tone="outline">{t("pluginStore.needsConsent")}</Badge> : null}
-          {!enabled && !plugin.appWide ? <Badge tone="outline">{t("common.disabled")}</Badge> : null}
+          {!enabled ? <Badge tone="outline">{t("common.disabled")}</Badge> : null}
           {marketBlocks(group.versions, market).length ? <Badge tone="danger">{t("pluginStore.blockedBadge")}</Badge> : marketUpdate(plugin, market) ? <Badge tone="outline">{t("pluginStore.updateAvailable")}</Badge> : null}
         </strong>
         <small>{plugin.description}</small>
         <span className="plugins-meta">
-          <span>{plugin.appWide ? (plugin.appliesTo ? t("plugins.scopeTyped") : t("plugins.scopeAll")) : t("pluginStore.perProject")}</span>
+          <span>{plugin.everyProject ? t("plugins.scopeEveryProject") : t("plugins.scopeSomeProjects")}</span>
           <StoreTags plugin={plugin} />
         </span>
       </span>
     </button>
-    {/* A plugin a project turns on is turned on there. Its switch for every
-        project at once, which stops it wherever it is on, is on its page. */}
-    {plugin.appWide ? <Switch size="sm" checked={enabled} disabled={disabled}
-      label={`${enabled ? t("common.disable") : t("common.enable")} ${plugin.displayName}`} onChange={onToggle} /> : null}
+    {/* Its switch for every project; a project's Plugins sheet switches it there. One stopped from its page has none. */}
+    {enabled ? <Switch size="sm" checked={plugin.everyProject} disabled={disabled}
+      label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={onToggle} /> : null}
   </article>;
 }
 
@@ -225,15 +272,15 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
   const missing = storePluginMissing(plugin);
   const update = marketUpdate(plugin, market);
   const blocks = marketBlocks(versions, market);
+  const everyProject = useEveryProjectSwitch(onChanged);
   const tryIt = usePluginTry({
     displayName: plugin.displayName,
-    suits: (project) => plugin.appWide
-      ? appWidePluginSuits(plugin.appliesTo, project)
-      : pluginAppliesTo(plugin.appliesTo, project.pluginType?.id ?? projectFileTypeFor(project.type)),
+    suits: (project) => appWidePluginSuits(plugin.appliesTo, project) || project.pluginType?.plugin === plugin.id,
     emptyLabel: t("plugins.noCompatibleProjects"),
     target: {
-      // One that applies by itself is already on there; the prompt mentions it.
-      ...(plugin.appWide ? { mention: { name: plugin.id.slice(plugin.id.indexOf("/") + 1), marketplaceId: plugin.id.slice(0, plugin.id.indexOf("/")), displayName: plugin.displayName } } : { turnOn: plugin.id }),
+      // It is turned on in the project, if it isn't yet, and the prompt mentions it.
+      turnOn: plugin.id,
+      mention: { name: plugin.id.slice(plugin.id.indexOf("/") + 1), marketplaceId: plugin.id.slice(0, plugin.id.indexOf("/")), displayName: plugin.displayName },
       newProjectType: newProjectType(plugin),
     },
     onTry: onTry ?? (async () => {}),
@@ -301,7 +348,7 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
         {tryIt.popover}
       </div> : null}
     </header>
-    {error ? <Alert tone="danger" title={error} /> : null}
+    {error ?? everyProject.error ? <Alert tone="danger" title={error ?? everyProject.error} /> : null}
     {blocks.map((block) => <Alert key={block.version} tone="danger" title={t("pluginStore.blocked", { version: block.version, reason: block.reason })} />)}
     {enabled && missing.length ? <Alert title={t("pluginStore.consentTitle")} action={
       <Button size="sm" variant="primary" disabled={!!busy} onClick={allow}>{t("pluginStore.allow")}</Button>
@@ -315,7 +362,7 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
         {/* Every tab stays mounted, so unsaved settings survive switching tabs. */}
         <div className="plugin-tab" role="tabpanel" aria-label={t("plugins.about")} hidden={tab !== "about"}>
           {plugin.longDescription ? <p className="plugin-long">{plugin.longDescription}</p> : null}
-          {plugin.appWide ? null : <p className="plugin-long">{t("pluginStore.perProjectHint")}</p>}
+          <p className="plugin-long">{t("pluginStore.scopeHint")}</p>
           {plugin.examples.length ? <section className="plugins-section" aria-label={t("plugins.tryIt")}>
             <h2>{t("plugins.tryIt")}</h2>
             <div className="plugin-prompt-list">{plugin.examples.map((example) => <button type="button" key={example} className="plugin-prompt" disabled={!canTry}
@@ -344,11 +391,20 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
       <aside className="plugin-side" aria-label={t("plugins.management")}>
         <h2>{t("plugins.management")}</h2>
         <dl className="plugin-props">
+          {enabled ? <>
+            <dt>{t("plugins.everyProject")}</dt>
+            <dd className="plugin-state">
+              <Switch size="sm" checked={plugin.everyProject} disabled={!!busy || !!everyProject.busy}
+                label={t("plugins.everyProjectSwitch", { name: plugin.displayName })} onChange={(on) => everyProject.toggle(plugin, on)} />
+              <span>{plugin.everyProject ? t("plugins.scopeEveryProject") : t("plugins.scopeSomeProjects")}</span>
+            </dd>
+          </> : null}
           <dt>{t("plugins.status")}</dt>
           <dd className="plugin-state">
-            <Switch size="sm" checked={enabled} disabled={!!busy}
-              label={`${enabled ? t("common.disable") : t("common.enable")} ${plugin.displayName}`} onChange={toggle} />
-            {enabled ? t("common.enabled") : t("common.disabled")}
+            <span>{enabled ? t("common.enabled") : t("common.disabled")}</span>
+            <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => toggle(!enabled)}>
+              {enabled ? t("pluginStore.disableEverywhere") : t("common.enable")}
+            </Button>
           </dd>
           <dt>{t("plugins.source")}</dt>
           <dd>{plugin.bundled || plugin.preinstalled ? t("plugins.includedWithOhMyGame") : plugin.id}</dd>
@@ -381,8 +437,9 @@ export function StorePluginDetail({ group, market, onUpdate, onChanged, onRemove
         <Button variant="ghost" onClick={() => setRemoving(undefined)}>{t("common.cancel")}</Button>
         <Button variant="primary" onClick={() => remove(removing)}>{t("pluginStore.uninstall")}</Button>
       </>}>
-      <p>{plugin.appWide ? t("pluginStore.uninstallAppWideHint") : t("pluginStore.uninstallHint")}</p>
+      <p>{t("pluginStore.uninstallHint")}</p>
     </Dialog> : null}
+    {everyProject.dialog}
   </div>;
 }
 

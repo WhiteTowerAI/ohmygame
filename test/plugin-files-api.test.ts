@@ -39,7 +39,7 @@ async function setup(level?: "read" | "write", id = "acme/files") {
   const consent = await app.inject({ method: "POST", url: `/plugin-store/${id}/consent`, payload: { allowed: inspected.json().asks } });
   expect(consent.statusCode, consent.body).toBe(204);
   const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Files" } })).json<ProjectState>();
-  const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/${id}`, payload: { version: "1.0.0" } });
+  const on = await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/${id}`, payload: { on: true, version: "1.0.0" } });
   expect(on.statusCode, on.body).toBe(204);
   const base = `/projects/${project.id}/plugin-files/${id}`;
   const workspace = (...parts: string[]) => path.join(project.workspacePath, ...parts);

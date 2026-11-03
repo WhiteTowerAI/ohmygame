@@ -16,7 +16,7 @@ import type { EffectiveMcpConfig, McpGuard } from "./plugin-mcp-host.js";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, realpath } from "node:fs/promises";
 import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
 import path from "node:path";
@@ -111,16 +111,16 @@ import { MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
 import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, pluginSkillFolders, readPluginSkillContent, resolvePluginSkillFile } from "./plugin-runtime.js";
-import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError, type AppWideProject } from "./plugin-services.js";
+import { BUNDLED_PLUGINS_OFF, PluginCommandInputError, PluginServices, PluginToolSchemaError } from "./plugin-services.js";
 import { localizePluginString, type PluginIndexEntry } from "./plugin-index.js";
-import { isAppWidePlugin, isPluginId } from "../shared/plugin-manifest.js";
+import { isPluginId, pluginApiIssue } from "../shared/plugin-manifest.js";
 import { createPluginFolder, deletePluginFile, listPluginFiles, movePluginFile, openPluginFile, PLUGIN_FILE_MAX_BYTES, PluginFileError, writePluginFile } from "./plugin-files.js";
 import { PluginChangeError, PluginWrites } from "./plugin-writes.js";
 import { PluginConfigurationError } from "./plugin-values.js";
 import { downloadRelease, installRelease, PluginReleaseError, type PluginReleaseKeys } from "./plugin-releases.js";
 import { PluginMarket, type PluginMarketOptions } from "./plugin-market.js";
 import { PluginSourceError, PluginSources, type PluginSourceNetwork } from "./plugin-sources.js";
-import { appliesByItself, capabilityGrants, missingGrants, resolveProjectPlugins } from "./project-plugins.js";
+import { capabilityGrants, missingGrants, type ProjectKind } from "./project-plugins.js";
 import { startPluginUiServer, type PluginUiServer } from "./plugin-ui-server.js";
 import { PluginPageStorage, PluginPageStorageError } from "./plugin-page-storage.js";
 import { PLUGIN_UI_STORAGE_MAX_BYTES } from "../shared/plugin-ui-protocol.js";
@@ -131,7 +131,7 @@ import { PluginConfigurationStore } from "./plugin-configuration.js";
 import { PluginMcpHost } from "./plugin-mcp-host.js";
 import { registerConnectionRoutes } from "./connection-routes.js";
 import type { PluginMention } from "../shared/contracts.js";
-import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type ProjectPluginChoice, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
+import { hasPluginMentionToken, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_NPM_REGISTRIES, pluginMentionToken, type PluginAddSource, type ProjectPluginItem, type ProjectPluginsView, type StorePlugin } from "../shared/plugins.js";
 import { CORE_PROJECT_TYPES, projectTypePlugin } from "../shared/project-file.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
@@ -812,10 +812,25 @@ export function createApp(options: AppOptions = {}) {
   /** Plugins: their index, the person's decisions, and the hosts that run native code. */
   // The plugins that ship with the app.
   const bundledPlugins = options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins");
+  // Plugins' `appliesTo` matches what a folder's project is in the app (a Web
+  // game, an Asset Canvas), which its `ohmygame.json` doesn't tell apart.
+  const projectFolderKeys = new Map<string, string>();
+  const projectKindAtFolder = async (folder: string): Promise<ProjectKind | undefined> => {
+    for (const project of projects.list()) {
+      let key = projectFolderKeys.get(project.workspacePath);
+      if (!key) {
+        key = await realpath(project.workspacePath).catch(() => path.resolve(project.workspacePath));
+        projectFolderKeys.set(project.workspacePath, key);
+      }
+      if (key === folder) return projectKindOf(project);
+    }
+    return undefined;
+  };
   const pluginServices = new PluginServices({
     directory: path.join(dataDirectory, "plugin-store"),
     bundled: bundledPlugins,
     bundledOff: BUNDLED_PLUGINS_OFF,
+    projectKind: projectKindAtFolder,
     onBundledError: (err) => app.log.warn({ err }, "Could not index the bundled plugins"),
   });
   // Indexing the bundled plugins starts now; every use of the plugin services waits for it.
@@ -942,11 +957,8 @@ export function createApp(options: AppOptions = {}) {
     skillDirectory: options.externalAgentSkillDirectory ?? path.join(repositoryRoot, "integrations", "skills", "ohmygame-studio"),
     recent: externalMcp.recentClients(),
   });
-  /** Skills from the plugins the project uses: those that apply by themselves, then those its project file turns on. */
-  const projectPluginSkills = async (project: ProjectState) => [
-    ...await pluginServices.appWideSkills(project).catch(() => []),
-    ...await pluginServices.skills(project.workspacePath).catch(() => []),
-  ];
+  /** Skills from the plugins on in the project. */
+  const projectPluginSkills = async (project: ProjectState) => pluginServices.skills(project.workspacePath).catch(() => []);
   /** The MCP servers a project's sessions start: the person's connections, then its plugins'. */
   const projectMcp = async (project: ProjectState): Promise<EffectiveMcpConfig> => ({
     mcpServers: { ...connections.effective(project.type).mcpServers, ...await pluginServices.mcpServers(project.workspacePath).catch(() => ({})) },
@@ -1222,35 +1234,53 @@ export function createApp(options: AppOptions = {}) {
     const inside = path.relative(pluginServices.packagesDirectory, entry.root);
     return origin && inside && !inside.startsWith("..") && !path.isAbsolute(inside) ? { preinstalled: true, origin } : {};
   };
-  /** The plugins that apply by themselves, as the composer offers them to mention: `plugin://name@publisher`. */
-  const appWideMentions = async (locale: string | undefined, project?: AppWideProject): Promise<ConversationCapabilities["plugins"]> =>
-    (await pluginServices.appWide(project)).map((entry) => {
+  /**
+   * The plugins the composer offers to mention, `plugin://name@publisher`.
+   * With a project, those that suit it, each marked when it is off there;
+   * mentioning one turns it on. Without one, as Home offers them, those that
+   * don't add a project type (the type menu picks those), marked off unless
+   * they are on in every project.
+   */
+  const mentionablePlugins = async (locale: string | undefined, project?: ProjectState): Promise<ConversationCapabilities["plugins"]> => {
+    await pluginServices.ready();
+    const resolved = project ? await pluginServices.resolve(project.workspacePath).catch(() => undefined) : undefined;
+    const states = resolved?.ok ? resolved.plugins : [];
+    const kind = project ? projectKindOf(project) : undefined;
+    return [...new Set(pluginServices.index.entries().map((entry) => entry.id))].sort().flatMap((id) => {
+      const entry = pluginServices.index.get(id);
+      const grant = pluginServices.grants.plugin(id);
+      if (!entry || pluginApiIssue(entry.manifest) || grant?.enabled === false) return [];
+      const state = states.find((item) => item.id === id);
+      if (kind ? !state?.providesType && !appWidePluginSuits(entry.manifest.appliesTo, kind) : entry.manifest.contributes?.projectTypes?.length) return [];
+      const missing = missingGrants(capabilityGrants(entry.manifest), grant?.allowed ?? []);
+      const on = project ? state?.status === "active" : pluginServices.onInEveryProject(id) && !missing.length;
       const text = (value: string) => localizePluginString(entry, value, locale === "zh-CN" ? "zh-CN" : "en");
-      const [publisher, name] = entry.id.split("/") as [string, string];
+      const [publisher, name] = id.split("/") as [string, string];
       const { appliesTo, icon } = entry.manifest;
-      return {
-        id: entry.id,
+      return [{
+        id,
         name,
         displayName: text(entry.manifest.displayName),
         description: text(entry.manifest.description),
         marketplaceId: publisher,
         marketplaceDisplayName: publisher === "ohmygame" ? "OhMyGame" : publisher,
         ...(icon ? { icon: { type: "asset" as const, path: icon }, iconRevision: entry.digest } : {}),
-        ...(appliesTo ? { projectTypes: PROJECT_TYPE_IDS.filter((type) => pluginAppliesTo(appliesTo, type)) } : {}),
-      };
+        ...(appliesTo ? { appliesTo, projectTypes: PROJECT_TYPE_IDS.filter((type) => pluginAppliesTo(appliesTo, type)) } : {}),
+        ...(on ? {} : { off: true as const, ...(missing.length ? { asks: missing } : {}) }),
+      }];
     });
-  /** The plugin a mention names, when it is one that applies by itself. */
-  const appWideMentionEntry = ({ marketplaceId, name }: PluginMention) => {
+  };
+  /** The installed plugin a mention names. */
+  const mentionEntry = ({ marketplaceId, name }: PluginMention) => {
     const id = `${marketplaceId}/${name}`;
-    const entry = isPluginId(id) ? pluginServices.index.get(id) : undefined;
-    return entry && isAppWidePlugin(entry.manifest) ? entry : undefined;
+    return isPluginId(id) ? pluginServices.index.get(id) : undefined;
   };
   /** A prompt's mentions, each once and each of a plugin that is on. The app shows a plugin's name in the person's language, so either stays. */
   const validateMentions = async (mentions: readonly PluginMention[]): Promise<PluginMention[]> => {
     await pluginServices.ready();
     const validated: PluginMention[] = [];
     for (const mention of mentions) {
-      const entry = appWideMentionEntry(mention);
+      const entry = mentionEntry(mention);
       if (!entry) throw new Error(`Plugin ${mention.displayName} is not installed`);
       if (pluginServices.grants.plugin(entry.id)?.enabled === false) throw new Error(`Plugin ${mention.displayName} is disabled`);
       const names = (["en", "zh-CN"] as const).map((locale) => localizePluginString(entry, entry.manifest.displayName, locale));
@@ -1278,7 +1308,7 @@ export function createApp(options: AppOptions = {}) {
         bundled: bundledPluginEntry(entry.root),
         ...(added ? { origin: added } : {}),
         ...preinstalledFields(entry),
-        appWide: isAppWidePlugin(entry.manifest),
+        everyProject: pluginServices.onInEveryProject(entry.id),
         ...(entry.manifest.categories ? { categories: entry.manifest.categories } : {}),
         ...(entry.manifest.beta ? { beta: true } : {}),
         // The digest changes with the package, which holds the icon.
@@ -1407,6 +1437,16 @@ export function createApp(options: AppOptions = {}) {
       return storeReply(reply, cause);
     }
   });
+  app.put<{ Params: { publisher: string; name: string }; Body: { on: boolean } }>("/plugin-store/:publisher/:name/every-project", {
+    schema: { body: { type: "object", required: ["on"], additionalProperties: false, properties: { on: { type: "boolean" } } } },
+  }, async (request, reply) => {
+    try {
+      await pluginServices.setEveryProject(`${request.params.publisher}/${request.params.name}`, request.body.on);
+      return reply.code(204).send();
+    } catch (cause) {
+      return storeReply(reply, cause);
+    }
+  });
   app.put<{ Params: { publisher: string; name: string }; Body: { enabled: boolean } }>("/plugin-store/:publisher/:name/enabled", {
     schema: { body: { type: "object", required: ["enabled"], additionalProperties: false, properties: { enabled: { type: "boolean" } } } },
   }, async (request, reply) => {
@@ -1426,25 +1466,26 @@ export function createApp(options: AppOptions = {}) {
     if (!pluginServices.index.versions(id).length) await preinstalledPlugins.markRemoved(id);
     return reply.code(204).send();
   });
-  // The project's Plugins sheet: the plugins every project gets, and the ones it turns on itself.
+  // The project's Plugins sheet: every plugin that suits the project, and any its file asks for, each on or off here.
   app.get<{ Params: { projectId: string }; Querystring: { locale?: string } }>("/projects/:projectId/plugins", async (request, reply): Promise<ProjectPluginsView | undefined> => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     await pluginServices.ready();
     const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
-    const global = (await appWideMentions(locale, project)).map(({ id, displayName, description, icon, iconRevision }) => ({ id, displayName, description, ...(icon ? { icon } : {}), ...(iconRevision ? { iconRevision } : {}) }));
-    const resolved = await resolveProjectPlugins({ folder: project.workspacePath, index: pluginServices.index, grants: pluginServices.grants }).catch(() => undefined);
+    const resolved = await pluginServices.resolve(project.workspacePath).catch(() => undefined);
     const states = resolved?.ok ? resolved.plugins : [];
-    // One that doesn't suit the project's type is offered only to turn off, if it is on.
-    // The type the project file says, or will say once a plugin is turned on.
-    const projectType = resolved?.ok ? resolved.file.type : (CORE_PROJECT_TYPES as readonly string[]).includes(project.type) ? project.type : "general";
-    // Each plugin's newest version that suits the project is the one to turn on.
+    const kind = projectKindOf(project);
+    const owner = resolved?.ok && resolved.file ? projectTypePlugin(resolved.file.type) : undefined;
+    // Each plugin's newest version that suits the project is the one to turn on;
+    // one that doesn't suit it is listed only to turn off, if its file asks for it.
     const offered = new Map<string, PluginIndexEntry>();
     for (const entry of pluginServices.index.entries())
-      if (!offered.has(entry.id) && !appliesByItself(pluginServices.index, entry.id) && (pluginAppliesTo(entry.manifest.appliesTo, projectType) || projectTypePlugin(projectType) === entry.id))
+      if (!offered.has(entry.id) && pluginServices.grants.plugin(entry.id)?.enabled !== false && !pluginApiIssue(entry.manifest)
+        && (appWidePluginSuits(entry.manifest.appliesTo, kind) || owner === entry.id))
         offered.set(entry.id, entry);
-    const ids = [...new Set([...states.map((state) => state.id), ...offered.keys()])];
-    const items = ids.map((id): ProjectPluginItem => {
+    const ids = [...new Set([...states.map((state) => state.id), ...offered.keys()])]
+      .sort((a, b) => a === owner ? -1 : b === owner ? 1 : a.localeCompare(b));
+    const plugins = ids.map((id): ProjectPluginItem => {
       const state = states.find((item) => item.id === id);
       const entry = state?.entry ?? offered.get(id) ?? pluginServices.index.get(id);
       const requested = entry ? capabilityGrants(entry.manifest) : [];
@@ -1456,36 +1497,17 @@ export function createApp(options: AppOptions = {}) {
         version: entry?.version ?? state?.version ?? "",
         ...(state ? { used: state.version, status: state.status } : {}),
         providesType: state?.providesType ?? false,
+        everyProject: pluginServices.onInEveryProject(id),
         capabilities: requested,
-        consented: Boolean(grant && missingGrants(requested, grant.allowed).length === 0),
+        consented: missingGrants(requested, grant?.allowed ?? []).length === 0,
+        ...(entry?.manifest.icon ? { icon: { type: "asset" as const, path: entry.manifest.icon }, iconRevision: entry.digest } : {}),
       };
     });
-    return { global, plugins: items };
+    return { plugins };
   });
-  // What Home offers to turn on for the project it is about to create.
-  app.get<{ Querystring: { locale?: string } }>("/project-plugins", async (request): Promise<ProjectPluginChoice[]> => {
-    await pluginServices.ready();
-    const locale = request.query.locale === "zh-CN" ? "zh-CN" : "en";
-    return [...new Set(pluginServices.index.entries().map((entry) => entry.id))].flatMap((id): ProjectPluginChoice[] => {
-      const entry = pluginServices.index.get(id);
-      const grant = pluginServices.grants.plugin(id);
-      if (!entry || grant?.enabled === false || isAppWidePlugin(entry.manifest)) return [];
-      const requested = capabilityGrants(entry.manifest);
-      return [{
-        id,
-        displayName: localizePluginString(entry, entry.manifest.displayName, locale),
-        description: localizePluginString(entry, entry.manifest.description, locale),
-        version: entry.version,
-        capabilities: requested,
-        consented: Boolean(grant && missingGrants(requested, grant.allowed).length === 0),
-        providesTypes: (entry.manifest.contributes?.projectTypes ?? []).map((type) => `${id}:${type.id}`),
-        ...(entry.manifest.appliesTo ? { appliesTo: entry.manifest.appliesTo } : {}),
-      }];
-    });
-  });
-  // Moving a project to another installed version is how an update reaches it, and how it rolls back.
-  app.put<{ Params: { projectId: string; publisher: string; name: string }; Body: { version: string | null } }>("/projects/:projectId/plugins/:publisher/:name", {
-    schema: { body: { type: "object", required: ["version"], additionalProperties: false, properties: { version: { anyOf: [{ type: "string", maxLength: 256 }, { type: "null" }] } } } },
+  // Turns a plugin on or off in a project. With a version, it moves the project there: an update or a rollback.
+  app.put<{ Params: { projectId: string; publisher: string; name: string }; Body: { on: boolean; version?: string } }>("/projects/:projectId/plugins/:publisher/:name", {
+    schema: { body: { type: "object", required: ["on"], additionalProperties: false, properties: { on: { type: "boolean" }, version: { type: "string", maxLength: 256 } } } },
   }, async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
@@ -1494,7 +1516,10 @@ export function createApp(options: AppOptions = {}) {
       await pluginServices.ready();
       // A project made before plugins could be per project gets its `ohmygame.json` now.
       const initialType = (CORE_PROJECT_TYPES as readonly string[]).includes(project.type) ? project.type : "general";
-      await pluginServices.setProjectPlugin(project.workspacePath, `${request.params.publisher}/${request.params.name}`, request.body.version, initialType);
+      await pluginServices.setProjectPlugin(project.workspacePath, `${request.params.publisher}/${request.params.name}`, request.body.on, {
+        ...(request.body.version ? { version: request.body.version } : {}),
+        initialType,
+      });
       // The change listener does this too; waiting here means the reply follows it.
       await syncPluginType(project);
       return reply.code(204).send();
@@ -1777,11 +1802,11 @@ export function createApp(options: AppOptions = {}) {
 
   app.get<{ Querystring: { locale?: string } }>("/composer/capabilities", async (request) => {
     const [plugins, skills] = await Promise.all([
-      appWideMentions(request.query.locale),
+      mentionablePlugins(request.query.locale),
       loadPiSkillCatalog(
         path.join(dataDirectory, "home-composer"),
         piAgentDirectory,
-        () => pluginServices.appWideSkills().catch(() => []),
+        () => pluginServices.everyProjectSkills().catch(() => []),
       ),
     ]);
     return { plugins, skills } satisfies ConversationCapabilities;
@@ -2881,7 +2906,7 @@ export function createApp(options: AppOptions = {}) {
           return [
             ...[...new Set(pluginServices.index.entries().map((entry) => entry.id))].flatMap((id) => {
               const entry = pluginServices.index.get(id);
-              return entry ? [{ id, version: entry.version, enabled: pluginServices.grants.plugin(id)?.enabled ?? isAppWidePlugin(entry.manifest), ...(entry.manifest.beta ? { beta: true } : {}) }] : [];
+              return entry ? [{ id, version: entry.version, enabled: pluginServices.grants.plugin(id)?.enabled !== false, everyProject: pluginServices.onInEveryProject(id), ...(entry.manifest.beta ? { beta: true } : {}) }] : [];
             }),
           ];
         }),
@@ -3199,7 +3224,7 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const [plugins, skills] = await Promise.all([
-        appWideMentions(request.query.locale, project),
+        mentionablePlugins(request.query.locale, project),
         agents.skills(project, conversation),
       ]);
       return { plugins, skills } satisfies ConversationCapabilities;
@@ -3486,9 +3511,11 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
-      for (const mention of mentions) {
-        const entry = appWideMentionEntry(mention);
-        if (entry && !appWidePluginSuits(entry.manifest.appliesTo, project)) return reply.code(409).send({ error: "A referenced plugin requires a different project type" });
+      if (mentions.length) {
+        // A mentioned plugin is turned on first; the composer does that when it is picked.
+        const resolved = await pluginServices.resolve(project.workspacePath).catch(() => undefined);
+        const off = mentions.find((mention) => !(resolved?.ok && resolved.plugins.some((plugin) => plugin.id === `${mention.marketplaceId}/${mention.name}` && plugin.status === "active")));
+        if (off) return reply.code(409).send({ error: `Turn ${off.displayName} on in this project first` });
       }
       // A plugin type can hold prompts back until its project is set up, such as signed in and bound.
       if (project.pluginType) {
@@ -4080,4 +4107,9 @@ function configuredDefaultModel(cwd: string, agentDir: string): AgentModelRef | 
   const provider = settings.getDefaultProvider();
   const id = settings.getDefaultModel();
   return provider && id ? { provider, id } : undefined;
+}
+
+/** What a project is, for matching plugins' `appliesTo`. */
+function projectKindOf(project: Pick<ProjectState, "type" | "pluginType">): ProjectKind {
+  return { type: project.type, ...(project.pluginType ? { pluginType: { id: project.pluginType.id } } : {}) };
 }

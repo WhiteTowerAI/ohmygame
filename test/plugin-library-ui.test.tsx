@@ -15,7 +15,7 @@ const official: StorePlugin = {
   capabilities: [],
   grants: { enabled: true, allowed: [] },
   bundled: true,
-  appWide: true,
+  everyProject: true,
   examples: [],
   settings: [],
   skills: [],
@@ -63,9 +63,9 @@ beforeEach(() => {
         removed.push(route);
         return new Response(null, { status: 204 });
       }
-      if (route === `/plugin-store/${official.id}/enabled` && init.method === "PUT") {
+      if (route === `/plugin-store/${official.id}/every-project` && init.method === "PUT") {
         saved = JSON.parse(init.body as string);
-        plugins[0] = { ...plugins[0]!, grants: { enabled: false, allowed: [] } };
+        plugins[0] = { ...plugins[0]!, everyProject: false };
         return new Response(null, { status: 204 });
       }
       throw new Error(`Unexpected request: ${init.method ?? "GET"} ${route}`);
@@ -94,7 +94,7 @@ describe("Plugin library", () => {
     const cards = [...container.querySelectorAll(".plugin-card")];
     const betaCard = cards.find(card => card.querySelector(".plugin-card-name")?.textContent === "Studio")!;
     expect(betaCard.querySelector(".ui-badge")?.textContent).toBe("Beta");
-    expect(betaCard.querySelector('[aria-label="Disable Studio"]')).not.toBeNull();
+    expect(betaCard.querySelector('[aria-label="Turn Studio on in every project"]')).not.toBeNull();
     expect(section("Personal").querySelector(".ui-badge")).toBeNull();
   });
 
@@ -114,16 +114,10 @@ describe("Plugin library", () => {
     expect(section("Personal").textContent).toContain("My Notes");
     // The AI workspaces follow the Personal plugins.
     expect(container.querySelector('[aria-label="Plugin workspaces"]')?.textContent).toContain("Edit My Notes");
-    const toggle = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Disable Studio"]',
-    )!;
-    await act(async () => toggle.click());
-    expect(saved).toEqual({ enabled: false });
-    expect(
-      container
-        .querySelector('[aria-label="Enable Studio"]')
-        ?.getAttribute("aria-checked"),
-    ).toBe("false");
+    const toggle = () => container.querySelector<HTMLButtonElement>('[aria-label="Turn Studio on in every project"]')!;
+    await act(async () => toggle().click());
+    expect(saved).toEqual({ on: false });
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
     expect(window.location.hash).toBe("#/plugins");
   });
 

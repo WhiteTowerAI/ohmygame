@@ -75,6 +75,8 @@ interface ComposerProps {
   /** Plugin commands for the "/" list and the + menu; the project shell runs them. */
   pluginCommands?: ComposerPluginCommands;
   onPluginCommand?: (command: ProjectPluginCommand) => void;
+  /** Turns on a plugin that is off in the project, for mentioning it; false when the person declined. */
+  onTurnOnPlugin?: (plugin: ConversationCapabilities["plugins"][number]) => Promise<boolean>;
 }
 
 export function Composer({
@@ -103,6 +105,7 @@ export function Composer({
   capabilities,
   initialDraft,
   onInitialDraftHandled,
+  onTurnOnPlugin,
   onSubmit,
   onCompact,
   onContextUsage,
@@ -246,6 +249,19 @@ export function Composer({
   }
 
   function selectMention(mention: ComposerMention, query?: ComposerMentionQuery) {
+    // A plugin that is off here is turned on first, then mentioned.
+    if (mention.type === "plugin" && mention.value.off && onTurnOnPlugin) {
+      setAttachmentError(undefined);
+      void onTurnOnPlugin(mention.value).then(
+        (on) => { if (on) insertSelectedMention(mention, query); },
+        (cause: unknown) => setAttachmentError(cause instanceof Error ? cause.message : String(cause)),
+      );
+      return;
+    }
+    insertSelectedMention(mention, query);
+  }
+
+  function insertSelectedMention(mention: ComposerMention, query?: ComposerMentionQuery) {
     // Plugins and Skills go where they are typed, any number of each.
     const inserted = insertMention(prompt, query ?? { start: mentionCursor, end: mentionCursor, trigger: "@", query: "" }, mention);
     if (mention.type === "plugin") {

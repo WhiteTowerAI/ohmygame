@@ -13,8 +13,7 @@ import {
 import type { PluginIndex, PluginIndexEntry } from "./plugin-index.js";
 import {
   projectFolderKey,
-  resolveProjectPlugins,
-  type PluginGrants,
+  type ProjectPlugins,
   type ProjectPluginStatus,
 } from "./project-plugins.js";
 
@@ -79,7 +78,7 @@ function hostPlugin(entry: PluginIndexEntry, dataFolder: string): ExtensionHostP
 
 export class NativePlugins {
   readonly #index: PluginIndex;
-  readonly #grants: PluginGrants;
+  readonly #resolve: (folder: string) => Promise<ProjectPlugins>;
   readonly #hosts: ExtensionHosts;
 
   readonly #configuration:
@@ -90,7 +89,8 @@ export class NativePlugins {
 
   constructor(options: {
     index: PluginIndex;
-    grants: PluginGrants;
+    /** Which plugins are on in a project folder, and whether each may run. */
+    resolve: (folder: string) => Promise<ProjectPlugins>;
     hosts: ExtensionHosts;
     /** The values a call carries for the plugin's `configuration`. */
     configuration?: (entry: PluginIndexEntry) => PluginConfigurationValues;
@@ -98,7 +98,7 @@ export class NativePlugins {
     dataFolder: (id: string) => string;
   }) {
     this.#index = options.index;
-    this.#grants = options.grants;
+    this.#resolve = options.resolve;
     this.#hosts = options.hosts;
     this.#configuration = options.configuration;
     this.#dataFolder = options.dataFolder;
@@ -173,11 +173,7 @@ export class NativePlugins {
     const key = await projectFolderKey(folder).catch(() => folder);
     const loaded = this.#hosts.active(key);
     if (!Object.keys(loaded).length) return;
-    const resolved = await resolveProjectPlugins({
-      folder: key,
-      index: this.#index,
-      grants: this.#grants,
-    }).catch(() => undefined);
+    const resolved = await this.#resolve(key).catch(() => undefined);
     const allowed = new Map(
       resolved?.ok
         ? resolved.plugins
@@ -217,12 +213,8 @@ export class NativePlugins {
     folder: string,
   ): Promise<NativePluginStatus[] | undefined> {
     const key = await projectFolderKey(folder);
-    const resolved = await resolveProjectPlugins({
-      folder: key,
-      index: this.#index,
-      grants: this.#grants,
-    });
-    if (!resolved?.ok) return undefined;
+    const resolved = await this.#resolve(key);
+    if (!resolved.ok) return undefined;
     const loaded = this.#hosts.active(key);
     return resolved.plugins.map((plugin) => ({
       id: plugin.id,
@@ -298,12 +290,7 @@ export class NativePlugins {
   }
 
   async #active(key: string, id: string): Promise<PluginIndexEntry> {
-    const resolved = await resolveProjectPlugins({
-      folder: key,
-      index: this.#index,
-      grants: this.#grants,
-    });
-    if (!resolved) throw unavailable(`${key} has no ohmygame.json`);
+    const resolved = await this.#resolve(key);
     if (!resolved.ok)
       throw unavailable(
         `ohmygame.json is invalid: ${resolved.issues.join("; ")}`,

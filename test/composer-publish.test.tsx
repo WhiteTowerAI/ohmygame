@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "../src/renderer/composer.js";
 import { composerDrafts } from "../src/renderer/composer-drafts.js";
-import { pressKey, promptChips, promptText } from "./prompt-field.js";
+import { placeCaret, pressKey, promptChips, promptText, typePrompt } from "./prompt-field.js";
 
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
@@ -256,6 +256,44 @@ describe("composer mentions", () => {
     expect(promptChips(container)).toEqual(["Review", "Blender", "Game Design"]);
     await act(async () => container.querySelector<HTMLButtonElement>(".send-button")!.click());
     expect(props.onSubmit).toHaveBeenCalledWith("$review the @Blender scene with $game-design", [mention], [], "normal", [], [], []);
+  });
+
+  it("turns a plugin that is off in the project on before mentioning it, and leaves it out when declined or refused", async () => {
+    const tiles = { id: "acme/tiles", name: "tiles", displayName: "Tiles", description: "Tile maps", marketplaceId: "acme", marketplaceDisplayName: "Acme", off: true as const };
+    let answer!: (on: boolean) => void;
+    const onTurnOnPlugin = vi.fn(() => new Promise<boolean>((resolve) => { answer = resolve; }));
+    await render({ capabilities: { plugins: [blender, tiles], skills: [] }, canPublish: false, initialDraft: { prompt: "", mentions: [] }, onTurnOnPlugin });
+    const pick = async () => {
+      // Typed again, as the menu closed on the last pick.
+      await typePrompt("", container);
+      await typePrompt("@Til", container);
+      await placeCaret(4, container);
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent?.includes("Tiles"))!;
+      await act(async () => option.click());
+    };
+    await pick();
+    expect(onTurnOnPlugin).toHaveBeenCalledWith(tiles);
+    // Nothing goes in until it is on.
+    expect(promptChips(container)).toEqual([]);
+    await act(async () => answer(false));
+    expect(promptChips(container)).toEqual([]);
+
+    onTurnOnPlugin.mockImplementationOnce(async () => { throw new Error("Plugins change after the agent finishes."); });
+    await pick();
+    expect(container.textContent).toContain("Plugins change after the agent finishes.");
+    expect(promptChips(container)).toEqual([]);
+
+    await pick();
+    await act(async () => answer(true));
+    expect(promptChips(container)).toEqual(["Tiles"]);
+
+    // One on here goes in at once.
+    onTurnOnPlugin.mockClear();
+    await typePrompt("@Blen", container);
+    await placeCaret(5, container);
+    await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent?.includes("Blender"))!.click());
+    expect(onTurnOnPlugin).not.toHaveBeenCalled();
+    expect(promptChips(container)).toEqual(["Blender"]);
   });
 
   it("brings a Skill and plugin saved in slots before the text back into it", async () => {

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { consentToPlugin, createConversation, createProject, getHomeComposerCapabilities, getProjectLocation, listProjects, setProjectPluginVersion } from "./api.js";
+import { consentToPlugin, createConversation, createProject, getHomeComposerCapabilities, getProjectLocation, listProjects, setProjectPlugin } from "./api.js";
 import { uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { activePluginMentions } from "./composer-mentions.js";
 import { Folder, LoaderCircle } from "./icons.js";
 import { saveHomePrompt } from "./prompt-history.js";
 import { defaultProjectName, PROJECT_TYPES } from "./project-types.js";
-import { isAppProjectType, MORE_TYPES, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes, useProjectPluginChoices } from "./project-type-choices.js";
+import { isAppProjectType, MORE_TYPES, newProjectKind, openMoreProjectTypes, projectTypeOptions, usePluginProjectTypes } from "./project-type-choices.js";
 import { Button, Dialog, Field, Input, Select, Textarea } from "./ui/index.js";
 import type {
   ConversationCapabilities,
@@ -15,8 +15,7 @@ import type {
   PromptAttachment,
   PromptMode,
 } from "../shared/contracts.js";
-import { pluginAppliesTo, pluginProjectType, projectFileTypeFor } from "../shared/project-runtime.js";
-import type { ProjectPluginChoice } from "../shared/plugins.js";
+import { appWidePluginSuits, pluginProjectType } from "../shared/project-runtime.js";
 import { t } from "./i18n.js";
 import "./project-create-dialog.css";
 
@@ -28,8 +27,8 @@ export interface FirstMessage {
   mode: PromptMode;
   /** The type chosen on Home: one of the app's, or a plugin's `publisher/name:type`. */
   type?: string;
-  /** Plugins to turn on for this project alone once it exists. */
-  projectPlugins?: ProjectPluginChoice[];
+  /** Plugins the prompt mentions that aren't on in every project, to turn on once it exists. */
+  turnOn?: ConversationCapabilities["plugins"];
 }
 
 /** The first message, sent in the new project's first conversation. */
@@ -111,15 +110,13 @@ export function ProjectCreateDialog({
   // A plugin's type is recorded as a general project that its plugin runs.
   const kind: ProjectType = isAppProjectType(type) ? type : "general";
   // The plugin that adds the type turns on with the project, so creating allows what it asks for.
-  const { choices: pluginChoices, failed: pluginChoicesFailed, retry: retryPluginChoices } = useProjectPluginChoices();
-  const typePluginId = pluginTypes.find((option) => option.id === type)?.plugin?.id;
-  const typePlugin = pluginChoices?.find((plugin) => plugin.id === typePluginId);
-  // A plugin is allowed once even when it asks for nothing beyond its files.
-  const typePluginConsent = typePlugin && !typePlugin.consented ? typePlugin : undefined;
-  // Home's plugin type and that type's plugin load apart from the plugins.
+  const typeOption = pluginTypes.find((option) => option.id === type);
+  const typePluginConsent = typeOption?.plugin && typeOption.asks?.length
+    ? { id: typeOption.plugin.id, displayName: typeOption.title, capabilities: typeOption.asks }
+    : undefined;
+  // Home's plugin type loads apart from the plugins.
   const ready = pluginsPhase === "ready"
-    && (isAppProjectType(wanted) || installedPluginTypes.types !== undefined)
-    && (isAppProjectType(type) || pluginChoices !== undefined);
+    && (isAppProjectType(wanted) || installedPluginTypes.types !== undefined);
   const [workspacePath, setWorkspacePath] = useState(initialWorkspacePath);
   // Where a project without a chosen folder goes: Settings → General → Project location, else OhMyGame's own storage.
   const [defaultLocation, setDefaultLocation] = useState<{ location?: string; storage?: string }>({});
@@ -135,7 +132,7 @@ export function ProjectCreateDialog({
   const created = useRef<{ key: string; project: ProjectState; conversationId?: string } | undefined>(undefined);
   // Types are waited for when offered or when Home asked for a plugin's type.
   const typesFailed = installedPluginTypes.failed && (offersPluginTypes || !isAppProjectType(wanted));
-  const loadFailed = pluginsPhase === "error" || typesFailed || (pluginChoicesFailed && !isAppProjectType(type));
+  const loadFailed = pluginsPhase === "error" || typesFailed;
   const [shown, setShown] = useState(!direct);
 
   useEffect(() => {
@@ -194,12 +191,11 @@ export function ProjectCreateDialog({
       const key = JSON.stringify(input);
       if (created.current?.key !== key) created.current = { key, project: await createProject(input) };
       const project = created.current.project;
-      // Plugins chosen on Home for this project alone; the person allowed what they ask for there.
-      for (const plugin of firstMessage?.projectPlugins ?? []) {
-        // A plugin's own type turns it on; the app's Godot type does not.
-        if (plugin.providesTypes.includes(type) || !pluginAppliesTo(plugin.appliesTo, projectFileTypeFor(type))) continue;
-        if (!plugin.consented) await consentToPlugin(plugin.id, plugin.capabilities);
-        await setProjectPluginVersion(project.id, plugin.id, plugin.version);
+      // Plugins mentioned on Home that aren't on in every project; the person allowed what they ask for there.
+      for (const plugin of firstMessage?.turnOn ?? []) {
+        if (!appWidePluginSuits(plugin.appliesTo, newProjectKind(type))) continue;
+        if (plugin.asks?.length) await consentToPlugin(plugin.id, plugin.asks);
+        await setProjectPlugin(project.id, plugin.id, true);
       }
       const text = prompt.trim();
       if (!firstMessage || (!text && !firstMessage.attachments.length)) {
@@ -301,13 +297,10 @@ export function ProjectCreateDialog({
             {onOpenProject ? <Button size="sm" onClick={() => onOpenProject(existingProject.id)}>{t("creator.openProject")}</Button> : null}
           </p>
         ) : null}
-        {typesFailed || (pluginChoicesFailed && !isAppProjectType(type)) ? (
+        {typesFailed ? (
           <p className="new-project-error" role="alert">
             {t("createDialog.pluginsFailed")}
-            <Button size="sm" onClick={() => {
-              if (installedPluginTypes.failed) installedPluginTypes.retry();
-              if (pluginChoicesFailed) retryPluginChoices();
-            }}>{t("common.retry")}</Button>
+            <Button size="sm" onClick={installedPluginTypes.retry}>{t("common.retry")}</Button>
           </p>
         ) : null}
         {pluginsPhase === "error" ? (

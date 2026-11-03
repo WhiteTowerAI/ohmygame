@@ -2,7 +2,6 @@ import { createHash, generateKeyPairSync, sign as sign_ } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { ZipFile } from "yazl";
-import { createProjectPlugins, resolveProjectPlugins } from "../src/daemon/project-plugins.js";
 import { PluginServices } from "../src/daemon/plugin-services.js";
 import { availableUpdates, downloadRelease, installRelease, readCatalog, releaseMessage } from "../src/daemon/plugin-releases.js";
 import { compileWhen, matchesWhen } from "../src/shared/plugin-when.js";
@@ -1067,7 +1066,7 @@ describe("plugin releases", () => {
       await services.addBundled(bundled);
       expect(services.index.versions("ohmygame/blender").map((entry) => entry.version)).toEqual(["9.0.0", "0.2.0"]);
       // There is one version in use: the newest.
-      expect((await services.appWide()).map((entry) => entry.version)).toEqual(["9.0.0"]);
+      expect((await services.everyProject()).filter((entry) => entry.id === "ohmygame/blender").map((entry) => entry.version)).toEqual(["9.0.0"]);
     } finally {
       await services.close();
     }
@@ -1095,11 +1094,11 @@ describe("plugin releases", () => {
     }
   });
 
-  it("applies a plugin that only adds Skills by itself, to the projects it suits, in a fixed order", async () => {
+  it("turns a plugin that only adds Skills on in every project it suits, in a fixed order", async () => {
     const dir = await temporary();
     const services = new PluginServices({ directory: path.join(dir, "store"), bundled: BUNDLED, bundledOff: ["ohmygame/unity"] });
     try {
-      const plugins = async (project?: { type: string; pluginType?: { id: string } }) => (await services.appWide(project)).map((entry) => entry.id);
+      const plugins = async (project?: { type: string; pluginType?: { id: string } }) => (await services.everyProject(project)).map((entry) => entry.id);
       expect(await plugins()).toEqual(expect.arrayContaining(["ohmygame/blender", "ohmygame/game-studio", "ohmygame/web-game-studio"]));
       expect(await plugins()).not.toContain("ohmygame/unity");
       expect(await plugins()).not.toContain("ohmygame/godot");
@@ -1111,32 +1110,32 @@ describe("plugin releases", () => {
       expect(await plugins({ type: "general" })).not.toContain("ohmygame/web-game-studio");
       // A kind that is a plugin type now matches by either name.
       expect(await plugins({ type: "godot-game", pluginType: { id: "ohmygame/godot:godot-game" } })).toContain("ohmygame/game-studio");
-      const skills = await services.appWideSkills({ type: "general" });
+      const skills = await services.everyProjectSkills({ type: "general" });
       expect(skills.map((skill) => path.basename(path.dirname(skill.path)))).toEqual(expect.arrayContaining(["game-studio", "blender-assets"]));
       expect(skills.find((skill) => skill.path.includes("game-studio"))).toMatchObject({ pluginDisplayName: "Game Studio", marketplaceDisplayName: "ohmygame" });
-      await services.setEnabled("ohmygame/game-studio", false);
+      await services.setEveryProject("ohmygame/game-studio", false);
       expect(await plugins({ type: "general" })).not.toContain("ohmygame/game-studio");
     } finally {
       await services.close();
     }
   });
 
-  it("leaves a plugin that applies by itself out of what a project turns on", async () => {
+  it("loads a plugin on in every project once, even where its project file names it", async () => {
     const dir = await temporary();
     const folder = path.join(dir, "project");
     const services = new PluginServices({ directory: path.join(dir, "store"), bundled: BUNDLED });
     try {
       await services.ready();
+      const blender = services.index.get("ohmygame/blender")!;
+      const once = (await services.skills(await temporary())).filter((skill) => skill.pluginDisplayName === "Blender");
+      expect(once.length).toBeGreaterThan(0);
       await mkdir(folder);
-      await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/blender": "1.0.0" } }));
-      // A project file that names it doesn't load it a second time.
-      expect(await services.skills(folder)).toEqual([]);
-      await expect(services.setProjectPlugin(folder, "ohmygame/blender", "1.0.0")).rejects.toThrow("applies to every project it suits");
-      await expect(createProjectPlugins({ folder: path.join(dir, "new"), type: "general", plugins: { "ohmygame/blender": "1.0.0" }, index: services.index, grants: services.grants }))
-        .rejects.toThrow("applies to every project it suits");
-      // Taking it out of the file still works.
-      await services.setProjectPlugin(folder, "ohmygame/blender", null);
-      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins?.["ohmygame/blender"]).toBeUndefined();
+      await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/blender": blender.version } }));
+      expect((await services.skills(folder)).filter((skill) => skill.pluginDisplayName === "Blender")).toEqual(once);
+      // Off in the project, the file says so, since it is on in every project.
+      await services.setProjectPlugin(folder, "ohmygame/blender", false);
+      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins?.["ohmygame/blender"]).toBe(false);
+      expect((await services.skills(folder)).some((skill) => skill.pluginDisplayName === "Blender")).toBe(false);
     } finally {
       await services.close();
     }
@@ -1182,14 +1181,15 @@ describe("plugin releases", () => {
       expect((await services.index.add(newer)).ok).toBe(true);
       await mkdir(folder);
       await writeFile(path.join(folder, "ohmygame.json"), JSON.stringify({ type: "general", plugins: { "ohmygame/blender": "1.0.0" } }));
-      const resolved = await resolveProjectPlugins({ folder, index: services.index, grants: services.grants });
-      expect(resolved?.ok && resolved.plugins.map((plugin) => plugin.version)).toEqual(["1.0.0"]);
-      await expect(services.setProjectPlugin(folder, "ohmygame/blender", "2.0.0")).rejects.toThrow("applies to every project it suits");
       // The project runs the version it names, so the newest doesn't apply beside it.
-      const project = { type: "general", workspacePath: folder };
-      expect(await services.appWide(project)).toEqual([]);
-      expect(await services.appWideSkills(project)).toEqual([]);
-      expect((await services.appWide({ type: "general" })).map((entry) => entry.version)).toEqual(["2.0.0"]);
+      const resolved = await services.resolve(folder);
+      expect(resolved.ok && resolved.plugins.map((plugin) => [plugin.version, plugin.status])).toEqual([["1.0.0", "needs-consent"]]);
+      expect(await services.skills(folder)).toEqual([]);
+      expect((await services.everyProject({ type: "general" })).map((entry) => entry.version)).toEqual(["2.0.0"]);
+      // Turning it on at its newest follows every project again.
+      await services.setProjectPlugin(folder, "ohmygame/blender", true);
+      expect(JSON.parse(await readFile(path.join(folder, "ohmygame.json"), "utf8")).plugins).toBeUndefined();
+      expect((await services.skills(folder)).length).toBeGreaterThan(0);
     } finally {
       await services.close();
     }
@@ -1236,12 +1236,16 @@ describe("plugin releases", () => {
       expect(services.index.entries().map((entry) => entry.id)).toEqual(expect.arrayContaining(["ohmygame/game-studio", "ohmygame/godot", "ohmygame/taptap-maker", "ohmygame/unreal-engine"]));
       // One that only adds Skills asks for nothing, so it is simply on.
       expect(services.grants.plugin("ohmygame/game-studio")).toEqual({ enabled: true, allowed: [] });
-      // It asks for consent when the person turns it on, and stays as they leave it.
-      expect(services.grants.plugin("ohmygame/taptap-maker")).toEqual({ enabled: false, allowed: [] });
+      // One that starts off allows nothing yet: it asks when the person first turns it on.
+      expect(services.grants.plugin("ohmygame/taptap-maker")).toBeUndefined();
+      expect(services.onInEveryProject("ohmygame/taptap-maker")).toBe(false);
       await services.consent("ohmygame/taptap-maker", ["native"]);
-      await services.grants.setEnabled("ohmygame/taptap-maker", true);
       await services.addBundled(BUNDLED);
-      expect(services.grants.plugin("ohmygame/taptap-maker")?.enabled).toBe(true);
+      expect(services.grants.plugin("ohmygame/taptap-maker")).toMatchObject({ enabled: true, allowed: expect.arrayContaining(["native"]) });
+      // A plugin the person stopped everywhere stays stopped.
+      await services.setEnabled("ohmygame/godot", false);
+      await services.addBundled(BUNDLED);
+      expect(services.grants.plugin("ohmygame/godot")?.enabled).toBe(false);
     } finally {
       await services.close();
     }

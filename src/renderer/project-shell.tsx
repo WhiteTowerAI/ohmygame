@@ -63,7 +63,9 @@ import {
   branchConversation,
   getConversation,
   getConversationContextUsage,
+  consentToPlugin,
   getConversationCapabilities,
+  turnOnProjectPlugin,
   getCheckpointChanges,
   getCheckpointFile,
   getProject,
@@ -112,6 +114,7 @@ import {
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { ConversationMenu } from "./conversation-menu.js";
 import { ProjectPluginsSheet } from "./project-plugins-sheet.js";
+import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { ProjectAppearanceDialog } from "./project-appearance-settings.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
@@ -381,6 +384,21 @@ export function ProjectShell({
     });
     return () => { disposed = true; };
   }, [projectId, state.conversation?.id, state.connection, capabilitiesRevision]);
+
+  // A plugin mentioned while it is off here is turned on first, once the person allows what it asks for.
+  const [pluginConsent, setPluginConsent] = useState<{ plugin: ConversationCapabilities["plugins"][number]; answer: (allowed: boolean) => void }>();
+  async function turnOnMentionedPlugin(plugin: ConversationCapabilities["plugins"][number]): Promise<boolean> {
+    if (agentBusy) throw new Error(t("projectPlugins.busy"));
+    if (plugin.asks?.length) {
+      const allowed = await new Promise<boolean>((answer) => setPluginConsent({ plugin, answer }));
+      if (!allowed) return false;
+      await consentToPlugin(plugin.id, plugin.asks);
+    }
+    const blocked = await turnOnProjectPlugin(projectId, plugin.id);
+    if (blocked) throw new Error(blocked === "not-offered" ? t("pluginStore.doesNotSuitProject") : t(`projectPlugins.status.${blocked}`));
+    setCapabilitiesRevision((value) => value + 1);
+    return true;
+  }
 
   function subscribe(cursor: number, selectedConversationId: string): void {
     unsubscribeEvents.current?.();
@@ -1398,6 +1416,7 @@ export function ProjectShell({
       canPublish={Boolean(project && (isWebRuntimeProjectType(project.type) || project.type === "interactive-story") && !publishing && !agentBusy)}
       onPublish={project ? () => setPublishDialog({ projectId: project.id, status: "open" }) : undefined}
       pluginCommands={{ slash: slashCommands(plugins.commands, plugins.when), add: commandsForSlot(plugins.commands, "composer.add", plugins.when) }}
+      onTurnOnPlugin={turnOnMentionedPlugin}
       onPluginCommand={(command) => void runProjectPluginCommand(command)}
     /> : null}
   </>, chatInputNode);
@@ -1428,6 +1447,9 @@ export function ProjectShell({
       {pluginConfirm.request.message ? <p className="plugin-confirm-message">{pluginConfirm.request.message}</p> : null}
       <p className="plugin-confirm-source">{t("pluginCommands.askedBy", { plugin: pluginConfirm.plugin })}</p>
     </Dialog> : null}
+    {pluginConsent ? <PluginConsentDialog name={pluginConsent.plugin.displayName} capabilities={pluginConsent.plugin.asks ?? []}
+      onCancel={() => { pluginConsent.answer(false); setPluginConsent(undefined); }}
+      onAllow={() => { pluginConsent.answer(true); setPluginConsent(undefined); }} /> : null}
     {project ? <ProjectPluginsSheet projectId={project.id} open={pluginsOpen} busy={agentBusy} onClose={() => setPluginsOpen(false)} onChanged={() => setCapabilitiesRevision((value) => value + 1)} onOpenPlugins={() => onNavigate("plugins")} /> : null}
     {project && appearanceOpen ? <ProjectAppearanceDialog project={project} open onClose={() => setAppearanceOpen(false)} /> : null}
     {renaming && project ? <ProjectRenameDialog name={project.name} returnFocus={null} onClose={() => setRenaming(false)} onConfirm={(name) => void renameTo(name)} /> : null}

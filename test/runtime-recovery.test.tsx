@@ -360,7 +360,7 @@ describe("renderer service recovery", () => {
     let catalogReads = 0;
     const plugin = {
       id: "acme/test", version: "1.0.0", revision: "a".repeat(64), displayName: "Test plugin", description: "Test",
-      capabilities: [], grants: { enabled: true, allowed: [] }, bundled: false, appWide: false, examples: [], skills: [],
+      capabilities: [], grants: { enabled: true, allowed: [] }, bundled: false, everyProject: false, examples: [], skills: [],
       settings: [{ name: "endpoint", type: "text", title: "Endpoint", required: true }],
       adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 },
     };
