@@ -52,7 +52,7 @@ export class LimitContinuations {
     }
   }
 
-  /** What the composer shows. */
+  /** What the card of the turn that stopped shows. */
   async status(projectId: string, conversationId: string): Promise<LimitResume | undefined> {
     const scheduled = this.#scheduled.get(key(projectId, conversationId));
     const snapshot = scheduled && await this.#settle(scheduled);

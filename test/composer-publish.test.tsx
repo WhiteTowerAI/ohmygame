@@ -4,7 +4,6 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "../src/renderer/composer.js";
 import { composerDrafts } from "../src/renderer/composer-drafts.js";
-import type { LimitResume } from "../src/shared/contracts.js";
 import { pressKey, promptChips, promptText } from "./prompt-field.js";
 
 let root: ReturnType<typeof createRoot>;
@@ -138,38 +137,19 @@ describe("composer status line", () => {
 });
 
 describe("composer usage limit resume", () => {
-  const at = Date.UTC(2026, 9, 26, 12, 0, 0);
-  const native = { model: { provider: "claude-code-cli", id: "default" }, initialDraft: undefined };
-  const usage = (state: LimitResume["state"]) => vi.fn(async () => ({ tokens: null, contextWindow: 200_000, percent: null, limitResume: { at, state } }));
-  const notice = () => container.querySelector(".composer-resume");
-  const button = () => notice()!.querySelector("button");
-
-  it("shows when an armed conversation continues and turns the agent's setting off", async () => {
-    const onContextUsage = usage("armed");
-    const onLimitResumeChange = vi.fn(async () => { onContextUsage.mockResolvedValue((await usage("off")())); });
-    await render({ ...native, onContextUsage, onLimitResumeChange });
-    expect(notice()?.textContent).toContain("Continues automatically");
-    expect(button()?.textContent).toBe("Turn off");
-    await act(async () => button()!.click());
-    expect(onLimitResumeChange).toHaveBeenCalledExactlyOnceWith("turnOff");
-    expect(notice()?.textContent).toContain("Usage limit reached");
-    expect(button()?.textContent).toBe("Continue after reset");
-    await act(async () => button()!.click());
-    expect(onLimitResumeChange).toHaveBeenLastCalledWith("turnOn");
+  it("skips the continue when the person is writing", async () => {
+    const onSkipLimitResume = vi.fn();
+    await render({ limitResumeArmed: true, onSkipLimitResume, initialDraft: { prompt: "Wait, change direction", mentions: [] } });
+    expect(onSkipLimitResume).toHaveBeenCalledOnce();
   });
 
-  it("skips the continue when the person is writing, with nothing left to press", async () => {
-    const onContextUsage = usage("armed");
-    const onLimitResumeChange = vi.fn(async () => { onContextUsage.mockResolvedValue((await usage("skipped")())); });
-    await render({ ...native, initialDraft: { prompt: "Wait, change direction", mentions: [] }, onContextUsage, onLimitResumeChange });
-    expect(onLimitResumeChange).toHaveBeenCalledExactlyOnceWith("skip");
-    expect(notice()?.textContent).toContain("Usage limit reached");
-    expect(button()).toBeNull();
-  });
-
-  it("shows nothing while a turn runs", async () => {
-    await render({ ...native, running: true, onContextUsage: usage("armed") });
-    expect(notice()).toBeNull();
+  it.each([
+    ["an empty composer", { limitResumeArmed: true, initialDraft: undefined }],
+    ["nothing armed", { limitResumeArmed: false, initialDraft: { prompt: "Wait", mentions: [] } }],
+  ])("leaves it alone with %s", async (_, props) => {
+    const onSkipLimitResume = vi.fn();
+    await render({ ...props, onSkipLimitResume });
+    expect(onSkipLimitResume).not.toHaveBeenCalled();
   });
 });
 

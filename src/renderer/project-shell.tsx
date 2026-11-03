@@ -42,7 +42,7 @@ import {
 } from "react";
 import { previewElementContext } from "../shared/playable-chat-context.js";
 import { isProgressLink } from "../shared/extension-host-protocol.js";
-import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, LimitResume, PendingPrompt, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
@@ -744,6 +744,25 @@ export function ProjectShell({
     return getConversationContextUsage(project.id, conversation.id, passive);
   }
 
+  const limitProvider = state.settings.model?.provider;
+  const [limitResume, setLimitResume] = useState<LimitResume>();
+  const [limitResumeRevision, reviseLimitResume] = useReducer((revision: number) => revision + 1, 0);
+  // Any of these can end the continue, so what was read before no longer holds.
+  const limitResumeKey = JSON.stringify([conversation?.id, state.turns.findLast((turn) => turn.status === "failed")?.id, currentConversationBusy, restoring, limitProvider, selectedProfileId]);
+  useEffect(() => setLimitResume(undefined), [limitResumeKey]);
+  useEffect(() => {
+    let disposed = false;
+    void currentContextUsage(true).then((usage) => { if (!disposed) setLimitResume(usage?.limitResume); }).catch(() => {});
+    return () => { disposed = true; };
+  }, [limitResumeKey, limitResumeRevision]);
+
+  const changeLimitResume = useCallback((change: Promise<unknown>): void => {
+    void change.then(reviseLimitResume).catch((error) => dispatch({ type: "notice", message: errorMessage(error) }));
+  }, []);
+  const onLimitResumeChange = useCallback((on: boolean): void => {
+    if (isAgentRuntimeId(limitProvider)) changeLimitResume(updateAgentRuntime(limitProvider, { autoContinue: on }));
+  }, [limitProvider, changeLimitResume]);
+
   async function executePlan(): Promise<boolean> {
     if (!project || !conversation) return false;
     try {
@@ -1336,12 +1355,8 @@ export function ProjectShell({
       planMode={state.plan.mode}
       notice={state.connection === "reconnecting" ? t("projectShell.reconnecting") : state.notice}
       status={initialPromptReturned}
-      onLimitResumeChange={async (change) => {
-        const provider = effectiveModel?.provider;
-        if (change === "skip") {
-          if (project && conversation) await skipLimitResume(project.id, conversation.id);
-        } else if (isAgentRuntimeId(provider)) await updateAgentRuntime(provider, { autoContinue: change === "turnOn" });
-      }}
+      limitResumeArmed={limitResume?.state === "armed"}
+      onSkipLimitResume={() => { if (project && conversation) changeLimitResume(skipLimitResume(project.id, conversation.id)); }}
       models={modelCatalog.models}
       modelStatus={modelCatalog.status}
       model={effectiveModel}
@@ -1459,6 +1474,8 @@ export function ProjectShell({
               changeControls={turnChanges}
               workspaceRevision={workspaceRevision}
               plugins={capabilities.plugins}
+              limitResume={limitResume}
+              onLimitResumeChange={onLimitResumeChange}
             />
           </ErrorBoundary>
         )}
@@ -1526,6 +1543,8 @@ export function ProjectShell({
                 onBranch={branchChat}
                 branchDisabled={creatingConversation || state.connection !== "open"}
                 plugins={capabilities.plugins}
+                limitResume={limitResume}
+                onLimitResumeChange={onLimitResumeChange}
               />
               </ErrorBoundary>
             </Activity>

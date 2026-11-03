@@ -1997,12 +1997,6 @@ const zhCN: typeof en = {
     referencedDesign: "引用的游戏设计",
     removeDesign: "移除游戏设计引用",
     droppedFolder: "无法读取拖入的文件夹：{{error}}",
-    resume: {
-      available: "已达到用量上限，将在 {{time}} 重置。",
-      armed: "将在 {{time}} 自动继续，请保持 OhMyGame 打开。",
-      arm: "重置后自动继续",
-      turnOff: "关闭",
-    },
     placeholder: {
       review: "请查看上方的计划",
       executing: "正在执行计划",
@@ -2110,6 +2104,11 @@ const zhCN: typeof en = {
     showDetails: "详情",
     hideDetails: "收起",
     openSettings: "打开设置",
+    limitResume: {
+      label: "重置后自动继续",
+      armed: "将在 {{time}} 自动继续，请保持 OhMyGame 打开。",
+      off: "重置后自动继续已关闭，额度将在 {{time}} 重置。",
+    },
     detail: {
       query: "查询",
       provider: "服务商",
