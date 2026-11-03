@@ -49,16 +49,8 @@ export const gomokuRules = defineGame({
   },
 });
 
-/** The lobby shows the empty intersections as the remaining count. */
+/** The board is empty in the lobby, so players see it before the owner starts. */
 export function createGomokuAdapter(): GameAdapter {
   const rules = compileGame(gomokuRules);
-  const withRemaining = (state: ReturnType<GameAdapter["initialState"]>) => ({
-    ...state,
-    remaining: GOMOKU_SIZE ** 2 - ((state.game as GomokuState | undefined)?.history.length ?? 0),
-  });
-  return {
-    ...rules,
-    initialState: () => withRemaining({ ...rules.initialState(), game: initialGomokuState() }),
-    applyCommand: (state, playerId, command) => withRemaining(rules.applyCommand(state, playerId, command)),
-  };
+  return { ...rules, initialState: () => ({ ...rules.initialState(), game: initialGomokuState() }) };
 }

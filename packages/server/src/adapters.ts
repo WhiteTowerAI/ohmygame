@@ -4,7 +4,7 @@ import type {
   MultiplayerManifestConfig,
   TurnCommand,
 } from "@ohmygame/sdk/protocol";
-export { createRoomAdapter, nextTurn, TICK_MS, TURN_SECONDS } from "./game.js";
+export { createRoomAdapter, finishMatch, nextTurn, TICK_MS, TURN_SECONDS } from "./game.js";
 
 export type GameAdapter = MultiplayerGameAdapter<
   MultiplayerGameState,

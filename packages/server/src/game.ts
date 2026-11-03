@@ -20,22 +20,30 @@ export function nextTurn(state: MultiplayerGameState, now = Date.now()): void {
   state.turnDeadline = now + TURN_SECONDS * 1000;
 }
 
+/** Ends the match with these winners: one, several for a team, or none for a draw. */
+export function finishMatch(state: MultiplayerGameState, winners: readonly string[]): void {
+  state.phase = "finished";
+  state.winnerPlayerIds = [...winners];
+  state.winnerPlayerId = winners.length === 1 ? winners[0]! : "";
+}
+
 /**
  * The room's own commands: the owner starts, closes and removes players. Rules build on it
- * and handle their game's commands themselves; any other command is rejected.
+ * and handle their game's commands themselves; any other command is rejected. A match left
+ * with fewer than players.min seats after a removal ends without a winner.
  */
 export function createRoomAdapter(
   mode: MultiplayerMode,
+  players: { min: number; max: number } = { min: MULTIPLAYER_MIN_CLIENTS, max: MULTIPLAYER_MAX_CLIENTS },
 ): MultiplayerGameAdapter<MultiplayerGameState, TurnCommand> {
   return {
     mode,
-    players: { min: MULTIPLAYER_MIN_CLIENTS, max: MULTIPLAYER_MAX_CLIENTS },
+    players,
     initialState: () => ({
       phase: "lobby",
       ownerId: "",
       currentPlayerId: "",
       winnerPlayerId: "",
-      remaining: 0,
       turnDeadline: 0,
       players: [],
     }),
@@ -65,10 +73,7 @@ export function createRoomAdapter(
         const id = command.payload!.playerId!;
         if (next.currentPlayerId === id) nextTurn(next);
         next.players = next.players.filter((p) => p.playerId !== id);
-        if (next.phase === "playing" && next.players.length === 1) {
-          next.phase = "finished";
-          next.winnerPlayerId = next.players[0]!.playerId;
-        }
+        if (next.phase === "playing" && next.players.length < players.min) finishMatch(next, []);
       } else if (command.type === "start") {
         next.phase = "playing";
         next.currentPlayerId = next.players[0]!.playerId;

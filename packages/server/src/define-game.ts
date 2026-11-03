@@ -7,7 +7,7 @@ import {
   type TurnCommand,
 } from "@ohmygame/sdk/protocol";
 import type { GameAdapter } from "./adapters.js";
-import { createRoomAdapter, TURN_SECONDS } from "./game.js";
+import { createRoomAdapter, finishMatch, TURN_SECONDS } from "./game.js";
 
 const ROOM_COMMANDS = new Set<TurnCommand["type"]>(["start", "close", "kick"]);
 
@@ -61,7 +61,7 @@ export function compileGame<G extends object, Moves extends Record<string, MoveD
     throw new Error(`players must be whole numbers from 1 to ${MULTIPLAYER_MAX_CLIENTS}, with min no more than max.`);
   const turnMs = (definition.turnSeconds ?? TURN_SECONDS) * 1000;
   if (!Number.isFinite(turnMs) || turnMs <= 0) throw new Error("turnSeconds must be positive.");
-  const room = createRoomAdapter("turn-based");
+  const room = createRoomAdapter("turn-based", { min, max });
   // The room validates and then applies the same command; a move runs once, so its random draws hold.
   const validated = new WeakMap<TurnCommand, MultiplayerGameState>();
 
@@ -91,11 +91,8 @@ export function compileGame<G extends object, Moves extends Record<string, MoveD
     const returned = move.run(draft, ctx, args);
     next.game = plainGame(returned === undefined ? draft : returned, `The ${action} move`);
     const result = definition.endIf?.(next.game as G, context(next, now));
-    if (result) {
-      next.phase = "finished";
-      next.winnerPlayerIds = [...result.winners];
-      next.winnerPlayerId = result.winners.length === 1 ? result.winners[0]! : "";
-    } else {
+    if (result) finishMatch(next, result.winners);
+    else {
       next.phase = "playing";
       next.winnerPlayerId = "";
       delete next.winnerPlayerIds;
@@ -117,10 +114,15 @@ export function compileGame<G extends object, Moves extends Record<string, MoveD
     applyCommand(state, playerId, command) {
       if (!ROOM_COMMANDS.has(command.type)) return validated.get(command) ?? play(state, playerId, command);
       const next = room.applyCommand(state, playerId, command);
+      const now = Date.now();
       if (command.type === "start") {
-        const now = Date.now();
         next.game = plainGame(definition.setup(context(next, now)), "setup");
         next.turnDeadline = now + turnMs;
+      } else if (command.type === "kick" && state.phase === "playing") {
+        // The removed player's turn passes on with a full turn; the rules may now decide the match.
+        if (next.currentPlayerId !== state.currentPlayerId) next.turnDeadline = now + turnMs;
+        const result = definition.endIf?.(next.game as G, context(next, now));
+        if (result) finishMatch(next, result.winners);
       }
       return next;
     },

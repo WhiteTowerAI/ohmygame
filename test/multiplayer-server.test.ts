@@ -189,33 +189,29 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     return [first, second] as const;
   }
 
+  const take = (count: number) => ({ action: "take", count });
+  const pile = (actor: Peer) => (actor.snapshot!.state.game as { remaining: number }).remaining;
+
   it("runs an authoritative match and preserves both accepted and rejected results", async () => {
     const [first, second] = await match();
-    const wrongTurn = await command(second, "take", { count: 3 });
+    expect(pile(first)).toBe(21);
+    const wrongTurn = await command(second, "action", take(3));
     expect(wrongTurn.result.error?.code).toBe("not_your_turn");
-    const taken = await command(first, "take", { count: 3 });
+    const taken = await command(first, "action", take(3));
     expect(taken.result.accepted).toBe(true);
-    await wait(() => expect(second.snapshot!.state.remaining).toBe(18));
-    const replay = await command(first, "take", { count: 3 }, taken.value);
+    await wait(() => expect(pile(second)).toBe(18));
+    const replay = await command(first, "action", take(3), taken.value);
     expect(replay.result).toEqual(taken.result);
-    const rejectedReplay = await command(
-      second,
-      "take",
-      { count: 3 },
-      wrongTurn.value,
-    );
+    const rejectedReplay = await command(second, "action", take(3), wrongTurn.value);
     expect(rejectedReplay.result).toEqual(wrongTurn.result);
-    expect(first.snapshot!.state.remaining).toBe(18);
-    const stale = await command(second, "pass", undefined, {
+    expect(pile(first)).toBe(18);
+    const stale = await command(second, "action", take(1), {
       expectedSequence: 0,
     });
     expect(stale.result.error?.code).toBe("sequence_conflict");
     let next = second;
     while (next.snapshot!.state.phase === "playing") {
-      const remaining = next.snapshot!.state.remaining;
-      const result = await command(next, "take", {
-        count: Math.min(3, remaining),
-      });
+      const result = await command(next, "action", take(Math.min(3, pile(next))));
       expect(result.result.accepted).toBe(true);
       await wait(() =>
         expect(first.snapshot!.sequence).toBe(result.result.sequence),
@@ -227,6 +223,44 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     }
     expect(first.snapshot!.state.phase).toBe("finished");
     expect(first.snapshot!.state.winnerPlayerId).toBe(first.ready!.playerId);
+    expect(first.snapshot!.state.winnerPlayerIds).toEqual([first.ready!.playerId]);
+  });
+
+  it("plays stones as defineGame moves: no pass, and the owner deals a new pile after the race", async () => {
+    const [first, second] = await match();
+    // Turn-based connections may send ten messages a second; pace this player's commands.
+    const paced = async (...args: Parameters<typeof command>) => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      return command(...args);
+    };
+    expect((await paced(first, "action", { action: "pass" })).result.error?.message).toBe("This game has no such move.");
+    expect((await paced(first, "action", take(4))).result.error?.message).toBe("Take one to three stones.");
+    expect((await paced(first, "action", { action: "reset" })).result.error?.message).toBe("Finish this race first.");
+    let next = first;
+    while (next.snapshot!.state.phase === "playing") {
+      const result = await paced(next, "action", take(Math.min(3, pile(next))));
+      expect(result.result.accepted).toBe(true);
+      await wait(() => expect(first.snapshot!.sequence).toBe(result.result.sequence));
+      await wait(() => expect(second.snapshot!.sequence).toBe(result.result.sequence));
+      next = next === first ? second : first;
+    }
+    const winner = first.snapshot!.state.winnerPlayerId;
+    expect(first.snapshot!.state.winnerPlayerIds).toEqual([winner]);
+    expect((await paced(second, "action", { action: "reset" })).result.error?.message).toBe("Only the room owner can do that.");
+    expect((await paced(first, "action", { action: "reset" })).result.accepted).toBe(true);
+    await wait(() => expect(second.snapshot!.state.phase).toBe("playing"));
+    expect(pile(second)).toBe(21);
+    expect(second.snapshot!.state.currentPlayerId).toBe(first.ready!.playerId);
+    expect(second.snapshot!.state.winnerPlayerId).toBe("");
+    expect(second.snapshot!.state.winnerPlayerIds).toBeUndefined();
+  });
+
+  it("ends a match without a winner when a removal leaves too few seats", async () => {
+    const [owner, other] = await match();
+    expect((await command(owner, "kick", { playerId: other.ready!.playerId })).result.accepted).toBe(true);
+    await wait(() => expect(owner.snapshot!.state.phase).toBe("finished"));
+    expect(owner.snapshot!.state.winnerPlayerId).toBe("");
+    expect(owner.snapshot!.state.winnerPlayerIds).toEqual([]);
   });
 
   it("synchronizes Gomoku, rejects invalid moves, declares a winner and resets on the server", async () => {
@@ -354,6 +388,20 @@ describe("multiplayer service over HTTP and WebSocket", () => {
     await wait(() => expect(owner.snapshot!.state.players).toHaveLength(3));
     const other = await peer(await transport());
     expect(other.snapshot!.state.players).toHaveLength(1);
+  });
+
+  it("ends a match after a removal only when the rules' minimum seats are no longer met", () => {
+    const seat = (playerId: string) => ({ playerId, displayName: playerId, connected: true, x: 0, y: 0 });
+    const kick = { commandId: "k", expectedSequence: 0, type: "kick" as const, payload: { playerId: "b" } };
+    for (const [id, phase] of [["roam", "playing"], ["arena", "finished"]] as const) {
+      const rules = createBuiltInAdapter(id);
+      const state = { ...rules.initialState(), phase: "playing" as const, ownerId: "a", players: [seat("a"), seat("b")] };
+      rules.validateCommand(state, "a", kick);
+      const next = rules.applyCommand(state, "a", kick);
+      expect(next.phase).toBe(phase);
+      // Nobody won a race that ended because a player was removed.
+      expect(next.winnerPlayerId).toBe("");
+    }
   });
 
   it("checks a deployment's room size against the seats its rules declare", () => {
@@ -852,8 +900,8 @@ export default defineGame({
     await wait(() => expect(restored.snapshot?.state.phase).toBe("playing"));
     expect(restored.roomId).toBe(roomId);
     expect(restored.playerId).toBe(playerId);
-    restored.sendCommand("take", { count: 2 });
-    await wait(() => expect(restored.snapshot?.state.remaining).toBe(19));
+    restored.sendCommand("action", { action: "take", count: 2 });
+    await wait(() => expect((restored.snapshot?.state.game as { remaining: number } | undefined)?.remaining).toBe(19));
   });
 
   it("uses bounded inputs at a fixed realtime tick and closes realtime rooms on restart", async () => {

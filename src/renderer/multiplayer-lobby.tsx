@@ -105,6 +105,8 @@ export function MultiplayerLobby({
   const busy = status === "connecting" || status === "reconnecting";
   const state = snapshot?.state;
   const owner = state?.ownerId === playerId;
+  // The stones rules keep the pile in their own game state.
+  const stonesRemaining = Number(state?.game?.remaining ?? 0);
 
   useEffect(() => {
     if (
@@ -401,7 +403,7 @@ export function MultiplayerLobby({
       </section>
       {state?.phase === "playing" && manifest.mode === "turn-based" ? (
         <section className="multiplayer-lobby">
-          <h2>{t("multiplayer.remaining", { count: state.remaining })}</h2>
+          <h2>{t("multiplayer.remaining", { count: stonesRemaining })}</h2>
           <p>
             {t("multiplayer.turn", {
               name:
@@ -418,23 +420,14 @@ export function MultiplayerLobby({
                   !connected ||
                   pending ||
                   state.currentPlayerId !== playerId ||
-                  state.remaining < count
+                  stonesRemaining < count
                 }
                 type="button"
-                onClick={() => command("take", { count })}
+                onClick={() => command("action", { action: "take", count })}
               >
                 {t("multiplayer.take", { count })}
               </button>
             ))}
-            <button
-              disabled={
-                !connected || pending || state.currentPlayerId !== playerId
-              }
-              type="button"
-              onClick={() => command("pass")}
-            >
-              {t("multiplayer.pass")}
-            </button>
           </div>
         </section>
       ) : null}
@@ -494,6 +487,15 @@ export function MultiplayerLobby({
                 ?.displayName ?? "",
           })}
         </p>
+      ) : null}
+      {state?.phase === "finished" && manifest.mode === "turn-based" && owner ? (
+        <button
+          disabled={!connected || pending}
+          type="button"
+          onClick={() => command("action", { action: "reset" })}
+        >
+          {t("multiplayer.newRace")}
+        </button>
       ) : null}
     </main>
   );

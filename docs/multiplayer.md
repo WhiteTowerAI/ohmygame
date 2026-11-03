@@ -113,6 +113,20 @@ the room refuses `start` until at least `min` players are connected. The rules
 adapter does not repeat these checks. Stones and arena accept 2 to 32 players,
 the protocol's limit; roam starts with one.
 
+The protocol's own commands are `start`, `close`, and `kick`, which manage the
+room; every move of a game is an `action` whose payload names it, such as
+`{ action: "take", count: 2 }`. The room state carries no game's fields: rules
+keep theirs in `state.game`. When the owner removes a player during a match, the
+turn passes on, and the match ends without a winner if fewer seats remain than
+the rules' `players.min`. Rules written with `defineGame` then run `endIf` with
+the remaining players, which may declare a result instead. A finished match
+always sets both `winnerPlayerIds` and `winnerPlayerId`.
+
+`stones` is a take-away race written with `defineGame`. `state.game.remaining`
+starts at 21; the current player sends `{ action: "take", count }` with a count of
+1 to 3, there is no pass, and whoever takes the last stone wins. After the race the
+owner sends `{ action: "reset" }` for a new pile, which the first seat starts.
+
 `arena` is a race: the first player to reach the centre wins, and in a drop-in
 room everyone respawns on a ring around it for the next round. `roam` has no goal
 and never ends. Players spawn near the centre of the same 100 × 100 world, walk
@@ -186,8 +200,8 @@ owner or any seat at any time, and after the match ends, which resumes play. Use
 winners, such as a team, appear in `state.winnerPlayerIds`, and `winnerPlayerId`
 holds a single winner or is empty. In the page,
 `createMultiplayerClient<typeof rules>()` types `client.moves.play({ cards })`,
-which sends `{ action: "play", cards }`. The built-in gomoku rules are written this
-way. `legalMoves` is reserved for bots and is not called yet.
+which sends `{ action: "play", cards }`. The built-in gomoku and stones rules are
+written this way. `legalMoves` is reserved for bots and is not called yet.
 
 ## Drop-in rooms
 

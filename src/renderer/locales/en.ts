@@ -1930,7 +1930,7 @@ const en = {
     createRoom: "Create room",
     joinRoom: "Join room",
     start: "Start",
-    pass: "Pass",
+    newRace: "New race",
     leave: "Leave",
     commandRejected: "Command rejected",
   },

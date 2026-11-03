@@ -388,7 +388,7 @@ export class GameRoom extends Room {
           ? "room.closed"
           : state.phase === "finished"
             ? "room.finished"
-            : value.type === "take" || value.type === "pass" || value.type === "action"
+            : value.type === "action"
               ? "turn.changed"
               : "state.updated";
       this.commit(
@@ -412,7 +412,7 @@ export class GameRoom extends Room {
     } catch (cause) {
       reject(
         this.record.snapshot.state.currentPlayerId !== id &&
-          (value.type === "take" || value.type === "pass" || value.type === "action")
+          value.type === "action"
           ? "not_your_turn"
           : "invalid_command",
         cause instanceof Error ? cause.message : "The command failed.",
@@ -463,6 +463,7 @@ export class GameRoom extends Room {
   private startRound(state: MultiplayerGameState, now = Date.now()): MultiplayerGameState {
     this.playerInputs.clear();
     const next: MultiplayerGameState = { ...state, phase: "playing", winnerPlayerId: "", currentPlayerId: "" };
+    delete next.winnerPlayerIds;
     return this.services.adapter.onRoundStart ? this.services.adapter.onRoundStart(next, now) : next;
   }
   private maintenance(): void {

@@ -1,5 +1,5 @@
 import type { MultiplayerGameState, RealtimeInput } from "@ohmygame/sdk/protocol";
-import { createRoomAdapter, type GameAdapter } from "@ohmygame/server/adapters";
+import { createRoomAdapter, finishMatch, type GameAdapter } from "@ohmygame/server/adapters";
 
 const ARENA_SPAWN_RADIUS = 35;
 /** Successive seats turn by the golden angle, so any number of players spreads around the ring. */
@@ -19,8 +19,7 @@ export function stepArena(
     player.x = Math.max(0, Math.min(100, player.x + entry.input.x / length));
     player.y = Math.max(0, Math.min(100, player.y + entry.input.y / length));
     if (Math.hypot(player.x - 50, player.y - 50) < 4) {
-      next.phase = "finished";
-      next.winnerPlayerId = player.playerId;
+      finishMatch(next, [player.playerId]);
       break;
     }
   }

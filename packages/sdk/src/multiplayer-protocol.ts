@@ -175,8 +175,9 @@ export type CreateRoomOptions = JoinRoomOptions;
 export interface TurnCommand {
   commandId: string;
   expectedSequence: number;
-  type: "start" | "take" | "pass" | "close" | "kick" | "action";
-  payload?: { count?: number; playerId?: string; [key: string]: unknown };
+  /** start, close and kick manage the room; action carries a move of the game's rules. */
+  type: "start" | "close" | "kick" | "action";
+  payload?: { playerId?: string; [key: string]: unknown };
 }
 export interface RealtimeInput {
   inputId: number;
@@ -197,7 +198,6 @@ export interface MultiplayerGameState {
   winnerPlayerId: string;
   /** Every winner, when a team or several players win together; empty for a draw. */
   winnerPlayerIds?: string[];
-  remaining: number;
   turnDeadline: number;
   players: MultiplayerPlayer[];
   /** Serializable data owned and validated by the deployment's rules adapter. */
@@ -288,17 +288,9 @@ export function isTurnCommand(value: unknown): value is TurnCommand {
     !isSequence(value.expectedSequence)
   )
     return false;
-  if (!["start", "take", "pass", "close", "kick", "action"].includes(String(value.type)))
+  if (!["start", "close", "kick", "action"].includes(String(value.type)))
     return false;
   if (value.type === "action") return isRecord(value.payload);
-  if (value.type === "take")
-    return (
-      isRecord(value.payload) &&
-      Object.keys(value.payload).length === 1 &&
-      Number.isInteger(value.payload.count) &&
-      Number(value.payload.count) >= 1 &&
-      Number(value.payload.count) <= 3
-    );
   if (value.type === "kick")
     return (
       isRecord(value.payload) &&
@@ -386,7 +378,6 @@ export function isMultiplayerSnapshot(
     typeof state.ownerId === "string" &&
     typeof state.currentPlayerId === "string" &&
     typeof state.winnerPlayerId === "string" &&
-    isSequence(state.remaining) &&
     typeof state.turnDeadline === "number" &&
     Number.isFinite(state.turnDeadline) &&
     (state.game === undefined || isRecord(state.game)) &&

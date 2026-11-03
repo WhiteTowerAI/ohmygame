@@ -412,9 +412,9 @@ export type CreateRoomOptions = JoinRoomOptions;
 export interface TurnCommand {
     commandId: string;
     expectedSequence: number;
-    type: "start" | "take" | "pass" | "close" | "kick" | "action";
+    /** start, close and kick manage the room; action carries a move of the game's rules. */
+    type: "start" | "close" | "kick" | "action";
     payload?: {
-        count?: number;
         playerId?: string;
         [key: string]: unknown;
     };
@@ -438,7 +438,6 @@ export interface MultiplayerGameState {
     winnerPlayerId: string;
     /** Every winner, when a team or several players win together; empty for a draw. */
     winnerPlayerIds?: string[];
-    remaining: number;
     turnDeadline: number;
     players: MultiplayerPlayer[];
     /** Serializable data owned and validated by the deployment's rules adapter. */

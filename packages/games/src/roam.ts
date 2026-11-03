@@ -1,4 +1,4 @@
-import type { MultiplayerGameState, RealtimeInput } from "@ohmygame/sdk/protocol";
+import { MULTIPLAYER_MAX_CLIENTS, type MultiplayerGameState, type RealtimeInput } from "@ohmygame/sdk/protocol";
 import { createRoomAdapter, TICK_MS, type GameAdapter } from "@ohmygame/server/adapters";
 import { GOLDEN_ANGLE } from "./arena.js";
 
@@ -41,10 +41,8 @@ export function spawnRoamPlayer(state: MultiplayerGameState, playerId: string): 
 
 /** A shared map to wander; one explorer is enough to play. */
 export function createRoamAdapter(): GameAdapter {
-  const room = createRoomAdapter("realtime");
   return {
-    ...room,
-    players: { ...room.players, min: 1 },
+    ...createRoomAdapter("realtime", { min: 1, max: MULTIPLAYER_MAX_CLIENTS }),
     step: stepRoam,
     onPlayerJoin: (state, playerId) => spawnRoamPlayer(state, playerId),
   };

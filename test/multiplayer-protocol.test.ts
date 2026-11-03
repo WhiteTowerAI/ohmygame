@@ -65,10 +65,14 @@ describe("multiplayer protocol", () => {
     const command = {
       commandId: "command-1",
       expectedSequence: 3,
-      type: "pass",
+      type: "start",
     } as const;
     expect(isTurnCommand(command)).toBe(true);
     expect(isTurnCommand({ ...command, expectedSequence: -1 })).toBe(false);
+    expect(isTurnCommand({ ...command, type: "action", payload: { action: "take", count: 2 } })).toBe(true);
+    // The room commands carry no game: a game's moves travel as actions.
+    expect(isTurnCommand({ ...command, type: "take", payload: { count: 2 } })).toBe(false);
+    expect(isTurnCommand({ ...command, type: "pass" })).toBe(false);
     const event = {
       type: "turn.changed",
       roomId: "room-1",
