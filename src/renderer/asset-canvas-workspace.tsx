@@ -1,3 +1,4 @@
+import { followCanvasChanges } from "./canvas-sync.js";
 import { workspaceVersion } from "./workspace-version.js";
 import { CanvasTableNode, type CanvasTables } from "./canvas-table-node.js";
 import {
@@ -405,12 +406,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   useEffect(() => {
     if (phase !== "ready" || closing) return;
     let stopped = false;
-    let timer: number | undefined;
-    const poll = async () => {
-      if (window.document.hidden) {
-        timer = window.setTimeout(poll, 1_500);
-        return;
-      }
+    const stop = followCanvasChanges(projectId, "jobs", async () => {
       try {
         const jobs = await storageRef.current.jobs();
         if (stopped) return;
@@ -419,7 +415,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           const nodeId = job.context?.nodeId;
           if (nodeId && !latestJobs.has(nodeId)) latestJobs.set(nodeId, job);
         }
-        // Most polls find nothing new; keep the same object so the canvas does not re-render.
+        // Keep unchanged jobs from re-rendering the canvas.
         const nextJobs = Object.fromEntries(latestJobs);
         setCanvasJobs((current) => JSON.stringify(current) === JSON.stringify(nextJobs) ? current : nextJobs);
         const completedAssetIds: string[] = [];
@@ -448,11 +444,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           }
           if (!stopped) setLibraryAssets(assets);
         }
-      } catch { /* Job polling is best-effort; the node keeps its last state. */ }
-      if (!stopped) timer = window.setTimeout(poll, 1_500);
-    };
-    void poll();
-    return () => { stopped = true; window.clearTimeout(timer); };
+      } catch { /* Job refresh is best-effort. the node keeps its last state. */ }
+    });
+    return () => { stopped = true; stop(); };
   }, [phase, projectId, project.type, closing]);
 
   const document = useMemo(
@@ -754,20 +748,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   useEffect(() => { onSyncReady?.(sync); return () => onSyncReady?.(undefined); }, [onSyncReady, sync]);
   useEffect(() => {
     if (phase !== "ready" || conflicted || resolving || closing) return;
-    let pending = false;
-    // A hidden window shows nobody the external changes, so it syncs again on return instead.
-    const run = () => {
-      if (pending || window.document.hidden) return;
-      pending = true;
-      void sync().catch(() => {}).finally(() => { pending = false; });
-    };
-    const timer = window.setInterval(run, 2500);
-    window.document.addEventListener("visibilitychange", run);
-    return () => {
-      window.clearInterval(timer);
-      window.document.removeEventListener("visibilitychange", run);
-    };
-  }, [sync, phase, conflicted, resolving, closing]);
+    return followCanvasChanges(projectId, "board", sync);
+  }, [projectId, sync, phase, conflicted, resolving, closing]);
 
   useEffect(() => {
     if (phase !== "ready" || !document || resolving || closing) return;

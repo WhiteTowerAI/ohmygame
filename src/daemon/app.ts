@@ -7,6 +7,7 @@ import { ProjectWriteError, ProjectWrites } from "./project-writes.js";
 import { registerCheckpointRoutes } from "./checkpoint-routes.js";
 import { registerStoryWebRoutes } from "./story-web-routes.js";
 import { readWorkspaceNotice, readWorkspaceVersion } from "./workspace-notice.js";
+import { createCanvasWatches } from "./canvas-watch.js";
 import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
@@ -1988,6 +1989,17 @@ export function createApp(options: AppOptions = {}) {
     };
   };
   app.addHook("preClose", async () => { for (const close of [...eventStreams]) close(); });
+
+  const watchCanvas = createCanvasWatches();
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/canvas/events", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const keepOpen = openEventStream(request, reply);
+    keepOpen(watchCanvas(project.workspacePath, (scopes) => {
+      reply.raw.write(`data: ${JSON.stringify(scopes)}\n\n`);
+    }));
+  });
+
 
   // Project lists follow activity here instead of polling for it. The snapshot is sent when it changes: runtime events
   // prompt a check, and a short in-memory check also catches changes that publish no event, such as a cancel starting.

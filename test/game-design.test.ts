@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { CanvasStore, readCanvasDocument, canvasReferencesAsset, removeCanvasAssetReferences } from "../src/daemon/canvas-workspace.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
+import { createCanvasWatches } from "../src/daemon/canvas-watch.js";
 import { checkCanvasWorkspace } from "../src/daemon/canvas-check.js";
 import { readCanvasAssets } from "../src/daemon/canvas-assets.js";
 import { CANCEL_GENERATION, createAgentTools } from "../src/daemon/agent-tools.js";
@@ -44,6 +45,29 @@ async function waitForJob(store: CanvasStore, projectId: string) {
   return (await store.jobs(projectId))[0]!;
 }
 describe("Markdown design workspace", () => {
+  it("notifies both windows and follows atomic writes after replacing the canvas directory", async () => {
+    const workspace = await temp(), folder = path.join(workspace, "canvas");
+    const watch = createCanvasWatches(), first = vi.fn(), second = vi.fn();
+    const closeFirst = watch(workspace, first), closeSecond = watch(workspace, second);
+    try {
+      expect(first).toHaveBeenCalledWith(["workspace", "board", "jobs"]);
+      await mkdir(folder);
+      await expect.poll(() => second.mock.calls.length).toBeGreaterThan(1);
+      closeFirst();
+      const received = first.mock.calls.length;
+      await rename(folder, path.join(workspace, "previous"));
+      await mkdir(folder);
+      await expect.poll(() => second.mock.calls.length).toBeGreaterThan(2);
+      second.mockClear();
+      await mkdir(path.join(folder, "boards"));
+      await writeFile(path.join(folder, "board.tmp"), "{}");
+      await rename(path.join(folder, "board.tmp"), path.join(folder, "boards", "current.json"));
+      await writeFile(path.join(folder, "jobs.json"), "[]");
+      await expect.poll(() => second.mock.calls.flat(2)).toEqual(expect.arrayContaining(["jobs", "board"]));
+      expect(first).toHaveBeenCalledTimes(received);
+    } finally { closeFirst(); closeSecond(); }
+  });
+
   it("logs Canvas preparation failures once and preserves the error when logging fails", async () => {
     const failure = new ImageGenerationError("Provider is disabled", 400);
     const resolve = vi.fn().mockRejectedValueOnce(failure).mockImplementation(async (_tool, input) => input);

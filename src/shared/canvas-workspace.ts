@@ -8,6 +8,7 @@ import type { CanvasMarkdownDocument } from "./canvas-document.js";
 import type { CanvasAssetCatalogEntry, UnavailableCanvasAsset } from "./canvas-assets.js";
 import { ASSET_CANVAS_SCHEMA, ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA } from "./asset-canvas-schema.js";
 
+export type CanvasSyncScope = "workspace" | "board" | "jobs";
 export type CanvasBoard = AssetCanvasDocument & { id: string };
 export interface CanvasBoardDetail { board: CanvasBoard; revision: string }
 export interface CanvasWorkspaceIndex {
