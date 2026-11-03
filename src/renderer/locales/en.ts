@@ -2534,6 +2534,7 @@ const en = {
         terrain: "Maps",
         objects: "Items & UI",
         skins: "Outfits",
+        effects: "Effects",
       },
       templateDescriptions: {
         characters: "A reference linked to the character sheet, top-down character, and half-body portrait generators.",
@@ -2569,6 +2570,7 @@ const en = {
         prop: "A prop or equipment reference sheet with useful views and details.",
         icon: "A single square game UI icon without text.",
         "quick-reskin": "Apply clothing or appearance changes to a character reference.",
+        effects: "Generate a pixel-art effect sheet that can be split into animation frames.",
       },
       uses: {
         "character-sheet": "Establish a consistent character design and supply appearance, turnaround, expression, and equipment references for later characters, outfits, and animations.",

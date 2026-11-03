@@ -2466,6 +2466,7 @@ const zhCN: typeof en = {
         terrain: "地图",
         objects: "道具",
         skins: "换装",
+        effects: "特效",
       },
       templateDescriptions: {
         characters: "参考图连接角色设定图、俯视角角色和半身立绘。",
@@ -2501,6 +2502,7 @@ const zhCN: typeof en = {
         prop: "生成包含实用视角与细节的道具或装备参考图。",
         icon: "生成一个不含文字的方形游戏 UI 图标。",
         "quick-reskin": "根据角色参考应用服装或外观变化。",
+        effects: "生成可切分为动画帧的像素特效图集。",
       },
       uses: {
         "character-sheet": "用于统一角色设定，为后续角色、换装和动画生成提供外观、转面、表情与装备参考。",

@@ -13,7 +13,7 @@ import {
   preferredImageOption,
 } from "../shared/asset-canvas.js";
 import { createProject, deleteLibraryAsset, deleteProject, getProjectCover, listImageModels, setProjectCover, uploadLibraryAsset } from "./api.js";
-import effectLibraryCover from "./assets/templates/examples/effect-library-cover.webp";
+import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
 import effectFireHitSheet from "./assets/templates/examples/effect-fire-hit-sheet.png";
 import effectFireHitPreview from "./assets/templates/examples/effect-fire-hit-preview.gif";
 import coarseEffectFireHitSheet from "./assets/templates/examples/effects/coarse/fire-hit-sheet.png";
@@ -463,8 +463,8 @@ async function uploadEffectExample(source: string, name: string, contentType: "i
   return (await uploadLibraryAsset(new File([await response.blob()], name, { type: contentType }), contentType, undefined, "reference")).id;
 }
 
-async function applyEffectLibraryCover(projectId: string): Promise<void> {
-  const response = await fetch(effectLibraryCover);
+async function applyEffectLibraryCover(projectId: string, level: PixelArtLevel = "classic"): Promise<void> {
+  const response = await fetch(effectLibraryCoverForLevel(level));
   if (!response.ok) throw new Error("Could not load the Effect Library cover");
   await setProjectCover(projectId, await response.blob());
 }
@@ -906,7 +906,7 @@ export async function createEffectLibraryProject(level: PixelArtLevel = "classic
     const current = await getCanvasBoard(project.id, workspace.boards[0]!.id);
     await saveCanvasBoard(project.id, { board: { ...document, id: current.board.id }, revision: current.revision });
     await changeCanvasBoard(project.id, current.board.id, { name: `${t("effectLibrary.title")} · ${t(`assetCanvas.pixelPresets.levels.${level}`)}` });
-    await applyEffectLibraryCover(project.id);
+    await applyEffectLibraryCover(project.id, level);
     return { projectId: project.id, boardId: current.board.id, nodeId: image.id };
   } catch (cause) {
     await deleteProject(project.id).catch(() => undefined);

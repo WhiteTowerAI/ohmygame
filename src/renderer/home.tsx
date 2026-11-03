@@ -27,7 +27,7 @@ import sceneTemplateCover from "./assets/templates/examples/scenes-cover.webp";
 import terrainTemplateCover from "./assets/templates/examples/terrain-cover.webp";
 import objectTemplateCover from "./assets/templates/examples/objects-cover.webp";
 import skinTemplateCover from "./assets/templates/examples/skins-cover.webp";
-import effectLibraryCover from "./assets/templates/examples/effect-library-cover.webp";
+import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
 
 const PIXEL_TEMPLATE_COVERS: Record<PixelAssetTemplateCategory, string> = {
   characters: characterTemplateCover,
@@ -230,7 +230,7 @@ export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = 
               }}
             >
               <span className="home-whats-new-icon home-explore-cover">
-                <img src={effectLibraryCover} alt="" />
+                <img src={effectLibraryCoverForLevel()} alt="" />
                 {templateCreating === "effect-library" ? <span className="home-template-loading"><LoaderCircle className="spin" size={16} /></span> : null}
               </span>
               <span className="home-whats-new-copy">

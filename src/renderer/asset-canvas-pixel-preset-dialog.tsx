@@ -4,30 +4,48 @@ import { Image as ImageIcon, Search, X } from "./icons.js";
 import { pixelArtLevelOptions, pixelAssetPresetCatalog, pixelAssetPresetNeedsWorkflowGroup, type PixelAssetCategory, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { pixelExampleImageUrl, pixelPresetGifExampleId, pixelPresetPreviewUrl } from "./asset-canvas-pixel-examples.js";
+import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
 import { t } from "./i18n.js";
 
-type AssetCanvasPixelPresetDialogProps = { onClose: () => void; onSelect: (preset: PixelAssetPresetId, level: PixelArtLevel) => void };
+type AssetCanvasPixelPresetDialogProps = {
+  onClose: () => void;
+  onSelect: (preset: PixelAssetPresetId, level: PixelArtLevel) => void;
+  onSelectEffect: (level: PixelArtLevel) => void;
+};
 
 export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialogProps) {
   const { onClose } = props;
-  const [categoryId, setCategoryId] = useState<PixelAssetCategory>("characters");
+  const [categoryId, setCategoryId] = useState<PixelAssetCategory | "effects">("characters");
   const [level, setLevel] = useState<PixelArtLevel>("classic");
   const [query, setQuery] = useState("");
   const dialog = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const categories = pixelAssetPresetCatalog();
+  const categories = [...pixelAssetPresetCatalog(), {
+    id: "effects" as const,
+    label: t("assetCanvas.pixelPresets.categories.effects"),
+    presets: [{
+      id: "effect-library" as const,
+      category: "effects" as const,
+      label: t("effectLibrary.title"),
+      description: t("assetCanvas.pixelPresets.descriptions.effects"),
+    }],
+  }];
   const levels = pixelArtLevelOptions();
   const selectedLevel = levels.find((item) => item.value === level)!;
   const category = categories.find((item) => item.id === categoryId) ?? categories[0]!;
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const matches = (preset: (typeof category.presets)[number]) => !normalizedQuery || `${preset.label} ${preset.description}`.toLocaleLowerCase().includes(normalizedQuery);
+  const matches = (preset: { label: string; description: string }) => !normalizedQuery || `${preset.label} ${preset.description}`.toLocaleLowerCase().includes(normalizedQuery);
   // A search looks through every category so a preset is found wherever it lives.
   const sections = (normalizedQuery ? categories : [category])
     .map((item) => ({ ...item, presets: item.presets.filter(matches) }))
     .filter((item) => !normalizedQuery || item.presets.length > 0);
 
-  function selectPreset(preset: PixelAssetPresetId): void {
+  function selectPreset(preset: PixelAssetPresetId | "effect-library"): void {
+    if (preset === "effect-library") {
+      props.onSelectEffect(level);
+      return;
+    }
     props.onSelect(preset, level);
   }
 
@@ -97,8 +115,9 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
               <h3>{section.label}</h3>
               <div className="pixel-preset-grid">
                 {section.presets.map((preset) => {
-                  const previewUrl = pixelExampleImageUrl(pixelPresetGifExampleId(preset.id, level)) ?? pixelPresetPreviewUrl(preset.id, level);
-                  const nodeCount = pixelAssetPresetNeedsWorkflowGroup(preset.id) ? 3 : 1;
+                  const isEffect = preset.id === "effect-library";
+                  const previewUrl = isEffect ? effectLibraryCoverForLevel(level) : pixelExampleImageUrl(pixelPresetGifExampleId(preset.id, level)) ?? pixelPresetPreviewUrl(preset.id, level);
+                  const nodeCount = !isEffect && pixelAssetPresetNeedsWorkflowGroup(preset.id) ? 3 : 1;
                   return <button key={preset.id} type="button" onClick={() => selectPreset(preset.id)}>
                     <span className={`pixel-preset-card-thumbnail${preset.category === "animation" ? " is-square" : ""}`}>
                       {previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : <ImageIcon size={22} aria-hidden="true" />}

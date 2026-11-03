@@ -1032,6 +1032,31 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     });
   }
 
+  function addPixelEffectPreset(pixelStyle: PixelArtLevel, position: { x: number; y: number }): void {
+    if (nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
+      setNotice({ kind: "action", message: t("assetCanvas.nodeLimit") });
+      return;
+    }
+    const created = createFlowNode("image", position, imageModels, videoModels, defaultTextModel);
+    const configured = applyRememberedSettings(created, rememberedSettings.current.image, { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, model3DModels, defaultModel3D, textModels: textModelCatalog.models });
+    const node = {
+      ...configured,
+      title: t("effectLibrary.title"),
+      selected: true,
+      data: {
+        ...configured.data,
+        prompt: "",
+        promptExpanded: true,
+        effectBasePrompt: EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE,
+        effectColor: "original" as const,
+        effectRhythm: "sample" as const,
+        pixelStyle,
+      },
+    };
+    commitPendingHistory();
+    setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
+  }
+
   function addAssetNode(asset: Pick<LibraryAsset, "id" | "name" | "mediaType" | "contentType" | "duration" | "width" | "height">, position: { x: number; y: number }): void {
     if (asset.mediaType !== "image" && asset.mediaType !== "video" && asset.mediaType !== "audio" && asset.mediaType !== "model") return;
     const node = assetFlowNode(asset, position);
@@ -2130,6 +2155,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
                 importing={importingAssets}
                 onAdd={addNode}
                 onAddPixelPreset={addPixelAssetPreset}
+                onAddPixelEffect={addPixelEffectPreset}
                 onAddAsset={addAssetNode}
                 onUpload={(files, position) => void importAssetFiles(files, position)}
               />}
@@ -2615,6 +2641,7 @@ function AssetCanvasAddControl({
   importing,
   onAdd,
   onAddPixelPreset,
+  onAddPixelEffect,
   onAddAsset,
   onUpload,
 }: {
@@ -2625,6 +2652,7 @@ function AssetCanvasAddControl({
   importing: boolean;
   onAdd: (type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }, documentId?: string) => void;
   onAddPixelPreset: (preset: PixelAssetPresetId, level: PixelArtLevel, position: { x: number; y: number }) => void;
+  onAddPixelEffect: (level: PixelArtLevel, position: { x: number; y: number }) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (files: File[], position: { x: number; y: number }) => void;
 }) {
@@ -2721,6 +2749,11 @@ function AssetCanvasAddControl({
         onSelect={(preset, level) => {
           const position = placementPosition();
           if (position) onAddPixelPreset(preset, level, position);
+          setPixelPresetsOpen(false);
+        }}
+        onSelectEffect={(level) => {
+          const position = placementPosition();
+          if (position) onAddPixelEffect(level, position);
           setPixelPresetsOpen(false);
         }}
       /> : null}

@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { PIXEL_ART_LEVELS, type PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { pixelExampleImageUrl, pixelPresetExampleId } from "./asset-canvas-pixel-examples.js";
 import { pixelArtLevelOptions, pixelAssetTemplatePresetIds, type PixelAssetTemplateCategory } from "./asset-canvas-pixel-workflows.js";
-import effectLibraryCover from "./assets/templates/examples/effect-library-cover.webp";
+import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
 import { t } from "./i18n.js";
 
 const LAST_LEVEL_KEY = "ohmygame.pixelTemplateLevel";
@@ -16,7 +16,7 @@ export function lastPixelTemplateLevel(): PixelArtLevel {
 type DensityDialogCategory = PixelAssetTemplateCategory | "effects";
 
 function levelPreviewUrl(category: DensityDialogCategory, level: PixelArtLevel): string | undefined {
-  if (category === "effects") return effectLibraryCover;
+  if (category === "effects") return effectLibraryCoverForLevel(level);
   const own = pixelAssetTemplatePresetIds(category)
     .map((id) => pixelPresetExampleId(id, level))
     .find((id) => id?.startsWith(`${level}/`));

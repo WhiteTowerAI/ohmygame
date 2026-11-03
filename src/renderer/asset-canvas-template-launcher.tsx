@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { LoaderCircle, Pencil } from "./icons.js";
-import effectLibraryCover from "./assets/templates/examples/effect-library-cover.webp";
+import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
 import { TemplateDemo } from "./asset-canvas-template-showcase.js";
 import {
   ASSET_CANVAS_TEMPLATES,
@@ -96,7 +96,7 @@ export function AssetCanvasTemplateLauncher({
               className="home-whats-new-icon home-explore-cover asset-effect-library-cover"
               aria-hidden="true"
             >
-              <img src={effectLibraryCover} alt="" draggable={false} />
+              <img src={effectLibraryCoverForLevel()} alt="" draggable={false} />
               <span className="home-explore-play">
                 {creating === "effect-library" ? (
                   <LoaderCircle className="spin" size={14} />
