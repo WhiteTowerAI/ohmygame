@@ -131,7 +131,7 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
       await ensureProjectDependencies(workspacePath, packageManager,
         (command, args) => run(command, args, workspacePath, track));
     }
-    await run(packageManagerCommand(packageManager), packageManagerRunArguments("build"), workspacePath, track);
+    await run(packageManagerCommand(packageManager), packageManagerRunArguments(packageManager, "build"), workspacePath, track);
     const output = await findBuildOutput(workspacePath);
     if (!output) throw new PublishError("Build completed but did not produce a static index.html in dist, build, or out");
     return output;

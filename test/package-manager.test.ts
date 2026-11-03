@@ -87,14 +87,13 @@ describe("project package manager", () => {
     });
   });
 
-  it("uses package-manager-neutral run arguments", () => {
-    expect(packageManagerRunArguments("dev", ["--host", "127.0.0.1"])).toEqual([
-      "run",
-      "dev",
-      "--",
-      "--host",
-      "127.0.0.1",
-    ]);
+  it("forwards script flags with the separator required by npm", () => {
+    const flags = ["--host", "127.0.0.1"];
+    expect(packageManagerRunArguments("npm", "dev", flags)).toEqual(["run", "dev", "--", ...flags]);
+    for (const manager of ["pnpm", "bun", "yarn"] as const) {
+      expect(packageManagerRunArguments(manager, "dev", flags)).toEqual(["run", "dev", ...flags]);
+    }
+    expect(packageManagerRunArguments("npm", "build")).toEqual(["run", "build"]);
     expect(packageManagerInstallArguments("npm")).toEqual([
       "install",
       "--no-audit",
