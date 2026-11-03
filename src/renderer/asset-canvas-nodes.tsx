@@ -157,7 +157,11 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
   return (
     <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails} previewUrl={pixelExampleImageUrl(data.exampleImage)}>
       <MediaReferenceStrip runtime={runtime} />
-      {data.effectBasePrompt ? <EffectPromptEditor data={data} disabled={runtime?.busy} onSubmit={canGenerate ? runtime?.onGenerate : undefined} onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, prompt })} /> : <MediaPrompt
+      {data.effectBasePrompt ? <EffectPromptEditor data={data} disabled={runtime?.busy} onSubmit={canGenerate ? runtime?.onGenerate : undefined} onChange={(prompt) => runtime?.onChange({
+        ...data,
+        imageRuntime: undefined,
+        ...(data.prompt ? { prompt } : { effectBasePrompt: prompt }),
+      })} /> : <MediaPrompt
         kind="image"
         value={data.presetId === "continuous-sequence" && data.actionDescription?.trim() ? resolveContinuousActionPrompt(data.prompt ?? "", data.actionDescription) : data.prompt ?? ""}
         runtime={runtime}
@@ -199,8 +203,8 @@ export function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode
   );
 }
 
-function EffectPromptEditor({ data, disabled, onChange, onSubmit }: { data: Pick<AssetCanvasFlowData, "prompt">; disabled?: boolean; onChange: (prompt: string) => void; onSubmit?: () => void }) {
-  return <div className="effect-prompt-editor nodrag"><CanvasTextarea aria-label="Effect prompt" rows={8} value={data.prompt || EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE} disabled={disabled} onChange={onChange} onSubmit={onSubmit} /></div>;
+function EffectPromptEditor({ data, disabled, onChange, onSubmit }: { data: Pick<AssetCanvasFlowData, "prompt" | "effectBasePrompt">; disabled?: boolean; onChange: (prompt: string) => void; onSubmit?: () => void }) {
+  return <div className="effect-prompt-editor nodrag"><CanvasTextarea aria-label="Effect prompt" rows={8} value={data.prompt || data.effectBasePrompt || EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE} disabled={disabled} onChange={onChange} onSubmit={onSubmit} /></div>;
 }
 export function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.videoRuntime;

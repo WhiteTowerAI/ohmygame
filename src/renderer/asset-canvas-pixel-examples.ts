@@ -1,6 +1,7 @@
 import type { AssetCanvasNode } from "../shared/contracts.js";
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import type { PixelAssetPresetId, PixelAssetTemplateCategory } from "./asset-canvas-pixel-workflows.js";
+import { effectExampleImageUrl } from "./asset-canvas-effect-examples.js";
 
 // Coarse
 import coarseCharacterSheet from "./assets/templates/examples/coarse/character-sheet.webp";
@@ -226,7 +227,7 @@ const TEMPLATE_REFERENCES: Partial<Record<PixelAssetTemplateCategory, string>> =
 export const PIXEL_RESKIN_CLOTHING_EXAMPLE = "reference/clothing";
 
 export function pixelExampleImageUrl(id?: string): string | undefined {
-  return id ? EXAMPLE_IMAGES[id] : undefined;
+  return id ? EXAMPLE_IMAGES[id] ?? effectExampleImageUrl(id) : undefined;
 }
 
 /** Template boards start with bundled examples only; the last generator example stands in as the cover until real media exists. */

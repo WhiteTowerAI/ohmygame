@@ -4,13 +4,13 @@ import { Image as ImageIcon, Search, X } from "./icons.js";
 import { pixelArtLevelOptions, pixelAssetPresetCatalog, pixelAssetPresetNeedsWorkflowGroup, type PixelAssetCategory, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { pixelExampleImageUrl, pixelPresetGifExampleId, pixelPresetPreviewUrl } from "./asset-canvas-pixel-examples.js";
-import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
+import { EFFECT_PRESETS, effectPresetDescription, effectPresetLabel, type EffectPresetId } from "./asset-canvas-effect-presets.js";
 import { t } from "./i18n.js";
 
 type AssetCanvasPixelPresetDialogProps = {
   onClose: () => void;
   onSelect: (preset: PixelAssetPresetId, level: PixelArtLevel) => void;
-  onSelectEffect: (level: PixelArtLevel) => void;
+  onSelectEffect: (preset: EffectPresetId, level: PixelArtLevel) => void;
 };
 
 export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialogProps) {
@@ -24,12 +24,12 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
   const categories = [...pixelAssetPresetCatalog(), {
     id: "effects" as const,
     label: t("assetCanvas.pixelPresets.categories.effects"),
-    presets: [{
-      id: "effect-library" as const,
+    presets: EFFECT_PRESETS.map((preset) => ({
+      id: preset.id,
       category: "effects" as const,
-      label: t("effectLibrary.title"),
-      description: t("assetCanvas.pixelPresets.descriptions.effects"),
-    }],
+      label: effectPresetLabel(preset.id),
+      description: effectPresetDescription(preset.id),
+    })),
   }];
   const levels = pixelArtLevelOptions();
   const selectedLevel = levels.find((item) => item.value === level)!;
@@ -41,12 +41,13 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
     .map((item) => ({ ...item, presets: item.presets.filter(matches) }))
     .filter((item) => !normalizedQuery || item.presets.length > 0);
 
-  function selectPreset(preset: PixelAssetPresetId | "effect-library"): void {
-    if (preset === "effect-library") {
-      props.onSelectEffect(level);
+  function selectPreset(preset: PixelAssetPresetId | EffectPresetId): void {
+    const effect = EFFECT_PRESETS.find((candidate) => candidate.id === preset);
+    if (effect) {
+      props.onSelectEffect(effect.id, level);
       return;
     }
-    props.onSelect(preset, level);
+    props.onSelect(preset as PixelAssetPresetId, level);
   }
 
   useEffect(() => {
@@ -115,9 +116,9 @@ export function AssetCanvasPixelPresetDialog(props: AssetCanvasPixelPresetDialog
               <h3>{section.label}</h3>
               <div className="pixel-preset-grid">
                 {section.presets.map((preset) => {
-                  const isEffect = preset.id === "effect-library";
-                  const previewUrl = isEffect ? effectLibraryCoverForLevel(level) : pixelExampleImageUrl(pixelPresetGifExampleId(preset.id, level)) ?? pixelPresetPreviewUrl(preset.id, level);
-                  const nodeCount = !isEffect && pixelAssetPresetNeedsWorkflowGroup(preset.id) ? 3 : 1;
+                  const effect = EFFECT_PRESETS.find((candidate) => candidate.id === preset.id);
+                  const previewUrl = effect?.preview ?? pixelExampleImageUrl(pixelPresetGifExampleId(preset.id as PixelAssetPresetId, level)) ?? pixelPresetPreviewUrl(preset.id as PixelAssetPresetId, level);
+                  const nodeCount = !effect && pixelAssetPresetNeedsWorkflowGroup(preset.id as PixelAssetPresetId) ? 3 : 1;
                   return <button key={preset.id} type="button" onClick={() => selectPreset(preset.id)}>
                     <span className={`pixel-preset-card-thumbnail${preset.category === "animation" ? " is-square" : ""}`}>
                       {previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : <ImageIcon size={22} aria-hidden="true" />}

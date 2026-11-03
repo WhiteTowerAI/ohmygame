@@ -107,9 +107,10 @@ import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
 import { ModelPreview } from "./model-preview.js";
-import { type PixelArtLevel } from "../shared/canvas-pixel-style.js";
+import { withPixelArtLevel, type PixelArtLevel } from "../shared/canvas-pixel-style.js";
 import { PIXEL_ASSET_TEMPLATE_NOTE, createPixelAssetPresetContents, pixelArtLevelLabel, pixelAssetTemplateGuideCategory, placePixelPresetOutsideDensityGroups, type PixelAssetPresetId } from "./asset-canvas-pixel-workflows.js";
 import { AssetCanvasPixelPresetDialog } from "./asset-canvas-pixel-preset-dialog.js";
+import { effectPresetById, effectPresetLabel, effectPresetStaticExampleId, type EffectPresetId } from "./asset-canvas-effect-presets.js";
 import { pixelExampleCoverUrl, pixelExampleImageUrl } from "./asset-canvas-pixel-examples.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
@@ -1032,25 +1033,25 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     });
   }
 
-  function addPixelEffectPreset(pixelStyle: PixelArtLevel, position: { x: number; y: number }): void {
+  function addPixelEffectPreset(presetId: EffectPresetId, pixelStyle: PixelArtLevel, position: { x: number; y: number }): void {
     if (nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
       setNotice({ kind: "action", message: t("assetCanvas.nodeLimit") });
       return;
     }
+    const preset = effectPresetById(presetId);
     const created = createFlowNode("image", position, imageModels, videoModels, defaultTextModel);
     const configured = applyRememberedSettings(created, rememberedSettings.current.image, { imageModels, defaultImageModel, videoModels, defaultVideoModel, audioModels, model3DModels, defaultModel3D, textModels: textModelCatalog.models });
     const node = {
       ...configured,
-      title: t("effectLibrary.title"),
+      title: `${effectPresetLabel(preset.id)} · ${pixelArtLevelLabel(pixelStyle)}`,
+      description: preset.frames,
       selected: true,
       data: {
         ...configured.data,
-        prompt: "",
+        prompt: withPixelArtLevel(preset.prompt, pixelStyle, "sprite", { assetType: "animation", grid: { ...preset.grid, unit: "frame" } }),
         promptExpanded: true,
-        effectBasePrompt: EFFECT_LIBRARY_DEFAULT_PROMPT_TEMPLATE,
-        effectColor: "original" as const,
-        effectRhythm: "sample" as const,
         pixelStyle,
+        exampleImage: effectPresetStaticExampleId(preset.id, pixelStyle),
       },
     };
     commitPendingHistory();
@@ -2652,7 +2653,7 @@ function AssetCanvasAddControl({
   importing: boolean;
   onAdd: (type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }, documentId?: string) => void;
   onAddPixelPreset: (preset: PixelAssetPresetId, level: PixelArtLevel, position: { x: number; y: number }) => void;
-  onAddPixelEffect: (level: PixelArtLevel, position: { x: number; y: number }) => void;
+  onAddPixelEffect: (preset: EffectPresetId, level: PixelArtLevel, position: { x: number; y: number }) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (files: File[], position: { x: number; y: number }) => void;
 }) {
@@ -2751,9 +2752,9 @@ function AssetCanvasAddControl({
           if (position) onAddPixelPreset(preset, level, position);
           setPixelPresetsOpen(false);
         }}
-        onSelectEffect={(level) => {
+        onSelectEffect={(preset, level) => {
           const position = placementPosition();
-          if (position) onAddPixelEffect(level, position);
+          if (position) onAddPixelEffect(preset, level, position);
           setPixelPresetsOpen(false);
         }}
       /> : null}

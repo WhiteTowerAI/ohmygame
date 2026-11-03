@@ -8,6 +8,9 @@ import { GLOBAL_PIXEL_ART_STYLE_REQUIREMENTS, withCharacterPixelArtLevel, withGl
 import { consistentScenesPrompt } from "../src/shared/canvas-pixel-prompts.js";
 import { ASSET_CANVAS_TEMPLATES, templateGuideInfo, templateImagePresets } from "../src/renderer/asset-canvas-templates.js";
 import { createPixelAssetPresetContents, createPixelAssetWorkflowNodes, pixelAssetPresetCatalog, pixelAssetTemplateCategories, pixelAssetWorkflowLabel, placePixelPresetOutsideDensityGroups } from "../src/renderer/asset-canvas-pixel-workflows.js";
+import { EFFECT_PRESETS, effectPresetById, effectPresetDescription, effectPresetLabel } from "../src/renderer/asset-canvas-effect-presets.js";
+import { effectPresetExampleId } from "../src/renderer/asset-canvas-effect-examples.js";
+import { pixelExampleImageUrl } from "../src/renderer/asset-canvas-pixel-examples.js";
 
 const textOnly: ImageModel = {
   provider: "example", id: "text", name: "Text", providerName: "Example", sizes: ["1024x1024"],
@@ -24,6 +27,21 @@ const reference: ImageModel = {
 };
 
 describe("pixel asset workflows", () => {
+  it("offers every bundled effect as an individual, localized pixel preset", () => {
+    expect(EFFECT_PRESETS).toHaveLength(12);
+    expect(new Set(EFFECT_PRESETS.map((preset) => preset.id)).size).toBe(EFFECT_PRESETS.length);
+    for (const preset of EFFECT_PRESETS) {
+      expect(effectPresetById(preset.id)).toBe(preset);
+      expect(effectPresetLabel(preset.id)).not.toContain("assetCanvas.");
+      expect(effectPresetDescription(preset.id)).not.toContain("assetCanvas.");
+      expect(preset.preview).toBeTruthy();
+      expect(preset.prompt).toContain("sprite sheet");
+      expect(pixelExampleImageUrl(effectPresetExampleId(preset.id, "coarse"))).toBeTruthy();
+      expect(pixelExampleImageUrl(effectPresetExampleId(preset.id, "classic"))).toBeTruthy();
+      expect(pixelExampleImageUrl(effectPresetExampleId(preset.id, "detailed"))).toBeTruthy();
+    }
+  });
+
   it("applies the selected pixel density to effect generation prompts", () => {
     const base = "Create one complete 4-column by 3-row Sprite Sheet (12 frames) for a fire impact.";
     const coarse = effectLibraryPrompt(base, "original", "sample", "", "coarse");
