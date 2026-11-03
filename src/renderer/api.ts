@@ -1,3 +1,5 @@
+import { notifyAgentModelsChanged } from "./model-settings-events.js";
+export { MODELS_CHANGED_EVENT, notifyAgentModelsChanged } from "./model-settings-events.js";
 import type { GameTuningScalar, GameTuningState } from "../shared/game-tuning.js";
 import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
@@ -434,16 +436,11 @@ export async function updateAgentDefaults(input: UpdateAgentDefaultsRequest): Pr
   });
 }
 
-export const MODELS_CHANGED_EVENT = "ohmygame-models-changed";
 export async function syncCloudSession(session: { accessToken: string; userId: string } | null): Promise<void> {
   await request("/cloud/session", { method: "PUT", body: JSON.stringify(session) });
   notifyAgentModelsChanged();
 }
 export async function getCloudQuotas(): Promise<import("../shared/cloud-models.js").CloudQuotaSnapshot | null> { return request("/cloud/quotas"); }
-
-export function notifyAgentModelsChanged(): void {
-  window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
-}
 
 export async function listProviders(): Promise<ProviderSummary[]> {
   return request("/settings/providers");
