@@ -3146,6 +3146,7 @@ const zhCN: typeof en = {
       assets: "素材",
       documents: "文档",
       plugins: "插件",
+      presets: "预设",
     },
     plugin: {
       off: "这个节点的插件已关闭或已移除。在插件页打开后才能运行。",

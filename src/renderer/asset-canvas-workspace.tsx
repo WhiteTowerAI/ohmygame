@@ -92,7 +92,7 @@ import { effectLibraryPrompt, createAssetGenerationNode, EFFECT_LIBRARY_DEFAULT_
 import { allActionsPrompt, continuousActionsPrompt } from "../shared/canvas-character-tools.js";
 import { canvasImagePresetPrompt, canvasMaterialStyle } from "../shared/canvas-image-presets.js";
 import { audioCanvasSettings, audioNodeHasSettings, audioSettings, type AudioCanvasSettings, type AudioModel, type AudioProviderCatalogStatus } from "../shared/audio.js";
-import { getProjectPluginCanvas, createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset, importCanvasFile, createCanvasImportFolder } from "./api.js";
+import { getProjectPluginCanvas, getProjectPluginCanvasPreset, createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset, importCanvasFile, createCanvasImportFolder } from "./api.js";
 import { canvasAssetDownloadName, downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { SendToProjectDialog } from "./send-to-project-dialog.js";
 import { useAgentModels } from "./model-selector.js";
@@ -132,7 +132,8 @@ import { importCanvasCsv } from "../shared/canvas-table.js";
 import { MEDIA_NODE_MAX_WIDTH, type AssetCanvasFlowNode, errorMessage, type AssetCanvasFlowData, OUTPUT_HANDLE, titleCase, nodeModel3D, type Animate3DNodeRuntime, type AudioNodeRuntime, type PluginNodeRuntime, type MediaNodeRuntime, type ReferenceMediaNodeRuntime, type ImageNodeRuntime, type VideoNodeRuntime, sameImageModel, sameModel, type MediaReferenceView, nodeModel3DConfig, modelRef } from "./asset-canvas-flow.js";
 import { PluginNode } from "./canvas-plugin-node.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import type { ProjectCanvasNode } from "../shared/plugins.js";
+import type { ProjectCanvasNode, ProjectPluginCanvas } from "../shared/plugins.js";
+import { canvasPresetInGroup } from "../shared/canvas-plugin-nodes.js";
 import { CanvasAssetRecovery, TextNode, ImageNode, VideoNode, SpeechNode, AudioSceneNode, SoundEffectNode, MusicNode, Model3DNode, Animate3DNode, AssetNode, FileNode, canvasHistoryKey, mediaAspectRatio, audioOperationForNode, FolderImportDialog } from "./asset-canvas-nodes.js";
 export { canvasHistoryKey } from "./asset-canvas-nodes.js";
 
@@ -141,7 +142,7 @@ const GROUP_GENERATION_CONCURRENCY = 3;
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const MAX_FOLDER_IMPORT_FILES = 5_000;
 const MAX_FOLDER_IMPORT_BYTES = 2 * 1024 * 1024 * 1024;
-type CanvasNodeCreationAction = { kind: "node"; type: Exclude<AssetCanvasNodeType, "asset" | "plugin">; documentId?: string; tableId?: string } | { kind: "plugin"; node: string };
+type CanvasNodeCreationAction = { kind: "node"; type: Exclude<AssetCanvasNodeType, "asset" | "plugin">; documentId?: string; tableId?: string } | { kind: "plugin"; node: string } | { kind: "preset"; preset: string; title: string };
 interface CanvasNodeCreationLeaf {
   label: string;
   description?: string;
@@ -183,7 +184,8 @@ function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasN
   return "action" in item;
 }
 
-function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables, pluginNodes: readonly ProjectCanvasNode[] = []): CanvasNodeCreationGroup[] {
+function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables, pluginCanvas: ProjectPluginCanvas = { nodes: [], presets: [] }): CanvasNodeCreationGroup[] {
+  const pluginNodes = pluginCanvas.nodes;
   const items: CanvasNodeCreationItem[] = [{ label: t("assetCanvas.node.document"), description: t("assetCanvas.node.markdown"), icon: FileText, action: { kind: "node", type: "document" } }];
   if (documents.documents.length) items.push({ label: t("assetCanvas.node.existingDocument"), description: t("assetCanvas.node.existingDocumentHint"), icon: FileText, children: documents.documents.map((document) => ({ label: document.title || t("canvasDocs.untitled"), description: t("assetCanvas.node.markdown"), icon: FileText, action: { kind: "node", type: "document", documentId: document.id } })) });
   items.push({ label: t("assetCanvas.node.table"), description: t("assetCanvas.node.tableHint"), icon: FileText, action: { kind: "node", type: "table" } });
@@ -195,7 +197,12 @@ function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables, 
     const leaves = nodes.map((node): CanvasNodeCreationLeaf => ({ label: node.title, ...(node.description ? { description: node.description } : {}), icon: Plug, action: { kind: "plugin", node: node.id } }));
     return leaves.length === 1 ? leaves[0]! : { label: nodes[0]!.pluginName, description: plugin, icon: Plug, children: leaves };
   });
-  return [{ label: t("assetCanvas.group.documents"), items }, ...BASE_CANVAS_NODE_CREATION_GROUPS, ...(plugins.length ? [{ label: t("assetCanvas.group.plugins"), items: plugins }] : [])];
+  const presets = pluginCanvas.presets.map((preset): CanvasNodeCreationItem => ({ label: preset.title, description: preset.description ?? preset.pluginName, icon: Layers3, action: { kind: "preset", preset: preset.id, title: preset.title } }));
+  return [
+    { label: t("assetCanvas.group.documents"), items }, ...BASE_CANVAS_NODE_CREATION_GROUPS,
+    ...(plugins.length ? [{ label: t("assetCanvas.group.plugins"), items: plugins }] : []),
+    ...(presets.length ? [{ label: t("assetCanvas.group.presets"), items: presets }] : []),
+  ];
 }
 
 type CanvasGroupFlowNode = Node<AssetCanvasFlowData, "group"> & { title?: string; description?: string };
@@ -289,11 +296,12 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const pendingImport = useRef<Promise<void> | undefined>(undefined);
   const [globalAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
   // The canvas nodes of the project's active plugins. A failed read offers none.
-  const [pluginNodes, setPluginNodes] = useState<ProjectCanvasNode[]>([]);
+  const [pluginCanvas, setPluginCanvas] = useState<ProjectPluginCanvas>({ nodes: [], presets: [] });
+  const pluginNodes = pluginCanvas.nodes;
   const runtimeGeneration = useReadyRuntimeGeneration();
   useEffect(() => {
     let disposed = false;
-    void getProjectPluginCanvas(projectId).then((canvas) => canvas.nodes, (): ProjectCanvasNode[] => []).then((nodes) => { if (!disposed) setPluginNodes(nodes); });
+    void getProjectPluginCanvas(projectId).catch((): ProjectPluginCanvas => ({ nodes: [], presets: [] })).then((canvas) => { if (!disposed) setPluginCanvas(canvas); });
     return () => { disposed = true; };
   }, [projectId, runtimeGeneration]);
   const libraryAssets = useMemo<LibraryAsset[]>(() => {
@@ -1499,7 +1507,16 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   function addCanvasNode(item: CanvasNodeCreationLeaf, position: { x: number; y: number }): void {
     if (item.action.kind === "plugin") { addPluginNode(item.action.node, position); return; }
+    if (item.action.kind === "preset") { void addPluginPreset(item.action.preset, item.action.title, position); return; }
     addNode(item.action.type, position, item.action.documentId ?? item.action.tableId);
+  }
+
+  async function addPluginPreset(id: string, title: string, position: { x: number; y: number }): Promise<void> {
+    try {
+      const board = await getProjectPluginCanvasPreset(projectId, id);
+      if (!mounted.current) return;
+      pasteSelection({ format: "ohmygame/canvas-nodes", version: 1, projectId, nodes: canvasPresetInGroup(board, title, crypto.randomUUID()), edges: board.edges }, position);
+    } catch (cause) { setNotice({ kind: "action", message: errorMessage(cause) }); }
   }
 
   function addPluginNode(id: string, position: { x: number; y: number }): void {
@@ -2319,7 +2336,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
                 project={project}
                 documents={documents} tables={tables}
                 libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model")}
-                pluginNodes={pluginNodes}
+                pluginCanvas={pluginCanvas}
                 importing={importingAssets}
                 onAdd={addCanvasNode}
                 onAddPixelPreset={addPixelAssetPreset}
@@ -2412,7 +2429,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             {!portOptions.length ? <span>{t("canvasInteraction.noCompatibleNodes")}</span> : null}
           </CanvasContextMenu> : null}
           {canvasContextMenu ? <AssetCanvasContextMenu
-            documents={documents} tables={tables} pluginNodes={pluginNodes}
+            documents={documents} tables={tables} pluginCanvas={pluginCanvas}
             onUseInDocument={contextMenuNode?.type === "text" && contextMenuNode.data.text ? () => documents.appendText(contextMenuNode.data.text!) : contextMenuNode?.data.assetId && (contextMenuNode.type === "image" || contextMenuNode.data.mediaType === "image") ? () => documents.appendImage(contextMenuNode.data.assetId!) : undefined}
             menu={canvasContextMenu}
             canUndo={canUndo}
@@ -2815,7 +2832,7 @@ function AssetCanvasAddControl({
   documents,
   tables,
   libraryAssets,
-  pluginNodes,
+  pluginCanvas,
   importing,
   onAdd,
   onAddPixelPreset,
@@ -2827,7 +2844,7 @@ function AssetCanvasAddControl({
   documents: CanvasDocuments;
   tables: CanvasTables;
   libraryAssets: LibraryAsset[];
-  pluginNodes: readonly ProjectCanvasNode[];
+  pluginCanvas: ProjectPluginCanvas;
   importing: boolean;
   onAdd: (item: CanvasNodeCreationLeaf, position: { x: number; y: number }) => void;
   onAddPixelPreset: (preset: PixelAssetPresetId, level: PixelArtLevel, position: { x: number; y: number }) => void;
@@ -2835,7 +2852,7 @@ function AssetCanvasAddControl({
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (files: File[], position: { x: number; y: number }) => void;
 }) {
-  const creationGroups = canvasCreationGroups(documents, tables, pluginNodes);
+  const creationGroups = canvasCreationGroups(documents, tables, pluginCanvas);
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -2994,7 +3011,7 @@ function CanvasAssetViewer({ asset, name, onDownload, onSendToProject, onClose, 
 function AssetCanvasContextMenu({
   documents,
   tables,
-  pluginNodes,
+  pluginCanvas,
   onUseInDocument,
   menu,
   canUndo,
@@ -3024,7 +3041,7 @@ function AssetCanvasContextMenu({
 }: {
   documents: CanvasDocuments;
   tables: CanvasTables;
-  pluginNodes: readonly ProjectCanvasNode[];
+  pluginCanvas: ProjectPluginCanvas;
   onUseInDocument?: () => void;
   menu: CanvasContextMenuState;
   canUndo: boolean;
@@ -3052,7 +3069,7 @@ function AssetCanvasContextMenu({
   onDelete: () => void;
   onDetails?: () => void;
 }) {
-  const creationGroups = canvasCreationGroups(documents, tables, pluginNodes);
+  const creationGroups = canvasCreationGroups(documents, tables, pluginCanvas);
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();

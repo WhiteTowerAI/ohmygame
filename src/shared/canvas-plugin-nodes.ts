@@ -1,4 +1,7 @@
 import type { PluginContributions } from "./plugin-manifest.js";
+import type { AssetCanvasEdge, AssetCanvasNode } from "./contracts.js";
+import { createAssetCanvasDocument, isAssetCanvasDocument, validateAssetCanvasDocument } from "./asset-canvas.js";
+import { canvasNodeLayout } from "./canvas-node-layout.js";
 
 // The rules a plugin's canvas node holds its settings and inputs to, shared
 // by the node's form and the daemon that runs it.
@@ -62,4 +65,48 @@ export function canvasNodeInputs<T extends { type: string }>(
     checked[input.id] = sources;
   }
   return checked;
+}
+
+/** What a preset file holds: nodes and the edges between them, no outputs and nothing from a Library. */
+export interface CanvasPresetBoard {
+  nodes: AssetCanvasNode[];
+  edges: AssetCanvasEdge[];
+}
+
+export const CANVAS_PRESET_MAX_NODES = 200;
+export const CANVAS_PRESET_MAX_BYTES = 1024 * 1024;
+/** Nodes that stand on their own; documents, tables, files and assets name things in one project. */
+const PRESET_NODE_TYPES: ReadonlySet<string> = new Set(["text", "image", "video", "speech", "sound-effect", "music", "audio-scene", "model-3d", "animate-3d", "group", "plugin"]);
+
+/** Why a preset file can't be added to a board, or nothing when it can. */
+export function canvasPresetIssue(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "must be an object with nodes and edges";
+  const { nodes, edges = [], ...rest } = value as { nodes?: unknown; edges?: unknown };
+  if (Object.keys(rest).length) return `has fields other than nodes and edges: ${Object.keys(rest).join(", ")}`;
+  if (!Array.isArray(nodes) || !nodes.length) return "needs at least one node";
+  if (nodes.length > CANVAS_PRESET_MAX_NODES) return `has more than ${CANVAS_PRESET_MAX_NODES} nodes`;
+  if (!Array.isArray(edges)) return "edges must be a list";
+  const type = nodes.map((node: { type?: unknown } | null) => node?.type).find((type) => typeof type !== "string" || !PRESET_NODE_TYPES.has(type));
+  if (type !== undefined) return `can't hold ${typeof type === "string" ? `${type} nodes` : "a node without a type"}`;
+  if (JSON.stringify(nodes).includes('"assetId"')) return "can't hold outputs or Library assets";
+  const canvas = createAssetCanvasDocument();
+  canvas.nodes = nodes as AssetCanvasNode[];
+  canvas.edges = edges as AssetCanvasEdge[];
+  canvas.editorLayout.nodes = Object.fromEntries(canvas.nodes.map((node) => [node.id, canvasNodeLayout(node)]));
+  if (isAssetCanvasDocument(canvas)) return undefined;
+  // Name the broken link when the shape is right; anything else is just not a board.
+  try { validateAssetCanvasDocument(canvas); } catch (error) { if (error instanceof Error && /^(?:Node|Group|Duplicate|Asset Canvas edge) /.test(error.message)) return error.message; }
+  return "isn't a valid canvas board";
+}
+
+/**
+ * A preset's nodes inside one new group named after it, so the preset lands
+ * as one piece. Sizes not saved in the file are guessed from a media node's.
+ */
+export function canvasPresetInGroup(board: CanvasPresetBoard, name: string, groupId: string): AssetCanvasNode[] {
+  const roots = board.nodes.filter((node) => !node.parentId);
+  const left = Math.min(...roots.map((node) => node.position.x)) - 28, top = Math.min(...roots.map((node) => node.position.y)) - 54;
+  const right = Math.max(...roots.map((node) => node.position.x + (node.width ?? 440))) + 28, bottom = Math.max(...roots.map((node) => node.position.y + (node.height ?? 400))) + 28;
+  const group: AssetCanvasNode = { id: groupId, type: "group", position: { x: left, y: top }, width: Math.min(4096, Math.max(500, right - left)), height: Math.min(4096, Math.max(400, bottom - top)), data: { name: name.trim().slice(0, 120) || "Preset" } };
+  return [group, ...board.nodes.map((node) => node.parentId ? node : { ...node, parentId: groupId, position: { x: node.position.x - left, y: node.position.y - top } })];
 }

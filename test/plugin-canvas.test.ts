@@ -6,6 +6,9 @@ import { createApp } from "../src/daemon/app.js";
 import type { CanvasBoardDetail, CanvasWorkspaceDetail } from "../src/shared/canvas-workspace.js";
 import type { AssetCanvasNode, ProjectState, ToolJob } from "../src/shared/contracts.js";
 import type { ProjectPluginCanvas } from "../src/shared/plugins.js";
+import { canvasPresetInGroup, canvasPresetIssue, type CanvasPresetBoard } from "../src/shared/canvas-plugin-nodes.js";
+import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
+import { duplicateCanvasSelection } from "../src/renderer/asset-canvas-clipboard.js";
 
 const fixtures: { app: ReturnType<typeof createApp>; directories: string[] }[] = [];
 afterEach(async () => {
@@ -51,7 +54,18 @@ const MANIFEST = {
         output: "text", run: { native: "describe" },
       },
     ],
+    canvasPresets: [{ id: "knight", title: "%knight%", board: "./presets/knight.json" }],
   },
+};
+
+// A prompt, its picture, and a copy of the picture: the nodes keep their links, never outputs.
+const KNIGHT: CanvasPresetBoard = {
+  nodes: [
+    { id: "brief", type: "text", position: { x: 0, y: 0 }, data: { text: "A knight", instruction: "" } },
+    { id: "art", type: "image", position: { x: 500, y: 0 }, data: { prompt: "", promptSource: { type: "node", nodeId: "brief" }, resolution: "1K", aspectRatio: "1:1", images: [] } },
+    { id: "copy", type: "plugin", position: { x: 1000, y: 0 }, data: { node: "acme/frames:copy", params: {}, inputs: { source: [{ type: "node", nodeId: "art" }] } } },
+  ],
+  edges: [],
 };
 
 async function setup() {
@@ -63,9 +77,15 @@ async function setup() {
   await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true }); await mkdir(path.join(source, "locales"), { recursive: true });
   await writeFile(path.join(source, "index.mjs"), FRAMES);
   await writeFile(path.join(source, ".ohmygame-plugin/plugin.json"), JSON.stringify(MANIFEST));
-  await writeFile(path.join(source, "locales/en.json"), JSON.stringify({ name: "Frames", copy: "Copy image", source: "Source image" }));
-  await writeFile(path.join(source, "locales/zh-CN.json"), JSON.stringify({ name: "帧工具", copy: "复制图片", source: "源图片" }));
+  await writeFile(path.join(source, "locales/en.json"), JSON.stringify({ name: "Frames", copy: "Copy image", source: "Source image", knight: "Knight sheet" }));
+  await writeFile(path.join(source, "locales/zh-CN.json"), JSON.stringify({ name: "帧工具", copy: "复制图片", source: "源图片", knight: "骑士设定" }));
+  await mkdir(path.join(source, "presets"));
+  // A preset holding an output is refused when the package is checked.
+  await writeFile(path.join(source, "presets/knight.json"), JSON.stringify({ ...KNIGHT, nodes: KNIGHT.nodes.map((node) => node.id === "art" ? { ...node, data: { ...node.data, assetId: "made" } } : node) }));
   const payload = { source: { type: "directory", path: source } };
+  const refused = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
+  expect(refused.body).toContain("./presets/knight.json can't hold outputs or Library assets");
+  await writeFile(path.join(source, "presets/knight.json"), JSON.stringify(KNIGHT));
   const inspected = await app.inject({ method: "POST", url: "/plugin-sources/inspect", payload });
   expect(inspected.statusCode, inspected.body).toBe(200);
   const added = await app.inject({ method: "POST", url: "/plugin-sources/install", payload: { ...payload, digest: inspected.json().digest } });
@@ -140,5 +160,40 @@ describe("plugin canvas nodes", () => {
     expect(escaped.job.error).toContain("isn't a file it wrote in its output folder");
     expect(escaped.node.data.assetId).toBeUndefined();
     expect((await run([plugin("copy", "acme/missing:copy", {}, hero)], "copy")).job.status).toBe("failed");
+  });
+
+  it("offers presets, hands out their nodes, and adds them as one group with new ids", async () => {
+    const { app, project } = await setup();
+    const listed = (await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-canvas?locale=zh-CN` })).json<ProjectPluginCanvas>();
+    expect(listed.presets).toEqual([{ id: "acme/frames:knight", plugin: "acme/frames", pluginName: "帧工具", title: "骑士设定" }]);
+    const fetched = await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-canvas/presets/acme/frames/knight` });
+    expect(fetched.json<CanvasPresetBoard>()).toEqual(KNIGHT);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-canvas/presets/acme/frames/queen` })).statusCode).toBe(404);
+    // Turned off in the project, its presets go too.
+    await app.inject({ method: "PUT", url: `/projects/${project.id}/plugins/acme/frames`, payload: { on: false } });
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/plugin-canvas/presets/acme/frames/knight` })).statusCode).toBe(404);
+
+    let id = 0;
+    const added = duplicateCanvasSelection(canvasPresetInGroup(KNIGHT, "Knight sheet", "group"), [], { x: 2000, y: 400 }, () => `new-${++id}`);
+    const [group, ...nodes] = added.nodes;
+    expect(group).toMatchObject({ type: "group", position: { x: 2000, y: 400 }, width: 1496, height: 482, data: { name: "Knight sheet" } });
+    expect(nodes.every((node) => node.parentId === group!.id)).toBe(true);
+    expect(nodes.map((node) => node.position)).toEqual([{ x: 28, y: 54 }, { x: 528, y: 54 }, { x: 1028, y: 54 }]);
+    expect(nodes[2]!.data).toMatchObject({ inputs: { source: [{ type: "node", nodeId: nodes[1]!.id }] } });
+    const board = createAssetCanvasDocument();
+    board.nodes = added.nodes;
+    board.editorLayout.nodes = Object.fromEntries(added.nodes.map((node) => [node.id, node.position]));
+    expect(isAssetCanvasDocument(board)).toBe(true);
+  });
+
+  it.each([
+    ["an asset node", { nodes: [{ id: "a", type: "asset", position: { x: 0, y: 0 }, data: { assetId: "x", mediaType: "image" } }] }, "can't hold asset nodes"],
+    ["a document", { nodes: [{ id: "d", type: "document", position: { x: 0, y: 0 }, data: { documentId: "rules" } }] }, "can't hold document nodes"],
+    ["a broken link", { nodes: [{ ...KNIGHT.nodes[2]!, data: { node: "acme/frames:copy", params: {}, inputs: { source: [{ type: "node", nodeId: "gone" }] } } }] }, "Node copy"],
+    ["too many nodes", { nodes: Array.from({ length: 201 }, (_, index) => ({ ...KNIGHT.nodes[0]!, id: `n${index}` })) }, "has more than 200 nodes"],
+    ["other fields", { ...KNIGHT, viewport: {} }, "has fields other than nodes and edges: viewport"],
+    ["nothing", { nodes: [] }, "needs at least one node"],
+  ])("refuses a preset with %s", (_name, value, message) => {
+    expect(canvasPresetIssue(value)).toContain(message);
   });
 });

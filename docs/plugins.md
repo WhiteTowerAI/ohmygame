@@ -139,8 +139,19 @@ matches the node's output, up to 512 MB. The app adds that file to the
 Library and sets `data.assetId`. A missing required input, a param that
 doesn't fit, or a plugin that is off fails the job with a message. Rerunning
 with the same params, inputs and output reuses the last result. A node whose
-plugin is off stays on the board and says so; it runs again when the plugin
-is turned back on.
+plugin is off stays on the board with its links and last output, and says
+so; it runs again when the plugin is turned back on.
+
+`contributes.canvasPresets` offers ready-made groups of nodes under
+**Presets** in the same menu: `{ id, title, description?, board }`, where
+`board` is a JSON file in the package holding `{ nodes, edges }` in the
+board's own node format. A preset holds up to 200 nodes of the kinds that
+stand alone (text, image, video, audio, 3D, group and plugin nodes) and no
+outputs or Library assets (no `assetId` anywhere). Installing and
+`plugin:check` refuse one that breaks these rules or links to a node it
+doesn't hold. Adding a preset gives its nodes new ids, keeps the links
+between them, and puts them in a new group named after it where the menu
+was opened.
 
 ## Modules
 
@@ -226,8 +237,10 @@ is turned back on.
   `GET /projects/:id/plugin-changes`,
   `POST /projects/:id/plugin-changes/:changeId/undo`.
 - Canvas nodes: `GET /projects/:id/plugin-canvas?locale=` lists the
-  [canvas nodes](#canvas-nodes) of the project's active plugins; a node runs
-  through the canvas `POST …/nodes/:nodeId/generate` route.
+  [canvas nodes](#canvas-nodes) and presets of the project's active plugins;
+  `GET /projects/:id/plugin-canvas/presets/:publisher/:name/:preset` gives a
+  preset's nodes and edges. A node runs through the canvas
+  `POST …/nodes/:nodeId/generate` route.
 - Pages: `GET /projects/:id/plugin-panels`,
   `GET`/`PUT /projects/:id/plugin-storage/:publisher/:name/:key`, and a
   page's [project files](#plugin-pages) under

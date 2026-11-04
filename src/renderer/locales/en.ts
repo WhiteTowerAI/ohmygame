@@ -3212,6 +3212,7 @@ const en = {
       assets: "Assets",
       documents: "Documents",
       plugins: "Plugins",
+      presets: "Presets",
     },
     plugin: {
       off: "This node's plugin is off or removed. Turn it on in Plugins to run it.",

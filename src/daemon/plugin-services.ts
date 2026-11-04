@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { CANVAS_PRESET_MAX_BYTES, canvasPresetIssue, type CanvasPresetBoard } from "../shared/canvas-plugin-nodes.js";
 import { watch, type FSWatcher } from "node:fs";
-import { cp, mkdir, readdir, rename, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type {
   AgentToolResult,
@@ -431,7 +432,7 @@ export class PluginServices {
   ): Promise<ProjectPluginCanvas> {
     await this.ready();
     const resolved = await this.resolve(folder).catch(() => undefined);
-    const canvas: ProjectPluginCanvas = { nodes: [] };
+    const canvas: ProjectPluginCanvas = { nodes: [], presets: [] };
     if (!resolved?.ok) return canvas;
     for (const plugin of resolved.plugins) {
       const entry = plugin.entry;
@@ -454,8 +455,33 @@ export class PluginServices {
           })),
           output: node.output,
         });
+      for (const preset of entry.manifest.contributes?.canvasPresets ?? [])
+        canvas.presets.push({
+          id: `${entry.id}:${preset.id}`,
+          plugin: entry.id,
+          pluginName,
+          title: text(preset.title),
+          ...(preset.description ? { description: text(preset.description) } : {}),
+        });
     }
     return canvas;
+  }
+
+  /** A preset's nodes and edges, from an active plugin's package, checked again as it is read. */
+  async canvasPreset(folder: string, plugin: string, id: string): Promise<CanvasPresetBoard | undefined> {
+    await this.ready();
+    const resolved = await this.resolve(folder).catch(() => undefined);
+    const entry = resolved?.ok ? resolved.plugins.find((candidate) => candidate.status === "active" && candidate.entry?.id === plugin)?.entry : undefined;
+    const preset = entry?.manifest.contributes?.canvasPresets?.find((candidate) => candidate.id === id);
+    if (!entry || !preset) return undefined;
+    const file = path.join(entry.root, preset.board);
+    const bytes = await readFile(file);
+    if (bytes.length > CANVAS_PRESET_MAX_BYTES) throw new Error(`${preset.board} is too large`);
+    const value: unknown = JSON.parse(bytes.toString("utf8"));
+    const problem = canvasPresetIssue(value);
+    if (problem) throw new Error(`${preset.board} ${problem}`);
+    const board = value as Partial<CanvasPresetBoard>;
+    return { nodes: board.nodes!, edges: board.edges ?? [] };
   }
 
   /** The panels of a project's active plugins, with what their pages may ask the host for. */

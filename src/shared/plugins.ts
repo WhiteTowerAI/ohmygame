@@ -340,6 +340,17 @@ export type CanvasNodeMedia = "image" | "text" | "audio" | "video" | "model";
 /** What a project's plugins add to Asset Canvas. */
 export interface ProjectPluginCanvas {
   nodes: ProjectCanvasNode[];
+  presets: ProjectCanvasPreset[];
+}
+
+/** A group of nodes a plugin offers to add to a board (GET …/plugin-canvas/presets/:publisher/:name/:preset). */
+export interface ProjectCanvasPreset {
+  /** `publisher/name:preset`. */
+  id: string;
+  plugin: string;
+  pluginName: string;
+  title: string;
+  description?: string;
 }
 
 /** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */

@@ -1724,6 +1724,17 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     return pluginServices.canvas(project.workspacePath, request.query.locale === "zh-CN" ? "zh-CN" : "en");
   });
+  app.get<{ Params: { projectId: string; publisher: string; name: string; preset: string } }>("/projects/:projectId/plugin-canvas/presets/:publisher/:name/:preset", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    const { publisher, name, preset } = request.params;
+    try {
+      const board = await pluginServices.canvasPreset(project.workspacePath, `${publisher}/${name}`, preset);
+      return board ?? reply.code(404).send({ error: "Preset not found" });
+    } catch (error) {
+      return reply.code(422).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
   // A plugin's settings: values for its page, secrets only as set or not.
   app.get<{ Params: { publisher: string; name: string } }>("/plugin-store/:publisher/:name/configuration", async (request, reply) => {
     await pluginServices.ready();
