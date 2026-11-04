@@ -224,7 +224,6 @@ const en = {
     configure: "Configure",
     noProviders: "No matching providers.",
     preparing: "Preparing OhMyGame",
-    gettingReady: "Getting ready…",
   },
   notifications: {
     approval: "Waiting for your approval",
@@ -1016,8 +1015,6 @@ const en = {
     expand: "Expand sidebar",
     back: "Back",
     forward: "Forward",
-    applicationMenu: "Application menu",
-    history: "Back and forward",
     loadingAccount: "Loading account",
     signInEllipsis: "Sign in…",
     account: "Account",
@@ -3829,6 +3826,12 @@ const en = {
     recheckDetail: "Recheck {{name}}: {{error}}",
     recheck: "Recheck {{name}}",
     detailsFor: "Node details: {{label}}",
+  },
+  windowControls: {
+    minimize: "Minimize",
+    maximize: "Maximize",
+    restore: "Restore",
+    close: "Close",
   },
   // Sent whole to the main process. Item keys are Electron's lowercase menu
   // item roles; a role that is worded differently on macOS has its own key.

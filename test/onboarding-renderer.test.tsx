@@ -1752,9 +1752,14 @@ describe("onboarding navigation state", () => {
   });
 });
 
-it("shows the arrival only after saving setup and reveals the interactive studio afterwards", async () => {
+async function loadHomeApp() {
   vi.doMock(path.resolve("src/renderer/home.tsx"), () => ({
     Home: ({ inert }: { inert?: boolean }) => <main inert={inert}>Studio</main>,
+  }));
+  vi.doMock(path.resolve("src/renderer/page-frame.tsx"), () => ({
+    PageFrame: ({ children }: { children: ReactNode }) => (
+      <div className="page-frame">{children}</div>
+    ),
   }));
   vi.doMock(
     path.resolve("src/renderer/app-navigation.ts"),
@@ -1763,7 +1768,36 @@ it("shows the arrival only after saving setup and reveals the interactive studio
       useAppNavigation: () => ({ route: { page: "home" }, navigate: vi.fn() }),
     }),
   );
-  const { App } = await import("../src/renderer/app.js");
+  return (await import("../src/renderer/app.js")).App;
+}
+
+it("waits for setup state without text and retries a failed read", async () => {
+  const App = await loadHomeApp();
+  let failRead!: (cause: Error) => void;
+  api.getOnboardingState.mockReturnValueOnce(
+    new Promise((_resolve, reject) => {
+      failRead = reject;
+    }),
+  );
+  await act(async () => root.render(<App />));
+  expect(container.querySelector(".page-frame .onboarding-pending")).not.toBeNull();
+  expect(container.textContent).toBe("");
+
+  await act(async () => failRead(new Error("Setup read failed")));
+  expect(container.querySelector(".page-frame")).toBeNull();
+  expect(container.textContent).toContain("Setup read failed");
+
+  api.getOnboardingState.mockResolvedValue({
+    version: 1,
+    status: "completed",
+    step: "start",
+  });
+  await act(async () => button("Retry").click());
+  expect(container.textContent).toBe("Studio");
+});
+
+it("shows the arrival only after saving setup and reveals the interactive studio afterwards", async () => {
+  const App = await loadHomeApp();
   api.getOnboardingState.mockResolvedValue({
     version: 1,
     status: "pending",

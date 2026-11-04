@@ -48,6 +48,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   listExploreGames: mocks.games,
   getExploreGame: mocks.detail,
 }));
+const { DesktopWindowFrame } = await import("../src/renderer/desktop-window-frame.js");
 const { CommunityProfilePage } =
   await import("../src/renderer/community-profile.js");
 const { GamesPage, GamePlayer, COMMUNITY_REFRESH_AFTER_MS } = await import("../src/renderer/games.js");
@@ -141,12 +142,14 @@ function displayedGames() {
 async function renderPlayer(gameId = "listed") {
   await act(async () =>
     root.render(
-      <GamePlayer
-        gameId={gameId}
-        onBack={() => undefined}
-        onNavigate={() => undefined}
-        onOhMyGame={() => undefined}
-      />,
+      <DesktopWindowFrame>
+        <GamePlayer
+          gameId={gameId}
+          onBack={() => undefined}
+          onNavigate={() => undefined}
+          onOhMyGame={() => undefined}
+        />
+      </DesktopWindowFrame>,
     ),
   );
 }
@@ -350,6 +353,25 @@ describe("game detail management", () => {
     expect(mocks.unpublish).toHaveBeenCalledWith("unlisted", "token");
     expect(window.location.hash).toBe("#/community/creators/creator");
     expect(container.querySelector("iframe")).toBeNull();
+  });
+
+  it("keeps the Windows controls available inside the native confirmation and after Cancel", async () => {
+    const minimize = vi.fn(async () => {});
+    const desktop = { platform: "win32", windowControls: {
+      minimize, state: async () => ({ maximized: false }), onState: () => () => {},
+    } };
+    vi.stubGlobal("ohMyGameDesktop", desktop);
+    await renderPlayer();
+    await chooseUnpublish();
+    const selector = '.desktop-window-controls button[aria-label="Minimize"]';
+    const button = container.querySelector<HTMLButtonElement>(`dialog[open] ${selector}`);
+    expect(button).toBeTruthy();
+    await act(async () => button!.click());
+    expect(minimize).toHaveBeenCalledOnce();
+    expect(mocks.unpublish).not.toHaveBeenCalled();
+    await click("Cancel unpublish");
+    expect(container.querySelectorAll(selector)).toHaveLength(1);
+    expect(container.querySelector("dialog[open]")).toBeNull();
   });
 
   it("retains the game when unpublishing is cancelled or fails, and restores focus", async () => {

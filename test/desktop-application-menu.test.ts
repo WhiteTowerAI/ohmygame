@@ -55,12 +55,6 @@ describe("application menu", () => {
     expect(labelsOf("darwin")).toEqual(["退出 OhMyGame", "关闭窗口"]);
   });
 
-  it("gives the title bar's menus ids that hold in every language", () => {
-    const ids = (labels: Record<string, string>) => applicationMenuTemplate(labels, "win32").map((item) => item.id);
-    expect(ids(zhCN.windowMenu)).toEqual(["File", "Edit", "View", "Window"]);
-    expect(ids({})).toEqual(["File", "Edit", "View", "Window"]);
-  });
-
   it("accepts only a record of strings as labels", () => {
     expect(isApplicationMenuLabels({ undo: "撤销" })).toBe(true);
     expect(isApplicationMenuLabels(undefined)).toBe(false);

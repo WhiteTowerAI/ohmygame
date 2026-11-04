@@ -2243,6 +2243,35 @@ describe("web build export", () => {
     expect(built.rawPayload.includes("build.mjs")).toBe(false);
   }, 20_000);
 
+  it("builds a nested game with its workspace manager and root dependencies", async () => {
+    const app = await createBuildApp();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Workspace", type: "web-game" } })).json();
+    const game = path.join(project.workspacePath, "game");
+    const helper = path.join(project.workspacePath, "helper");
+    await mkdir(game);
+    await mkdir(helper);
+    await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({
+      private: true, packageManager: "bun@1.4.2", workspaces: ["game", "helper"],
+      dependencies: { "build-helper": "workspace:*" },
+    }));
+    await writeFile(path.join(helper, "package.json"), JSON.stringify({ name: "build-helper", version: "1.0.0", main: "index.cjs" }));
+    await writeFile(path.join(helper, "index.cjs"), 'module.exports = "built"');
+    await writeFile(path.join(game, "package.json"), JSON.stringify({ name: "game", scripts: { build: "node build.cjs" } }));
+    await writeFile(path.join(game, "build.cjs"), `
+      const fs = require("node:fs");
+      fs.mkdirSync("dist");
+      fs.writeFileSync("dist/index.html", require("build-helper") + " " + process.env.npm_config_user_agent);
+    `);
+    const settings = await app.inject({ method: "PUT", url: `/projects/${project.id}/settings/run`, payload: {
+      startupDirectory: "game", startupScript: "dev", previewPath: "/", previewViewport: "fit",
+    } });
+    expect(settings.statusCode, settings.body).toBe(200);
+
+    const built = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
+    expect(built.statusCode, built.body).toBe(200);
+    expect(await readFile(path.join(game, "dist/index.html"), "utf8")).toMatch(/^built bun\//);
+  }, 20_000);
+
   it("builds only games that publish", async () => {
     const app = await createBuildApp();
     const canvas = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Board", type: "asset-canvas" } })).json();

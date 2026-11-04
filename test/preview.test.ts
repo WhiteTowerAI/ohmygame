@@ -14,6 +14,8 @@ import type { ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
 import * as projects from "../src/daemon/projects.js";
 
+// npm must launch the fixture's Node process before the first HTTP probe can succeed.
+const processReadiness = { readinessTimeoutMs: 10_000 };
 const managers: PreviewManager[] = [];
 
 afterEach(async () => {
@@ -128,7 +130,7 @@ describe("PreviewManager", () => {
     const workspacePath = await createWorkspace(false);
     const project = createProject(workspacePath);
     const events = new RuntimeEventBus();
-    const manager = new PreviewManager(events, { readinessTimeoutMs: 2_000 });
+    const manager = new PreviewManager(events, processReadiness);
     managers.push(manager);
     vi.stubEnv("PATH", await mkdtemp(path.join(tmpdir(), "ohmygame-preview-path-")));
 
@@ -222,7 +224,7 @@ describe("PreviewManager", () => {
     );
     const project = createProject(workspacePath);
     const events = new RuntimeEventBus();
-    const manager = new PreviewManager(events, { readinessTimeoutMs: 2_000 });
+    const manager = new PreviewManager(events, processReadiness);
     managers.push(manager);
     const url = await manager.start(project);
     await fetch(`${url}/crash`).catch(() => {});
@@ -280,9 +282,7 @@ describe("PreviewManager", () => {
     `,
     );
     const project = createProject(workspacePath);
-    const manager = new PreviewManager(new RuntimeEventBus(), {
-      readinessTimeoutMs: 2_000,
-    });
+    const manager = new PreviewManager(new RuntimeEventBus(), processReadiness);
     managers.push(manager);
     await expect(manager.start(project)).rejects.toThrow(
       "interrupted postinstall",
@@ -299,9 +299,7 @@ describe("PreviewManager", () => {
   it("reuses the same process for concurrent player and agent launches and subsequent opens", async () => {
     const workspacePath = await createWorkspace(false);
     const project = createProject(workspacePath);
-    const manager = new PreviewManager(new RuntimeEventBus(), {
-      readinessTimeoutMs: 2_000,
-    });
+    const manager = new PreviewManager(new RuntimeEventBus(), processReadiness);
     managers.push(manager);
     const urls = await Promise.all([
       manager.ensureStarted(project),
@@ -330,7 +328,7 @@ describe("PreviewManager", () => {
       preview: { status: "waiting" },
     };
     const events = new RuntimeEventBus();
-    const manager = new PreviewManager(events, { readinessTimeoutMs: 2_000 });
+    const manager = new PreviewManager(events, processReadiness);
     managers.push(manager);
     await expect(manager.start(project)).rejects.toThrow("Enable Web preview");
     expect(project.preview).toEqual({ status: "waiting" });
@@ -354,9 +352,7 @@ describe("PreviewManager", () => {
   it("keeps a pending workspace waiting and preserves a ready server on preflight failure", async () => {
     const workspacePath = await createWorkspace(false);
     const project = createProject(workspacePath);
-    const manager = new PreviewManager(new RuntimeEventBus(), {
-      readinessTimeoutMs: 2_000,
-    });
+    const manager = new PreviewManager(new RuntimeEventBus(), processReadiness);
     managers.push(manager);
     const url = await manager.start(project);
     const pid = Number(
@@ -380,9 +376,7 @@ describe("PreviewManager", () => {
   it("shares explicit restarts and cancels a startup during preflight without late errors", async () => {
     const workspacePath = await createWorkspace(false);
     const project = createProject(workspacePath);
-    const manager = new PreviewManager(new RuntimeEventBus(), {
-      readinessTimeoutMs: 2_000,
-    });
+    const manager = new PreviewManager(new RuntimeEventBus(), processReadiness);
     managers.push(manager);
     await manager.start(project);
     const originalPid = await readFile(
@@ -411,7 +405,7 @@ describe("PreviewManager", () => {
     const workspacePath = await createWorkspace(false);
     const project = createProject(workspacePath);
     const events = new RuntimeEventBus();
-    const manager = new PreviewManager(events, { readinessTimeoutMs: 2_000 });
+    const manager = new PreviewManager(events);
     managers.push(manager);
     let replacement: Promise<string> | undefined;
     const unsubscribe = events.subscribe(project.id, (event) => {
@@ -436,14 +430,14 @@ describe("PreviewManager", () => {
   it("starts and stops a preview process tree", async () => {
     const workspacePath = await createWorkspace(false);
     const project = createProject(workspacePath);
-    const manager = new PreviewManager(new RuntimeEventBus(), {
-      readinessTimeoutMs: 2_000,
-    });
+    const manager = new PreviewManager(new RuntimeEventBus(), processReadiness);
     managers.push(manager);
 
     const url = await manager.start(project);
     expect(await (await fetch(url)).text()).toBe("ready");
+    const pid = Number(await readFile(path.join(workspacePath, "server.pid"), "utf8"));
     await manager.stop(project);
+    await vi.waitFor(() => expect(isProcessRunning(pid)).toBe(false));
     expect(project.preview).toMatchObject({
       status: "stopped",
       stopReason: "manual",
@@ -457,9 +451,7 @@ describe("PreviewManager", () => {
   it("waits for an in-flight stop before reopening instead of returning the closing server", async () => {
     const workspacePath = await createWorkspace(false);
     const project = createProject(workspacePath);
-    const manager = new PreviewManager(new RuntimeEventBus(), {
-      readinessTimeoutMs: 2_000,
-    });
+    const manager = new PreviewManager(new RuntimeEventBus(), processReadiness);
     managers.push(manager);
     await manager.start(project);
     const pid = await readFile(path.join(workspacePath, "server.pid"), "utf8");
@@ -482,9 +474,7 @@ describe("PreviewManager", () => {
   it("publishes stopped when a replacement is still being inspected and later fails", async () => {
     const workspacePath = await createWorkspace(false);
     const project = createProject(workspacePath);
-    const manager = new PreviewManager(new RuntimeEventBus(), {
-      readinessTimeoutMs: 2_000,
-    });
+    const manager = new PreviewManager(new RuntimeEventBus(), processReadiness);
     managers.push(manager);
     const url = await manager.start(project);
     type Workspace = Awaited<ReturnType<typeof projects.resolvePreviewWorkspace>>;
@@ -531,7 +521,7 @@ describe("PreviewManager", () => {
     managers.push(manager);
 
     await expect(manager.start(project)).rejects.toThrow(
-      /did not become ready[\s\S]*server error/,
+      /did not become ready at http:\/\/127\.0\.0\.1:\d+ within 1000ms[\s\S]*server error/,
     );
     const pid = Number(
       await readFile(path.join(workspacePath, "server.pid"), "utf8"),
@@ -557,9 +547,7 @@ describe("PreviewManager", () => {
     `,
     );
     const project = createProject(workspacePath);
-    const manager = new PreviewManager(new RuntimeEventBus(), {
-      readinessTimeoutMs: 2_000,
-    });
+    const manager = new PreviewManager(new RuntimeEventBus(), processReadiness);
     managers.push(manager);
     const url = await manager.start(project);
     expect(project.preview.status).toBe("ready");
@@ -608,9 +596,7 @@ describe("PreviewManager", () => {
       startupDirectory: "apps/game",
       startupScript: "start",
     };
-    const manager = new PreviewManager(new RuntimeEventBus(), {
-      readinessTimeoutMs: 2_000,
-    });
+    const manager = new PreviewManager(new RuntimeEventBus(), processReadiness);
     managers.push(manager);
 
     const url = await manager.start(project);

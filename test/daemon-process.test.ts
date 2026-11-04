@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import * as shellEnvironment from "../src/daemon/agent-runtimes/environment.js";
 import { startDaemon } from "../src/desktop/daemon-process.js";
 
 describe("desktop daemon process", () => {
@@ -210,6 +211,7 @@ describe("desktop daemon process", () => {
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
     `);
 
+    using loginPath = vi.spyOn(shellEnvironment, "loginShellPath").mockResolvedValue("/user/pnpm/bin:.:");
     const daemon = await startDaemon({
       daemonEntry: entry,
       dataDirectory: directory,
@@ -221,8 +223,14 @@ describe("desktop daemon process", () => {
       healthTimeoutMs: 2_000,
     });
 
-    expect(await readFile(pathFile, "utf8")).toBe(`${runtimeBin}${path.delimiter}/system/bin`);
-    await daemon.stop();
+    try {
+      const directories = [runtimeBin, "/system/bin"];
+      if (process.platform === "darwin") directories.push("/user/pnpm/bin");
+      expect(loginPath).toHaveBeenCalledTimes(process.platform === "darwin" ? 1 : 0);
+      expect(await readFile(pathFile, "utf8")).toBe(directories.join(path.delimiter));
+    } finally {
+      await daemon.stop();
+    }
   });
 
   it("passes the OhMyGame Pi agent directory to the daemon", async () => {

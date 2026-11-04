@@ -299,7 +299,11 @@ return. Auto mode depends on the model: Claude Code starts in default mode, or
 refuses to switch (`auto_mode_model`), for a model without it, and the session
 continues in default mode. The `PreToolUse` hook only marks a call as running and refuses
 `ExitPlanMode` and, while planning, file-changing tools; otherwise it gives no
-decision. `can_use_tool` requests become approval cards carrying Claude's
+decision. Claude's `AskUserQuestion` is disallowed, because Claude Code hands it to the
+host as a permission request that an approval card cannot answer. Claude asks
+with OhMyGame's `questionnaire` while planning and in its reply otherwise,
+like OhMyGame's own agent. Other
+`can_use_tool` requests become approval cards carrying Claude's
 `permission_suggestions`, which go back as `updatedPermissions` when the person
 always allows. Planning runs in Claude's default permission mode, not its plan
 mode, so Claude records the plan with `update_plan` rather than its own plan

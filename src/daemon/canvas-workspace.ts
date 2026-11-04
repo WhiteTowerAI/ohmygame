@@ -1,3 +1,5 @@
+import { Compile } from "typebox/schema";
+import { tableValidator, layoutValidator } from "../shared/canvas-validators.js";
 import { audioSettings } from "../shared/audio.js";
 import { CANVAS_TABLE_SCHEMA, createCanvasTable, isCanvasTable, canvasTablePath, type CanvasTable, type CanvasTableDetail } from "../shared/canvas-table.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -24,6 +26,7 @@ import { canvasAssetCatalog, canvasLibraryAsset, ensureCanvasAssets, inspectCanv
 import { sameJson } from "../shared/same-json.js";
 export { CanvasError } from "./canvas-files.js";
 
+const boardFileValidator = Compile(CANVAS_BOARD_SCHEMA);
 const locks = new Map<string, Promise<unknown>>();
 export function withCanvasLock<T>(workspace: string, operation: () => Promise<T>): Promise<T> {
   const result = (locks.get(workspace) ?? Promise.resolve()).catch(() => {}).then(operation);
@@ -143,7 +146,7 @@ export async function readCanvasTable(workspace: string, tableId: string): Promi
 async function readTableFile(workspace: string, tableId: string): Promise<CanvasTableDetail> {
   const file = `tables/${tableId}.json`, text = await readCanvasFile(workspace, file, 4 * 1024 * 1024);
   if (text === undefined) throw new CanvasError(`canvas/${file}: table file is missing`, 409);
-  const table = parseCanvasJson<CanvasTable>(text, file, CANVAS_TABLE_SCHEMA);
+  const table = parseCanvasJson<CanvasTable>(text, file, CANVAS_TABLE_SCHEMA, tableValidator);
   if (!isCanvasTable(table) || table.id !== tableId) throw new CanvasError(`canvas/${file}: invalid table IDs or cell types`);
   return { table, revision: revision(text) };
 }
@@ -168,9 +171,9 @@ export async function readCanvasBoard(workspace: string, id: string): Promise<Ca
 export async function inspectCanvasBoard(workspace: string, id: string): Promise<{ detail: CanvasBoardDetail; issues: string[] } | undefined> {
   const name = `boards/${validId(id)}.json`, text = await readCanvasFile(workspace, name);
   if (text === undefined) return undefined;
-  const raw = parseCanvasJson<Omit<CanvasBoard, "editorLayout">>(text, name, CANVAS_BOARD_SCHEMA);
+  const raw = parseCanvasJson<Omit<CanvasBoard, "editorLayout">>(text, name, CANVAS_BOARD_SCHEMA, boardFileValidator);
   const layoutName = `editor/${id}.json`, layoutText = await readCanvasFile(workspace, layoutName);
-  const layout = layoutText === undefined ? createAssetCanvasDocument().editorLayout : parseCanvasJson<CanvasBoard["editorLayout"]>(layoutText, layoutName, CANVAS_LAYOUT_SCHEMA);
+  const layout = layoutText === undefined ? createAssetCanvasDocument().editorLayout : parseCanvasJson<CanvasBoard["editorLayout"]>(layoutText, layoutName, CANVAS_LAYOUT_SCHEMA, layoutValidator);
   const editorLayout = fitCanvasLayout(raw.nodes, layout), issues: string[] = [];
   for (const node of raw.nodes) {
     const { width, height, ...position } = editorLayout.nodes[node.id]!;

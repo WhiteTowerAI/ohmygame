@@ -15,7 +15,7 @@ import { t } from "./i18n.js";
 import { createConversation, createProject, getProject, MODELS_CHANGED_EVENT, turnOnProjectPlugin } from "./api.js";
 import type { ComposerDraft } from "./composer.js";
 import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Onboarding, OnboardingArrival, OnboardingLoading, type OnboardingStart } from "./onboarding.js";
+import { Onboarding, OnboardingArrival, OnboardingLoadError, OnboardingLoading, type OnboardingStart } from "./onboarding.js";
 import { useOnboarding } from "./use-onboarding.js";
 import { CommandMenuHost } from "./command-menu.js";
 import { useNotificationTargets } from "./agent-notifications.js";
@@ -75,7 +75,11 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
       onStepChange={(step) => onboarding.save({ status: "pending", step })}
       onFinish={async (status, next) => { await onboarding.save({ status, step: onboarding.state?.step ?? "welcome" }); setStart(next); setWelcoming(true); navigate("#/"); }} />;
   }
-  if (route.page === "home" && !onboarding.state) return <OnboardingLoading error={onboarding.error} onRetry={onboarding.retry} />;
+  if (route.page === "home" && !onboarding.state) {
+    return onboarding.error
+      ? <OnboardingLoadError error={onboarding.error} onRetry={onboarding.retry} />
+      : <PageFrame active="home" onNavigate={navigateToSidebarPage}><OnboardingLoading /></PageFrame>;
+  }
   if (route.page === "plugin-builder") return <Suspense fallback={<RouteLoading />}><PluginBuilder key={route.sessionId} sessionId={route.sessionId} /></Suspense>;
   if (route.page === "settings") {
     return <Suspense fallback={sidebarFallback("settings")}><SettingsPage section={route.section} agent={route.agent} onSectionChange={navigateToSettingsSection} onNavigate={navigateToSidebarPage} onOpenOnboarding={onboarding.open} /></Suspense>;

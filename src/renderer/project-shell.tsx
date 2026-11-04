@@ -989,7 +989,7 @@ export function ProjectShell({
     }
   }
 
-  async function branchChat(entryId: string) {
+  const branchChat = useCallback(async (entryId: string) => {
     if (!project || !conversation || creatingConversation || !window.confirm(t("timeline.branchConfirm"))) return;
     setCreatingConversation(true);
     dispatch({ type: "notice", message: undefined });
@@ -999,7 +999,7 @@ export function ProjectShell({
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
     } finally { setCreatingConversation(false); }
-  }
+  }, [project?.id, conversation?.id, creatingConversation, onOpenConversation]);
 
   async function changeReasoning(level: AgentReasoningLevel) {
     if (!project || !conversation || agentBusy || modelChanging) return;

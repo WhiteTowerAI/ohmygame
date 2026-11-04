@@ -779,38 +779,39 @@ function ProviderPicker({
   );
 }
 
-export function OnboardingLoading({
-  error,
-  onRetry,
-}: {
-  error?: string;
-  onRetry: () => void;
-}) {
+/** Most launches pass through this in well under a second, so it has no words to read. */
+export function OnboardingLoading() {
   return (
     <main
-      className="onboarding onboarding-loading"
+      className="onboarding-pending"
+      aria-busy="true"
       aria-label={t("onboarding.preparing")}
     >
       <WindowDragRegion />
-      {error ? (
-        <>
-          <p className="onboarding-error" role="alert">
-            {error}
-          </p>
-          <button
-            className="onboarding-text-button"
-            type="button"
-            onClick={onRetry}
-          >
-            {t("common.retry")}
-          </button>
-        </>
-      ) : (
-        <p className="onboarding-status" role="status">
-          <LoaderCircle className="spin" size={16} />
-          {t("onboarding.gettingReady")}
-        </p>
-      )}
+    </main>
+  );
+}
+
+export function OnboardingLoadError({
+  error,
+  onRetry,
+}: {
+  error: string;
+  onRetry: () => void;
+}) {
+  return (
+    <main className="onboarding onboarding-load-error">
+      <WindowDragRegion />
+      <p className="onboarding-error" role="alert">
+        {error}
+      </p>
+      <button
+        className="onboarding-text-button"
+        type="button"
+        onClick={onRetry}
+      >
+        {t("common.retry")}
+      </button>
     </main>
   );
 }
