@@ -14,6 +14,7 @@ import { discoverProviderModels } from "./provider-model-discovery.js";
 
 type ProviderConfig = Parameters<ModelRuntime["registerProvider"]>[1];
 type RefreshContext = Parameters<NonNullable<ProviderConfig["refreshModels"]>>[0];
+type ProviderChatModel = Extract<ProviderModelConfig, { reasoning: boolean }>;
 type ManifestProvider = NonNullable<NonNullable<PluginIndexEntry["manifest"]["contributes"]>["providers"]>[number];
 
 /** What a provider sends when it needs no key; compatible local services accept any. */
@@ -99,10 +100,11 @@ export class PluginModelProviders {
         const key = provider.apiKey ? this.services.values.secret(entry, provider.apiKey) : NO_KEY;
         providers.set(id, { id, entry, provider, configured: key !== undefined });
         if (key === undefined) continue;
+        const signature = JSON.stringify([entry.id, entry.version, provider, key]);
         const models = (provider.models ?? []).map((model) =>
           chatModel(model.id, model.title ? localizePluginString(entry, model.title, "en") : model.id, provider.api, catalog));
         wanted.set(id, {
-          signature: JSON.stringify([entry.id, entry.version, provider, key]),
+          signature,
           config: {
             name: localizePluginString(entry, provider.title, "en"),
             baseUrl: provider.baseUrl,
@@ -110,7 +112,7 @@ export class PluginModelProviders {
             apiKey: literalConfigValue(key),
             models,
             ...(provider.discoverModels
-              ? { refreshModels: (context: RefreshContext) => this.#discover(runtime, id, provider, key, models, context) }
+              ? { refreshModels: (context: RefreshContext) => this.#discover(runtime, id, signature, provider, key, models, context) }
               : {}),
           },
         });
@@ -141,14 +143,14 @@ export class PluginModelProviders {
   }
 
   /** The models a discovering provider lists, or the last list when it can't look. */
-  async #discover(runtime: ModelRuntime, id: string, provider: ManifestProvider, key: string, listed: ProviderModelConfig[], context: RefreshContext): Promise<ProviderModelConfig[]> {
+  async #discover(runtime: ModelRuntime, id: string, signature: string, provider: ManifestProvider, key: string, listed: ProviderModelConfig[], context: RefreshContext): Promise<ProviderModelConfig[]> {
     if (!context.allowNetwork) return this.#discovered.get(id) ?? listed;
     const catalog = customModelCatalog(runtime.getModels());
     const result = await discoverProviderModels({
       api: provider.api,
       baseUrl: provider.baseUrl,
-      authentication: key === NO_KEY ? "none" : "api_key",
-      ...(key === NO_KEY ? {} : { apiKey: key }),
+      authentication: provider.apiKey ? "api_key" : "none",
+      ...(provider.apiKey ? { apiKey: key } : {}),
     }, this.request, catalog);
     const models = new Map(listed.map((model) => [model.id, model]));
     for (const model of result.models) {
@@ -160,10 +162,12 @@ export class PluginModelProviders {
         id: model.id, name: model.name, api: provider.api,
         reasoning: model.reasoning, input: model.supportsImages ? ["text", "image"] : ["text"],
         cost: ZERO_COST, contextWindow: model.contextWindow, maxTokens: model.maxTokens,
+        ...thinkingLevels(model.thinkingLevelMap ?? knownCustomModel(model.id, provider.api, catalog)?.thinkingLevelMap),
       });
     }
     const list = [...models.values()];
-    if (this.#registered.has(id)) this.#discovered.set(id, list);
+    // A list fetched with a key or package since replaced stays out of the cache.
+    if (!context.signal.aborted && this.#registered.get(id) === signature) this.#discovered.set(id, list);
     return list;
   }
 }
@@ -177,7 +181,13 @@ function chatModel(id: string, name: string, api: string, catalog: CustomModelCa
     cost: ZERO_COST,
     contextWindow: known?.contextWindow ?? 128_000,
     maxTokens: Math.min(known?.contextWindow ?? 128_000, known?.maxTokens ?? 16_384),
+    ...thinkingLevels(known?.thinkingLevelMap),
   };
+}
+
+/** Keeps the reasoning levels a known model allows, so none it refuses is offered. */
+function thinkingLevels(map: unknown): { thinkingLevelMap?: ProviderChatModel["thinkingLevelMap"] } {
+  return map && typeof map === "object" ? { thinkingLevelMap: map as ProviderChatModel["thinkingLevelMap"] } : {};
 }
 
 /**

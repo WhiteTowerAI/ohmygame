@@ -1129,10 +1129,10 @@ export function createApp(options: AppOptions = {}) {
     }
     if (changed.length) invalidatePluginSessions();
   };
-  const pluginModelProvidersReady = pluginServicesReady.then(syncPluginModelProviders)
-    .catch((err: unknown) => app.log.warn({ err }, "Could not add the plugins' model providers"));
+  // Set once startup has loaded the provider settings the model runtime reads.
+  let pluginModelProvidersReady: Promise<void> | undefined;
   pluginServices.onChange((folder) => {
-    if (!folder) void syncPluginModelProviders().catch((err: unknown) => app.log.warn({ err }, "Could not update the plugins' model providers"));
+    if (!folder && pluginModelProvidersReady) void syncPluginModelProviders().catch((err: unknown) => app.log.warn({ err }, "Could not update the plugins' model providers"));
   });
   // The app records each plugin-typed project's type when it is created; the
   // project file can later pin a version whose type previews differently.
@@ -1218,6 +1218,8 @@ export function createApp(options: AppOptions = {}) {
     if (examplesWarning) app.log.warn(examplesWarning);
     // After the projects, so a saved message's conversation can be found. A damaged file must not stop OhMyGame opening.
     await scheduledMessages.load().catch((err) => app.log.warn({ err }, "Could not load scheduled messages"));
+    pluginModelProvidersReady = syncPluginModelProviders()
+      .catch((err: unknown) => app.log.warn({ err }, "Could not add the plugins' model providers"));
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
