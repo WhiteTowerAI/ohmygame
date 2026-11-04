@@ -51,8 +51,10 @@ no lockfile. Settings display the detected manager and its source, and
 check availability without running project code or installing dependencies.
 Missing Bun/pnpm/Yarn remains an actionable configuration error rather than
 silently changing managers. The packaged app includes Node/npm; other managers
-must be available to the application. Before installation changes `node_modules`,
-the selected executable is checked against the environment passed to the child.
+must be available to the application. On macOS the packaged app also searches
+the login shell's `PATH` after the bundled runtime and inherited `PATH`. Before
+installation changes `node_modules`, the selected executable is checked against
+the environment passed to the child.
 
 Dependencies install at the owning workspace/lockfile root. Dependency manifests,
 workspace definitions and lockfiles form a fingerprint; dependency or manager

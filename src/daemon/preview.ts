@@ -542,6 +542,7 @@ export class PreviewManager {
           );
           assertCurrent();
           args = packageManagerRunArguments(
+            manager,
             project.startupScript ?? "dev",
             previewScriptArguments(
               manifest.scripts[project.startupScript ?? "dev"],

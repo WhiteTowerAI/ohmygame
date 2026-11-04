@@ -147,10 +147,12 @@ export function packageManagerInstallArguments(
 }
 
 export function packageManagerRunArguments(
+  manager: ProjectPackageManager,
   script: string,
   arguments_: string[] = [],
 ): string[] {
-  return ["run", script, ...(arguments_.length ? ["--", ...arguments_] : [])];
+  if (manager === "npm" && arguments_.length) return ["run", script, "--", ...arguments_];
+  return ["run", script, ...arguments_];
 }
 
 async function exists(target: string): Promise<boolean> {
