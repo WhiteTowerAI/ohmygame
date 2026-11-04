@@ -695,8 +695,26 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   background: var(--color-hover);
   color: var(--color-text);
 }
-.onboarding-loading {
+.onboarding-load-error {
   justify-content: center;
+}
+/* Appears only if the wait outlasts the delay, so a quick launch shows no motion. */
+.onboarding-pending {
+  background: linear-gradient(
+      90deg,
+      transparent 25%,
+      var(--color-hover) 50%,
+      transparent 75%
+    )
+    0 0 / 200% 100%;
+  animation:
+    onboarding-pending-in 400ms ease-out 400ms backwards,
+    ui-shimmer 2.4s ease-in-out 400ms infinite;
+}
+@keyframes onboarding-pending-in {
+  from {
+    opacity: 0;
+  }
 }
 
 @media (max-width: 560px) {
@@ -782,6 +800,9 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .onboarding-pending {
+    background: none;
+  }
   .onboarding-arrival,
   .onboarding-arrival h1,
   .onboarding > :is(.onboarding-content, .onboarding-footer),

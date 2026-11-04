@@ -99,8 +99,10 @@ automatic policy, idle collection, logs, and browser storage.
 ## First-run setup
 
 The home route reads the daemon's `/settings/onboarding` preference before
-opening the studio. The daemon stores version 1 state in `onboarding.json`
-under its data directory: `status` is `pending`, `completed`, or `skipped`,
+opening the studio. Meanwhile the window shows the sidebar and an empty main
+area, which shimmers without text if the wait passes 400 ms. The daemon stores
+version 1 state in `onboarding.json` under its data directory: `status` is
+`pending`, `completed`, or `skipped`,
 and `step` is `welcome`, `connect`, or `media`. Existing version 1 records
 remain valid. Atomic, serialized writes retain the current step across restarts.
 The connection step offers model providers and local coding agent CLIs; discovery

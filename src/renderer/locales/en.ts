@@ -224,7 +224,6 @@ const en = {
     configure: "Configure",
     noProviders: "No matching providers.",
     preparing: "Preparing OhMyGame",
-    gettingReady: "Getting ready…",
   },
   notifications: {
     approval: "Waiting for your approval",
