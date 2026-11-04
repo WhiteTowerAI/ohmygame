@@ -1,18 +1,24 @@
 import { isCanvasTable, type CanvasTableDetail } from "../shared/canvas-table.js";
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { isCanvasDocument } from "../shared/canvas-document-schema.js";
 import { isCanvasBoard, type CanvasBoard } from "../shared/canvas-workspace.js";
+import { MAX_ASSET_CANVAS_NODES } from "../shared/asset-canvas-schema.js";
 import { CanvasError, CanvasStore } from "./canvas-workspace.js";
 import { ProjectAssetError, type ProjectManager } from "./projects.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { ToolRunError, type ToolRunner } from "./tools.js";
+import { composeGif, composeImageLayers, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, MediaLimitError, withMediaTask, type ImageLayer } from "./media-tools.js";
+import { MAX_MEDIA_FRAMES, type CanvasMediaOperation } from "../shared/media-tools.js";
+import { ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
+import { getWorkspaceMedia } from "./workspace.js";
 
 export function registerCanvasRoutes(app: FastifyInstance, options: {
   projects: ProjectManager; library: AssetLibrary; tools: ToolRunner;
 }): CanvasStore {
   const store = new CanvasStore(options.projects, options.library, options.tools);
-  const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
+  const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
   const base = "/projects/:projectId/canvas";
   const documentId = (query: unknown): string | undefined => {
     const value = (query as { documentId?: unknown })?.documentId;
@@ -100,6 +106,11 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   }, async (request, reply) => {
     try { return await store.insertAsset(request.params.projectId, request.params.documentId, request.body.assetId); } catch (cause) { return failure(cause, reply); }
   });
+  app.post<{ Params: { projectId: string }; Body: CanvasMediaRequest }>(`${base}/media`, {
+    bodyLimit: 64 * 1024,
+  }, async (request, reply) => {
+    try { return reply.code(200).send(await withMediaTask(() => runCanvasMedia({ ...options, store }, request.params.projectId, request.body))); } catch (cause) { return failure(cause, reply); }
+  });
   app.get<{ Params: { projectId: string } }>(`${base}/jobs`, async (request, reply) => {
     try { return await store.jobs(request.params.projectId); } catch (cause) { return failure(cause, reply); }
   });
@@ -107,4 +118,141 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
     try { return await store[action](request.params.projectId, request.params.jobId); } catch (cause) { return failure(cause, reply); }
   });
   return store;
+}
+
+interface CanvasMediaRequest {
+  boardId?: string;
+  operation: CanvasMediaOperation;
+  assetIds: string[];
+  options?: {
+    width?: number;
+    height?: number;
+    columns?: number;
+    rows?: number;
+    selectedFrames?: number[];
+    layers?: ImageLayer[];
+    fps?: number;
+    startTime?: number;
+    duration?: number;
+    left?: number;
+    top?: number;
+    format?: "png" | "jpg" | "jpeg" | "webp" | "mp4" | "gif";
+  };
+}
+
+type CanvasMediaResult =
+  | { kind: "asset"; assetId: string; name: string; mediaType: string }
+  | { kind: "assets"; assets: Array<{ assetId: string; name: string; mediaType: string }> }
+  | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number };
+
+async function runCanvasMedia(
+  options: { projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; store: CanvasStore },
+  projectId: string,
+  request: CanvasMediaRequest,
+): Promise<CanvasMediaResult> {
+  const project = options.projects.get(projectId);
+  if (!project) throw new CanvasError("Project not found", 404);
+  const boardId = request.boardId ?? (await options.store.workspace(projectId)).boards[0]?.id;
+  if (!boardId) throw new CanvasError("Canvas board not found", 404);
+  const availableNodes = async () => MAX_ASSET_CANVAS_NODES - (await options.store.board(projectId, boardId)).board.nodes.length;
+  if (!Array.isArray(request.assetIds) || request.assetIds.length < 1 || request.assetIds.length > MAX_MEDIA_FRAMES || request.assetIds.some((id) => typeof id !== "string" || !id)) {
+    throw new CanvasError("Choose at least one canvas asset", 400);
+  }
+  // A node can be acted on immediately after it is added, before the board
+  // save that normally registers its library asset in canvas/assets.json.
+  // Materialize any missing library assets here so the operation does not
+  // fail silently because the save request is still in flight.
+  let manifest = await readCanvasAssets(project.workspacePath);
+  const missingAssetIds = request.assetIds.filter((id) => !manifest.assets[id]);
+  if (missingAssetIds.length) {
+    await ensureCanvasAssets(project, options.projects, options.library, missingAssetIds);
+    manifest = await readCanvasAssets(project.workspacePath);
+  }
+  const sources = await Promise.all(request.assetIds.map(async (id) => {
+    const asset = manifest.assets[id];
+    if (!asset) throw new CanvasError(`Canvas asset not found: ${id}`, 404);
+    return getWorkspaceMedia(project.workspacePath, asset.path);
+  }));
+  const input = request.options ?? {};
+  if (project.type === "asset-canvas") {
+    const expectedNodes = request.operation === "split-image-grid"
+      ? input.selectedFrames?.length ?? (input.columns ?? 2) * (input.rows ?? 2)
+      : request.operation === "video-frame-strip" && input.selectedFrames
+        ? input.selectedFrames.length : 1;
+    if (expectedNodes > await availableNodes()) throw new CanvasError("Canvas is full", 409);
+  }
+  const first = sources[0]!;
+  let output: { name: string; bytes: Buffer; mediaType: string } | undefined;
+  let outputs: Awaited<ReturnType<typeof splitImageGrid>> | undefined;
+  if (request.operation === "split-image-grid") {
+    requireMedia(first.contentType, "image");
+    const columns = input.columns ?? 2;
+    const rows = input.rows ?? 2;
+    const cellCount = columns * rows;
+    if (!validInteger(columns, 1, 100) || !validInteger(rows, 1, 100) || cellCount > MAX_MEDIA_FRAMES) throw new CanvasError("Invalid grid size", 400);
+    if (input.selectedFrames !== undefined && (!Array.isArray(input.selectedFrames) || !input.selectedFrames.length || input.selectedFrames.some((index, position) => !validInteger(index, 0, cellCount - 1) || (position > 0 && index <= input.selectedFrames![position - 1]!)))) throw new CanvasError("Invalid selected frames", 400);
+    outputs = await splitImageGrid({ inputPath: first.absolutePath, columns: input.columns ?? 2, rows: input.rows ?? 2, selectedFrames: input.selectedFrames, format: input.format === "jpeg" ? "jpeg" : input.format === "webp" ? "webp" : "png" });
+  } else if (request.operation === "compose-image-layers") {
+    if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("Layer composition requires image assets", 400);
+    if (!Array.isArray(input.layers) || input.layers.length !== sources.length || input.layers.length > 100 || input.layers.some((layer) => !layer || !validInteger(layer.x, -16_384, 16_384) || !validInteger(layer.y, -16_384, 16_384) || !validRange(layer.scale, 0.05, 8) || !validRange(layer.opacity, 0, 1) || typeof layer.visible !== "boolean") || !validInteger(input.width, 1, 16_384) || !validInteger(input.height, 1, 16_384) || input.width * input.height > 100_000_000) throw new CanvasError("Invalid layer settings or canvas dimensions", 400);
+    output = await composeImageLayers({ inputPaths: sources.map((source) => source.absolutePath), layers: input.layers, width: input.width, height: input.height });
+  } else if (request.operation === "video-frame-strip") {
+    requireMedia(first.contentType, "video");
+    if (input.selectedFrames !== undefined && (!Array.isArray(input.selectedFrames) || !input.selectedFrames.length || input.selectedFrames.some((index, position) => !validInteger(index, 0, MAX_MEDIA_FRAMES - 1) || (position > 0 && index <= input.selectedFrames![position - 1]!)))) throw new CanvasError("Invalid selected video frames", 400);
+    outputs = await extractVideoStrip({ inputPath: first.absolutePath, fps: input.fps, startTime: input.startTime, duration: input.duration, selectedFrames: input.selectedFrames, format: input.format === "jpg" ? "jpg" : "png" });
+  } else if (request.operation === "compose-video") {
+    if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("Video composition requires image frame assets", 400);
+    output = await composeVideo({ framePaths: sources.map((source) => source.absolutePath), fps: input.fps, format: input.format === "gif" ? "gif" : "mp4" });
+  } else if (request.operation === "crop-image" || request.operation === "extract-gif-frames") {
+    requireMedia(first.contentType, "image");
+    const imageInput = { inputPath: first.absolutePath, format: input.format === "jpg" ? "jpeg" as const : input.format as "png" | "jpeg" | "webp" | undefined };
+    if (request.operation === "crop-image") {
+      if (input.width === undefined || input.height === undefined) throw new CanvasError("Crop width and height are required", 400);
+      output = await cropImage({ ...imageInput, left: input.left ?? 0, top: input.top ?? 0, width: input.width, height: input.height });
+    } else {
+      if (first.contentType !== "image/gif") throw new CanvasError("GIF extraction requires a GIF asset", 400);
+      outputs = await extractGifFrames({ inputPath: first.absolutePath });
+    }
+  } else if (request.operation === "compose-gif") {
+    if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("GIF composition requires image frame assets", 400);
+    output = await composeGif(sources.map((source) => source.absolutePath), input.fps);
+  } else {
+    throw new CanvasError("Unsupported media operation", 400);
+  }
+  if (outputs) {
+    const frameOutputs = outputs.filter((item) => item.mediaType.startsWith("image/") || item.mediaType.startsWith("video/"));
+    if (!frameOutputs.length) throw new CanvasError("Media operation produced no frame assets", 500);
+    if (project.type === "asset-canvas" && frameOutputs.length > await availableNodes()) throw new CanvasError("Canvas is full", 409);
+    const assets = [];
+    for (const frame of frameOutputs) assets.push(await options.library.add(frame.name, frame.bytes, {
+      origin: "generated",
+      sourceKey: `canvas-media:${projectId}:${randomUUID()}`,
+    }));
+    await ensureCanvasAssets(project, options.projects, options.library, assets.map((asset) => asset.id));
+    return {
+      kind: "assets",
+      assets: assets.map((asset) => ({
+        assetId: asset.id,
+        name: asset.name,
+        mediaType: asset.mediaType,
+      })),
+    };
+  }
+  if (!output) throw new CanvasError("Media operation produced no output", 500);
+  if (project.type === "asset-canvas" && await availableNodes() < 1) throw new CanvasError("Canvas is full", 409);
+  const asset = await options.library.add(output.name, output.bytes, { origin: "generated", sourceKey: `canvas-media:${projectId}:${randomUUID()}` });
+  await ensureCanvasAssets(project, options.projects, options.library, [asset.id]);
+  return { kind: "asset", assetId: asset.id, name: asset.name, mediaType: asset.mediaType };
+}
+
+function requireMedia(contentType: string, expected: "image" | "video"): void {
+  if (!contentType.startsWith(`${expected}/`)) throw new CanvasError(`This operation requires a ${expected}`, 400);
+}
+
+function validInteger(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= maximum;
+}
+
+function validRange(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= minimum && value <= maximum;
 }

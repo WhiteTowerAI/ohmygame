@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import path from "node:path";
 import type { PlaytestIpcMessage, PlaytestRequest, PlaytestResult } from "../shared/playtest.js";
+import { loginShellPath } from "../daemon/agent-runtimes/environment.js";
 import { signalProcessTree } from "../daemon/process-lifecycle.js";
 import type { DaemonRuntime } from "../shared/desktop-runtime.js";
 import type { ExternalMcpLauncher } from "../shared/external-mcp.js";
@@ -21,6 +22,8 @@ export interface StartDaemonOptions {
   dataDirectory: string;
   token: string;
   allowedOrigins: string[];
+  /** Pages that may frame plugin pages, as CSP sources. */
+  pluginFrameAncestors?: string[];
   runtimeBin?: string;
   piAgentDirectory?: string;
   bundledPluginsDirectory?: string;
@@ -56,7 +59,10 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
   }
   if (options.runtimeBin) {
     const pathKey = Object.keys(environment).find((key) => key.toLowerCase() === "path") ?? "PATH";
-    environment[pathKey] = [path.resolve(options.runtimeBin), environment[pathKey]].filter(Boolean).join(path.delimiter);
+    // Finder omits the shell's tool directories. Keep bundled Node/npm first.
+    const shellPath = process.platform === "darwin" ? await loginShellPath() : undefined;
+    const shellDirectories = shellPath?.split(path.delimiter).filter(directory => path.isAbsolute(directory)) ?? [];
+    environment[pathKey] = [path.resolve(options.runtimeBin), environment[pathKey], ...shellDirectories].filter(Boolean).join(path.delimiter);
   }
   const child = spawn(options.executable ?? process.execPath, [path.resolve(options.daemonEntry), ...(options.development ? ["--dev"] : [])], {
     env: {
@@ -68,6 +74,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       OHMYGAME_DATA_DIR: path.resolve(options.dataDirectory),
       OHMYGAME_DAEMON_TOKEN_STDIN: "1",
       OHMYGAME_ALLOWED_ORIGINS: options.allowedOrigins.join(","),
+      ...(options.pluginFrameAncestors ? { OHMYGAME_PLUGIN_FRAME_ANCESTORS: options.pluginFrameAncestors.join(",") } : {}),
       OHMYGAME_PROJECT_PROCESS_IPC: "1",
       ...(options.piAgentDirectory ? { PI_CODING_AGENT_DIR: path.resolve(options.piAgentDirectory) } : {}),
       ...(options.bundledPluginsDirectory ? { OHMYGAME_BUNDLED_PLUGINS_DIR: path.resolve(options.bundledPluginsDirectory) } : {}),

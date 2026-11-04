@@ -1,4 +1,4 @@
-import { app } from "electron";
+import { app, autoUpdater as nativeUpdater } from "electron";
 import electronUpdater, { type UpdateInfo } from "electron-updater";
 import type { DesktopUpdateErrorCode, DesktopUpdatePhase, DesktopUpdateRetry, DesktopUpdateState, DesktopUpdateStatus } from "../shared/desktop-update.js";
 
@@ -14,10 +14,18 @@ export class DesktopUpdatePreparationError extends Error {
   }
 }
 
-/** A scheduled check must not discard a found release or interrupt a transfer. */
+/** A found release older than this is checked again before it downloads. */
+const RELEASE_INFO_MAX_AGE_MS = 30 * 60_000;
+
+/**
+ * A scheduled check keeps a found or downloaded release current: a newer one
+ * replaces it, the same one leaves it as it is.
+ */
 function allowsScheduledCheck(status: DesktopUpdateStatus): boolean {
   return status.type === "idle"
     || status.type === "up-to-date"
+    || status.type === "available"
+    || status.type === "ready"
     || (status.type === "error" && status.phase === "check");
 }
 
@@ -25,11 +33,25 @@ export class DesktopUpdater {
   #state: DesktopUpdateState;
   #listeners = new Set<(state: DesktopUpdateState) => void>();
   #installing = false;
-  #checking = false;
+  #checking: Promise<DesktopUpdateCheckOutcome> | undefined;
   #automaticChecking = false;
   #automaticCheckFailed = false;
   #operation: DesktopUpdatePhase = "check";
   #automatic = false;
+  /** From the click until the transfer ends, including the freshness check before it. */
+  #downloadRequested = false;
+  /** electron-updater is transferring the release it last found. */
+  #transferring = false;
+  /** When electron-updater last found a release; downloadUpdate() uses that one. */
+  #foundAt = 0;
+  /**
+   * macOS: a download handed to Squirrel.Mac to stage for quit. Once staged,
+   * MacUpdater installs that release on every later quitAndInstall() in this
+   * run, so a newer download could not replace it.
+   */
+  #squirrel: "none" | "staging" | "staged" = "none";
+  /** Errors emitted during a scheduled check, held until it is known which one is the check's. */
+  #heldErrors: { error: unknown; operation: DesktopUpdatePhase; version?: string }[] = [];
 
   constructor(currentVersion: string, private readonly onInstall: () => Promise<void> | void) {
     this.#state = { currentVersion, status: { type: "idle" } };
@@ -39,16 +61,23 @@ export class DesktopUpdater {
     autoUpdater.allowPrerelease = true;
     autoUpdater.channel = "latest";
     autoUpdater.on("checking-for-update", () => {
+      if (this.#busy()) return;
       this.#operation = "check";
       if (this.#automaticChecking) return;
       this.#set({ type: "checking" });
     });
     autoUpdater.on("update-not-available", () => {
+      if (this.#busy()) return;
       this.#state = { ...this.#state, availableRelease: undefined };
       this.#set({ type: "up-to-date" });
     });
     autoUpdater.on("update-available", (info) => {
+      // A check that overlaps a transfer or installation must not relabel it.
+      if (this.#busy()) return;
+      this.#foundAt = Date.now();
+      const status = this.#state.status;
       this.#rememberRelease(info);
+      if (status.type === "ready" && status.version === info.version) return;
       this.#set({ type: "available", version: info.version });
       if (this.#automatic) void this.download();
     });
@@ -62,14 +91,23 @@ export class DesktopUpdater {
     autoUpdater.on("update-downloaded", (info) => {
       this.#rememberRelease(info);
       this.#set({ type: "ready", version: info.version });
+      // MacUpdater hands the download to Squirrel.Mac right after this event when it installs on quit.
+      if (process.platform === "darwin" && autoUpdater.autoInstallOnAppQuit && this.#squirrel === "none") this.#squirrel = "staging";
     });
+    if (process.platform === "darwin") {
+      nativeUpdater.on("update-downloaded", () => { this.#squirrel = "staged"; });
+      // A failed handoff fails the download, which can then be retried or replaced.
+      nativeUpdater.on("error", (error) => {
+        if (this.#squirrel !== "staging") return;
+        this.#squirrel = "none";
+        this.#setError(error, "download", "download", this.#state.availableRelease?.version);
+      });
+    }
     autoUpdater.on("error", (error) => {
-      this.#installing = false;
-      if (this.#automaticChecking && this.#operation === "check") {
-        this.#automaticCheckFailed = true;
-        return;
-      }
-      this.#setError(error, this.#operation, retryFor(this.#operation), this.#state.availableRelease?.version);
+      const failure = { error, operation: this.#operation, version: this.#state.availableRelease?.version };
+      // A scheduled check rejects with its own error; anything else is applied once it ends.
+      if (this.#automaticChecking) this.#heldErrors.push(failure);
+      else this.#fail(failure);
     });
   }
 
@@ -88,7 +126,7 @@ export class DesktopUpdater {
    */
   setAutomatic(enabled: boolean): void {
     this.#automatic = enabled;
-    autoUpdater.autoInstallOnAppQuit = enabled;
+    this.#syncInstallOnQuit();
     if (enabled && this.#state.status.type === "available") void this.download();
   }
 
@@ -97,38 +135,26 @@ export class DesktopUpdater {
       this.#set({ type: "up-to-date" });
       return "checked";
     }
-    if (this.#checking || (automatic && !allowsScheduledCheck(this.#state.status))) return "skipped";
-    this.#checking = true;
-    this.#automaticChecking = automatic;
-    this.#automaticCheckFailed = false;
-    this.#operation = "check";
-    try {
-      await autoUpdater.checkForUpdates();
-    } catch (error) {
-      if (automatic) this.#automaticCheckFailed = true;
-      else this.#setError(error, "check", "check");
-    } finally {
-      this.#checking = false;
-      this.#automaticChecking = false;
-    }
-    const automaticCheckFailed = automatic && this.#automaticCheckFailed;
-    this.#automaticCheckFailed = false;
-    if (automaticCheckFailed) return "failed";
-    const status = this.#state.status;
-    return status.type === "error" && status.phase === "check" ? "failed" : "checked";
+    if (this.#busy() || (automatic && !allowsScheduledCheck(this.#state.status))) return "skipped";
+    return this.#runCheck(automatic);
   }
 
   async download(): Promise<void> {
-    const status = this.#state.status;
-    const version = status.type === "available"
-      ? status.version
-      : status.type === "error" && status.retry === "download" ? status.version : undefined;
-    if (!version) return;
-    this.#operation = "download";
+    if (this.#downloadRequested || this.#busy() || !this.#downloadableVersion()) return;
+    this.#downloadRequested = true;
+    let version: string | undefined;
     try {
+      await this.#refreshStaleRelease();
+      version = this.#downloadableVersion();
+      if (!version) return;
+      this.#operation = "download";
+      this.#transferring = true;
       await autoUpdater.downloadUpdate();
     } catch (error) {
-      this.#setError(error, "download", "download", version);
+      this.#fail({ error, operation: "download", version });
+    } finally {
+      this.#transferring = false;
+      this.#downloadRequested = false;
     }
   }
 
@@ -157,8 +183,87 @@ export class DesktopUpdater {
     }
   }
 
+  #runCheck(automatic: boolean): Promise<DesktopUpdateCheckOutcome> {
+    if (this.#checking) return Promise.resolve("skipped");
+    const run = async (): Promise<DesktopUpdateCheckOutcome> => {
+      this.#automaticChecking = automatic;
+      this.#automaticCheckFailed = false;
+      this.#operation = "check";
+      let checkError: unknown;
+      try {
+        await autoUpdater.checkForUpdates();
+      } catch (error) {
+        checkError = error;
+        if (automatic) this.#automaticCheckFailed = true;
+        else this.#setError(error, "check", "check");
+      } finally {
+        this.#checking = undefined;
+        this.#automaticChecking = false;
+      }
+      const held = this.#heldErrors.filter((failure) => failure.error !== checkError);
+      this.#heldErrors = [];
+      for (const failure of held) this.#fail(failure);
+      const automaticCheckFailed = automatic && this.#automaticCheckFailed;
+      this.#automaticCheckFailed = false;
+      if (automaticCheckFailed) return "failed";
+      const status = this.#state.status;
+      return status.type === "error" && status.phase === "check" ? "failed" : "checked";
+    };
+    this.#checking = run();
+    return this.#checking;
+  }
+
+  /**
+   * downloadUpdate() fetches the release electron-updater last found. When that
+   * was a while ago, or a check is still running, look again first so the
+   * download is the newest release. A failed look keeps the release already found.
+   */
+  async #refreshStaleRelease(): Promise<void> {
+    if (this.#checking) {
+      await this.#checking;
+      return;
+    }
+    if (!app.isPackaged || Date.now() - this.#foundAt < RELEASE_INFO_MAX_AGE_MS) return;
+    await this.#runCheck(true);
+  }
+
+  #downloadableVersion(): string | undefined {
+    const status = this.#state.status;
+    return status.type === "available"
+      ? status.version
+      : status.type === "error" && status.retry === "download" ? status.version : undefined;
+  }
+
+  /**
+   * A transfer or installation owns the update until it finishes or fails, and
+   * a release handed to Squirrel.Mac owns it for the rest of the run.
+   */
+  #busy(): boolean {
+    const type = this.#state.status.type;
+    return this.#transferring || this.#installing || this.#squirrel !== "none" || type === "downloading" || type === "installing";
+  }
+
+  #fail({ error, operation, version }: { error: unknown; operation: DesktopUpdatePhase; version?: string }): void {
+    // After the handoff the release is Squirrel.Mac's: a later download step only
+    // fails a cache for future downloads, and a staging failure reports itself above.
+    if (operation === "download" && this.#squirrel !== "none") return;
+    this.#installing = false;
+    this.#setError(error, operation, retryFor(operation), version);
+  }
+
+  /**
+   * Install on quit only while a complete download is waiting. Downloading a
+   * newer release clears electron-updater's pending installer, so quitting
+   * mid-transfer must not try to run the one it replaced.
+   */
+  #syncInstallOnQuit(): void {
+    const type = this.#state.status.type;
+    autoUpdater.autoInstallOnAppQuit = this.#automatic && (type === "ready" || type === "installing");
+  }
+
   #set(status: DesktopUpdateState["status"]): void {
     this.#state = { ...this.#state, status };
+    this.#syncInstallOnQuit();
     for (const listener of this.#listeners) listener(this.#state);
   }
 

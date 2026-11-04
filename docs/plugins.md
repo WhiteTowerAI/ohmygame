@@ -1,9 +1,11 @@
 # Plugins
 
 A plugin is a package with a manifest at `.ohmygame-plugin/plugin.json`. It can
-add Skills, MCP servers, tools, commands, panels and project types. One that only
-adds Skills applies by itself to every project it suits; any other is turned on
-per project, once the person has allowed what it asks for.
+add Skills, MCP servers, tools, commands, panels and project types. Every
+plugin is on or off in each project. Its switch on the Plugins page turns it on
+in every project it suits, and a project can still turn it off or on for
+itself; see [Plugins for every project](#plugins-for-every-project). A plugin
+runs only once the person has allowed what it asks for.
 
 Plugins come bundled with the app, prepared with it from another repository, from
 the [Plugin Builder](#making-a-plugin), from [Add plugin](#adding-a-plugin), or
@@ -14,28 +16,32 @@ from the [plugin market](#the-plugin-market).
 The Plugins page reads `GET /plugin-store/plugins` and has three tabs.
 
 - **Installed** groups plugins by their `categories` into **Game creation**,
-  **Engines & platforms**, **Art & assets** and **Other plugins**, whether they
-  apply by themselves or a project turns them on; each card says which. Each
-  group shows up to six cards and a **View all**. **Personal** comes next: the
+  **Engines & platforms**, **Art & assets** and **Other plugins**. Each group
+  shows up to six cards and a **View all**. **Personal** comes next: the
   plugins the person made (`personal/<name>`), ending with **Create a plugin
   with AI**, then the AI workspaces. Search shows every match in one list.
-  Only a plugin that applies by itself has a switch on its card, and switching
-  it doesn't move it. One a project turns on is turned on in that project; its
-  card says when it is off everywhere, and its page has that switch.
+  Each card says whether the plugin is on in every project or in chosen ones,
+  and its switch changes that without moving the card. Turning on one that
+  asks for more than was allowed asks first, saying it will run in every
+  project it suits. One stopped everywhere from its page says **Disabled** and
+  has no switch.
 - **Browse** lists every plugin with its source and what it adds, and filters by
   source and by what it adds. The [plugin market](#the-plugin-market)'s plugins
   come first, under **Featured** and **On npm**, leaving out what's installed.
 - **Skills** lists each plugin's Skills, with the person's own under **Personal**.
 
-A project's **Plugins…** sheet, from the project menu, lists the plugins that
-switch per project, with how many are on, as described in [Routes](#routes).
-Under **Every project** it shows the plugins that apply by themselves, locked on;
-they switch on the Plugins page, which **Manage all plugins** opens.
+A project's **Plugins…** sheet, from the project menu, lists every plugin that
+suits the project in one list, each with its switch for this project and how
+many are on, as described in [Routes](#routes). One on in every project is
+on here and says so; switching it off is saved in the project. The type's own
+plugin stays on. **Manage all plugins** opens the Plugins page.
 
 A plugin's page has **About** (the long description and Try it prompts),
-**Skills**, and **Settings** tabs, beside a **Management** card with the plugin's
-switch, version, source, and actions. A Try it prompt turns the plugin on in the project it
-starts in, and waits until what the plugin asks for is allowed.
+**Skills**, and **Settings** tabs, beside a **Management** card with the
+**Every project** switch, **Disable everywhere** (which stops it in every
+project, whatever they say, until **Enable**), version, source, and actions. A
+Try it prompt turns the plugin on in the project it starts in, mentions it,
+and waits until what the plugin asks for is allowed.
 
 ## Files
 
@@ -48,15 +54,18 @@ starts in, and waits until what the plugin asks for is allowed.
   that needs one asks for `^2.1.0`, say. Adding a plugin the app is too old for
   says so and, in the desktop app, offers the update; one made for an API this
   app has left says its author needs to update it.
-- **Project file:** `ohmygame.json` at a project's root names its type and the
-  exact plugin versions it uses (`src/shared/project-file.ts`). It asks for
-  plugins; it never allows them.
+- **Project file:** `ohmygame.json` at a project's root names its type and how
+  its plugins differ from the person's choice for every project
+  (`src/shared/project-file.ts`): an exact version, `true` (the newest, for a
+  plugin that asks for nothing) or `false` (off here). The type's plugin is
+  always listed at a version. It asks for plugins; it never allows them.
 - **App data,** under `<data>/plugin-store/`:
   - `index.json`: installed packages, with their tool schemas;
   - `origins.json`: where packages added from npm or GitHub came from;
   - `market-index.json`: the last [plugin market](#the-plugin-market) index read;
-  - `grants.json`: install consent, the app switch per plugin, and what each
-    project folder allows (by real path);
+  - `grants.json`: per plugin what the person allowed, whether it is stopped
+    everywhere (`enabled`) and their choice for every project
+    (`everyProject`), and what each project folder allows (by real path);
   - `configuration.json`: settings values, readable only by the person;
   - `packages/<publisher>/<name>/<version>/`: installed releases;
   - `data/<publisher>/<name>/`: the plugin's data folder, shared by its
@@ -185,20 +194,27 @@ shows it in the call's progress.
   `/plugin-sources/file/install?digest=` take a `.tgz` as `application/gzip`.
 - Market: `GET /plugin-market?locale=` gives the
   [listing](#the-plugin-market); installing uses the Adding routes.
-- Store: `GET /plugin-store/plugins`, `POST /plugin-store/releases`,
+- Store: `GET /plugin-store/plugins` (each with `everyProject`),
+  `POST /plugin-store/releases`,
   `POST /plugin-store/:publisher/:name/consent`,
-  `PUT /plugin-store/:publisher/:name/enabled`,
+  `PUT /plugin-store/:publisher/:name/every-project` (`{ on }`),
+  `PUT /plugin-store/:publisher/:name/enabled` (stops it everywhere),
   `GET`/`PUT /plugin-store/:publisher/:name/configuration`,
-  `DELETE /plugin-store/:publisher/:name/:version`,
-  `PUT /projects/:id/plugins/:publisher/:name` (moves a project to another
-  installed version, which is both an update and a rollback; `null` turns
-  it off). A project without `ohmygame.json` gets one the first time a
-  plugin is turned on, typed `general`, or its own core type.
-- A project's Plugins sheet: `GET /projects/:id/plugins` lists the plugins
-  that apply by themselves (shown locked) and every plugin turned on per project, with
-  the version the project uses, its status, what it asks for, and whether the
-  person allowed that. Turning on one never allowed asks first, then posts
-  the consent. The type's plugin stays on.
+  `DELETE /plugin-store/:publisher/:name/:version`.
+- A project's plugins: `GET /projects/:id/plugins` lists the enabled plugins
+  that suit the project, and the type's own, with the version the project
+  uses (none when off), its status, whether it is on in every project, what
+  it asks for, and whether the person allowed that.
+  `PUT /projects/:id/plugins/:publisher/:name` with `{ on, version? }` turns
+  one on or off there. Without a version it gives the newest installed
+  version that works in the project, the `version` the list shows; a
+  version moves the project to another installed one, which is both an
+  update and a rollback. It writes only what differs
+  from the every-project choice, and turning one on allows it for the
+  folder. A project without `ohmygame.json` gets one the first time it
+  needs one, typed `general`, or its own core type. Turning on one never
+  allowed asks first in the app, then posts the consent. The type's plugin
+  can't be turned off.
 - A plugin's page reads `GET /plugin-store/plugins`: its icon, long
   description, `examples` (Try it), `appliesTo`, Skills and homepage. Its icon,
   Skill contents and folder come through their own routes
@@ -206,47 +222,58 @@ shows it in the call's progress.
   id `publisher/name` encoded and its newest version read; a bundled plugin's
   folder isn't offered.
 - A plugin's `appliesTo` names the project types it works in (none means
-  all); the type's own plugin always works in it. For a plugin turned on per
-  project, that is the type `ohmygame.json` says: `general` (which a Web
-  game or Asset Canvas project's file says too), `interactive-story`, or a
-  plugin type. The sheet leaves out one that doesn't suit the project unless
-  it is on, offering the newest version that does; turning it on is refused,
-  and one the file asks for anyway resolves as `not-applicable`, so it
-  doesn't run. Home offers only plugins that suit the chosen type.
+  all); the type's own plugin always works in it. It is matched against the
+  project's own kind, which the app records (`web-game`, `asset-canvas`,
+  `general`, `interactive-story`, `godot-game`), or its plugin project type
+  (`appWidePluginSuits`), not the type in `ohmygame.json`, where a Web game
+  or Asset Canvas is `general` too. So a plugin for `general` doesn't suit a
+  Web game. The sheet leaves out one that doesn't suit the project; turning
+  it on is refused, and one the file asks for anyway resolves as
+  `not-applicable`, so it doesn't run.
+- Mentions: `@` offers the plugins that suit the project, marking those off
+  there (`off`) with what they ask for that isn't allowed yet (`asks`).
+  Picking one that is off turns it on in the project first, asking for
+  consent if needed; a prompt that mentions a plugin not on in its project
+  gets a 409.
 - Home: the composer's type menu lists the app's types, then plugins' types
-  from `GET /project-types`, then a link to the plugins that add types
-  (`#/plugins?adds=projectType`). The type picks the starting plugin. The plugin menu beside the type
-  takes any number of starting plugins, sent as mentions in the order chosen,
-  and lists `GET /project-plugins`, the enabled plugins a new project
-  can turn on for itself, except those that add project types: they are
-  picked as the type, and a project of another type turns them on in its
-  Plugins sheet. With starting plugins to pick, the menu leaves that list out
-  while it is empty. Creating the project posts each one's consent, if still
-  needed, and turns it on once the project exists.
+  from `GET /project-types` (with what each type's plugin `asks` for), then
+  a link to the plugins that add types (`#/plugins?adds=projectType`). There
+  is no plugin menu: the type's plugin and those on in every project are on
+  in the new project. `@` offers the plugins that suit the chosen type,
+  except those that add types, which are picked as the type. Mentioning one
+  that is off asks for its consent, if needed. The new-project dialog then
+  turns on the mentioned plugins that are off and work in the type it
+  creates, going by the prompt and type it ends with, and lists there what
+  creating allows for any whose consent Home didn't ask for.
 
 ## Plugins for every project
 
-A plugin that only adds Skills, with no native entry, settings or
-capabilities (`isAppWidePlugin`, judged on its newest version), can't run code
-or reach files of its own. It asks for nothing, so there is nothing to consent
-to, whoever publishes it: it applies to every project its `appliesTo` suits
-instead of being turned on per project, unless the person switches it off.
-`BUNDLED_PLUGINS_OFF` in `src/daemon/plugin-services.ts` lists the bundled ones
-that start off.
+The person's choice for every project is `grants.json`'s `everyProject`. Until
+they make one, a plugin that only adds Skills, with no native entry, settings
+or capabilities (`isAppWidePlugin`, judged on its newest version), is on in
+every project, unless it is a bundled one in `BUNDLED_PLUGINS_OFF`
+(`src/daemon/plugin-services.ts`); any other plugin is off (`onInEveryProject`).
+The choice is live: changing it changes every project that hasn't set the
+plugin itself in `ohmygame.json`.
 
-`PluginServices.appWide(project)` lists these plugins and
-`appWideSkills(project)` their Skills. A project suits a plugin when `appliesTo`
-names its app kind or its plugin project type (`appWidePluginSuits`); the type
-in `ohmygame.json` doesn't count, and a plugin with no `appliesTo` suits every
-project. A project's Skills come in order: these plugins, sorted by id, then the plugins
-in its `ohmygame.json`. They have no
-per-Skill switches. Mentions keep `{name, marketplaceId}`, with the publisher as
-`marketplaceId`, so `plugin://web-game-studio@ohmygame` names a bundled one. A prompt that mentions one the project doesn't suit gets a 409.
+`resolveProjectPlugins` (`src/daemon/project-plugins.ts`) lists a project's
+plugins from the plugins its `ohmygame.json` names, then those on in every
+project that it suits and doesn't turn off, at their newest version. Turning
+one that asks for anything on in every project shows what it asks for and that
+it will run in each of those projects; the person's consent, once, is all it
+needs, with no approval per folder. A bundled plugin that starts off is never
+allowed at startup, only by that consent.
+A plugin a project's file names needs that approval too, unless it only adds
+Skills, since the file may come from someone else. `PluginServices.everyProject`
+and `everyProjectSkills` give the plugins on in every project, and their Skills,
+for a kind of project. A project's Skills come in order: the type's plugin,
+then the others by id. They have no per-Skill switches. Mentions keep
+`{name, marketplaceId}`, with the publisher as `marketplaceId`, so
+`plugin://web-game-studio@ohmygame` names a bundled one.
 
-A project can't turn one of these on in `ohmygame.json`: `setProjectPlugin`
-refuses it, and `resolveProjectPlugins` skips an entry left there. The exception
-is an older version that asks for more than the newest: a project that names it
-keeps running it, in place of the newest.
+A project that names an older version keeps running it, in place of the newest.
+**Disable everywhere** on a plugin's page (`enabled: false`) stops it in every
+project, whatever its file says.
 
 `src/daemon/preinstalled-plugins.ts` installs the versions in
 `config/preinstalled-plugins.json` through `PluginServices.installManaged`, the
@@ -687,8 +714,9 @@ Bundled plugins live in `plugins/`. Blender and Godot are marked Beta while
 their platform workflows are being validated, and default to enabled. Blender,
 like the other bundled plugins that only add Skills (Game Studio, Web Game Studio,
 Three.js World and the Beta workflows below), applies to every project it suits;
-see [Plugins for every project](#plugins-for-every-project). Godot is turned on
-per project, and so is Unreal Engine (below). See [TapTap Maker](#taptap-maker)
+see [Plugins for every project](#plugins-for-every-project). Godot and Unreal
+Engine (below) start off, and are turned on in a project or for every
+project. See [TapTap Maker](#taptap-maker)
 for that plugin.
 
 - **Blender:** local Blender CLI/Python workflow for editable `.blend` sources,

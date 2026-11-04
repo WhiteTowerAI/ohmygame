@@ -21,7 +21,7 @@ import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "../shared/log-redaction.js";
 import { desktopDiagnosticsArchive } from "./diagnostics-export.js";
 import { recordConsole, recordUncaughtErrors, rendererConsoleLines, runtimeStateLine, updateFailureLine } from "./console-log.js";
-import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
+import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer } from "./window.js";
 import { applicationMenuTemplate, isApplicationMenuLabels } from "./application-menu.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
 import { DesktopUpdateCheckScheduler } from "./update-check-scheduler.js";
@@ -278,25 +278,32 @@ handle("ohmygame:set-appearance", (event, appearance: unknown) => {
     throw new Error("Invalid appearance");
   }
   nativeTheme.themeSource = appearance;
-  if (process.platform === "win32" && senderWindow === mainWindow) {
-    senderWindow.setTitleBarOverlay(windowsTitleBarOverlay(nativeTheme.shouldUseDarkColors));
-  }
 });
+if (process.platform === "win32") {
+  handle("ohmygame:window-control", (event, action: unknown) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      throw new Error("Invalid window control source");
+    }
+    if (action === "minimize") mainWindow.minimize();
+    else if (action === "toggle-maximize") {
+      if (mainWindow.isMaximized()) mainWindow.unmaximize();
+      else mainWindow.maximize();
+    } else if (action === "close") mainWindow.close();
+    else throw new Error("Invalid window control");
+  });
+  handle("ohmygame:window-state", (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      throw new Error("Invalid window state source");
+    }
+    return { maximized: mainWindow.isMaximized() };
+  });
+}
 handle("ohmygame:set-application-menu-labels", (event, labels: unknown) => {
   // Hidden thumbnail windows run Scene code, so only the main window may name the menus.
   if (!mainWindow || event.sender !== mainWindow.webContents || !isApplicationMenuLabels(labels)) {
     throw new Error("Invalid application menu labels");
   }
   Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate(labels, process.platform)));
-});
-handle("ohmygame:popup-window-menu", (event, id: unknown, x: unknown, y: unknown) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents || typeof id !== "string" ||
-      typeof x !== "number" || !Number.isFinite(x) || typeof y !== "number" || !Number.isFinite(y)) {
-    throw new Error("Invalid window menu request");
-  }
-  const item = Menu.getApplicationMenu()?.getMenuItemById(id);
-  if (!item?.submenu) throw new Error(`Window menu is not available: ${id}`);
-  item.submenu.popup({ window: mainWindow, x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) });
 });
 handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
@@ -772,6 +779,8 @@ try {
     dataDirectory,
     token: randomBytes(32).toString("base64url"),
     allowedOrigins: [rendererOrigin],
+    // A `file://` page sends the origin `null`, but CSP only matches it as `file:`.
+    pluginFrameAncestors: [useBuiltRenderer ? "file:" : rendererOrigin],
     piAgentDirectory: process.env.PI_CODING_AGENT_DIR ?? path.join(app.getPath("userData"), "pi-agent"),
     bundledPluginsDirectory: app.isPackaged ? path.join(process.resourcesPath, "plugins") : undefined,
     pluginUiDirectory: app.isPackaged ? path.join(process.resourcesPath, "plugin-ui") : undefined,
@@ -848,7 +857,7 @@ async function openMainWindow(): Promise<void> {
     rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
     sidebarVibrancy: true,
-    integratedMenuBar: true,
+    integratedWindowControls: true,
     beforeLoad: (window) => {
       mainWindow = window;
       if (process.platform === "win32") showWaitingOverlay();
@@ -859,6 +868,13 @@ async function openMainWindow(): Promise<void> {
         webGamePlayers.synchronize();
         updateChecks?.onFocus();
       });
+      if (process.platform === "win32") {
+        const sendWindowState = () => {
+          if (!window.isDestroyed()) window.webContents.send("ohmygame:window-state", { maximized: window.isMaximized() });
+        };
+        window.on("maximize", sendWindowState);
+        window.on("unmaximize", sendWindowState);
+      }
       window.on("focus", () => {
         updateChecks?.onFocus();
         if (process.platform !== "darwin") window.flashFrame(false);

@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import type { ProjectPluginItem, ProjectPluginsView } from "../shared/plugins.js";
-import { consentToPlugin, getProjectPlugins, setProjectPluginVersion } from "./api.js";
+import { consentToPlugin, getProjectPlugins, setProjectPlugin } from "./api.js";
 import { t } from "./i18n.js";
+import { PluginConsentDialog } from "./plugin-consent-dialog.js";
 import { PluginIcon } from "./plugin-icons.js";
-import { Alert, Badge, Button, Dialog, Sheet, Skeleton, Switch } from "./ui/index.js";
+import { Alert, Badge, Button, Sheet, Skeleton, Switch } from "./ui/index.js";
 
-// A project's plugins. Plugins from the Plugins page are on for every project
-// they work with, so they show here locked; those a project turns on itself
-// are recorded in its `ohmygame.json` and switch here.
+// A project's plugins: every one that suits it, each on or off here. Those on
+// in every project start on; the project's `ohmygame.json` keeps only what
+// differs from that.
 export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged, onOpenPlugins }: {
   projectId: string;
   open: boolean;
@@ -40,7 +41,7 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
     try {
       if (on && !plugin.consented) await consentToPlugin(plugin.id, plugin.capabilities);
       // Turning on again at the version in use is how a project allows a plugin it asks for.
-      await setProjectPluginVersion(projectId, plugin.id, on ? plugin.used ?? plugin.version : null);
+      await setProjectPlugin(projectId, plugin.id, on, on ? keptVersion(plugin) : undefined);
       onChanged?.();
       await load();
     } catch (cause) {
@@ -50,66 +51,52 @@ export function ProjectPluginsSheet({ projectId, open, busy, onClose, onChanged,
     }
   }
 
+  const on = view?.plugins.filter((plugin) => plugin.used !== undefined).length ?? 0;
   return (
     <Sheet open={open} onClose={onClose} title={t("projectPlugins.title")}
       footer={onOpenPlugins ? <Button onClick={() => { onClose(); onOpenPlugins(); }}>{t("projectPlugins.manageAll")}</Button> : undefined}>
-      {/* A flat list as in the lab: this project's plugins, then those every project uses. */}
       <div className="project-plugins">
-        <p className="project-plugins-intro">{t("projectPlugins.thisProjectHint")}</p>
+        <p className="project-plugins-intro">{t("projectPlugins.intro")}</p>
         {error ? <Alert tone="danger" title={error} /> : null}
         {busy ? <Alert title={t("projectPlugins.busy")} /> : null}
         {!view && !error ? <Skeleton height={120} /> : null}
-        {view ? <>
-          <section className="project-plugins-section" aria-label={t("projectPlugins.thisProject")}>
-            <div className="project-plugins-count">{t("projectPlugins.onCount", { count: view.plugins.filter((plugin) => plugin.used !== undefined).length })}</div>
-            {view.plugins.length ? view.plugins.map((plugin) => (
-              <div className="project-plugin" key={plugin.id}>
-                <PluginIcon plugin={plugin} />
-                <span className="project-plugin-text">
-                  <strong>{plugin.displayName}{plugin.providesType ? <Badge tone="outline">{t("projectPlugins.providesType")}</Badge> : null}</strong>
-                  {pluginDescription(plugin) ? <small>{pluginDescription(plugin)}</small> : null}
-                </span>
-                {plugin.used && (plugin.status === "needs-approval" || plugin.status === "needs-consent") ? (
-                  <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true)}>{t("projectPlugins.allowHere")}</Button>
-                ) : null}
-                <Switch size="sm" checked={plugin.used !== undefined} label={plugin.displayName}
-                  disabled={busy || plugin.providesType || pending !== undefined || (!plugin.used && !plugin.version)}
-                  onChange={(on) => void change(plugin, on)} />
-              </div>
-            )) : <p className="project-plugins-empty"><strong>{t("projectPlugins.noneInstalled")}</strong>{t("projectPlugins.noneInstalledHint")}</p>}
-          </section>
-          {view.global.length ? <section className="project-plugins-section" aria-label={t("projectPlugins.everyProject")}>
-            <div className="project-plugins-count">{t("projectPlugins.everyProject")}</div>
-            <p className="project-plugins-intro">{t("projectPlugins.everyProjectHint")}</p>
-            {view.global.map((plugin) => (
-              <div className="project-plugin" key={plugin.id}>
-                <PluginIcon plugin={plugin} />
-                <span className="project-plugin-text">
-                  <strong>{plugin.displayName}</strong>
-                  {plugin.description ? <small>{plugin.description}</small> : null}
-                </span>
-                <Switch size="sm" checked label={plugin.displayName} disabled onChange={() => {}} />
-              </div>
-            ))}
-          </section> : null}
-        </> : null}
+        {view ? <section className="project-plugins-section" aria-label={t("projectPlugins.title")}>
+          <div className="project-plugins-count">{t("projectPlugins.onCount", { count: on })}</div>
+          {view.plugins.length ? view.plugins.map((plugin) => (
+            <div className="project-plugin" key={plugin.id}>
+              <PluginIcon plugin={plugin} />
+              <span className="project-plugin-text">
+                <strong>
+                  {plugin.displayName}
+                  {plugin.providesType ? <Badge tone="outline">{t("projectPlugins.providesType")}</Badge> : null}
+                  {plugin.used !== undefined && plugin.everyProject && !plugin.providesType ? <Badge tone="outline">{t("projectPlugins.everyProject")}</Badge> : null}
+                </strong>
+                {pluginDescription(plugin) ? <small>{pluginDescription(plugin)}</small> : null}
+              </span>
+              {plugin.used && (plugin.status === "needs-approval" || plugin.status === "needs-consent") ? (
+                <Button size="sm" disabled={busy || pending !== undefined} onClick={() => void change(plugin, true)}>{t("projectPlugins.allowHere")}</Button>
+              ) : null}
+              <Switch size="sm" checked={plugin.used !== undefined} label={plugin.displayName}
+                disabled={busy || plugin.providesType || pending !== undefined || (!plugin.used && !plugin.version)}
+                onChange={(next) => void change(plugin, next)} />
+            </div>
+          )) : <p className="project-plugins-empty"><strong>{t("projectPlugins.noneInstalled")}</strong>{t("projectPlugins.noneInstalledHint")}</p>}
+        </section> : null}
       </div>
-      {consent ? <Dialog open title={t("projectPlugins.consentTitle", { name: consent.displayName })} onClose={() => setConsent(undefined)}
-        footer={<>
-          <Button variant="ghost" onClick={() => setConsent(undefined)}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={() => {
-            const plugin = consent;
-            setConsent(undefined);
-            void change(plugin, true, true);
-          }}>{t("projectPlugins.allow")}</Button>
-        </>}>
-        <p>{t("projectPlugins.consentHint")}</p>
-        <ul className="project-plugins-capabilities">
-          {consent.capabilities.map((capability) => <li key={capability}><code>{capability}</code></li>)}
-        </ul>
-      </Dialog> : null}
+      {consent ? <PluginConsentDialog name={consent.displayName} capabilities={consent.capabilities}
+        onCancel={() => setConsent(undefined)}
+        onAllow={() => {
+          const plugin = consent;
+          setConsent(undefined);
+          void change(plugin, true, true);
+        }} /> : null}
     </Sheet>
   );
+}
+
+/** An older version the project uses stays; otherwise it gets the newest. */
+export function keptVersion(plugin: Pick<ProjectPluginItem, "used" | "version">): string | undefined {
+  return plugin.used && plugin.used !== plugin.version ? plugin.used : undefined;
 }
 
 function pluginDescription(plugin: ProjectPluginItem): string {

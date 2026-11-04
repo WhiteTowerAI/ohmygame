@@ -7,9 +7,9 @@ import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 
 /** What trying a plugin starts: a conversation with its prompt, in a project it works in. */
 export interface PluginTryTarget {
-  /** A plugin that applies by itself is mentioned in the prompt. */
+  /** The plugin, mentioned in the prompt. */
   mention?: PluginMention;
-  /** A plugin, by id, is turned on in the project first. */
+  /** The plugin, by id, turned on in the project first if it is off there. */
   turnOn?: string;
   /** The type of a new project; absent when none of the app's types suits it. */
   newProjectType?: ProjectType;

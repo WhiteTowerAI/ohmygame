@@ -63,7 +63,9 @@ describe("offline canvas migration", () => {
     const migratedAssetCanvas = await store.workspace(assetCanvas.id);
     expect(migratedAssetCanvas.mainDocumentId).toBeUndefined();
     expect(migratedAssetCanvas.documents).toEqual([]);
-    expect((await store.board(assetCanvas.id, migratedAssetCanvas.boards[0]!.id)).board.nodes[0]).toMatchObject({ id: "reference", position: { x: 320, y: 120 } });
+    const migratedBoard = (await store.board(assetCanvas.id, migratedAssetCanvas.boards[0]!.id)).board;
+    expect(migratedBoard.nodes[0]).toMatchObject({ id: "reference", position: { x: 320, y: 120 } });
+    expect(migratedBoard.nodes.filter((node) => node.type === "group" && node.data.pixelStyle)).toHaveLength(0);
     expect((await checkCanvasWorkspace(assetCanvas.workspacePath)).ok).toBe(true);
     expect(await readFile(path.join(assetCanvas.workspacePath, "AGENTS.md"), "utf8")).toContain("My custom instructions. Read canvas/boards/<board-id>.json");
     expect(await readdir(assetCanvas.workspacePath)).not.toContain("canvas.json");

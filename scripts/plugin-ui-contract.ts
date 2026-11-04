@@ -416,7 +416,14 @@ export function supportChanges(then: Versions, now: Pick<Versions, "majors" | "r
 }
 
 async function versionsAt(ref: string): Promise<Versions> {
-  const listed = execFileSync("git", ["ls-tree", "--name-only", `${ref}:packages/plugin-ui/ui`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+  // A ref from before page components, such as main ahead of their first release, has no versions.
+  let tree: string;
+  try {
+    tree = execFileSync("git", ["ls-tree", "--name-only", `${ref}:packages/plugin-ui/ui`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  } catch {
+    return { majors: [], preview: new Set(), retiring: {} };
+  }
+  const listed = tree
     .split("\n")
     .filter((major) => major && atRef(ref, `packages/plugin-ui/ui/${major}/custom-elements.json`) !== undefined);
   const source = atRef(ref, "src/shared/plugin-ui-versions.ts");

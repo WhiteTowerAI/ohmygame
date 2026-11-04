@@ -12,9 +12,9 @@ const host = vi.hoisted(() => ({
   quit: vi.fn(), relaunch: vi.fn(), close: vi.fn(),
   install: undefined as (() => Promise<void>) | undefined,
   options: undefined as Record<string, unknown> | undefined,
-  applicationMenu: undefined as { template: Array<{ id?: string; label?: string }> } | undefined,
-  menuBeforeLabels: undefined as { template: Array<{ id?: string; label?: string }> } | undefined,
-  popup: vi.fn(),
+  daemonOptions: undefined as Record<string, unknown> | undefined,
+  applicationMenu: undefined as { template: Array<{ role?: string; label?: string }> } | undefined,
+  menuBeforeLabels: undefined as { template: Array<{ role?: string; label?: string }> } | undefined,
 }));
 vi.mock("electron", () => ({
   app: {
@@ -31,13 +31,8 @@ vi.mock("electron", () => ({
   nativeImage: { createFromBitmap: () => ({}) }, nativeTheme: {}, session: { fromPartition: () => ({ setProxy: async () => {} }), defaultSession: { setProxy: async () => {} } },
   BrowserWindow: { getAllWindows: () => [] }, clipboard: {}, dialog: { showErrorBox: vi.fn() }, shell: {},
   Menu: {
-    buildFromTemplate: (template: Array<{ id?: string; label?: string }>) => ({ template }),
+    buildFromTemplate: (template: Array<{ role?: string; label?: string }>) => ({ template }),
     setApplicationMenu: (menu: typeof host.applicationMenu) => { host.applicationMenu = menu; },
-    getApplicationMenu: () => host.applicationMenu && {
-      getMenuItemById: (id: string) => host.applicationMenu!.template.some((item) => item.id === id)
-        ? { submenu: { popup: host.popup } }
-        : null,
-    },
   },
 }));
 vi.mock("undici/index.js", () => ({ setGlobalDispatcher: vi.fn() }));
@@ -47,7 +42,10 @@ vi.doMock(path.resolve("src/desktop/network.ts"), () => ({
   prepareDesktopNetwork: async () => ({ active: {}, environment: {} }), electronProxyConfig: () => ({}), proxyCredentials: vi.fn(),
 }));
 vi.doMock(path.resolve("src/desktop/daemon-process.ts"), () => ({
-  startDaemon: async () => ({ runtime: { url: "http://127.0.0.1:12345", token: "test" }, stop: host.stopped }),
+  startDaemon: async (options: Record<string, unknown>) => {
+    host.daemonOptions = options;
+    return { runtime: { url: "http://127.0.0.1:12345", token: "test" }, stop: host.stopped };
+  },
 }));
 vi.doMock(path.resolve("src/desktop/log-file.ts"), () => ({
   RotatingLogFile: class { line() {} write() {} flush() {} close() {} stream() { return { write() {}, flush() {} }; } },
@@ -91,7 +89,7 @@ vi.doMock(path.resolve("src/desktop/window.ts"), () => ({
     host.handlers.get("ohmygame:set-application-menu-labels")!({ sender: host.sender }, { window: "Sent while loading" });
     return window;
   },
-  waitForRenderer: async () => {}, fitPlaytestContentSize: vi.fn(), isValidPlaytestViewport: () => true, windowsTitleBarOverlay: vi.fn(),
+  waitForRenderer: async () => {}, fitPlaytestContentSize: vi.fn(), isValidPlaytestViewport: () => true,
 }));
 
 beforeEach(async () => {
@@ -114,11 +112,14 @@ function acknowledge(error?: string, sender: { id: number; send: unknown } = hos
 }
 function quit() { const event = { preventDefault: vi.fn() }; host.appEvents.get("before-quit")!(event); expect(event.preventDefault).toHaveBeenCalledOnce(); }
 
-const fileMenuLabel = () => host.applicationMenu!.template.find((item) => item.id === "File")!.label;
+const fileMenuLabel = () => host.applicationMenu!.template.find((item) => item.role === "fileMenu")!.label;
 
+it("lets the built renderer frame plugin pages, which CSP knows as file: and CORS as null", () => {
+  expect(host.daemonOptions).toMatchObject({ allowedOrigins: ["null"], pluginFrameAncestors: ["file:"] });
+});
 it("has an English application menu before the main window loads", () => {
   expect(host.menuBeforeLabels!.template.map((item) => item.label)).not.toContain("Sent while loading");
-  expect(host.menuBeforeLabels!.template.find((item) => item.id === "File")).toEqual(expect.objectContaining({ label: undefined }));
+  expect(host.menuBeforeLabels!.template.find((item) => item.role === "fileMenu")).toEqual(expect.objectContaining({ label: undefined }));
 });
 it("lets only the main window relabel the application menu", async () => {
   const setLabels = host.handlers.get("ohmygame:set-application-menu-labels")!;
@@ -133,20 +134,7 @@ it("lets only the main window relabel the application menu", async () => {
   expect(fileMenuLabel()).toBe("文件");
 });
 it("accepts the labels the main window sends while it loads", () => {
-  expect(host.applicationMenu!.template.find((item) => item.id === "Window")!.label).toBe("Sent while loading");
-});
-it("opens the application menu's own submenu by id, whatever its label", async () => {
-  const popup = host.handlers.get("ohmygame:popup-window-menu")!;
-  await host.handlers.get("ohmygame:set-application-menu-labels")!({ sender: host.sender }, { edit: "编辑" });
-
-  await popup({ sender: host.sender }, "Edit", 10.4, -3);
-  expect(host.popup).toHaveBeenCalledWith(expect.objectContaining({ x: 10, y: 0 }));
-
-  host.popup.mockClear();
-  await expect((async () => popup({ sender: { id: 99 } }, "Edit", 1, 2))()).rejects.toThrow("Invalid window menu request");
-  await expect((async () => popup({ sender: host.sender }, "Edit", Number.NaN, 2))()).rejects.toThrow("Invalid window menu request");
-  await expect((async () => popup({ sender: host.sender }, "Help", 1, 2))()).rejects.toThrow("Window menu is not available: Help");
-  expect(host.popup).not.toHaveBeenCalled();
+  expect(host.applicationMenu!.template.find((item) => item.role === "windowMenu")!.label).toBe("Sent while loading");
 });
 it("keeps services running until Quit receives a save acknowledgement", async () => {
   quit(); quit();

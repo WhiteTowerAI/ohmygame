@@ -261,15 +261,15 @@ export interface StorePlugin {
   description: string;
   /** What it asks to be allowed, such as `network:api.example.com`. */
   capabilities: string[];
-  /** The person's decisions; `null` before any. */
-  grants: { enabled: boolean; allowed: string[] } | null;
+  /** The person's decisions; `null` before any. `enabled` false stops it everywhere. */
+  grants: { enabled: boolean; allowed: string[]; everyProject?: boolean } | null;
   /** Ships with the app, so it can't be uninstalled. */
   bundled: boolean;
   /** Installed with the app from another repository; it can be uninstalled. */
   preinstalled?: boolean;
   origin?: PluginOrigin;
-  /** Only adds Skills, so it applies to every project it suits without a project turning it on. */
-  appWide: boolean;
+  /** On in every project it suits, unless a project turns it off. */
+  everyProject: boolean;
   categories?: PluginCategory[];
   /** Still being checked on real projects. */
   beta?: boolean;
@@ -334,13 +334,17 @@ export interface ProjectPluginItem {
   id: string;
   displayName: string;
   description: string;
-  /** The newest installed version, offered when turning it on. */
+  /** The newest installed version that works in the project, which turning it on gives. */
   version: string;
   /** The version this project uses; absent while it is off here. */
   used?: string;
   /** Provides the project's type, so it stays on. */
   providesType: boolean;
-  /** Why a plugin the project asks for is not running. */
+  /** On in every project it suits, as set on the Plugins page. */
+  everyProject: boolean;
+  icon?: PluginIcon;
+  iconRevision?: string;
+  /** Why a plugin on here is not running. */
   status?: "active" | "not-installed" | "version-not-installed" | "incompatible" | "disabled" | "not-applicable" | "needs-consent" | "needs-approval";
   /** What it asks to be allowed, such as `network:api.example.com`. */
   capabilities: string[];
@@ -348,17 +352,7 @@ export interface ProjectPluginItem {
   consented: boolean;
 }
 
-/** A plugin a new project can turn on for itself, before the project exists (GET /project-plugins). */
-export interface ProjectPluginChoice extends Pick<ProjectPluginItem, "id" | "displayName" | "description" | "version" | "capabilities" | "consented"> {
-  /** The project types it adds, as `publisher/name:type`; a project of one of them has it on already. */
-  providesTypes: string[];
-  /** The project types it works in (`appliesTo`); absent means every type. */
-  appliesTo?: string[];
-}
-
 export interface ProjectPluginsView {
-  /** Plugins on for every project they work with; switched in Plugins. */
-  global: Array<{ id: string; displayName: string; description: string; icon?: PluginIcon; iconRevision?: string }>;
-  /** Plugins each project turns on for itself, recorded in its `ohmygame.json`. */
+  /** Every plugin that suits the project, and any its file asks for; the type's plugin first. */
   plugins: ProjectPluginItem[];
 }

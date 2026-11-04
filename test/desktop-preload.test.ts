@@ -13,6 +13,7 @@ function runPreload(options: {
   runtime?: unknown;
   isMainFrame?: boolean;
   argv?: string[];
+  platform?: NodeJS.Platform;
 }) {
   const exposed = new Map<string, unknown>();
   const sendSync = vi.fn(() => options.runtime);
@@ -33,7 +34,7 @@ function runPreload(options: {
     return electron;
   };
   const process = {
-    platform: "darwin",
+    platform: options.platform ?? "darwin",
     isMainFrame: options.isMainFrame ?? true,
     argv: options.argv ?? [],
   };
@@ -83,7 +84,7 @@ describe("desktop preload", () => {
     expect(preload.exposed.size).toBe(0);
   });
 
-  it("opens window menus by id and passes the application menu's labels to the main process", () => {
+  it("passes the application menu's labels to the main process", () => {
     const preload = runPreload({
       runtime: { url: "http://127.0.0.1:43110", token: "secret-token" },
     });
@@ -91,15 +92,50 @@ describe("desktop preload", () => {
     preload.run();
     const desktop = preload.exposed.get("ohMyGameDesktop") as {
       windowMenu: {
-        popup(id: string, x: number, y: number): unknown;
         setLabels(labels: Record<string, string>): unknown;
       };
     };
-    void desktop.windowMenu.popup("Edit", 1, 2);
     void desktop.windowMenu.setLabels({ undo: "撤销" });
 
-    expect(preload.invoke).toHaveBeenCalledWith("ohmygame:popup-window-menu", "Edit", 1, 2);
     expect(preload.invoke).toHaveBeenCalledWith("ohmygame:set-application-menu-labels", { undo: "撤销" });
+  });
+
+  it("sends the window control commands to the main process", () => {
+    const preload = runPreload({
+      runtime: { url: "http://127.0.0.1:43110", token: "secret-token" },
+      platform: "win32",
+    });
+
+    preload.run();
+    const desktop = preload.exposed.get("ohMyGameDesktop") as {
+      windowControls: {
+        minimize(): unknown;
+        toggleMaximize(): unknown;
+        close(): unknown;
+        state(): unknown;
+      };
+    };
+    void desktop.windowControls.minimize();
+    void desktop.windowControls.toggleMaximize();
+    void desktop.windowControls.close();
+    void desktop.windowControls.state();
+
+    expect(preload.invoke.mock.calls).toEqual([
+      ["ohmygame:window-control", "minimize"],
+      ["ohmygame:window-control", "toggle-maximize"],
+      ["ohmygame:window-control", "close"],
+      ["ohmygame:window-state"],
+    ]);
+  });
+
+  it("keeps the window controls to Windows", () => {
+    const preload = runPreload({
+      runtime: { url: "http://127.0.0.1:43110", token: "secret-token" },
+    });
+
+    preload.run();
+
+    expect(preload.exposed.get("ohMyGameDesktop")).not.toHaveProperty("windowControls");
   });
 
   it("exposes nothing to embedded frames", () => {

@@ -48,9 +48,9 @@ function Activity({ enabled = true }: { enabled?: boolean }) {
 }
 const noop = () => undefined;
 const pages = [
-  { name: "Home", type: "web-game", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} /> },
+  { name: "Home", type: "web-game", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} onOpenAssetCanvas={noop} /> },
   { name: "Projects", type: "web-game", view: <ProjectsPage onNavigate={noop} onOpenProject={noop} onFiltersChange={noop} /> },
-  { name: "Home with an Asset Canvas", type: "asset-canvas", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} /> },
+  { name: "Home with an Asset Canvas", type: "asset-canvas", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} onOpenAssetCanvas={noop} /> },
 ] as const;
 beforeEach(() => {
   vi.useFakeTimers();
@@ -79,6 +79,14 @@ const push = () => act(async () => {
 });
 
 describe("project activity on project lists", () => {
+  it("keeps both home pages free of creation shortcuts", async () => {
+    for (const view of [pages[0].view, pages[2].view]) {
+      await act(async () => root.render(view));
+      expect(container.querySelector(".asset-template-launcher")).toBeNull();
+      expect(container.querySelector(".asset-canvas-quick-start")).toBeNull();
+    }
+  });
+
   it.each(pages)("refreshes a generated name on $name without changing the cover", async ({ type, view }) => {
     const initial = { ...project("active", type), nameSource: "default" as const };
     listProjects.mockResolvedValue([initial]);

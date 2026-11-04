@@ -26,9 +26,9 @@ import type { PluginServices } from "./plugin-services.js";
 import {
   capabilityGrants,
   createProjectPlugins,
+  missingGrants,
   projectFolderKey,
   readProjectFile,
-  resolveProjectPlugins,
 } from "./project-plugins.js";
 
 // Project types: the two the app has itself, and those plugins contribute.
@@ -52,6 +52,8 @@ export interface AvailableProjectType {
   plugin?: { id: string; version: string };
   /** Whether new projects of it start from files or from the plugin's hook. */
   creates?: "template" | "hook";
+  /** What the type's plugin asks for that the person hasn't allowed; creating a project of it allows that. */
+  asks?: string[];
 }
 
 const CORE_TITLES: Record<
@@ -96,6 +98,7 @@ export async function availableProjectTypes(
     const newest = services.index.get(entry.id)!;
     if (services.grants.plugin(newest.id)?.enabled === false) continue;
     const hasCreate = Boolean(newest.manifest.entrypoints?.native);
+    const asks = missingGrants(capabilityGrants(newest.manifest), services.grants.plugin(newest.id)?.allowed ?? []);
     for (const type of newest.manifest.contributes?.projectTypes ?? [])
       types.push({
         id: `${newest.id}:${type.id}`,
@@ -112,6 +115,7 @@ export async function availableProjectTypes(
         preview: type.preview,
         plugin: { id: newest.id, version: newest.version },
         creates: type.template ? "template" : hasCreate ? "hook" : "template",
+        ...(asks.length ? { asks } : {}),
       });
   }
   return types;
@@ -254,7 +258,8 @@ export async function adoptTypedProject({
     throw new Error(
       `The folder's ${PROJECT_FILE_NAME} is invalid: ${existing.issues.slice(0, 3).join("; ")}`,
     );
-  let version = existing?.ok ? existing.file.plugins?.[owner] : undefined;
+  const named = existing?.ok ? existing.file.plugins?.[owner] : undefined;
+  let version = typeof named === "string" ? named : undefined;
   if (existing?.ok) {
     if (existing.file.type !== type)
       throw new Error(
@@ -331,7 +336,7 @@ export async function projectKindAt(
   if (!read?.ok) return undefined;
   const owner = projectTypePlugin(read.file.type);
   const version = owner ? read.file.plugins?.[owner] : undefined;
-  const entry = owner && version ? services.index.get(owner, version) : undefined;
+  const entry = owner && typeof version === "string" ? services.index.get(owner, version) : undefined;
   const contributed = entry
     ? contribution(entry, read.file.type.slice(owner!.length + 1))
     : undefined;
@@ -355,7 +360,7 @@ export async function projectPreviewMode(
   const owner = projectTypePlugin(read.file.type);
   const version = owner ? read.file.plugins?.[owner] : undefined;
   const entry =
-    owner && version ? services.index.get(owner, version) : undefined;
+    owner && typeof version === "string" ? services.index.get(owner, version) : undefined;
   return entry
     ? contribution(entry, read.file.type.slice(owner!.length + 1))?.preview
     : undefined;
@@ -378,12 +383,8 @@ export async function buildWebPreview({
 }): Promise<{ directory: string; entry: string } | undefined> {
   if ((await projectPreviewMode(folder, services)) !== "web-build")
     return undefined;
-  const resolved = await resolveProjectPlugins({
-    folder,
-    index: services.index,
-    grants: services.grants,
-  });
-  if (!resolved?.ok) return undefined;
+  const resolved = await services.resolve(folder);
+  if (!resolved.ok || !resolved.file) return undefined;
   if (!resolved.typeReady)
     throw unavailable(
       `The project's type comes from a plugin that isn't on here: ${resolved.plugins.find((plugin) => plugin.providesType)?.status ?? "missing"}`,

@@ -299,13 +299,16 @@ function FinalResponse({ projectId, items, artifacts, controls, changes }: {
   );
 }
 
+// Language is fixed for the page lifetime; share the formatter across responses.
+const responseTimeFormat = new Intl.DateTimeFormat(language, {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 function formatResponseTime(timestamp: number): string {
-  return new Intl.DateTimeFormat(language, {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(timestamp);
+  return responseTimeFormat.format(timestamp);
 }
 
 /** The message as written, with each plugin it mentions shown as the plugin. */

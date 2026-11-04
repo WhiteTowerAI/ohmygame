@@ -1,4 +1,10 @@
+.story-canvas .react-flow__node-group { padding: 0; border: 0; border-radius: 6px; background: transparent; box-shadow: none; pointer-events: none !important; }
 .design-workspace { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.canvas-group-node { box-sizing: border-box; width: 100%; height: 100%; border: 1px solid color-mix(in srgb, var(--theme-accent) 48%, var(--border)); border-radius: 6px; background: color-mix(in srgb, var(--theme-accent) 5%, transparent); }
+.canvas-group-node .react-flow__resize-control { pointer-events: auto; }
+.canvas-group-node.is-selected { border-color: var(--theme-accent); }
+.canvas-group-heading { pointer-events: auto; cursor: grab; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; color: var(--text); background: color-mix(in srgb, var(--theme-accent) 11%, var(--surface)); border-bottom: 1px solid var(--border); font-size: 12px; }
+.canvas-group-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .design-workspace > .viewer-pane.interactive-story-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .design-workspace > .viewer-pane[hidden] { display: none; }
 .design-workspace .interactive-story-body { flex: 1; }

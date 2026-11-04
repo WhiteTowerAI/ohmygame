@@ -3,14 +3,15 @@ import type { PluginConfigurationValues, PluginConfigurationView } from "../shar
 import { Trash2 } from "./icons.js";
 import { t } from "./i18n.js";
 
-export function PluginEnabledSwitch({ plugin, disabled, onToggle }: {
-  plugin: { displayName: string; enabled: boolean };
+/** A compact switch that turns a plugin on or off in every project it suits. */
+export function PluginEveryProjectSwitch({ plugin, disabled, onToggle }: {
+  plugin: { displayName: string; everyProject: boolean };
   disabled?: boolean;
-  onToggle: (enabled: boolean) => void;
+  onToggle: (on: boolean) => void;
 }) {
-  const label = `${plugin.enabled ? t("common.disable") : t("common.enable")} ${plugin.displayName}`;
-  return <button className="plugin-switch" type="button" role="switch" aria-checked={plugin.enabled}
-    aria-label={label} title={label} disabled={disabled} onClick={() => onToggle(!plugin.enabled)}><span /></button>;
+  const label = t("plugins.everyProjectSwitch", { name: plugin.displayName });
+  return <button className="plugin-switch" type="button" role="switch" aria-checked={plugin.everyProject}
+    aria-label={label} title={label} disabled={disabled} onClick={() => onToggle(!plugin.everyProject)}><span /></button>;
 }
 
 export function PluginUninstallButton({ plugin, disabled, compact = false, onUninstall }: {

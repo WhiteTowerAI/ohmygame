@@ -1,6 +1,6 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { FilePlus, Import, RefreshCw } from "./icons.js";
-import { useEffect, useState } from "react";
+import { FilePlus, Import, LoaderCircle, RefreshCw } from "./icons.js";
+import { useEffect, useRef, useState } from "react";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { listProjects, waitForRuntime } from "./api.js";
 import { ExampleShelf, useExamples } from "./examples.js";
@@ -9,6 +9,11 @@ import { PageFrame } from "./page-frame.js";
 import { ProjectCard, useProjectActions } from "./project-card.js";
 import { pickProjectFolder, ProjectCreateDialog, type FirstMessage } from "./project-create-dialog.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
+import { PixelTemplateDensityDialog } from "./pixel-template-density-dialog.js";
+import type { PixelArtLevel } from "../shared/canvas-pixel-style.js";
+import { pixelAssetTemplateCategories, type PixelAssetTemplateCategory } from "./asset-canvas-pixel-workflows.js";
+import { templateAssetUrl } from "./template-assets.js";
+import { effectLibraryCoverForLevel } from "./asset-canvas-effect-covers.js";
 import { createdProjectView, type AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { useProjectShelfLayout } from "./use-project-shelf-layout.js";
@@ -18,6 +23,16 @@ import "./home.css";
 import type { OnboardingStart } from "./onboarding.js";
 import { t } from "./i18n.js";
 
+const PIXEL_TEMPLATE_COVERS: Record<PixelAssetTemplateCategory, string> = {
+  characters: templateAssetUrl("examples/characters-cover.webp"),
+  creatures: templateAssetUrl("examples/creatures-cover.webp"),
+  animation: templateAssetUrl("examples/animation-cover.webp"),
+  scenes: templateAssetUrl("examples/scenes-cover.webp"),
+  terrain: templateAssetUrl("examples/terrain-cover.webp"),
+  objects: templateAssetUrl("examples/objects-cover.webp"),
+  skins: templateAssetUrl("examples/skins-cover.webp"),
+};
+
 interface HomeProps {
   inert?: boolean;
   /** Where setup's last step sent the person; Home acts on it once. */
@@ -26,6 +41,8 @@ interface HomeProps {
   onNavigate: (page: AppNavigationTarget) => void;
   onCreate: (project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
   onOpen: (projectId: string, view?: "design") => void;
+  /** Opens an Asset Canvas project on the node a creation template starts from. */
+  onOpenAssetCanvas: (projectId: string, nodeId?: string) => void;
 }
 
 /** What the new-project dialog opens with, if it is open. */
@@ -39,7 +56,7 @@ interface CreateRequest {
 // Home is where every project starts: the prompt creates the project at once,
 // with the prompt as its first message, and opens the new-project dialog only
 // when something needs the person; Start blank and Import folder open it.
-export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onStartHandled }: HomeProps) {
+export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas, inert = false, start, onStartHandled }: HomeProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -49,6 +66,10 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onSta
   const [loadError, setLoadError] = useState<string>();
   const [importError, setImportError] = useState<string>();
   const [creating, setCreating] = useState<CreateRequest>();
+  const [templateCreating, setTemplateCreating] = useState<PixelAssetTemplateCategory | "effect-library">();
+  const [templateDensityCategory, setTemplateDensityCategory] = useState<PixelAssetTemplateCategory | "effects">();
+  const [templateError, setTemplateError] = useState<string>();
+  const templateTrigger = useRef<HTMLElement | null>(null);
   const { examples, covers: exampleCovers } = useExamples();
   const { sectionRef, columns, recentProjectLimit } = useProjectShelfLayout();
   const projectActions = useProjectActions(loadProjects);
@@ -80,6 +101,22 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onSta
       else setCreating({ workspacePath: picked.path });
     } catch (error) {
       setImportError(errorMessage(error));
+    }
+  }
+
+  // Templates make an Asset Canvas project with its starting board and open it there.
+  async function createTemplate(category: PixelAssetTemplateCategory | "effects", level: PixelArtLevel): Promise<void> {
+    setTemplateCreating(category === "effects" ? "effect-library" : category);
+    setTemplateError(undefined);
+    try {
+      const created = category === "effects"
+        ? await (await import("./asset-canvas-templates.js")).createEffectLibraryProject(level)
+        : await (await import("./asset-canvas-template-project.js")).createPixelAssetTemplateProject(category, level);
+      onOpenAssetCanvas(created.projectId, created.nodeId);
+    } catch (error) {
+      setTemplateError(errorMessage(error));
+    } finally {
+      setTemplateCreating(undefined);
     }
   }
 
@@ -145,6 +182,56 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onSta
             {projectActions.error ? <p className="home-notice" role="alert">{projectActions.error}</p> : null}
           </section>
 
+          <section className="home-section home-explore home-templates" aria-labelledby="home-templates-heading">
+            <header className="home-section-head">
+              <h2 id="home-templates-heading">{t("home.templates")}</h2>
+            </header>
+            <div className="home-whats-new-grid">
+              {pixelAssetTemplateCategories().map((category) => (
+                <button
+                  className="home-whats-new-item home-template-card"
+                  type="button"
+                  key={category.id}
+                  disabled={templateCreating !== undefined}
+                  aria-busy={templateCreating === category.id}
+                  onClick={(event) => {
+                    templateTrigger.current = event.currentTarget;
+                    setTemplateDensityCategory(category.id);
+                  }}
+                >
+                  <span className="home-whats-new-icon home-explore-cover">
+                    <img src={PIXEL_TEMPLATE_COVERS[category.id]} alt="" />
+                    {templateCreating === category.id ? <span className="home-template-loading"><LoaderCircle className="spin" size={16} /></span> : null}
+                  </span>
+                  <span className="home-whats-new-copy">
+                    <strong>{category.label}</strong>
+                    <small>{category.description}</small>
+                  </span>
+                </button>
+              ))}
+              <button
+                className="home-whats-new-item home-template-card home-effect-template-card"
+                type="button"
+                disabled={templateCreating !== undefined}
+                aria-busy={templateCreating === "effect-library"}
+                onClick={(event) => {
+                  templateTrigger.current = event.currentTarget;
+                  setTemplateDensityCategory("effects");
+                }}
+              >
+                <span className="home-whats-new-icon home-explore-cover">
+                  <img src={effectLibraryCoverForLevel()} alt="" />
+                  {templateCreating === "effect-library" ? <span className="home-template-loading"><LoaderCircle className="spin" size={16} /></span> : null}
+                </span>
+                <span className="home-whats-new-copy">
+                  <strong>{t("effectLibrary.title")}</strong>
+                  <small>{t("effectLibrary.cardDescription")}</small>
+                </span>
+              </button>
+            </div>
+            {templateError ? <p className="home-notice" role="alert">{templateError}</p> : null}
+          </section>
+
           {visibleExamples.length > 0 ? <section className="home-section home-explore" aria-labelledby="home-examples-heading">
             <header className="home-section-head">
               <h2 id="home-examples-heading">{t("home.explore")}</h2>
@@ -155,6 +242,15 @@ export function Home({ onNavigate, onCreate, onOpen, inert = false, start, onSta
         </div>
       </main>
       {projectActions.dialogs}
+      {templateDensityCategory ? <PixelTemplateDensityDialog
+        category={templateDensityCategory}
+        returnFocus={templateTrigger.current}
+        onClose={() => setTemplateDensityCategory(undefined)}
+        onConfirm={(level) => {
+          setTemplateDensityCategory(undefined);
+          void createTemplate(templateDensityCategory, level);
+        }}
+      /> : null}
       {creating ? <ProjectCreateDialog
         firstMessage={creating.firstMessage}
         direct={!!creating.firstMessage}
