@@ -542,6 +542,7 @@ export class PreviewManager {
           );
           assertCurrent();
           args = packageManagerRunArguments(
+            manager,
             project.startupScript ?? "dev",
             previewScriptArguments(
               manifest.scripts[project.startupScript ?? "dev"],
@@ -1047,7 +1048,7 @@ async function waitUntilReady(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(
-    withOutput(`Preview did not become ready within ${timeoutMs}ms`, output()),
+    withOutput(`Preview did not become ready at ${url} within ${timeoutMs}ms`, output()),
   );
 }
 

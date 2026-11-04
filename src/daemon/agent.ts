@@ -124,6 +124,7 @@ export type SessionFactory = (project: ProjectState, conversation: StoredConvers
 export function conversationItems(entries: readonly SessionEntry[], markInterrupted = true): ThreadItem[] {
   const items: ThreadItem[] = [];
   const tools = new Map<string, Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>>();
+  const checkpointIndices = new Map<string, number>();
   const planCalls = new Set<string>();
   const questionnaireCalls = new Map<string, Extract<ThreadItem, { type: "userInputRequest" }>>();
   let turnId: string | undefined;
@@ -176,14 +177,14 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
     if (entry.type === "custom" && entry.customType === TURN_END_ENTRY) {
       // The entry names the checkpoint of a message that is already listed; the message that comes next is not its concern.
       const end = parseStoredTurnEnd(entry.data);
-      const index = items.findIndex((item) => item.type === "userMessage" && item.checkpointId === end?.checkpoint);
+      const index = (end && checkpointIndices.get(end.checkpoint)) ?? -1;
       const item = items[index];
       if (end && item?.type === "userMessage") items[index] = { ...item, changes: { files: end.files, ...(end.items ? { items: end.items } : {}) } };
       continue;
     }
     if (entry.type === "custom" && entry.customType === CHECKPOINT_UNDONE_ENTRY) {
       const undone = parseStoredCheckpointUndone(entry.data);
-      const index = items.findIndex((item) => item.type === "userMessage" && item.checkpointId === undone?.checkpoint);
+      const index = (undone && checkpointIndices.get(undone.checkpoint)) ?? -1;
       const item = items[index];
       // The last undo of a turn says how it stands: one that left files as they are, until a later one puts those back too.
       if (undone && item?.type === "userMessage" && item.changes) {
@@ -240,6 +241,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       const attachments = details?.attachments ?? parsed.attachments;
       const contexts = promptContextLabels(details?.attachmentContext ?? parsed.attachmentContext);
       if (text || images.length > 0 || attachments.length > 0) {
+        if (checkpoint && !checkpointIndices.has(checkpoint)) checkpointIndices.set(checkpoint, items.length);
         items.push({ id: entry.id, turnId, type: "userMessage", text, ...(mentions.length ? { mentions } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(contexts.length ? { contexts } : {}), ...(checkpoint ? { checkpointId: checkpoint } : {}), timestamp });
         if (images.length) items.push({ id: `${entry.id}:images`, turnId, type: "imageRead", count: images.length, status: "completed", timestamp });
       }
@@ -393,6 +395,7 @@ function messageTime(entry: Extract<SessionEntry, { type: "message" }>): number 
 }
 
 interface AgentManagerOptions {
+  onActivityChange?: () => void;
   createSession?: SessionFactory;
   loadSkills?: (project: ProjectState) => Promise<Array<{ name: string; description: string }>>;
   activeToolNames?: (project: ProjectState, mode: PlanMode, session: CodingSession) => string[];
@@ -1657,6 +1660,7 @@ export class AgentManager {
     // Set together with queueing the mutation that closes the turn, so whatever then waits in this queue comes after it.
     // Since the event that ended the run nothing from outside has had a turn: only promise callbacks ran in between.
     active.ended = true;
+    this.options.onActivityChange?.();
     await this.#withQueueMutation(key, async () => {
       if (this.#activeTurns.get(key) !== active) return;
       // An edit can fail before its replacement message starts. Preserve the
@@ -2339,6 +2343,7 @@ export class AgentManager {
 
   #setState(projectId: string, conversationId: string, state: ConversationAgentState, limitReached = false): void {
     this.#agentStates.set(conversationKey(projectId, conversationId), state);
+    this.options.onActivityChange?.();
     this.options.onLimitChange?.(projectId, conversationId, limitReached);
   }
 

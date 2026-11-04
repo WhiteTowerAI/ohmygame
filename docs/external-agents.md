@@ -151,10 +151,13 @@ Files in `<dataDirectory>/external-mcp/`:
   launch. If the feature is off, the call instead explains where to turn it
   on.
 - It sends the client's MCP roots in `X-OhMyGame-Roots`, or, for clients
-  without roots, `CLAUDE_PROJECT_DIR` and its working directory. A restarted
-  daemon or an expired session is reconnected once. An explicit `open_project`
-  selection is remembered by its returned project ID and restored before any
-  project tool runs in a replacement session. If that project is gone, the
+  without roots, `CLAUDE_PROJECT_DIR` and its working directory. Non-ASCII
+  characters are JSON-escaped so HTTP headers stay ASCII; the daemon restores
+  the original paths and URLs when parsing them, including non-English user
+  and project folder names. A restarted daemon or an expired session is
+  reconnected once. An explicit `open_project` selection is remembered by its
+  returned project ID and restored before any project tool runs in a
+  replacement session. If that project is gone, the
   tool fails until the client selects another project; it never falls back
   to the working folder silently. Closing stdin ends the daemon session.
 - A 401 or 404 rejects a call before execution, so it can be retried after

@@ -1,3 +1,4 @@
+import { mapConcurrent } from "./map-concurrent.js";
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
@@ -197,16 +198,4 @@ function describe(root: string, message: Message): string {
   if (!location) return message.text;
   const file = path.relative(root, path.resolve(root, location.file)).split(path.sep).join("/");
   return `${file}:${location.line}:${location.column + 1}: ${message.text}`;
-}
-
-async function mapConcurrent<T, R>(values: readonly T[], concurrency: number, transform: (value: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(values.length);
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
-    while (next < values.length) {
-      const index = next++;
-      results[index] = await transform(values[index]!);
-    }
-  }));
-  return results;
 }

@@ -2,10 +2,12 @@ import { Type, type Static } from "typebox";
 import { Errors } from "typebox/value";
 import { isPluginVersion } from "./plugins.js";
 
-// `ohmygame.json` at a project's root: the project's type and the plugins it
-// uses, at exact versions. It travels with the project (git, archives), so it
-// says what the project asks for and never what anyone approved; approvals
-// stay with each person. Keys it doesn't know are kept when it is rewritten,
+// `ohmygame.json` at a project's root: the project's type and how its plugins
+// differ from the person's choice for every project: on at an exact version,
+// `true` for on at the newest version (a plugin that asks for nothing), or
+// `false` for off. It travels with the project (git, archives), so it says
+// what the project asks for and never what anyone approved; approvals stay
+// with each person. Keys it doesn't know are kept when it is rewritten,
 // so later project settings can live here too.
 
 export const PROJECT_FILE_NAME = "ohmygame.json";
@@ -28,7 +30,7 @@ export const ProjectFileSchema = Type.Object(
     plugins: Type.Optional(
       Type.Record(
         Type.String({ pattern: `^${PLUGIN_ID}$` }),
-        Type.String({ minLength: 5, maxLength: 256 }),
+        Type.Union([Type.String({ minLength: 5, maxLength: 256 }), Type.Boolean()]),
         { additionalProperties: false },
       ),
     ),
@@ -55,10 +57,10 @@ export function validateProjectFile(value: unknown): ProjectFileResult {
   if (issues.length) return { ok: false, issues };
   const file = value as ProjectFile;
   for (const [id, version] of Object.entries(file.plugins ?? {}))
-    if (!isPluginVersion(version))
-      issues.push(`/plugins/${id} must be an exact version`);
+    if (typeof version === "string" && !isPluginVersion(version))
+      issues.push(`/plugins/${id} must be an exact version, true or false`);
   const owner = projectTypePlugin(file.type);
-  if (owner && !file.plugins?.[owner])
-    issues.push(`/plugins must list ${owner}, which provides the type`);
+  if (owner && typeof file.plugins?.[owner] !== "string")
+    issues.push(`/plugins must list ${owner}, which provides the type, at a version`);
   return issues.length ? { ok: false, issues } : { ok: true, file };
 }

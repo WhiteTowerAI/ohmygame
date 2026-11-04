@@ -30,7 +30,8 @@ describe("OhMyGame system prompt", () => {
     expect(text).toContain("__OHMYGAME_PLAYTEST__");
     expect(text).toContain("the workspace root");
     expect(text).toContain('a "dev" script and a "build" script');
-    expect(text).toContain("--host 127.0.0.1 --port <port> --strictPort");
+    expect(text).toContain("process.env.HOST");
+    expect(text).toContain("Number(process.env.PORT)");
     expect(text).toContain("dist/, build/, or out/");
     expect(text).toContain("missing from the published build");
     expect(text).not.toContain("playable_check");

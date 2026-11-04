@@ -53,7 +53,8 @@ function lookUpIdentity(pid: number): Promise<string | undefined> {
     execFile(
       command,
       args,
-      { encoding: "utf8", timeout: 10_000, windowsHide: true },
+      // A cold PowerShell start can exceed ten seconds on a busy Windows host.
+      { encoding: "utf8", timeout: process.platform === "win32" ? 30_000 : 10_000, windowsHide: true },
       (error, stdout) => resolve((!error && stdout.trim()) || undefined),
     ).stdin?.end();
   });

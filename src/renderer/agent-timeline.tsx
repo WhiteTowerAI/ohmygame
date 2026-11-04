@@ -23,7 +23,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { ConversationAttachment, ConversationCapabilities, LimitResume, PromptContextLabel, PromptImage, ThreadItem, ThreadItemError, ToolArtifact, Turn as ThreadTurn } from "../shared/contracts.js";
 import { getWorkspaceAsset } from "./api.js";
 import { splitPluginMentions } from "../shared/plugins.js";
@@ -84,7 +84,13 @@ function turnDisplay(turn: ThreadTurn): TurnDisplay {
   return display;
 }
 
-export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS, limitResume, onLimitResumeChange }: AgentTimelineProps) {
+export const AgentTimeline = memo(function AgentTimeline(props: AgentTimelineProps) {
+  return <ConversationTimeline key={props.turns[0]?.conversationId} {...props} />;
+});
+
+const HISTORY_PAGE = 40;
+
+function ConversationTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false, plugins = NO_PLUGINS, limitResume, onLimitResumeChange }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -92,14 +98,48 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
   const [copiedAssistantId, setCopiedAssistantId] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
   const turns = useMemo(() => mergeCompletedCompactionTurns(sourceTurns), [sourceTurns]);
-  const displays = useMemo(() => turns.map(turnDisplay), [turns]);
+  const [oldest, setOldest] = useState<string>();
+  const requestedIndex = oldest ? turns.findIndex((turn) => turn.id === oldest) : -1;
+  const recentStart = Math.max(0, turns.length - HISTORY_PAGE);
+  const start = requestedIndex >= 0 ? Math.min(requestedIndex, recentStart) : recentStart;
+  const visible = useMemo(() => turns.slice(start), [turns, start]);
+  const anchor = useRef<{ element: HTMLElement; top: number; height: number } | null>(null);
+  const loadEarlier = useCallback(() => {
+    if (start === 0) return;
+    const element = selectionRoot?.closest<HTMLElement>(".agent-body, .floating-chat-thread");
+    if (element) anchor.current = { element, top: element.scrollTop, height: element.scrollHeight };
+    setOldest(turns[Math.max(0, start - HISTORY_PAGE)].id);
+  }, [selectionRoot, start, turns]);
+  useLayoutEffect(() => {
+    const previous = anchor.current;
+    if (previous) {
+      previous.element.scrollTop = previous.top + previous.element.scrollHeight - previous.height;
+      anchor.current = null;
+    }
+  }, [oldest]);
+  useEffect(() => {
+    const element = selectionRoot?.closest<HTMLElement>(".agent-body, .floating-chat-thread");
+    if (!start || !element) return;
+    let last = element.scrollTop;
+    const onScroll = () => {
+      const top = element.scrollTop;
+      if (top < last) {
+        if (top < 160) loadEarlier();
+        else if (!oldest) setOldest(turns[start].id);
+      }
+      last = top;
+    };
+    element.addEventListener("scroll", onScroll, { passive: true });
+    return () => element.removeEventListener("scroll", onScroll);
+  }, [selectionRoot, start, oldest, turns, loadEarlier]);
+  const displays = useMemo(() => visible.map(turnDisplay), [visible]);
   const workspaceLinks = useMemo(() => ({ workspacePath, onOpenWorkspaceFile }), [workspacePath, onOpenWorkspaceFile]);
   const limitResumeControl = useMemo(() => limitResume && { ...limitResume, onChange: onLimitResumeChange }, [limitResume, onLimitResumeChange]);
   const activeIndex = turns.findIndex((turn) => turn.status === "inProgress");
   const lastFailedIndex = turns.findLastIndex((turn) => turn.status === "failed");
   const latestSteeringIndex = turns.findLastIndex((turn) => turn.steering);
   const steeringPending = activeIndex >= 0 && latestSteeringIndex > activeIndex;
-  const latestUserId = [...turns].reverse().flatMap((turn) => turn.items).find((item) => item.type === "userMessage")?.id;
+  const latestUserId = turns.findLast((turn) => turn.items.some((item) => item.type === "userMessage"))?.items.find((item) => item.type === "userMessage")?.id;
   const latestAssistantId = displays
     .flatMap((display) => display.finalMessages)
     .findLast((item) => item.status === "completed" && Boolean(item.text.trim()))
@@ -150,14 +190,15 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
     <WorkspaceLinkContext.Provider value={workspaceLinks}>
       <PluginsContext.Provider value={plugins}>
         <div className="agent-timeline-selection-root" ref={setSelectionRoot}>
+          {start > 0 ? <Button size="sm" variant="ghost" onClick={loadEarlier}>{t("timeline.earlierMessages")}</Button> : null}
           <TurnChangesViews key={turns[0]?.conversationId} workspaceRevision={workspaceRevision}>
-            {turns.map((turn, index) => (
-              <LimitResumeContext.Provider key={turn.id} value={index === lastFailedIndex ? limitResumeControl : undefined}>
+            {visible.map((turn, index) => (
+              <LimitResumeContext.Provider key={turn.id} value={start + index === lastFailedIndex ? limitResumeControl : undefined}>
               <Turn
                 projectId={projectId}
                 turn={turn}
                 waitingForInput={turn.status === "inProgress" && waitingForInput}
-                steeringPending={steeringPending && index === latestSteeringIndex}
+                steeringPending={steeringPending && start + index === latestSteeringIndex}
                 changeControls={changeControls}
                 assistantControls={{
                   copiedItemId: copiedAssistantId,
@@ -187,7 +228,7 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
       </PluginsContext.Provider>
     </WorkspaceLinkContext.Provider>
   );
-});
+}
 
 interface UserControls {
   editing: boolean;
@@ -299,13 +340,16 @@ function FinalResponse({ projectId, items, artifacts, controls, changes }: {
   );
 }
 
+// Language is fixed for the page lifetime; share the formatter across responses.
+const responseTimeFormat = new Intl.DateTimeFormat(language, {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 function formatResponseTime(timestamp: number): string {
-  return new Intl.DateTimeFormat(language, {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(timestamp);
+  return responseTimeFormat.format(timestamp);
 }
 
 /** The message as written, with each plugin it mentions shown as the plugin. */

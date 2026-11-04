@@ -1,3 +1,4 @@
+import { mapConcurrent } from "./map-concurrent.js";
 import { PREVIEW_SETTING_KEYS, previewSettings, validPreviewSettings, validatePreviewSettings, type ProjectPreviewSettings } from "../shared/preview-settings.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -100,7 +101,7 @@ export class ProjectManager {
   readonly #removedDirectory: string;
   #location?: string;
 
-  constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary) {
+  constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary, private readonly onListChange?: () => void) {
     this.#projectsDirectory = path.join(dataDirectory, "projects");
     this.#locationFile = path.join(dataDirectory, "project-location.json");
     this.#removedDirectory = path.join(dataDirectory, "removed-projects");
@@ -237,6 +238,7 @@ export class ProjectManager {
     await writeMetadata(projectDirectory, metadata);
     const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace({ ...metadata, workspacePath }), projectDirectory, true);
     this.#projects.set(id, project);
+    this.onListChange?.();
     return project;
   }
 
@@ -405,6 +407,7 @@ export class ProjectManager {
     const workspacePath = path.join(duplicateDirectory, "workspace");
     const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace({ ...metadata, workspacePath }), duplicateDirectory, true);
     this.#projects.set(project.id, project);
+    this.onListChange?.();
     return project;
   }
 
@@ -448,6 +451,7 @@ export class ProjectManager {
     const workspace = path.join(this.#projectDirectory(id), "workspace");
     const project = projectState(workspace, metadata, await isRunnableStartupWorkspace({ ...metadata, workspacePath: workspace }), this.#projectDirectory(id), true);
     this.#projects.set(project.id, project);
+    this.onListChange?.();
     return project;
   }
 
@@ -478,6 +482,7 @@ export class ProjectManager {
       }
       await rm(this.#projectDirectory(id), { recursive: true, force: false });
       this.#projects.delete(id);
+      this.onListChange?.();
     });
     this.#metadataWrites.set(id, operation);
     try { await operation; }
@@ -498,6 +503,7 @@ export class ProjectManager {
       }
       await rm(this.#projectDirectory(id), { recursive: true, force: false });
       this.#projects.delete(id);
+      this.onListChange?.();
     });
     this.#metadataWrites.set(id, operation);
     try { await operation; }
@@ -573,7 +579,12 @@ export class ProjectManager {
     id: string,
     fileName: string,
     contents: Uint8Array,
-    metadata: { prompt?: string; preview?: { bytes: Uint8Array; extension: "png" | "jpg" }; libraryAssetId?: string } = {},
+    metadata: {
+      prompt?: string;
+      preview?: { bytes: Uint8Array; extension: "png" | "jpg" };
+      libraryAssetId?: string;
+      registerInLibrary?: boolean;
+    } = {},
   ): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
@@ -611,13 +622,15 @@ export class ProjectManager {
         await rm(previewTemporary, { force: true });
       }
     }
-    const libraryAssetId = metadata.libraryAssetId && this.assetLibrary?.get(metadata.libraryAssetId)
-      ? metadata.libraryAssetId
-      : (await (workspaceMediaInfo(fileName) ? this.assetLibrary?.add(fileName, contents, {
-      origin: "generated",
-      ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
-      sourceKey: `project:${id}:${assetPath}`,
-      }) : undefined))?.id;
+    const libraryAssetId = metadata.registerInLibrary === false
+      ? undefined
+      : metadata.libraryAssetId && this.assetLibrary?.get(metadata.libraryAssetId)
+        ? metadata.libraryAssetId
+        : (await (workspaceMediaInfo(fileName) ? this.assetLibrary?.add(fileName, contents, {
+          origin: "generated",
+          ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
+          sourceKey: `project:${id}:${assetPath}`,
+        }) : undefined))?.id;
     await this.#writeAssetMetadata(id, () => writeAssetMetadata(project.workspacePath, assetPath, {
       origin: "generated",
       purpose: "asset",
@@ -938,6 +951,7 @@ export class ProjectManager {
       for (const key of PREVIEW_SETTING_KEYS) { delete project[key]; }
       Object.assign(project, previewSettings(metadata));
       if (metadata.pluginType) project.pluginType = metadata.pluginType;
+      const listChanged = project.name !== metadata.name || project.nameSource !== metadata.nameSource || project.updatedAt !== metadata.updatedAt;
       project.name = metadata.name;
       if (metadata.nameSource) project.nameSource = metadata.nameSource;
       project.updatedAt = metadata.updatedAt;
@@ -958,6 +972,7 @@ export class ProjectManager {
       else delete project.publication;
       if (metadata.appearance) project.appearance = metadata.appearance;
       else delete project.appearance;
+      if (listChanged) this.onListChange?.();
       return true;
     });
     this.#metadataWrites.set(project.id, operation);
@@ -1397,23 +1412,6 @@ function isProjectId(value: string): boolean {
 function validAssetName(value: string): boolean {
   return value.length > 0 && value.length <= 200 && value !== "." && value !== ".." &&
     !value.includes("/") && !value.includes("\\") && !/[\u0000-\u001f]/.test(value);
-}
-
-async function mapConcurrent<T, R>(
-  values: readonly T[],
-  concurrency: number,
-  transform: (value: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(values.length);
-  let nextIndex = 0;
-  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
-    while (nextIndex < values.length) {
-      const index = nextIndex++;
-      results[index] = await transform(values[index]!);
-    }
-  });
-  await Promise.all(workers);
-  return results;
 }
 
 function validPublication(value: unknown): value is PublicationState {

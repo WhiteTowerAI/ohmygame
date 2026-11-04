@@ -1,5 +1,6 @@
-import { readFile, access } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { packageManagerFromFiles } from "./package-manager.js";
 
 /** Unknown package scripts receive PORT/HOST rather than Vite-specific flags. */
 export function previewScriptArguments(
@@ -35,7 +36,7 @@ export async function previewDependencyDirectory(
 ): Promise<string> {
   let directory = startupDirectory;
   while (true) {
-    if (await hasLockfile(directory)) return directory;
+    if (await packageManagerFromFiles(directory)) return directory;
     try {
       const manifest = JSON.parse(
         await readFile(path.join(directory, "package.json"), "utf8"),
@@ -51,21 +52,4 @@ export async function previewDependencyDirectory(
     directory = parent;
   }
   return startupDirectory;
-}
-
-async function hasLockfile(directory: string): Promise<boolean> {
-  for (const file of [
-    "package-lock.json",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-    "yarn.lock",
-    "bun.lock",
-    "bun.lockb",
-  ]) {
-    try {
-      await access(path.join(directory, file));
-      return true;
-    } catch {}
-  }
-  return false;
 }

@@ -187,8 +187,8 @@
 }
 
 /* The rail's back and forward lead the top bar, over the rail: after the
-   macOS window controls, or at the window's edge where the system draws the
-   title bar. On Windows they sit in the window's own title bar instead. */
+   macOS window controls, or at the window's edge where the app draws its
+   own. */
 .project-frame:has(.sidebar-titlebar) {
   position: relative;
   --titlebar-start: 6px;

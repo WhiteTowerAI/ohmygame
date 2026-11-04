@@ -214,11 +214,14 @@ export class GameRecorder {
       // The game keeps playing through the speakers while it is captured.
       callback({ video: frame, audio: frame, enableLocalEcho: true });
     });
-    ipcMain.on("ohmygame:game-recorder-chunk", (event: IpcMainEvent, bytes: unknown) => {
+    ipcMain.handle("ohmygame:game-recorder-chunk", async (event, bytes: unknown) => {
       const recording = this.#hosts.get(event.sender.id);
       if (!recording || !(bytes instanceof Uint8Array) || recording.sink.writableEnded) return;
       recording.bytes += bytes.length;
-      recording.sink.write(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length));
+      // The encoder's WritableStream waits for this reply before sending the next chunk.
+      await new Promise<void>((resolve, reject) => {
+        recording.sink.write(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length), (error) => error ? reject(error) : resolve());
+      });
       if (recording.bytes >= GAME_RECORDING_MAX_BYTES) this.stop(recording.id);
     });
     ipcMain.on("ohmygame:game-recorder-finished", (event: IpcMainEvent, duration: unknown) => {

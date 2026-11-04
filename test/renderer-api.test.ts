@@ -284,7 +284,7 @@ describe("renderer project API", () => {
 
   it("turns a plugin on in a project only when it needs turning on, keeping the version in use", async () => {
     installWindow();
-    const view = (plugins: unknown[]) => Response.json({ global: [], plugins });
+    const view = (plugins: unknown[]) => Response.json({ plugins });
     const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
       if (_init?.method === "PUT") return new Response(null, { status: 204 });
       return view([
@@ -305,8 +305,8 @@ describe("renderer project API", () => {
     expect(await turnOnProjectPlugin("p", "acme/off")).toBeUndefined();
     expect(await turnOnProjectPlugin("p", "acme/waiting")).toBeUndefined();
     expect(puts()).toEqual([
-      ["/api/projects/p/plugins/acme/off", JSON.stringify({ version: "2.0.0" })],
-      ["/api/projects/p/plugins/acme/waiting", JSON.stringify({ version: "1.0.0" })],
+      ["/api/projects/p/plugins/acme/off", JSON.stringify({ on: true })],
+      ["/api/projects/p/plugins/acme/waiting", JSON.stringify({ on: true, version: "1.0.0" })],
     ]);
   });
 

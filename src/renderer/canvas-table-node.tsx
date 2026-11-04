@@ -1,6 +1,7 @@
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import type { CanvasWorkspaceDetail } from "../shared/canvas-workspace.js";
 import { CanvasNotice } from "./canvas-notice.js";
-import { useEffect, useRef, useState, type ClipboardEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
 import {
   canvasCell,
   importCanvasCsv,
@@ -11,7 +12,6 @@ import {
   serializeDelimitedTable,
   type CanvasCell,
   type CanvasTable,
-  type CanvasTableColumn,
   type CanvasColumnType,
 } from "../shared/canvas-table.js";
 import type {
@@ -228,6 +228,79 @@ export function ExpandedCanvasTable({
   );
 }
 
+function TableRows({
+  table,
+  children,
+}: {
+  table: CanvasTable;
+  children: (row: CanvasTable["rows"][number], index: number) => ReactNode;
+}) {
+  const body = useRef<HTMLTableSectionElement>(null);
+  const [focused, setFocused] = useState<string>();
+  const large = table.rows.length > 64;
+  const virtual = useVirtualizer({
+    count: table.rows.length,
+    enabled: large,
+    getScrollElement: () =>
+      body.current?.closest<HTMLElement>(".canvas-table-scroll") ?? null,
+    estimateSize: () => 34,
+    getItemKey: (index) => table.rows[index]!.id,
+    initialRect: { width: 800, height: 600 },
+    overscan: 6,
+    rangeExtractor: (range) => {
+      const indices = defaultRangeExtractor(range);
+      const index = focused
+        ? table.rows.findIndex((row) => row.id === focused)
+        : -1;
+      if (index >= 0 && !indices.includes(index)) indices.push(index);
+      return indices.sort((a, b) => a - b);
+    },
+  });
+  const spacer = (height: number) =>
+    height > 0 ? (
+      <tr aria-hidden="true">
+        <td
+          colSpan={1 + table.columns.length}
+          style={{ height, padding: 0, border: 0 }}
+        />
+      </tr>
+    ) : null;
+  let end = 0;
+  return (
+    <tbody
+      ref={body}
+      onFocusCapture={(event) =>
+        setFocused((event.target as HTMLElement).closest("tr")?.dataset.rowId)
+      }
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          setFocused(undefined);
+      }}
+    >
+      {large
+        ? virtual.getVirtualItems().map((item) => {
+            const gap = item.start - end;
+            end = item.end;
+            return (
+              <Fragment key={item.key}>
+                {spacer(gap)}
+                <tr
+                  data-index={item.index}
+                  data-row-id={item.key}
+                  aria-rowindex={item.index + 2}
+                  ref={virtual.measureElement}
+                >
+                  {children(table.rows[item.index]!, item.index)}
+                </tr>
+              </Fragment>
+            );
+          })
+        : table.rows.map((row, i) => <tr key={row.id}>{children(row, i)}</tr>)}
+      {large && spacer(virtual.getTotalSize() - end)}
+    </tbody>
+  );
+}
+
 export function CanvasTablePreview({ table }: { table: CanvasTable }) {
   return (
     <div
@@ -235,7 +308,7 @@ export function CanvasTablePreview({ table }: { table: CanvasTable }) {
       role="region"
       aria-label={t("tableNode.previewLabel")}
     >
-      <table
+      <table aria-rowcount={table.rows.length + 1}
         style={{
           width:
             38 +
@@ -261,9 +334,9 @@ export function CanvasTablePreview({ table }: { table: CanvasTable }) {
             ))}
           </tr>
         </thead>
-        <tbody>
-          {table.rows.map((row, r) => (
-            <tr key={row.id}>
+        <TableRows table={table}>
+          {(row, r) => (
+            <>
               <th className="canvas-table-row-number" scope="row">
                 {r + 1}
               </th>
@@ -272,9 +345,9 @@ export function CanvasTablePreview({ table }: { table: CanvasTable }) {
                   {String(canvasCell(row, column.id) ?? "")}
                 </td>
               ))}
-            </tr>
-          ))}
-        </tbody>
+            </>
+          )}
+        </TableRows>
       </table>
       {!table.rows.length ? (
         <p className="canvas-table-empty">
@@ -431,19 +504,17 @@ function CanvasTableEditor({
 }) {
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
-  const [resizedColumn, setResizedColumn] = useState<{
-    id: string;
-    width: number;
-  }>();
   const upload = useRef<HTMLInputElement>(null);
-  const drag = useRef<
-    { id: string; x: number; width: number; current: number } | undefined
-  >(undefined);
+  const drag = useRef<{ id: string; x: number; width: number; current: number; col: HTMLTableColElement; grid: HTMLTableElement; total: number }>(null);
   const session = tables.storage.sessions.get(table.id);
-  const columnWidth = (column: CanvasTableColumn) =>
-    resizedColumn?.id === column.id
-      ? resizedColumn.width
-      : (column.width ?? 180);
+  const totalWidth = 38 + table.columns.reduce((sum, column) => sum + (column.width ?? 180), 0);
+  const clearDrag = () => {
+    const state = drag.current;
+    if (!state) return;
+    state.col.style.width = `${table.columns.find((column) => column.id === state.id)?.width ?? 180}px`;
+    state.grid.style.width = `${totalWidth}px`;
+    drag.current = null;
+  };
   const update = (next: CanvasTable) => tables.storage.update(next);
   const run = (action: () => void) => {
     try {
@@ -643,20 +714,15 @@ function CanvasTableEditor({
         </p>
       ) : null}
       <div className="canvas-table-scroll">
-        <table
+        <table aria-rowcount={table.rows.length + 1}
           style={{
-            width:
-              38 +
-              table.columns.reduce(
-                (sum, column) => sum + columnWidth(column),
-                0,
-              ),
+            width: totalWidth,
           }}
         >
           <colgroup>
             <col style={{ width: 38 }} />
             {table.columns.map((column) => (
-              <col key={column.id} style={{ width: columnWidth(column) }} />
+              <col key={column.id} style={{ width: column.width ?? 180 }} />
             ))}
           </colgroup>
           <thead>
@@ -729,7 +795,9 @@ function CanvasTableEditor({
                       event.stopPropagation();
                       event.currentTarget.setPointerCapture(event.pointerId);
                       const width = column.width ?? 180;
+                      const grid = event.currentTarget.closest("table")!;
                       drag.current = {
+                        grid, col: grid.querySelectorAll("col")[c + 1]!, total: totalWidth,
                         id: column.id,
                         x: event.clientX,
                         width,
@@ -748,13 +816,13 @@ function CanvasTableEditor({
                         ),
                       );
                       drag.current.current = current;
-                      setResizedColumn({ id: column.id, width: current });
+                      drag.current.col.style.width = `${current}px`;
+                      drag.current.grid.style.width = `${drag.current.total + current - drag.current.width}px`;
                     }}
                     onPointerUp={() => {
                       const current = drag.current;
                       if (!current) return;
-                      drag.current = undefined;
-                      setResizedColumn(undefined);
+                      clearDrag();
                       const latest =
                         tables.storage.sessions.get(table.id)?.local ?? table;
                       update({
@@ -766,18 +834,16 @@ function CanvasTableEditor({
                         ),
                       });
                     }}
-                    onPointerCancel={() => {
-                      drag.current = undefined;
-                      setResizedColumn(undefined);
-                    }}
+                    onPointerCancel={clearDrag}
+                    onLostPointerCapture={clearDrag}
                   />
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>
-            {table.rows.map((row, r) => (
-              <tr key={row.id}>
+          <TableRows table={table}>
+            {(row, r) => (
+              <>
                 <th>
                   <span>{r + 1}</span>
                   <button
@@ -827,9 +893,9 @@ function CanvasTableEditor({
                     />
                   </td>
                 ))}
-              </tr>
-            ))}
-          </tbody>
+              </>
+            )}
+          </TableRows>
         </table>
       </div>
       <p className="canvas-table-hint">

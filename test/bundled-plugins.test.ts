@@ -46,7 +46,9 @@ describe("bundled plugins", () => {
         ["unity", "unity-game"],
         ["wechat-minigame", "wechat-minigame"],
       ] as const) {
-        expect(services.grants.plugin(`ohmygame/${name}`)?.enabled, name).toBe(false);
+        // Off in every project until the person turns it on there, but not stopped.
+        expect(services.grants.plugin(`ohmygame/${name}`), name).toBeUndefined();
+        expect(services.onInEveryProject(`ohmygame/${name}`), name).toBe(false);
         expect(skillNames(services, `ohmygame/${name}`)).toEqual([skill]);
         expect(names(services, `ohmygame/${name}`)).toEqual(name === "aseprite" || name === "tiled"
           ? ["general", "web-game", "godot-game", "asset-canvas"]

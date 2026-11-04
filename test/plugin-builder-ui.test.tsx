@@ -15,7 +15,7 @@ const state: PluginSetupState = {
   createdAt: 0, updatedAt: 0, busy: false, turns: [],
 };
 const stored = {
-  id: storeId, version: "0.1.0", displayName: "Review", description: "Review game design", bundled: false, appWide: true,
+  id: storeId, version: "0.1.0", displayName: "Review", description: "Review game design", bundled: false, everyProject: true,
   capabilities: [], examples: [], settings: [], skills: [], adds: { projectTypes: [], panels: [], commands: [], mcpServers: [], tools: 0, skills: 0 },
 };
 const draftPlugin = { id: storeId, version: "0.1.0", displayName: "Review", description: "Review game design", appWide: true, asks: [], skills: [], mcpServers: [], settings: false };
@@ -26,7 +26,7 @@ let installed: boolean;
 let installationFailed: boolean;
 let requests: string[];
 let hasConversation: boolean;
-let enabled: boolean;
+let everyProject: boolean;
 let draftIcon: PluginIcon | undefined;
 let iconChanged: boolean;
 let savedIcon: unknown;
@@ -39,7 +39,7 @@ beforeEach(() => {
   installed = true;
   installationFailed = false;
   requests = [];
-  hasConversation = false; enabled = true;
+  hasConversation = false; everyProject = true;
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
   hasSettings = false; updated = false;
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
@@ -67,10 +67,10 @@ beforeEach(() => {
       hasConversation = false;
       return Response.json({ ...currentState, turns: [] });
     }
-    if (route === "/plugin-store/plugins") return Response.json(installed ? [{ ...stored, revision: updated ? "new" : "old", ...(hasSettings ? { settings: [{ name: "token", type: "text", title: "Token", required: false }] } : {}), grants: { enabled, allowed: [] } }] : []);
+    if (route === "/plugin-store/plugins") return Response.json(installed ? [{ ...stored, revision: updated ? "new" : "old", ...(hasSettings ? { settings: [{ name: "token", type: "text", title: "Token", required: false }] } : {}), everyProject, grants: { enabled: true, allowed: [] } }] : []);
     if (route === `/plugin-store/${storeId}/configuration`) return Response.json({ token: { type: "text", value: null } });
-    if (route === `/plugin-store/${storeId}/enabled` && method === "PUT") {
-      enabled = JSON.parse(init.body as string).enabled;
+    if (route === `/plugin-store/${storeId}/every-project` && method === "PUT") {
+      everyProject = JSON.parse(init.body as string).on;
       return new Response(null, { status: 204 });
     }
     if (route === `/plugin-store/${storeId}/0.1.0` && method === "DELETE") {
@@ -132,8 +132,9 @@ describe("Plugin Builder removal controls", () => {
 
   it("toggles the installed plugin from Builder without uninstalling it", async () => {
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
-    await act(async () => button("Disable Review").click());
-    expect(button("Enable Review").getAttribute("aria-checked")).toBe("false");
+    await act(async () => button("Turn Review on in every project").click());
+    expect(requests).toContain(`PUT /plugin-store/${storeId}/every-project`);
+    expect(button("Turn Review on in every project").getAttribute("aria-checked")).toBe("false");
     expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([]);
     expect(installed).toBe(true);
   });

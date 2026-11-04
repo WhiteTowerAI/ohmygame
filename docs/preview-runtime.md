@@ -46,12 +46,15 @@ the same placeholders. Leaving arguments empty selects framework defaults;
 own supported flags; unknown scripts receive the environment variables only.
 
 Package-manager selection uses the explicit setting, `package.json.packageManager`,
-lockfile, then npm. Settings display the detected manager and its source, and
+lockfile, then npm. A pnpm workspace manifest also selects pnpm when there is
+no lockfile. Settings display the detected manager and its source, and
 check availability without running project code or installing dependencies.
 Missing Bun/pnpm/Yarn remains an actionable configuration error rather than
 silently changing managers. The packaged app includes Node/npm; other managers
-must be available to the application. Before installation changes `node_modules`,
-the selected executable is checked against the environment passed to the child.
+must be available to the application. On macOS the packaged app also searches
+the login shell's `PATH` after the bundled runtime and inherited `PATH`. Before
+installation changes `node_modules`, the selected executable is checked against
+the environment passed to the child.
 
 Dependencies install at the owning workspace/lockfile root. Dependency manifests,
 workspace definitions and lockfiles form a fingerprint; dependency or manager
@@ -64,7 +67,8 @@ servers; configure a separate browser script or command for their Web output.
 Failed or cancelled installs leave a pending marker for a clean retry.
 **Reinstall dependencies and restart** forces that retry. Installation has a
 two-minute limit; the server has
-30 seconds to respond after launch. The log panel shows phases, elapsed startup
+30 seconds to respond after launch. A timeout reports the URL OhMyGame probed
+alongside recent server output so you can compare the listening address. The log panel shows phases, elapsed startup
 time, directory, command, manager and the last 8 KiB of process output.
 
 ## Automatic policy and idle collection
@@ -85,6 +89,9 @@ missing dev script; Start and Play always report it. Generated dependencies, hid
 runtime log/PID/temp files do not trigger retries.
 
 **Stop preview** cancels installation/startup or stops the running service.
+On Windows the daemon asks the process tree to exit. If Windows refuses the
+entire request, the daemon immediately retries with forced termination. A tree
+that accepts any part of the request still gets time to shut down.
 That manual pause survives reopening the project during the current application
 session; file changes and agent completion respect it. **Start preview** or Play
 resumes it. Service recovery also pauses automatic startup until the user resumes.

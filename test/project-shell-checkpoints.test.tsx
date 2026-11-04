@@ -258,6 +258,69 @@ async function click(name: string) {
 }
 
 describe("project shell layout", () => {
+  it("does not reformat historical responses while the current response streams, and keeps branching available", async () => {
+    vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
+    const timestamp = Date.UTC(2026, 7, 23, 8, 5);
+    const formattedResponse = vi.fn();
+    const format = Object.getOwnPropertyDescriptor(
+      Intl.DateTimeFormat.prototype,
+      "format",
+    )!.get!;
+    const prototype = Intl.DateTimeFormat.prototype as unknown as {
+      readonly format: unknown;
+    };
+    vi.spyOn(prototype, "format", "get").mockImplementation(
+      function (this: Intl.DateTimeFormat) {
+        const bound = format.call(this) as (value?: number | Date) => string;
+        return (value?: number | Date) => {
+          if (value === timestamp) formattedResponse();
+          return bound(value);
+        };
+      },
+    );
+    const conversation = detail("history");
+    const response = conversation.turns[0].items[1];
+    if (response.type !== "agentMessage")
+      throw new Error("Expected an assistant response");
+    response.timestamp = timestamp;
+    response.branchEntryId = "history-entry";
+    const onOpenConversation = vi.fn();
+    const daemon = await openProject(
+      (route) => route.endsWith("/branch")
+        ? Response.json({ ...conversation.conversation, id: "branched" })
+        : undefined,
+      conversation,
+      { onOpenConversation },
+    );
+    expect(formattedResponse).toHaveBeenCalled();
+    await act(async () =>
+      daemon.send(1, "agent.started", { prompt: "Continue" }, "conversation", "live"),
+    );
+    await settle();
+    await act(async () => daemon.send(2, "item.started", {
+      item: {
+        id: "live-answer", turnId: "live", type: "agentMessage",
+        text: "Working", status: "inProgress",
+      },
+    }, "conversation", "live"));
+    await settle();
+    formattedResponse.mockClear();
+    for (let id = 3; id < 6; id++) {
+      await act(async () => daemon.send(id, "item.agentMessage.delta", {
+        itemId: "live-answer", delta: " next",
+      }, "conversation", "live"));
+      await settle();
+    }
+    expect(container.textContent).toContain("Working next next next");
+    expect(formattedResponse).not.toHaveBeenCalled();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await click("Branch in new chat");
+    expect(onOpenConversation).toHaveBeenCalledWith("branched");
+    expect(
+      daemon.requests.find((request) => request.route.endsWith("/branch"))?.body,
+    ).toContain("history-entry");
+  });
+
   it("opens the design route on the canvas panel and keeps a closed chat closed across project updates", async () => {
     vi.doMock(CODING_WORKSPACE, () => ({ CodingWorkspace: () => null }));
     const daemon = await openProject(() => undefined, detail("live-turn"), {

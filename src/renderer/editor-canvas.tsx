@@ -31,6 +31,7 @@ import "@xyflow/react/dist/style.css";
 import { t } from "./i18n.js";
 
 type CanvasPosition = { x: number; y: number };
+type AlignmentFrame = NonNullable<CanvasAlignmentNode["alignmentFrame"]>;
 type InteractionMode = "pointer" | "pan";
 
 export interface CanvasContextMenuState {
@@ -57,6 +58,7 @@ type EditorCanvasProps<N extends Node> = Omit<ReactFlowProps<N, Edge>, "onPaneCo
   nodes: N[];
   /** The Add control at the start of the tool bar. */
   addControl: ReactNode;
+  selectionAction?: ReactNode;
   onOpenMenu: (menu: CanvasContextMenuState) => void;
   /** Open the menu as "add" on a double-click on empty canvas in pointer mode. */
   addOnDoubleClick?: boolean;
@@ -75,6 +77,7 @@ export function EditorCanvas<N extends Node>({
   edges,
   deleteKeyCode = "Backspace",
   addControl,
+  selectionAction,
   onOpenMenu,
   addOnDoubleClick = false,
   onInit,
@@ -96,6 +99,7 @@ export function EditorCanvas<N extends Node>({
   const [viewportReady, setViewportReady] = useState(false);
   const needsInitialFit = fitViewOnLoad && nodes.some((node) => !node.hidden);
   const wrapper = useRef<HTMLDivElement>(null);
+  const dragFrames = useRef<Map<string, AlignmentFrame>>(null);
 
   function openMenu(event: { preventDefault: () => void; clientX: number; clientY: number }, kind: CanvasContextMenuState["kind"], nodeId?: string): void {
     event.preventDefault();
@@ -141,12 +145,29 @@ export function EditorCanvas<N extends Node>({
         if (!needsInitialFit) setViewportReady(true);
         onInit?.(value);
       }}
-      onNodeDragStart={(event, node, dragged) => { setGuides(undefined); onNodeDragStart?.(event, node, dragged); }}
-      onNodeDrag={(_event, node) => {
-        const [active, ...candidates] = alignmentNodesFromDom([node, ...nodes.filter((candidate) => !candidate.dragging)]);
-        setGuides(active ? findCanvasAlignmentGuides(active, candidates) : undefined);
+      onNodeDragStart={(event, node, dragged) => {
+        dragFrames.current = measureAlignmentFrames(wrapper.current);
+        setGuides(undefined);
+        onNodeDragStart?.(event, node, dragged);
       }}
-      onNodeDragStop={(event, node, dragged) => { setGuides(undefined); onNodeDragStop?.(event, node, dragged); }}
+      onNodeDrag={(_event, node) => {
+        const frames = dragFrames.current ?? measureAlignmentFrames(wrapper.current);
+        const activeFrame = frames.get(node.id);
+        if (!activeFrame) return;
+        const positioned = (candidate: N, frame: AlignmentFrame) => ({
+          id: candidate.id, alignmentFrame: { ...frame, x: candidate.position.x + frame.x, y: candidate.position.y + frame.y },
+        });
+        const candidates = nodes.flatMap((candidate) => {
+          const frame = frames.get(candidate.id);
+          return frame && !candidate.dragging ? [positioned(candidate, frame)] : [];
+        });
+        setGuides(findCanvasAlignmentGuides(positioned(node, activeFrame), candidates));
+      }}
+      onNodeDragStop={(event, node, dragged) => {
+        dragFrames.current = null;
+        setGuides(undefined);
+        onNodeDragStop?.(event, node, dragged);
+      }}
       onPaneContextMenu={(event) => openMenu(event, "pane")}
       onDoubleClick={(event) => {
         if (addOnDoubleClick && mode === "pointer" && (event.target as Element).classList.contains("react-flow__pane")) openMenu(event, "add");
@@ -160,10 +181,11 @@ export function EditorCanvas<N extends Node>({
       {needsInitialFit ? <InitialCanvasView onReady={onInitialFit} onVisible={setViewportReady} /> : null}
       <Panel className="story-canvas-toolbar" position="bottom-center">
         {addControl}
-        <button className={mode === "pointer" ? "is-active" : undefined} type="button" title={t("editorCanvas.selectHint")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
+        {selectionAction}
+        <button className={mode === "pointer" ? "is-active" : undefined} type="button" data-tooltip={t("editorCanvas.selectHint")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
           <MousePointer2 size={18} />
         </button>
-        <button className={mode === "pan" ? "is-active" : undefined} type="button" title={t("editorCanvas.pan")} aria-label={t("editorCanvas.pan")} aria-pressed={mode === "pan"} onClick={() => setMode("pan")}>
+        <button className={mode === "pan" ? "is-active" : undefined} type="button" data-tooltip={t("editorCanvas.pan")} aria-label={t("editorCanvas.pan")} aria-pressed={mode === "pan"} onClick={() => setMode("pan")}>
           <Hand size={18} />
         </button>
         <FitViewButton />
@@ -383,7 +405,7 @@ function FitViewButton() {
     }
     await fitView({ padding: 0.2, duration: 200 });
   }
-  return <button type="button" title={t("editorCanvas.fit")} aria-label={t("editorCanvas.fit")} onClick={() => void fitCanvas()}><Maximize size={18} /></button>;
+  return <button type="button" data-tooltip={t("editorCanvas.fit")} aria-label={t("editorCanvas.fit")} onClick={() => void fitCanvas()}><Maximize size={18} /></button>;
 }
 
 function AlignmentGuides({ guides }: { guides?: CanvasAlignmentGuides }) {
@@ -406,30 +428,23 @@ function AlignmentGuides({ guides }: { guides?: CanvasAlignmentGuides }) {
   </ViewportPortal>;
 }
 
-function alignmentNodesFromDom<T extends { id: string; position: CanvasPosition }>(nodes: readonly T[]): CanvasAlignmentNode[] {
-  const zoom = canvasViewportZoom();
-  const roots = new Map([...document.querySelectorAll<HTMLElement>(".react-flow__node[data-id]")]
-    .map((element) => [element.dataset.id!, element] as const));
-  return nodes.map((node) => {
-    const root = roots.get(node.id);
-    const frame = root?.querySelector<HTMLElement>("[data-alignment-frame]");
-    if (!root || !frame) return node;
-    const rootRect = root.getBoundingClientRect();
-    const frameRect = frame.getBoundingClientRect();
-    return {
-      ...node,
-      alignmentFrame: {
-        x: node.position.x + (frameRect.left - rootRect.left) / zoom,
-        y: node.position.y + (frameRect.top - rootRect.top) / zoom,
-        width: frameRect.width / zoom,
-        height: frameRect.height / zoom,
-      },
-    };
-  });
+function measureAlignmentFrames(canvas: HTMLElement | null) {
+  const zoom = canvasViewportZoom(canvas);
+  const frames = new Map<string, AlignmentFrame>();
+  for (const root of canvas?.querySelectorAll<HTMLElement>(".react-flow__node[data-id]") ?? []) {
+    const frame = root.querySelector<HTMLElement>("[data-alignment-frame]");
+    if (!frame) continue;
+    const outer = root.getBoundingClientRect(), inner = frame.getBoundingClientRect();
+    frames.set(root.dataset.id!, {
+      x: (inner.left - outer.left) / zoom, y: (inner.top - outer.top) / zoom,
+      width: inner.width / zoom, height: inner.height / zoom,
+    });
+  }
+  return frames;
 }
 
-function canvasViewportZoom(): number {
-  const viewport = document.querySelector<HTMLElement>(".react-flow__viewport");
+function canvasViewportZoom(canvas: HTMLElement | null): number {
+  const viewport = canvas?.querySelector<HTMLElement>(".react-flow__viewport");
   const transform = viewport ? getComputedStyle(viewport).transform : "none";
   if (transform === "none") return 1;
   try {
@@ -444,10 +459,10 @@ function ZoomControls() {
   const { zoomIn, zoomOut, zoomTo } = useReactFlow();
   const { zoom } = useViewport();
   return (
-    <Panel className="story-canvas-zoom" position="bottom-left">
+    <div className="react-flow__panel bottom left story-canvas-zoom">
       <button type="button" title={t("editorCanvas.zoomOut")} aria-label={t("editorCanvas.zoomOut")} onClick={() => void zoomOut()}><Minus size={14} /></button>
       <button className="story-canvas-zoom-value" type="button" title={t("editorCanvas.resetZoom")} onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
       <button type="button" title={t("editorCanvas.zoomIn")} aria-label={t("editorCanvas.zoomIn")} onClick={() => void zoomIn()}><Plus size={14} /></button>
-    </Panel>
+    </div>
   );
 }

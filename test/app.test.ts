@@ -43,6 +43,7 @@ describe("daemon", () => {
     const base = await app.listen({ host: "127.0.0.1", port: 0 });
     const stream = await fetch(`${base}/projects/activity/events`, { signal: streaming.signal });
     const streamed: unknown[] = [];
+    let names: { id: string; name: string }[] = [];
     void (async () => {
       const decoder = new TextDecoder();
       let buffer = "";
@@ -53,12 +54,16 @@ describe("daemon", () => {
         for (const block of blocks) {
           if (!block.startsWith("event: activity")) continue;
           // A snapshot also carries project names, so a new project can repeat the activity.
-          const { activity: current } = JSON.parse(block.split("data: ")[1]!);
+          const { activity: current, names: latestNames } = JSON.parse(block.split("data: ")[1]!);
+          names = latestNames;
           if (JSON.stringify(streamed.at(-1)) !== JSON.stringify(current)) streamed.push(current);
         }
       }
     })().catch(() => {});
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    await vi.waitFor(() => expect(names.map((entry) => entry.id)).toEqual([project.id]));
+    await app.inject({ method: "PATCH", url: `/projects/${project.id}`, payload: { name: "Renamed" } });
+    await vi.waitFor(() => expect(names[0]?.name).toBe("Renamed"));
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
     try {
       const response = await app.inject({
@@ -82,7 +87,7 @@ describe("daemon", () => {
       expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([expect.objectContaining({ id: project.id })]);
       await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns/${response.json().turnId}/cancel` });
       expect(await activity()).toEqual([{ projectId: project.id, status: "cancelling" }]);
-      // A cancel starting publishes no event; the stream's in-memory check reports it.
+      // Cancellation is visible even before the pending prompt settles.
       await vi.waitFor(() => expect(streamed.at(-1)).toEqual([{ projectId: project.id, status: "cancelling" }]), { timeout: 3_000 });
     } finally {
       finish();
@@ -2241,6 +2246,35 @@ describe("web build export", () => {
     // Entry names are stored as plain text in the archive.
     expect(built.rawPayload.includes("assets/game.js")).toBe(true);
     expect(built.rawPayload.includes("build.mjs")).toBe(false);
+  }, 20_000);
+
+  it("builds a nested game with its workspace manager and root dependencies", async () => {
+    const app = await createBuildApp();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Workspace", type: "web-game" } })).json();
+    const game = path.join(project.workspacePath, "game");
+    const helper = path.join(project.workspacePath, "helper");
+    await mkdir(game);
+    await mkdir(helper);
+    await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({
+      private: true, packageManager: "bun@1.4.2", workspaces: ["game", "helper"],
+      dependencies: { "build-helper": "workspace:*" },
+    }));
+    await writeFile(path.join(helper, "package.json"), JSON.stringify({ name: "build-helper", version: "1.0.0", main: "index.cjs" }));
+    await writeFile(path.join(helper, "index.cjs"), 'module.exports = "built"');
+    await writeFile(path.join(game, "package.json"), JSON.stringify({ name: "game", scripts: { build: "node build.cjs" } }));
+    await writeFile(path.join(game, "build.cjs"), `
+      const fs = require("node:fs");
+      fs.mkdirSync("dist");
+      fs.writeFileSync("dist/index.html", require("build-helper") + " " + process.env.npm_config_user_agent);
+    `);
+    const settings = await app.inject({ method: "PUT", url: `/projects/${project.id}/settings/run`, payload: {
+      startupDirectory: "game", startupScript: "dev", previewPath: "/", previewViewport: "fit",
+    } });
+    expect(settings.statusCode, settings.body).toBe(200);
+
+    const built = await app.inject({ method: "POST", url: `/projects/${project.id}/build` });
+    expect(built.statusCode, built.body).toBe(200);
+    expect(await readFile(path.join(game, "dist/index.html"), "utf8")).toMatch(/^built bun\//);
   }, 20_000);
 
   it("builds only games that publish", async () => {

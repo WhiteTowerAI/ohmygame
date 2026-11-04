@@ -3,14 +3,14 @@ import type { PluginDraft, PluginDraftPlugin, PluginSetupState, PluginSetupSumma
 import { preferredAgentModel } from "../shared/agent-models.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { abortPluginSetup, clearPluginSetupConversation, deletePluginSetup, installPluginDraft, listPluginSetups, listStorePlugins, promptPluginSetup, readPluginDraft,
-  readPluginDraftFile, readPluginSetup, setStorePluginEnabled, testPluginDraft, uninstallStorePlugin, updatePluginDraftIcon, waitForRuntime } from "./api.js";
+  readPluginDraftFile, readPluginSetup, testPluginDraft, uninstallStorePlugin, updatePluginDraftIcon, waitForRuntime } from "./api.js";
 import { PluginIcon } from "./plugin-icons.js";
 import { PluginIconPicker } from "./plugin-icon-picker.js";
-import { groupStorePlugins, StorePluginSettings, storePluginEnabled } from "./plugin-store.js";
+import { groupStorePlugins, StorePluginSettings, storePluginEnabled, useEveryProjectSwitch } from "./plugin-store.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import { useAgentModels } from "./model-selector.js";
 import { PromptBox, type PromptInput } from "./prompt-box.js";
-import { PluginUninstallButton, PluginEnabledSwitch } from "./plugin-controls.js";
+import { PluginUninstallButton, PluginEveryProjectSwitch } from "./plugin-controls.js";
 import { WorkspaceFileBrowser } from "./coding-workspace.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { MarkdownContent } from "./markdown-content.js";
@@ -180,6 +180,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
   async function refresh() {
     setSnapshot(await loadBuilderSnapshot(sessionId));
   }
+  const everyProject = useEveryProjectSwitch(refresh);
   async function send() {
     if (!state || !model || !input.prompt.trim() || disabled) return;
     const sent = input.prompt;
@@ -251,7 +252,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
           {state?.status === "interrupted" ? <p className="plugin-builder-notice" role="status">{t("pluginBuilder.interrupted")}</p> : null}
         </div>
         <div className="composer">
-          {error || state?.error ? <p className="plugin-builder-error" role="alert">{error ?? state?.error}{!state ? <button type="button" onClick={() => setRetry(value => value + 1)}>{t("common.retry")}</button> : null}</p> : null}
+          {error || everyProject.error || state?.error ? <p className="plugin-builder-error" role="alert">{error ?? everyProject.error ?? state?.error}{!state ? <button type="button" onClick={() => setRetry(value => value + 1)}>{t("common.retry")}</button> : null}</p> : null}
           <PromptBox value={input.prompt} onChange={prompt => setInput(current => ({ ...current, prompt }))} onSubmit={() => void send()}
             inputRef={promptInput} variant="project" disabled={!state} placeholder={t(state?.mode === "edit" ? "pluginBuilder.editPlaceholder" : "pluginBuilder.placeholder")}
             actions={<ComposerActions models={catalog.models} status={catalog.status} value={model} reasoningLevel={reasoning} disabled={disabled}
@@ -273,10 +274,9 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
           <div className="viewer-publish">
             <button className="icon-button pane-header-action" aria-label={t("pluginBuilder.refresh")} title={t("pluginBuilder.refresh")} type="button" disabled={disabled} onClick={() => void action("refreshing", refresh)}><RefreshCw size={14} /></button>
             {state?.pluginId ? <button className="icon-button pane-header-action" type="button" title={t("pluginBuilder.open")} aria-label={t("pluginBuilder.open")} onClick={() => { window.location.hash = pluginHash(state.pluginId!); }}><ChevronRight size={14} /></button> : null}
-            {stored ? <PluginEnabledSwitch plugin={{ displayName: stored.plugin.displayName, enabled: storePluginEnabled(stored.plugin) }} disabled={disabled} onToggle={enabled => void action("configuring", async () => {
-              await setStorePluginEnabled(stored.plugin.id, enabled);
-              await refresh();
-            })} /> : null}
+            {stored && storePluginEnabled(stored.plugin) ? <PluginEveryProjectSwitch plugin={stored.plugin} disabled={disabled || Boolean(everyProject.busy)}
+              onToggle={on => everyProject.toggle(stored.plugin, on)} /> : null}
+            {everyProject.dialog}
             {stored ? <PluginUninstallButton plugin={stored.plugin} disabled={disabled} compact onUninstall={() => void action("uninstalling", async () => {
               for (const version of stored.versions) await uninstallStorePlugin(stored.plugin.id, version.version);
               await refresh();

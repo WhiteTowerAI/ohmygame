@@ -15,27 +15,34 @@ export function registerProjectProcess(child: ChildProcess): void {
   child.once("close", () => send("stopped"));
 }
 
+/** False only when Windows rejected the request without reporting a successful signal. */
 export async function signalProcessTree(
   pid: number,
   force: boolean,
-): Promise<void> {
+): Promise<boolean> {
   if (process.platform === "win32") {
-    await new Promise<void>((resolve, reject) => {
+    return new Promise<boolean>((resolve, reject) => {
       const killer = spawn(
         "taskkill",
         ["/pid", String(pid), "/t", ...(force ? ["/f"] : [])],
-        { stdio: "ignore", windowsHide: true },
+        { stdio: ["ignore", "pipe", "ignore"], windowsHide: true },
       );
+      // Rejected console processes produce code 128 and errors on stderr.
+      // /T can also report success on stdout for other descendants.
+      let reportedSuccess = false;
+      killer.stdout.on("data", () => {
+        reportedSuccess = true;
+      });
       killer.once("error", reject);
-      killer.once("close", () => resolve());
+      killer.once("close", (code) => resolve(code !== 128 || reportedSuccess));
     });
-    return;
   }
   try {
     process.kill(-pid, force ? "SIGKILL" : "SIGTERM");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
   }
+  return true;
 }
 
 export async function terminateProjectProcess(
@@ -50,21 +57,26 @@ export async function terminateProjectProcess(
   const closed = new Promise<void>((resolve) =>
     child.once("close", () => resolve()),
   );
-  await signalProcessTree(child.pid, false);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = await Promise.race([
-    closed.then(() => false),
-    new Promise<true>((resolve) => {
-      timer = setTimeout(() => resolve(true), 3_000);
-    }),
-  ]);
-  clearTimeout(timer);
+  const requested = await signalProcessTree(child.pid, false);
+  const closedGracefully = requested && (await waitForClose(closed, 3_000));
   // close only describes the leader and its streams, not every descendant.
   await signalProcessTree(child.pid, true);
-  if (timedOut) {
-    await Promise.race([
-      closed,
-      new Promise<void>((resolve) => setTimeout(resolve, 500)),
+  if (!closedGracefully) await waitForClose(closed, 500);
+}
+
+async function waitForClose(
+  closed: Promise<void>,
+  timeoutMs: number,
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      closed.then(() => true),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+      }),
     ]);
+  } finally {
+    clearTimeout(timer);
   }
 }

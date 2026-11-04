@@ -72,7 +72,7 @@ function webGameRunContract(project: AgentPromptProject): string {
   const location = directory ? `the ${directory}/ folder of the workspace` : "the workspace root";
   return [
     `The game is a Node project in ${location}, run with ${packageManager}. Keep a package.json there with a "${script}" script and a "build" script, and declare every dependency in it.`,
-    `Preview runs the "${script}" script with --host 127.0.0.1 --port <port> --strictPort appended, so it must start a dev server that accepts those flags, as Vite does. Publish runs "build" there and serves the static index.html it writes to dist/, build/, or out/; use relative asset URLs, such as Vite's base: "./", so the build works wherever it is hosted.`,
+    `Preview runs the "${script}" script with HOST and PORT set. A custom Node server must listen on process.env.HOST and Number(process.env.PORT), using local defaults only when those variables are unset. By default, only recognized frameworks such as Vite receive framework-specific command-line flags. Publish runs "build" there and serves the static index.html it writes to dist/, build/, or out/; use relative asset URLs, such as Vite's base: "./", so the build works wherever it is hosted.`,
     ...(project.workspaceLocation === "external"
       ? ["The user chose this existing folder as the workspace. Read what is there before changing it, keep its structure and tooling, and add only what the preview and build need."]
       : []),
