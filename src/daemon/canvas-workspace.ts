@@ -738,7 +738,8 @@ export class CanvasStore {
     const reads = nodeReads(board, nodeId);
     const described = await this.plugins.describe?.(project, node.data.node);
     const { inputs, signature } = await this.#pluginInputs(id, board, node, described?.inputs);
-    const upstream = await this.#upstream(id, board, node);
+    const declared = described ? { ...node, data: { ...node.data, inputs: Object.fromEntries(Object.entries(node.data.inputs).filter(([key]) => described.inputs.includes(key))) } } : node;
+    const upstream = await this.#upstream(id, board, declared);
     const request: CanvasPluginRequest = { node: node.data.node, params: node.data.params, inputs };
     const inputRevision = revision({ node: node.data.node, params: node.data.params, inputs: signature, package: described?.package });
     const output = node.data.assetId ? `asset:${node.data.assetId}` : node.data.text !== undefined ? `text:${revision(node.data.text)}` : undefined;
