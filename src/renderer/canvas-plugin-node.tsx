@@ -22,7 +22,8 @@ export function PluginNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNod
   const missing = definition?.inputs.some((input) => !input.optional && !runtime?.sources[input.id]?.length) ?? true;
   const ran = Boolean(data.assetId || data.text !== undefined);
   const label = ran ? t("assetCanvas.plugin.runAgain") : t("assetCanvas.plugin.run");
-  const set = (key: string, value: string | number | boolean) => runtime?.onChange({ ...values, [key]: value });
+  // Settings an update of the plugin took away are dropped, so the board stays within the settings it can save.
+  const set = (key: string, value: string | number | boolean) => runtime?.onChange({ ...Object.fromEntries(Object.entries(values).filter(([name]) => definition?.params.some((param) => param.key === name))), [key]: value });
   // While its plugin is off the node keeps its ports, so its connections stay drawn, and its last output.
   const inputs: Array<{ id: string; title: string; accepts?: ProjectCanvasNode["output"]; optional?: boolean }> = definition?.inputs ?? Object.keys(data.inputs ?? {}).map((id) => ({ id, title: id }));
   const output = definition?.output ?? runtime?.output;
