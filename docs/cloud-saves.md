@@ -114,9 +114,11 @@ The hosted entry (`packages/games/src/server.ts`) enables cloud data when
 `GAME_DATA_DATABASE_URL` is set, and then requires `OHMYGAME_CLOUD_API_URL` for the
 published-game check; `GAME_DATA_ADMIN_TOKEN` sets the operator token.
 
-Rate limits are counted in each process, by player. Behind a reverse proxy, or
-with several instances, the proxy must also limit requests per client address;
-the service sees only the proxy's address.
+Rate limits are counted in each process: data routes by player, and the service's
+own limits (requests, guest sessions, invitation attempts, WebSocket upgrades) by
+client address. See [client addresses](multiplayer.md#client-addresses) for running
+behind a reverse proxy. With several instances each counts on its own, so a
+shared limit must live in the proxy or a shared store.
 
 ## Tests
 

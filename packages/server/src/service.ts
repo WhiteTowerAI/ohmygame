@@ -16,6 +16,7 @@ import { resolveGameAdapter, type GameAdapter } from "./adapters.js";
 import { mountGameData, type GameDataOptions } from "./game-data-routes.js";
 import { HOST_MESSAGE_MAX_BYTES } from "@ohmygame/sdk/host";
 import { createLocalAccounts, mountGameDataViewer } from "./local-accounts.js";
+import { checkClientAddressOptions, clientAddress, trustForwardingHeaders, type ClientAddressOptions } from "./client-address.js";
 import { MemoryGameDataStore } from "./game-data.js";
 
 export interface MultiplayerServerOptions {
@@ -39,6 +40,11 @@ export interface MultiplayerServerOptions {
    * /dev/games/:gameId. See local-accounts.ts.
    */
   localAccounts?: boolean;
+  /**
+   * How to find a request's real client behind a reverse proxy, for per-address limits.
+   * Without it the service uses the connecting address and ignores forwarding headers.
+   */
+  clientAddress?: ClientAddressOptions;
 }
 
 /** Fixed windows are bounded and also used for WebSocket upgrades. */
@@ -83,6 +89,10 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
   }
   if (options.localAccounts && !options.allowLocalhost) throw new Error("Local test accounts are only for a local service.");
   const localAccounts = options.localAccounts ? createLocalAccounts() : undefined;
+  const addressing = options.clientAddress ?? {};
+  checkClientAddressOptions(addressing);
+  const clientOf = (request: { headers: import("node:http").IncomingHttpHeaders; socket: { remoteAddress?: string } }) =>
+    clientAddress(request.headers, request.socket.remoteAddress, addressing);
   const auth = new MultiplayerAuth({ ...options.auth, ...(localAccounts ? { localAccountKey: localAccounts.publicKey } : {}) });
   const store = new RoomStore(options.databasePath);
   store.prune(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -99,6 +109,8 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
         ? undefined
         : new Response("Too many connections", { status: 429 }),
   });
+  // Upgrades carry the client address the service trusts, which the limit above reads.
+  if (transport.server) trustForwardingHeaders(transport.server, addressing);
   let draining = false;
   let pruneGameData: (() => Promise<void>) | undefined;
   const server = new Server({
@@ -123,8 +135,8 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
           response.sendStatus(204);
           return;
         }
-        // Use the actual peer address. A reverse proxy must impose its own per-IP limit.
-        if (!rate.take(`http:${request.socket.remoteAddress}`, 240)) {
+        // The client's address by the configured trust, never by a header the client chose.
+        if (!rate.take(`http:${clientOf(request)}`, 240)) {
           response.status(429).json({ error: "Too many requests." });
           return;
         }
@@ -144,7 +156,7 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
         response.status(draining ? 503 : 200).json({ ok: !draining }),
       );
       app.post("/v1/guests", (request, response) => {
-        if (!rate.take(`guest:${request.socket.remoteAddress}`, 20)) {
+        if (!rate.take(`guest:${clientOf(request)}`, 20)) {
           response.status(429).json({ error: "Too many guest sessions." });
           return;
         }
@@ -212,7 +224,7 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
             {
               token: bearer(request.headers.authorization),
               headers: new Headers(),
-              ip: request.socket.remoteAddress,
+              ip: clientOf(request),
             },
           );
           response.status(201).json(reservation);
@@ -243,7 +255,7 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
         }
         try {
           await auth.authenticate(bearer(request.headers.authorization), config);
-          if (!rate.take(`resolve:${request.socket.remoteAddress}`, 30)) {
+          if (!rate.take(`resolve:${clientOf(request)}`, 30)) {
             response
               .status(429)
               .json({ error: "Too many invitation attempts." });

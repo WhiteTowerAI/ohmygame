@@ -397,6 +397,24 @@ goal, spread around the ring. Matchmaking and its room creation lock are
 per-process; running more than one service instance needs a shared Colyseus
 presence and driver.
 
+## Client addresses
+
+The service limits requests, guest sessions, invitation attempts and WebSocket
+upgrades per client address. By default that is the connecting address, and
+forwarding headers are ignored, so a client cannot name another address. Behind a
+reverse proxy every connection comes from the proxy, so set `clientAddress` (in the
+hosted entry, `MULTIPLAYER_CLIENT_IP_HEADER` or `MULTIPLAYER_TRUST_PROXY_HOPS`):
+
+- `clientIpHeader`: a header the ingress overwrites with the connecting address,
+  such as `x-real-ip` on Railway. Use it only when clients cannot reach the
+  service around that ingress.
+- `trustProxyHops`: how many trusted proxies append to `X-Forwarded-For`; the
+  client is the address the outermost one saw.
+
+Colyseus reads WebSocket clients' addresses from forwarding headers itself, so
+the service rewrites them on every upgrade to the address it trusts
+(`packages/server/src/client-address.ts`).
+
 ## Publishing
 
 Local debug publishing permits loopback deployments, checks the live local

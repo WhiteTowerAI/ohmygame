@@ -40,6 +40,11 @@ const service = createMultiplayerServer({
   port: Number(process.env.PORT ?? process.env.MULTIPLAYER_PORT ?? 43130),
   maxRooms: Number(process.env.MULTIPLAYER_MAX_ROOMS ?? 100),
   publicAddress: process.env.MULTIPLAYER_PUBLIC_ADDRESS,
+  // Behind the platform's ingress, per-address limits read the client from it.
+  clientAddress: {
+    clientIpHeader: process.env.MULTIPLAYER_CLIENT_IP_HEADER?.trim() || undefined,
+    trustProxyHops: process.env.MULTIPLAYER_TRUST_PROXY_HOPS ? Number(process.env.MULTIPLAYER_TRUST_PROXY_HOPS) : undefined,
+  },
   ...(gameData ? { gameData } : {}),
 });
 let stopping = false;
