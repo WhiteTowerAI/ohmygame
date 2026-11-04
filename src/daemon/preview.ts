@@ -1047,7 +1047,7 @@ async function waitUntilReady(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(
-    withOutput(`Preview did not become ready within ${timeoutMs}ms`, output()),
+    withOutput(`Preview did not become ready at ${url} within ${timeoutMs}ms`, output()),
   );
 }
 
