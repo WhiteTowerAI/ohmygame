@@ -1,4 +1,5 @@
 import type { GameTuningState } from "../shared/game-tuning.js";
+import { HOOK_FILES_MAX } from "../shared/plugin-hooks.js";
 import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
 import {
   Play,
@@ -306,6 +307,9 @@ export function ProjectShell({
   const [pluginProgress, setPluginProgress] = useState<CommandProgress>();
   /** The latest files the daemon saw change, for pages that read the project's files. */
   const [pluginFileChange, setPluginFileChange] = useState<{ paths: string[]; truncated?: boolean }>();
+  /** Changes that arrived since pages last heard: several can come before one render. */
+  const pendingFileChange = useRef<{ paths: string[]; truncated?: boolean }>(undefined);
+  useEffect(() => { pendingFileChange.current = undefined; }, [pluginFileChange]);
   /** Each plugin's hooks show at most as many notices as its pages may show toasts. */
   const noticeLimits = useRef(new Map<string, () => boolean>());
   const [pluginToolbarRuns] = useState(() => new Set<(run: PluginToolbarRun) => void>());
@@ -419,7 +423,10 @@ export function ProjectShell({
       onEvent: (event) => {
         dispatch({ type: "runtime-event", event });
         if (event.type === "project.plugins.changed") setCapabilitiesRevision((value) => value + 1);
-        if (event.type === "project.files.changed") setPluginFileChange({ ...event.data });
+        if (event.type === "project.files.changed") {
+          pendingFileChange.current = mergeFileChanges(pendingFileChange.current, event.data);
+          setPluginFileChange(pendingFileChange.current);
+        }
         if (event.type === "plugin.notice") {
           const limits = noticeLimits.current;
           if (!limits.has(event.data.plugin)) limits.set(event.data.plugin, rateLimit(PLUGIN_TOAST_LIMIT, PLUGIN_TOAST_WINDOW_MS));
@@ -1788,4 +1795,15 @@ async function initialConversationModel(): Promise<AgentModelRef | undefined> {
   } catch {
     return undefined;
   }
+}
+
+/** Two batches of changed files as one, with no more paths than one event carries. */
+export function mergeFileChanges(
+  earlier: { paths: string[]; truncated?: boolean } | undefined,
+  later: { paths: string[]; truncated?: boolean },
+): { paths: string[]; truncated?: boolean } {
+  if (!earlier) return { ...later };
+  const all = [...new Set([...earlier.paths, ...later.paths])].sort();
+  const truncated = earlier.truncated || later.truncated || all.length > HOOK_FILES_MAX;
+  return { paths: all.slice(0, HOOK_FILES_MAX), ...(truncated ? { truncated: true } : {}) };
 }
