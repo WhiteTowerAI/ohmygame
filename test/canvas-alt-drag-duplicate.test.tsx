@@ -13,7 +13,7 @@ import type {
   ProjectState,
   ToolJob,
 } from "../src/shared/contracts.js";
-import { mergeCanvasDocument } from "../src/shared/canvas-workspace.js";
+import { mergeCanvasDocument, type CanvasSyncScope } from "../src/shared/canvas-workspace.js";
 import {
   createAssetCanvasDocument,
   createAssetGenerationNode,
@@ -23,6 +23,7 @@ import { MAX_ASSET_CANVAS_NODES } from "../src/shared/asset-canvas-schema.js";
 
 type CanvasProps = Parameters<typeof EditorCanvas<Node>>[0];
 const captured = { props: undefined as CanvasProps | undefined };
+let canvasChanged: (scopes: CanvasSyncScope[]) => void;
 vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
   ...(await original<typeof import("../src/renderer/editor-canvas.js")>()),
   EditorCanvas: (props: CanvasProps) => {
@@ -50,6 +51,7 @@ vi.doMock(
 );
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
+  streamSnapshots: async (_path: string, _signal: AbortSignal, notify: typeof canvasChanged) => { canvasChanged = notify; },
   listImageModelCatalog: async () => ({ models: [], providers: [] }),
   listVideoModelCatalog: async () => ({ models: [], providers: [] }),
   listModel3DCatalog: async () => ({ models: [], providers: [] }),
@@ -837,7 +839,7 @@ describe("canvas grouping interactions", () => {
       expect(groupActions().canExecute).toBe(false);
       status = "succeeded";
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(1500);
+        canvasChanged(["jobs"]);
       });
       expect(generate.mock.calls.map(([id]) => id)).toEqual([
         image.id,
@@ -868,14 +870,14 @@ describe("canvas grouping interactions", () => {
     expect(groupActions().canExecute).toBe(false);
     finished.add(nodes[1]!.id);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1500);
+      canvasChanged(["jobs"]);
     });
     expect(generate.mock.calls.map(([id]) => id)).toEqual(
       nodes.slice(0, 4).map((node) => node.id),
     );
     finished.add(nodes[3]!.id);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1500);
+      canvasChanged(["jobs"]);
     });
     expect(generate.mock.calls.map(([id]) => id)).toEqual(
       nodes.map((node) => node.id),
@@ -883,7 +885,7 @@ describe("canvas grouping interactions", () => {
     expect(groupActions().canExecute).toBe(false);
     nodes.forEach((node) => finished.add(node.id));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1500);
+      canvasChanged(["jobs"]);
     });
     expect(groupActions().canExecute).toBe(true);
   });
@@ -934,7 +936,7 @@ describe("canvas grouping interactions", () => {
     expect(generate.mock.calls.map(([id]) => id)).toEqual([first.id, second.id]);
     finished.add(first.id);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1500);
+      canvasChanged(["jobs"]);
     });
     expect(generate.mock.calls.map(([id]) => id)).toEqual([
       first.id,
@@ -944,7 +946,7 @@ describe("canvas grouping interactions", () => {
     expect(groupActions().canExecute).toBe(false);
     finished.add(second.id);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1500);
+      canvasChanged(["jobs"]);
     });
     expect(generate.mock.calls.map(([id]) => id)).toEqual([
       first.id,
@@ -1103,7 +1105,7 @@ describe("canvas grouping interactions", () => {
       expect(groupActions().canExecute).toBe(false);
       status = terminal;
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(1500);
+        canvasChanged(["jobs"]);
       });
       expect(generate.mock.calls.map(([id]) => id)).toEqual([image.id]);
       expect(container.textContent).toContain("Skipped because a dependency");
@@ -1122,7 +1124,7 @@ describe("canvas grouping interactions", () => {
     expect(container.textContent).toContain("Skipped because a dependency");
   });
 
-  it("recognizes a completion polled before the start request returns", async () => {
+  it("recognizes a completion event before the start request returns", async () => {
     const image = imageNode("upstream");
     let finishStart: (job: ToolJob) => void = () => {};
     generate.mockImplementation((id: string) =>
@@ -1138,7 +1140,7 @@ describe("canvas grouping interactions", () => {
     await mountGenerationGroup([videoNode(image.id), image]);
     await act(async () => groupActions().onExecute());
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1500);
+      canvasChanged(["jobs"]);
     });
     await act(async () => finishStart(mediaJob(image.id, "running")));
     await settle();
@@ -1244,7 +1246,7 @@ describe("canvas grouping interactions", () => {
     expect(generate).not.toHaveBeenCalled();
     status = "succeeded";
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1500);
+      canvasChanged(["jobs"]);
     });
     expect(generate.mock.calls.map(([id]) => id)).toEqual(["downstream"]);
   });
