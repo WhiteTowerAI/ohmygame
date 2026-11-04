@@ -21,11 +21,18 @@ import {
   recoverAgentDirectories,
 } from "../src/daemon/agent-runtimes/process-recovery.js";
 import { stageSkills } from "../src/daemon/agent-runtimes/skills.js";
-import { terminateProjectProcess } from "../src/daemon/process-lifecycle.js";
+import {
+  signalProcessTree,
+  terminateProjectProcess,
+} from "../src/daemon/process-lifecycle.js";
 
 vi.mock("node:child_process", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:child_process")>();
-  return { ...original, execFile: vi.fn(original.execFile) };
+  return {
+    ...original,
+    execFile: vi.fn(original.execFile),
+    spawn: vi.fn(original.spawn),
+  };
 });
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
@@ -154,6 +161,29 @@ it("moves settings saved with OhMyGame's former modes to each agent's own", asyn
   expect(named.get("codex-cli").permissionMode).toBe(":workspace");
   expect(named.get("opencode-cli").permissionMode).toBe("allow");
 });
+
+it.skipIf(process.platform !== "win32")(
+  "keeps the shutdown grace period for partial successes and unknown taskkill results",
+  async () => {
+    const actual = await vi.importActual<typeof import("node:child_process")>(
+      "node:child_process",
+    );
+    for (const [code, output, allowGrace] of [
+      [128, "", false],
+      [128, "one descendant accepted the request", true],
+      [0, "", true],
+      [1, "", true],
+    ] as const) {
+      vi.mocked(spawn).mockImplementationOnce(() =>
+        actual.spawn(process.execPath, [
+          "-e",
+          `process.stdout.write(${JSON.stringify(output)}); process.exitCode = ${code}`,
+        ]),
+      );
+      await expect(signalProcessTree(0, false)).resolves.toBe(allowGrace);
+    }
+  },
+);
 
 it("reclaims a verified orphan, preserving a live daemon and unrelated PID identities", async () => {
   const root = await folder();

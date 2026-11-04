@@ -152,8 +152,20 @@ build and startup.
 this sequence covers the full application build without building them twice.
 These checks run on Ubuntu. Plugin preparation, types, tests and the Node
 startup check also run on macOS and Windows, the platforms the app ships for.
-There the tests run in two shards, and types and the Node startup check run in
-a separate job, so the slower runners finish in parallel.
+On all three platforms, two test shards run alongside the build checks. Windows
+distributes test files by descending size, alternating between the two shards.
+Run `bun run test -- --shard=1/2 --config=vitest.windows.config.ts` locally
+to use the same sharding strategy (use `2/2` for the second shard).
+On macOS and Windows, the Node startup and Electron recording checks share
+one host build, and the build job also loads the plugins' panels in Electron.
+Windows jobs reuse `node_modules` for an exact match on the runner architecture,
+setup action, manifest, lockfile, Bun configuration, and dependency patches.
+On a miss they run a frozen install. The Windows build on pushes saves that
+install in four tar files before running checks. On a hit, Windows extracts
+the four files in parallel, each into its own set of top-level package paths.
+If extraction fails, CI removes the partial dependency tree and runs a frozen
+install. Packing or uploading the cache is optional. The `check` status
+requires every build and test shard to pass.
 When a test cannot hold on one platform, skip only the assertion that does not
 apply there, as the file permission checks do on Windows.
 CLI integration cases that execute POSIX script fixtures run on Ubuntu and macOS;
