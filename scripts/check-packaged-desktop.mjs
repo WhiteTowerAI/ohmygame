@@ -34,8 +34,10 @@ export default async function checkPackagedDesktop(context) {
     console.log("Packaged Pi patch and story resources verified; daemon startup requires the target platform.");
     return;
   }
-  const ffmpeg = path.join(resources, "app.asar.unpacked", "node_modules", "@ffmpeg-installer", `${process.platform}-${process.arch}`, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
-  assert((await stat(ffmpeg)).isFile(), "Packaged FFmpeg executable is missing");
+  const ffmpegDirectory = path.join(resources, "app.asar.unpacked", "node_modules", "ffmpeg-static");
+  assert((await stat(path.join(ffmpegDirectory, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"))).isFile(), "Packaged FFmpeg executable is missing");
+  // FFmpeg is distributed under its own license, which must ship beside it.
+  assert((await stat(path.join(ffmpegDirectory, "ffmpeg.LICENSE"))).isFile(), "Packaged FFmpeg license is missing");
   const name = packager.appInfo.productFilename;
   const executable = electronPlatformName === "darwin"
     ? path.join(resources, "..", "MacOS", name)

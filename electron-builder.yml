@@ -6,7 +6,7 @@ afterPack: scripts/check-packaged-desktop.mjs
 asarUnpack:
   - node_modules/esbuild/**/*
   - node_modules/@esbuild/**/*
-  - node_modules/@ffmpeg-installer/*/**/*
+  - node_modules/ffmpeg-static/**/*
 
 directories:
   output: release

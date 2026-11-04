@@ -58,7 +58,9 @@ async function inputPixels(paths: readonly string[]): Promise<number> {
 function ffmpegExecutable(): string {
   if (process.env.OHMYGAME_FFMPEG_PATH) return process.env.OHMYGAME_FFMPEG_PATH;
   try {
-    const binary = (require("@ffmpeg-installer/ffmpeg") as { path: string }).path;
+    // ffmpeg-static exports null when it has no binary for this platform.
+    const binary = require("ffmpeg-static") as string | null;
+    if (!binary) return "ffmpeg";
     return binary.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`);
   } catch {
     return "ffmpeg";
