@@ -445,7 +445,9 @@ backend operation; public deployment is independent of local testing.
 ### Running OhMyGame's game service
 
 `bun run start:multiplayer` (`packages/games/src/server.ts`) runs the hosted
-service with the built-in rules. Its settings:
+service with the built-in rules. It and `bun run dev:multiplayer` read
+`packages/server/.env` when it exists (copy `packages/server/.env.example`);
+variables already set, such as Railway's, take precedence. Its settings:
 
 | Variable | Purpose |
 | --- | --- |
