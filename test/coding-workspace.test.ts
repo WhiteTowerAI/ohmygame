@@ -5,6 +5,7 @@ import {
   CodingWorkspace,
   PreviewView,
   playerViewport,
+  shownViewport,
   AssetsView,
   normalizePreviewPath,
   workspaceFileTree,
@@ -36,6 +37,15 @@ describe("coding workspace", () => {
     expect(playerViewport("mobile-landscape")).toEqual({ width: 667, height: 375 });
     expect(playerViewport("tablet")).toEqual({ width: 768, height: 1024 });
     expect(playerViewport("fit")).toEqual({ width: 1280, height: 720 });
+    const handheld = { id: "acme/devices:handheld", plugin: "acme/devices", title: "Handheld", width: 800, height: 480 } as const;
+    expect(shownViewport(handheld.id, [handheld])).toEqual({ viewport: handheld.id, device: handheld });
+    expect(playerViewport(handheld.id, handheld)).toEqual({ width: 800, height: 480 });
+    // A device whose plugin is gone shows as Fit.
+    expect(shownViewport(handheld.id, [])).toEqual({ viewport: "fit" });
+    expect(shownViewport("tablet", [])).toEqual({ viewport: "tablet" });
+    const stage = renderToStaticMarkup(createElement(PreviewView, { project: previewProject, reload: 0, revision: 0, url: previewProject.preview.url, viewport: handheld.id, device: handheld }));
+    expect(stage).toContain("viewer-stage-device");
+    expect(stage).toContain("--preview-device-ratio:800 / 480");
   });
 
   it("browses project assets as Library tiles with the source and use filters, without file mutation menus", () => {

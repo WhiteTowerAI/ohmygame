@@ -435,6 +435,21 @@ const Panel = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * A size the preview can show the game at, beside the built-in ones. It sets
+ * the game's viewport only; it doesn't emulate the device. Its size limits
+ * are game_use's.
+ */
+const PreviewDevice = Type.Object(
+  {
+    id: Slug,
+    title: Text(),
+    width: Type.Integer({ minimum: 240, maximum: 4096 }),
+    height: Type.Integer({ minimum: 240, maximum: 4096 }),
+  },
+  { additionalProperties: false },
+);
+
 const list = <T extends Parameters<typeof Type.Array>[0]>(item: T) =>
   Type.Optional(Type.Array(item, { minItems: 1, maxItems: 50 }));
 
@@ -549,6 +564,7 @@ export const PluginManifestV2Schema = Type.Object(
           providers: list(Provider),
           panels: list(Panel),
           mcpServers: list(McpServer),
+          previewDevices: list(PreviewDevice),
         },
         { additionalProperties: false },
       ),
@@ -658,6 +674,7 @@ export function validatePluginManifest(value: unknown): PluginManifestResult {
     "providers",
     "panels",
     "mcpServers",
+    "previewDevices",
   ] as const) {
     const seen = new Set<string>();
     contributes[key]?.forEach((item, index) => {

@@ -296,6 +296,18 @@ describe("plugin manifest", () => {
     })).toContainEqual(expect.stringContaining("native entrypoint"));
   });
 
+  it("adds preview devices by size alone, within game_use's limits", () => {
+    const devices = (previewDevices: object[]) => messages({ ...minimal, contributes: { previewDevices } });
+    expect(devices([{ id: "handheld", title: "Handheld", width: 800, height: 480 }])).toEqual([]);
+    expect(devices([{ id: "tiny", title: "Tiny", width: 100, height: 480 }])).not.toEqual([]);
+    expect(devices([{ id: "huge", title: "Huge", width: 800, height: 5000 }])).not.toEqual([]);
+    expect(devices([{ id: "framed", title: "Framed", width: 800, height: 480, frame: "./frame.png" }])).not.toEqual([]);
+    expect(devices([
+      { id: "handheld", title: "A", width: 800, height: 480 },
+      { id: "handheld", title: "B", width: 480, height: 800 },
+    ])).toEqual(["/contributes/previewDevices/1/id duplicate id handheld"]);
+  });
+
   it("asks the person before native code plays the game", () => {
     expect(capabilityGrants({ capabilities: { native: true, game: true } })).toEqual(["game", "native"]);
     expect(messages({ ...minimal, capabilities: { game: true } })).toEqual(["/capabilities/game only native code plays the game"]);

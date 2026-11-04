@@ -307,7 +307,8 @@ describe("daemon", () => {
     expect(configured.statusCode).toBe(200);
     expect(configured.json()).toMatchObject({ startupDirectory: "apps/game", preview: { status: "stopped" } });
 
-    for (const previewViewport of ["mobile", "mobile-landscape"]) {
+    // A plugin's device is kept by its id, installed or not.
+    for (const previewViewport of ["mobile", "mobile-landscape", "acme/devices:handheld"]) {
       const runSettings = await app.inject({
         method: "PUT",
         url: `/projects/${project.id}/settings/run`,
@@ -328,6 +329,13 @@ describe("daemon", () => {
         previewViewport,
       });
     }
+
+    const unknownDevice = await app.inject({
+      method: "PUT",
+      url: `/projects/${project.id}/settings/run`,
+      payload: { startupDirectory: "apps/game", startupScript: "dev", previewPath: "/", previewViewport: "Not a device", ...(type === "general" ? { webPreviewEnabled: true } : {}) },
+    });
+    expect(unknownDevice.statusCode).toBe(400);
 
     const invalid = await app.inject({
       method: "PUT",

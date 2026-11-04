@@ -1223,6 +1223,43 @@
           },
           "minItems": 1,
           "maxItems": 50
+        },
+        "previewDevices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "width",
+              "height"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "width": {
+                "type": "integer",
+                "minimum": 240,
+                "maximum": 4096
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 240,
+                "maximum": 4096
+              }
+            },
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 50
         }
       },
       "additionalProperties": false

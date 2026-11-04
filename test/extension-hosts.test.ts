@@ -1602,6 +1602,7 @@ describe("plugin settings and commands", () => {
             { id: "check", title: "Check", run: { tool: "settings" }, slots: [{ slot: "project.menu", when: "project.plugin('acme/keys')" }] },
             { id: "ask", title: "Ask", slash: "ask", run: { prompt: "Check the settings." } },
           ],
+          previewDevices: [{ id: "handheld", title: "Handheld", width: 800, height: 480 }],
         },
       }),
     );
@@ -1644,6 +1645,9 @@ describe("plugin settings and commands", () => {
       expect(commands[0]!.slots).toEqual([{ slot: "project.menu", when: "project.plugin('acme/keys')" }]);
       expect((await services.projectCommand(folder, "acme/keys:check"))?.command.run).toEqual({ tool: "settings" });
       expect(await services.projectCommand(folder, "acme/keys:nothing")).toBeUndefined();
+      expect(await services.preview(folder)).toEqual({
+        devices: [{ id: "acme/keys:handheld", plugin: "acme/keys", title: "Handheld", width: 800, height: 480 }],
+      });
     } finally {
       await services.close();
       await Promise.all([data, folder].map((item) => rm(item, { recursive: true, force: true })));

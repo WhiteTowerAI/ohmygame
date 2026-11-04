@@ -1842,6 +1842,11 @@ export async function listProjectPluginCommands(projectId: string): Promise<impo
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-commands?locale=${encodeURIComponent(language)}`);
 }
 
+/** What a project's plugins add to its preview, such as devices. */
+export async function getProjectPluginPreview(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginPreview> {
+  return request(`/projects/${encodeURIComponent(projectId)}/plugin-preview?locale=${encodeURIComponent(language)}`);
+}
+
 /** What plugins changed in a project outside a turn, newest first. */
 export async function listProjectPluginChanges(projectId: string): Promise<import("../shared/plugins.js").ProjectPluginChange[]> {
   return request(`/projects/${encodeURIComponent(projectId)}/plugin-changes`);

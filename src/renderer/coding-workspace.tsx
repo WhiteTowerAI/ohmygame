@@ -42,8 +42,9 @@ import {
 import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
-import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
+import { isBuiltinPreviewViewport, PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import type { ProjectPreviewDevice } from "../shared/plugins.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import { buildsWebPreview, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import type { GameTuningState } from "../shared/game-tuning.js";
@@ -112,6 +113,8 @@ interface CodingWorkspaceProps {
   /** The preview page that is picking an element for the next message. */
   pickingClient?: string;
   onPickingChange?: (client: string | undefined) => void;
+  /** The preview devices the project's plugins add. */
+  previewDevices?: readonly ProjectPreviewDevice[];
   /**
    * The panels the views render into. Without them (in tests), the first
    * view renders in place.
@@ -155,6 +158,7 @@ export function CodingWorkspace({
   onQuoteDocument,
   pickingClient,
   onPickingChange,
+  previewDevices = NO_DEVICES,
   panels,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
@@ -184,7 +188,8 @@ export function CodingWorkspace({
     onDesignSaveReady?.(saveDesign);
     return () => onDesignSaveReady?.(undefined);
   }, [documentsOpened, onDesignSaveReady, saveDesign]);
-  const [viewport, setViewport] = useState<PreviewViewport>(project?.previewViewport ?? "fit");
+  const [chosenViewport, setViewport] = useState<PreviewViewport>(project?.previewViewport ?? "fit");
+  const { viewport, device } = shownViewport(chosenViewport, previewDevices);
   const [tuningOpen, setTuningOpen] = useState(false);
   const [previewPath, setPreviewPath] = useState(project?.previewPath ?? "/");
   const [previewClient] = useState(() => crypto.randomUUID());
@@ -335,7 +340,7 @@ export function CodingWorkspace({
   }
 
   function playGame(): void {
-    void player.play({ path: actualPreviewPath, viewport: playerViewport(viewport) });
+    void player.play({ path: actualPreviewPath, viewport: playerViewport(viewport, device) });
   }
 
   async function toggleAgentPlaytestWatch(): Promise<void> {
@@ -403,6 +408,7 @@ export function CodingWorkspace({
           refreshDisabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
           refreshLabel={preview?.status === "ready" ? t("workspace.reloadPreview") : t("workspace.restartPreview")}
           viewport={viewport}
+          devices={previewDevices}
           agentPlaytestWatch={agentPlaytestWatch}
           agentPlaytestWatchPending={agentPlaytestWatchPending}
           picking={picking}
@@ -425,7 +431,7 @@ export function CodingWorkspace({
           <div className="coding-workspace-preview-panel">
             <ErrorBoundary label={t("errorBoundary.label.preview")} resetKey={previewPageUrl}>
             <PreviewView
-              project={project} client={gameClient} onAskAgent={onAskAgent} onLogs={() => setLogsOpen(true)} onOpenFile={(path) => { openCode(path); void selectFile(path); }} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport}
+              project={project} client={gameClient} onAskAgent={onAskAgent} onLogs={() => setLogsOpen(true)} onOpenFile={(path) => { openCode(path); void selectFile(path); }} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} device={device}
               pausedAfterRecovery={previewPaused}
               active={shows("preview")} playerOpen={player.open} suspended={player.suspended} pending={player.pending || player.checking}
               error={player.error} onPlay={playGame} stageRef={previewStage}
@@ -524,6 +530,7 @@ export function CodingWorkspace({
       {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
       {project && projectSettingsOpen ? <ProjectSettingsDialog
         project={project}
+        previewDevices={previewDevices}
         previewUrl={currentPreviewUrl}
         previewActions={supportsPreview ? {
           onRestart: (reinstall) => onRestart(undefined, reinstall),
@@ -545,6 +552,7 @@ function PreviewControls({
   refreshDisabled,
   refreshLabel,
   viewport,
+  devices,
   agentPlaytestWatch,
   agentPlaytestWatchPending,
   picking,
@@ -566,6 +574,7 @@ function PreviewControls({
   refreshDisabled: boolean;
   refreshLabel: string;
   viewport: PreviewViewport;
+  devices: readonly ProjectPreviewDevice[];
   agentPlaytestWatch?: PlaytestWatchState;
   agentPlaytestWatchPending: boolean;
   picking: boolean;
@@ -585,7 +594,7 @@ function PreviewControls({
   return (
     <div className="preview-controls">
       <PreviewLocation disabled={!previewUrl} path={path} paths={paths} onNavigate={onNavigate} />
-      <ViewportMenu value={viewport} onChange={onViewportChange} />
+      <ViewportMenu value={viewport} devices={devices} onChange={onViewportChange} />
       <IconButton size="sm" className="preview-pick-button" label={picking ? t("workspace.stopPicking") : t("workspace.pickElement")}
         active={picking} disabled={pickDisabled && !picking} onClick={onTogglePicking}><MousePointer2 size={14} /></IconButton>
       {onToggleTuning ? <IconButton size="sm" className="preview-tuning-button" label={t("gameTuning.title")} active={tuningOpen} onClick={onToggleTuning}><SlidersHorizontal size={14} /></IconButton> : null}
@@ -737,7 +746,7 @@ function PreviewLocation({
   );
 }
 
-function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (value: PreviewViewport) => void }) {
+function ViewportMenu({ value, devices, onChange }: { value: PreviewViewport; devices: readonly ProjectPreviewDevice[]; onChange: (value: PreviewViewport) => void }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -772,15 +781,16 @@ function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={t("workspace.viewportLabel")}
-        title={viewportLabel(value)}
+        title={viewportLabel(value, devices)}
         onClick={() => setOpen((current) => !current)}
       >
-        <ViewportIcon viewport={value} />
+        <ViewportIcon viewport={value} devices={devices} />
         <ChevronDown size={11} />
       </button>
       {open ? (
         <div className="viewport-menu-popover" id={menuId} role="menu" aria-label={t("workspace.viewportLabel")}>
-          {PREVIEW_VIEWPORTS.map((viewport) => (
+          {/* The built-in sizes, then the plugins' devices. */}
+          {[...PREVIEW_VIEWPORTS, ...devices.map((device) => device.id)].map((viewport) => (
             <button
               className="viewport-option"
               type="button"
@@ -793,8 +803,8 @@ function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (
                 trigger.current?.focus();
               }}
             >
-              <ViewportIcon viewport={viewport} />
-              <span>{viewportLabel(viewport)}</span>
+              <ViewportIcon viewport={viewport} devices={devices} />
+              <span>{viewportLabel(viewport, devices)}</span>
               {viewport === value ? <Check size={13} /> : null}
             </button>
           ))}
@@ -804,30 +814,49 @@ function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (
   );
 }
 
-function ViewportIcon({ viewport }: { viewport: PreviewViewport }) {
+function ViewportIcon({ viewport, devices }: { viewport: PreviewViewport; devices: readonly ProjectPreviewDevice[] }) {
+  const device = devices.find((item) => item.id === viewport);
+  if (device) return <Smartphone size={14} style={device.width > device.height ? { transform: "rotate(90deg)" } : undefined} />;
   if (viewport === "tablet") return <Tablet size={14} />;
   if (viewport === "mobile") return <Smartphone size={14} />;
   if (viewport === "mobile-landscape") return <Smartphone size={14} style={{ transform: "rotate(90deg)" }} />;
   return <Monitor size={14} />;
 }
 
-function viewportLabel(viewport: PreviewViewport): string {
+function viewportLabel(viewport: PreviewViewport, devices: readonly ProjectPreviewDevice[]): string {
+  const device = devices.find((item) => item.id === viewport);
+  if (device) return t("workspace.viewport.device", { title: device.title, width: device.width, height: device.height });
   if (viewport === "tablet") return t("workspace.viewport.tablet");
   if (viewport === "mobile") return t("workspace.viewport.mobile");
   if (viewport === "mobile-landscape") return t("workspace.viewport.mobileLandscape");
   return t("projectSettings.device.fit");
 }
 
-export function playerViewport(viewport: PreviewViewport): { width: number; height: number } {
+const NO_DEVICES: readonly ProjectPreviewDevice[] = [];
+
+/**
+ * The viewport the preview shows, and the plugin device it is. A device whose
+ * plugin is gone, or not read yet, shows as Fit.
+ */
+export function shownViewport(viewport: PreviewViewport, devices: readonly ProjectPreviewDevice[]): { viewport: PreviewViewport; device?: ProjectPreviewDevice } {
+  if (isBuiltinPreviewViewport(viewport)) return { viewport };
+  const device = devices.find((item) => item.id === viewport);
+  return device ? { viewport, device } : { viewport: "fit" };
+}
+
+export function playerViewport(viewport: PreviewViewport, device?: Pick<ProjectPreviewDevice, "width" | "height">): { width: number; height: number } {
+  if (device) return { width: device.width, height: device.height };
   if (viewport === "mobile") return { width: 375, height: 667 };
   if (viewport === "mobile-landscape") return { width: 667, height: 375 };
   if (viewport === "tablet") return { width: 768, height: 1024 };
   return { width: 1280, height: 720 };
 }
 
-export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, reload, revision, url, viewport, active = true, playerOpen = false, suspended = false, pending = false, pausedAfterRecovery = false, error, onPlay, onRetry, onSettings, stageRef }: {
+export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, reload, revision, url, viewport, device, active = true, playerOpen = false, suspended = false, pending = false, pausedAfterRecovery = false, error, onPlay, onRetry, onSettings, stageRef }: {
   client?: string; onAskAgent?: (text: string) => void; onOpenFile?: (path: string) => void; onLogs?: () => void;
   project?: ProjectState; reload: number; revision: number; url?: string; viewport: PreviewViewport;
+  /** The plugin device `viewport` names, when it names one. */
+  device?: Pick<ProjectPreviewDevice, "width" | "height">;
   active?: boolean; playerOpen?: boolean; suspended?: boolean; pending?: boolean; error?: string; onPlay?: () => void;
   pausedAfterRecovery?: boolean;
   stageRef?: React.Ref<HTMLDivElement>;
@@ -885,7 +914,8 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
 
   const showFrame = (active || started || (native && playerOpen)) && (native || !suspended) && preview?.status === "ready" && url;
   return (
-    <div ref={stageRef} className={`viewer-stage viewer-stage-${viewport}`}>
+    <div ref={stageRef} className={`viewer-stage viewer-stage-${device ? "device" : viewport}`}
+      style={device ? { "--preview-device-width": `${device.width}px`, "--preview-device-ratio": `${device.width} / ${device.height}` } as React.CSSProperties : undefined}>
       {showFrame ? <div className="preview-frame-wrap" hidden={suspended}>
         {native && project ? <DesktopGamePreview
           bridge={native} refresh={window.ohMyGameDesktop!.webGamePlayer!.refresh} projectId={project.id} url={url!} reload={reload}

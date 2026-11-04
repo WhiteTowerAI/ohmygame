@@ -9,7 +9,7 @@ import type {
 import type { TSchema } from "typebox";
 import { Check, Errors } from "typebox/value";
 import { agentToolName, configReferences, fillConfigReferences, isAppWidePlugin, isPluginId, mcpServerSyntaxIssue, PERSONAL_PUBLISHER, mcpUrlIssue, PLUGIN_DATA_ENV, pluginApiIssue, type PluginManifestV2 } from "../shared/plugin-manifest.js";
-import type { McpServerDefinition } from "../shared/plugins.js";
+import type { McpServerDefinition, ProjectPluginPreview, ProjectPreviewDevice } from "../shared/plugins.js";
 import type { PluginUiCapabilities } from "../shared/plugin-ui-protocol.js";
 import { PROJECT_FILE_NAME, projectTypePlugin } from "../shared/project-file.js";
 import { appWidePluginSuits } from "../shared/project-runtime.js";
@@ -419,6 +419,34 @@ export class PluginServices {
         });
     }
     return commands;
+  }
+
+  /** What a project's active plugins add to its preview. */
+  async preview(
+    folder: string,
+    locale: PluginLocale = "en",
+  ): Promise<ProjectPluginPreview> {
+    await this.ready();
+    const resolved = await resolveProjectPlugins({
+      folder,
+      index: this.index,
+      grants: this.grants,
+    }).catch(() => undefined);
+    const preview: ProjectPluginPreview = { devices: [] };
+    if (!resolved?.ok) return preview;
+    for (const plugin of resolved.plugins) {
+      const entry = plugin.entry;
+      if (plugin.status !== "active" || !entry) continue;
+      for (const device of entry.manifest.contributes?.previewDevices ?? [])
+        preview.devices.push({
+          id: `${entry.id}:${device.id}` as ProjectPreviewDevice["id"],
+          plugin: entry.id,
+          title: localizePluginString(entry, device.title, locale),
+          width: device.width,
+          height: device.height,
+        });
+    }
+    return preview;
   }
 
   /** The panels of a project's active plugins, with what their pages may ask the host for. */

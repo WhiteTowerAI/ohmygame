@@ -1584,6 +1584,7 @@ export function ProjectShell({
           onQuoteDocument={quoteDocument}
           pickingClient={pickingClient}
           onPickingChange={setPickingClient}
+          previewDevices={plugins.previewDevices}
           panels={{
             nodes: { preview: nodes.game, design: nodes.design, canvas: nodes.canvas, code: nodes.code, assets: nodes.assets },
             visible: codingVisible,

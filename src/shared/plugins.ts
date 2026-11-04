@@ -313,6 +313,21 @@ export interface ProjectPluginCommand {
     | { native: string };
 }
 
+/** A preview device a project's plugin adds (GET /projects/:id/plugin-preview). */
+export interface ProjectPreviewDevice {
+  /** `publisher/name:device`, as a project's `previewViewport` names it. */
+  id: `${string}/${string}:${string}`;
+  plugin: string;
+  title: string;
+  width: number;
+  height: number;
+}
+
+/** What a project's plugins add to its preview. */
+export interface ProjectPluginPreview {
+  devices: ProjectPreviewDevice[];
+}
+
 /** Something a plugin changed in a project outside a turn (GET /projects/:id/plugin-changes). */
 export interface ProjectPluginChange {
   id: string;

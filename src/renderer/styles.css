@@ -11756,7 +11756,8 @@ summary.work-summary:hover {
 
 .viewer-stage-tablet,
 .viewer-stage-mobile,
-.viewer-stage-mobile-landscape {
+.viewer-stage-mobile-landscape,
+.viewer-stage-device {
   padding: 10px;
   overflow: auto;
 }
@@ -11772,6 +11773,13 @@ summary.work-summary:hover {
   width: min(667px, 100%);
   height: auto;
   aspect-ratio: 667 / 375;
+}
+
+/* A plugin's device, at its own size. */
+.viewer-stage-device .preview-frame-wrap {
+  width: min(var(--preview-device-width), 100%);
+  height: auto;
+  aspect-ratio: var(--preview-device-ratio);
 }
 
 .preview-frame {

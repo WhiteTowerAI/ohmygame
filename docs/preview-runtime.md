@@ -107,6 +107,8 @@ The device menu and Project settings offer **Mobile landscape** for horizontal
 phone games. Preview fits a 667:375 landscape frame within the editor panel;
 Play requests a 667 × 375 window. Set the preset in Project settings to save the default
 for future visits and project copies; the toolbar menu changes the current preview.
+Plugins can add more sizes to both menus
+([preview devices](plugins.md#in-the-app)).
 
 ![Mobile landscape selected in the preview device menu](assets/mobile-landscape-preview.png)
 

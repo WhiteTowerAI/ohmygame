@@ -123,6 +123,7 @@ ignores it.
 | Plugins page | `src/renderer/plugin-store.tsx`, `src/renderer/plugins.tsx` | `test/plugin-store.test.tsx`, `test/plugin-catalog-api.test.ts` |
 | Plugin Builder | `src/daemon/plugin-setup.ts`, `src/daemon/plugin-draft.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugin-builder.tsx` | `test/plugin-builder.test.ts`, `test/agent-tools.test.ts` |
 | Workspace panels, commands, changes | `src/renderer/project-plugin-contributions.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/workspace-layout.ts`, `src/renderer/composer-context-menu.tsx` | `test/project-shell-checkpoints.test.tsx`, `test/workspace-layout.test.ts`, `test/composer-context-menu.test.ts`, `test/project-plugins-sheet.test.tsx` |
+| Preview devices | `src/daemon/plugin-services.ts`, `src/renderer/coding-workspace.tsx`, `src/renderer/project-settings-dialog.tsx` | `test/extension-hosts.test.ts`, `test/coding-workspace.test.ts`, `test/app.test.ts` |
 | Signed releases | `src/daemon/plugin-releases.ts` | `test/plugin-manifest.test.ts` |
 | Icons | `src/shared/plugin-icons.ts`, `src/daemon/plugin-icons.ts`, `src/daemon/plugin-svg.ts`, `src/renderer/plugin-icons.tsx`, `src/renderer/plugin-icon-picker.tsx` | `test/plugin-builder.test.ts`, `test/plugins-protocol.test.ts` |
 | Adding a plugin | `src/daemon/plugin-sources.ts`, `src/daemon/archive-extraction.ts`, `src/renderer/plugin-add-dialog.tsx` | `test/plugin-sources.test.ts`, `test/plugin-add-dialog.test.tsx`, `test/plugin-catalog-api.test.ts` |
@@ -430,6 +431,13 @@ along from other repositories, as `config/preinstalled-plugins.json` lists them.
   to the tool instead of the manifest's `input`, and a native command takes
   it only when its `run.input` names a JSON Schema for it. Both are checked
   before the plugin runs.
+- **Preview devices** (`contributes.previewDevices`, API 2.3.0) of a
+  project's active plugins follow the built-in sizes in the preview's device
+  menu and in Project settings (`GET /projects/:id/plugin-preview`). A device
+  is an `id`, a `title`, and a `width` and `height` from 240 to 4096, the
+  same limits as `game_use`. It sets the game's viewport only and doesn't
+  emulate the device. A project saves it as `publisher/name:device`; while its
+  plugin is off or gone, the preview shows Fit.
 - **Plugin changes…** in the project menu lists `GET
   /projects/:id/plugin-changes`, each with its own Undo. A change is noted
   before it runs. If it can't be recorded afterwards (a full disk) or the app
