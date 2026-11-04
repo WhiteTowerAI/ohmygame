@@ -221,7 +221,9 @@ class ExtensionHost {
   /** Holds that keep the host from stopping while idle, such as an open game session. */
   #holds = 0;
   /** The host's `game` requests the daemon is answering, by the host's id. */
-  readonly #gameCalls = new Map<number, AbortController>();
+  readonly #gameCalls = new Map<number, { plugin: string; controller: AbortController }>();
+  /** The plugin whose `activate` is running, which may already play the game. */
+  #activating: string | undefined;
   /** Last lines of stdout and stderr, for diagnostics. */
   readonly log: string[] = [];
 
@@ -352,19 +354,29 @@ class ExtensionHost {
       await this.#ready;
       // Turned off or replaced while the old version drained.
       if (this.#activations.get(plugin.id) !== activation) return;
-      const message = await this.#request(
-        { type: "activate", plugin },
-        plugin.id,
-        this.options.activationTimeoutMs,
-      );
-      if (message.type === "activated")
-        this.#loaded.set(plugin.id, {
-          version: plugin.version,
-          root: plugin.root,
-          tools: message.tools,
-          commands: message.commands,
-          activationMs: message.ms,
-        });
+      this.#activating = plugin.id;
+      let activated = false;
+      try {
+        const message = await this.#request(
+          { type: "activate", plugin },
+          plugin.id,
+          this.options.activationTimeoutMs,
+        );
+        if (message.type === "activated") {
+          this.#loaded.set(plugin.id, {
+            version: plugin.version,
+            root: plugin.root,
+            tools: message.tools,
+            commands: message.commands,
+            activationMs: message.ms,
+          });
+          activated = true;
+        }
+      } finally {
+        if (this.#activating === plugin.id) this.#activating = undefined;
+        // What a failed activation opened ends with it.
+        if (!activated) this.#release(plugin.id);
+      }
     });
     // A failed activation can be retried by the next call.
     activation.done.catch(() => {
@@ -508,8 +520,16 @@ class ExtensionHost {
     }
   }
 
-  /** The game sessions the plugin, or every plugin, opened end. */
+  /**
+   * The game sessions the plugin, or every plugin, opened end. Its requests
+   * still running are given up first, so none opens a session after.
+   */
   #release(plugin?: string) {
+    for (const [id, call] of this.#gameCalls)
+      if (!plugin || call.plugin === plugin) {
+        this.#gameCalls.delete(id);
+        call.controller.abort(new Error(`${call.plugin} stopped`));
+      }
     try {
       this.game()?.release({ scope: this.scope, generation: this.generation, ...(plugin ? { plugin } : {}) });
     } catch {
@@ -524,12 +544,12 @@ class ExtensionHost {
       this.#gameCalls.delete(id);
       if (this.alive) this.#send({ type: "game-reply", id, ...answer });
     };
-    if (!service || !this.#loaded.has(plugin)) {
+    if (!service || !(this.#loaded.has(plugin) || this.#activating === plugin)) {
       reply({ error: `${plugin} can't play the game here` });
       return;
     }
     const controller = new AbortController();
-    this.#gameCalls.set(id, controller);
+    this.#gameCalls.set(id, { plugin, controller });
     void Promise.resolve()
       .then(() => service.handle({ scope: this.scope, project: this.project, generation: this.generation, plugin }, request, controller.signal))
       .then(
@@ -564,7 +584,7 @@ class ExtensionHost {
     this.#pending.clear();
     this.#loaded.clear();
     this.#activations.clear();
-    for (const controller of this.#gameCalls.values()) controller.abort(error);
+    for (const call of this.#gameCalls.values()) call.controller.abort(error);
     this.#gameCalls.clear();
     this.#release();
     // Whatever the plugins started outlives the host unless it is stopped too.
@@ -706,7 +726,7 @@ class ExtensionHost {
       return;
     }
     if (message.type === "game-cancel") {
-      this.#gameCalls.get(message.id)?.abort(new Error("The plugin gave up on its game request"));
+      this.#gameCalls.get(message.id)?.controller.abort(new Error("The plugin gave up on its game request"));
       return;
     }
     const pending = this.#pending.get(message.id);

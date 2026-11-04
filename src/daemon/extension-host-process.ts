@@ -64,7 +64,18 @@ function askGame(plugin: string, request: PluginGameRequest, signal?: AbortSigna
   const id = nextGameCall++;
   return new Promise((resolve, reject) => {
     const abort = () => {
-      if (!gameCalls.delete(id)) return;
+      if (!gameCalls.has(id)) return;
+      // The daemon may have opened the session already; one that arrives late is closed.
+      if (request.operation === "open")
+        gameCalls.set(id, {
+          resolve: (value) => {
+            const session = (value as { sessionId?: unknown } | null)?.sessionId;
+            if (typeof session === "string")
+              void askGame(plugin, { operation: "close", session }).catch(() => {});
+          },
+          reject: () => {},
+        });
+      else gameCalls.delete(id);
       send({ type: "game-cancel", id });
       reject(signal?.reason ?? new Error("Game request cancelled"));
     };

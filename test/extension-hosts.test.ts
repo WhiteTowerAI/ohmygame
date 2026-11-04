@@ -150,6 +150,22 @@ const SOURCES: Record<string, string> = {
         return context.game.open({ signal: controller.signal }).then(() => "opened", (error) => error.message);
       });
       context.registerTool("refused", () => context.game.open({ viewport: { width: 1, height: 1 } }).then(() => "opened", (error) => error.message));
+      context.registerTool("late", async () => {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(new Error("too slow")), 20);
+        return context.game.open({ viewport: { width: 999, height: 999 }, signal: controller.signal }).then(() => "opened", (error) => error.message);
+      });
+      context.registerTool("hang", () => {
+        void context.game.open().catch(() => {});
+        return "waiting";
+      });
+    }
+  `,
+  "early-player": `
+    let early;
+    export async function activate(context) {
+      early = await context.game.open({ viewport: { width: 320, height: 240 } }).then((session) => session.id, (error) => error.message);
+      context.registerTool("early", () => early);
     }
   `,
 };
@@ -174,7 +190,8 @@ const TOOLS: Record<string, string[]> = {
   slowstart: ["pid"],
   other: ["pid"],
   broken: ["anything"],
-  player: ["play", "giveUp", "refused"],
+  player: ["play", "giveUp", "refused", "late", "hang"],
+  "early-player": ["early"],
 };
 
 let root: string;
@@ -694,6 +711,11 @@ describe("extension hosts", () => {
         if (request.operation === "open" && !request.viewport)
           return new Promise((_resolve, reject) => signal.addEventListener("abort", () => { cancelled = true; reject(new Error("gave up")); }));
         if (request.operation === "open" && request.viewport!.width < 240) throw new Error("viewport too small");
+        // Opens after the plugin gave up, as if the reply was already on its way.
+        if (request.operation === "open" && request.viewport!.width === 999) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return { sessionId: "late1", runtime: "web", capabilities: { operations: ["open", "close"] } };
+        }
         if (request.operation === "open") return { sessionId: "s1", runtime: "web", capabilities: { operations: ["open", "capture", "close"] } };
         if (request.operation === "capture") return { sessionId: "s1", width: 320 };
         return null;
@@ -721,8 +743,19 @@ describe("extension hosts", () => {
     // A plugin that doesn't ask for it has no context.game.
     const other = path.join(root, "other");
     expect(await extensionHosts.invoke({ scope: other, project: other, plugin: plugin("player"), tool: "play" })).toBe("no game");
+    // A session the app opened after the plugin gave up is closed for it.
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "late" })).toBe("too slow");
+    await vi.waitFor(() => expect(requests.map(({ request }) => request)).toContainEqual({ operation: "close", session: "late1" }));
+    // A plugin's game can be played while it activates.
+    const early = path.join(root, "early-player");
+    expect(await extensionHosts.invoke({ scope: early, project: early, plugin: { ...plugin("early-player"), game: true }, tool: "early" })).toBe("s1");
 
+    // Unloading the plugin gives up its requests still running before its sessions end.
+    cancelled = false;
+    expect(await extensionHosts.invoke({ scope: project, project, plugin: player, tool: "hang" })).toBe("waiting");
+    await vi.waitFor(() => expect(requests.at(-1)!.request).toEqual({ operation: "open" }));
     await extensionHosts.deactivate(project, "test/player");
+    expect(cancelled).toBe(true);
     expect(released).toContainEqual({ scope: project, generation, plugin: "test/player" });
     await extensionHosts.stop(project);
     expect(released).toContainEqual({ scope: project, generation });
