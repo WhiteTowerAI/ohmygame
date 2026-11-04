@@ -1,8 +1,17 @@
-import { LoaderCircle } from "./icons.js";
+import { LoaderCircle, Pause, Play } from "./icons.js";
 import { createElement, useEffect, useRef, useState } from "react";
 import { t } from "./i18n.js";
+import { IconButton } from "./ui/button.js";
 
-type ModelViewerElement = HTMLElement & { loaded?: boolean; availableAnimations?: string[] };
+type ModelViewerElement = HTMLElement & {
+  loaded: boolean;
+  availableAnimations: string[];
+  modelIsVisible: boolean;
+  autoRotate: boolean;
+  paused: boolean;
+  play: () => void;
+  pause: () => void;
+};
 
 type ModelViewerError = CustomEvent<{
   type?: "loadfailure" | "webglcontextlost";
@@ -13,7 +22,7 @@ type ModelViewerProgress = CustomEvent<{
   totalProgress?: number;
 }>;
 
-export function ModelPreview({ source, label, minHeight = 320, interactive = true, clipPicker = true }: { source: string; label: string; minHeight?: number; interactive?: boolean; clipPicker?: boolean }) {
+export function ModelPreview({ source, label, minHeight = 320, interactive = true, controls = true }: { source: string; label: string; minHeight?: number; interactive?: boolean; controls?: boolean }) {
   const viewerRef = useRef<ModelViewerElement | null>(null);
   const [componentReady, setComponentReady] = useState(Boolean(customElements.get("model-viewer")));
   const [componentError, setComponentError] = useState(false);
@@ -22,6 +31,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   const [modelError, setModelError] = useState<string>();
   const [clips, setClips] = useState<string[]>([]);
   const [clip, setClip] = useState<string>();
+  const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
     if (componentReady) return;
@@ -41,6 +51,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     setModelError(undefined);
     setClips([]);
     setClip(undefined);
+    setPlaying(false);
   }, [source]);
 
   useEffect(() => {
@@ -50,7 +61,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     const handleLoad = () => {
       setProgress(1);
       setLoaded(true);
-      // Rigged models carry one clip per move; model-viewer only autoplays the first unless one is named.
+      // Rigged models carry one clip per move; let the person choose which to play.
       setClips([...(viewer.availableAnimations ?? [])]);
     };
     const handleProgress = (event: Event) => {
@@ -78,6 +89,30 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     };
   }, [componentReady, source]);
 
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!componentReady || !viewer) return;
+    // Keep the current camera and frame. Autoplay=false alone does not pause
+    // a model that was already playing, so use the viewer's playback API too.
+    const syncPlayback = () => {
+      const active = controls && playing && !modelError && viewer.modelIsVisible && document.visibilityState !== "hidden";
+      viewer.autoRotate = Boolean(active);
+      if (active && viewer.paused) viewer.play();
+      else if (!active) viewer.pause();
+    };
+    viewer.addEventListener("load", syncPlayback);
+    viewer.addEventListener("model-visibility", syncPlayback);
+    document.addEventListener("visibilitychange", syncPlayback);
+    syncPlayback();
+    return () => {
+      viewer.removeEventListener("load", syncPlayback);
+      viewer.removeEventListener("model-visibility", syncPlayback);
+      document.removeEventListener("visibilitychange", syncPlayback);
+      viewer.autoRotate = false;
+      viewer.pause();
+    };
+  }, [componentReady, source, controls, playing, modelError]);
+
   if (!componentReady) {
     return <span className={`model-preview-standalone${componentError ? " model-preview-error" : ""}`} role={componentError ? "alert" : undefined}>
       {!componentError ? <LoaderCircle className="spin" size={16} /> : null}
@@ -92,11 +127,10 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         ref: (element: ModelViewerElement | null) => { viewerRef.current = element; },
         src: source,
         alt: label,
-        loading: "eager",
+        loading: "lazy",
         "camera-controls": interactive || undefined,
-        "auto-rotate": true,
-        // Plays the first clip of animated models (e.g. rigged characters); static models are unaffected.
-        autoplay: true,
+        // The default interaction hint wiggles the camera forever, even paused.
+        "interaction-prompt": "none",
         "animation-name": clip,
         "shadow-intensity": "1",
         tabIndex: interactive ? undefined : -1,
@@ -109,16 +143,21 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         </span>
       ) : null}
       {modelError ? <span className="model-preview-state model-preview-error" role="alert">{modelError}</span> : null}
-      {clipPicker && clips.length > 1 ? (
-        // nodrag/nowheel keep canvas nodes from treating the picker as a drag or zoom.
-        <select
-          className="model-preview-clips nodrag nowheel"
-          aria-label={t("modelPreview.clip")}
-          value={clip ?? clips[0]}
-          onChange={(event) => setClip(event.target.value)}
-        >
-          {clips.map((name) => <option key={name} value={name}>{name.replace(/_/g, " ")}</option>)}
-        </select>
+      {controls && loaded && !modelError ? (
+        // nodrag/nowheel keep canvas nodes from treating the controls as a drag or zoom.
+        <div className="model-preview-controls nodrag nowheel">
+          <IconButton size="sm" label={t(playing ? "modelPreview.pause" : "modelPreview.play")} active={playing} onClick={() => setPlaying((value) => !value)}>
+            {playing ? <Pause size={14} /> : <Play size={14} />}
+          </IconButton>
+          {clips.length > 1 ? <select
+            className="model-preview-clips"
+            aria-label={t("modelPreview.clip")}
+            value={clip ?? clips[0]}
+            onChange={(event) => setClip(event.target.value)}
+          >
+            {clips.map((name) => <option key={name} value={name}>{name.replace(/_/g, " ")}</option>)}
+          </select> : null}
+        </div>
       ) : null}
     </div>
   );

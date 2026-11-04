@@ -4501,17 +4501,40 @@ select.settings-search-input {
   min-height: inherit;
 }
 
-.model-preview-clips {
+.model-preview-controls {
   position: absolute;
   z-index: 2;
   bottom: 8px;
   left: 8px;
   max-width: calc(100% - 16px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+}
+
+.model-preview-controls .ui-icon-button {
+  flex: none;
+  color: inherit;
+}
+
+.model-preview-controls .ui-icon-button.is-active,
+.model-preview-controls .ui-icon-button:not(:disabled):hover {
+  background: rgb(255 255 255 / 16%);
+  color: inherit;
+}
+
+.model-preview-clips {
+  min-width: 0;
+  max-width: 100%;
   height: 26px;
   padding: 0 8px;
   border: 0;
   border-radius: var(--radius-sm);
-  background: rgb(0 0 0 / 55%);
+  background: transparent;
   color: #fff;
   cursor: pointer;
   font: inherit;
