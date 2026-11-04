@@ -230,7 +230,7 @@ function TilePreview({ asset, visible }: { asset: LibraryAsset; visible: boolean
   const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, load ? asset.assetId : undefined);
   if (preview.url && !failed && asset.mediaType === "image") return <img src={preview.url} alt="" draggable={false} onError={() => setFailed(true)} />;
   if (preview.url && !failed && asset.mediaType === "video") return <video src={preview.url} muted playsInline preload="metadata" onError={() => setFailed(true)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} />;
-  if (preview.url && asset.mediaType === "model") return <span className="library-model-still"><ModelPreview source={preview.url} label={fileName(asset.path)} minHeight={0} interactive={false} clipPicker={false} /></span>;
+  if (preview.url && asset.mediaType === "model") return <span className="library-model-still"><ModelPreview source={preview.url} label={fileName(asset.path)} minHeight={0} interactive={false} controls={false} /></span>;
   return <FileMark asset={asset} />;
 }
 
