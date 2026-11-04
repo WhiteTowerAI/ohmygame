@@ -402,7 +402,8 @@ presence and driver.
 Local debug publishing permits loopback deployments, checks the live local
 registration, and creates a temporary local snapshot. It does not upload to a
 hosted service. Public publishing requires an HTTPS backend configured through
-`MULTIPLAYER_PUBLISH_SERVER_URL` and an exactly matching registered deployment.
+`OHMYGAME_GAME_SERVICE_URL` (or `MULTIPLAYER_PUBLISH_SERVER_URL`), which packaged
+builds read from `desktop-config.json`, and an exactly matching registered deployment.
 See [the multiplayer service guide](google-playground-multiplayer.md) for public
 backend operation; public deployment is independent of local testing.
 

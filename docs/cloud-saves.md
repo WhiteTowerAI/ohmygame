@@ -16,7 +16,9 @@ Every save lands in the browser's `localStorage` first. When the game's
 
 - Publishing to OhMyGame writes `cloud` for builds that have a `manifest.json`,
   with the game's OhMyGame ID and the game service from `OHMYGAME_GAME_SERVICE_URL`
-  (or `MULTIPLAYER_PUBLISH_SERVER_URL`), HTTPS only. Publishing creates or finds the
+  (or `MULTIPLAYER_PUBLISH_SERVER_URL`), HTTPS only. Packaged builds carry it in
+  `desktop-config.json`, written from the same variable when the runtime is
+  prepared. Publishing creates or finds the
   game record before it builds, so the build can name it; a build that fails leaves
   the record unpublished, and the next attempt reuses it.
 - Locally, `game_sdk_setup` and `multiplayer_setup` point `cloud` and `account` at

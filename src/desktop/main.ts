@@ -654,11 +654,15 @@ async function packagedEnvironment(): Promise<NodeJS.ProcessEnv> {
   const environment = { ...process.env };
   // esbuild spawns a native binary, which cannot run from inside app.asar.
   environment.ESBUILD_BINARY_PATH ??= packagedEsbuildBinary();
+  const config = JSON.parse(readFileSync(path.join(process.resourcesPath, "desktop-config.json"), "utf8")) as {
+    cloudApiUrl?: unknown;
+    publishApiUrl?: unknown;
+    gameServiceUrl?: unknown;
+  };
+  // Published games reach rooms, cloud saves and leaderboards on this service.
+  if (!environment.OHMYGAME_GAME_SERVICE_URL && !environment.MULTIPLAYER_PUBLISH_SERVER_URL && typeof config.gameServiceUrl === "string" && config.gameServiceUrl)
+    environment.OHMYGAME_GAME_SERVICE_URL = config.gameServiceUrl;
   if (!environment.CLOUD_API_URL && !environment.PUBLISH_API_URL) {
-    const config = JSON.parse(readFileSync(path.join(process.resourcesPath, "desktop-config.json"), "utf8")) as {
-      cloudApiUrl?: unknown;
-      publishApiUrl?: unknown;
-    };
     const cloudApiUrl = typeof config.cloudApiUrl === "string" && config.cloudApiUrl
       ? config.cloudApiUrl
       : typeof config.publishApiUrl === "string" && config.publishApiUrl ? config.publishApiUrl : undefined;

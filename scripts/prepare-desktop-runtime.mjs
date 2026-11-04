@@ -76,11 +76,19 @@ async function prepareDesktopConfig() {
     if (error.code !== "ENOENT") throw error;
   }
   const cloudApiUrl = (process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL)?.trim();
+  // The game service published games use for rooms, cloud saves and leaderboards.
+  const gameServiceUrl = (process.env.OHMYGAME_GAME_SERVICE_URL ?? process.env.MULTIPLAYER_PUBLISH_SERVER_URL)?.trim();
   const sentryDsn = process.env.SENTRY_DSN?.trim();
   if (cloudApiUrl) {
     const parsed = new URL(cloudApiUrl);
     if (!/^https?:$/.test(parsed.protocol) || parsed.username || parsed.password) {
       throw new Error("CLOUD_API_URL must be an HTTP(S) URL without credentials");
+    }
+  }
+  if (gameServiceUrl) {
+    const parsed = new URL(gameServiceUrl);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search) {
+      throw new Error("OHMYGAME_GAME_SERVICE_URL must be an HTTPS origin");
     }
   }
   if (sentryDsn) {
@@ -93,6 +101,7 @@ async function prepareDesktopConfig() {
     path.join(runtimeRoot, "desktop-config.json"),
     `${JSON.stringify({
       ...(cloudApiUrl ? { cloudApiUrl } : {}),
+      ...(gameServiceUrl ? { gameServiceUrl } : {}),
       ...(sentryDsn ? { sentryDsn } : {}),
     }, null, 2)}\n`,
     "utf8",

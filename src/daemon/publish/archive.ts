@@ -224,7 +224,7 @@ async function readMultiplayerConfig(source: string, requested?: MultiplayerMani
 
 /** A published deployment must already exist on the trusted game service. */
 async function checkMultiplayerDeployment(config: MultiplayerManifestConfig, localTesting = false): Promise<void> {
-  const trustedServerUrl = process.env.MULTIPLAYER_PUBLISH_SERVER_URL?.replace(/\/$/, "");
+  const trustedServerUrl = (process.env.OHMYGAME_GAME_SERVICE_URL ?? process.env.MULTIPLAYER_PUBLISH_SERVER_URL)?.replace(/\/$/, "");
   const local = localTesting && config.serverUrl.startsWith("http:") && isMultiplayerManifestConfig(config, { allowLocalhost: true });
   if (!local && (!trustedServerUrl || config.serverUrl.replace(/\/$/, "") !== trustedServerUrl)) {
     throw new PublishError("Multiplayer publishing requires a configured game service URL.");
