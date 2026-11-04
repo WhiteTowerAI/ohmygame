@@ -173,10 +173,15 @@ export class NativePlugins {
     return options.result(value, definition);
   }
 
-  /** The package a project's canvas node runs from, so one release's output isn't taken for another's. */
-  async canvasNodePackage(folder: string, node: string): Promise<string> {
-    const entry = await this.#active(await projectFolderKey(folder), qualified(node)[0]);
-    return `${entry.version}:${entry.digest}`;
+  /**
+   * The package a project's canvas node runs from, so one release's output
+   * isn't taken for another's, and the inputs that release declares.
+   */
+  async canvasNodePackage(folder: string, node: string): Promise<{ package: string; inputs: string[] }> {
+    const [id, nodeId] = qualified(node);
+    const entry = await this.#active(await projectFolderKey(folder), id);
+    const definition = entry.manifest.contributes?.canvasNodes?.find((item) => item.id === nodeId);
+    return { package: `${entry.version}:${entry.digest}`, inputs: definition?.inputs?.map((input) => input.id) ?? [] };
   }
 
   /** Runs a hook of a project type, `publisher/name:type`, that the project's plugin contributes. */

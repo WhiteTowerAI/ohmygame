@@ -317,8 +317,8 @@ export interface CanvasPluginRequest {
 /** Runs plugins' canvas nodes; the output is a Library asset or text. */
 export interface CanvasPluginRunner {
   run(project: ProjectState, request: CanvasPluginRequest, signal: AbortSignal): Promise<{ assetId: string } | { text: string }>;
-  /** The package the node would run from now, part of what a reused result must match. */
-  package?(project: ProjectState, node: string): Promise<string | undefined>;
+  /** The package the node would run from now, part of what a reused result must match, and the inputs it declares. */
+  describe?(project: ProjectState, node: string): Promise<{ package: string; inputs: string[] } | undefined>;
 }
 const publicJob = ({ input: _input, recoveryId: _recoveryId, inputRevision: _inputRevision, pluginOutput: _pluginOutput, ...job }: StoredJob): ToolJob => structuredClone(job);
 /** How a reusing generation request was satisfied without starting another paid job. */
@@ -514,7 +514,7 @@ export class CanvasStore {
       const resolved = await this.tools.prepare(toolId, input, id);
       const inputRevision = revision(resolved), latest = nodeJobs.find((job) => job.status !== "cancelled");
       const currentAssetId = (node.data as { assetId?: string }).assetId;
-      if (reuse && latest?.status === "succeeded" && latest.inputRevision === inputRevision && currentAssetId && latest.run?.files[0]?.assetId === currentAssetId) return { reused: "output" as const, job: latest };
+      if (reuse && latest?.status === "succeeded" && latest.inputRevision === inputRevision && currentAssetId && latest.run?.files[0]?.assetId === currentAssetId) return { reused: "output" as const, job: await this.#reused(id, latest, upstream) };
       const prepared = structuredClone(resolved);
       const model = "imageModel" in resolved ? resolved.imageModel : "model" in resolved ? resolved.model : undefined;
       if (toolId === "generate-video" && "references" in prepared) for (const reference of prepared.references ?? []) reference.assetId = await canvasLibraryAsset(this.#project(id), this.library, reference.assetId);
@@ -672,6 +672,11 @@ export class CanvasStore {
     this.#track(id, rest());
     return { nodes: plan.map((node) => node.id), job: first };
   }
+  /** A finished job handed back for a run that would read the same: it now records what that run read. */
+  async #reused(id: string, job: StoredJob, upstream: Record<string, string>): Promise<StoredJob> {
+    if (JSON.stringify(job.upstream ?? {}) !== JSON.stringify(upstream)) { job.upstream = upstream; await this.#saveJobs(id); }
+    return job;
+  }
   /** A job once it has finished, or nothing if it is gone or the store closes first. */
   async #settled(id: string, jobId: string): Promise<ToolJob | undefined> {
     for (;;) {
@@ -698,10 +703,11 @@ export class CanvasStore {
     return canvasUpstreamKeys(board.nodes, node, (documentId) => markdown.get(documentId));
   }
   /** What a plugin node's code gets, and what identifies it for reuse: asset ids and text, not paths. */
-  async #pluginInputs(id: string, board: CanvasBoard, node: Extract<AssetCanvasNode, { type: "plugin" }>) {
+  async #pluginInputs(id: string, board: CanvasBoard, node: Extract<AssetCanvasNode, { type: "plugin" }>, declared?: readonly string[]) {
     const project = this.#project(id), manifest = await readCanvasAssets(project.workspacePath);
     const inputs: Record<string, CanvasPluginInput[]> = {}, signature: Record<string, string[]> = {};
-    for (const [key, references] of Object.entries(node.data.inputs)) {
+    // Inputs an update of the plugin took away aren't read, so what they link to can't stop the run.
+    for (const [key, references] of Object.entries(node.data.inputs).filter(([key]) => !declared || declared.includes(key))) {
       inputs[key] = []; signature[key] = [];
       for (const reference of references) {
         const source = reference.type === "node" ? board.nodes.find((candidate) => candidate.id === reference.nodeId) : undefined;
@@ -730,10 +736,11 @@ export class CanvasStore {
     const node = board.nodes.find((candidate) => candidate.id === nodeId);
     if (node?.type !== "plugin") throw new CanvasError("Generation node not found", 404);
     const reads = nodeReads(board, nodeId);
-    const { inputs, signature } = await this.#pluginInputs(id, board, node);
+    const described = await this.plugins.describe?.(project, node.data.node);
+    const { inputs, signature } = await this.#pluginInputs(id, board, node, described?.inputs);
     const upstream = await this.#upstream(id, board, node);
     const request: CanvasPluginRequest = { node: node.data.node, params: node.data.params, inputs };
-    const inputRevision = revision({ node: node.data.node, params: node.data.params, inputs: signature, package: await this.plugins.package?.(project, node.data.node) });
+    const inputRevision = revision({ node: node.data.node, params: node.data.params, inputs: signature, package: described?.package });
     const output = node.data.assetId ? `asset:${node.data.assetId}` : node.data.text !== undefined ? `text:${revision(node.data.text)}` : undefined;
     const started = await withCanvasLock(workspace, async () => {
       if (this.#closed) throw new CanvasError("Generation is shutting down", 503);
@@ -744,7 +751,7 @@ export class CanvasStore {
       if (running && reuse) return { reused: "running" as const, job: running };
       if (running) throw new CanvasError("This node is already generating", 409);
       const latest = nodeJobs.find((job) => job.status !== "cancelled");
-      if (reuse && latest?.status === "succeeded" && latest.inputRevision === inputRevision && output && latest.pluginOutput === output) return { reused: "output" as const, job: latest };
+      if (reuse && latest?.status === "succeeded" && latest.inputRevision === inputRevision && output && latest.pluginOutput === output) return { reused: "output" as const, job: await this.#reused(id, latest, upstream) };
       if (jobs.filter((job) => job.status === "running").length >= 20) throw new CanvasError("Too many active generation jobs", 409);
       const job: StoredJob = { recoveryId: randomUUID(), inputRevision, id: randomUUID(), toolId: "plugin-node", createdAt: new Date().toISOString(), status: "running", title: (node.title?.trim() || node.data.node).slice(0, 200), context: { projectId: id, boardId, nodeId }, upstream };
       this.#jobs.set(id, [job, ...jobs.filter((job) => job.status === "running"), ...jobs.filter((job) => job.status !== "running").slice(0, 80)]); await this.#saveJobs(id); return { job };
