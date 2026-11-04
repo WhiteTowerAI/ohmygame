@@ -1,20 +1,10 @@
-import { type MouseEvent, type ReactNode } from "react";
-import { useHistoryState } from "./app-sidebar.js";
-import { leave } from "./command-menu.js";
-import { ArrowLeft, ArrowRight } from "./icons.js";
+import { createContext, type ReactNode, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { t } from "./i18n.js";
 
-// Each id names a menu of the application menu, whatever the language.
-const WINDOW_MENUS = [
-  { id: "File", label: () => t("windowMenu.file") },
-  { id: "Edit", label: () => t("windowMenu.edit") },
-  { id: "View", label: () => t("windowMenu.view") },
-  { id: "Window", label: () => t("windowMenu.window") },
-] as const;
-
-/** Windows draws no title bar of its own here: the app's holds its menus and back and forward. */
-export function hasWindowsTitleBar(): boolean {
-  return window.ohMyGameDesktop?.platform === "win32" && !!window.ohMyGameDesktop.windowMenu;
+/** Windows draws no title bar of its own here: the app lays the window's controls over its content. */
+export function hasWindowsWindowControls(): boolean {
+  return window.ohMyGameDesktop?.platform === "win32" && !!window.ohMyGameDesktop.windowControls;
 }
 
 /** Puts the application menu in the app's language. A language change reloads the page, which sends it again. */
@@ -22,42 +12,55 @@ export function sendApplicationMenuLabels(): void {
   void window.ohMyGameDesktop?.windowMenu?.setLabels(t("windowMenu", { returnObjects: true })).catch(() => undefined);
 }
 
+// A native modal makes everything outside it inert, including the window buttons.
+export const WindowControlsModal = createContext<((dialog: HTMLDialogElement | null) => void) | undefined>(undefined);
+
 export function DesktopWindowFrame({ children }: { children: ReactNode }) {
-  if (!hasWindowsTitleBar()) return children;
+  const [modal, setModal] = useState<HTMLDialogElement | null>(null);
+  if (!hasWindowsWindowControls()) return children;
 
   return <div className="desktop-window-frame">
-    <DesktopWindowMenu />
-    <div className="desktop-window-content">{children}</div>
+    <WindowControlsModal.Provider value={setModal}>
+      <div className="desktop-window-content">{children}</div>
+    </WindowControlsModal.Provider>
+    <DesktopWindowControls modal={modal} />
   </div>;
 }
 
-// The title bar: the window's menus, then back and forward, which leave an
-// open project through its guard so its design saves first. The system draws
-// the window controls over its right end.
-function DesktopWindowMenu() {
-  const windowMenu = window.ohMyGameDesktop!.windowMenu!;
-  const history = useHistoryState();
+// The window's controls, over the content's top right corner. The page's own
+// rows stay in place and start at the window's top; the controls take no space.
+function DesktopWindowControls({ modal }: { modal: HTMLDialogElement | null }) {
+  const controls = window.ohMyGameDesktop!.windowControls!;
+  const [maximized, setMaximized] = useState(false);
 
-  function openMenu(id: typeof WINDOW_MENUS[number]["id"], event: MouseEvent<HTMLButtonElement>): void {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    void windowMenu.popup(id, bounds.left, bounds.bottom).catch(() => undefined);
-  }
+  useEffect(() => {
+    let active = true;
+    void controls.state().then((state) => {
+      if (active) setMaximized(state.maximized);
+    }, () => undefined);
+    const stop = controls.onState((state) => setMaximized(state.maximized));
+    return () => {
+      active = false;
+      stop();
+    };
+  }, [controls]);
 
-  return <header className="desktop-window-menu-bar">
-    <div role="menubar" aria-label={t("sidebar.applicationMenu")}>
-      {WINDOW_MENUS.map(({ id, label }) => <button
-        type="button"
-        role="menuitem"
-        aria-haspopup="menu"
-        key={id}
-        onClick={(event) => openMenu(id, event)}
-      >{label()}</button>)}
-    </div>
-    <nav className="desktop-window-history" aria-label={t("sidebar.history")}>
-      <button type="button" aria-label={t("sidebar.back")} title={t("sidebar.back")} disabled={!history.back}
-        onClick={() => leave(() => window.history.back())}><ArrowLeft size={14} /></button>
-      <button type="button" aria-label={t("sidebar.forward")} title={t("sidebar.forward")} disabled={!history.forward}
-        onClick={() => leave(() => window.history.forward())}><ArrowRight size={14} /></button>
-    </nav>
-  </header>;
+  const buttons = <div className="desktop-window-controls">
+    <button type="button" aria-label={t("windowControls.minimize")} title={t("windowControls.minimize")}
+      onClick={() => void controls.minimize().catch(() => undefined)}>
+      <svg className="desktop-window-glyph" viewBox="0 0 10 10" aria-hidden="true"><path d="M.5 5.5h9" /></svg>
+    </button>
+    <button type="button" aria-label={maximized ? t("windowControls.restore") : t("windowControls.maximize")}
+      title={maximized ? t("windowControls.restore") : t("windowControls.maximize")}
+      onClick={() => void controls.toggleMaximize().catch(() => undefined)}>
+      {maximized
+        ? <svg className="desktop-window-glyph" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5v-2h7v7h-2" /><rect x=".5" y="2.5" width="7" height="7" /></svg>
+        : <svg className="desktop-window-glyph" viewBox="0 0 10 10" aria-hidden="true"><rect x=".5" y=".5" width="9" height="9" /></svg>}
+    </button>
+    <button type="button" className="desktop-window-close" aria-label={t("windowControls.close")}
+      title={t("windowControls.close")} onClick={() => void controls.close().catch(() => undefined)}>
+      <svg className="desktop-window-glyph" viewBox="0 0 10 10" aria-hidden="true"><path d="m1 1 8 8m0-8-8 8" /></svg>
+    </button>
+  </div>;
+  return modal ? createPortal(buttons, modal) : buttons;
 }

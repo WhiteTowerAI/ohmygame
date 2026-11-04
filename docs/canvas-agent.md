@@ -11,6 +11,85 @@ requiring the user to open Design first.
 The agent shows final media deliverables on the relevant board, reusing existing
 nodes and asset IDs. Local media can reference existing project-relative paths.
 
+New Asset Canvas boards start empty. Home's Creative templates picker groups
+character, creature, animation, scene, terrain, object, and skin presets.
+Choosing a template first asks for one pixel density (the last choice is
+remembered), then creates a new canvas with one group for that density, filled
+with the category's generators or workflow. Character outfits &
+skins adds two image inputs and a linked output directly to the group, without a
+nested frame. Each new category template also adds an introduction above the group.
+It explains the intended game use of every output, including the distinction
+between static animation sheets that need frame splitting and storyboard panels.
+These text nodes use `pixel-asset-template:<category>` to render localized guidance;
+their saved text also preserves the introduction for file-based readers.
+The bottom-toolbar picker adds one generator outside any density group, with
+the density in its title; outfits & skins adds one standalone workflow frame.
+
+Template example images are served from
+`https://assets.ohmygame.ai/template-examples/pixel/` rather than bundled; covers
+stay in the app. The editor keeps a copy of each example it shows or uses on the
+device, so templates still open and generate from examples they have used before
+without a connection. An example never loaded before reports that it could not
+be loaded.
+
+Pixel density sets the prompt's logical design size and palette budget, then
+requires uniform nearest-neighbor enlargement. Coarse pixels use oversized
+clusters and minimal features; classic pixels use medium clusters; fine pixels
+use a finer grid and controlled secondary detail. Their shading budgets are
+respectively 1–2, 2–3, and 4–6 hard-edged tones per major material, within shared
+palettes of 8, 16, and 48 colors plus one plain background color or transparency.
+Each density has separate character, creature, environment, object, and animation
+detail rules. Environment and object prompts do not receive human facial rules.
+References supply subject design and essential colors, even when the source is
+already pixel art; the selected density determines rendering complexity.
+Portraits and reference-sheet close-ups retain that density's pixel scale and
+detail budget.
+
+Subject consistency means retaining the hairstyle or head silhouette, body
+proportions, main costume shapes, primary color blocks, essential equipment,
+and a few defining markings. It does not require copying every facial detail,
+accessory, seam, or pattern. Reuse the density-appropriate simplifications across
+views, action frames, and close-ups. Pixel construction takes priority over detail
+reduction at every density: silhouettes, diagonals, curves, and internal color
+boundaries use visible square-pixel clusters and stepped contours. Simplifying
+features must not turn them into smooth flat vector shapes; detailed features
+must also remain visibly pixel-built. These are prompt instructions, not
+additional provider controls or image post-processing.
+
+Prompts distinguish each cell's logical size from the complete sheet. Animation
+uses four columns and three rows of 32×32, 64×64, or 192×192 cells; creature sheets
+use four by four, and item sheets four by three. Nine-scene sheets use a square
+three-by-three composition with 96×96, 160×160, or 480×480 panels. Reference sheets
+use a complete 16:9 logical canvas and separate full-body sprite budgets. Explicit
+tile sizes and atlas layouts override density defaults. Visible pixel block size
+comes from the complete logical canvas and actual output dimensions, with plain
+margins if needed to preserve square pixels, rather than fixed output-width hints.
+
+New preset image nodes store `data.pixelStyle` alongside their expanded prompt.
+When expanding an unprepared preset, generation uses that explicit density, then
+the nearest ancestor density group, then classic. Saved, expanded prompts stay as
+edited; create a new preset node to use the updated defaults. Empty optional
+requests use reference-based instructions instead of unresolved placeholders;
+custom continuous actions still require an action description before generation.
+These are prompt targets:
+image generation does not enforce palette limits or guarantee logical dimensions.
+The animation presets include idle, walk, run, attack, hurt, and down. Walk and
+run specify one complete two-step cycle across 12 chronological frames, facing
+screen-right with consistent near/far leg identities. Walk fixes the head, torso,
+and hips while the arms and legs animate around them. Run adds grounded landing
+compression, knee passing, and brief low flight. Both alternate the limbs in the
+second half and avoid duplicating the first frame.
+Custom actions retain a fixed camera and scale while allowing the body movement
+required by jumps, rolls, crouches, or falls. Only inherently repeating actions
+need to connect the last frame to the first.
+
+Older boards are not migrated. Existing introduction nodes using
+`asset-canvas-template:<id>` and `asset-canvas-template:free-image:<style>` remain
+readable, and groups without `data.pixelStyle` keep their existing meaning.
+Saved prompts and node references stay as stored. During desktop development,
+schema changes require rebuilding the host and restarting the desktop app because
+renderer hot reload does not update the daemon's validation schema.
+
 ```text
 canvas/
   AGENTS.md
@@ -30,6 +109,35 @@ assets/
 optional `title` and `description`, content, and references. Markdown bodies
 are shared between document nodes. Connections for prompts and media are
 derived from `promptSource`, `images`, `references`, and `source`.
+
+Boards may also contain `group` nodes with `data.name` and the optional pixel
+density marker `data.pixelStyle`. A grouped node stores
+`parentId` pointing to a group on the same board, and its layout position is
+relative to that parent. Groups can be nested, but parent chains cannot form a
+cycle. Group frames have width and height in `editor/<board-id>.json`. The editor
+supports grouping selected nodes, ungrouping, dragging nodes between groups,
+copying group trees, and undo/redo. Deleting a group deletes its descendants.
+Media toolbars move below the node when there is insufficient room above it.
+When the generation form is open, the lower toolbar sits after the form and
+follows its height and canvas zoom so it does not cover the inputs.
+Select two or more nodes and use Group in the floating selection toolbar or Cmd/Ctrl+G to group them;
+selecting one group shows a toolbar beside its frame with Run group (starts generation
+for executable descendants, including nested groups) and Ungroup. The floating toolbar
+also shows Ungroup when multiple selected nodes include a group.
+Run group executes up to three ready nodes concurrently, including text nodes.
+Nodes wait only for their own generation references; media jobs must finish and
+their saved outputs must be synchronized before dependent nodes can start.
+Failed or cancelled nodes cause their dependents to be skipped; independent nodes
+still run. Circular generation references prevent the batch from starting.
+Text nodes use their own selected model, falling back to the default text model.
+Shift+Cmd/Ctrl+G ungroups selected frames. Double-click a group heading to name
+it, and drag the heading to move its entire tree. The empty frame interior
+allows marquee selection of its children. Dropping a node with its center
+inside a frame adds it to the deepest containing group; dropping completely outside
+removes it from that group. A frame expands after a child is moved across its
+edge, up to the 4096 × 4096 layout limit. Frames also support manual resizing.
+Shrinking a frame stops at the bounds of its children; resizing from the top or
+left keeps the children fixed in canvas coordinates.
 
 Generation nodes use these semantic board fields (runtime state and visual size
 do not belong in the board file):
@@ -54,7 +162,7 @@ nodes' saved text, Markdown and actual image output from the workspace. Image
 references require a language model that accepts images. A node cannot reference
 itself or, for Document nodes, another node pointing to the same document.
 
-Positions, zoom and the width/height of text, document and table nodes live in
+Positions, zoom and the width/height of text, document, table and group nodes live in
 `editor/`. Media and generation nodes size to their content: the editor ignores
 a width/height on them and canvas_check reports it. New nodes get positions
 automatically.
@@ -191,9 +299,24 @@ Library references. IDs, Markdown, media and layout are preserved. It leaves
 current projects alone. The application only reads the current format.
 
 Both editors share nodes, documents, metadata, generation, history, clipboard,
-file uploads and external file synchronization. Asset Canvas uses one default
-board and retains automatic covers and sending assets to projects. Game
-projects expose multiple boards and an optional main game design document.
+file uploads and external file synchronization. Asset Canvas starts with one
+board and supports additional boards for separate asset workflows. The main
+home page, below Recent Projects, and the Asset Canvas home show examples for
+Game Assets, Character Sequences, and Character Action Set. Opening one creates a board
+without starting image generation. Each board has a guide and editable
+generation nodes. The Game Assets board lays out ten pixel-style generators,
+and Character Sequences lays out its continuous-frame and consistent-scene
+generators beside a shared character reference. Every node is present when the
+board opens; the guide examples only explain the output formats. Model, size,
+and prompt settings remain in each generator and its form follows normal node
+selection. The result is
+a static image grid that can be split into frames and composed as a GIF. Character
+Action Set uses one reference image across six separate sprite-sheet image nodes.
+These outputs are static images and require an image provider that supports
+references. A selected image can start either action workflow on a new board in
+the same project. Asset Canvas retains automatic covers and sending assets to
+projects. Game projects expose multiple boards and an optional main game design
+document.
 
 Dropping, pasting or uploading files imports Markdown and text files as
 documents (up to 1 MB) and CSV or TSV files as tables (up to 4 MB). Images

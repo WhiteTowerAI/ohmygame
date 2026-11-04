@@ -3,7 +3,7 @@ import { Maximize, RefreshCw } from "./icons.js";
 import { t } from "./i18n.js";
 
 export interface CanvasNodeResizeRuntime {
-  start(): void;
+  start?(): void;
   end(): void;
   reset(): void;
   open?: () => void;

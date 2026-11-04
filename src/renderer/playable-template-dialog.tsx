@@ -1,16 +1,9 @@
 import { useEffect, useId, useRef } from "react";
 import { X } from "./icons.js";
 import type { PlayablePresetSummary } from "../shared/playable-editor.js";
-import blank from "./assets/templates/blank.webp";
-import choice from "./assets/templates/choice.webp";
-import ending from "./assets/templates/ending.webp";
-import hotspot from "./assets/templates/hotspot.webp";
-import mainMenu from "./assets/templates/main-menu.webp";
-import qte from "./assets/templates/qte.webp";
-import storyMap from "./assets/templates/story-map.webp";
-import visualNovel from "./assets/templates/visual-novel.webp";
 import { t } from "./i18n.js";
 import { playableTemplateText } from "./playable-template-labels.js";
+import { templateAssetUrl } from "./template-assets.js";
 
 /**
  * Pictures of each Template as a new Scene looks: its starter source with the
@@ -20,16 +13,10 @@ import { playableTemplateText } from "./playable-template-labels.js";
  * one has nothing seen to show, and the Visual Novel's shows its first line
  * of dialogue.
  */
-const TEMPLATE_PICTURES: Record<string, string> = {
-  blank,
-  choice,
-  ending,
-  hotspot,
-  "main-menu": mainMenu,
-  qte,
-  "story-map": storyMap,
-  "visual-novel": visualNovel,
-};
+const TEMPLATE_PICTURES: Record<string, string> = Object.fromEntries(
+  ["blank", "choice", "ending", "hotspot", "main-menu", "qte", "story-map", "visual-novel"]
+    .map((id) => [id, templateAssetUrl(`${id}.webp`)]),
+);
 
 /** Add a Scene: a grid of Templates, each with a picture and one line. */
 export function PlayableTemplateDialog({ presets, busy, onChoose, onClose }: {

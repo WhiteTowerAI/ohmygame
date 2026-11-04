@@ -51,11 +51,22 @@ if (process.isMainFrame) {
       return () => ipcRenderer.removeListener("ohmygame:cancel-close", callback);
     },
     windowMenu: Object.freeze({
-      popup: (id: string, x: number, y: number) =>
-        ipcRenderer.invoke("ohmygame:popup-window-menu", id, x, y) as Promise<void>,
       setLabels: (labels: Record<string, string>) =>
         ipcRenderer.invoke("ohmygame:set-application-menu-labels", labels) as Promise<void>,
     }),
+    ...(process.platform === "win32" ? {
+      windowControls: Object.freeze({
+        minimize: () => ipcRenderer.invoke("ohmygame:window-control", "minimize") as Promise<void>,
+        toggleMaximize: () => ipcRenderer.invoke("ohmygame:window-control", "toggle-maximize") as Promise<void>,
+        close: () => ipcRenderer.invoke("ohmygame:window-control", "close") as Promise<void>,
+        state: () => ipcRenderer.invoke("ohmygame:window-state") as Promise<{ maximized: boolean }>,
+        onState: (listener: (state: { maximized: boolean }) => void) => {
+          const handler = (_event: Electron.IpcRendererEvent, state: { maximized: boolean }) => listener(state);
+          ipcRenderer.on("ohmygame:window-state", handler);
+          return () => ipcRenderer.removeListener("ohmygame:window-state", handler);
+        },
+      }),
+    } : {}),
     openExternal: (url: string) => ipcRenderer.invoke("ohmygame:open-auth-url", url) as Promise<void>,
     openProjectFile: (projectId: string, filePath: string, mode: ProjectFileOpenMode = "default") =>
       ipcRenderer.invoke("ohmygame:open-project-file", projectId, filePath, mode) as Promise<void>,

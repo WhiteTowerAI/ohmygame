@@ -44,6 +44,24 @@ function adapter(onConflict = vi.fn(), flushDocuments = vi.fn<() => Promise<void
 }
 
 describe("canvas board storage", () => {
+  it("recovers character-tool drafts created before prompt-only canvas nodes", async () => {
+    const base = createAssetCanvasDocument();
+    const local = structuredClone(base);
+    local.nodes = [{ id: "character", type: "image", position: { x: 0, y: 0 }, data: { prompt: "pixel knight", generationMode: "character-asset", resolution: "1K", aspectRatio: "1:1", images: [] } }];
+    local.editorLayout.nodes.character = { x: 0, y: 0 };
+    entries.set(recoveryKey, JSON.stringify({ base, local }));
+    api.getCanvasBoard.mockResolvedValue(detail(base));
+    const storage = adapter();
+    const recovered = await storage.load();
+    const node = recovered.nodes[0];
+    if (node?.type !== "image") throw new Error("Expected recovered image node");
+    expect(node.data.prompt).toContain("pixel knight");
+    expect(node.data.prompt).toContain("production-oriented 2D pixel art game character");
+    expect(node.data).not.toHaveProperty("generationMode");
+    await storage.save(recovered);
+    expect(api.saveCanvasBoard.mock.calls[0]![1].board.nodes[0]?.data).not.toHaveProperty("generationMode");
+  });
+
   it("compares JSON by own keys, whatever their order", () => {
     expect(sameJson({ a: 1, b: [1, { c: 2 }] }, { b: [1, { c: 2 }], a: 1 })).toBe(true);
     expect(sameJson(JSON.parse('{"__proto__":{}}'), { other: 1 })).toBe(false);

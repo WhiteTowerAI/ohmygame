@@ -29,54 +29,43 @@ if (window.ohMyGameDesktop) initSentry();
 // A hidden thumbnail window runs Scene code, so the desktop app lets it only
 // capture and report; it themes and connects without asking the app.
 const thumbnail = route.page === "thumbnail";
+const mainRoute = !thumbnail && route.page !== "playtest";
 applyAppearance(readAppearance(), { desktop: !thumbnail });
 applyPalette(readPalette());
 applyChatFont(readChatFont());
 // Only the main window shows the conversations that notifications are about.
-if (!thumbnail && route.page !== "playtest") {
+if (mainRoute) {
   sendNotificationPreferences();
   sendApplicationMenuLabels();
 }
 await initializeRuntimeConnection({ followService: !thumbnail });
-if (route.page !== "thumbnail" && route.page !== "playtest") applyAutoUpdate();
+if (mainRoute) applyAutoUpdate();
 if (window.ohMyGameDesktop?.platform === "darwin") {
   document.documentElement.classList.add("desktop-macos");
 }
 const content = (
-  <>
+  <ErrorBoundary
+    label={t("errorBoundary.label.application")}
+    onHome={mainRoute ? () => { window.location.hash = "#/projects"; } : undefined}
+  >
+    {route.page === "playtest" ? (
+      <PlaytestPage projectId={route.projectId} />
+    ) : route.page === "thumbnail" ? (
+      <NodeThumbnailPage projectId={route.projectId} nodeId={route.nodeId} />
+    ) : (
+      <AuthProvider>
+        <ToastProvider>
+          <App />
+        </ToastProvider>
+      </AuthProvider>
+    )}
+  </ErrorBoundary>
+);
+createRoot(root).render(mainRoute ? (
+  <DesktopCloseGuard>
     <RuntimeNotice />
-    <ErrorBoundary
-      label={t("errorBoundary.label.application")}
-      onHome={
-        route.page === "playtest" || route.page === "thumbnail"
-          ? undefined
-          : () => {
-              window.location.hash = "#/projects";
-            }
-      }
-    >
-      {route.page === "playtest" ? (
-        <PlaytestPage projectId={route.projectId} />
-      ) : route.page === "thumbnail" ? (
-        <NodeThumbnailPage projectId={route.projectId} nodeId={route.nodeId} />
-      ) : (
-        <DesktopWindowFrame>
-          <AuthProvider>
-            <ToastProvider>
-              <App />
-            </ToastProvider>
-          </AuthProvider>
-        </DesktopWindowFrame>
-      )}
-    </ErrorBoundary>
-  </>
-);
-createRoot(root).render(
-  route.page === "playtest" || route.page === "thumbnail" ? (
-    content
-  ) : (
-    <DesktopCloseGuard>{content}</DesktopCloseGuard>
-  ),
-);
+    <DesktopWindowFrame>{content}</DesktopWindowFrame>
+  </DesktopCloseGuard>
+) : <><RuntimeNotice />{content}</>);
 // The hidden thumbnail window is not a visit. Analytics waits until the first frame is up.
 if (route.page !== "thumbnail") requestIdleCallback(initializeAnalytics, { timeout: 2_000 });

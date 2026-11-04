@@ -34,8 +34,8 @@ import { useDesktopUpdate } from "./use-desktop-update.js";
 import { UserAvatar } from "./user-avatar.js";
 import type { ConversationSummary, ProjectState } from "../shared/contracts.js";
 import { language, t } from "./i18n.js";
+import { hasWindowsWindowControls } from "./desktop-window-frame.js";
 import { openCommandMenu, shortcut, shortcutKeys } from "./command-menu.js";
-import { hasWindowsTitleBar } from "./desktop-window-frame.js";
 import "./app-sidebar.css";
 
 export type SidebarActive = SidebarPage | "settings";
@@ -205,7 +205,7 @@ interface NavigationLike extends EventTarget {
 }
 
 /** Whether the window can go back and forward, as the title bars show it. */
-export function useHistoryState() {
+function useHistoryState() {
   const navigationApi = (window as unknown as { navigation?: NavigationLike }).navigation;
   const read = () => ({ back: navigationApi?.canGoBack ?? true, forward: navigationApi?.canGoForward ?? true });
   const [state, setState] = useState(read);
@@ -219,6 +219,16 @@ export function useHistoryState() {
     };
   }, []);
   return state;
+}
+
+function HistoryButtons({ history, onLeave = (go) => go() }: {
+  history: ReturnType<typeof useHistoryState>;
+  onLeave?: (go: () => void) => void;
+}) {
+  return <>
+    <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => onLeave(() => window.history.back())}><ArrowLeft size={16} /></IconButton>
+    <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => onLeave(() => window.history.forward())}><ArrowRight size={16} /></IconButton>
+  </>;
 }
 
 function SidebarItem({ icon, label, shortcut: keys, dot, active = false, onClick }: {
@@ -301,12 +311,14 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
   const projects = useRecentProjects(active);
   const history = useHistoryState();
   const mac = window.ohMyGameDesktop?.platform === "darwin";
+  const showWindowsHistory = hasWindowsWindowControls() && (history.back || history.forward);
   const toggle = () => setPreferences({ collapsed: !collapsed });
   const toggleButton = narrow ? null : (
     <IconButton size="sm" label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")} onClick={toggle}>
       <PanelToggle size={18} />
     </IconButton>
   );
+  const historyButtons = <HistoryButtons history={history} />;
   const foldRecent = () => setPreferences({ recentOpen: !recentOpen });
 
   return (
@@ -317,10 +329,7 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
             the window: controls, back, forward, then the toggle. */}
         {mac ? (
           <div className="sidebar-titlebar">
-            {collapsed ? <>
-              <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => window.history.back()}><ArrowLeft size={16} /></IconButton>
-              <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => window.history.forward()}><ArrowRight size={16} /></IconButton>
-            </> : null}
+            {collapsed ? historyButtons : null}
             {toggleButton}
           </div>
         ) : null}
@@ -329,8 +338,12 @@ export function AppSidebar({ active, onNavigate }: { active?: SidebarActive; onN
             {/* Collapsed, the logo stands alone above the project icons, at their size as in a project's rail. */}
             <BrandLogo size={collapsed ? 32 : 22} /><span>OhMyGame</span>
           </button>
+          {!collapsed && showWindowsHistory ? historyButtons : null}
           {mac || collapsed ? null : toggleButton}
         </div>
+        {/* Collapsed, the brand row is too narrow for back and forward, so they
+            sit at the top of the page beside the rail instead. */}
+        {collapsed && showWindowsHistory ? <div className="sidebar-history">{historyButtons}</div> : null}
         <div className="sidebar-group">
           {collapsed && !mac && !narrow ? <SidebarItem icon={<PanelToggle size={18} />} label={t("sidebar.expand")} onClick={toggle} /> : null}
           <SidebarItem icon={<Search size={18} />} label={t("sidebar.search")} shortcut={shortcutKeys("k")} onClick={openCommandMenu} />
@@ -550,13 +563,10 @@ export function ProjectRail({ projectId, project, conversations, onNavigate, onL
     <nav className="sidebar project-rail" aria-label={t("sidebar.projectNavigation")}>
       {/* Back and forward lead the title bar: here, over the rail, beside the
           macOS window controls or at the window's edge where the system draws
-          the title bar; on Windows they follow the window's menus instead. */}
-      {!hasWindowsTitleBar() ? (
-        <div className="sidebar-titlebar">
-          <IconButton size="sm" label={t("sidebar.back")} disabled={!history.back} onClick={() => onLeave(() => window.history.back())}><ArrowLeft size={16} /></IconButton>
-          <IconButton size="sm" label={t("sidebar.forward")} disabled={!history.forward} onClick={() => onLeave(() => window.history.forward())}><ArrowRight size={16} /></IconButton>
-        </div>
-      ) : null}
+          the title bar. */}
+      <div className="sidebar-titlebar">
+        <HistoryButtons history={history} onLeave={onLeave} />
+      </div>
       <div className="sidebar-head">
         <Tooltip content={t("sidebar.home")} placement="right-start">
           <button type="button" className="sidebar-brand" aria-label={t("sidebar.brandHome")} onClick={() => leaveTo("home")}>

@@ -150,9 +150,16 @@ declare global {
       onPrepareClose?: (listener: () => Promise<void>) => () => void;
       onCancelClose?: (listener: (error: string) => void) => () => void;
       windowMenu?: {
-        popup: (id: string, x: number, y: number) => Promise<void>;
         /** Names the application menu's items, in the app's language. */
         setLabels: (labels: Record<string, string>) => Promise<void>;
+      };
+      /** The window's controls, drawn in the renderer on Windows. */
+      windowControls?: {
+        minimize: () => Promise<void>;
+        toggleMaximize: () => Promise<void>;
+        close: () => Promise<void>;
+        state: () => Promise<{ maximized: boolean }>;
+        onState: (listener: (state: { maximized: boolean }) => void) => () => void;
       };
       openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
@@ -758,39 +765,37 @@ export async function getProjectPlugins(projectId: string): Promise<import("../s
   return request(`/projects/${encodeURIComponent(projectId)}/plugins?locale=${encodeURIComponent(language)}`);
 }
 
-/** Plugins a project about to be created can turn on for itself. */
-export async function listProjectPluginChoices(): Promise<import("../shared/plugins.js").ProjectPluginChoice[]> {
-  return request(`/project-plugins?locale=${encodeURIComponent(language)}`);
-}
-
 /** A project type from GET /project-types: a core one, or `publisher/name:type` from a plugin. */
 export interface AvailableProjectType {
   id: string;
   title: string;
   description?: string;
   plugin?: { id: string; version: string };
+  /** What the type's plugin asks for that the person hasn't allowed yet. */
+  asks?: string[];
 }
 
 export async function listProjectTypes(): Promise<AvailableProjectType[]> {
   return request(`/project-types?locale=${encodeURIComponent(language)}`);
 }
 
-/** Turns a plugin on in a project at a version, or off with `null`. `id` is `publisher/name`. */
-export async function setProjectPluginVersion(projectId: string, id: string, version: string | null): Promise<void> {
-  await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}`, { method: "PUT", body: JSON.stringify({ version }) });
+/** Turns a plugin on in a project, at a version or its newest, or off. `id` is `publisher/name`. */
+export async function setProjectPlugin(projectId: string, id: string, on: boolean, version?: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/plugins/${pluginPath(id)}`, { method: "PUT", body: JSON.stringify(version ? { on, version } : { on }) });
 }
 
 /**
- * Turns a plugin on in a project and allows it for its folder,
- * keeping the version the project already uses. Says why it can't run there:
- * `not-offered` when it doesn't suit the project's type, or the status of a
- * version the project asks for that isn't running; undefined once it runs.
+ * Turns a plugin on in a project and allows it for its folder, keeping the
+ * version the project already uses. Says why it can't run there:
+ * `not-offered` when it doesn't suit the project, or the status it is left
+ * in; undefined once it runs.
  */
 export async function turnOnProjectPlugin(projectId: string, id: string): Promise<"not-offered" | Exclude<import("../shared/plugins.js").ProjectPluginItem["status"], "active" | undefined> | undefined> {
   const item = (await getProjectPlugins(projectId)).plugins.find((plugin) => plugin.id === id);
   if (!item) return "not-offered";
-  if (item.used && item.status !== "needs-approval") return item.status && item.status !== "active" ? item.status : undefined;
-  await setProjectPluginVersion(projectId, id, item.used ?? item.version);
+  if (item.status === "active") return undefined;
+  if (item.used && item.status !== "needs-approval") return item.status;
+  await setProjectPlugin(projectId, id, true, item.used && item.used !== item.version ? item.used : undefined);
   return undefined;
 }
 
@@ -804,7 +809,12 @@ export async function listStorePlugins(): Promise<import("../shared/plugins.js")
   return request(`/plugin-store/plugins?locale=${encodeURIComponent(language)}`);
 }
 
-/** The app switch for a plugin: off, it runs in no project. */
+/** Turns a plugin on or off in every project it suits; projects that set it themselves keep that. */
+export async function setStorePluginEveryProject(id: string, on: boolean): Promise<void> {
+  await request(`/plugin-store/${pluginPath(id)}/every-project`, { method: "PUT", body: JSON.stringify({ on }) });
+}
+
+/** The switch that stops a plugin everywhere, whatever projects say. */
 export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
 }

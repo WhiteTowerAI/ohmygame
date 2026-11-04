@@ -58,10 +58,37 @@ and again on window focus or reveal when the previous check is more than thirty
 minutes old. A failed check retries twice, after one and five minutes, then waits
 for the next focus or periodic attempt. Background failures are silent and keep
 the previous update status; a failed manual check remains visible so the user
-can retry it. Scheduled checks never run while a release is already available,
-downloading, ready, or installing, so they cannot discard the update the sidebar
-is offering. **Settings → About → Check for updates** bypasses that throttle
-and remains available in every state.
+can retry it. **Settings → About → Check for updates** bypasses that throttle.
+
+Scheduled checks continue after a release is found or downloaded, so an app
+left open picks up a newer release at its next successful check. Before this,
+a release published after the app found one was missed until the next launch,
+and users updated twice. A check that finds the same version leaves its state
+alone, so a downloaded release stays ready to install. A newer version replaces
+it and is offered for download; with automatic updates on, it downloads by
+itself. A release published since the last check can still be missed at
+Restart, which does not check again. Neither scheduled nor manual checks run
+while a release is downloading or installing, and a scheduled check that
+overlaps either does not change the update state, even when it fails.
+
+`electron-updater` downloads the release from its most recent check. If that
+release was found more than thirty minutes earlier, Download checks again first
+and fetches the newest release. If that check fails, including a missing
+manifest, it downloads the release already found and shows no error. If the
+check succeeds and reports no update available, it downloads nothing.
+
+With automatic updates on, the app installs on quit only while a complete
+download is waiting. On Windows, downloading a newer release removes the
+previously downloaded installer, so quitting during that download installs
+nothing; the next launch finds the newer release again.
+
+On macOS with automatic updates on, a completed download is handed to
+Squirrel.Mac to stage for quit. `electron-updater` then installs that staged
+release on every later install in the same run, so the app keeps it: checks
+stop until the app restarts, and the next launch offers anything newer. If the
+handoff fails, the download fails and can be retried or replaced. With
+automatic updates off, nothing is staged before Restart, and a newer release
+replaces the downloaded one as on Windows.
 
 Development builds never reach the feed: `DesktopUpdater.check` reports the
 current version as installed unless `app.isPackaged`.

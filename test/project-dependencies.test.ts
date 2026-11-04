@@ -227,6 +227,11 @@ describe("project dependencies", () => {
     );
     await ensureProjectDependencies(directory, "pnpm", run);
     expect(run).toHaveBeenCalledTimes(2);
+
+    await rm(path.join(directory, "package.json"));
+    await ensureProjectDependencies(directory, "pnpm", run);
+    await ensureProjectDependencies(directory, "pnpm", run);
+    expect(run).toHaveBeenCalledTimes(3);
   });
 
   it("cancels a queued install without deleting existing dependencies", async () => {

@@ -99,8 +99,10 @@ automatic policy, idle collection, logs, and browser storage.
 ## First-run setup
 
 The home route reads the daemon's `/settings/onboarding` preference before
-opening the studio. The daemon stores version 1 state in `onboarding.json`
-under its data directory: `status` is `pending`, `completed`, or `skipped`,
+opening the studio. Meanwhile the window shows the sidebar and an empty main
+area, which shimmers without text if the wait passes 400 ms. The daemon stores
+version 1 state in `onboarding.json` under its data directory: `status` is
+`pending`, `completed`, or `skipped`,
 and `step` is `welcome`, `connect`, or `media`. Existing version 1 records
 remain valid. Atomic, serialized writes retain the current step across restarts.
 The connection step offers model providers and local coding agent CLIs; discovery
@@ -507,16 +509,19 @@ account. The open project is marked; hovering a project lists its
 conversations, newest first, and the open project's list ends with **New
 conversation**. The rail's Back and Forward lead the top bar: beside the
 window controls on macOS, at the window's edge on Linux and in a browser. On
-Windows the app draws the title bar itself (`desktop-window-frame.tsx`): the
-window's menus in the UI language, then Back and Forward, with the system's
-window controls at its right end, in the app's colours. The top bar holds the project's name as its menu (**Rename
+Windows the app draws the window's controls itself (`desktop-window-frame.tsx`):
+Minimize, Maximize or Restore, and Close in the app's colours over the page's
+top right corner. The controls remain available when Community asks to unpublish
+a game or the application shows its error page. Back and Forward lead the
+sidebar and the project rail.
+The top bar holds the project's name as its menu (**Rename
 project…**, **Open in folder** in the desktop app, **Export project**,
 **Plugins…**, and a return to the entry page), **Play** while the Game panel
 isn't on screen, which shows it, and the **Publish** menu, which an asset canvas does
 not have and Godot and plugin projects show disabled. It publishes to the
 OhMyGame community or exports the web build: the publish artifact as a ZIP
-without the upload size limit, to host elsewhere. Leaving through the rail, the
-menu or the title bar, and either export, saves the open design first.
+without the upload size limit, to host elsewhere. Leaving through the rail or
+the project's menu, and either export, saves the open design first.
 
 The return item goes back to the page the project was opened from. The
 destination survives conversation/view changes and refreshes in the same tab; a
@@ -853,6 +858,9 @@ produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Only that static output is uploaded; hidden files, dependencies,
 and symbolic links are skipped. Binary assets retain their original bytes except
 for the Interactive Story publish-copy optimizations described above.
+For a nested package, preview and publishing both select the package manager and
+install dependencies at the owning workspace root. The build script runs in the
+configured startup directory.
 The workspace, Pi sessions, conversations, and credentials are never sent.
 `POST /projects/:projectId/build` returns the same static output as a ZIP for
 web games, General projects, and Interactive Stories, without the upload size
