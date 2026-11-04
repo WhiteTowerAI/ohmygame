@@ -285,7 +285,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [expandedTextId, setExpandedTextId] = useState<string>();
   const [referenceTargetId, setReferenceTargetId] = useState<string>();
   const [pendingConnectionView, setPendingConnectionView] = useState<[string, string]>();
-  const [portMenu, setPortMenu] = useState<{ nodeId: string; type: CanvasPortType; position: { x: number; y: number } }>();
+  const [portMenu, setPortMenu] = useState<{ nodeId: string; type: CanvasPortType; position: { x: number; y: number }; handle?: string }>();
+  // The input a canvas pick fills, when it was started from one input's port.
+  const [referenceHandle, setReferenceHandle] = useState<string>();
   // A marquee arranges nodes; explicitly activating a node opens its panel.
   const [marqueeActive, setMarqueeActive] = useState(false);
   const [marqueeSelectedIds, setMarqueeSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -984,9 +986,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     return Boolean(node && !["asset", "file", "table"].includes(node.type) && !nodeBusy(nodeId) && !hidden && !conflicted && !resolving);
   }
 
-  function startReferenceSelection(nodeId: string): void {
+  function startReferenceSelection(nodeId: string, handle?: string): void {
     if (!canPickReferences(nodeId)) return;
-    setPortMenu(undefined); setReferenceTargetId(nodeId); selectOnlyNode(nodeId);
+    setPortMenu(undefined); setReferenceTargetId(nodeId); setReferenceHandle(handle); selectOnlyNode(nodeId);
     canvasElement.current?.focus();
   }
 
@@ -1003,7 +1005,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     if (!referenceTargetId || source.id === referenceTargetId || nodeBusy(referenceTargetId)) return;
     const connected = assetEdges.filter((edge) => edge.source === source.id && edge.target === referenceTargetId);
     if (connected.length) onEdgesChange(connected.map((edge) => ({ type: "remove", id: edge.id })));
-    else onConnect({ source: source.id, target: referenceTargetId, sourceHandle: OUTPUT_HANDLE, targetHandle: null });
+    else onConnect({ source: source.id, target: referenceTargetId, sourceHandle: OUTPUT_HANDLE, targetHandle: referenceHandle ?? null });
   }
 
   const referenceTarget = referenceTargetId ? nodes.find((node) => node.id === referenceTargetId) : undefined;
@@ -1031,7 +1033,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       if (item.action.type === "table") return false;
       const candidate = configuredNode(item.action.type);
       const [source, target] = portMenu.type === "source" ? [portNode, candidate] : [candidate, portNode];
-      return Boolean(connectionRelation(source, target, OUTPUT_HANDLE, [...nodes, candidate], libraryAssets, imageModels, model3DModels, audioModels, pluginNodes));
+      return Boolean(connectionRelation(source, target, OUTPUT_HANDLE, [...nodes, candidate], libraryAssets, imageModels, model3DModels, audioModels, pluginNodes, portMenu.type === "target" ? portMenu.handle : undefined));
     }) : [];
 
   async function addConnectedNode(type: Exclude<AssetCanvasNodeType, "asset">): Promise<void> {
@@ -1050,7 +1052,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const anchor = current.find((node) => node.id === menu.nodeId);
       if (!anchor || nodeBusyRef.current(anchor.id) || current.length >= MAX_ASSET_CANVAS_NODES) return;
       const [source, target] = menu.type === "source" ? [anchor, candidate] : [candidate, anchor];
-      const relation = connectionRelation(source, target, OUTPUT_HANDLE, [...current, candidate], libraryAssets, imageModels, model3DModels, audioModels, pluginNodes);
+      const relation = connectionRelation(source, target, OUTPUT_HANDLE, [...current, candidate], libraryAssets, imageModels, model3DModels, audioModels, pluginNodes, menu.type === "target" ? menu.handle : undefined);
       if (!relation) return;
       const width = isResizableCanvasNodeType(candidate.type) ? RESIZABLE_CANVAS_NODE_SIZES[candidate.type].width : MEDIA_NODE_MAX_WIDTH;
       // Keep the continuation near its source without covering existing nodes or their composers.
@@ -2303,10 +2305,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     <CanvasInteractions.Provider value={{
       hidden,
       portsDisabled: Boolean(referenceTargetId) || resolving || conflicted || hidden,
-      openPort: (nodeId, type, position) => {
+      openPort: (nodeId, type, position, handle) => {
         if (nodeBusy(nodeId)) return;
         selectOnlyNode(nodeId);
-        setPortMenu({ nodeId, type, position });
+        setPortMenu({ nodeId, type, position, ...(handle ? { handle } : {}) });
       },
       canPickReferences,
       pickReferences: startReferenceSelection,
@@ -2460,7 +2462,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           ) : null}
           {portMenu && portNode ? <CanvasContextMenu screenPosition={portMenu.position} label={t(portMenu.type === "target" ? "canvasInteraction.addContext" : "canvasInteraction.continueFromNode")} onClose={() => setPortMenu(undefined)}>
             <div className="story-canvas-context-menu-label">{t(portMenu.type === "target" ? "canvasInteraction.addContext" : "canvasInteraction.continueFromNode")}</div>
-            {portMenu.type === "target" ? <button type="button" role="menuitem" onClick={() => startReferenceSelection(portMenu.nodeId)}><MousePointer2 size={14} /><span>{t("canvasInteraction.canvasReference")}</span></button> : null}
+            {portMenu.type === "target" ? <button type="button" role="menuitem" onClick={() => startReferenceSelection(portMenu.nodeId, portMenu.handle)}><MousePointer2 size={14} /><span>{t("canvasInteraction.canvasReference")}</span></button> : null}
             {portOptions.map(({ action, label, icon: Icon }) => <button key={action.type} type="button" role="menuitem" onClick={() => void addConnectedNode(action.type)}><Icon size={14} /><span>{label}</span></button>)}
             {!portOptions.length ? <span>{t("canvasInteraction.noCompatibleNodes")}</span> : null}
           </CanvasContextMenu> : null}

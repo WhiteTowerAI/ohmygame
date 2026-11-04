@@ -6,7 +6,7 @@ import { CANVAS_TABLE_SCHEMA, createCanvasTable, isCanvasTable, canvasTablePath,
 import { createHash, randomUUID } from "node:crypto";
 import { applyCanvasNodeLayout, canvasNodeContent, canvasNodeLayout, contentNodeSizeIssue, isResizableCanvasNodeType } from "../shared/canvas-node-layout.js";
 import { resolveVideoMentions } from "../shared/video-references.js";
-import { lstat, readFile, rm } from "node:fs/promises";
+import { lstat, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { convertToPng } from "@earendil-works/pi-coding-agent";
 import type { AssetCanvasNode, ProjectState, PromptImage, RunToolRequest, ToolJob, ToolId } from "../shared/contracts.js";
@@ -659,6 +659,10 @@ export class CanvasStore {
       let job: ToolJob = first;
       for (const node of plan.slice(1)) {
         if ((await this.#settled(id, job.id))?.status !== "succeeded" || this.#closed) return;
+        // A run already going may have read the old inputs; let it finish, then reuse it only if they still match.
+        const running = (await this.#loadJobs(id)).find((candidate) => candidate.status === "running" && candidate.context?.boardId === boardId && candidate.context.nodeId === node.id);
+        if (running) await this.#settled(id, running.id);
+        if (this.#closed) return;
         try { job = await this.generateNode(id, boardId, node.id, true); }
         catch (cause) { await this.#failed(id, boardId, node, cause instanceof Error ? cause.message : String(cause)); return; }
       }
@@ -710,7 +714,9 @@ export class CanvasStore {
         const asset = assetId ? manifest.assets[assetId] : undefined;
         if (!assetId || !asset) throw new CanvasError("A referenced node has no saved output. Generate it first.");
         const media = await getWorkspaceMedia(project.workspacePath, asset.path);
-        inputs[key].push({ type: media.mediaType, path: media.absolutePath, contentType: media.contentType }); signature[key].push(`asset:${assetId}`);
+        // A file changed in place keeps its id, so its size and time tell the runs apart.
+        const file = await stat(media.absolutePath);
+        inputs[key].push({ type: media.mediaType, path: media.absolutePath, contentType: media.contentType }); signature[key].push(`asset:${assetId}:${file.size}:${file.mtimeMs}`);
       }
     }
     return { inputs, signature };
