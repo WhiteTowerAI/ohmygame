@@ -1730,6 +1730,8 @@ export function createApp(options: AppOptions = {}) {
         // Progress reaches the plugin's page; a link the person needs, such as a sign-in page, reaches the app too.
         onProgress: (message, url) => events.publish(project.id, "plugin.command.progress", { command: request.body.command, message, ...(url ? { url } : {}) }),
       });
+      // A command that never changes files, such as a status check, also runs during a turn and keeps no Undo.
+      const readOnly = "native" in command.run && command.run.changesFiles === false;
       const run = withBuild ? async () => {
         if (publishing.has(project.id)) throw new PublishError("Project is already being published");
         if (building.has(project.id)) throw new PublishError("The web build is already being exported");
@@ -1737,15 +1739,20 @@ export function createApp(options: AppOptions = {}) {
         let folder: string | undefined;
         try {
           folder = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-build-"));
-          await artifacts.buildFolder(project, folder);
+          // Other commands hold the workspace already; this one holds it as Export web build does, so no turn writes into the build.
+          const leave = readOnly ? (await agents.turnsClosed(project.id), await projectWrites.enter(project.id, true)) : undefined;
+          try {
+            await artifacts.buildFolder(project, folder);
+          } finally {
+            leave?.();
+          }
           return await call({ folder });
         } finally {
           building.delete(project.id);
           if (folder) await rm(folder, { recursive: true, force: true });
         }
       } : () => call();
-      // A command that never changes files, such as a status check, also runs during a turn and keeps no Undo.
-      if ("native" in command.run && command.run.changesFiles === false) return { result: (await run()) ?? null };
+      if (readOnly) return { result: (await run()) ?? null };
       const { result, change } = await pluginWrites.run(project, { plugin: entry.id, action: `command:${command.id}`, title: localizePluginString(entry, command.title, "en") }, run);
       return { result: result ?? null, ...(change ? { change } : {}) };
     } catch (cause) {
