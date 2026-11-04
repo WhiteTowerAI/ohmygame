@@ -1734,13 +1734,14 @@ export function createApp(options: AppOptions = {}) {
         if (publishing.has(project.id)) throw new PublishError("Project is already being published");
         if (building.has(project.id)) throw new PublishError("The web build is already being exported");
         building.add(project.id);
-        const folder = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-build-"));
+        let folder: string | undefined;
         try {
+          folder = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-build-"));
           await artifacts.buildFolder(project, folder);
           return await call({ folder });
         } finally {
           building.delete(project.id);
-          await rm(folder, { recursive: true, force: true });
+          if (folder) await rm(folder, { recursive: true, force: true });
         }
       } : () => call();
       // A command that never changes files, such as a status check, also runs during a turn and keeps no Undo.

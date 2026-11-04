@@ -8,6 +8,7 @@ import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import { forgetLastProject } from "./general-preferences.js";
+import { syncPluginTheme } from "./appearance.js";
 import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
 import type { UsageStats } from "../shared/usage-stats.js";
 import type { AgentNotificationPermission, AgentNotificationPreferences, AgentNotificationTarget } from "../shared/agent-notifications.js";
@@ -822,10 +823,12 @@ export async function setStorePluginEveryProject(id: string, on: boolean): Promi
 /** The switch that stops a plugin everywhere, whatever projects say. */
 export async function setStorePluginEnabled(id: string, enabled: boolean): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/enabled`, { method: "PUT", body: JSON.stringify({ enabled }) });
+  void syncPluginTheme(listPluginThemes);
 }
 
 export async function uninstallStorePlugin(id: string, version: string): Promise<void> {
   await request(`/plugin-store/${pluginPath(id)}/${encodeURIComponent(version)}`, { method: "DELETE" });
+  void syncPluginTheme(listPluginThemes);
 }
 
 export async function readStorePluginConfiguration(id: string): Promise<import("../shared/plugins.js").StorePluginConfiguration> {
@@ -856,7 +859,9 @@ export async function inspectAddedPlugin(source: import("../shared/plugins.js").
 }
 
 export async function addPlugin(source: import("../shared/plugins.js").PluginAddSource, digest: string): Promise<{ id: string; version: string }> {
-  return request("/plugin-sources/install", { method: "POST", body: JSON.stringify({ source, digest }) });
+  const added = await request<{ id: string; version: string }>("/plugin-sources/install", { method: "POST", body: JSON.stringify({ source, digest }) });
+  void syncPluginTheme(listPluginThemes);
+  return added;
 }
 
 export async function inspectPluginFile(file: Blob): Promise<import("../shared/plugins.js").PluginAddPreview> {
@@ -864,7 +869,9 @@ export async function inspectPluginFile(file: Blob): Promise<import("../shared/p
 }
 
 export async function addPluginFile(file: Blob, digest: string): Promise<{ id: string; version: string }> {
-  return uploadPluginPackage(`/plugin-sources/file/install?digest=${encodeURIComponent(digest)}`, file);
+  const added = await uploadPluginPackage<{ id: string; version: string }>(`/plugin-sources/file/install?digest=${encodeURIComponent(digest)}`, file);
+  void syncPluginTheme(listPluginThemes);
+  return added;
 }
 
 export async function readPluginSkill(pluginId: string, skillId: string): Promise<PluginSkillContent> {

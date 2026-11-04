@@ -62,7 +62,7 @@ function AppRoute({ navigation }: { navigation: ReturnType<typeof useAppNavigati
   }, [serviceGeneration]);
   // A plugin theme follows its plugin: updated with it, gone with it.
   useEffect(() => {
-    if (serviceGeneration > 0) void syncPluginTheme(listPluginThemes);
+    void syncPluginTheme(listPluginThemes);
   }, [serviceGeneration]);
 
   // A Playtest window that cannot play asks for its project's editor.

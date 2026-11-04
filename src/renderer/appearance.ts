@@ -118,7 +118,8 @@ export async function syncPluginTheme(load: () => Promise<PluginTheme[]>): Promi
   const current = readPluginTheme();
   if (!current) return;
   const themes = await load().catch(() => undefined);
-  if (!themes) return;
+  // The person may have chosen something else meanwhile.
+  if (!themes || JSON.stringify(readPluginTheme()) !== JSON.stringify(current)) return;
   const now = themes.find((theme) => theme.id === current.id);
   if (!now) setPluginTheme(undefined);
   else if (JSON.stringify(now) !== JSON.stringify(current)) setPluginTheme(now);

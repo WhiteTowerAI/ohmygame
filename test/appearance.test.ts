@@ -60,4 +60,11 @@ it("puts a plugin's theme over the neutral greys for the appearances it covers, 
   expect(readPluginTheme()).toBeUndefined();
   expect(document.getElementById("ohmygame-plugin-theme")).toBeNull();
   expect(document.documentElement.dataset.palette).toBe("contrast");
+
+  // A palette chosen while the plugin's themes load stays.
+  setPluginTheme(ocean);
+  const slow = syncPluginTheme(async () => { setPalette("warm"); return [brighter]; });
+  await slow;
+  expect(readPluginTheme()).toBeUndefined();
+  expect(readPalette()).toBe("warm");
 });
