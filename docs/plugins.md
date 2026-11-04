@@ -843,7 +843,10 @@ the project has no web preview and isn't published to Community.
   the preview window's. Opening a session starts nothing. A capture refuses
   while the preview runs, since only the person stops theirs, runs one at a
   time per project, and passes on Maker's word when the frame was still
-  loading and Maker kept a later one. Local previews never submit remotely;
+  loading and Maker kept a later one. The Runtime gets 560 seconds within
+  the host's 10-minute limit, enough for 30,000 frames at 60 FPS plus startup.
+  A failed capture includes the Runtime log and invocation paths, with
+  credentials removed. Local previews never submit remotely;
   `maker_build_current_directory` commits, pushes and builds the bound branch,
   leaving out the excluded files unless they are already tracked. The TapTap
   Release Skill uses the person's signed-in `taptap-cli` for the store page,

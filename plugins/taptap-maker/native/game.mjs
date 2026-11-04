@@ -83,6 +83,10 @@ async function captureFrame(
       "screenshot",
       "--screenshot-frame",
       String(frame),
+      // 30,000 frames at 60 FPS plus a minute. Maker adds a 20-second
+      // shutdown allowance; leave room in the host's 10-minute budget.
+      "--validate-timeout",
+      "560",
       ...(session.viewport
         ? ["--width", String(session.viewport.width), "--height", String(session.viewport.height)]
         : []),
@@ -98,8 +102,15 @@ async function captureFrame(
         (item) => item?.kind === "screenshot" && typeof item.path === "string",
       )
     : undefined;
-  if (!shot)
-    throw new Error(error || `Maker didn't capture frame ${frame}`);
+  if (!shot) {
+    const diagnostics = [
+      ["Runtime log", result?.log_path],
+      ["Invocation", result?.invocation_path],
+    ]
+      .filter(([, value]) => typeof value === "string" && value)
+      .map(([label, value]) => `${label}: ${redact(value).slice(0, 1500)}`);
+    throw new Error([error || `Maker didn't capture frame ${frame}`, ...diagnostics].join("\n"));
+  }
   if (!(await lstat(shot.path)).isFile())
     throw new Error("Maker's capture isn't a file");
   await copyFile(shot.path, output);

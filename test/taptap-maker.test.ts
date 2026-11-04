@@ -104,7 +104,7 @@ beforeEach(async () => {
         const frame = Number(args[args.indexOf("--screenshot-frame") + 1]);
         const notReady = await has("validate-not-ready");
         if (await has("validate-fails")) {
-          console.log(JSON.stringify({ ok: false, result: "FAIL", artifacts: [], error: "Runtime did not complete; log https://user:secret@example.com/log?token=abc" }));
+          console.log(JSON.stringify({ ok: false, result: "FAIL", artifacts: [], error: "Runtime did not complete; log https://user:secret@example.com/log?token=abc", log_path: file("runtime.log"), invocation_path: "https://user:secret@example.com/invocation.json?token=abc" }));
           process.exitCode = 1;
         } else {
           const png = file("screenshot.png");
@@ -430,10 +430,10 @@ describe("TapTap Maker game_use", () => {
     expect(viewport).toEqual({ width: 800, height: 600 });
     expect(await calls()).toEqual([]);
     const output = path.join(directory, "capture.image");
-    expect(await gameUse(context(), { operation: "captureFrame", session, output, frame: 120 })).toEqual({ frame: 120 });
-    expect(await readFile(output, "utf8")).toBe("PNG 120");
+    expect(await gameUse(context(), { operation: "captureFrame", session, output, frame: 30000 })).toEqual({ frame: 30000 });
+    expect(await readFile(output, "utf8")).toBe("PNG 30000");
     expect(await validations()).toEqual([[
-      "preview", "validate", "--target-dir", workspace, "--mode", "screenshot", "--screenshot-frame", "120", "--width", "800", "--height", "600", "--json",
+      "preview", "validate", "--target-dir", workspace, "--mode", "screenshot", "--screenshot-frame", "30000", "--validate-timeout", "560", "--width", "800", "--height", "600", "--json",
     ]]);
   });
 
@@ -463,6 +463,8 @@ describe("TapTap Maker game_use", () => {
     const { session } = await gameUse(context(), { operation: "open" });
     const failure = await gameUse(context(), { operation: "captureFrame", session, output: path.join(directory, "capture.image"), frame: 60 }).catch((error: Error) => error);
     expect(failure.message).toContain("Runtime did not complete");
+    expect(failure.message).toContain(`Runtime log: ${path.join(directory, "runtime.log")}`);
+    expect(failure.message).toContain("Invocation: https://example.com/invocation.json?token=***");
     expect(failure.message).not.toContain("secret");
     expect(failure.message).not.toContain("abc");
   });
