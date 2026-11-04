@@ -4,6 +4,27 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.5.3] - 2026-11-04
+
+### Added
+
+- Add pixel-art canvas templates and reusable asset workflows for characters,
+  effects, objects, scenes, skins and terrain.
+- Add bundled media tools for image processing and FFmpeg-backed audio/video
+  workflows in the desktop app.
+
+### Improved
+
+- Improve project switching, canvas performance, interactive workspace
+  rendering, preview reliability and desktop window controls.
+- Improve the updater, startup loading experience, external MCP paths and
+  agent runtime recovery across platforms.
+
+### Fixed
+
+- Package the media dependencies required by installed desktop builds and
+  validate the bundled FFmpeg license on Windows.
+
 ## [0.0.0-beta.5.2] - 2026-11-03
 
 ### Fixed
